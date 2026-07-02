@@ -6,6 +6,7 @@ ranks the articles, stores them in SQLite, and displays them for review.
 ## Features
 
 - RSS, Hacker News, and arXiv collection
+- Hugging Face model, GitHub repository, and YouTube RSS discovery
 - Keyword scoring and category classification
 - SQLite storage with duplicate URL protection
 - Streamlit dashboard with review statuses
@@ -40,6 +41,42 @@ With the local virtual environment:
 
 Use the Start Date and End Date controls to collect and display news from a specific period. The selected range is applied during source collection and when reading saved articles from SQLite.
 
+## Selecting Sources
+
+Use **Collection Controls** to choose which sources the agent should run. Source selection affects collection only; previously stored items remain visible unless hidden by the Source Type filter.
+
+## Hugging Face Models
+
+The Hugging Face connector discovers recently updated public models and stores likes/downloads as metrics. A Hugging Face token is optional and can be entered in Settings or provided with `HUGGINGFACE_TOKEN`.
+
+## GitHub Repository Discovery
+
+The GitHub connector searches AI/ML repository topics and keywords, then stores stars, forks, and open issues. `GITHUB_TOKEN` is optional but recommended for better GitHub API limits.
+
+## YouTube Video Sources
+
+YouTube collection uses RSS channel feeds from `config.py`, not the YouTube Data API. Replace `CHANNEL_ID_HERE` in `YOUTUBE_CHANNEL_FEEDS` with real channel IDs. Search-based YouTube Data API support can be added later if needed.
+
+## Settings Panel
+
+Click **Settings** in the dashboard to open API token, data cleanup, and debug controls. Manually entered tokens are stored only in Streamlit session state. They are not saved to SQLite, printed, or committed.
+
+## Environment Variables
+
+```bash
+export GITHUB_TOKEN="your_github_token"
+export HUGGINGFACE_TOKEN="your_huggingface_token"
+export YOUTUBE_API_KEY="your_youtube_api_key"
+```
+
+PowerShell:
+
+```powershell
+$env:GITHUB_TOKEN="your_github_token"
+$env:HUGGINGFACE_TOKEN="your_huggingface_token"
+$env:YOUTUBE_API_KEY="your_youtube_api_key"
+```
+
 ## Cleaning Old Data
 
 If old articles still appear, the existing `news.db` may contain old or badly formatted dates from the previous version. Use the **Clear Old Database** button in the dashboard, or delete `news.db` manually, then run the agent again.
@@ -50,6 +87,7 @@ If old articles still appear, the existing `news.db` may contain old or badly fo
 app.py
 agent.py
 connectors.py
+config.py
 storage.py
 ranker.py
 utils.py

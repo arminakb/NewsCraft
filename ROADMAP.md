@@ -242,13 +242,13 @@ Complete
 **Goal:** Improve scoring, metadata display, settings, and documentation for all source types.
 
 ### Tasks
-- [ ] Score all source types with simple explainable logic
-- [ ] Add compact source-aware dashboard cards
-- [ ] Add settings panel and session-only token inputs
-- [ ] Update README and progress docs
+- [x] Score all source types with simple explainable logic
+- [x] Add compact source-aware dashboard cards
+- [x] Add settings panel and session-only token inputs
+- [x] Update README and progress docs
 
 ### Expected Output
 All source types have useful scores, metadata, and a cleaner dashboard UI.
 
 ### Status
-Not started
+Complete

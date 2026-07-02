@@ -2,7 +2,7 @@
 
 ## Overall Progress
 
-Progress: [███████████████] 150%
+Progress: [████████████████] 160%
 
 ---
 
@@ -346,3 +346,28 @@ Implement the YouTube videos connector.
 
 **Next step:**
 Improve unified scoring, cards, settings, and documentation.
+
+---
+
+## Phase 16 Completed: Unified source metadata and scoring improvements
+
+**Completed:**
+- Added simple source-aware scoring for GitHub, Hugging Face, YouTube, and articles.
+- Made dashboard cards more compact and source-aware.
+- Added hidden Settings panel with session-only token inputs, data cleanup, and debug status.
+- Added environment variable fallback for tokens.
+- Updated README source, token, and settings documentation.
+
+**Files changed:**
+- `ranker.py`
+- `app.py`
+- `README.md`
+- `test_news_agent.py`
+- `ROADMAP.md`
+- `PROGRESS.md`
+
+**Problems:**
+- None.
+
+**Next step:**
+Run the dashboard and test selected sources with optional tokens.

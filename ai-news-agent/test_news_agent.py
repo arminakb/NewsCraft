@@ -361,6 +361,31 @@ class RankerTests(unittest.TestCase):
         self.assertEqual(general["category"], "General")
         self.assertEqual(general["score"], 0)
 
+    def test_scores_source_specific_metrics(self):
+        from ranker import classify_and_score
+
+        github = classify_and_score(
+            {
+                "source_type": "github",
+                "title": "LLM agent framework",
+                "summary": "RAG generative ai",
+                "metrics": {"stars": 100, "forks": 10},
+            }
+        )
+        huggingface = classify_and_score(
+            {
+                "source_type": "huggingface",
+                "title": "org/model",
+                "summary": "text-generation multimodal",
+                "metrics": {"likes": 20, "downloads": 500},
+            }
+        )
+
+        self.assertEqual(github["category"], "Tool")
+        self.assertGreater(github["score"], 100)
+        self.assertEqual(huggingface["category"], "Model")
+        self.assertGreater(huggingface["score"], 20)
+
 
 class AgentTests(unittest.TestCase):
     def test_run_news_agent_saves_scored_articles_and_ignores_failed_source(self):
@@ -458,6 +483,16 @@ class AppHelperTests(unittest.TestCase):
         self.assertEqual(len(filter_articles(articles, "AI", "All")), 1)
         self.assertEqual(len(filter_articles(articles, "All", "approved")), 1)
         self.assertEqual(len(summary_preview(articles[0]["summary"])), 500)
+
+    def test_resolve_tokens_prefers_session_over_environment(self):
+        from app import resolve_tokens
+
+        env = {"GITHUB_TOKEN": "env-gh", "HUGGINGFACE_TOKEN": "env-hf", "YOUTUBE_API_KEY": "env-yt"}
+        tokens = resolve_tokens({"github_token": "session-gh"}, env)
+
+        self.assertEqual(tokens["github_token"], "session-gh")
+        self.assertEqual(tokens["huggingface_token"], "env-hf")
+        self.assertEqual(tokens["youtube_api_key"], "env-yt")
 
 
 if __name__ == "__main__":
