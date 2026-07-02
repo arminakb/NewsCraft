@@ -19,7 +19,9 @@ from diagnostics import (
     test_huggingface_connection,
     test_huggingface_connector,
 )
+from summarizer import truncate_text
 from storage import clear_articles, get_articles, get_search_sessions, init_db, update_article_status
+from utils import clean_token
 
 SOURCE_OPTIONS = ["rss", "hacker_news", "arxiv", "huggingface", "github", "youtube"]
 DEFAULT_SOURCES = ["rss", "hacker_news", "arxiv"]
@@ -47,45 +49,68 @@ def _rerun():
         st.experimental_rerun()
 
 
-def _status_button(label, article, status, key):
-    if st.button(label, key=key):
-        if status == "approved":
-            save_approved_article(article)
-            st.session_state.review_message = "Article approved and saved to approved_articles.db."
-        else:
-            st.session_state.review_message = f"Article marked {status}."
-        update_article_status(article["id"], status)
+def _approve_button(article, key):
+    if st.button("Approve", key=key):
+        save_approved_article(article)
+        st.session_state.review_message = "Article approved and saved to approved_articles.db."
+        update_article_status(article["id"], "approved")
         _rerun()
 
 
 def metrics_text(metrics):
-    labels = {"stars": "Stars", "forks": "Forks", "open_issues": "Open issues", "likes": "Likes", "downloads": "Downloads", "channel": "Channel"}
+    labels = {
+        "stars": "Stars",
+        "forks": "Forks",
+        "open_issues": "Open issues",
+        "likes": "Likes",
+        "downloads": "Downloads",
+        "task": "Task",
+        "language": "Language",
+        "channel": "Channel",
+    }
     return " | ".join(
-        f"{labels.get(key, key)}: {value}" for key, value in (metrics or {}).items() if value not in ("", None, 0)
+        f"{labels.get(key, key)}: {', '.join(value[:5]) if isinstance(value, list) else value}"
+        for key, value in (metrics or {}).items()
+        if key not in {"useful_tags", "useful_topics"} and value not in ("", None, 0)
     )
 
 
 def resolve_tokens(session_state, environ=os.environ):
     return {
-        "github_token": session_state.get("github_token") or environ.get("GITHUB_TOKEN"),
-        "huggingface_token": session_state.get("huggingface_token") or environ.get("HUGGINGFACE_TOKEN"),
-        "youtube_api_key": session_state.get("youtube_api_key") or environ.get("YOUTUBE_API_KEY"),
+        "github_token": clean_token(session_state.get("github_token")) or clean_token(environ.get("GITHUB_TOKEN")),
+        "huggingface_token": clean_token(session_state.get("huggingface_token")) or clean_token(environ.get("HUGGINGFACE_TOKEN")),
+        "youtube_api_key": clean_token(session_state.get("youtube_api_key")) or clean_token(environ.get("YOUTUBE_API_KEY")),
     }
 
 
+def _clean_session_token(key):
+    st.session_state[key] = clean_token(st.session_state.get(key)) or ""
+
+
 def _configuration_contents(selected_sources, start_date, end_date):
-    st.text_input("GitHub API Token", type="password", key="github_token", help="Optional. Used to increase GitHub API rate limits.")
+    st.text_input(
+        "GitHub API Token",
+        type="password",
+        key="github_token",
+        help="Optional. Used to increase GitHub API rate limits.",
+        on_change=_clean_session_token,
+        args=("github_token",),
+    )
     st.text_input(
         "Hugging Face API Token",
         type="password",
         key="huggingface_token",
         help="Optional. Used for authenticated Hugging Face requests if needed.",
+        on_change=_clean_session_token,
+        args=("huggingface_token",),
     )
     st.text_input(
         "YouTube API Key",
         type="password",
         key="youtube_api_key",
         help="Optional. Not required for YouTube RSS feeds. Reserved for future YouTube Data API support.",
+        on_change=_clean_session_token,
+        args=("youtube_api_key",),
     )
     tokens = resolve_tokens(st.session_state)
     st.caption(f"GitHub token: {'configured' if tokens['github_token'] else 'not configured'}")
@@ -107,7 +132,11 @@ def _configuration_contents(selected_sources, start_date, end_date):
 
 def _configuration_panel(selected_sources, start_date, end_date):
     if hasattr(st, "popover"):
-        with st.popover("⚙️ Configuration"):
+        try:
+            popover = st.popover("⚙️ Configuration", use_container_width=True)
+        except TypeError:
+            popover = st.popover("⚙️ Configuration")
+        with popover:
             _configuration_contents(selected_sources, start_date, end_date)
     else:
         # Streamlit versions without popover cannot close on outside click; expander is the closest native fallback.
@@ -119,13 +148,21 @@ def _structured_text(article):
     summary = article.get("structured_summary") or {}
     if not summary:
         return
-    st.write(summary.get("what_it_is", ""))
+    st.markdown("**What it is:**")
+    st.write(truncate_text(summary.get("what_it_is", ""), 180))
     if summary.get("why_it_matters"):
-        st.caption(summary["why_it_matters"])
+        st.markdown("**Why it matters:**")
+        st.write(truncate_text(summary["why_it_matters"], 220))
     if summary.get("best_use_cases"):
-        st.write("Use cases: " + ", ".join(summary["best_use_cases"]))
+        st.markdown("**Best use cases:**")
+        for item in summary["best_use_cases"][:3]:
+            st.write(f"- {truncate_text(item, 80)}")
     if summary.get("key_signals"):
-        st.caption("Signals: " + " | ".join(summary["key_signals"]))
+        st.markdown("**Key signals:**")
+        for item in summary["key_signals"][:4]:
+            st.write(f"- {truncate_text(item, 100)}")
+    if summary.get("visible_tags"):
+        st.caption("Tags: " + ", ".join(summary["visible_tags"][:5]))
 
 
 def _article_card(article, approved=False):
@@ -137,25 +174,27 @@ def _article_card(article, approved=False):
         )
         _structured_text(article)
         metrics = metrics_text(article.get("metrics"))
-        if metrics:
+        if metrics and not article.get("structured_summary"):
             st.caption(metrics)
-        st.write(summary_preview(article.get("summary")))
-        with st.expander("Details"):
+        if not article.get("structured_summary"):
+            st.write(summary_preview(article.get("summary")))
+        with st.expander("Raw details"):
             st.write(f"Source: {article['source']}")
             st.write(f"Category: {article['category']}")
+            if metrics:
+                st.write(metrics)
+            if article.get("summary"):
+                st.write(summary_preview(article.get("summary")))
         if approved:
             if st.button("Delete from approved list", key=f"delete-approved-{article['id']}"):
                 delete_approved_article(article["id"])
                 st.session_state.review_message = "Approved article deleted."
                 _rerun()
         else:
-            a, b, c = st.columns(3)
-            with a:
-                _status_button("Approve", article, "approved", f"approve-{article['id']}")
-            with b:
-                _status_button("Reject", article, "rejected", f"reject-{article['id']}")
-            with c:
-                _status_button("Reset to New", article, "new", f"reset-{article['id']}")
+            if article.get("status") == "approved":
+                st.caption("Approved")
+            else:
+                _approve_button(article, f"approve-{article['id']}")
 
 
 def main():
@@ -163,8 +202,8 @@ def main():
     init_db()
     init_approved_db()
 
-    top_left, top_right = st.columns([4, 1])
-    with top_left:
+    header_left, header_spacer, header_right = st.columns([4, 1, 2])
+    with header_left:
         st.title("AI & Tech News Agent Dashboard")
         st.caption("Collect, rank, and review AI/tech news from selected sources.")
         if st.session_state.get("review_message"):
@@ -203,7 +242,7 @@ def main():
             st.success("Collected results cleared. Approved articles were not deleted.")
             _rerun()
 
-    with top_right:
+    with header_right:
         _configuration_panel(selected_sources, start_date, end_date)
 
     with st.expander("Display Filters", expanded=False):

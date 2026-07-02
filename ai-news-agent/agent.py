@@ -12,7 +12,7 @@ from connectors import (
 )
 from ranker import classify_and_score
 from storage import create_search_session, init_db, save_articles, update_search_session_count
-from utils import is_within_date_range, normalize_date_for_storage
+from utils import clean_token, is_within_date_range, normalize_date_for_storage
 
 DEFAULT_SOURCES = ["rss", "hacker_news", "arxiv"]
 SOURCE_LABELS = {
@@ -64,6 +64,9 @@ def run_news_agent(
     youtube_api_key=None,
 ):
     init_db()
+    github_token = clean_token(github_token)
+    huggingface_token = clean_token(huggingface_token)
+    youtube_api_key = clean_token(youtube_api_key)
     selected_sources = selected_sources or DEFAULT_SOURCES
     search_session_id = create_search_session(start_date, end_date, selected_sources)
     fetched = []

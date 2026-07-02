@@ -48,11 +48,11 @@ Use **Collection Controls** to choose which sources the agent should run. Each r
 
 ## Hugging Face Models
 
-The Hugging Face connector discovers public models, stores likes/downloads as metrics, and creates a structured summary from tags and metadata. A Hugging Face token is optional and can be entered in Configuration or provided with `HUGGINGFACE_TOKEN`.
+The Hugging Face connector discovers public models, stores likes/downloads as metrics, and creates a concise structured summary from meaningful tags and metadata. Noisy tags such as framework/storage tags, license tags, arXiv IDs, and language codes are hidden from the main card. A Hugging Face token is optional and can be entered in Configuration or provided with `HUGGINGFACE_TOKEN`.
 
 ## GitHub Repository Discovery
 
-The GitHub connector searches AI/ML/LLM/agent/RAG topics and keywords, tries pushed-date and created-date queries, falls back to popular AI repositories, and stores stars, forks, open issues, language, and structured summaries. It also attempts to fetch README snippets safely. `GITHUB_TOKEN` is optional but recommended for better GitHub API limits.
+The GitHub connector searches AI/ML/LLM/agent/RAG topics and keywords, tries pushed-date and created-date queries, falls back to popular AI repositories, and stores stars, forks, open issues, language, and concise structured summaries. It attempts to fetch README snippets safely, but raw README text stays hidden in card details. `GITHUB_TOKEN` is optional but recommended for better GitHub API limits.
 
 ## YouTube Video Sources
 
@@ -60,7 +60,13 @@ YouTube collection uses RSS channel feeds from `config.py`, not the YouTube Data
 
 ## Configuration Popup
 
-Open **Configuration** near the dashboard header to enter optional API credentials and run diagnostics. Manually entered tokens are stored only in Streamlit session state. They are not saved to SQLite, printed, or committed. If the installed Streamlit version does not support popovers, the app uses a compact expander fallback.
+Open **Configuration** near the dashboard header to enter optional API credentials and run diagnostics. Manually entered tokens are stripped of leading/trailing whitespace and stored only in Streamlit session state. They are not saved to SQLite, printed, or committed. If the installed Streamlit version does not support popovers, the app uses a compact expander fallback.
+
+## Card Actions and Summaries
+
+Collected cards show one review action: **Approve**. Approving saves a deduplicated copy into `approved_articles.db` and marks the collected row as approved. Reject and reset actions were removed to keep review fast.
+
+GitHub and Hugging Face cards use this concise structure: What it is, Why it matters, Best use cases, and Key signals. Raw summaries, full metadata, and debug details are collapsed under **Raw details**.
 
 ## Search Sessions
 
@@ -118,6 +124,7 @@ config.py
 approved_storage.py
 storage.py
 ranker.py
+summarizer.py
 utils.py
 requirements.txt
 README.md

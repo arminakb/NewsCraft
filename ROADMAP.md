@@ -289,3 +289,22 @@ The dashboard shows cleaner current-session results, stores approved articles se
 
 ### Status
 Complete
+
+## Phase 19: Configuration UX cleanup, token sanitization, card action simplification, and useful summaries
+
+**Goal:** Keep Configuration inside the page, sanitize tokens, simplify card actions, and make GitHub/Hugging Face summaries concise and useful.
+
+### Tasks
+- [x] Improve Configuration placement so the popover stays inside the dashboard width
+- [x] Strip whitespace from API tokens and redact token-like error text
+- [x] Remove Reject and Reset to New card buttons
+- [x] Keep Approve saving to `approved_articles.db`
+- [x] Filter noisy Hugging Face/GitHub tags and metadata
+- [x] Render concise structured summary sections and compact raw details
+- [x] Update README, tests, and progress docs
+
+### Expected Output
+The dashboard has cleaner cards, safer token handling, better summaries, and a less fragile Configuration popup.
+
+### Status
+Complete

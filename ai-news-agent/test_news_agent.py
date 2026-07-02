@@ -185,7 +185,7 @@ class ApprovedStorageTests(unittest.TestCase):
 
 class DateUtilTests(unittest.TestCase):
     def test_parse_range_and_normalize_dates(self):
-        from utils import is_within_date_range, normalize_date_for_storage, parse_article_date
+        from utils import clean_token, is_within_date_range, normalize_date_for_storage, parse_article_date, redact_sensitive_text
 
         parsed = parse_article_date("Thu, 02 Jul 2026 10:30:00 GMT")
         self.assertEqual(parsed.date(), date(2026, 7, 2))
@@ -195,6 +195,43 @@ class DateUtilTests(unittest.TestCase):
         self.assertTrue(is_within_date_range(parsed, date(2026, 7, 2), date(2026, 7, 2)))
         self.assertFalse(is_within_date_range(parsed, date(2026, 7, 3), date(2026, 7, 4)))
         self.assertEqual(normalize_date_for_storage(parsed), "2026-07-02T10:30:00")
+        self.assertEqual(clean_token(" token \n"), "token")
+        self.assertIsNone(clean_token("   "))
+        self.assertNotIn("hf_secret", redact_sensitive_text("Illegal header value b'Bearer hf_secret '"))
+
+
+class SummarizerTests(unittest.TestCase):
+    def test_filters_noisy_tags_and_builds_concise_huggingface_summary(self):
+        from summarizer import build_huggingface_structured_summary, filter_useful_tags
+
+        tags = ["transformers", "safetensors", "text-generation", "license:mit", "arxiv:1234", "conversational", "en"]
+        self.assertEqual(filter_useful_tags(tags, "huggingface"), ["text-generation", "conversational"])
+
+        summary = build_huggingface_structured_summary(
+            {"pipeline_tag": "text-generation", "tags": tags, "likes": 3194, "downloads": 159967, "last_modified": datetime(2026, 7, 2)}
+        )
+        self.assertLessEqual(len(summary["what_it_is"]), 180)
+        self.assertLessEqual(len(summary["why_it_matters"]), 220)
+        self.assertLessEqual(len(summary["best_use_cases"]), 3)
+        self.assertLessEqual(len(summary["key_signals"]), 4)
+        self.assertNotIn("safetensors", str(summary))
+
+    def test_builds_concise_github_summary_without_readme_dump(self):
+        from summarizer import build_github_structured_summary
+
+        summary = build_github_structured_summary(
+            {
+                "description": "An open-source framework for building LLM agents with tool use and workflow automation. " * 8,
+                "topics": ["llm", "agents", "rag", "license:mit"],
+                "stars": 4800,
+                "forks": 200,
+                "language": "Python",
+                "published_at": datetime(2026, 7, 2),
+            }
+        )
+        self.assertLessEqual(len(summary["what_it_is"]), 180)
+        self.assertIn("4,800 stars", summary["key_signals"])
+        self.assertNotIn("license:mit", str(summary))
 
 
 class ConnectorTests(unittest.TestCase):
@@ -344,7 +381,7 @@ class ConnectorTests(unittest.TestCase):
                 start_date=date(2026, 7, 2),
                 end_date=date(2026, 7, 2),
                 limit=5,
-                huggingface_token="token",
+                huggingface_token=" token ",
             )
 
         hf_api.assert_called_once_with(token="token")
@@ -352,6 +389,7 @@ class ConnectorTests(unittest.TestCase):
         self.assertEqual(articles[0]["source_type"], "huggingface")
         self.assertEqual(articles[0]["category"], "Model")
         self.assertEqual(articles[0]["metrics"]["likes"], 12)
+        self.assertNotIn("safetensors", articles[0]["summary"])
 
     def test_huggingface_uses_supported_list_models_arguments(self):
         from connectors import fetch_huggingface_models
@@ -405,7 +443,7 @@ class ConnectorTests(unittest.TestCase):
                 start_date=date(2026, 7, 2),
                 end_date=date(2026, 7, 2),
                 limit=1,
-                github_token="token",
+                github_token=" token ",
             )
 
         self.assertEqual(get.call_args.kwargs["headers"]["Authorization"], "Bearer token")
@@ -661,24 +699,38 @@ class AppHelperTests(unittest.TestCase):
     def test_resolve_tokens_prefers_session_over_environment(self):
         from app import resolve_tokens
 
-        env = {"GITHUB_TOKEN": "env-gh", "HUGGINGFACE_TOKEN": "env-hf", "YOUTUBE_API_KEY": "env-yt"}
-        tokens = resolve_tokens({"github_token": "session-gh"}, env)
+        env = {"GITHUB_TOKEN": " env-gh ", "HUGGINGFACE_TOKEN": " env-hf ", "YOUTUBE_API_KEY": " env-yt "}
+        tokens = resolve_tokens({"github_token": " session-gh "}, env)
 
         self.assertEqual(tokens["github_token"], "session-gh")
         self.assertEqual(tokens["huggingface_token"], "env-hf")
         self.assertEqual(tokens["youtube_api_key"], "env-yt")
 
+    def test_article_cards_only_expose_approve_action(self):
+        with open("app.py", encoding="utf-8") as handle:
+            source = handle.read()
+
+        self.assertIn('st.button("Approve"', source)
+        self.assertNotIn('st.button("Reject"', source)
+        self.assertNotIn('st.button("Reset to New"', source)
+
 
 class DiagnosticsTests(unittest.TestCase):
     def test_diagnostics_do_not_expose_tokens(self):
-        from diagnostics import test_github_connector
+        from diagnostics import test_github_connector, test_huggingface_connection
 
         with patch("diagnostics.fetch_github_repositories", return_value=[{"title": "repo"}]):
-            result = test_github_connector(github_token="secret")
+            result = test_github_connector(github_token=" secret ")
 
         self.assertTrue(result["ok"])
         self.assertEqual(result["items_found"], 1)
         self.assertNotIn("secret", str(result))
+
+        with patch("diagnostics.HfApi", side_effect=ValueError("Illegal header value b'Bearer hf_secret '")):
+            result = test_huggingface_connection(huggingface_token=" hf_secret ")
+
+        self.assertFalse(result["ok"])
+        self.assertNotIn("hf_secret", str(result))
 
 
 if __name__ == "__main__":

@@ -1,9 +1,23 @@
 """Date helpers for article collection and filtering."""
 
+import re
 from datetime import date, datetime, timezone
 from time import struct_time
 
 from dateutil import parser as date_parser
+
+
+def clean_token(value):
+    if not value:
+        return None
+    value = str(value).strip()
+    return value or None
+
+
+def redact_sensitive_text(value):
+    text = str(value or "")
+    text = re.sub(r"(github_pat_|ghp_|hf_)[A-Za-z0-9_]+", "[redacted-token]", text)
+    return re.sub(r"Bearer\s+[^'\"\s]+", "Bearer [redacted-token]", text)
 
 
 def parse_article_date(value):

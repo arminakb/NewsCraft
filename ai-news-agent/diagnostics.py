@@ -4,6 +4,7 @@ import requests
 from huggingface_hub import HfApi
 
 from connectors import GITHUB_SEARCH_URL, fetch_github_repositories, fetch_huggingface_models
+from utils import clean_token, redact_sensitive_text
 
 
 def _result(ok, status, message, items_found=0, error=None, http_status=None, raw_items_found=None, token_configured=None):
@@ -15,11 +16,12 @@ def _result(ok, status, message, items_found=0, error=None, http_status=None, ra
         "items_found": items_found,
         "raw_items_found": raw_items_found if raw_items_found is not None else items_found,
         "http_status": http_status,
-        "error": str(error) if error else None,
+        "error": redact_sensitive_text(error) if error else None,
     }
 
 
 def test_github_connection(github_token=None):
+    github_token = clean_token(github_token)
     headers = {"Accept": "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28"}
     if github_token:
         headers["Authorization"] = f"Bearer {github_token}"
@@ -45,6 +47,7 @@ def test_github_connection(github_token=None):
 
 
 def test_huggingface_connection(huggingface_token=None):
+    huggingface_token = clean_token(huggingface_token)
     try:
         api = HfApi(token=huggingface_token) if huggingface_token else HfApi()
         models = list(api.list_models(sort="likes", limit=1, full=True))
@@ -54,6 +57,7 @@ def test_huggingface_connection(huggingface_token=None):
 
 
 def test_github_connector(start_date=None, end_date=None, github_token=None):
+    github_token = clean_token(github_token)
     try:
         items = fetch_github_repositories(start_date=start_date, end_date=end_date, limit=10, github_token=github_token)
         return _result(True, "success", "GitHub connector completed", items_found=len(items), token_configured=bool(github_token))
@@ -62,6 +66,7 @@ def test_github_connector(start_date=None, end_date=None, github_token=None):
 
 
 def test_huggingface_connector(start_date=None, end_date=None, huggingface_token=None):
+    huggingface_token = clean_token(huggingface_token)
     try:
         items = fetch_huggingface_models(start_date=start_date, end_date=end_date, limit=10, huggingface_token=huggingface_token)
         return _result(True, "success", "Hugging Face connector completed", items_found=len(items), token_configured=bool(huggingface_token))

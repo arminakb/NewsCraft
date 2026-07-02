@@ -10,7 +10,8 @@ import requests
 from huggingface_hub import HfApi
 
 from config import RSS_FEEDS, YOUTUBE_CHANNEL_FEEDS
-from utils import is_within_date_range, normalize_date_for_storage, parse_article_date
+from summarizer import build_github_structured_summary, build_huggingface_structured_summary, filter_useful_tags
+from utils import clean_token, is_within_date_range, normalize_date_for_storage, parse_article_date, redact_sensitive_text
 
 HN_TOP_URL = "https://hacker-news.firebaseio.com/v0/topstories.json"
 HN_ITEM_URL = "https://hacker-news.firebaseio.com/v0/item/{id}.json"
@@ -54,15 +55,6 @@ GITHUB_FALLBACK_QUERIES = [
 
 def _text(value):
     return html.unescape(str(value or "")).strip()
-
-
-def _structured_summary(what_it_is, why_it_matters, best_use_cases, key_signals):
-    return {
-        "what_it_is": what_it_is,
-        "why_it_matters": why_it_matters,
-        "best_use_cases": best_use_cases[:4],
-        "key_signals": key_signals[:6],
-    }
 
 
 def _entry_date(entry):
@@ -240,35 +232,14 @@ def _hf_score(model, tags):
     return likes + downloads // 100 + tag_score
 
 
-def _hf_structured_summary(model_id, tags, likes, downloads, published):
-    tag_text = ", ".join(tags[:4]) if tags else "general model metadata"
-    use_cases = []
-    if "text-generation" in tags or "llm" in tags:
-        use_cases.extend(["Text generation", "Agent workflows", "RAG experiments"])
-    if "text-to-image" in tags:
-        use_cases.append("Image generation")
-    if "automatic-speech-recognition" in tags:
-        use_cases.append("Speech recognition")
-    if not use_cases:
-        use_cases = ["Model evaluation", "AI prototyping"]
-    signals = [f"Tags: {tag_text}", f"Likes: {likes}", f"Downloads: {downloads}"]
-    if published:
-        signals.append(f"Last modified: {normalize_date_for_storage(published)}")
-    return _structured_summary(
-        f"{model_id} is a Hugging Face model related to {tag_text}.",
-        "It may be worth reviewing because its tags and community metrics indicate current model activity.",
-        use_cases,
-        signals,
-    )
-
-
 def fetch_huggingface_models(start_date=None, end_date=None, limit=30, huggingface_token=None):
+    huggingface_token = clean_token(huggingface_token)
     logging.info("Hugging Face connector started. Token configured: %s", "yes" if huggingface_token else "no")
     try:
         api = HfApi(token=huggingface_token) if huggingface_token else HfApi()
         models = list(api.list_models(sort="likes", limit=limit * 3, full=True))
     except Exception as exc:
-        logging.warning("Hugging Face fetch failed: %s", exc)
+        logging.warning("Hugging Face fetch failed: %s", redact_sensitive_text(exc))
         return []
 
     articles = []
@@ -282,8 +253,21 @@ def fetch_huggingface_models(start_date=None, end_date=None, limit=30, huggingfa
         if (start_date or end_date) and not published:
             continue
         tags = [str(tag).lower() for tag in (getattr(model, "tags", None) or [])]
+        useful_tags = filter_useful_tags(tags, "huggingface")
         likes = int(getattr(model, "likes", 0) or 0)
         downloads = int(getattr(model, "downloads", 0) or 0)
+        pipeline_tag = getattr(model, "pipeline_tag", "")
+        pipeline_tag = pipeline_tag if isinstance(pipeline_tag, str) else ""
+        structured_summary = build_huggingface_structured_summary(
+            {
+                "model_id": model_id,
+                "pipeline_tag": pipeline_tag,
+                "tags": tags,
+                "likes": likes,
+                "downloads": downloads,
+                "last_modified": published,
+            }
+        )
         articles.append(
             {
                 "source": "Hugging Face",
@@ -291,11 +275,11 @@ def fetch_huggingface_models(start_date=None, end_date=None, limit=30, huggingfa
                 "title": model_id,
                 "url": f"https://huggingface.co/{model_id}",
                 "published_at": normalize_date_for_storage(published),
-                "summary": ", ".join(tags[:12]),
+                "summary": ", ".join(useful_tags),
                 "category": "Model",
                 "score": _hf_score(model, tags),
-                "metrics": {"likes": likes, "downloads": downloads},
-                "structured_summary": _hf_structured_summary(model_id, tags, likes, downloads, published),
+                "metrics": {"likes": likes, "downloads": downloads, "task": pipeline_tag or "", "useful_tags": useful_tags},
+                "structured_summary": structured_summary,
             }
         )
         if len(articles) >= limit:
@@ -346,32 +330,8 @@ def _github_readme_snippet(full_name, headers):
         return ""
 
 
-def _github_structured_summary(repo, summary, readme_snippet, published):
-    topics = [str(topic) for topic in repo.get("topics") or []]
-    stars = int(repo.get("stargazers_count") or 0)
-    forks = int(repo.get("forks_count") or 0)
-    language = repo.get("language") or "unspecified language"
-    description = summary or readme_snippet[:180] or "No description provided."
-    use_cases = ["AI development", "Developer tooling"]
-    topic_text = " ".join(topics).lower()
-    if "agent" in topic_text:
-        use_cases.append("Agentic workflows")
-    if "rag" in topic_text:
-        use_cases.append("RAG experiments")
-    signals = [f"{stars} stars", f"{forks} forks", f"Language: {language}"]
-    if topics:
-        signals.append(f"Topics: {', '.join(topics[:5])}")
-    if published:
-        signals.append(f"Recently pushed: {normalize_date_for_storage(published)}")
-    return _structured_summary(
-        description,
-        "It is relevant because it is AI-related, recently active or popular, and has developer interest signals.",
-        use_cases,
-        signals,
-    )
-
-
 def fetch_github_repositories(start_date=None, end_date=None, limit=30, github_token=None):
+    github_token = clean_token(github_token)
     logging.info("GitHub connector started. Token configured: %s", "yes" if github_token else "no")
     headers = {"Accept": "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28"}
     if github_token:
@@ -394,7 +354,7 @@ def fetch_github_repositories(start_date=None, end_date=None, limit=30, github_t
             repos = response.json().get("items", [])
             logging.info("GitHub raw items found: %s", len(repos))
         except Exception as exc:
-            logging.warning("GitHub fetch failed for %s: %s", query, exc)
+            logging.warning("GitHub fetch failed for %s: %s", query, redact_sensitive_text(exc))
             continue
 
         for repo in repos:
@@ -414,8 +374,20 @@ def fetch_github_repositories(start_date=None, end_date=None, limit=30, github_t
                 "language": repo.get("language") or "",
             }
             topics = repo.get("topics") or []
+            useful_topics = filter_useful_tags(topics, "github")
             readme = _github_readme_snippet(title, headers)
-            summary = _text(repo.get("description")) or ", ".join(topics) or readme[:180]
+            summary = _text(repo.get("description")) or ", ".join(useful_topics) or readme[:180]
+            structured_summary = build_github_structured_summary(
+                {
+                    "description": summary,
+                    "readme_snippet": readme,
+                    "topics": topics,
+                    "stars": metrics["stars"],
+                    "forks": metrics["forks"],
+                    "language": metrics["language"],
+                    "published_at": published,
+                }
+            )
             articles.append(
                 {
                     "source": "GitHub",
@@ -426,8 +398,8 @@ def fetch_github_repositories(start_date=None, end_date=None, limit=30, github_t
                     "summary": summary,
                     "category": "Tool",
                     "score": _github_score(repo),
-                    "metrics": metrics,
-                    "structured_summary": _github_structured_summary(repo, summary, readme, published),
+                    "metrics": {**metrics, "useful_topics": useful_topics},
+                    "structured_summary": structured_summary,
                 }
             )
             seen.add(url)

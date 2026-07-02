@@ -2,7 +2,7 @@
 
 ## Overall Progress
 
-Progress: [██████████████████] 180%
+Progress: [███████████████████] 190%
 
 ---
 
@@ -462,3 +462,48 @@ Progress: [██████████████████] 180%
 
 **Next step:**
 Run the Streamlit dashboard and test GitHub/Hugging Face collection with Configuration > Debug.
+
+---
+
+## Phase 19 Completed: Configuration UX cleanup, token sanitization, card action simplification, and useful summaries
+
+**What was changed:**
+- Moved Configuration into a wider right header column and enabled container-width popover behavior where Streamlit supports it.
+- Added token cleanup for dashboard inputs, environment fallback, agent calls, connectors, and diagnostics.
+- Redacted token-like values from diagnostic errors.
+- Removed Reject and Reset to New from article cards.
+- Kept Approve saving to `approved_articles.db` and marking collected rows approved.
+- Added rule-based summary utilities for concise GitHub and Hugging Face summaries.
+- Filtered noisy tags and hid raw metadata under collapsed Raw details.
+
+**What was fixed:**
+- Hugging Face tokens with trailing spaces no longer reach `HfApi(token=...)`.
+- GitHub tokens with trailing spaces no longer reach the Authorization header.
+- Cards no longer dump long tag lists or repeat visible metrics under the structured summary.
+- Configuration placement is less likely to overflow at the right edge.
+
+**Files changed:**
+- `app.py`
+- `agent.py`
+- `connectors.py`
+- `diagnostics.py`
+- `summarizer.py`
+- `utils.py`
+- `test_news_agent.py`
+- `README.md`
+- `ROADMAP.md`
+- `PROGRESS.md`
+
+**Testing performed:**
+- `.venv/bin/python -m unittest test_news_agent`
+- `.venv/bin/python -m compileall app.py agent.py approved_storage.py config.py connectors.py diagnostics.py storage.py ranker.py utils.py summarizer.py test_news_agent.py`
+
+**Remaining issues, if any:**
+- Configuration popover direction is limited by Streamlit; the layout workaround gives it more room inside the page.
+- Tokens pasted into chat should still be rotated.
+
+**Updated progress bar:**
+Progress: [███████████████████] 190%
+
+**Next step:**
+Run the dashboard and verify a GitHub/Hugging Face run with tokens entered in Configuration.
