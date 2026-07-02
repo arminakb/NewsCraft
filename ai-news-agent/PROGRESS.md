@@ -2,7 +2,7 @@
 
 ## Overall Progress
 
-Progress: [█████████████] 130%
+Progress: [██████████████] 140%
 
 ---
 
@@ -299,3 +299,26 @@ Implement the Hugging Face models connector.
 
 **Next step:**
 Implement the GitHub repositories connector.
+
+---
+
+## Phase 14 Completed: GitHub repositories connector
+
+**Completed:**
+- Added GitHub repository search connector.
+- Added optional bearer token support.
+- Normalized repository metadata and metrics.
+- Filtered repositories by selected date range.
+
+**Files changed:**
+- `connectors.py`
+- `agent.py`
+- `test_news_agent.py`
+- `ROADMAP.md`
+- `PROGRESS.md`
+
+**Problems:**
+- None.
+
+**Next step:**
+Implement the YouTube videos connector.

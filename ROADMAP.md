@@ -210,16 +210,16 @@ Complete
 **Goal:** Discover and store relevant AI/ML GitHub repositories.
 
 ### Tasks
-- [ ] Query GitHub repository search
-- [ ] Support optional `GITHUB_TOKEN`
-- [ ] Normalize repository metadata and metrics
-- [ ] Filter by selected date range
+- [x] Query GitHub repository search
+- [x] Support optional `GITHUB_TOKEN`
+- [x] Normalize repository metadata and metrics
+- [x] Filter by selected date range
 
 ### Expected Output
 GitHub repositories can be collected and displayed.
 
 ### Status
-Not started
+Complete
 
 ## Phase 15: YouTube videos connector
 

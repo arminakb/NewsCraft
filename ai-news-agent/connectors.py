@@ -20,6 +20,7 @@ RSS_FEEDS = [
 HN_TOP_URL = "https://hacker-news.firebaseio.com/v0/topstories.json"
 HN_ITEM_URL = "https://hacker-news.firebaseio.com/v0/item/{id}.json"
 ARXIV_URL = "http://export.arxiv.org/api/query"
+GITHUB_SEARCH_URL = "https://api.github.com/search/repositories"
 TIMEOUT = 15
 HF_TAGS = [
     "text-generation",
@@ -30,6 +31,22 @@ HF_TAGS = [
     "multimodal",
     "agent",
     "llm",
+]
+GITHUB_QUERIES = [
+    "topic:artificial-intelligence",
+    "topic:machine-learning",
+    "topic:llm",
+    "topic:agents",
+    "topic:rag",
+    "topic:generative-ai",
+    "topic:computer-vision",
+    "topic:nlp",
+    "ai agent",
+    "llm agent",
+    "rag",
+    "multimodal ai",
+    "computer vision",
+    "generative ai",
 ]
 
 
@@ -203,4 +220,75 @@ def fetch_huggingface_models(start_date=None, end_date=None, limit=30, huggingfa
         )
         if len(articles) >= limit:
             break
+    return articles
+
+
+def _github_query(base_query, start_date, end_date):
+    parts = [base_query]
+    if start_date and end_date:
+        parts.append(f"pushed:{parse_article_date(start_date).date()}..{parse_article_date(end_date).date()}")
+    return " ".join(parts)
+
+
+def _github_score(repo):
+    stars = int(repo.get("stargazers_count") or 0)
+    forks = int(repo.get("forks_count") or 0)
+    topics = [str(topic).lower() for topic in repo.get("topics") or []]
+    topic_score = sum(5 for topic in topics if topic in {"llm", "agents", "rag", "generative-ai", "machine-learning"})
+    description_score = 5 if repo.get("description") else 0
+    return stars + forks * 2 + topic_score + description_score
+
+
+def fetch_github_repositories(start_date=None, end_date=None, limit=30, github_token=None):
+    headers = {"Accept": "application/vnd.github+json"}
+    if github_token:
+        headers["Authorization"] = f"Bearer {github_token}"
+
+    articles = []
+    seen = set()
+    for query in GITHUB_QUERIES:
+        try:
+            response = requests.get(
+                GITHUB_SEARCH_URL,
+                params={"q": _github_query(query, start_date, end_date), "sort": "stars", "order": "desc", "per_page": limit},
+                headers=headers,
+                timeout=TIMEOUT,
+            )
+            response.raise_for_status()
+            repos = response.json().get("items", [])
+        except Exception as exc:
+            logging.warning("GitHub fetch failed for %s: %s", query, exc)
+            continue
+
+        for repo in repos:
+            url = _text(repo.get("html_url"))
+            title = _text(repo.get("full_name"))
+            if not title or not url or url in seen:
+                continue
+            published = parse_article_date(repo.get("pushed_at") or repo.get("created_at"))
+            if not is_within_date_range(published, start_date, end_date):
+                continue
+            metrics = {
+                "stars": int(repo.get("stargazers_count") or 0),
+                "forks": int(repo.get("forks_count") or 0),
+                "open_issues": int(repo.get("open_issues_count") or 0),
+            }
+            topics = repo.get("topics") or []
+            summary = _text(repo.get("description")) or ", ".join(topics)
+            articles.append(
+                {
+                    "source": "GitHub",
+                    "source_type": "github",
+                    "title": title,
+                    "url": url,
+                    "published_at": normalize_date_for_storage(published),
+                    "summary": summary,
+                    "category": "Tool",
+                    "score": _github_score(repo),
+                    "metrics": metrics,
+                }
+            )
+            seen.add(url)
+            if len(articles) >= limit:
+                return articles
     return articles

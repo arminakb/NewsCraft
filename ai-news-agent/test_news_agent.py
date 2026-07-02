@@ -272,6 +272,52 @@ class ConnectorTests(unittest.TestCase):
         self.assertEqual(articles[0]["category"], "Model")
         self.assertEqual(articles[0]["metrics"]["likes"], 12)
 
+    def test_github_repositories_normalize_filter_and_use_token(self):
+        from connectors import fetch_github_repositories
+
+        response = Mock()
+        response.raise_for_status.return_value = None
+        response.json.return_value = {
+            "items": [
+                {
+                    "full_name": "owner/agent",
+                    "html_url": "https://github.com/owner/agent",
+                    "created_at": "2026-07-02T10:30:00Z",
+                    "pushed_at": "2026-07-02T12:00:00Z",
+                    "description": "LLM agent framework",
+                    "stargazers_count": 200,
+                    "forks_count": 20,
+                    "open_issues_count": 3,
+                    "topics": ["llm", "agents"],
+                },
+                {
+                    "full_name": "owner/old",
+                    "html_url": "https://github.com/owner/old",
+                    "created_at": "2026-06-30T10:30:00Z",
+                    "pushed_at": "2026-06-30T12:00:00Z",
+                    "description": "old ai",
+                    "stargazers_count": 1,
+                    "forks_count": 0,
+                    "open_issues_count": 0,
+                    "topics": ["ai"],
+                },
+            ]
+        }
+
+        with patch("connectors.requests.get", return_value=response) as get:
+            articles = fetch_github_repositories(
+                start_date=date(2026, 7, 2),
+                end_date=date(2026, 7, 2),
+                limit=1,
+                github_token="token",
+            )
+
+        self.assertEqual(get.call_args.kwargs["headers"]["Authorization"], "Bearer token")
+        self.assertEqual([article["url"] for article in articles], ["https://github.com/owner/agent"])
+        self.assertEqual(articles[0]["source_type"], "github")
+        self.assertEqual(articles[0]["category"], "Tool")
+        self.assertEqual(articles[0]["metrics"]["stars"], 200)
+
 
 class RankerTests(unittest.TestCase):
     def test_classifies_ai_tech_and_general(self):

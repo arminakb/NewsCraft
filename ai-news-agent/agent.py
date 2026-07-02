@@ -2,7 +2,13 @@
 
 import logging
 
-from connectors import fetch_arxiv_ai, fetch_hacker_news, fetch_huggingface_models, fetch_rss_articles
+from connectors import (
+    fetch_arxiv_ai,
+    fetch_github_repositories,
+    fetch_hacker_news,
+    fetch_huggingface_models,
+    fetch_rss_articles,
+)
 from ranker import classify_and_score
 from storage import init_db, save_articles
 from utils import is_within_date_range, normalize_date_for_storage
@@ -43,6 +49,16 @@ def run_news_agent(
                 start_date=start_date,
                 end_date=end_date,
                 huggingface_token=huggingface_token,
+            )
+        )
+    if "github" in selected_sources:
+        fetched.extend(
+            _safe_fetch(
+                fetch_github_repositories,
+                limit=30,
+                start_date=start_date,
+                end_date=end_date,
+                github_token=github_token,
             )
         )
 
