@@ -8,6 +8,7 @@ from connectors import (
     fetch_hacker_news,
     fetch_huggingface_models,
     fetch_rss_articles,
+    fetch_youtube_videos,
 )
 from ranker import classify_and_score
 from storage import init_db, save_articles
@@ -59,6 +60,16 @@ def run_news_agent(
                 start_date=start_date,
                 end_date=end_date,
                 github_token=github_token,
+            )
+        )
+    if "youtube" in selected_sources:
+        fetched.extend(
+            _safe_fetch(
+                fetch_youtube_videos,
+                limit=30,
+                start_date=start_date,
+                end_date=end_date,
+                youtube_api_key=youtube_api_key,
             )
         )
 

@@ -8,14 +8,8 @@ import feedparser
 import requests
 from huggingface_hub import HfApi
 
+from config import RSS_FEEDS, YOUTUBE_CHANNEL_FEEDS
 from utils import is_within_date_range, normalize_date_for_storage, parse_article_date
-
-RSS_FEEDS = [
-    "https://openai.com/news/rss.xml",
-    "https://techcrunch.com/category/artificial-intelligence/feed/",
-    "https://www.theverge.com/rss/ai-artificial-intelligence/index.xml",
-    "https://www.technologyreview.com/topic/artificial-intelligence/feed/",
-]
 
 HN_TOP_URL = "https://hacker-news.firebaseio.com/v0/topstories.json"
 HN_ITEM_URL = "https://hacker-news.firebaseio.com/v0/item/{id}.json"
@@ -64,10 +58,11 @@ def _entry_date(entry):
 
 def fetch_rss_articles(start_date=None, end_date=None):
     articles = []
-    for url in RSS_FEEDS:
+    for feed_config in RSS_FEEDS:
+        url = feed_config["url"] if isinstance(feed_config, dict) else feed_config
         try:
             feed = feedparser.parse(url)
-            source = _text(feed.feed.get("title")) or url
+            source = _text(feed.feed.get("title")) or (feed_config.get("name") if isinstance(feed_config, dict) else url)
             for entry in feed.entries:
                 title = _text(entry.get("title"))
                 link = _text(entry.get("link"))
@@ -91,6 +86,48 @@ def fetch_rss_articles(start_date=None, end_date=None):
                 )
         except Exception as exc:
             logging.warning("RSS fetch failed for %s: %s", url, exc)
+    return articles
+
+
+def fetch_youtube_videos(start_date=None, end_date=None, limit=30, youtube_api_key=None):
+    # Future improvement: Add YouTube Data API search connector using API key,
+    # query terms, publishedAfter, publishedBefore, order=date/viewCount.
+    articles = []
+    for feed_config in YOUTUBE_CHANNEL_FEEDS:
+        url = feed_config["url"]
+        if "CHANNEL_ID_HERE" in url:
+            logging.warning("Skipping YouTube placeholder channel feed for %s", feed_config["name"])
+            continue
+        try:
+            feed = feedparser.parse(url)
+            entries = feed.entries
+        except Exception as exc:
+            logging.warning("YouTube feed failed for %s: %s", feed_config["name"], exc)
+            continue
+
+        for entry in entries:
+            title = _text(entry.get("title"))
+            link = _text(entry.get("link"))
+            if not title or not link:
+                continue
+            published = _entry_date(entry)
+            if not is_within_date_range(published, start_date, end_date):
+                continue
+            articles.append(
+                {
+                    "source": f"YouTube - {feed_config['name']}",
+                    "source_type": "youtube",
+                    "title": title,
+                    "url": link,
+                    "published_at": normalize_date_for_storage(published),
+                    "summary": _text(entry.get("summary") or entry.get("description")),
+                    "category": "Video",
+                    "score": 0,
+                    "metrics": {"channel": feed_config["name"]},
+                }
+            )
+            if len(articles) >= limit:
+                return articles
     return articles
 
 

@@ -2,7 +2,7 @@
 
 ## Overall Progress
 
-Progress: [██████████████] 140%
+Progress: [███████████████] 150%
 
 ---
 
@@ -322,3 +322,27 @@ Implement the GitHub repositories connector.
 
 **Next step:**
 Implement the YouTube videos connector.
+
+---
+
+## Phase 15 Completed: YouTube videos connector
+
+**Completed:**
+- Added `config.py` with RSS and YouTube channel feed configuration.
+- Added YouTube RSS video collection.
+- Normalized video metadata and channel metrics.
+- Added a TODO for future YouTube Data API search support.
+
+**Files changed:**
+- `config.py`
+- `connectors.py`
+- `agent.py`
+- `test_news_agent.py`
+- `ROADMAP.md`
+- `PROGRESS.md`
+
+**Problems:**
+- Placeholder YouTube channel IDs are skipped until replaced with real channel IDs.
+
+**Next step:**
+Improve unified scoring, cards, settings, and documentation.

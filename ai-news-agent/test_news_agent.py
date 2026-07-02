@@ -318,6 +318,33 @@ class ConnectorTests(unittest.TestCase):
         self.assertEqual(articles[0]["category"], "Tool")
         self.assertEqual(articles[0]["metrics"]["stars"], 200)
 
+    def test_youtube_videos_normalize_and_filter(self):
+        from connectors import fetch_youtube_videos
+
+        entries = [
+            {
+                "title": "Fresh AI video",
+                "link": "https://youtube.com/watch?v=fresh",
+                "published": "2026-07-02T10:30:00Z",
+                "summary": "LLM tutorial",
+            },
+            {
+                "title": "Old AI video",
+                "link": "https://youtube.com/watch?v=old",
+                "published": "2026-06-30T10:30:00Z",
+                "summary": "old",
+            },
+        ]
+        feeds = [{"name": "AI Channel", "url": "https://youtube.example/feed", "topic": "AI"}]
+        with patch("connectors.YOUTUBE_CHANNEL_FEEDS", feeds), patch("connectors.feedparser.parse") as parse:
+            parse.return_value = Mock(entries=entries)
+            articles = fetch_youtube_videos(start_date=date(2026, 7, 2), end_date=date(2026, 7, 2), limit=5)
+
+        self.assertEqual([article["url"] for article in articles], ["https://youtube.com/watch?v=fresh"])
+        self.assertEqual(articles[0]["source"], "YouTube - AI Channel")
+        self.assertEqual(articles[0]["source_type"], "youtube")
+        self.assertEqual(articles[0]["category"], "Video")
+
 
 class RankerTests(unittest.TestCase):
     def test_classifies_ai_tech_and_general(self):

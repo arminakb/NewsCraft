@@ -226,16 +226,16 @@ Complete
 **Goal:** Collect videos from configured YouTube RSS channel feeds.
 
 ### Tasks
-- [ ] Add YouTube channel feed config
-- [ ] Fetch videos via RSS
-- [ ] Normalize video metadata
-- [ ] Keep Data API support as a future TODO
+- [x] Add YouTube channel feed config
+- [x] Fetch videos via RSS
+- [x] Normalize video metadata
+- [x] Keep Data API support as a future TODO
 
 ### Expected Output
 YouTube RSS videos can be collected and displayed.
 
 ### Status
-Not started
+Complete
 
 ## Phase 16: Unified source metadata and scoring improvements
 
