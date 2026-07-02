@@ -20,12 +20,15 @@ from diagnostics import (
     test_hacker_news_connector,
     test_huggingface_connection,
     test_huggingface_connector,
+    test_telegram_connection,
+    test_telegram_connector,
 )
 from summarizer import truncate_text
 from storage import clear_articles, get_articles, get_search_sessions, init_db, update_article_status
+from telegram_connector import parse_channel_usernames
 from utils import clean_token, humanize_time_ago
 
-SOURCE_OPTIONS = ["rss", "hacker_news", "arxiv", "huggingface", "github", "youtube"]
+SOURCE_OPTIONS = ["rss", "hacker_news", "arxiv", "huggingface", "github", "youtube", "telegram"]
 DEFAULT_SOURCES = ["rss", "hacker_news", "arxiv"]
 SOURCE_OPTION_LABELS = {
     "rss": "RSS feeds",
@@ -34,6 +37,7 @@ SOURCE_OPTION_LABELS = {
     "huggingface": "Hugging Face",
     "github": "GitHub",
     "youtube": "YouTube",
+    "telegram": "Telegram Channels",
 }
 SOURCE_TYPE_LABELS = {
     "rss": "RSS Feed",
@@ -42,6 +46,7 @@ SOURCE_TYPE_LABELS = {
     "github": "GitHub API",
     "huggingface": "Hugging Face API",
     "youtube": "YouTube RSS",
+    "telegram": "Telegram API",
 }
 SOURCE_GROUP_LABELS = {
     "company_news": "Company News",
@@ -51,6 +56,7 @@ SOURCE_GROUP_LABELS = {
     "research": "Research",
     "model_trends": "Model Trends",
     "video": "Video",
+    "social_news": "Social News",
 }
 
 
@@ -108,11 +114,14 @@ def metrics_text(metrics):
         "channel": "Channel",
         "hn_score": "HN score",
         "comments": "Comments",
+        "views": "Views",
+        "forwards": "Forwards",
+        "replies": "Replies",
     }
     return " | ".join(
         f"{labels.get(key, key)}: {', '.join(value[:5]) if isinstance(value, list) else value}"
         for key, value in (metrics or {}).items()
-        if key not in {"useful_tags", "useful_topics"} and value not in ("", None, 0)
+        if key not in {"useful_tags", "useful_topics", "quality_weight"} and value not in ("", None, 0)
     )
 
 
@@ -121,6 +130,9 @@ def resolve_tokens(session_state, environ=os.environ):
         "github_token": clean_token(session_state.get("github_token")) or clean_token(environ.get("GITHUB_TOKEN")),
         "huggingface_token": clean_token(session_state.get("huggingface_token")) or clean_token(environ.get("HUGGINGFACE_TOKEN")),
         "youtube_api_key": clean_token(session_state.get("youtube_api_key")) or clean_token(environ.get("YOUTUBE_API_KEY")),
+        "telegram_api_id": clean_token(session_state.get("telegram_api_id")) or clean_token(environ.get("TELEGRAM_API_ID")),
+        "telegram_api_hash": clean_token(session_state.get("telegram_api_hash")) or clean_token(environ.get("TELEGRAM_API_HASH")),
+        "telegram_session_name": clean_token(session_state.get("telegram_session_name")) or clean_token(environ.get("TELEGRAM_SESSION_NAME")) or "telegram_news_session",
     }
 
 
@@ -153,10 +165,44 @@ def _configuration_contents(selected_sources, start_date, end_date):
         on_change=_clean_session_token,
         args=("youtube_api_key",),
     )
+    st.divider()
+    st.text_input(
+        "Telegram API ID",
+        key="telegram_api_id",
+        help="Required for Telegram Channels. Get it from my.telegram.org.",
+        on_change=_clean_session_token,
+        args=("telegram_api_id",),
+    )
+    st.text_input(
+        "Telegram API Hash",
+        type="password",
+        key="telegram_api_hash",
+        help="Required for Telegram Channels. Stored only in this Streamlit session.",
+        on_change=_clean_session_token,
+        args=("telegram_api_hash",),
+    )
+    st.text_input(
+        "Telegram Session Name",
+        key="telegram_session_name",
+        value=st.session_state.get("telegram_session_name", "telegram_news_session"),
+        help="Local Telethon session name created by python telegram_login.py.",
+        on_change=_clean_session_token,
+        args=("telegram_session_name",),
+    )
+    st.text_area(
+        "Telegram Channel Usernames",
+        key="telegram_channels_text",
+        help="One trusted channel username per line, with or without @.",
+        placeholder="@OpenAINews\n@SomeAIChannel",
+    )
     tokens = resolve_tokens(st.session_state)
     st.caption(f"GitHub token: {'configured' if tokens['github_token'] else 'not configured'}")
     st.caption(f"Hugging Face token: {'configured' if tokens['huggingface_token'] else 'not configured'}")
     st.caption(f"YouTube API key: {'configured' if tokens['youtube_api_key'] else 'not configured'}")
+    st.caption(f"Telegram API ID: {'configured' if tokens['telegram_api_id'] else 'not configured'}")
+    st.caption(f"Telegram API hash: {'configured' if tokens['telegram_api_hash'] else 'not configured'}")
+    st.caption(f"Telegram session: {tokens['telegram_session_name']}")
+    st.caption(f"Telegram channels: {len(parse_channel_usernames(st.session_state.get('telegram_channels_text')))} configured")
     with st.expander("Debug", expanded=False):
         st.write(f"Selected sources: {', '.join(selected_sources) or 'none'}")
         st.write(f"Active date range: {start_date} to {end_date}")
@@ -173,6 +219,25 @@ def _configuration_contents(selected_sources, start_date, end_date):
             st.json(test_hacker_news_connector(start_date, end_date))
         if st.button("Test arXiv Connector"):
             st.json(test_arxiv_connector(start_date, end_date))
+        if st.button("Test Telegram Connection"):
+            st.json(
+                test_telegram_connection(
+                    telegram_api_id=tokens["telegram_api_id"],
+                    telegram_api_hash=tokens["telegram_api_hash"],
+                    telegram_session_name=tokens["telegram_session_name"],
+                )
+            )
+        if st.button("Test Telegram Connector"):
+            st.json(
+                test_telegram_connector(
+                    start_date,
+                    end_date,
+                    telegram_api_id=tokens["telegram_api_id"],
+                    telegram_api_hash=tokens["telegram_api_hash"],
+                    telegram_session_name=tokens["telegram_session_name"],
+                    telegram_channels=parse_channel_usernames(st.session_state.get("telegram_channels_text")),
+                )
+            )
 
 
 def _configuration_panel(selected_sources, start_date, end_date):
@@ -290,6 +355,10 @@ def main():
                 github_token=tokens["github_token"],
                 huggingface_token=tokens["huggingface_token"],
                 youtube_api_key=tokens["youtube_api_key"],
+                telegram_api_id=tokens["telegram_api_id"],
+                telegram_api_hash=tokens["telegram_api_hash"],
+                telegram_session_name=tokens["telegram_session_name"],
+                telegram_channels=parse_channel_usernames(st.session_state.get("telegram_channels_text")),
             )
             st.session_state.current_search_session_id = articles.search_session_id
             st.success(f"Collected {len(articles)} relevant articles.")

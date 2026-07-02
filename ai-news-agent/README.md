@@ -7,6 +7,7 @@ ranks the articles, stores them in SQLite, and displays them for review.
 
 - RSS feed, Hacker News, and arXiv collection
 - Hugging Face model, GitHub repository, and YouTube RSS discovery
+- Telegram channel ingestion through a local Telethon user session
 - Keyword scoring and category classification
 - SQLite storage with duplicate URL protection
 - Streamlit dashboard with review statuses
@@ -76,6 +77,33 @@ The GitHub connector searches AI/ML/LLM/agent/RAG topics and keywords, tries pus
 
 YouTube collection uses RSS channel feeds from `config.py`, not the YouTube Data API. Replace `CHANNEL_ID_HERE` in `YOUTUBE_CHANNEL_FEEDS` with real channel IDs. Search-based YouTube Data API support can be added later if needed.
 
+## Telegram Channel Connector
+
+Telegram ingestion uses Telethon with a local Telegram user session. It is intended for trusted public channels or channels your logged-in account is allowed to access. It does not use the Telegram Bot API for public-channel ingestion.
+
+Install dependencies, then create the local session once:
+
+```bash
+python telegram_login.py
+```
+
+Then run the dashboard, open **Configuration**, enter Telegram API ID, Telegram API Hash, Session Name, and one channel username per line. Select **Telegram Channels** in Collection Controls and run the agent.
+
+Supported environment variables:
+
+```bash
+export TELEGRAM_API_ID="your_api_id"
+export TELEGRAM_API_HASH="your_api_hash"
+export TELEGRAM_SESSION_NAME="telegram_news_session"
+```
+
+Security notes:
+
+- Do not commit `.session` files.
+- Do not share your API hash.
+- Do not scrape private channels without permission.
+- Keep the channel list curated for quality.
+
 ## Configuration Popup
 
 Open **Configuration** near the dashboard header to enter optional API credentials and run diagnostics. Manually entered tokens are stripped of leading/trailing whitespace and stored only in Streamlit session state. They are not saved to SQLite, printed, or committed. If the installed Streamlit version does not support popovers, the app uses a compact expander fallback.
@@ -104,6 +132,9 @@ Use **Clear Results Database** next to the run button to clear collected results
 export GITHUB_TOKEN="your_github_token"
 export HUGGINGFACE_TOKEN="your_huggingface_token"
 export YOUTUBE_API_KEY="your_youtube_api_key"
+export TELEGRAM_API_ID="your_telegram_api_id"
+export TELEGRAM_API_HASH="your_telegram_api_hash"
+export TELEGRAM_SESSION_NAME="telegram_news_session"
 ```
 
 PowerShell:
@@ -112,6 +143,9 @@ PowerShell:
 $env:GITHUB_TOKEN="your_github_token"
 $env:HUGGINGFACE_TOKEN="your_huggingface_token"
 $env:YOUTUBE_API_KEY="your_youtube_api_key"
+$env:TELEGRAM_API_ID="your_telegram_api_id"
+$env:TELEGRAM_API_HASH="your_telegram_api_hash"
+$env:TELEGRAM_SESSION_NAME="telegram_news_session"
 ```
 
 ## Cleaning Old Data
@@ -120,7 +154,7 @@ If old articles still appear, the existing `news.db` may contain old or badly fo
 
 ## Troubleshooting GitHub and Hugging Face
 
-Open **Configuration > Debug** and run the GitHub, Hugging Face, Hacker News, or arXiv connector tests. The diagnostics show token status, safe HTTP/status details, per-query/per-feed counts, and item counts without exposing token values.
+Open **Configuration > Debug** and run the GitHub, Hugging Face, Hacker News, arXiv, or Telegram connector tests. The diagnostics show token status, safe HTTP/status details, per-query/per-feed counts, session status, and item counts without exposing token values.
 
 Common causes of empty results:
 
@@ -130,6 +164,7 @@ Common causes of empty results:
 - Hugging Face metadata such as `last_modified`, likes, or downloads is missing.
 - Display filters hide results; use Category `All` and Status `All`.
 - Old database schema or old rows; use **Clear Results Database**.
+- Telegram session is missing; run `python telegram_login.py` with the same session name.
 
 ## Project structure
 
@@ -143,6 +178,8 @@ approved_storage.py
 storage.py
 ranker.py
 summarizer.py
+telegram_connector.py
+telegram_login.py
 utils.py
 requirements.txt
 README.md

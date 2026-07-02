@@ -77,6 +77,15 @@ def classify_and_score(article):
         hn_score = int(metrics.get("hn_score", metrics.get("score", 0)) or 0)
         article["score"] = max(1, hn_score // 10 + ai_score * 3 + tech_score)
         return article
+    if source_type == "telegram":
+        article["category"] = "AI" if ai_score >= tech_score else "Tech"
+        views = int(metrics.get("views", 0) or 0)
+        forwards = int(metrics.get("forwards", 0) or 0)
+        quality_weight = float(metrics.get("quality_weight", 1.0) or 1.0)
+        link_score = 2 if "http://" in text or "https://" in text else 0
+        base_score = ai_score * 3 + tech_score + views // 500 + forwards * 2 + link_score
+        article["score"] = max(1, int(base_score * quality_weight))
+        return article
 
     article["score"] = ai_score + tech_score
     if ai_score > tech_score:

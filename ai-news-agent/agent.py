@@ -12,6 +12,7 @@ from connectors import (
 )
 from ranker import classify_and_score
 from storage import create_search_session, init_db, save_articles, update_search_session_count
+from telegram_connector import fetch_telegram_posts_sync
 from utils import clean_token, is_within_date_range, normalize_date_for_storage
 
 DEFAULT_SOURCES = ["rss", "hacker_news", "arxiv"]
@@ -22,6 +23,7 @@ SOURCE_LABELS = {
     "huggingface": "Hugging Face",
     "github": "GitHub",
     "youtube": "YouTube",
+    "telegram": "Telegram",
 }
 
 
@@ -73,11 +75,18 @@ def run_news_agent(
     github_token=None,
     huggingface_token=None,
     youtube_api_key=None,
+    telegram_api_id=None,
+    telegram_api_hash=None,
+    telegram_session_name=None,
+    telegram_channels=None,
 ):
     init_db()
     github_token = clean_token(github_token)
     huggingface_token = clean_token(huggingface_token)
     youtube_api_key = clean_token(youtube_api_key)
+    telegram_api_id = clean_token(telegram_api_id)
+    telegram_api_hash = clean_token(telegram_api_hash)
+    telegram_session_name = clean_token(telegram_session_name)
     selected_sources = selected_sources or DEFAULT_SOURCES
     search_session_id = create_search_session(start_date, end_date, selected_sources)
     fetched = []
@@ -142,6 +151,22 @@ def run_news_agent(
             youtube_api_key=youtube_api_key,
         )
         _record_items(report, "YouTube", items)
+        fetched.extend(items)
+    if "telegram" in selected_sources:
+        telegram_diagnostics = {}
+        items = _safe_fetch(
+            fetch_telegram_posts_sync,
+            channels=telegram_channels,
+            start_datetime=start_date,
+            end_datetime=end_date,
+            limit_per_channel=20,
+            telegram_api_id=telegram_api_id,
+            telegram_api_hash=telegram_api_hash,
+            telegram_session_name=telegram_session_name,
+            diagnostics=telegram_diagnostics,
+        )
+        report["diagnostics"]["telegram"] = telegram_diagnostics
+        _record_items(report, "Telegram Channels", items)
         fetched.extend(items)
 
     processed = []

@@ -327,3 +327,21 @@ Sources are easier to understand and debug, recent items sort correctly, cards s
 
 ### Status
 Complete
+
+## Phase 21: Telegram channel connector
+
+**Goal:** Add a Telethon-based connector for trusted Telegram channels using a local user session and curated channel usernames.
+
+### Tasks
+- [x] Add Telethon dependency, Telegram config, and session-file ignores
+- [x] Add Telegram login helper script
+- [x] Add async Telegram connector plus sync wrapper
+- [x] Wire Telegram into agent, dashboard Configuration, diagnostics, and ranking
+- [x] Normalize Telegram posts into the existing article format
+- [x] Add tests and update README/PROGRESS
+
+### Expected Output
+Telegram channel posts can be collected from configured trusted channels and displayed with other sources.
+
+### Status
+Complete

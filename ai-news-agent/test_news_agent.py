@@ -561,6 +561,50 @@ class ConnectorTests(unittest.TestCase):
         self.assertEqual(articles[0]["source_type"], "youtube")
         self.assertEqual(articles[0]["category"], "Video")
 
+    def test_telegram_parses_channels_and_normalizes_message(self):
+        from telegram_connector import _normalize_message, parse_channel_usernames
+
+        message = Mock(
+            id=42,
+            message="New AI agent framework\nhttps://example.com",
+            date=datetime(2026, 7, 2, 10, 30),
+            views=123,
+            forwards=4,
+            replies=Mock(replies=2),
+        )
+
+        self.assertEqual(parse_channel_usernames("@OpenAINews\n\n some_ai_channel "), ["OpenAINews", "some_ai_channel"])
+        article = _normalize_message(
+            message,
+            {"name": "OpenAI News", "username": "OpenAINews", "source_group": "social_news", "quality_weight": 1.5},
+        )
+
+        self.assertEqual(article["source"], "Telegram - OpenAI News")
+        self.assertEqual(article["source_type"], "telegram")
+        self.assertEqual(article["connector"], "telegram")
+        self.assertEqual(article["source_group"], "social_news")
+        self.assertEqual(article["url"], "https://t.me/OpenAINews/42")
+        self.assertEqual(article["metrics"]["views"], 123)
+        self.assertEqual(article["metrics"]["forwards"], 4)
+        self.assertEqual(article["metrics"]["replies"], 2)
+
+    def test_telegram_connector_missing_config_reports_safe_error(self):
+        from telegram_connector import fetch_telegram_posts_sync
+
+        diagnostics = {}
+        articles = fetch_telegram_posts_sync(
+            channels=["OpenAINews"],
+            telegram_api_id=None,
+            telegram_api_hash=" secret ",
+            telegram_session_name="missing-session",
+            diagnostics=diagnostics,
+        )
+
+        self.assertEqual(articles, [])
+        self.assertFalse(diagnostics["api_id_configured"])
+        self.assertTrue(diagnostics["api_hash_configured"])
+        self.assertIn("Telegram API ID/API Hash are required.", diagnostics["errors"])
+
 
 class RankerTests(unittest.TestCase):
     def test_classifies_ai_tech_and_general(self):
@@ -607,6 +651,21 @@ class RankerTests(unittest.TestCase):
         self.assertEqual(arxiv["category"], "Research")
         self.assertGreater(arxiv["score"], 0)
         self.assertGreater(hn["score"], 0)
+
+    def test_scores_telegram_posts(self):
+        from ranker import classify_and_score
+
+        telegram = classify_and_score(
+            {
+                "source_type": "telegram",
+                "title": "New LLM agent startup launches",
+                "summary": "AI developer tool with https://example.com",
+                "metrics": {"views": 1200, "forwards": 30, "quality_weight": 1.2},
+            }
+        )
+
+        self.assertEqual(telegram["category"], "AI")
+        self.assertGreater(telegram["score"], 0)
 
 
 class AgentTests(unittest.TestCase):
@@ -735,6 +794,42 @@ class AgentTests(unittest.TestCase):
         self.assertEqual(articles.report["source_details"]["GitHub"]["saved"], 1)
         self.assertIn("github", articles.report["diagnostics"])
 
+    def test_run_news_agent_passes_telegram_config(self):
+        from agent import run_news_agent
+
+        telegram = {
+            "source": "Telegram - AI Channel",
+            "source_type": "telegram",
+            "title": "OpenAI agent update",
+            "url": "https://t.me/ai/1",
+            "published_at": "2026-07-02T10:30:00",
+            "summary": "LLM developer startup",
+            "metrics": {"views": 100},
+        }
+
+        with patch("agent.init_db"), patch("agent.create_search_session", return_value="session-1"), patch(
+            "agent.update_search_session_count"
+        ), patch("agent.save_articles", return_value=1) as save_articles, patch(
+            "agent.fetch_telegram_posts_sync", return_value=[telegram]
+        ) as telegram_fetch:
+            articles = run_news_agent(
+                selected_sources=["telegram"],
+                telegram_api_id=" 12345 ",
+                telegram_api_hash=" hash ",
+                telegram_session_name=" news_session ",
+                telegram_channels=["@ai"],
+            )
+
+        telegram_fetch.assert_called_once()
+        self.assertEqual(telegram_fetch.call_args.kwargs["telegram_api_id"], "12345")
+        self.assertEqual(telegram_fetch.call_args.kwargs["telegram_api_hash"], "hash")
+        self.assertEqual(telegram_fetch.call_args.kwargs["telegram_session_name"], "news_session")
+        self.assertEqual(telegram_fetch.call_args.kwargs["channels"], ["@ai"])
+        save_articles.assert_called_once()
+        self.assertEqual(articles[0]["source_type"], "telegram")
+        self.assertEqual(articles.report["sources"]["Telegram - AI Channel"], 1)
+        self.assertIn("telegram", articles.report["diagnostics"])
+
 
 class AppHelperTests(unittest.TestCase):
     def test_filter_articles_and_summary_preview(self):
@@ -752,12 +847,22 @@ class AppHelperTests(unittest.TestCase):
     def test_resolve_tokens_prefers_session_over_environment(self):
         from app import resolve_tokens
 
-        env = {"GITHUB_TOKEN": " env-gh ", "HUGGINGFACE_TOKEN": " env-hf ", "YOUTUBE_API_KEY": " env-yt "}
-        tokens = resolve_tokens({"github_token": " session-gh "}, env)
+        env = {
+            "GITHUB_TOKEN": " env-gh ",
+            "HUGGINGFACE_TOKEN": " env-hf ",
+            "YOUTUBE_API_KEY": " env-yt ",
+            "TELEGRAM_API_ID": " 123 ",
+            "TELEGRAM_API_HASH": " env-hash ",
+            "TELEGRAM_SESSION_NAME": " env-session ",
+        }
+        tokens = resolve_tokens({"github_token": " session-gh ", "telegram_api_hash": " session-hash "}, env)
 
         self.assertEqual(tokens["github_token"], "session-gh")
         self.assertEqual(tokens["huggingface_token"], "env-hf")
         self.assertEqual(tokens["youtube_api_key"], "env-yt")
+        self.assertEqual(tokens["telegram_api_id"], "123")
+        self.assertEqual(tokens["telegram_api_hash"], "session-hash")
+        self.assertEqual(tokens["telegram_session_name"], "env-session")
 
     def test_resolve_time_range_last_24_hours(self):
         from app import resolve_time_range

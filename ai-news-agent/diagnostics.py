@@ -4,6 +4,7 @@ import requests
 from huggingface_hub import HfApi
 
 from connectors import GITHUB_SEARCH_URL, fetch_arxiv_ai, fetch_github_repositories, fetch_hacker_news, fetch_huggingface_models
+from telegram_connector import fetch_telegram_posts_sync
 from utils import clean_token, redact_sensitive_text
 
 
@@ -97,3 +98,59 @@ def test_arxiv_connector(start_date=None, end_date=None):
         return result
     except Exception as exc:
         return _result(False, "error", "arXiv connector failed", error=exc)
+
+
+def test_telegram_connection(telegram_api_id=None, telegram_api_hash=None, telegram_session_name=None):
+    diagnostics = {}
+    fetch_telegram_posts_sync(
+        channels=[],
+        telegram_api_id=telegram_api_id,
+        telegram_api_hash=telegram_api_hash,
+        telegram_session_name=telegram_session_name,
+        limit_per_channel=1,
+        diagnostics=diagnostics,
+    )
+    ok = not diagnostics.get("errors") and diagnostics.get("session_exists") and diagnostics.get("api_id_configured") and diagnostics.get("api_hash_configured")
+    result = _result(
+        bool(ok),
+        "success" if ok else "error",
+        "Telegram session is ready" if ok else "Telegram connection is not ready",
+        token_configured=bool(clean_token(telegram_api_hash)),
+        error="; ".join(diagnostics.get("errors", [])) if diagnostics.get("errors") else None,
+    )
+    result["diagnostics"] = diagnostics
+    return result
+
+
+def test_telegram_connector(
+    start_date=None,
+    end_date=None,
+    telegram_api_id=None,
+    telegram_api_hash=None,
+    telegram_session_name=None,
+    telegram_channels=None,
+):
+    try:
+        diagnostics = {}
+        items = fetch_telegram_posts_sync(
+            channels=telegram_channels,
+            start_datetime=start_date,
+            end_datetime=end_date,
+            limit_per_channel=10,
+            telegram_api_id=telegram_api_id,
+            telegram_api_hash=telegram_api_hash,
+            telegram_session_name=telegram_session_name,
+            diagnostics=diagnostics,
+        )
+        result = _result(
+            not diagnostics.get("errors"),
+            "success" if not diagnostics.get("errors") else "warning",
+            "Telegram connector completed",
+            items_found=len(items),
+            token_configured=bool(clean_token(telegram_api_hash)),
+            error="; ".join(diagnostics.get("errors", [])) if diagnostics.get("errors") else None,
+        )
+        result["diagnostics"] = diagnostics
+        return result
+    except Exception as exc:
+        return _result(False, "error", "Telegram connector failed", error=exc, token_configured=bool(clean_token(telegram_api_hash)))

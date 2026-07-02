@@ -30,3 +30,12 @@ YOUTUBE_CHANNEL_FEEDS = [
         "topic": "Startups",
     },
 ]
+
+TELEGRAM_CHANNELS = [
+    {
+        "name": "Example AI Channel",
+        "username": "example_channel",
+        "source_group": "social_news",
+        "quality_weight": 1.0,
+    }
+]

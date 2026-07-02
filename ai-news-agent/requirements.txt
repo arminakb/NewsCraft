@@ -3,3 +3,4 @@ feedparser
 requests
 python-dateutil
 huggingface_hub
+telethon

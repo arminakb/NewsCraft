@@ -568,3 +568,48 @@ Progress: [████████████████████] 200%
 
 **Next step:**
 Run each source from the dashboard with Last 7 days and review the collection report diagnostics.
+
+---
+
+## Phase 21 Completed: Telegram channel connector
+
+**What was added:**
+- Added a Telethon-based Telegram connector for manually configured trusted channels.
+- Added `telegram_login.py` to create a local user session outside Streamlit.
+- Added Telegram API ID, API Hash, session name, and channel username fields in Configuration.
+- Added Telegram Channels to source selection, diagnostics, agent collection, ranking, and card metrics.
+- Added `.session` and `.session-journal` git ignores.
+
+**What was tested:**
+- Telegram username parsing and message normalization.
+- Missing Telegram API/session configuration diagnostics.
+- Agent config passing from selected Telegram source into the connector.
+- Telegram ranking with views, forwards, links, and AI/tech keywords.
+- Dashboard token/environment resolution for Telegram settings.
+
+**Files changed:**
+- `.gitignore`
+- `ROADMAP.md`
+- `app.py`
+- `agent.py`
+- `config.py`
+- `diagnostics.py`
+- `ranker.py`
+- `telegram_connector.py`
+- `telegram_login.py`
+- `test_news_agent.py`
+- `requirements.txt`
+- `README.md`
+- `PROGRESS.md`
+
+**Known limitations:**
+- Telegram requires a local Telethon user session; the Streamlit app does not perform first-time login.
+- Channel discovery is manual by design.
+- Private channels only work when the logged-in account has legitimate access.
+- Live Telegram collection was not run because it requires user login/session credentials.
+
+**Updated progress bar:**
+Progress: [█████████████████████] 210%
+
+**Next step:**
+Run `python telegram_login.py`, add trusted channel usernames in Configuration, and test Telegram Channels from the dashboard Debug panel.
