@@ -32,15 +32,15 @@ GITHUB_QUERIES = [
     "topic:llm",
     "topic:agents",
     "topic:rag",
-    "topic:generative-ai",
-    "topic:computer-vision",
-    "topic:nlp",
-    "ai agent",
-    "llm agent",
-    "rag",
-    "multimodal ai",
-    "computer vision",
-    "generative ai",
+    '"ai agent"',
+    '"llm agent"',
+    '"generative ai"',
+]
+GITHUB_FALLBACK_QUERIES = [
+    "topic:artificial-intelligence",
+    "topic:machine-learning",
+    "topic:llm",
+    "topic:agents",
 ]
 
 
@@ -224,9 +224,10 @@ def _hf_score(model, tags):
 
 
 def fetch_huggingface_models(start_date=None, end_date=None, limit=30, huggingface_token=None):
+    logging.info("Hugging Face connector started. Token configured: %s", "yes" if huggingface_token else "no")
     try:
         api = HfApi(token=huggingface_token) if huggingface_token else HfApi()
-        models = api.list_models(sort="last_modified", direction=-1, limit=limit * 3)
+        models = list(api.list_models(sort="likes", limit=limit * 3, full=True))
     except Exception as exc:
         logging.warning("Hugging Face fetch failed: %s", exc)
         return []
@@ -237,7 +238,9 @@ def fetch_huggingface_models(start_date=None, end_date=None, limit=30, huggingfa
         if not model_id:
             continue
         published = parse_article_date(getattr(model, "last_modified", None))
-        if not is_within_date_range(published, start_date, end_date):
+        if published and not is_within_date_range(published, start_date, end_date):
+            continue
+        if (start_date or end_date) and not published:
             continue
         tags = [str(tag).lower() for tag in (getattr(model, "tags", None) or [])]
         likes = int(getattr(model, "likes", 0) or 0)
@@ -257,6 +260,10 @@ def fetch_huggingface_models(start_date=None, end_date=None, limit=30, huggingfa
         )
         if len(articles) >= limit:
             break
+    if not articles and (start_date or end_date):
+        logging.warning("Hugging Face date range returned 0 items; falling back to popular models without date filtering")
+        return fetch_huggingface_models(limit=limit, huggingface_token=huggingface_token)
+    logging.info("Hugging Face normalized items returned: %s", len(articles))
     return articles
 
 
@@ -277,22 +284,27 @@ def _github_score(repo):
 
 
 def fetch_github_repositories(start_date=None, end_date=None, limit=30, github_token=None):
-    headers = {"Accept": "application/vnd.github+json"}
+    logging.info("GitHub connector started. Token configured: %s", "yes" if github_token else "no")
+    headers = {"Accept": "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28"}
     if github_token:
         headers["Authorization"] = f"Bearer {github_token}"
 
     articles = []
     seen = set()
-    for query in GITHUB_QUERIES:
+    queries = [(query, True) for query in GITHUB_QUERIES] + [(query, False) for query in GITHUB_FALLBACK_QUERIES]
+    for query, use_date in queries:
         try:
+            full_query = _github_query(query, start_date, end_date) if use_date else query
             response = requests.get(
                 GITHUB_SEARCH_URL,
-                params={"q": _github_query(query, start_date, end_date), "sort": "stars", "order": "desc", "per_page": limit},
+                params={"q": full_query, "sort": "stars", "order": "desc", "per_page": limit},
                 headers=headers,
                 timeout=TIMEOUT,
             )
+            logging.info("GitHub query used: %s HTTP status: %s", full_query, response.status_code)
             response.raise_for_status()
             repos = response.json().get("items", [])
+            logging.info("GitHub raw items found: %s", len(repos))
         except Exception as exc:
             logging.warning("GitHub fetch failed for %s: %s", query, exc)
             continue
@@ -302,8 +314,8 @@ def fetch_github_repositories(start_date=None, end_date=None, limit=30, github_t
             title = _text(repo.get("full_name"))
             if not title or not url or url in seen:
                 continue
-            published = parse_article_date(repo.get("pushed_at") or repo.get("created_at"))
-            if not is_within_date_range(published, start_date, end_date):
+            published = parse_article_date(repo.get("pushed_at") or repo.get("updated_at") or repo.get("created_at"))
+            if use_date and not is_within_date_range(published, start_date, end_date):
                 continue
             metrics = {
                 "stars": int(repo.get("stargazers_count") or 0),
@@ -327,5 +339,7 @@ def fetch_github_repositories(start_date=None, end_date=None, limit=30, github_t
             )
             seen.add(url)
             if len(articles) >= limit:
+                logging.info("GitHub normalized items returned: %s", len(articles))
                 return articles
+    logging.info("GitHub normalized items returned: %s", len(articles))
     return articles

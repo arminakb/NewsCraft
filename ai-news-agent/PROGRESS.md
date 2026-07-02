@@ -371,3 +371,42 @@ Improve unified scoring, cards, settings, and documentation.
 
 **Next step:**
 Run the dashboard and test selected sources with optional tokens.
+
+---
+
+## Phase 17 Completed: GitHub and Hugging Face connector debugging
+
+**What was tested:**
+- Live unauthenticated GitHub and Hugging Face connection/connector diagnostics.
+- GitHub selected-source execution, fallback queries, token headers, and ranking.
+- Hugging Face API signature, model iteration, fallback behavior, token path, and ranking.
+
+**What was broken:**
+- Hugging Face used unsupported `list_models(direction=...)`, so it always returned zero.
+- GitHub fallback detection reused query strings and could keep strict date filters during fallback.
+- No dashboard diagnostics existed to distinguish token, API, query, date, scoring, or filter failures.
+
+**What was fixed:**
+- Hugging Face now uses supported `list_models(sort="likes", full=True, limit=...)` and consumes the iterable.
+- GitHub now sends the GitHub API version header, logs safe status/counts, uses pushed-date queries, and falls back without date filters.
+- GitHub/Hugging Face ranker paths now keep valid sparse-metadata items with positive scores.
+- Added safe diagnostics helpers and Settings debug buttons.
+- Added an agent collection report after runs.
+
+**Files changed:**
+- `diagnostics.py`
+- `connectors.py`
+- `agent.py`
+- `app.py`
+- `ranker.py`
+- `test_news_agent.py`
+- `README.md`
+- `ROADMAP.md`
+- `PROGRESS.md`
+
+**Remaining issues:**
+- Tokens pasted into chat should be rotated.
+- Live authenticated validation should be run from the dashboard Settings panel so tokens stay in session state only.
+
+**Next step:**
+Use Settings > Debug to test authenticated GitHub and Hugging Face connectors.

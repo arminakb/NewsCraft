@@ -252,3 +252,21 @@ All source types have useful scores, metadata, and a cleaner dashboard UI.
 
 ### Status
 Complete
+
+## Phase 17: GitHub and Hugging Face connector debugging
+
+**Goal:** Diagnose and fix empty GitHub and Hugging Face discovery results.
+
+### Tasks
+- [x] Test current GitHub and Hugging Face connector behavior
+- [x] Add safe diagnostics helpers and Settings debug buttons
+- [x] Fix GitHub token handling, queries, fallback, and logging
+- [x] Fix Hugging Face API usage, iterable handling, fallback, and logging
+- [x] Ensure ranking and date filtering do not drop valid items
+- [x] Update README, progress docs, and tests
+
+### Expected Output
+GitHub and Hugging Face connectors return useful items and expose safe diagnostics.
+
+### Status
+Complete

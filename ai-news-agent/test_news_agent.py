@@ -272,6 +272,20 @@ class ConnectorTests(unittest.TestCase):
         self.assertEqual(articles[0]["category"], "Model")
         self.assertEqual(articles[0]["metrics"]["likes"], 12)
 
+    def test_huggingface_uses_supported_list_models_arguments(self):
+        from connectors import fetch_huggingface_models
+
+        api = Mock()
+        api.list_models.return_value = [
+            Mock(modelId="org/model", last_modified=datetime(2026, 7, 2, 10, 30), tags=["llm"], likes=1, downloads=0)
+        ]
+
+        with patch("connectors.HfApi", return_value=api):
+            articles = fetch_huggingface_models(limit=1, huggingface_token="token")
+
+        self.assertNotIn("direction", api.list_models.call_args.kwargs)
+        self.assertEqual(len(articles), 1)
+
     def test_github_repositories_normalize_filter_and_use_token(self):
         from connectors import fetch_github_repositories
 
@@ -317,6 +331,40 @@ class ConnectorTests(unittest.TestCase):
         self.assertEqual(articles[0]["source_type"], "github")
         self.assertEqual(articles[0]["category"], "Tool")
         self.assertEqual(articles[0]["metrics"]["stars"], 200)
+
+    def test_github_uses_api_version_and_fallback_without_date(self):
+        from connectors import fetch_github_repositories
+
+        empty = Mock(status_code=200)
+        empty.raise_for_status.return_value = None
+        empty.json.return_value = {"items": []}
+        hit = Mock(status_code=200)
+        hit.raise_for_status.return_value = None
+        hit.json.return_value = {
+            "items": [
+                {
+                    "full_name": "owner/repo",
+                    "html_url": "https://github.com/owner/repo",
+                    "pushed_at": "2026-06-01T00:00:00Z",
+                    "updated_at": "2026-06-01T00:00:00Z",
+                    "created_at": "2026-01-01T00:00:00Z",
+                    "description": None,
+                    "stargazers_count": 5,
+                    "forks_count": 1,
+                    "open_issues_count": 0,
+                    "topics": ["llm"],
+                }
+            ]
+        }
+
+        with patch("connectors.GITHUB_QUERIES", ["topic:llm"]), patch(
+            "connectors.GITHUB_FALLBACK_QUERIES", ["topic:llm"]
+        ), patch("connectors.requests.get", side_effect=[empty, hit]) as get:
+            articles = fetch_github_repositories(start_date=date(2026, 7, 2), end_date=date(2026, 7, 2), limit=1, github_token="token")
+
+        self.assertEqual(get.call_args.kwargs["headers"]["X-GitHub-Api-Version"], "2022-11-28")
+        self.assertNotIn("pushed:", get.call_args.kwargs["params"]["q"])
+        self.assertEqual([article["url"] for article in articles], ["https://github.com/owner/repo"])
 
     def test_youtube_videos_normalize_and_filter(self):
         from connectors import fetch_youtube_videos
@@ -460,7 +508,7 @@ class AgentTests(unittest.TestCase):
             "summary": "AI API",
         }
 
-        with patch("agent.init_db"), patch("agent.save_articles"), patch("agent.fetch_rss_articles") as rss, patch(
+        with patch("agent.init_db"), patch("agent.save_articles", return_value=1), patch("agent.fetch_rss_articles") as rss, patch(
             "agent.fetch_hacker_news", return_value=[item]
         ) as hn, patch("agent.fetch_arxiv_ai") as arxiv:
             articles = run_news_agent(selected_sources=["hacker_news"])
@@ -469,6 +517,38 @@ class AgentTests(unittest.TestCase):
         hn.assert_called_once()
         arxiv.assert_not_called()
         self.assertEqual([article["source_type"] for article in articles], ["hacker_news"])
+
+    def test_run_news_agent_report_and_selected_github_huggingface(self):
+        from agent import run_news_agent
+
+        github = {
+            "source": "GitHub",
+            "source_type": "github",
+            "title": "owner/repo",
+            "url": "https://github.com/owner/repo",
+            "published_at": "2026-07-02T10:30:00",
+            "summary": "",
+            "metrics": {"stars": 1},
+        }
+        hf = {
+            "source": "Hugging Face",
+            "source_type": "huggingface",
+            "title": "org/model",
+            "url": "https://huggingface.co/org/model",
+            "published_at": "2026-07-02T10:30:00",
+            "summary": "",
+            "metrics": {},
+        }
+
+        with patch("agent.init_db"), patch("agent.save_articles", return_value=2), patch(
+            "agent.fetch_github_repositories", return_value=[github]
+        ), patch("agent.fetch_huggingface_models", return_value=[hf]):
+            articles = run_news_agent(selected_sources=["github", "huggingface"])
+
+        self.assertEqual([article["source_type"] for article in articles], ["huggingface", "github"])
+        self.assertEqual(articles.report["sources"]["GitHub"], 1)
+        self.assertEqual(articles.report["sources"]["Hugging Face"], 1)
+        self.assertEqual(articles.report["saved"], 2)
 
 
 class AppHelperTests(unittest.TestCase):
@@ -493,6 +573,18 @@ class AppHelperTests(unittest.TestCase):
         self.assertEqual(tokens["github_token"], "session-gh")
         self.assertEqual(tokens["huggingface_token"], "env-hf")
         self.assertEqual(tokens["youtube_api_key"], "env-yt")
+
+
+class DiagnosticsTests(unittest.TestCase):
+    def test_diagnostics_do_not_expose_tokens(self):
+        from diagnostics import test_github_connector
+
+        with patch("diagnostics.fetch_github_repositories", return_value=[{"title": "repo"}]):
+            result = test_github_connector(github_token="secret")
+
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["items_found"], 1)
+        self.assertNotIn("secret", str(result))
 
 
 if __name__ == "__main__":

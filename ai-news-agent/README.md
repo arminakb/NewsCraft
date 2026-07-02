@@ -81,11 +81,25 @@ $env:YOUTUBE_API_KEY="your_youtube_api_key"
 
 If old articles still appear, the existing `news.db` may contain old or badly formatted dates from the previous version. Use the **Clear Old Database** button in the dashboard, or delete `news.db` manually, then run the agent again.
 
+## Troubleshooting GitHub and Hugging Face
+
+Open **Settings > Debug** and run the GitHub/Hugging Face connection and connector tests. The diagnostics show token status, safe HTTP/status details, and item counts without exposing token values.
+
+Common causes of empty results:
+
+- Token was entered but not saved in Settings.
+- GitHub rate limit, 401, 403, or query validation errors.
+- Date range is too narrow; connectors fall back to popular/recent results where useful.
+- Hugging Face metadata such as `last_modified`, likes, or downloads is missing.
+- Display filters hide results; use Source Type `All`, Category `All`, Status `All`.
+- Old database schema or old rows; use **Clear Old Database**.
+
 ## Project structure
 
 ```text
 app.py
 agent.py
+diagnostics.py
 connectors.py
 config.py
 storage.py

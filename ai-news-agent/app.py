@@ -7,6 +7,12 @@ from datetime import date, timedelta
 import streamlit as st
 
 from agent import run_news_agent
+from diagnostics import (
+    test_github_connection,
+    test_github_connector,
+    test_huggingface_connection,
+    test_huggingface_connector,
+)
 from storage import clear_articles, get_articles, init_db, update_article_status
 
 SOURCE_OPTIONS = ["rss", "hacker_news", "arxiv", "huggingface", "github", "youtube"]
@@ -99,6 +105,14 @@ def _settings_panel(selected_sources, start_date, end_date):
             st.write(f"GitHub token: {'configured' if tokens['github_token'] else 'not configured'}")
             st.write(f"Hugging Face token: {'configured' if tokens['huggingface_token'] else 'not configured'}")
             st.write(f"YouTube API key: {'configured' if tokens['youtube_api_key'] else 'not configured'}")
+            if st.button("Test GitHub Connection"):
+                st.json(test_github_connection(tokens["github_token"]))
+            if st.button("Test Hugging Face Connection"):
+                st.json(test_huggingface_connection(tokens["huggingface_token"]))
+            if st.button("Test GitHub Connector"):
+                st.json(test_github_connector(start_date, end_date, tokens["github_token"]))
+            if st.button("Test Hugging Face Connector"):
+                st.json(test_huggingface_connector(start_date, end_date, tokens["huggingface_token"]))
 
 
 def main():
@@ -138,6 +152,8 @@ def main():
                 youtube_api_key=tokens["youtube_api_key"],
             )
             st.success(f"Collected {len(articles)} relevant articles.")
+            if hasattr(articles, "report"):
+                st.json(articles.report)
 
     if st.session_state.show_settings:
         _settings_panel(selected_sources, start_date, end_date)
@@ -160,7 +176,7 @@ def main():
         source_type=source_type,
     )
     if not articles:
-        st.info("No articles found for this date range. Try expanding the date range or running the agent again.")
+        st.info("No items found. Try expanding the date range, clearing filters, or running connector diagnostics from Settings.")
         return
 
     for article in articles:

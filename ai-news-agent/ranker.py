@@ -58,11 +58,11 @@ def classify_and_score(article):
 
     if source_type == "huggingface":
         article["category"] = "Model"
-        article["score"] = int(metrics.get("likes", 0) or 0) + int(metrics.get("downloads", 0) or 0) // 100 + ai_score * 3
+        article["score"] = max(1, int(metrics.get("likes", 0) or 0) + int(metrics.get("downloads", 0) or 0) // 100 + ai_score * 3)
         return article
     if source_type == "github":
         article["category"] = "Tool"
-        article["score"] = int(metrics.get("stars", 0) or 0) + int(metrics.get("forks", 0) or 0) * 2 + ai_score * 3 + tech_score
+        article["score"] = max(1, int(metrics.get("stars", 0) or 0) + int(metrics.get("forks", 0) or 0) * 2 + ai_score * 3 + tech_score)
         return article
     if source_type == "youtube":
         article["category"] = "Video"
