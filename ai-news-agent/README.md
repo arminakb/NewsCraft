@@ -9,6 +9,7 @@ ranks the articles, stores them in SQLite, and displays them for review.
 - Keyword scoring and category classification
 - SQLite storage with duplicate URL protection
 - Streamlit dashboard with review statuses
+- Date range collection and display filtering
 
 ## Installation
 
@@ -35,6 +36,14 @@ With the local virtual environment:
 .venv/bin/streamlit run app.py
 ```
 
+## Date Range Filtering
+
+Use the Start Date and End Date controls to collect and display news from a specific period. The selected range is applied during source collection and when reading saved articles from SQLite.
+
+## Cleaning Old Data
+
+If old articles still appear, the existing `news.db` may contain old or badly formatted dates from the previous version. Use the **Clear Old Database** button in the dashboard, or delete `news.db` manually, then run the agent again.
+
 ## Project structure
 
 ```text
@@ -43,6 +52,7 @@ agent.py
 connectors.py
 storage.py
 ranker.py
+utils.py
 requirements.txt
 README.md
 ```

@@ -2,12 +2,12 @@
 
 import html
 import logging
-from datetime import datetime, timezone
 from xml.etree import ElementTree
 
 import feedparser
 import requests
-from dateutil import parser as date_parser
+
+from utils import is_within_date_range, normalize_date_for_storage, parse_article_date
 
 RSS_FEEDS = [
     "https://openai.com/news/rss.xml",
@@ -26,16 +26,15 @@ def _text(value):
     return html.unescape(str(value or "")).strip()
 
 
-def _date(value):
-    if not value:
-        return ""
-    try:
-        return date_parser.parse(value).isoformat()
-    except (TypeError, ValueError, OverflowError):
-        return _text(value)
+def _entry_date(entry):
+    for key in ("published", "updated", "published_parsed", "updated_parsed"):
+        parsed = parse_article_date(entry.get(key))
+        if parsed:
+            return parsed
+    return None
 
 
-def fetch_rss_articles():
+def fetch_rss_articles(start_date=None, end_date=None):
     articles = []
     for url in RSS_FEEDS:
         try:
@@ -46,12 +45,15 @@ def fetch_rss_articles():
                 link = _text(entry.get("link"))
                 if not title or not link:
                     continue
+                published = _entry_date(entry)
+                if not is_within_date_range(published, start_date, end_date):
+                    continue
                 articles.append(
                     {
                         "source": source,
                         "title": title,
                         "url": link,
-                        "published_at": _date(entry.get("published") or entry.get("updated")),
+                        "published_at": normalize_date_for_storage(published),
                         "summary": _text(entry.get("summary") or entry.get("description")),
                         "category": "General",
                         "score": 0,
@@ -62,7 +64,7 @@ def fetch_rss_articles():
     return articles
 
 
-def fetch_hacker_news(limit=30):
+def fetch_hacker_news(limit=30, start_date=None, end_date=None):
     try:
         response = requests.get(HN_TOP_URL, timeout=TIMEOUT)
         response.raise_for_status()
@@ -81,15 +83,15 @@ def fetch_hacker_news(limit=30):
             url = _text(story.get("url"))
             if not title or not url:
                 continue
-            published = story.get("time")
+            published = parse_article_date(story.get("time"))
+            if not is_within_date_range(published, start_date, end_date):
+                continue
             articles.append(
                 {
                     "source": "Hacker News",
                     "title": title,
                     "url": url,
-                    "published_at": datetime.fromtimestamp(published, timezone.utc).isoformat()
-                    if published
-                    else "",
+                    "published_at": normalize_date_for_storage(published),
                     "summary": _text(story.get("text")),
                     "category": "General",
                     "score": int(story.get("score") or 0),
@@ -100,7 +102,7 @@ def fetch_hacker_news(limit=30):
     return articles
 
 
-def fetch_arxiv_ai(limit=20):
+def fetch_arxiv_ai(limit=20, start_date=None, end_date=None):
     params = {
         "search_query": "cat:cs.AI OR cat:cs.LG OR cat:cs.CL",
         "sortBy": "submittedDate",
@@ -123,12 +125,18 @@ def fetch_arxiv_ai(limit=20):
         url = _text(entry.findtext("atom:id", default="", namespaces=ns))
         if not title or not url:
             continue
+        published = parse_article_date(
+            entry.findtext("atom:published", default="", namespaces=ns)
+            or entry.findtext("atom:updated", default="", namespaces=ns)
+        )
+        if not is_within_date_range(published, start_date, end_date):
+            continue
         articles.append(
             {
                 "source": "arXiv",
                 "title": " ".join(title.split()),
                 "url": url,
-                "published_at": _date(entry.findtext("atom:published", default="", namespaces=ns)),
+                "published_at": normalize_date_for_storage(published),
                 "summary": _text(entry.findtext("atom:summary", default="", namespaces=ns)),
                 "category": "AI",
                 "score": 0,

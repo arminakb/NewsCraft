@@ -1,11 +1,12 @@
 """Streamlit dashboard entry point."""
 
 import re
+from datetime import date, timedelta
 
 import streamlit as st
 
 from agent import run_news_agent
-from storage import get_articles, init_db, update_article_status
+from storage import clear_articles, get_articles, init_db, update_article_status
 
 
 def summary_preview(summary, limit=500):
@@ -42,18 +43,34 @@ def main():
 
     st.title("AI & Tech News Agent Dashboard")
 
-    if st.button("Run News Agent", type="primary"):
-        articles = run_news_agent()
-        st.success(f"Collected {len(articles)} relevant articles.")
-
-    col1, col2, col3 = st.columns([1, 1, 2])
+    today = date.today()
+    col1, col2, col3, col4, col5 = st.columns([1, 1, 1, 1, 2])
     category = col1.selectbox("Category", ["All", "AI", "Tech", "General"])
     status = col2.selectbox("Status", ["All", "new", "approved", "rejected"])
-    limit = col3.slider("Limit", 10, 100, 50, 10)
+    start_date = col3.date_input("Start Date", value=today - timedelta(days=1))
+    end_date = col4.date_input("End Date", value=today)
+    limit = col5.slider("Limit", 10, 100, 50, 10)
 
-    articles = filter_articles(get_articles(limit=limit), category, status)
+    st.caption(f"Showing articles from {start_date} to {end_date}")
+
+    a, b = st.columns([2, 1])
+    if a.button("Run News Agent for Selected Date Range", type="primary"):
+        articles = run_news_agent(start_date=start_date, end_date=end_date)
+        st.success(f"Collected {len(articles)} relevant articles.")
+    if b.button("Clear Old Database"):
+        clear_articles()
+        st.success("Stored articles cleared.")
+        _rerun()
+
+    articles = get_articles(
+        limit=limit,
+        start_date=start_date,
+        end_date=end_date,
+        category=category,
+        status=status,
+    )
     if not articles:
-        st.info("No articles found.")
+        st.info("No articles found for this date range. Try expanding the date range or running the agent again.")
         return
 
     for article in articles:

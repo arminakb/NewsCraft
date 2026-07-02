@@ -2,7 +2,7 @@
 
 ## Overall Progress
 
-Progress: [██████████] 100%
+Progress: [███████████] 110%
 
 ---
 
@@ -222,3 +222,31 @@ Final testing and cleanup.
 
 **Next step:**
 Run the app with `streamlit run app.py`.
+
+---
+
+## Phase 11 Completed: Date range filtering and fresh news control
+
+**Completed:**
+- Added date parsing, normalization, and range helpers.
+- Filtered RSS, Hacker News, and arXiv articles by selected publication dates.
+- Re-validated article dates in the agent before saving.
+- Added SQLite date/category/status filters and database clearing.
+- Added dashboard Start Date, End Date, date-range run button, active range text, and clearer empty state.
+
+**Files changed:**
+- `utils.py`
+- `connectors.py`
+- `agent.py`
+- `storage.py`
+- `app.py`
+- `test_news_agent.py`
+- `README.md`
+- `ROADMAP.md`
+- `PROGRESS.md`
+
+**Problems:**
+- None.
+
+**Next step:**
+Run the dashboard and test a recent date range.

@@ -3,6 +3,8 @@
 import os
 import sqlite3
 
+from utils import normalize_date_for_storage
+
 DB_PATH = "news.db"
 VALID_STATUSES = {"new", "approved", "rejected"}
 
@@ -54,7 +56,7 @@ def save_articles(articles):
                     article.get("source", ""),
                     article.get("title", ""),
                     article.get("url", ""),
-                    article.get("published_at"),
+                    normalize_date_for_storage(article.get("published_at")),
                     article.get("summary", ""),
                     article.get("category", "General"),
                     int(article.get("score", 0)),
@@ -65,16 +67,33 @@ def save_articles(articles):
         return conn.total_changes - before
 
 
-def get_articles(limit=100):
+def get_articles(limit=100, start_date=None, end_date=None, category=None, status=None):
+    where = []
+    params = []
+    if start_date:
+        where.append("date(published_at) >= date(?)")
+        params.append(normalize_date_for_storage(start_date))
+    if end_date:
+        where.append("date(published_at) <= date(?)")
+        params.append(normalize_date_for_storage(end_date))
+    if category and category != "All":
+        where.append("category = ?")
+        params.append(category)
+    if status and status != "All":
+        where.append("status = ?")
+        params.append(status)
+    params.append(limit)
+
     with _connect() as conn:
         rows = conn.execute(
-            """
+            f"""
             SELECT id, source, title, url, published_at, summary, category, score, status, created_at
             FROM articles
-            ORDER BY score DESC, published_at DESC, created_at DESC
+            {"WHERE " + " AND ".join(where) if where else ""}
+            ORDER BY published_at DESC, score DESC, created_at DESC
             LIMIT ?
             """,
-            (limit,),
+            params,
         ).fetchall()
         return [dict(row) for row in rows]
 
@@ -88,3 +107,8 @@ def update_article_status(article_id, status):
             "UPDATE articles SET status = ? WHERE id = ?",
             (status, article_id),
         )
+
+
+def clear_articles():
+    with _connect() as conn:
+        conn.execute("DELETE FROM articles")

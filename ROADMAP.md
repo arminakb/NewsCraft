@@ -154,3 +154,21 @@ A working MVP with clear docs and committed phases.
 
 ### Status
 Complete
+
+## Phase 11: Date range filtering and fresh news control
+
+**Goal:** Let users collect and display only articles inside a selected date range.
+
+### Tasks
+- [x] Add date parsing and range helpers
+- [x] Filter RSS, Hacker News, and arXiv by publication date
+- [x] Re-validate article dates in the agent before saving
+- [x] Filter SQLite reads by date, category, and status
+- [x] Add dashboard date inputs and database clearing
+- [x] Update documentation and tests
+
+### Expected Output
+Fresh, dated articles are collected and displayed only for the selected date range.
+
+### Status
+Complete
