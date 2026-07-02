@@ -20,16 +20,16 @@ Complete
 **Goal:** Add SQLite persistence for normalized articles.
 
 ### Tasks
-- [ ] Create the `articles` table
-- [ ] Save articles with duplicate URL protection
-- [ ] Read articles with limit support
-- [ ] Update review status
+- [x] Create the `articles` table
+- [x] Save articles with duplicate URL protection
+- [x] Read articles with limit support
+- [x] Update review status
 
 ### Expected Output
 Working storage functions in `storage.py`.
 
 ### Status
-Not started
+Complete
 
 ## Phase 3: RSS connector
 

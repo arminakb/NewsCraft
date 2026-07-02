@@ -2,7 +2,7 @@
 
 ## Overall Progress
 
-Progress: [█---------] 10%
+Progress: [██--------] 20%
 
 ---
 
@@ -28,3 +28,25 @@ Progress: [█---------] 10%
 
 **Next step:**
 Implement the SQLite storage layer.
+
+---
+
+## Phase 2 Completed: Database and storage layer
+
+**Completed:**
+- Added SQLite table creation.
+- Added duplicate-safe article inserts.
+- Added article reads and status updates.
+- Added a focused storage test.
+
+**Files changed:**
+- `storage.py`
+- `test_news_agent.py`
+- `ROADMAP.md`
+- `PROGRESS.md`
+
+**Problems:**
+- None.
+
+**Next step:**
+Implement the RSS connector.
