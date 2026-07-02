@@ -2,7 +2,7 @@
 
 ## Overall Progress
 
-Progress: [██--------] 20%
+Progress: [███-------] 30%
 
 ---
 
@@ -50,3 +50,24 @@ Implement the SQLite storage layer.
 
 **Next step:**
 Implement the RSS connector.
+
+---
+
+## Phase 3 Completed: RSS connector
+
+**Completed:**
+- Added configured RSS feeds.
+- Normalized feed entries into the common article format.
+- Kept feed failures from crashing collection.
+
+**Files changed:**
+- `connectors.py`
+- `test_news_agent.py`
+- `ROADMAP.md`
+- `PROGRESS.md`
+
+**Problems:**
+- System Python refused global installs, so dependencies were installed in local `.venv`.
+
+**Next step:**
+Implement the Hacker News connector.

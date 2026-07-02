@@ -1,6 +1,7 @@
 import os
 import tempfile
 import unittest
+from unittest.mock import Mock, patch
 
 
 class StorageTests(unittest.TestCase):
@@ -38,6 +39,69 @@ class StorageTests(unittest.TestCase):
 
         update_article_status(rows[0]["id"], "approved")
         self.assertEqual(get_articles()[0]["status"], "approved")
+
+
+class ConnectorTests(unittest.TestCase):
+    def test_rss_skips_bad_entries(self):
+        from connectors import fetch_rss_articles
+
+        entry = {
+            "title": "AI story",
+            "link": "https://example.com/ai",
+            "published": "Thu, 02 Jul 2026 00:00:00 GMT",
+            "summary": "<p>Hello</p>",
+        }
+        with patch("connectors.RSS_FEEDS", ["https://example.com/feed"]), patch("connectors.feedparser.parse") as parse:
+            parse.return_value = Mock(feed=Mock(get=lambda key, default=None: "Feed"), entries=[entry, {"title": ""}])
+
+            articles = fetch_rss_articles()
+
+        self.assertEqual(len(articles), 1)
+        self.assertEqual(articles[0]["source"], "Feed")
+        self.assertEqual(articles[0]["url"], entry["link"])
+
+    def test_hacker_news_keeps_stories_with_title_and_url(self):
+        from connectors import fetch_hacker_news
+
+        def fake_get(url, timeout):
+            response = Mock()
+            response.raise_for_status.return_value = None
+            response.json.return_value = [1, 2] if url.endswith("topstories.json") else {
+                "title": "Developer tool",
+                "url": "https://example.com/dev",
+                "time": 1782950400,
+                "text": "summary",
+            }
+            return response
+
+        with patch("connectors.requests.get", side_effect=fake_get):
+            articles = fetch_hacker_news(limit=1)
+
+        self.assertEqual(len(articles), 1)
+        self.assertEqual(articles[0]["source"], "Hacker News")
+        self.assertEqual(articles[0]["url"], "https://example.com/dev")
+
+    def test_arxiv_reads_atom_entries(self):
+        from connectors import fetch_arxiv_ai
+
+        xml = """<?xml version="1.0" encoding="UTF-8"?>
+        <feed xmlns="http://www.w3.org/2005/Atom">
+          <entry>
+            <title>Machine Learning Paper</title>
+            <id>https://arxiv.org/abs/1234.5678</id>
+            <published>2026-07-02T00:00:00Z</published>
+            <summary>Paper summary</summary>
+          </entry>
+        </feed>"""
+        response = Mock(text=xml)
+        response.raise_for_status.return_value = None
+
+        with patch("connectors.requests.get", return_value=response):
+            articles = fetch_arxiv_ai(limit=1)
+
+        self.assertEqual(len(articles), 1)
+        self.assertEqual(articles[0]["source"], "arXiv")
+        self.assertEqual(articles[0]["url"], "https://arxiv.org/abs/1234.5678")
 
 
 if __name__ == "__main__":

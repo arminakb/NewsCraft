@@ -36,15 +36,15 @@ Complete
 **Goal:** Fetch and normalize articles from public RSS feeds.
 
 ### Tasks
-- [ ] Add configured AI/tech RSS feeds
-- [ ] Normalize feed entries
-- [ ] Continue if a feed fails
+- [x] Add configured AI/tech RSS feeds
+- [x] Normalize feed entries
+- [x] Continue if a feed fails
 
 ### Expected Output
 RSS articles returned in the common article format.
 
 ### Status
-Not started
+Complete
 
 ## Phase 4: Hacker News connector
 
