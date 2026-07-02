@@ -151,5 +151,19 @@ class AgentTests(unittest.TestCase):
         self.assertGreater(articles[0]["score"], 0)
 
 
+class AppHelperTests(unittest.TestCase):
+    def test_filter_articles_and_summary_preview(self):
+        from app import filter_articles, summary_preview
+
+        articles = [
+            {"category": "AI", "status": "new", "summary": "a" * 600},
+            {"category": "Tech", "status": "approved", "summary": "short"},
+        ]
+
+        self.assertEqual(len(filter_articles(articles, "AI", "All")), 1)
+        self.assertEqual(len(filter_articles(articles, "All", "approved")), 1)
+        self.assertEqual(len(summary_preview(articles[0]["summary"])), 500)
+
+
 if __name__ == "__main__":
     unittest.main()

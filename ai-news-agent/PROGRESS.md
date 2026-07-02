@@ -2,7 +2,7 @@
 
 ## Overall Progress
 
-Progress: [███████---] 70%
+Progress: [████████--] 80%
 
 ---
 
@@ -158,3 +158,25 @@ Implement the main news agent pipeline.
 
 **Next step:**
 Build the Streamlit dashboard.
+
+---
+
+## Phase 8 Completed: Streamlit dashboard
+
+**Completed:**
+- Added wide Streamlit layout and dashboard title.
+- Added manual news agent run button.
+- Added category/status filters and limit slider.
+- Rendered articles as bordered cards.
+
+**Files changed:**
+- `app.py`
+- `test_news_agent.py`
+- `ROADMAP.md`
+- `PROGRESS.md`
+
+**Problems:**
+- None.
+
+**Next step:**
+Add review action buttons.

@@ -112,16 +112,16 @@ Complete
 **Goal:** Display articles in a clean Streamlit dashboard.
 
 ### Tasks
-- [ ] Add wide layout and title
-- [ ] Add manual run button
-- [ ] Add category/status filters and limit slider
-- [ ] Render article cards
+- [x] Add wide layout and title
+- [x] Add manual run button
+- [x] Add category/status filters and limit slider
+- [x] Render article cards
 
 ### Expected Output
 Users can collect and browse articles from the dashboard.
 
 ### Status
-Not started
+Complete
 
 ## Phase 9: Review system with approve/reject/reset
 
