@@ -5,12 +5,12 @@ ranks the articles, stores them in SQLite, and displays them for review.
 
 ## Features
 
-- RSS, Hacker News, and arXiv collection
+- RSS feed, Hacker News, and arXiv collection
 - Hugging Face model, GitHub repository, and YouTube RSS discovery
 - Keyword scoring and category classification
 - SQLite storage with duplicate URL protection
 - Streamlit dashboard with review statuses
-- Date range collection and display filtering
+- Latest/recent time ranges, sorting, and display filtering
 - Current search sessions and separate approved-articles storage
 
 ## Installation
@@ -40,11 +40,29 @@ With the local virtual environment:
 
 ## Date Range Filtering
 
-Use the Start Date and End Date controls to collect and display news from a specific period. The selected range is applied during source collection and when reading saved articles from SQLite.
+Use **Time range** to run the agent for Last 24 hours, Last 3 days, Last 7 days, or a custom Start Date/End Date. Preset ranges use datetime filtering, so Last 24 hours is not treated as a whole calendar day.
+
+Use **Sort by** in Display Filters to sort by Latest first, Highest score, Most popular, or Source. Cards show relative publish time such as `Published 2 hours ago`.
 
 ## Selecting Sources
 
 Use **Collection Controls** to choose which sources the agent should run. Each run creates a new search session, and the dashboard shows the current session by default so old results do not crowd the new run.
+
+Source labels are split into:
+
+- `source`: the publication or API, such as OpenAI News, Hacker News, arXiv, or GitHub.
+- `source_type`: the connector type, such as RSS Feed, Hacker News API, arXiv API, or GitHub API.
+- `source_group`: Company News, Startup News, AI Industry News, Developer Trends, Research, Model Trends, or Video.
+
+RSS is a connector type, not a single publisher.
+
+## RSS News Sources
+
+Configured RSS feeds include OpenAI News, Anthropic News, NVIDIA AI Blog, Google DeepMind Blog, Microsoft AI Blog, Hugging Face Blog, TechCrunch AI, TechCrunch Startups, VentureBeat AI, The Verge AI, MIT Technology Review AI, and Y Combinator Blog. Broken feeds are skipped and reported without crashing collection.
+
+## Hacker News and arXiv
+
+Hacker News now checks top, new, and best story lists, keeps URL stories with developer/startup/AI relevance, and records HN score and comments. arXiv now searches AI, ML, NLP, CV, and statistical ML categories, stores papers as Research, and keeps author names when available.
 
 ## Hugging Face Models
 
@@ -52,7 +70,7 @@ The Hugging Face connector discovers public models, stores likes/downloads as me
 
 ## GitHub Repository Discovery
 
-The GitHub connector searches AI/ML/LLM/agent/RAG topics and keywords, tries pushed-date and created-date queries, falls back to popular AI repositories, and stores stars, forks, open issues, language, and concise structured summaries. It attempts to fetch README snippets safely, but raw README text stays hidden in card details. `GITHUB_TOKEN` is optional but recommended for better GitHub API limits.
+The GitHub connector searches AI/ML/LLM/agent/RAG topics and keywords, tries pushed-date and created-date queries, falls back to popular AI repositories, and stores stars, forks, open issues, language, topics, and concise structured summaries. It attempts to fetch README snippets safely, but raw README text stays hidden in card details. The collection report includes token configured status, HTTP status, rate-limit remaining, queries used, raw items, date-filtered items, scored items, and returned count. `GITHUB_TOKEN` is optional but recommended for better GitHub API limits.
 
 ## YouTube Video Sources
 
@@ -102,7 +120,7 @@ If old articles still appear, the existing `news.db` may contain old or badly fo
 
 ## Troubleshooting GitHub and Hugging Face
 
-Open **Configuration > Debug** and run the GitHub/Hugging Face connection and connector tests. The diagnostics show token status, safe HTTP/status details, and item counts without exposing token values.
+Open **Configuration > Debug** and run the GitHub, Hugging Face, Hacker News, or arXiv connector tests. The diagnostics show token status, safe HTTP/status details, per-query/per-feed counts, and item counts without exposing token values.
 
 Common causes of empty results:
 

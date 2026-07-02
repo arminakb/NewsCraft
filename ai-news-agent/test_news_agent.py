@@ -1,7 +1,7 @@
 import os
 import tempfile
 import unittest
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from unittest.mock import Mock, patch
 
 
@@ -74,7 +74,7 @@ class StorageTests(unittest.TestCase):
         clear_articles()
         self.assertEqual(get_articles(), [])
 
-    def test_storage_keeps_source_type_and_metrics(self):
+    def test_storage_keeps_source_type_metrics_group_and_sorting(self):
         from storage import get_articles, init_db, save_articles
 
         init_db()
@@ -91,15 +91,29 @@ class StorageTests(unittest.TestCase):
                     "score": 10,
                     "metrics": {"stars": 100, "forks": 5},
                     "thumbnail_url": "https://example.com/thumb.png",
+                    "connector": "github",
+                    "source_group": "developer_trends",
+                },
+                {
+                    "source": "arXiv",
+                    "source_type": "arxiv",
+                    "title": "paper",
+                    "url": "https://arxiv.org/abs/1",
+                    "published_at": "2026-07-02T12:30:00",
+                    "summary": "AI paper",
+                    "category": "Research",
+                    "score": 1,
                 }
             ]
         )
 
-        rows = get_articles(source_type="github")
-        self.assertEqual(len(rows), 1)
-        self.assertEqual(rows[0]["source_type"], "github")
-        self.assertEqual(rows[0]["metrics"]["stars"], 100)
-        self.assertEqual(rows[0]["thumbnail_url"], "https://example.com/thumb.png")
+        rows = get_articles(sort_by="Latest first")
+        self.assertEqual(rows[0]["source_type"], "arxiv")
+        github = get_articles(source_type="github")[0]
+        self.assertEqual(github["metrics"]["stars"], 100)
+        self.assertEqual(github["thumbnail_url"], "https://example.com/thumb.png")
+        self.assertEqual(github["connector"], "github")
+        self.assertEqual(github["source_group"], "developer_trends")
 
     def test_search_sessions_filter_current_results_and_structured_summary(self):
         from storage import create_search_session, get_articles, init_db, save_articles
@@ -185,7 +199,7 @@ class ApprovedStorageTests(unittest.TestCase):
 
 class DateUtilTests(unittest.TestCase):
     def test_parse_range_and_normalize_dates(self):
-        from utils import clean_token, is_within_date_range, normalize_date_for_storage, parse_article_date, redact_sensitive_text
+        from utils import clean_token, humanize_time_ago, is_within_date_range, normalize_date_for_storage, parse_article_date, redact_sensitive_text
 
         parsed = parse_article_date("Thu, 02 Jul 2026 10:30:00 GMT")
         self.assertEqual(parsed.date(), date(2026, 7, 2))
@@ -198,6 +212,9 @@ class DateUtilTests(unittest.TestCase):
         self.assertEqual(clean_token(" token \n"), "token")
         self.assertIsNone(clean_token("   "))
         self.assertNotIn("hf_secret", redact_sensitive_text("Illegal header value b'Bearer hf_secret '"))
+        self.assertFalse(is_within_date_range("2026-07-02T09:00:00", datetime(2026, 7, 2, 10), datetime(2026, 7, 2, 12)))
+        self.assertEqual(humanize_time_ago("2026-07-02T10:00:00", datetime(2026, 7, 2, 12)), "Published 2 hours ago")
+        self.assertEqual(humanize_time_ago(None), "Unknown publish time")
 
 
 class SummarizerTests(unittest.TestCase):
@@ -253,6 +270,21 @@ class ConnectorTests(unittest.TestCase):
         self.assertEqual(articles[0]["source"], "Feed")
         self.assertEqual(articles[0]["url"], entry["link"])
 
+    def test_rss_uses_configured_source_group_and_diagnostics(self):
+        from connectors import fetch_rss_articles
+
+        diagnostics = {}
+        feed = [{"name": "OpenAI News", "url": "https://example.com/feed", "source_group": "company_news"}]
+        entry = {"title": "AI story", "link": "https://example.com/ai", "published": "Thu, 02 Jul 2026 00:00:00 GMT"}
+        with patch("connectors.RSS_FEEDS", feed), patch("connectors.feedparser.parse") as parse:
+            parse.return_value = Mock(feed=Mock(get=lambda key, default=None: "Ignored"), entries=[entry])
+            articles = fetch_rss_articles(diagnostics=diagnostics)
+
+        self.assertEqual(articles[0]["source"], "OpenAI News")
+        self.assertEqual(articles[0]["connector"], "rss")
+        self.assertEqual(articles[0]["source_group"], "company_news")
+        self.assertEqual(diagnostics["feeds"]["OpenAI News"]["raw"], 1)
+
     def test_rss_filters_selected_date_range_and_missing_dates(self):
         from connectors import fetch_rss_articles
 
@@ -274,20 +306,26 @@ class ConnectorTests(unittest.TestCase):
         def fake_get(url, timeout):
             response = Mock()
             response.raise_for_status.return_value = None
-            response.json.return_value = [1, 2] if url.endswith("topstories.json") else {
+            response.json.return_value = [1, 2] if url.endswith(("topstories.json", "newstories.json", "beststories.json")) else {
                 "title": "Developer tool",
                 "url": "https://example.com/dev",
                 "time": 1782950400,
+                "score": 25,
+                "descendants": 4,
                 "text": "summary",
             }
             return response
 
+        diagnostics = {}
         with patch("connectors.requests.get", side_effect=fake_get):
-            articles = fetch_hacker_news(limit=1)
+            articles = fetch_hacker_news(limit=1, diagnostics=diagnostics)
 
         self.assertEqual(len(articles), 1)
         self.assertEqual(articles[0]["source"], "Hacker News")
         self.assertEqual(articles[0]["url"], "https://example.com/dev")
+        self.assertEqual(articles[0]["source_group"], "developer_trends")
+        self.assertEqual(diagnostics["raw_ids"], 2)
+        self.assertEqual(diagnostics["after_scoring"], 1)
 
     def test_hacker_news_filters_selected_date_range(self):
         from connectors import fetch_hacker_news
@@ -295,12 +333,12 @@ class ConnectorTests(unittest.TestCase):
         def fake_get(url, timeout):
             response = Mock()
             response.raise_for_status.return_value = None
-            if url.endswith("topstories.json"):
+            if url.endswith(("topstories.json", "newstories.json", "beststories.json")):
                 response.json.return_value = [1, 2]
             elif url.endswith("/1.json"):
-                response.json.return_value = {"title": "Fresh AI", "url": "https://example.com/fresh", "time": 1782950400}
+                response.json.return_value = {"title": "Fresh AI", "url": "https://example.com/fresh", "time": 1782950400, "score": 21}
             else:
-                response.json.return_value = {"title": "Old AI", "url": "https://example.com/old", "time": 1782777600}
+                response.json.return_value = {"title": "Old AI", "url": "https://example.com/old", "time": 1782777600, "score": 21}
             return response
 
         with patch("connectors.requests.get", side_effect=fake_get):
@@ -318,6 +356,7 @@ class ConnectorTests(unittest.TestCase):
             <id>https://arxiv.org/abs/1234.5678</id>
             <published>2026-07-02T00:00:00Z</published>
             <summary>Paper summary</summary>
+            <author><name>Ada Lovelace</name></author>
           </entry>
         </feed>"""
         response = Mock(text=xml)
@@ -329,6 +368,8 @@ class ConnectorTests(unittest.TestCase):
         self.assertEqual(len(articles), 1)
         self.assertEqual(articles[0]["source"], "arXiv")
         self.assertEqual(articles[0]["url"], "https://arxiv.org/abs/1234.5678")
+        self.assertEqual(articles[0]["category"], "Research")
+        self.assertEqual(articles[0]["metrics"]["authors"], ["Ada Lovelace"])
 
     def test_arxiv_filters_selected_date_range(self):
         from connectors import fetch_arxiv_ai
@@ -438,12 +479,14 @@ class ConnectorTests(unittest.TestCase):
             ]
         }
 
+        diagnostics = {}
         with patch("connectors.requests.get", return_value=response) as get:
             articles = fetch_github_repositories(
                 start_date=date(2026, 7, 2),
                 end_date=date(2026, 7, 2),
                 limit=1,
                 github_token=" token ",
+                diagnostics=diagnostics,
             )
 
         self.assertEqual(get.call_args.kwargs["headers"]["Authorization"], "Bearer token")
@@ -452,6 +495,9 @@ class ConnectorTests(unittest.TestCase):
         self.assertEqual(articles[0]["category"], "Tool")
         self.assertEqual(articles[0]["metrics"]["stars"], 200)
         self.assertIn("what_it_is", articles[0]["structured_summary"])
+        self.assertEqual(articles[0]["source_group"], "developer_trends")
+        self.assertEqual(diagnostics["token_configured"], True)
+        self.assertGreaterEqual(diagnostics["raw_items"], 2)
 
     def test_github_uses_api_version_and_fallback_without_date(self):
         from connectors import fetch_github_repositories
@@ -556,6 +602,12 @@ class RankerTests(unittest.TestCase):
         self.assertEqual(huggingface["category"], "Model")
         self.assertGreater(huggingface["score"], 20)
 
+        arxiv = classify_and_score({"source_type": "arxiv", "title": "A theorem", "summary": ""})
+        hn = classify_and_score({"source_type": "hacker_news", "title": "Developer startup", "summary": "", "metrics": {"hn_score": 25}})
+        self.assertEqual(arxiv["category"], "Research")
+        self.assertGreater(arxiv["score"], 0)
+        self.assertGreater(hn["score"], 0)
+
 
 class AgentTests(unittest.TestCase):
     def test_run_news_agent_saves_scored_articles_and_ignores_failed_source(self):
@@ -615,9 +667,9 @@ class AgentTests(unittest.TestCase):
         ) as rss, patch("agent.fetch_hacker_news", return_value=[]) as hn, patch("agent.fetch_arxiv_ai", return_value=[]) as arxiv:
             articles = run_news_agent(start_date=date(2026, 7, 2), end_date=date(2026, 7, 2))
 
-        rss.assert_called_once_with(start_date=date(2026, 7, 2), end_date=date(2026, 7, 2))
-        hn.assert_called_once_with(limit=30, start_date=date(2026, 7, 2), end_date=date(2026, 7, 2))
-        arxiv.assert_called_once_with(limit=20, start_date=date(2026, 7, 2), end_date=date(2026, 7, 2))
+        self.assertEqual(rss.call_args.kwargs["start_date"], date(2026, 7, 2))
+        self.assertEqual(hn.call_args.kwargs["start_date"], date(2026, 7, 2))
+        self.assertEqual(arxiv.call_args.kwargs["start_date"], date(2026, 7, 2))
         save_articles.assert_called_once()
         self.assertEqual([article["url"] for article in articles], ["https://example.com/fresh"])
         self.assertEqual(articles[0]["published_at"], "2026-07-02T10:30:00")
@@ -681,6 +733,7 @@ class AgentTests(unittest.TestCase):
         self.assertEqual(articles.report["sources"]["Hugging Face"], 1)
         self.assertEqual(articles.report["saved"], 2)
         self.assertEqual(articles.report["source_details"]["GitHub"]["saved"], 1)
+        self.assertIn("github", articles.report["diagnostics"])
 
 
 class AppHelperTests(unittest.TestCase):
@@ -706,6 +759,13 @@ class AppHelperTests(unittest.TestCase):
         self.assertEqual(tokens["huggingface_token"], "env-hf")
         self.assertEqual(tokens["youtube_api_key"], "env-yt")
 
+    def test_resolve_time_range_last_24_hours(self):
+        from app import resolve_time_range
+
+        start, end, custom = resolve_time_range("Last 24 hours")
+        self.assertFalse(custom)
+        self.assertLessEqual(end - start, timedelta(hours=24, seconds=1))
+
     def test_article_cards_only_expose_approve_action(self):
         with open("app.py", encoding="utf-8") as handle:
             source = handle.read()
@@ -717,13 +777,15 @@ class AppHelperTests(unittest.TestCase):
 
 class DiagnosticsTests(unittest.TestCase):
     def test_diagnostics_do_not_expose_tokens(self):
-        from diagnostics import test_github_connector, test_huggingface_connection
+        from diagnostics import test_arxiv_connector, test_github_connector, test_hacker_news_connector, test_huggingface_connection
 
-        with patch("diagnostics.fetch_github_repositories", return_value=[{"title": "repo"}]):
+        with patch("diagnostics.fetch_github_repositories", return_value=[{"title": "repo"}]) as github:
             result = test_github_connector(github_token=" secret ")
 
         self.assertTrue(result["ok"])
         self.assertEqual(result["items_found"], 1)
+        self.assertIn("diagnostics", result)
+        self.assertIn("diagnostics", github.call_args.kwargs)
         self.assertNotIn("secret", str(result))
 
         with patch("diagnostics.HfApi", side_effect=ValueError("Illegal header value b'Bearer hf_secret '")):
@@ -731,6 +793,11 @@ class DiagnosticsTests(unittest.TestCase):
 
         self.assertFalse(result["ok"])
         self.assertNotIn("hf_secret", str(result))
+
+        with patch("diagnostics.fetch_hacker_news", return_value=[]):
+            self.assertTrue(test_hacker_news_connector()["ok"])
+        with patch("diagnostics.fetch_arxiv_ai", return_value=[]):
+            self.assertTrue(test_arxiv_connector()["ok"])
 
 
 if __name__ == "__main__":

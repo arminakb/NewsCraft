@@ -49,6 +49,14 @@ def init_approved_db():
             )
             """
         )
+        _ensure_column(conn, "connector", "TEXT")
+        _ensure_column(conn, "source_group", "TEXT")
+
+
+def _ensure_column(conn, name, definition):
+    columns = {row["name"] for row in conn.execute("PRAGMA table_info(approved_articles)")}
+    if name not in columns:
+        conn.execute(f"ALTER TABLE approved_articles ADD COLUMN {name} {definition}")
 
 
 def save_approved_article(article):
@@ -59,8 +67,8 @@ def save_approved_article(article):
             """
             INSERT OR IGNORE INTO approved_articles
             (original_article_id, source, source_type, title, url, published_at, summary, structured_summary_json,
-             category, score, metrics_json, thumbnail_url, notes)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             category, score, metrics_json, thumbnail_url, notes, connector, source_group)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 article.get("id"),
@@ -76,6 +84,8 @@ def save_approved_article(article):
                 json.dumps(article.get("metrics", {})),
                 article.get("thumbnail_url", ""),
                 article.get("notes", ""),
+                article.get("connector", article.get("source_type", "")),
+                article.get("source_group", ""),
             ),
         )
         return conn.total_changes - before
@@ -96,7 +106,8 @@ def get_approved_articles(limit=100, category=None, source_type=None):
         rows = conn.execute(
             f"""
             SELECT id, original_article_id, source, source_type, title, url, published_at, summary,
-                   structured_summary_json, category, score, metrics_json, thumbnail_url, approved_at, status, notes
+                   structured_summary_json, category, score, metrics_json, thumbnail_url, approved_at, status, notes,
+                   connector, source_group
             FROM approved_articles
             {"WHERE " + " AND ".join(where) if where else ""}
             ORDER BY approved_at DESC

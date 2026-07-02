@@ -14,6 +14,8 @@ from summarizer import build_github_structured_summary, build_huggingface_struct
 from utils import clean_token, is_within_date_range, normalize_date_for_storage, parse_article_date, redact_sensitive_text
 
 HN_TOP_URL = "https://hacker-news.firebaseio.com/v0/topstories.json"
+HN_NEW_URL = "https://hacker-news.firebaseio.com/v0/newstories.json"
+HN_BEST_URL = "https://hacker-news.firebaseio.com/v0/beststories.json"
 HN_ITEM_URL = "https://hacker-news.firebaseio.com/v0/item/{id}.json"
 ARXIV_URL = "http://export.arxiv.org/api/query"
 GITHUB_SEARCH_URL = "https://api.github.com/search/repositories"
@@ -50,7 +52,32 @@ GITHUB_FALLBACK_QUERIES = [
     "topic:machine-learning",
     "topic:llm",
     "topic:agents",
+    "topic:rag",
+    "topic:generative-ai",
+    "ai agent",
+    "llm agent",
+    "rag framework",
+    "multimodal ai",
+    "generative ai",
 ]
+HN_KEYWORDS = {
+    "ai",
+    "artificial intelligence",
+    "openai",
+    "anthropic",
+    "llm",
+    "machine learning",
+    "startup",
+    "developer",
+    "programming",
+    "software",
+    "github",
+    "api",
+    "security",
+    "nvidia",
+    "agent",
+    "database",
+}
 
 
 def _text(value):
@@ -65,13 +92,18 @@ def _entry_date(entry):
     return None
 
 
-def fetch_rss_articles(start_date=None, end_date=None):
+def fetch_rss_articles(start_date=None, end_date=None, diagnostics=None):
     articles = []
     for feed_config in RSS_FEEDS:
         url = feed_config["url"] if isinstance(feed_config, dict) else feed_config
+        configured_name = feed_config.get("name", url) if isinstance(feed_config, dict) else ""
+        source_group = feed_config.get("source_group", "ai_industry_news") if isinstance(feed_config, dict) else "ai_industry_news"
+        raw_count = 0
+        kept_count = 0
         try:
             feed = feedparser.parse(url)
-            source = _text(feed.feed.get("title")) or (feed_config.get("name") if isinstance(feed_config, dict) else url)
+            source = configured_name or _text(feed.feed.get("title")) or url
+            raw_count = len(feed.entries)
             for entry in feed.entries:
                 title = _text(entry.get("title"))
                 link = _text(entry.get("link"))
@@ -84,6 +116,8 @@ def fetch_rss_articles(start_date=None, end_date=None):
                     {
                         "source": source,
                         "source_type": "rss",
+                        "connector": "rss",
+                        "source_group": source_group,
                         "title": title,
                         "url": link,
                         "published_at": normalize_date_for_storage(published),
@@ -93,8 +127,13 @@ def fetch_rss_articles(start_date=None, end_date=None):
                         "metrics": {},
                     }
                 )
+                kept_count += 1
         except Exception as exc:
             logging.warning("RSS fetch failed for %s: %s", url, exc)
+            if diagnostics is not None:
+                diagnostics.setdefault("failed_feeds", []).append({"source": configured_name or url, "url": url, "error": redact_sensitive_text(exc)})
+        if diagnostics is not None:
+            diagnostics.setdefault("feeds", {})[configured_name or url] = {"raw": raw_count, "returned": kept_count, "source_group": source_group}
     return articles
 
 
@@ -126,6 +165,8 @@ def fetch_youtube_videos(start_date=None, end_date=None, limit=30, youtube_api_k
                 {
                     "source": f"YouTube - {feed_config['name']}",
                     "source_type": "youtube",
+                    "connector": "youtube",
+                    "source_group": "video",
                     "title": title,
                     "url": link,
                     "published_at": normalize_date_for_storage(published),
@@ -140,49 +181,80 @@ def fetch_youtube_videos(start_date=None, end_date=None, limit=30, youtube_api_k
     return articles
 
 
-def fetch_hacker_news(limit=30, start_date=None, end_date=None):
-    try:
-        response = requests.get(HN_TOP_URL, timeout=TIMEOUT)
-        response.raise_for_status()
-        story_ids = response.json()[:limit]
-    except Exception as exc:
-        logging.warning("Hacker News top stories fetch failed: %s", exc)
-        return []
+def _hn_relevant(story):
+    text = f"{story.get('title', '')} {story.get('text', '')}".lower()
+    score = int(story.get("score") or 0)
+    return score >= 20 or any(keyword in text for keyword in HN_KEYWORDS)
+
+
+def fetch_hacker_news(limit=30, start_date=None, end_date=None, diagnostics=None):
+    story_ids = []
+    for name, url in (("topstories", HN_TOP_URL), ("newstories", HN_NEW_URL), ("beststories", HN_BEST_URL)):
+        try:
+            response = requests.get(url, timeout=TIMEOUT)
+            response.raise_for_status()
+            ids = response.json()[: max(limit, 30)]
+            story_ids.extend(ids)
+            if diagnostics is not None:
+                diagnostics.setdefault("lists", {})[name] = len(ids)
+        except Exception as exc:
+            logging.warning("Hacker News %s fetch failed: %s", name, exc)
+            if diagnostics is not None:
+                diagnostics.setdefault("errors", []).append(f"{name}: {redact_sensitive_text(exc)}")
+    story_ids = list(dict.fromkeys(story_ids))
+    if diagnostics is not None:
+        diagnostics["raw_ids"] = len(story_ids)
 
     articles = []
+    loaded = with_url = after_date = after_score = 0
     for story_id in story_ids:
         try:
             response = requests.get(HN_ITEM_URL.format(id=story_id), timeout=TIMEOUT)
             response.raise_for_status()
             story = response.json() or {}
+            loaded += 1
             title = _text(story.get("title"))
             url = _text(story.get("url"))
             if not title or not url:
                 continue
+            with_url += 1
             published = parse_article_date(story.get("time"))
             if not is_within_date_range(published, start_date, end_date):
                 continue
+            after_date += 1
+            if not _hn_relevant(story):
+                continue
+            after_score += 1
+            hn_score = int(story.get("score") or 0)
             articles.append(
                 {
                     "source": "Hacker News",
                     "source_type": "hacker_news",
+                    "connector": "hacker_news",
+                    "source_group": "developer_trends",
                     "title": title,
                     "url": url,
                     "published_at": normalize_date_for_storage(published),
                     "summary": _text(story.get("text")),
                     "category": "General",
-                    "score": int(story.get("score") or 0),
-                    "metrics": {"score": int(story.get("score") or 0)},
+                    "score": hn_score,
+                    "metrics": {"hn_score": hn_score, "comments": int(story.get("descendants") or 0)},
                 }
             )
+            if len(articles) >= limit:
+                break
         except Exception as exc:
             logging.warning("Hacker News story fetch failed for %s: %s", story_id, exc)
+            if diagnostics is not None:
+                diagnostics.setdefault("errors", []).append(f"item {story_id}: {redact_sensitive_text(exc)}")
+    if diagnostics is not None:
+        diagnostics.update({"loaded": loaded, "with_url": with_url, "after_date_filter": after_date, "after_scoring": after_score, "returned": len(articles)})
     return articles
 
 
-def fetch_arxiv_ai(limit=20, start_date=None, end_date=None):
+def fetch_arxiv_ai(limit=20, start_date=None, end_date=None, diagnostics=None):
     params = {
-        "search_query": "cat:cs.AI OR cat:cs.LG OR cat:cs.CL",
+        "search_query": "(cat:cs.AI OR cat:cs.LG OR cat:cs.CL OR cat:cs.CV OR cat:stat.ML)",
         "sortBy": "submittedDate",
         "sortOrder": "descending",
         "start": 0,
@@ -194,11 +266,17 @@ def fetch_arxiv_ai(limit=20, start_date=None, end_date=None):
         root = ElementTree.fromstring(response.text)
     except Exception as exc:
         logging.warning("arXiv fetch failed: %s", exc)
+        if diagnostics is not None:
+            diagnostics.setdefault("errors", []).append(redact_sensitive_text(exc))
         return []
 
     ns = {"atom": "http://www.w3.org/2005/Atom"}
     articles = []
-    for entry in root.findall("atom:entry", ns):
+    entries = root.findall("atom:entry", ns)
+    after_date = 0
+    if diagnostics is not None:
+        diagnostics["raw_entries"] = len(entries)
+    for entry in entries:
         title = _text(entry.findtext("atom:title", default="", namespaces=ns)).replace("\n", " ")
         url = _text(entry.findtext("atom:id", default="", namespaces=ns))
         if not title or not url:
@@ -209,19 +287,26 @@ def fetch_arxiv_ai(limit=20, start_date=None, end_date=None):
         )
         if not is_within_date_range(published, start_date, end_date):
             continue
+        after_date += 1
+        authors = [_text(author.findtext("atom:name", default="", namespaces=ns)) for author in entry.findall("atom:author", ns)]
+        authors = [author for author in authors if author]
         articles.append(
             {
                 "source": "arXiv",
                 "source_type": "arxiv",
+                "connector": "arxiv",
+                "source_group": "research",
                 "title": " ".join(title.split()),
                 "url": url,
                 "published_at": normalize_date_for_storage(published),
                 "summary": _text(entry.findtext("atom:summary", default="", namespaces=ns)),
-                "category": "AI",
+                "category": "Research",
                 "score": 0,
-                "metrics": {},
+                "metrics": {"authors": authors[:5]},
             }
         )
+    if diagnostics is not None:
+        diagnostics.update({"after_date_filter": after_date, "returned": len(articles)})
     return articles
 
 
@@ -272,6 +357,8 @@ def fetch_huggingface_models(start_date=None, end_date=None, limit=30, huggingfa
             {
                 "source": "Hugging Face",
                 "source_type": "huggingface",
+                "connector": "huggingface",
+                "source_group": "model_trends",
                 "title": model_id,
                 "url": f"https://huggingface.co/{model_id}",
                 "published_at": normalize_date_for_storage(published),
@@ -330,7 +417,7 @@ def _github_readme_snippet(full_name, headers):
         return ""
 
 
-def fetch_github_repositories(start_date=None, end_date=None, limit=30, github_token=None):
+def fetch_github_repositories(start_date=None, end_date=None, limit=30, github_token=None, diagnostics=None):
     github_token = clean_token(github_token)
     logging.info("GitHub connector started. Token configured: %s", "yes" if github_token else "no")
     headers = {"Accept": "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28"}
@@ -339,22 +426,34 @@ def fetch_github_repositories(start_date=None, end_date=None, limit=30, github_t
 
     articles = []
     seen = set()
+    if diagnostics is not None:
+        diagnostics.update({"token_configured": bool(github_token), "queries": [], "raw_items": 0, "after_date_filter": 0, "after_scoring": 0})
     queries = [(query, True) for query in GITHUB_QUERIES] + [(query, False) for query in GITHUB_FALLBACK_QUERIES]
     for query, use_date in queries:
+        query_info = {"query": query, "used_date_filter": use_date, "http_status": None, "rate_limit_remaining": None, "raw": 0, "kept": 0, "error": None}
         try:
             full_query = _github_query(query, start_date, end_date) if use_date else query
+            query_info["query"] = full_query
             response = requests.get(
                 GITHUB_SEARCH_URL,
                 params={"q": full_query, "sort": "stars", "order": "desc", "per_page": limit},
                 headers=headers,
                 timeout=TIMEOUT,
             )
+            query_info["http_status"] = response.status_code
+            query_info["rate_limit_remaining"] = response.headers.get("X-RateLimit-Remaining")
             logging.info("GitHub query used: %s HTTP status: %s", full_query, response.status_code)
             response.raise_for_status()
             repos = response.json().get("items", [])
+            query_info["raw"] = len(repos)
+            if diagnostics is not None:
+                diagnostics["raw_items"] += len(repos)
             logging.info("GitHub raw items found: %s", len(repos))
         except Exception as exc:
+            query_info["error"] = redact_sensitive_text(exc)
             logging.warning("GitHub fetch failed for %s: %s", query, redact_sensitive_text(exc))
+            if diagnostics is not None:
+                diagnostics["queries"].append(query_info)
             continue
 
         for repo in repos:
@@ -365,8 +464,12 @@ def fetch_github_repositories(start_date=None, end_date=None, limit=30, github_t
             published = parse_article_date(repo.get("pushed_at") or repo.get("updated_at") or repo.get("created_at"))
             if use_date and not is_within_date_range(published, start_date, end_date):
                 continue
+            if diagnostics is not None:
+                diagnostics["after_date_filter"] += 1
             if not _github_is_relevant(repo, use_date):
                 continue
+            if diagnostics is not None:
+                diagnostics["after_scoring"] += 1
             metrics = {
                 "stars": int(repo.get("stargazers_count") or 0),
                 "forks": int(repo.get("forks_count") or 0),
@@ -392,6 +495,8 @@ def fetch_github_repositories(start_date=None, end_date=None, limit=30, github_t
                 {
                     "source": "GitHub",
                     "source_type": "github",
+                    "connector": "github",
+                    "source_group": "developer_trends",
                     "title": title,
                     "url": url,
                     "published_at": normalize_date_for_storage(published),
@@ -403,8 +508,16 @@ def fetch_github_repositories(start_date=None, end_date=None, limit=30, github_t
                 }
             )
             seen.add(url)
+            query_info["kept"] += 1
             if len(articles) >= limit:
+                if diagnostics is not None:
+                    diagnostics["queries"].append(query_info)
+                    diagnostics["returned"] = len(articles)
                 logging.info("GitHub normalized items returned: %s", len(articles))
                 return articles
+        if diagnostics is not None:
+            diagnostics["queries"].append(query_info)
     logging.info("GitHub normalized items returned: %s", len(articles))
+    if diagnostics is not None:
+        diagnostics["returned"] = len(articles)
     return articles

@@ -68,6 +68,15 @@ def classify_and_score(article):
         article["category"] = "Video"
         article["score"] = ai_score * 3 + tech_score
         return article
+    if source_type == "arxiv":
+        article["category"] = "Research"
+        article["score"] = max(1, ai_score * 3 + tech_score)
+        return article
+    if source_type == "hacker_news":
+        article["category"] = "Tech" if tech_score >= ai_score else "AI"
+        hn_score = int(metrics.get("hn_score", metrics.get("score", 0)) or 0)
+        article["score"] = max(1, hn_score // 10 + ai_score * 3 + tech_score)
+        return article
 
     article["score"] = ai_score + tech_score
     if ai_score > tech_score:

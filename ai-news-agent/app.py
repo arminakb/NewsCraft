@@ -2,7 +2,7 @@
 
 import os
 import re
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 
 import streamlit as st
 
@@ -14,17 +14,44 @@ from approved_storage import (
     save_approved_article,
 )
 from diagnostics import (
+    test_arxiv_connector,
     test_github_connection,
     test_github_connector,
+    test_hacker_news_connector,
     test_huggingface_connection,
     test_huggingface_connector,
 )
 from summarizer import truncate_text
 from storage import clear_articles, get_articles, get_search_sessions, init_db, update_article_status
-from utils import clean_token
+from utils import clean_token, humanize_time_ago
 
 SOURCE_OPTIONS = ["rss", "hacker_news", "arxiv", "huggingface", "github", "youtube"]
 DEFAULT_SOURCES = ["rss", "hacker_news", "arxiv"]
+SOURCE_OPTION_LABELS = {
+    "rss": "RSS feeds",
+    "hacker_news": "Hacker News",
+    "arxiv": "arXiv",
+    "huggingface": "Hugging Face",
+    "github": "GitHub",
+    "youtube": "YouTube",
+}
+SOURCE_TYPE_LABELS = {
+    "rss": "RSS Feed",
+    "hacker_news": "Hacker News API",
+    "arxiv": "arXiv API",
+    "github": "GitHub API",
+    "huggingface": "Hugging Face API",
+    "youtube": "YouTube RSS",
+}
+SOURCE_GROUP_LABELS = {
+    "company_news": "Company News",
+    "startup_news": "Startup News",
+    "ai_industry_news": "AI Industry News",
+    "developer_trends": "Developer Trends",
+    "research": "Research",
+    "model_trends": "Model Trends",
+    "video": "Video",
+}
 
 
 def summary_preview(summary, limit=500):
@@ -40,6 +67,18 @@ def filter_articles(articles, category, status):
         if (category == "All" or article.get("category") == category)
         and (status == "All" or article.get("status") == status)
     ]
+
+
+def resolve_time_range(choice, today=None):
+    now = datetime.now()
+    today = today or now.date()
+    if choice == "Last 24 hours":
+        return now - timedelta(hours=24), now, False
+    if choice == "Last 3 days":
+        return now - timedelta(days=3), now, False
+    if choice == "Last 7 days":
+        return now - timedelta(days=7), now, False
+    return today - timedelta(days=1), today, True
 
 
 def _rerun():
@@ -67,6 +106,8 @@ def metrics_text(metrics):
         "task": "Task",
         "language": "Language",
         "channel": "Channel",
+        "hn_score": "HN score",
+        "comments": "Comments",
     }
     return " | ".join(
         f"{labels.get(key, key)}: {', '.join(value[:5]) if isinstance(value, list) else value}"
@@ -128,6 +169,10 @@ def _configuration_contents(selected_sources, start_date, end_date):
             st.json(test_github_connector(start_date, end_date, tokens["github_token"]))
         if st.button("Test Hugging Face Connector"):
             st.json(test_huggingface_connector(start_date, end_date, tokens["huggingface_token"]))
+        if st.button("Test Hacker News Connector"):
+            st.json(test_hacker_news_connector(start_date, end_date))
+        if st.button("Test arXiv Connector"):
+            st.json(test_arxiv_connector(start_date, end_date))
 
 
 def _configuration_panel(selected_sources, start_date, end_date):
@@ -168,8 +213,14 @@ def _structured_text(article):
 def _article_card(article, approved=False):
     with st.container(border=True):
         st.markdown(f"#### [{article['title']}]({article['url']})")
+        source_type = article.get("source_type", "rss")
+        source_group = article.get("source_group", "")
         st.caption(
-            f"{article.get('source_type', 'rss')} | Score: {article['score']} | "
+            f"Source: {article.get('source', 'Unknown')} | Type: {SOURCE_TYPE_LABELS.get(source_type, source_type)} | "
+            f"Group: {SOURCE_GROUP_LABELS.get(source_group, source_group or 'Unsorted')}"
+        )
+        st.caption(
+            f"Score: {article['score']} | {humanize_time_ago(article.get('published_at'))} | "
             f"{article.get('published_at') or 'No date'} | {article.get('status', 'approved')}"
         )
         _structured_text(article)
@@ -180,6 +231,8 @@ def _article_card(article, approved=False):
             st.write(summary_preview(article.get("summary")))
         with st.expander("Raw details"):
             st.write(f"Source: {article['source']}")
+            st.write(f"Type: {SOURCE_TYPE_LABELS.get(source_type, source_type)}")
+            st.write(f"Group: {SOURCE_GROUP_LABELS.get(source_group, source_group or 'Unsorted')}")
             st.write(f"Category: {article['category']}")
             if metrics:
                 st.write(metrics)
@@ -211,13 +264,20 @@ def main():
 
     today = date.today()
     with st.expander("Collection Controls", expanded=True):
-        start_col, end_col = st.columns(2)
-        start_date = start_col.date_input("Start Date", value=today - timedelta(days=1))
-        end_date = end_col.date_input("End Date", value=today)
+        time_range = st.selectbox("Time range", ["Last 24 hours", "Last 3 days", "Last 7 days", "Custom range"], index=0)
+        default_start, default_end, custom_range = resolve_time_range(time_range, today)
+        if custom_range:
+            start_col, end_col = st.columns(2)
+            start_date = start_col.date_input("Start Date", value=default_start)
+            end_date = end_col.date_input("End Date", value=default_end)
+        else:
+            start_date, end_date = default_start, default_end
+            st.caption(f"Active time range: {start_date:%Y-%m-%d %H:%M} to {end_date:%Y-%m-%d %H:%M}")
         selected_sources = st.multiselect(
             "Select sources to collect from",
             options=SOURCE_OPTIONS,
             default=DEFAULT_SOURCES,
+            format_func=lambda value: SOURCE_OPTION_LABELS.get(value, value),
         )
         st.caption(f"Showing articles from {start_date} to {end_date}")
         tokens = resolve_tokens(st.session_state)
@@ -234,6 +294,7 @@ def main():
             st.session_state.current_search_session_id = articles.search_session_id
             st.success(f"Collected {len(articles)} relevant articles.")
             if hasattr(articles, "report"):
+                articles.report["time_range"] = time_range
                 st.json(articles.report)
         confirm_clear = clear_col.checkbox("I understand this clears stored collected items.")
         if clear_col.button("Clear Results Database", disabled=not confirm_clear):
@@ -246,10 +307,11 @@ def main():
         _configuration_panel(selected_sources, start_date, end_date)
 
     with st.expander("Display Filters", expanded=False):
-        col1, col2, col3 = st.columns([1, 1, 2])
+        col1, col2, col3, col4 = st.columns([1, 1, 1, 2])
         category = col1.selectbox("Category", ["All", "AI", "Tech", "Research", "Tool", "Model", "Video", "General"])
         status = col2.selectbox("Status", ["All", "new", "approved", "rejected"])
-        limit = col3.slider("Limit", 10, 100, 50, 10)
+        sort_by = col3.selectbox("Sort by", ["Latest first", "Highest score", "Most popular", "Source"])
+        limit = col4.slider("Limit", 10, 100, 50, 10)
 
     main_tab, approved_tab = st.tabs(["Collected Articles", "Approved Articles"])
 
@@ -269,6 +331,7 @@ def main():
             category=category,
             status=status,
             search_session_id=current_session,
+            sort_by=sort_by,
         )
         if not articles:
             st.info("No items found. Run a search, expand the date range, or run connector diagnostics from Configuration.")

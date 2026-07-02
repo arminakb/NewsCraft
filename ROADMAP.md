@@ -308,3 +308,22 @@ The dashboard has cleaner cards, safer token handling, better summaries, and a l
 
 ### Status
 Complete
+
+## Phase 20: Source logic audit, GitHub repair, latest sorting, and expanded AI news sources
+
+**Goal:** Audit the source pipeline, make GitHub/Hacker News/arXiv failures visible and fixable, clarify source metadata, add latest sorting/time ranges, and expand AI news RSS sources.
+
+### Tasks
+- [x] Audit connector, date, score, storage, session, and display logic
+- [x] Repair GitHub full-flow diagnostics and fallback behavior
+- [x] Improve Hacker News and arXiv usefulness and diagnostics
+- [x] Clarify `source`, `source_type`, `connector`, and `source_group`
+- [x] Add latest/recent sorting, quick time ranges, and relative publish time
+- [x] Add company, startup, and AI industry RSS sources
+- [x] Update collection report, tests, README, and progress docs
+
+### Expected Output
+Sources are easier to understand and debug, recent items sort correctly, cards show relative publish time, and expanded AI sources appear with clear labels.
+
+### Status
+Complete

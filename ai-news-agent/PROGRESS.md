@@ -2,7 +2,7 @@
 
 ## Overall Progress
 
-Progress: [███████████████████] 190%
+Progress: [████████████████████] 200%
 
 ---
 
@@ -507,3 +507,64 @@ Progress: [███████████████████] 190%
 
 **Next step:**
 Run the dashboard and verify a GitHub/Hugging Face run with tokens entered in Configuration.
+
+---
+
+## Phase 20 Completed: Source logic audit, GitHub repair, latest sorting, and expanded AI news sources
+
+**What was investigated:**
+- GitHub token path from Configuration to agent, connector, scoring, storage, and dashboard.
+- Hacker News top-story-only collection, URL filtering, date filtering, scoring, and display.
+- arXiv query categories, Atom parsing, date filtering, scoring, and display.
+- RSS source labels, per-feed handling, source groups, and failed-feed behavior.
+- SQLite date filtering, sort order, duplicate URL/session updates, and approved storage independence.
+- Dashboard source labels, current-session filtering, time ranges, sorting, and card timestamps.
+
+**What was broken:**
+- Hacker News and arXiv could return valid items but then be dropped because scoring could stay at zero.
+- Hacker News only used top stories, so useful new/best developer stories were missed.
+- arXiv searched only AI/LG/CL and did not preserve authors or Research category.
+- RSS source reporting was grouped as RSS instead of showing real feed names.
+- Date filtering was date-only, so Last 24 hours could not work correctly.
+- GitHub diagnostics did not expose enough per-query HTTP/rate-limit/raw/filter counts to explain empty runs.
+- Storage had no connector/source-group columns and no user-selectable sort mode.
+
+**What was fixed:**
+- Added connector/source_group metadata through collection, storage, approved storage, and dashboard display.
+- Added Last 24 hours, Last 3 days, Last 7 days, and Custom range support.
+- Added Sort by: Latest first, Highest score, Most popular, and Source.
+- Added relative publish time on cards.
+- Expanded RSS sources to OpenAI, Anthropic, NVIDIA, DeepMind, Microsoft, Hugging Face, TechCrunch, VentureBeat, The Verge, MIT Tech Review, and Y Combinator.
+- Hacker News now checks top/new/best stories and reports raw IDs, loaded items, URL items, date-filtered items, and scored items.
+- arXiv now searches AI/LG/CL/CV/stat.ML, stores authors, and scores Research items positively.
+- GitHub connector now reports token status, query list, HTTP status, rate limit remaining, raw count, date-filtered count, scored count, and returned count.
+
+**Files changed:**
+- `app.py`
+- `agent.py`
+- `approved_storage.py`
+- `config.py`
+- `connectors.py`
+- `diagnostics.py`
+- `ranker.py`
+- `storage.py`
+- `test_news_agent.py`
+- `utils.py`
+- `README.md`
+- `ROADMAP.md`
+- `PROGRESS.md`
+
+**Tests performed:**
+- `.venv/bin/python -m unittest test_news_agent`
+- `.venv/bin/python -m compileall app.py agent.py approved_storage.py config.py connectors.py diagnostics.py storage.py ranker.py utils.py summarizer.py test_news_agent.py`
+
+**Remaining issues, if any:**
+- Some RSS feeds may fail or change URLs; failed feeds are reported and skipped.
+- GitHub can still be rate-limited or return zero for narrow ranges, but diagnostics now show why.
+- Tokens pasted into chat should still be rotated.
+
+**Updated progress bar:**
+Progress: [████████████████████] 200%
+
+**Next step:**
+Run each source from the dashboard with Last 7 days and review the collection report diagnostics.

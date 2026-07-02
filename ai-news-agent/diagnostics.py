@@ -3,7 +3,7 @@
 import requests
 from huggingface_hub import HfApi
 
-from connectors import GITHUB_SEARCH_URL, fetch_github_repositories, fetch_huggingface_models
+from connectors import GITHUB_SEARCH_URL, fetch_arxiv_ai, fetch_github_repositories, fetch_hacker_news, fetch_huggingface_models
 from utils import clean_token, redact_sensitive_text
 
 
@@ -59,8 +59,11 @@ def test_huggingface_connection(huggingface_token=None):
 def test_github_connector(start_date=None, end_date=None, github_token=None):
     github_token = clean_token(github_token)
     try:
-        items = fetch_github_repositories(start_date=start_date, end_date=end_date, limit=10, github_token=github_token)
-        return _result(True, "success", "GitHub connector completed", items_found=len(items), token_configured=bool(github_token))
+        diagnostics = {}
+        items = fetch_github_repositories(start_date=start_date, end_date=end_date, limit=10, github_token=github_token, diagnostics=diagnostics)
+        result = _result(True, "success", "GitHub connector completed", items_found=len(items), token_configured=bool(github_token))
+        result["diagnostics"] = diagnostics
+        return result
     except Exception as exc:
         return _result(False, "error", "GitHub connector failed", error=exc, token_configured=bool(github_token))
 
@@ -72,3 +75,25 @@ def test_huggingface_connector(start_date=None, end_date=None, huggingface_token
         return _result(True, "success", "Hugging Face connector completed", items_found=len(items), token_configured=bool(huggingface_token))
     except Exception as exc:
         return _result(False, "error", "Hugging Face connector failed", error=exc, token_configured=bool(huggingface_token))
+
+
+def test_hacker_news_connector(start_date=None, end_date=None):
+    try:
+        diagnostics = {}
+        items = fetch_hacker_news(start_date=start_date, end_date=end_date, limit=10, diagnostics=diagnostics)
+        result = _result(True, "success", "Hacker News connector completed", items_found=len(items))
+        result["diagnostics"] = diagnostics
+        return result
+    except Exception as exc:
+        return _result(False, "error", "Hacker News connector failed", error=exc)
+
+
+def test_arxiv_connector(start_date=None, end_date=None):
+    try:
+        diagnostics = {}
+        items = fetch_arxiv_ai(start_date=start_date, end_date=end_date, limit=10, diagnostics=diagnostics)
+        result = _result(True, "success", "arXiv connector completed", items_found=len(items))
+        result["diagnostics"] = diagnostics
+        return result
+    except Exception as exc:
+        return _result(False, "error", "arXiv connector failed", error=exc)

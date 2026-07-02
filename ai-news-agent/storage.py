@@ -10,6 +10,12 @@ from utils import normalize_date_for_storage
 
 DB_PATH = "news.db"
 VALID_STATUSES = {"new", "approved", "rejected"}
+SORT_ORDERS = {
+    "Latest first": "datetime(published_at) DESC, score DESC, created_at DESC",
+    "Highest score": "score DESC, datetime(published_at) DESC, created_at DESC",
+    "Most popular": "score DESC, datetime(published_at) DESC, created_at DESC",
+    "Source": "source ASC, datetime(published_at) DESC, score DESC",
+}
 
 
 def _db_path():
@@ -50,6 +56,8 @@ def init_db():
         _ensure_column(conn, "thumbnail_url", "TEXT")
         _ensure_column(conn, "structured_summary_json", "TEXT DEFAULT '{}'")
         _ensure_column(conn, "search_session_id", "TEXT")
+        _ensure_column(conn, "connector", "TEXT")
+        _ensure_column(conn, "source_group", "TEXT")
         conn.execute(
             """
             CREATE TABLE IF NOT EXISTS search_sessions (
@@ -92,13 +100,15 @@ def save_articles(articles):
                 article.get("thumbnail_url", ""),
                 json.dumps(article.get("structured_summary", {})),
                 article.get("search_session_id"),
+                article.get("connector", article.get("source_type", "")),
+                article.get("source_group", ""),
             )
             cursor = conn.execute(
                 """
                 INSERT OR IGNORE INTO articles
                 (source, source_type, title, url, published_at, summary, category, score, metrics_json, thumbnail_url,
-                 structured_summary_json, search_session_id)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 structured_summary_json, search_session_id, connector, source_group)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 values,
             )
@@ -109,7 +119,7 @@ def save_articles(articles):
                     UPDATE articles
                     SET source = ?, source_type = ?, title = ?, published_at = ?, summary = ?, category = ?,
                         score = ?, metrics_json = ?, thumbnail_url = ?, structured_summary_json = ?,
-                        search_session_id = ?
+                        search_session_id = ?, connector = ?, source_group = ?
                     WHERE url = ?
                     """,
                     (
@@ -124,20 +134,37 @@ def save_articles(articles):
                         values[9],
                         values[10],
                         values[11],
+                        values[12],
+                        values[13],
                         values[3],
                     ),
                 )
         return inserted
 
 
-def get_articles(limit=100, start_date=None, end_date=None, category=None, status=None, source_type=None, search_session_id=None):
+def _date_filter(column, value, op):
+    if hasattr(value, "hour"):
+        return f"datetime({column}) {op} datetime(?)"
+    return f"date({column}) {op} date(?)"
+
+
+def get_articles(
+    limit=100,
+    start_date=None,
+    end_date=None,
+    category=None,
+    status=None,
+    source_type=None,
+    search_session_id=None,
+    sort_by="Latest first",
+):
     where = []
     params = []
     if start_date:
-        where.append("date(published_at) >= date(?)")
+        where.append(_date_filter("published_at", start_date, ">="))
         params.append(normalize_date_for_storage(start_date))
     if end_date:
-        where.append("date(published_at) <= date(?)")
+        where.append(_date_filter("published_at", end_date, "<="))
         params.append(normalize_date_for_storage(end_date))
     if category and category != "All":
         where.append("category = ?")
@@ -152,15 +179,17 @@ def get_articles(limit=100, start_date=None, end_date=None, category=None, statu
         where.append("search_session_id = ?")
         params.append(search_session_id)
     params.append(limit)
+    order_by = SORT_ORDERS.get(sort_by, SORT_ORDERS["Latest first"])
 
     with _connect() as conn:
         rows = conn.execute(
             f"""
             SELECT id, source, source_type, title, url, published_at, summary, category, score, status,
-                   created_at, metrics_json, thumbnail_url, structured_summary_json, search_session_id
+                   created_at, metrics_json, thumbnail_url, structured_summary_json, search_session_id,
+                   connector, source_group
             FROM articles
             {"WHERE " + " AND ".join(where) if where else ""}
-            ORDER BY published_at DESC, score DESC, created_at DESC
+            ORDER BY {order_by}
             LIMIT ?
             """,
             params,
