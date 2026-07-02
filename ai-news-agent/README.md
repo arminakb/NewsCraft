@@ -11,6 +11,7 @@ ranks the articles, stores them in SQLite, and displays them for review.
 - SQLite storage with duplicate URL protection
 - Streamlit dashboard with review statuses
 - Date range collection and display filtering
+- Current search sessions and separate approved-articles storage
 
 ## Installation
 
@@ -43,23 +44,35 @@ Use the Start Date and End Date controls to collect and display news from a spec
 
 ## Selecting Sources
 
-Use **Collection Controls** to choose which sources the agent should run. Source selection affects collection only; previously stored items remain visible unless hidden by the Source Type filter.
+Use **Collection Controls** to choose which sources the agent should run. Each run creates a new search session, and the dashboard shows the current session by default so old results do not crowd the new run.
 
 ## Hugging Face Models
 
-The Hugging Face connector discovers recently updated public models and stores likes/downloads as metrics. A Hugging Face token is optional and can be entered in Settings or provided with `HUGGINGFACE_TOKEN`.
+The Hugging Face connector discovers public models, stores likes/downloads as metrics, and creates a structured summary from tags and metadata. A Hugging Face token is optional and can be entered in Configuration or provided with `HUGGINGFACE_TOKEN`.
 
 ## GitHub Repository Discovery
 
-The GitHub connector searches AI/ML repository topics and keywords, then stores stars, forks, and open issues. `GITHUB_TOKEN` is optional but recommended for better GitHub API limits.
+The GitHub connector searches AI/ML/LLM/agent/RAG topics and keywords, tries pushed-date and created-date queries, falls back to popular AI repositories, and stores stars, forks, open issues, language, and structured summaries. It also attempts to fetch README snippets safely. `GITHUB_TOKEN` is optional but recommended for better GitHub API limits.
 
 ## YouTube Video Sources
 
 YouTube collection uses RSS channel feeds from `config.py`, not the YouTube Data API. Replace `CHANNEL_ID_HERE` in `YOUTUBE_CHANNEL_FEEDS` with real channel IDs. Search-based YouTube Data API support can be added later if needed.
 
-## Settings Panel
+## Configuration Popup
 
-Click **Settings** in the dashboard to open API token, data cleanup, and debug controls. Manually entered tokens are stored only in Streamlit session state. They are not saved to SQLite, printed, or committed.
+Open **Configuration** near the dashboard header to enter optional API credentials and run diagnostics. Manually entered tokens are stored only in Streamlit session state. They are not saved to SQLite, printed, or committed. If the installed Streamlit version does not support popovers, the app uses a compact expander fallback.
+
+## Search Sessions
+
+Every **Run Agent** click creates a new search session and tags collected articles with that session ID. The dashboard shows current-session results by default, while older collected rows remain in `news.db` for later use or cleanup.
+
+## Approved Articles Database
+
+Click **Approve** on an article to save a copy into `approved_articles.db` and mark the original collected row as approved. Approved URLs are deduplicated and survive new searches and normal results cleanup. Use the **Approved Articles** tab to review or delete approved items.
+
+## Clearing Results Database
+
+Use **Clear Results Database** next to the run button to clear collected results and search sessions from `news.db`. This does not delete `approved_articles.db`.
 
 ## Environment Variables
 
@@ -79,20 +92,20 @@ $env:YOUTUBE_API_KEY="your_youtube_api_key"
 
 ## Cleaning Old Data
 
-If old articles still appear, the existing `news.db` may contain old or badly formatted dates from the previous version. Use the **Clear Old Database** button in the dashboard, or delete `news.db` manually, then run the agent again.
+If old articles still appear, the existing `news.db` may contain old or badly formatted dates from a previous version. Use **Clear Results Database** in the dashboard, or delete `news.db` manually, then run the agent again.
 
 ## Troubleshooting GitHub and Hugging Face
 
-Open **Settings > Debug** and run the GitHub/Hugging Face connection and connector tests. The diagnostics show token status, safe HTTP/status details, and item counts without exposing token values.
+Open **Configuration > Debug** and run the GitHub/Hugging Face connection and connector tests. The diagnostics show token status, safe HTTP/status details, and item counts without exposing token values.
 
 Common causes of empty results:
 
-- Token was entered but not saved in Settings.
+- Token was entered in a different browser session; enter it again in Configuration or use an environment variable.
 - GitHub rate limit, 401, 403, or query validation errors.
 - Date range is too narrow; connectors fall back to popular/recent results where useful.
 - Hugging Face metadata such as `last_modified`, likes, or downloads is missing.
-- Display filters hide results; use Source Type `All`, Category `All`, Status `All`.
-- Old database schema or old rows; use **Clear Old Database**.
+- Display filters hide results; use Category `All` and Status `All`.
+- Old database schema or old rows; use **Clear Results Database**.
 
 ## Project structure
 
@@ -102,6 +115,7 @@ agent.py
 diagnostics.py
 connectors.py
 config.py
+approved_storage.py
 storage.py
 ranker.py
 utils.py

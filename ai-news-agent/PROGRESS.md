@@ -2,7 +2,7 @@
 
 ## Overall Progress
 
-Progress: [████████████████] 160%
+Progress: [██████████████████] 180%
 
 ---
 
@@ -406,7 +406,59 @@ Run the dashboard and test selected sources with optional tokens.
 
 **Remaining issues:**
 - Tokens pasted into chat should be rotated.
-- Live authenticated validation should be run from the dashboard Settings panel so tokens stay in session state only.
+- Live authenticated validation should be run from the dashboard Configuration panel so tokens stay in session state only.
 
 **Next step:**
-Use Settings > Debug to test authenticated GitHub and Hugging Face connectors.
+Use Configuration > Debug to test authenticated GitHub and Hugging Face connectors.
+
+---
+
+## Phase 18 Completed: Dashboard UX cleanup, search sessions, approved articles, and better source enrichment
+
+**What was changed:**
+- Renamed Settings to Configuration and moved token/debug controls into a popover-style panel.
+- Removed the duplicate Source Type display filter.
+- Added structured summaries for GitHub repositories and Hugging Face models.
+- Moved Clear Results Database next to the run button with a confirmation checkbox.
+- Added search sessions so new runs show current-session results by default.
+- Added `approved_articles.db` storage and an Approved Articles dashboard tab.
+- Improved GitHub discovery with created/pushed date queries, README snippets, and quality filtering.
+- Expanded the collection report with selected sources, per-source raw counts, saved counts, duplicate skips, date skips, and score skips.
+
+**What was broken before:**
+- New searches mixed with old database rows unless the user manually cleared the database.
+- Approved status only changed the collected row and did not save reusable approved articles separately.
+- GitHub and Hugging Face cards mostly showed names and sparse metadata.
+- Settings and cleanup controls took too much dashboard space.
+
+**What was fixed:**
+- Each agent run now creates a search session and tags collected articles with it.
+- Duplicate URLs are still protected, but repeated discoveries move into the latest search session.
+- Approved articles are copied into a separate SQLite database with URL deduplication.
+- GitHub/Hugging Face results now display rule-based structured explanations.
+
+**Files changed:**
+- `app.py`
+- `agent.py`
+- `approved_storage.py`
+- `connectors.py`
+- `diagnostics.py`
+- `storage.py`
+- `test_news_agent.py`
+- `README.md`
+- `ROADMAP.md`
+- `PROGRESS.md`
+
+**Testing performed:**
+- `.venv/bin/python -m unittest test_news_agent`
+- `.venv/bin/python -m compileall app.py agent.py approved_storage.py config.py connectors.py diagnostics.py storage.py ranker.py utils.py test_news_agent.py`
+
+**Remaining issues, if any:**
+- Tokens pasted into chat should be rotated.
+- Live authenticated GitHub and Hugging Face checks should be run from Configuration > Debug so tokens stay in session state.
+
+**Updated progress bar:**
+Progress: [██████████████████] 180%
+
+**Next step:**
+Run the Streamlit dashboard and test GitHub/Hugging Face collection with Configuration > Debug.

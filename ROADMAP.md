@@ -270,3 +270,22 @@ GitHub and Hugging Face connectors return useful items and expose safe diagnosti
 
 ### Status
 Complete
+
+## Phase 18: Dashboard UX cleanup, search sessions, approved articles, and better source enrichment
+
+**Goal:** Clean up the dashboard UX, add current search sessions, save approved articles separately, and enrich GitHub/Hugging Face cards.
+
+### Tasks
+- [x] Rename Settings to Configuration and use a compact popover-style panel
+- [x] Remove duplicate source type controls
+- [x] Add structured summaries for GitHub and Hugging Face results
+- [x] Move results database clearing to the main page with confirmation
+- [x] Add separate approved articles storage and dashboard tab
+- [x] Add search sessions and show current session results by default
+- [x] Improve GitHub discovery quality and README documentation
+
+### Expected Output
+The dashboard shows cleaner current-session results, stores approved articles separately, and displays richer GitHub/Hugging Face explanations.
+
+### Status
+Complete

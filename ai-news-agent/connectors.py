@@ -2,6 +2,7 @@
 
 import html
 import logging
+import base64
 from xml.etree import ElementTree
 
 import feedparser
@@ -16,6 +17,7 @@ HN_ITEM_URL = "https://hacker-news.firebaseio.com/v0/item/{id}.json"
 ARXIV_URL = "http://export.arxiv.org/api/query"
 GITHUB_SEARCH_URL = "https://api.github.com/search/repositories"
 TIMEOUT = 15
+GITHUB_MIN_STARS = 20
 HF_TAGS = [
     "text-generation",
     "image-to-text",
@@ -32,6 +34,12 @@ GITHUB_QUERIES = [
     "topic:llm",
     "topic:agents",
     "topic:rag",
+    "topic:ai",
+    "topic:generative-ai",
+    "topic:artificial-intelligence created:{date_range}",
+    "topic:llm created:{date_range}",
+    "topic:agents created:{date_range}",
+    "topic:rag created:{date_range}",
     '"ai agent"',
     '"llm agent"',
     '"generative ai"',
@@ -46,6 +54,15 @@ GITHUB_FALLBACK_QUERIES = [
 
 def _text(value):
     return html.unescape(str(value or "")).strip()
+
+
+def _structured_summary(what_it_is, why_it_matters, best_use_cases, key_signals):
+    return {
+        "what_it_is": what_it_is,
+        "why_it_matters": why_it_matters,
+        "best_use_cases": best_use_cases[:4],
+        "key_signals": key_signals[:6],
+    }
 
 
 def _entry_date(entry):
@@ -223,6 +240,28 @@ def _hf_score(model, tags):
     return likes + downloads // 100 + tag_score
 
 
+def _hf_structured_summary(model_id, tags, likes, downloads, published):
+    tag_text = ", ".join(tags[:4]) if tags else "general model metadata"
+    use_cases = []
+    if "text-generation" in tags or "llm" in tags:
+        use_cases.extend(["Text generation", "Agent workflows", "RAG experiments"])
+    if "text-to-image" in tags:
+        use_cases.append("Image generation")
+    if "automatic-speech-recognition" in tags:
+        use_cases.append("Speech recognition")
+    if not use_cases:
+        use_cases = ["Model evaluation", "AI prototyping"]
+    signals = [f"Tags: {tag_text}", f"Likes: {likes}", f"Downloads: {downloads}"]
+    if published:
+        signals.append(f"Last modified: {normalize_date_for_storage(published)}")
+    return _structured_summary(
+        f"{model_id} is a Hugging Face model related to {tag_text}.",
+        "It may be worth reviewing because its tags and community metrics indicate current model activity.",
+        use_cases,
+        signals,
+    )
+
+
 def fetch_huggingface_models(start_date=None, end_date=None, limit=30, huggingface_token=None):
     logging.info("Hugging Face connector started. Token configured: %s", "yes" if huggingface_token else "no")
     try:
@@ -256,6 +295,7 @@ def fetch_huggingface_models(start_date=None, end_date=None, limit=30, huggingfa
                 "category": "Model",
                 "score": _hf_score(model, tags),
                 "metrics": {"likes": likes, "downloads": downloads},
+                "structured_summary": _hf_structured_summary(model_id, tags, likes, downloads, published),
             }
         )
         if len(articles) >= limit:
@@ -269,8 +309,13 @@ def fetch_huggingface_models(start_date=None, end_date=None, limit=30, huggingfa
 
 def _github_query(base_query, start_date, end_date):
     parts = [base_query]
+    if "{date_range}" in base_query and not (start_date and end_date):
+        return base_query.split(" created:")[0]
     if start_date and end_date:
-        parts.append(f"pushed:{parse_article_date(start_date).date()}..{parse_article_date(end_date).date()}")
+        date_range = f"{parse_article_date(start_date).date()}..{parse_article_date(end_date).date()}"
+        if "{date_range}" in base_query:
+            return base_query.format(date_range=date_range)
+        parts.append(f"pushed:{date_range}")
     return " ".join(parts)
 
 
@@ -281,6 +326,49 @@ def _github_score(repo):
     topic_score = sum(5 for topic in topics if topic in {"llm", "agents", "rag", "generative-ai", "machine-learning"})
     description_score = 5 if repo.get("description") else 0
     return stars + forks * 2 + topic_score + description_score
+
+
+def _github_is_relevant(repo, use_date):
+    stars = int(repo.get("stargazers_count") or 0)
+    text = f"{repo.get('full_name', '')} {repo.get('description', '')} {' '.join(repo.get('topics') or [])}".lower()
+    strong_match = any(term in text for term in ("ai", "llm", "agent", "rag", "machine-learning", "generative"))
+    return stars >= GITHUB_MIN_STARS or (use_date and stars >= 5) or strong_match
+
+
+def _github_readme_snippet(full_name, headers):
+    try:
+        response = requests.get(f"https://api.github.com/repos/{full_name}/readme", headers=headers, timeout=TIMEOUT)
+        if not response.ok:
+            return ""
+        content = response.json().get("content", "")
+        return base64.b64decode(content).decode("utf-8", errors="ignore")[:600]
+    except Exception:
+        return ""
+
+
+def _github_structured_summary(repo, summary, readme_snippet, published):
+    topics = [str(topic) for topic in repo.get("topics") or []]
+    stars = int(repo.get("stargazers_count") or 0)
+    forks = int(repo.get("forks_count") or 0)
+    language = repo.get("language") or "unspecified language"
+    description = summary or readme_snippet[:180] or "No description provided."
+    use_cases = ["AI development", "Developer tooling"]
+    topic_text = " ".join(topics).lower()
+    if "agent" in topic_text:
+        use_cases.append("Agentic workflows")
+    if "rag" in topic_text:
+        use_cases.append("RAG experiments")
+    signals = [f"{stars} stars", f"{forks} forks", f"Language: {language}"]
+    if topics:
+        signals.append(f"Topics: {', '.join(topics[:5])}")
+    if published:
+        signals.append(f"Recently pushed: {normalize_date_for_storage(published)}")
+    return _structured_summary(
+        description,
+        "It is relevant because it is AI-related, recently active or popular, and has developer interest signals.",
+        use_cases,
+        signals,
+    )
 
 
 def fetch_github_repositories(start_date=None, end_date=None, limit=30, github_token=None):
@@ -317,13 +405,17 @@ def fetch_github_repositories(start_date=None, end_date=None, limit=30, github_t
             published = parse_article_date(repo.get("pushed_at") or repo.get("updated_at") or repo.get("created_at"))
             if use_date and not is_within_date_range(published, start_date, end_date):
                 continue
+            if not _github_is_relevant(repo, use_date):
+                continue
             metrics = {
                 "stars": int(repo.get("stargazers_count") or 0),
                 "forks": int(repo.get("forks_count") or 0),
                 "open_issues": int(repo.get("open_issues_count") or 0),
+                "language": repo.get("language") or "",
             }
             topics = repo.get("topics") or []
-            summary = _text(repo.get("description")) or ", ".join(topics)
+            readme = _github_readme_snippet(title, headers)
+            summary = _text(repo.get("description")) or ", ".join(topics) or readme[:180]
             articles.append(
                 {
                     "source": "GitHub",
@@ -335,6 +427,7 @@ def fetch_github_repositories(start_date=None, end_date=None, limit=30, github_t
                     "category": "Tool",
                     "score": _github_score(repo),
                     "metrics": metrics,
+                    "structured_summary": _github_structured_summary(repo, summary, readme, published),
                 }
             )
             seen.add(url)

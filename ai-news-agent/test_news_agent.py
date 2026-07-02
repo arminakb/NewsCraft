@@ -101,6 +101,87 @@ class StorageTests(unittest.TestCase):
         self.assertEqual(rows[0]["metrics"]["stars"], 100)
         self.assertEqual(rows[0]["thumbnail_url"], "https://example.com/thumb.png")
 
+    def test_search_sessions_filter_current_results_and_structured_summary(self):
+        from storage import create_search_session, get_articles, init_db, save_articles
+
+        init_db()
+        first = create_search_session(date(2026, 7, 1), date(2026, 7, 1), ["github"])
+        second = create_search_session(date(2026, 7, 2), date(2026, 7, 2), ["huggingface"])
+        save_articles(
+            [
+                {
+                    "source": "GitHub",
+                    "source_type": "github",
+                    "title": "owner/repo",
+                    "url": "https://github.com/owner/repo",
+                    "published_at": "2026-07-01T10:30:00",
+                    "summary": "repo",
+                    "category": "Tool",
+                    "score": 5,
+                    "search_session_id": first,
+                    "structured_summary": {"what_it_is": "A repo"},
+                },
+                {
+                    "source": "Hugging Face",
+                    "source_type": "huggingface",
+                    "title": "org/model",
+                    "url": "https://huggingface.co/org/model",
+                    "published_at": "2026-07-02T10:30:00",
+                    "summary": "model",
+                    "category": "Model",
+                    "score": 4,
+                    "search_session_id": second,
+                    "structured_summary": {"what_it_is": "A model"},
+                },
+            ]
+        )
+
+        rows = get_articles(search_session_id=second)
+        self.assertEqual([row["url"] for row in rows], ["https://huggingface.co/org/model"])
+        self.assertEqual(rows[0]["structured_summary"]["what_it_is"], "A model")
+
+
+class ApprovedStorageTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.old_db = os.environ.get("APPROVED_DB_PATH")
+        os.environ["APPROVED_DB_PATH"] = os.path.join(self.tmp.name, "approved.db")
+
+    def tearDown(self):
+        if self.old_db is None:
+            os.environ.pop("APPROVED_DB_PATH", None)
+        else:
+            os.environ["APPROVED_DB_PATH"] = self.old_db
+        self.tmp.cleanup()
+
+    def test_save_get_and_delete_approved_article(self):
+        from approved_storage import delete_approved_article, get_approved_articles, init_approved_db, save_approved_article
+
+        init_approved_db()
+        article = {
+            "id": 7,
+            "source": "GitHub",
+            "source_type": "github",
+            "title": "owner/repo",
+            "url": "https://github.com/owner/repo",
+            "published_at": "2026-07-02T10:30:00",
+            "summary": "repo",
+            "structured_summary": {"what_it_is": "A repo"},
+            "category": "Tool",
+            "score": 10,
+            "metrics": {"stars": 100},
+        }
+
+        self.assertEqual(save_approved_article(article), 1)
+        self.assertEqual(save_approved_article(article), 0)
+        rows = get_approved_articles(source_type="github")
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["original_article_id"], 7)
+        self.assertEqual(rows[0]["structured_summary"]["what_it_is"], "A repo")
+
+        delete_approved_article(rows[0]["id"])
+        self.assertEqual(get_approved_articles(), [])
+
 
 class DateUtilTests(unittest.TestCase):
     def test_parse_range_and_normalize_dates(self):
@@ -285,6 +366,7 @@ class ConnectorTests(unittest.TestCase):
 
         self.assertNotIn("direction", api.list_models.call_args.kwargs)
         self.assertEqual(len(articles), 1)
+        self.assertIn("what_it_is", articles[0]["structured_summary"])
 
     def test_github_repositories_normalize_filter_and_use_token(self):
         from connectors import fetch_github_repositories
@@ -331,6 +413,7 @@ class ConnectorTests(unittest.TestCase):
         self.assertEqual(articles[0]["source_type"], "github")
         self.assertEqual(articles[0]["category"], "Tool")
         self.assertEqual(articles[0]["metrics"]["stars"], 200)
+        self.assertIn("what_it_is", articles[0]["structured_summary"])
 
     def test_github_uses_api_version_and_fallback_without_date(self):
         from connectors import fetch_github_repositories
@@ -362,8 +445,9 @@ class ConnectorTests(unittest.TestCase):
         ), patch("connectors.requests.get", side_effect=[empty, hit]) as get:
             articles = fetch_github_repositories(start_date=date(2026, 7, 2), end_date=date(2026, 7, 2), limit=1, github_token="token")
 
-        self.assertEqual(get.call_args.kwargs["headers"]["X-GitHub-Api-Version"], "2022-11-28")
-        self.assertNotIn("pushed:", get.call_args.kwargs["params"]["q"])
+        search_call = get.call_args_list[-2]
+        self.assertEqual(search_call.kwargs["headers"]["X-GitHub-Api-Version"], "2022-11-28")
+        self.assertNotIn("pushed:", search_call.kwargs["params"]["q"])
         self.assertEqual([article["url"] for article in articles], ["https://github.com/owner/repo"])
 
     def test_youtube_videos_normalize_and_filter(self):
@@ -452,7 +536,9 @@ class AgentTests(unittest.TestCase):
             "summary": "No match",
         }
 
-        with patch("agent.init_db") as init_db, patch("agent.save_articles", return_value=1) as save_articles, patch(
+        with patch("agent.init_db") as init_db, patch("agent.create_search_session", return_value="session-1"), patch(
+            "agent.update_search_session_count"
+        ), patch("agent.save_articles", return_value=1) as save_articles, patch(
             "agent.fetch_rss_articles", return_value=[rss_article]
         ), patch("agent.fetch_hacker_news", return_value=[irrelevant]), patch(
             "agent.fetch_arxiv_ai", side_effect=RuntimeError("down")
@@ -484,7 +570,9 @@ class AgentTests(unittest.TestCase):
         }
         undated = {"source": "RSS", "title": "OpenAI no date", "url": "https://example.com/no-date", "summary": "LLM"}
 
-        with patch("agent.init_db"), patch("agent.save_articles", return_value=1) as save_articles, patch(
+        with patch("agent.init_db"), patch("agent.create_search_session", return_value="session-1"), patch(
+            "agent.update_search_session_count"
+        ), patch("agent.save_articles", return_value=1) as save_articles, patch(
             "agent.fetch_rss_articles", return_value=[fresh, old, undated]
         ) as rss, patch("agent.fetch_hacker_news", return_value=[]) as hn, patch("agent.fetch_arxiv_ai", return_value=[]) as arxiv:
             articles = run_news_agent(start_date=date(2026, 7, 2), end_date=date(2026, 7, 2))
@@ -508,7 +596,9 @@ class AgentTests(unittest.TestCase):
             "summary": "AI API",
         }
 
-        with patch("agent.init_db"), patch("agent.save_articles", return_value=1), patch("agent.fetch_rss_articles") as rss, patch(
+        with patch("agent.init_db"), patch("agent.create_search_session", return_value="session-1"), patch(
+            "agent.update_search_session_count"
+        ), patch("agent.save_articles", return_value=1), patch("agent.fetch_rss_articles") as rss, patch(
             "agent.fetch_hacker_news", return_value=[item]
         ) as hn, patch("agent.fetch_arxiv_ai") as arxiv:
             articles = run_news_agent(selected_sources=["hacker_news"])
@@ -540,15 +630,19 @@ class AgentTests(unittest.TestCase):
             "metrics": {},
         }
 
-        with patch("agent.init_db"), patch("agent.save_articles", return_value=2), patch(
-            "agent.fetch_github_repositories", return_value=[github]
-        ), patch("agent.fetch_huggingface_models", return_value=[hf]):
+        with patch("agent.init_db"), patch("agent.create_search_session", return_value="session-1"), patch(
+            "agent.update_search_session_count"
+        ), patch("agent.save_articles", side_effect=[1, 1]), patch("agent.fetch_github_repositories", return_value=[github]), patch(
+            "agent.fetch_huggingface_models", return_value=[hf]
+        ):
             articles = run_news_agent(selected_sources=["github", "huggingface"])
 
         self.assertEqual([article["source_type"] for article in articles], ["huggingface", "github"])
+        self.assertEqual(articles.search_session_id, "session-1")
         self.assertEqual(articles.report["sources"]["GitHub"], 1)
         self.assertEqual(articles.report["sources"]["Hugging Face"], 1)
         self.assertEqual(articles.report["saved"], 2)
+        self.assertEqual(articles.report["source_details"]["GitHub"]["saved"], 1)
 
 
 class AppHelperTests(unittest.TestCase):
