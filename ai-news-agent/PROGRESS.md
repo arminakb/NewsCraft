@@ -2,7 +2,7 @@
 
 ## Overall Progress
 
-Progress: [███-------] 30%
+Progress: [████------] 40%
 
 ---
 
@@ -71,3 +71,24 @@ Implement the RSS connector.
 
 **Next step:**
 Implement the Hacker News connector.
+
+---
+
+## Phase 4 Completed: Hacker News connector
+
+**Completed:**
+- Added Hacker News top story fetching.
+- Fetched story details up to the requested limit.
+- Kept only stories with both title and URL.
+
+**Files changed:**
+- `connectors.py`
+- `test_news_agent.py`
+- `ROADMAP.md`
+- `PROGRESS.md`
+
+**Problems:**
+- None.
+
+**Next step:**
+Implement the arXiv connector.

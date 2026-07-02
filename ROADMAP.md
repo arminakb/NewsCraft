@@ -51,15 +51,15 @@ Complete
 **Goal:** Fetch and normalize Hacker News top stories.
 
 ### Tasks
-- [ ] Fetch top story IDs
-- [ ] Fetch story details up to the limit
-- [ ] Keep stories with title and URL
+- [x] Fetch top story IDs
+- [x] Fetch story details up to the limit
+- [x] Keep stories with title and URL
 
 ### Expected Output
 Hacker News stories returned in the common article format.
 
 ### Status
-Not started
+Complete
 
 ## Phase 5: arXiv connector
 
