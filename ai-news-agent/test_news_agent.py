@@ -74,6 +74,33 @@ class StorageTests(unittest.TestCase):
         clear_articles()
         self.assertEqual(get_articles(), [])
 
+    def test_storage_keeps_source_type_and_metrics(self):
+        from storage import get_articles, init_db, save_articles
+
+        init_db()
+        save_articles(
+            [
+                {
+                    "source": "GitHub",
+                    "source_type": "github",
+                    "title": "owner/repo",
+                    "url": "https://github.com/owner/repo",
+                    "published_at": "2026-07-02T10:30:00",
+                    "summary": "AI agent repo",
+                    "category": "Tool",
+                    "score": 10,
+                    "metrics": {"stars": 100, "forks": 5},
+                    "thumbnail_url": "https://example.com/thumb.png",
+                }
+            ]
+        )
+
+        rows = get_articles(source_type="github")
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["source_type"], "github")
+        self.assertEqual(rows[0]["metrics"]["stars"], 100)
+        self.assertEqual(rows[0]["thumbnail_url"], "https://example.com/thumb.png")
+
 
 class DateUtilTests(unittest.TestCase):
     def test_parse_range_and_normalize_dates(self):
@@ -288,6 +315,28 @@ class AgentTests(unittest.TestCase):
         save_articles.assert_called_once()
         self.assertEqual([article["url"] for article in articles], ["https://example.com/fresh"])
         self.assertEqual(articles[0]["published_at"], "2026-07-02T10:30:00")
+
+    def test_run_news_agent_only_runs_selected_sources(self):
+        from agent import run_news_agent
+
+        item = {
+            "source": "Hacker News",
+            "source_type": "hacker_news",
+            "title": "LLM developer tool",
+            "url": "https://example.com/hn",
+            "published_at": "2026-07-02T10:30:00",
+            "summary": "AI API",
+        }
+
+        with patch("agent.init_db"), patch("agent.save_articles"), patch("agent.fetch_rss_articles") as rss, patch(
+            "agent.fetch_hacker_news", return_value=[item]
+        ) as hn, patch("agent.fetch_arxiv_ai") as arxiv:
+            articles = run_news_agent(selected_sources=["hacker_news"])
+
+        rss.assert_not_called()
+        hn.assert_called_once()
+        arxiv.assert_not_called()
+        self.assertEqual([article["source_type"] for article in articles], ["hacker_news"])
 
 
 class AppHelperTests(unittest.TestCase):

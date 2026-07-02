@@ -172,3 +172,83 @@ Fresh, dated articles are collected and displayed only for the selected date ran
 
 ### Status
 Complete
+
+## Phase 12: Source selection system
+
+**Goal:** Let users choose which source connectors run and filter stored items by source type.
+
+### Tasks
+- [x] Add source type and metrics storage fields
+- [x] Add conditional agent connector execution
+- [x] Add source selector and source type filter in the dashboard
+- [x] Keep default sources as RSS, Hacker News, and arXiv
+
+### Expected Output
+The dashboard can run selected sources only and filter displayed items by source type.
+
+### Status
+Complete
+
+## Phase 13: Hugging Face models connector
+
+**Goal:** Discover and store relevant Hugging Face models.
+
+### Tasks
+- [ ] Add `huggingface_hub` dependency
+- [ ] Fetch recently updated interesting models
+- [ ] Normalize model metadata and metrics
+- [ ] Support optional Hugging Face token
+
+### Expected Output
+Hugging Face models can be collected and displayed.
+
+### Status
+Not started
+
+## Phase 14: GitHub repositories connector
+
+**Goal:** Discover and store relevant AI/ML GitHub repositories.
+
+### Tasks
+- [ ] Query GitHub repository search
+- [ ] Support optional `GITHUB_TOKEN`
+- [ ] Normalize repository metadata and metrics
+- [ ] Filter by selected date range
+
+### Expected Output
+GitHub repositories can be collected and displayed.
+
+### Status
+Not started
+
+## Phase 15: YouTube videos connector
+
+**Goal:** Collect videos from configured YouTube RSS channel feeds.
+
+### Tasks
+- [ ] Add YouTube channel feed config
+- [ ] Fetch videos via RSS
+- [ ] Normalize video metadata
+- [ ] Keep Data API support as a future TODO
+
+### Expected Output
+YouTube RSS videos can be collected and displayed.
+
+### Status
+Not started
+
+## Phase 16: Unified source metadata and scoring improvements
+
+**Goal:** Improve scoring, metadata display, settings, and documentation for all source types.
+
+### Tasks
+- [ ] Score all source types with simple explainable logic
+- [ ] Add compact source-aware dashboard cards
+- [ ] Add settings panel and session-only token inputs
+- [ ] Update README and progress docs
+
+### Expected Output
+All source types have useful scores, metadata, and a cleaner dashboard UI.
+
+### Status
+Not started

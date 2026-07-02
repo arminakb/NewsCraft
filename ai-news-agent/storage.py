@@ -1,6 +1,7 @@
 """SQLite storage layer."""
 
 import os
+import json
 import sqlite3
 
 from utils import normalize_date_for_storage
@@ -37,6 +38,15 @@ def init_db():
             )
             """
         )
+        _ensure_column(conn, "source_type", "TEXT DEFAULT 'rss'")
+        _ensure_column(conn, "metrics_json", "TEXT DEFAULT '{}'")
+        _ensure_column(conn, "thumbnail_url", "TEXT")
+
+
+def _ensure_column(conn, name, definition):
+    columns = {row["name"] for row in conn.execute("PRAGMA table_info(articles)")}
+    if name not in columns:
+        conn.execute(f"ALTER TABLE articles ADD COLUMN {name} {definition}")
 
 
 def save_articles(articles):
@@ -48,18 +58,21 @@ def save_articles(articles):
         conn.executemany(
             """
             INSERT OR IGNORE INTO articles
-            (source, title, url, published_at, summary, category, score)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+            (source, source_type, title, url, published_at, summary, category, score, metrics_json, thumbnail_url)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             [
                 (
                     article.get("source", ""),
+                    article.get("source_type", "rss"),
                     article.get("title", ""),
                     article.get("url", ""),
                     normalize_date_for_storage(article.get("published_at")),
                     article.get("summary", ""),
                     article.get("category", "General"),
                     int(article.get("score", 0)),
+                    json.dumps(article.get("metrics", {})),
+                    article.get("thumbnail_url", ""),
                 )
                 for article in articles
             ],
@@ -67,7 +80,7 @@ def save_articles(articles):
         return conn.total_changes - before
 
 
-def get_articles(limit=100, start_date=None, end_date=None, category=None, status=None):
+def get_articles(limit=100, start_date=None, end_date=None, category=None, status=None, source_type=None):
     where = []
     params = []
     if start_date:
@@ -82,12 +95,16 @@ def get_articles(limit=100, start_date=None, end_date=None, category=None, statu
     if status and status != "All":
         where.append("status = ?")
         params.append(status)
+    if source_type and source_type != "All":
+        where.append("source_type = ?")
+        params.append(source_type)
     params.append(limit)
 
     with _connect() as conn:
         rows = conn.execute(
             f"""
-            SELECT id, source, title, url, published_at, summary, category, score, status, created_at
+            SELECT id, source, source_type, title, url, published_at, summary, category, score, status,
+                   created_at, metrics_json, thumbnail_url
             FROM articles
             {"WHERE " + " AND ".join(where) if where else ""}
             ORDER BY published_at DESC, score DESC, created_at DESC
@@ -95,7 +112,15 @@ def get_articles(limit=100, start_date=None, end_date=None, category=None, statu
             """,
             params,
         ).fetchall()
-        return [dict(row) for row in rows]
+        articles = []
+        for row in rows:
+            article = dict(row)
+            try:
+                article["metrics"] = json.loads(article.pop("metrics_json") or "{}")
+            except json.JSONDecodeError:
+                article["metrics"] = {}
+            articles.append(article)
+        return articles
 
 
 def update_article_status(article_id, status):

@@ -51,12 +51,14 @@ def fetch_rss_articles(start_date=None, end_date=None):
                 articles.append(
                     {
                         "source": source,
+                        "source_type": "rss",
                         "title": title,
                         "url": link,
                         "published_at": normalize_date_for_storage(published),
                         "summary": _text(entry.get("summary") or entry.get("description")),
                         "category": "General",
                         "score": 0,
+                        "metrics": {},
                     }
                 )
         except Exception as exc:
@@ -89,12 +91,14 @@ def fetch_hacker_news(limit=30, start_date=None, end_date=None):
             articles.append(
                 {
                     "source": "Hacker News",
+                    "source_type": "hacker_news",
                     "title": title,
                     "url": url,
                     "published_at": normalize_date_for_storage(published),
                     "summary": _text(story.get("text")),
                     "category": "General",
                     "score": int(story.get("score") or 0),
+                    "metrics": {"score": int(story.get("score") or 0)},
                 }
             )
         except Exception as exc:
@@ -134,12 +138,14 @@ def fetch_arxiv_ai(limit=20, start_date=None, end_date=None):
         articles.append(
             {
                 "source": "arXiv",
+                "source_type": "arxiv",
                 "title": " ".join(title.split()),
                 "url": url,
                 "published_at": normalize_date_for_storage(published),
                 "summary": _text(entry.findtext("atom:summary", default="", namespaces=ns)),
                 "category": "AI",
                 "score": 0,
+                "metrics": {},
             }
         )
     return articles

@@ -2,7 +2,7 @@
 
 ## Overall Progress
 
-Progress: [███████████] 110%
+Progress: [████████████] 120%
 
 ---
 
@@ -250,3 +250,28 @@ Run the app with `streamlit run app.py`.
 
 **Next step:**
 Run the dashboard and test a recent date range.
+
+---
+
+## Phase 12 Completed: Source selection system
+
+**Completed:**
+- Added source type and metrics storage fields with lightweight migration.
+- Added conditional connector execution through `selected_sources`.
+- Added dashboard source selection and source type filtering.
+- Kept default collection sources as RSS, Hacker News, and arXiv.
+
+**Files changed:**
+- `agent.py`
+- `app.py`
+- `connectors.py`
+- `storage.py`
+- `test_news_agent.py`
+- `ROADMAP.md`
+- `PROGRESS.md`
+
+**Problems:**
+- Targeted tests showed harmless sqlite ResourceWarnings during import cleanup; full suite passes without failures.
+
+**Next step:**
+Implement the Hugging Face models connector.
