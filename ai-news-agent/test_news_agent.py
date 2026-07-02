@@ -104,5 +104,21 @@ class ConnectorTests(unittest.TestCase):
         self.assertEqual(articles[0]["url"], "https://arxiv.org/abs/1234.5678")
 
 
+class RankerTests(unittest.TestCase):
+    def test_classifies_ai_tech_and_general(self):
+        from ranker import classify_and_score
+
+        ai = classify_and_score({"title": "OpenAI releases multimodal model", "summary": "LLM agent"})
+        tech = classify_and_score({"title": "GitHub cloud API security update", "summary": "developer software"})
+        general = classify_and_score({"title": "Local sports recap", "summary": "nothing relevant"})
+
+        self.assertEqual(ai["category"], "AI")
+        self.assertGreater(ai["score"], 0)
+        self.assertEqual(tech["category"], "Tech")
+        self.assertGreater(tech["score"], 0)
+        self.assertEqual(general["category"], "General")
+        self.assertEqual(general["score"], 0)
+
+
 if __name__ == "__main__":
     unittest.main()

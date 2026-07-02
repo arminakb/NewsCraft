@@ -81,15 +81,15 @@ Complete
 **Goal:** Score articles and classify them as AI, Tech, or General.
 
 ### Tasks
-- [ ] Add AI keyword scoring
-- [ ] Add tech keyword scoring
-- [ ] Drop articles with score `0`
+- [x] Add AI keyword scoring
+- [x] Add tech keyword scoring
+- [x] Drop articles with score `0`
 
 ### Expected Output
 Useful articles include `score` and `category`.
 
 ### Status
-Not started
+Complete
 
 ## Phase 7: Main news agent pipeline
 

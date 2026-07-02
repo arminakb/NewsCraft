@@ -2,7 +2,7 @@
 
 ## Overall Progress
 
-Progress: [█████-----] 50%
+Progress: [██████----] 60%
 
 ---
 
@@ -113,3 +113,25 @@ Implement the arXiv connector.
 
 **Next step:**
 Implement ranking and classification.
+
+---
+
+## Phase 6 Completed: Ranking and classification system
+
+**Completed:**
+- Added AI keyword scoring.
+- Added tech keyword scoring.
+- Classified articles as AI, Tech, or General.
+- Left score `0` articles identifiable for filtering.
+
+**Files changed:**
+- `ranker.py`
+- `test_news_agent.py`
+- `ROADMAP.md`
+- `PROGRESS.md`
+
+**Problems:**
+- None.
+
+**Next step:**
+Implement the main news agent pipeline.
