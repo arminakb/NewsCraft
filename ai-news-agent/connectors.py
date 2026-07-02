@@ -6,6 +6,7 @@ from xml.etree import ElementTree
 
 import feedparser
 import requests
+from huggingface_hub import HfApi
 
 from utils import is_within_date_range, normalize_date_for_storage, parse_article_date
 
@@ -20,6 +21,16 @@ HN_TOP_URL = "https://hacker-news.firebaseio.com/v0/topstories.json"
 HN_ITEM_URL = "https://hacker-news.firebaseio.com/v0/item/{id}.json"
 ARXIV_URL = "http://export.arxiv.org/api/query"
 TIMEOUT = 15
+HF_TAGS = [
+    "text-generation",
+    "image-to-text",
+    "text-to-image",
+    "automatic-speech-recognition",
+    "text-to-video",
+    "multimodal",
+    "agent",
+    "llm",
+]
 
 
 def _text(value):
@@ -148,4 +159,48 @@ def fetch_arxiv_ai(limit=20, start_date=None, end_date=None):
                 "metrics": {},
             }
         )
+    return articles
+
+
+def _hf_score(model, tags):
+    likes = int(getattr(model, "likes", 0) or 0)
+    downloads = int(getattr(model, "downloads", 0) or 0)
+    tag_score = sum(3 for tag in tags if tag in HF_TAGS)
+    return likes + downloads // 100 + tag_score
+
+
+def fetch_huggingface_models(start_date=None, end_date=None, limit=30, huggingface_token=None):
+    try:
+        api = HfApi(token=huggingface_token) if huggingface_token else HfApi()
+        models = api.list_models(sort="last_modified", direction=-1, limit=limit * 3)
+    except Exception as exc:
+        logging.warning("Hugging Face fetch failed: %s", exc)
+        return []
+
+    articles = []
+    for model in models:
+        model_id = _text(getattr(model, "modelId", ""))
+        if not model_id:
+            continue
+        published = parse_article_date(getattr(model, "last_modified", None))
+        if not is_within_date_range(published, start_date, end_date):
+            continue
+        tags = [str(tag).lower() for tag in (getattr(model, "tags", None) or [])]
+        likes = int(getattr(model, "likes", 0) or 0)
+        downloads = int(getattr(model, "downloads", 0) or 0)
+        articles.append(
+            {
+                "source": "Hugging Face",
+                "source_type": "huggingface",
+                "title": model_id,
+                "url": f"https://huggingface.co/{model_id}",
+                "published_at": normalize_date_for_storage(published),
+                "summary": ", ".join(tags[:12]),
+                "category": "Model",
+                "score": _hf_score(model, tags),
+                "metrics": {"likes": likes, "downloads": downloads},
+            }
+        )
+        if len(articles) >= limit:
+            break
     return articles

@@ -2,7 +2,7 @@
 
 ## Overall Progress
 
-Progress: [████████████] 120%
+Progress: [█████████████] 130%
 
 ---
 
@@ -275,3 +275,27 @@ Run the dashboard and test a recent date range.
 
 **Next step:**
 Implement the Hugging Face models connector.
+
+---
+
+## Phase 13 Completed: Hugging Face models connector
+
+**Completed:**
+- Added `huggingface_hub` dependency.
+- Added Hugging Face model discovery.
+- Normalized model metadata, source type, dates, scores, and metrics.
+- Added optional Hugging Face token support through the agent.
+
+**Files changed:**
+- `connectors.py`
+- `agent.py`
+- `requirements.txt`
+- `test_news_agent.py`
+- `ROADMAP.md`
+- `PROGRESS.md`
+
+**Problems:**
+- None.
+
+**Next step:**
+Implement the GitHub repositories connector.

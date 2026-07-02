@@ -2,7 +2,7 @@
 
 import logging
 
-from connectors import fetch_arxiv_ai, fetch_hacker_news, fetch_rss_articles
+from connectors import fetch_arxiv_ai, fetch_hacker_news, fetch_huggingface_models, fetch_rss_articles
 from ranker import classify_and_score
 from storage import init_db, save_articles
 from utils import is_within_date_range, normalize_date_for_storage
@@ -18,7 +18,14 @@ def _safe_fetch(fetcher, **kwargs):
         return []
 
 
-def run_news_agent(start_date=None, end_date=None, selected_sources=None):
+def run_news_agent(
+    start_date=None,
+    end_date=None,
+    selected_sources=None,
+    github_token=None,
+    huggingface_token=None,
+    youtube_api_key=None,
+):
     init_db()
     selected_sources = selected_sources or DEFAULT_SOURCES
     fetched = []
@@ -28,6 +35,16 @@ def run_news_agent(start_date=None, end_date=None, selected_sources=None):
         fetched.extend(_safe_fetch(fetch_hacker_news, limit=30, start_date=start_date, end_date=end_date))
     if "arxiv" in selected_sources:
         fetched.extend(_safe_fetch(fetch_arxiv_ai, limit=20, start_date=start_date, end_date=end_date))
+    if "huggingface" in selected_sources:
+        fetched.extend(
+            _safe_fetch(
+                fetch_huggingface_models,
+                limit=30,
+                start_date=start_date,
+                end_date=end_date,
+                huggingface_token=huggingface_token,
+            )
+        )
 
     processed = []
     for article in fetched:

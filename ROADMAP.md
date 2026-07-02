@@ -194,16 +194,16 @@ Complete
 **Goal:** Discover and store relevant Hugging Face models.
 
 ### Tasks
-- [ ] Add `huggingface_hub` dependency
-- [ ] Fetch recently updated interesting models
-- [ ] Normalize model metadata and metrics
-- [ ] Support optional Hugging Face token
+- [x] Add `huggingface_hub` dependency
+- [x] Fetch recently updated interesting models
+- [x] Normalize model metadata and metrics
+- [x] Support optional Hugging Face token
 
 ### Expected Output
 Hugging Face models can be collected and displayed.
 
 ### Status
-Not started
+Complete
 
 ## Phase 14: GitHub repositories connector
 

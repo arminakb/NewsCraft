@@ -238,6 +238,40 @@ class ConnectorTests(unittest.TestCase):
 
         self.assertEqual([article["url"] for article in articles], ["https://arxiv.org/abs/fresh"])
 
+    def test_huggingface_models_normalize_and_filter(self):
+        from connectors import fetch_huggingface_models
+
+        fresh = Mock(
+            modelId="org/fresh-model",
+            last_modified=datetime(2026, 7, 2, 10, 30),
+            tags=["text-generation", "llm"],
+            likes=12,
+            downloads=345,
+        )
+        old = Mock(
+            modelId="org/old-model",
+            last_modified=datetime(2026, 6, 30, 10, 30),
+            tags=["text-generation"],
+            likes=1,
+            downloads=2,
+        )
+        api = Mock()
+        api.list_models.return_value = [fresh, old]
+
+        with patch("connectors.HfApi", return_value=api) as hf_api:
+            articles = fetch_huggingface_models(
+                start_date=date(2026, 7, 2),
+                end_date=date(2026, 7, 2),
+                limit=5,
+                huggingface_token="token",
+            )
+
+        hf_api.assert_called_once_with(token="token")
+        self.assertEqual([article["url"] for article in articles], ["https://huggingface.co/org/fresh-model"])
+        self.assertEqual(articles[0]["source_type"], "huggingface")
+        self.assertEqual(articles[0]["category"], "Model")
+        self.assertEqual(articles[0]["metrics"]["likes"], 12)
+
 
 class RankerTests(unittest.TestCase):
     def test_classifies_ai_tech_and_general(self):
