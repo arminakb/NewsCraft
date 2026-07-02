@@ -96,16 +96,16 @@ Complete
 **Goal:** Orchestrate fetching, ranking, filtering, and saving articles.
 
 ### Tasks
-- [ ] Initialize the database
-- [ ] Fetch from all connectors
-- [ ] Continue if one source fails
-- [ ] Save processed articles
+- [x] Initialize the database
+- [x] Fetch from all connectors
+- [x] Continue if one source fails
+- [x] Save processed articles
 
 ### Expected Output
 `run_news_agent()` returns saved, scored articles.
 
 ### Status
-Not started
+Complete
 
 ## Phase 8: Streamlit dashboard
 

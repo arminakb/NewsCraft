@@ -2,7 +2,7 @@
 
 ## Overall Progress
 
-Progress: [██████----] 60%
+Progress: [███████---] 70%
 
 ---
 
@@ -135,3 +135,26 @@ Implement ranking and classification.
 
 **Next step:**
 Implement the main news agent pipeline.
+
+---
+
+## Phase 7 Completed: Main news agent pipeline
+
+**Completed:**
+- Added `run_news_agent()`.
+- Initialized storage before collection.
+- Fetched from RSS, Hacker News, and arXiv.
+- Continued when a source failed.
+- Ranked, filtered, saved, and returned useful articles.
+
+**Files changed:**
+- `agent.py`
+- `test_news_agent.py`
+- `ROADMAP.md`
+- `PROGRESS.md`
+
+**Problems:**
+- Mocked fetchers exposed a logging edge case; fixed with a safe fallback name.
+
+**Next step:**
+Build the Streamlit dashboard.

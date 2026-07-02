@@ -120,5 +120,36 @@ class RankerTests(unittest.TestCase):
         self.assertEqual(general["score"], 0)
 
 
+class AgentTests(unittest.TestCase):
+    def test_run_news_agent_saves_scored_articles_and_ignores_failed_source(self):
+        from agent import run_news_agent
+
+        rss_article = {
+            "source": "RSS",
+            "title": "OpenAI model update",
+            "url": "https://example.com/ai",
+            "summary": "LLM news",
+        }
+        irrelevant = {
+            "source": "HN",
+            "title": "Gardening notes",
+            "url": "https://example.com/garden",
+            "summary": "No match",
+        }
+
+        with patch("agent.init_db") as init_db, patch("agent.save_articles", return_value=1) as save_articles, patch(
+            "agent.fetch_rss_articles", return_value=[rss_article]
+        ), patch("agent.fetch_hacker_news", return_value=[irrelevant]), patch(
+            "agent.fetch_arxiv_ai", side_effect=RuntimeError("down")
+        ):
+            articles = run_news_agent()
+
+        init_db.assert_called_once()
+        save_articles.assert_called_once()
+        self.assertEqual(len(articles), 1)
+        self.assertEqual(articles[0]["category"], "AI")
+        self.assertGreater(articles[0]["score"], 0)
+
+
 if __name__ == "__main__":
     unittest.main()
