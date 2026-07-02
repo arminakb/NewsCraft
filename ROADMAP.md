@@ -128,16 +128,16 @@ Complete
 **Goal:** Let users manage article review status.
 
 ### Tasks
-- [ ] Add Approve buttons
-- [ ] Add Reject buttons
-- [ ] Add Reset to New buttons
-- [ ] Rerun after status updates
+- [x] Add Approve buttons
+- [x] Add Reject buttons
+- [x] Add Reset to New buttons
+- [x] Rerun after status updates
 
 ### Expected Output
 Dashboard review actions update SQLite article status.
 
 ### Status
-Not started
+Complete
 
 ## Phase 10: Final testing and cleanup
 

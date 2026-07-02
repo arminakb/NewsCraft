@@ -2,7 +2,7 @@
 
 ## Overall Progress
 
-Progress: [████████--] 80%
+Progress: [█████████-] 90%
 
 ---
 
@@ -180,3 +180,24 @@ Build the Streamlit dashboard.
 
 **Next step:**
 Add review action buttons.
+
+---
+
+## Phase 9 Completed: Review system with approve/reject/reset
+
+**Completed:**
+- Added Approve, Reject, and Reset to New buttons per article.
+- Wired buttons to SQLite status updates.
+- Reran the app after status changes.
+
+**Files changed:**
+- `app.py`
+- `storage.py`
+- `ROADMAP.md`
+- `PROGRESS.md`
+
+**Problems:**
+- None.
+
+**Next step:**
+Final testing and cleanup.
