@@ -16,10 +16,23 @@ ranks the articles, stores them in SQLite, and displays them for review.
 pip install -r requirements.txt
 ```
 
+On systems that block global Python package installs, use a virtual environment:
+
+```bash
+python3 -m venv .venv
+.venv/bin/python -m pip install -r requirements.txt
+```
+
 ## How to run
 
 ```bash
 streamlit run app.py
+```
+
+With the local virtual environment:
+
+```bash
+.venv/bin/streamlit run app.py
 ```
 
 ## Project structure
