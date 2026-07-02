@@ -66,15 +66,15 @@ Complete
 **Goal:** Fetch and normalize recent AI research papers.
 
 ### Tasks
-- [ ] Query `cs.AI`, `cs.LG`, and `cs.CL`
-- [ ] Sort by submitted date descending
-- [ ] Normalize paper metadata
+- [x] Query `cs.AI`, `cs.LG`, and `cs.CL`
+- [x] Sort by submitted date descending
+- [x] Normalize paper metadata
 
 ### Expected Output
 Recent AI/ML/NLP papers returned in the common article format.
 
 ### Status
-Not started
+Complete
 
 ## Phase 6: Ranking and classification system
 

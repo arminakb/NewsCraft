@@ -2,7 +2,7 @@
 
 ## Overall Progress
 
-Progress: [████------] 40%
+Progress: [█████-----] 50%
 
 ---
 
@@ -92,3 +92,24 @@ Implement the Hacker News connector.
 
 **Next step:**
 Implement the arXiv connector.
+
+---
+
+## Phase 5 Completed: arXiv connector
+
+**Completed:**
+- Added arXiv API querying for AI, ML, and NLP categories.
+- Sorted papers by submitted date descending.
+- Normalized Atom feed entries into article records.
+
+**Files changed:**
+- `connectors.py`
+- `test_news_agent.py`
+- `ROADMAP.md`
+- `PROGRESS.md`
+
+**Problems:**
+- None.
+
+**Next step:**
+Implement ranking and classification.
