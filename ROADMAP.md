@@ -345,3 +345,19 @@ Telegram channel posts can be collected from configured trusted channels and dis
 
 ### Status
 Complete
+
+## Phase 22: arXiv full-paper extraction and research asset generation
+
+**Goal:** Process selected arXiv papers on demand into local PDF, full-text, and content brief assets.
+
+### Tasks
+- [x] Add PDF fetch, text extraction, paper asset storage, and rule-based brief generation
+- [x] Add dashboard action for arXiv cards and a Paper Assets tab
+- [x] Save NotebookLM, Instagram, and podcast-ready markdown outputs
+- [x] Update tests, README, and progress docs
+
+### Expected Output
+Selected arXiv papers can be prepared into reusable local research assets without downloading every paper during collection.
+
+### Status
+Complete

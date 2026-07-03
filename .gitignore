@@ -1,6 +1,38 @@
+# Python
 __pycache__/
-*.pyc
+*.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Local app state
 *.db
+*.sqlite
+*.sqlite3
 *.session
 *.session-journal
-.venv/
+data/
+
+# Secrets and local config
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# Logs and OS/editor noise
+*.log
+.DS_Store
+.idea/
+.vscode/
+
+# Generated analysis artifacts
+graphify-out/

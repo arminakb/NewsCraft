@@ -2,7 +2,7 @@
 
 ## Overall Progress
 
-Progress: [████████████████████] 200%
+Progress: [██████████████████████] 220%
 
 ---
 
@@ -613,3 +613,44 @@ Progress: [█████████████████████] 210%
 
 **Next step:**
 Run `python telegram_login.py`, add trusted channel usernames in Configuration, and test Telegram Channels from the dashboard Debug panel.
+
+---
+
+## Phase 22 Completed: arXiv full-paper extraction and research asset generation
+
+**What was added:**
+- Added on-demand arXiv PDF download, ID parsing, PDF URL building, and existing-file reuse.
+- Added PyMuPDF-based full-text extraction, cleanup, reference trimming, and best-effort section detection.
+- Added rule-based research brief generation plus NotebookLM, Instagram, and podcast markdown exports.
+- Added `paper_assets.db` storage and a dashboard **Paper Assets** tab.
+- Added **Prepare Paper Asset** on arXiv cards without changing automatic collection.
+
+**What was tested:**
+- arXiv ID extraction from abs URLs, PDF URLs, bare IDs, and versioned IDs.
+- Existing PDF reuse without redownload.
+- Text cleanup, section extraction, rule-based brief generation, markdown export, and SQLite dedupe.
+- Full existing unit suite.
+
+**Files changed:**
+- `ROADMAP.md`
+- `app.py`
+- `paper_fetcher.py`
+- `paper_extractor.py`
+- `paper_storage.py`
+- `research_brief.py`
+- `test_news_agent.py`
+- `requirements.txt`
+- `README.md`
+- `PROGRESS.md`
+
+**Known limitations:**
+- Briefs are rule-based and should be reviewed before publishing.
+- PDF extraction quality depends on the paper PDF layout and PyMuPDF output.
+- NotebookLM is not integrated by API; upload `paper.pdf` and `research_brief.md` manually.
+- Live PDF download was not run in tests.
+
+**Updated progress bar:**
+Progress: [██████████████████████] 220%
+
+**Next step:**
+Open the dashboard, click **Prepare Paper Asset** on an arXiv card, and review the generated markdown before publishing.

@@ -155,6 +155,97 @@ class StorageTests(unittest.TestCase):
         self.assertEqual(rows[0]["structured_summary"]["what_it_is"], "A model")
 
 
+class PaperAssetTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.old_db = os.environ.get("PAPER_ASSETS_DB_PATH")
+        os.environ["PAPER_ASSETS_DB_PATH"] = os.path.join(self.tmp.name, "paper_assets.db")
+
+    def tearDown(self):
+        if self.old_db is None:
+            os.environ.pop("PAPER_ASSETS_DB_PATH", None)
+        else:
+            os.environ["PAPER_ASSETS_DB_PATH"] = self.old_db
+        self.tmp.cleanup()
+
+    def test_arxiv_id_pdf_url_and_existing_pdf_reuse(self):
+        from paper_fetcher import build_arxiv_pdf_url, download_arxiv_pdf, extract_arxiv_id
+
+        self.assertEqual(extract_arxiv_id("https://arxiv.org/abs/2602.12345"), "2602.12345")
+        self.assertEqual(extract_arxiv_id("https://arxiv.org/pdf/2602.12345"), "2602.12345")
+        self.assertEqual(extract_arxiv_id("2602.12345v1"), "2602.12345v1")
+        self.assertEqual(build_arxiv_pdf_url("2602.12345v1"), "https://arxiv.org/pdf/2602.12345v1")
+
+        existing_dir = os.path.join(self.tmp.name, "papers", "2602.12345")
+        os.makedirs(existing_dir)
+        existing_pdf = os.path.join(existing_dir, "paper.pdf")
+        with open(existing_pdf, "wb") as handle:
+            handle.write(b"%PDF-1.4")
+
+        self.assertEqual(download_arxiv_pdf("2602.12345", output_dir=os.path.join(self.tmp.name, "papers")), existing_pdf)
+        with self.assertRaises(ValueError):
+            extract_arxiv_id("https://example.com/not-arxiv")
+
+    def test_clean_sections_brief_and_storage(self):
+        from paper_extractor import clean_paper_text, extract_basic_sections
+        from paper_storage import get_paper_asset, init_paper_assets_db, list_paper_assets, save_paper_asset
+        from research_brief import generate_research_brief, write_markdown_assets
+
+        raw_text = """
+        Abstract
+        This paper studies reliable AI agents.
+        Introduction
+        Current agents fail silently in production.
+        Method
+        We add lightweight checks around tool calls.
+        Results
+        The checks catch common failures.
+        References
+        [1] A citation
+        """
+        clean_text = clean_paper_text(raw_text)
+        self.assertNotIn("References", clean_text)
+        sections = extract_basic_sections(clean_text)
+        self.assertIn("Abstract", sections)
+        self.assertIn("Method", sections)
+
+        article = {
+            "id": 42,
+            "title": "Reliable AI Agents",
+            "url": "https://arxiv.org/abs/2602.12345",
+            "summary": "Short abstract",
+            "metrics": {"authors": ["Ada Lovelace"]},
+        }
+        brief = generate_research_brief(article, clean_text, sections)
+        self.assertIn("Reliable AI Agents", brief["one_line_summary"])
+        self.assertTrue(brief["key_findings"])
+
+        paths = write_markdown_assets(article, brief, self.tmp.name, "paper.pdf")
+        self.assertTrue(os.path.exists(paths["research_brief_path"]))
+        self.assertTrue(os.path.exists(paths["instagram_brief_path"]))
+        self.assertTrue(os.path.exists(paths["podcast_brief_path"]))
+
+        init_paper_assets_db()
+        save_paper_asset(
+            {
+                "arxiv_id": "2602.12345",
+                "article_id": 42,
+                "title": "Reliable AI Agents",
+                "authors": ["Ada Lovelace"],
+                "abstract": "Short abstract",
+                "pdf_url": "https://arxiv.org/pdf/2602.12345",
+                "local_pdf_path": "paper.pdf",
+                "full_text_path": "full_text.txt",
+                "sections": sections,
+                **paths,
+                "status": "ready",
+            }
+        )
+        save_paper_asset({"arxiv_id": "2602.12345", "title": "Updated title", "status": "ready"})
+        self.assertEqual(len(list_paper_assets()), 1)
+        self.assertEqual(get_paper_asset("2602.12345")["title"], "Updated title")
+
+
 class ApprovedStorageTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()

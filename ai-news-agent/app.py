@@ -23,6 +23,10 @@ from diagnostics import (
     test_telegram_connection,
     test_telegram_connector,
 )
+from paper_extractor import clean_paper_text, extract_basic_sections, extract_text_from_pdf
+from paper_fetcher import build_arxiv_pdf_url, download_arxiv_pdf, extract_arxiv_id
+from paper_storage import get_paper_asset, init_paper_assets_db, list_paper_assets, save_paper_asset
+from research_brief import generate_research_brief, write_markdown_assets
 from summarizer import truncate_text
 from storage import clear_articles, get_articles, get_search_sessions, init_db, update_article_status
 from telegram_connector import parse_channel_usernames
@@ -100,6 +104,59 @@ def _approve_button(article, key):
         st.session_state.review_message = "Article approved and saved to approved_articles.db."
         update_article_status(article["id"], "approved")
         _rerun()
+
+
+def _paper_paths(asset):
+    return [
+        asset.get("local_pdf_path"),
+        asset.get("full_text_path"),
+        asset.get("research_brief_path"),
+        asset.get("instagram_brief_path"),
+        asset.get("podcast_brief_path"),
+    ]
+
+
+def _show_paper_asset(asset):
+    st.success("Paper asset ready")
+    for path in _paper_paths(asset):
+        if path:
+            st.caption(path)
+
+
+def _prepare_paper_asset(article):
+    arxiv_id = extract_arxiv_id(article.get("url"))
+    existing = get_paper_asset(arxiv_id)
+    if existing:
+        return existing
+
+    pdf_path = download_arxiv_pdf(arxiv_id)
+    full_text = clean_paper_text(extract_text_from_pdf(pdf_path))
+    if not full_text:
+        raise ValueError("Empty extracted text")
+
+    paper_dir = os.path.dirname(pdf_path)
+    full_text_path = os.path.join(paper_dir, "full_text.txt")
+    with open(full_text_path, "w", encoding="utf-8") as handle:
+        handle.write(full_text)
+
+    sections = extract_basic_sections(full_text)
+    brief = generate_research_brief(article, full_text, sections)
+    paths = write_markdown_assets(article, brief, paper_dir, pdf_path)
+    asset = {
+        "arxiv_id": arxiv_id,
+        "article_id": article.get("id"),
+        "title": article.get("title", ""),
+        "authors": (article.get("metrics") or {}).get("authors", []),
+        "abstract": article.get("summary", ""),
+        "pdf_url": build_arxiv_pdf_url(arxiv_id),
+        "local_pdf_path": pdf_path,
+        "full_text_path": full_text_path,
+        "sections": sections,
+        **paths,
+        "status": "ready",
+    }
+    save_paper_asset(asset)
+    return get_paper_asset(arxiv_id)
 
 
 def metrics_text(metrics):
@@ -294,6 +351,18 @@ def _article_card(article, approved=False):
             st.caption(metrics)
         if not article.get("structured_summary"):
             st.write(summary_preview(article.get("summary")))
+        if source_type == "arxiv":
+            try:
+                asset = get_paper_asset(extract_arxiv_id(article.get("url")))
+                if asset:
+                    _show_paper_asset(asset)
+                elif st.button("Prepare Paper Asset", key=f"prepare-paper-{article['id']}"):
+                    prepared = _prepare_paper_asset(article)
+                    st.session_state.review_message = "Paper asset prepared."
+                    st.session_state.paper_asset_paths = _paper_paths(prepared)
+                    _rerun()
+            except Exception as exc:
+                st.error(f"Paper asset error: {exc}")
         with st.expander("Raw details"):
             st.write(f"Source: {article['source']}")
             st.write(f"Type: {SOURCE_TYPE_LABELS.get(source_type, source_type)}")
@@ -319,6 +388,7 @@ def main():
     st.set_page_config(page_title="AI & Tech News Agent Dashboard", layout="wide")
     init_db()
     init_approved_db()
+    init_paper_assets_db()
 
     header_left, header_spacer, header_right = st.columns([4, 1, 2])
     with header_left:
@@ -326,6 +396,10 @@ def main():
         st.caption("Collect, rank, and review AI/tech news from selected sources.")
         if st.session_state.get("review_message"):
             st.success(st.session_state.pop("review_message"))
+        if st.session_state.get("paper_asset_paths"):
+            for path in st.session_state.pop("paper_asset_paths"):
+                if path:
+                    st.caption(path)
 
     today = date.today()
     with st.expander("Collection Controls", expanded=True):
@@ -382,7 +456,7 @@ def main():
         sort_by = col3.selectbox("Sort by", ["Latest first", "Highest score", "Most popular", "Source"])
         limit = col4.slider("Limit", 10, 100, 50, 10)
 
-    main_tab, approved_tab = st.tabs(["Collected Articles", "Approved Articles"])
+    main_tab, approved_tab, paper_assets_tab = st.tabs(["Collected Articles", "Approved Articles", "Paper Assets"])
 
     with main_tab:
         st.subheader("Current Search Results")
@@ -414,6 +488,18 @@ def main():
             st.info("No approved articles yet.")
         for article in approved:
             _article_card(article, approved=True)
+
+    with paper_assets_tab:
+        st.subheader("Paper Assets")
+        assets = list_paper_assets(limit=limit)
+        if not assets:
+            st.info("No paper assets prepared yet.")
+        for asset in assets:
+            with st.container(border=True):
+                st.markdown(f"#### {asset.get('title') or asset['arxiv_id']}")
+                st.caption(f"arXiv ID: {asset['arxiv_id']} | Status: {asset.get('status', 'ready')} | Created: {asset.get('created_at')}")
+                _show_paper_asset(asset)
+                st.caption("For NotebookLM, upload paper.pdf and research_brief.md.")
 
 
 if __name__ == "__main__":

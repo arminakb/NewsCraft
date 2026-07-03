@@ -8,6 +8,7 @@ ranks the articles, stores them in SQLite, and displays them for review.
 - RSS feed, Hacker News, and arXiv collection
 - Hugging Face model, GitHub repository, and YouTube RSS discovery
 - Telegram channel ingestion through a local Telethon user session
+- On-demand arXiv PDF extraction and paper asset generation
 - Keyword scoring and category classification
 - SQLite storage with duplicate URL protection
 - Streamlit dashboard with review statuses
@@ -64,6 +65,25 @@ Configured RSS feeds include OpenAI News, Anthropic News, NVIDIA AI Blog, Google
 ## Hacker News and arXiv
 
 Hacker News now checks top, new, and best story lists, keeps URL stories with developer/startup/AI relevance, and records HN score and comments. arXiv now searches AI, ML, NLP, CV, and statistical ML categories, stores papers as Research, and keeps author names when available.
+
+## arXiv Full-Paper Workflow
+
+The app can download arXiv PDFs for selected papers. It extracts the text and generates research/content briefs on demand, not automatically for every paper. Generated files are saved under `data/papers/ARXIV_ID/`.
+
+On an arXiv card, click **Prepare Paper Asset**. The app saves:
+
+```text
+data/papers/ARXIV_ID/
+  paper.pdf
+  full_text.txt
+  research_brief.md
+  instagram_brief.md
+  podcast_brief.md
+```
+
+Paper asset metadata is stored in `paper_assets.db` and listed in the **Paper Assets** tab. For NotebookLM, upload `paper.pdf` and `research_brief.md`.
+
+Briefs are generated with rule-based extraction, not an LLM. Review the markdown before publishing.
 
 ## Hugging Face Models
 
@@ -175,6 +195,10 @@ diagnostics.py
 connectors.py
 config.py
 approved_storage.py
+paper_fetcher.py
+paper_extractor.py
+paper_storage.py
+research_brief.py
 storage.py
 ranker.py
 summarizer.py
