@@ -1,5 +1,11 @@
+from datetime import UTC, datetime
+from types import SimpleNamespace
+from uuid import uuid4
+
 from fastapi.testclient import TestClient
 
+from app.db.models import Source
+from app.db.session import get_session
 from app.main import app
 
 
@@ -9,3 +15,112 @@ def test_health_endpoint_returns_ok():
 
     assert response.status_code == 200
     assert response.json() == {"status": "ok"}
+
+
+def test_sources_endpoint_returns_source_summaries():
+    source = Source(
+        id=uuid4(),
+        platform="rss",
+        name="OpenAI News",
+        feed_url="https://openai.com/news/rss.xml",
+        source_group="ai",
+        language_hint="en",
+        active=True,
+    )
+    _override_session(FakeSession([source]))
+
+    response = TestClient(app).get("/sources")
+
+    app.dependency_overrides.clear()
+    assert response.status_code == 200
+    assert response.json()[0]["name"] == "OpenAI News"
+
+
+def test_sources_seed_endpoint_seeds_catalog(monkeypatch):
+    import app.api.routes as routes
+
+    async def fake_seed_sources(session):
+        return 50
+
+    fake_session = FakeSession([])
+    monkeypatch.setattr(routes, "seed_sources", fake_seed_sources)
+    _override_session(fake_session)
+
+    response = TestClient(app).post("/sources/seed")
+
+    app.dependency_overrides.clear()
+    assert response.status_code == 200
+    assert response.json() == {"upserted": 50}
+    assert fake_session.committed is True
+
+
+def test_ingest_run_endpoint_triggers_ingestion(monkeypatch):
+    import app.api.routes as routes
+
+    class FakeService:
+        def __init__(self, session):
+            self.session = session
+
+        async def run_once(self, platforms, source_ids, trigger):
+            return {"status": "succeeded", "checked": 1, "items": 2, "platforms": platforms, "source_ids": source_ids}
+
+    monkeypatch.setattr(routes, "IngestionService", FakeService)
+    _override_session(FakeSession([]))
+
+    response = TestClient(app).post("/ingest/run", json={"platforms": ["rss"], "source_ids": ["source-1"]})
+
+    app.dependency_overrides.clear()
+    assert response.status_code == 200
+    assert response.json()["items"] == 2
+    assert response.json()["status"] == "succeeded"
+
+
+def test_content_items_endpoint_returns_latest_content_with_primary_media():
+    content_item = SimpleNamespace(
+        id=uuid4(),
+        item_type="article",
+        title="AI News",
+        summary="Summary",
+        canonical_url="https://example.com/a",
+        source_url=None,
+        language_code="en",
+        direction="ltr",
+        status="new",
+        sort_at=datetime(2026, 7, 3, tzinfo=UTC),
+        primary_image_id=uuid4(),
+        primary_media=SimpleNamespace(
+            id=uuid4(),
+            normalized_url="https://example.com/image.jpg",
+            kind="image",
+            mime_type="image/jpeg",
+            width=600,
+            height=400,
+            storage_path="/data/media/aa/image.jpg",
+        ),
+    )
+    _override_session(FakeSession([content_item]))
+
+    response = TestClient(app).get("/content-items")
+
+    app.dependency_overrides.clear()
+    assert response.status_code == 200
+    assert response.json()[0]["primary_media"]["kind"] == "image"
+
+
+class FakeSession:
+    def __init__(self, rows):
+        self.rows = rows
+        self.committed = False
+
+    async def scalars(self, stmt):
+        return self.rows
+
+    async def commit(self):
+        self.committed = True
+
+
+def _override_session(fake_session: FakeSession) -> None:
+    async def override():
+        yield fake_session
+
+    app.dependency_overrides[get_session] = override
