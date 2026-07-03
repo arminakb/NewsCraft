@@ -63,7 +63,7 @@ Then open the URL printed by Streamlit.
 
 ## Backend Ingestion Service
 
-The new backend lives in `backend/`. It provides a FastAPI API, PostgreSQL schema, RSS and public Telegram parsers, ingestion worker, and media downloader.
+The new backend service lives in `backend/`. It uses FastAPI, PostgreSQL, and a worker command to ingest RSS feeds and public Telegram channel pages. It stores raw payloads, normalized content items, and media assets for downstream post generation.
 
 Run the backend stack with Docker Compose:
 
