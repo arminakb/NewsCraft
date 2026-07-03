@@ -1,0 +1,7 @@
+.git
+**/__pycache__/
+**/.pytest_cache/
+**/.ruff_cache/
+**/.venv/
+*.db
+data/
