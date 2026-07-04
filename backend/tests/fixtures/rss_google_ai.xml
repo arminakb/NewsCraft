@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<rss version="2.0"
+     xmlns:atom="http://www.w3.org/2005/Atom"
+     xmlns:media="http://search.yahoo.com/mrss/">
+  <channel>
+    <title>AI</title>
+    <link>https://blog.google/innovation-and-ai/technology/ai/</link>
+    <description>AI</description>
+    <atom:link href="https://blog.google/innovation-and-ai/technology/ai/rss/" rel="self" />
+    <language>en-us</language>
+    <lastBuildDate>Wed, 01 Jul 2026 18:15:00 +0000</lastBuildDate>
+    <item>
+      <title>The latest AI news we announced in June 2026</title>
+      <link>https://blog.google/innovation-and-ai/technology/ai/google-ai-updates-june-2026/</link>
+      <media:content
+        height="540"
+        medium="image"
+        url="https://storage.googleapis.com/gweb-uniblog-publish-prod/images/260701_ICYMI-June-AI_Thumb.max-600x600.format-webp.webp"
+        width="540" />
+      <media:description>June Pixel Drop hero</media:description>
+      <description>&lt;img src="https://storage.googleapis.com/gweb-uniblog-publish-prod/images/260701_ICYMI-June-AI_Thumb.max-600x600.format-webp.webp"&gt;Here are Google's latest AI updates from June 2026.</description>
+      <pubDate>Wed, 01 Jul 2026 18:15:00 +0000</pubDate>
+      <guid>https://blog.google/innovation-and-ai/technology/ai/google-ai-updates-june-2026/</guid>
+      <category>Search</category>
+      <category>NotebookLM</category>
+      <category>AI</category>
+      <author>Keyword Team</author>
+    </item>
+  </channel>
+</rss>
