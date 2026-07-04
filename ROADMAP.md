@@ -361,3 +361,22 @@ Selected arXiv papers can be prepared into reusable local research assets withou
 
 ### Status
 Complete
+
+## Phase 23: Backend-first FastAPI and PostgreSQL foundation
+
+**Goal:** Move NewsCraft away from a Streamlit-centered SQLite MVP and establish a backend-first foundation.
+
+### Tasks
+- [x] Add FastAPI app with health, sources, ingestion, articles, review, approved articles, assets, diagnostics, and content draft endpoints
+- [x] Add SQLAlchemy 2.x models for PostgreSQL-backed articles, sources, ingestion runs, source logs, approved articles, paper assets, and content drafts
+- [x] Add Alembic migration for the backend schema
+- [x] Introduce service/repository boundaries while preserving legacy connector behavior
+- [x] Add SQLite-to-PostgreSQL migration script
+- [x] Add Docker Compose for PostgreSQL and API local development
+- [x] Document backend setup and mark Streamlit as legacy/temporary
+
+### Expected Output
+NewsCraft can run as a backend API without Streamlit as the architectural center, with PostgreSQL as primary persistence and the existing connectors still reused.
+
+### Status
+Complete

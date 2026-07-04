@@ -1,4 +1,3 @@
-streamlit
 fastapi
 uvicorn[standard]
 sqlalchemy>=2
@@ -9,6 +8,7 @@ pydantic-settings
 python-dotenv
 pytest
 httpx
+streamlit
 feedparser
 requests
 python-dateutil
