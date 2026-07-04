@@ -1,8 +1,8 @@
 # NewsCraft
 
-NewsCraft is moving to a backend-first architecture for collecting, normalizing, reviewing, and preparing AI and technology news.
+NewsCraft is a backend-first service for collecting, normalizing, reviewing, and preparing AI and technology news.
 
-The FastAPI backend is now the architectural center. The existing Streamlit app in `ai-news-agent/` is preserved as a legacy/temporary interface while the backend stabilizes.
+The FastAPI backend in `newscraft/` is the single source of truth. The legacy Streamlit/SQLite implementation has been removed after its useful ingestion, ranking, diagnostics, review, approved-article, and paper-asset logic was migrated into the backend.
 
 ## Backend Stack
 
@@ -11,7 +11,7 @@ The FastAPI backend is now the architectural center. The existing Streamlit app 
 - Alembic migrations in `newscraft/db/migrations/`
 - Pydantic request/response schemas
 - Service/repository boundaries for ingestion, review, sources, assets, and content drafts
-- Existing RSS, Hacker News, arXiv, GitHub, Hugging Face, YouTube RSS, and Telegram connectors reused through a compatibility adapter
+- Backend-owned RSS, Hacker News, arXiv, GitHub, Hugging Face, YouTube RSS, and Telegram connectors
 
 ## Setup
 
@@ -77,22 +77,11 @@ Existing SQLite data can be copied into PostgreSQL after migrations:
 
 ```bash
 python scripts/migrate_sqlite_to_postgres.py \
-  --news-db ai-news-agent/news.db \
-  --approved-db ai-news-agent/approved_articles.db
+  --news-db /path/to/news.db \
+  --approved-db /path/to/approved_articles.db
 ```
 
 The migration skips missing SQLite files and duplicate article URLs. It preserves article status where the old rows expose it.
-
-## Legacy Streamlit
-
-The old dashboard still lives in `ai-news-agent/`:
-
-```bash
-cd ai-news-agent
-../.venv/bin/streamlit run app.py
-```
-
-It still uses the legacy SQLite modules. New backend work should target `newscraft/`.
 
 ## Tests
 

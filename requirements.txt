@@ -8,7 +8,6 @@ pydantic-settings
 python-dotenv
 pytest
 httpx
-streamlit
 feedparser
 requests
 python-dateutil

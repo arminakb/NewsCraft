@@ -33,5 +33,5 @@ def source_health(db: Session = Depends(get_db)):
 
 
 @router.post("/diagnostics")
-def source_diagnostics():
-    return DiagnosticsService().source_diagnostics()
+def source_diagnostics(db: Session = Depends(get_db)):
+    return DiagnosticsService(db).source_diagnostics()

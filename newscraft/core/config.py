@@ -16,6 +16,7 @@ class Settings(BaseSettings):
     telegram_api_id: Optional[str] = None
     telegram_api_hash: Optional[str] = None
     telegram_session_name: Optional[str] = None
+    paper_data_dir: str = "data/papers"
     log_level: str = "INFO"
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")

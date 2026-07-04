@@ -1,6 +1,8 @@
-from newscraft.connectors.legacy import classify_and_score, get_connector_fetchers
+from newscraft.connectors import get_connector_fetchers
 from newscraft.repositories.article_repository import ArticleRepository
 from newscraft.repositories.ingestion_run_repository import IngestionRunRepository
+from newscraft.services.normalization_service import normalize_article
+from newscraft.services.ranking_service import classify_and_score
 
 
 DEFAULT_SOURCES = ["rss", "hacker_news", "arxiv"]
@@ -35,12 +37,15 @@ class IngestionService:
 
             fetched_total += len(items)
             saved = 0
+            skipped_malformed = 0
             for item in items:
-                if not item.get("title") or not item.get("url"):
+                normalized = normalize_article(item)
+                if not normalized:
+                    skipped_malformed += 1
                     continue
-                item.setdefault("connector", source)
-                item.setdefault("source_type", source)
-                ranked = classify_and_score(item)
+                normalized["connector"] = normalized.get("connector") or source
+                normalized["source_type"] = normalized.get("source_type") or source
+                ranked = classify_and_score(normalized)
                 before_id = self.article_repo._find_existing(self.article_repo._values(ranked))
                 self.article_repo.upsert(ranked)
                 if before_id:
@@ -48,7 +53,14 @@ class IngestionService:
                 else:
                     saved += 1
             saved_total += saved
-            self.run_repo.log_source(run.id, source_name=source, status="succeeded", fetched_count=len(items), saved_count=saved)
+            self.run_repo.log_source(
+                run.id,
+                source_name=source,
+                status="succeeded",
+                fetched_count=len(items),
+                saved_count=saved,
+                log_metadata={"skipped_malformed": skipped_malformed},
+            )
 
         return self.run_repo.finish(
             run,

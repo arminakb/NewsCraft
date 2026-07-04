@@ -1,4 +1,4 @@
-"""Keyword ranking and classification."""
+"""Keyword ranking and classification for normalized articles."""
 
 AI_KEYWORDS = [
     "ai",

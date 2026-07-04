@@ -17,8 +17,10 @@ class PaperAssetRepository:
             asset = PaperAsset(article_id=data.get("article_id"))
             self.db.add(asset)
         for key in ("pdf_path", "text_path", "notebooklm_brief_path", "instagram_brief_path", "podcast_brief_path"):
-            setattr(asset, key, data.get(key))
-        asset.asset_metadata = data.get("metadata") or {}
+            if key in data:
+                setattr(asset, key, data.get(key))
+        if "metadata" in data:
+            asset.asset_metadata = data.get("metadata") or {}
         self.db.commit()
         self.db.refresh(asset)
         return asset
