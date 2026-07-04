@@ -1,5 +1,7 @@
 # Postgres Public Ingestion Backend Implementation Plan
 
+> Superseded by the Armin/Amir integration branch: the final backend package is `newscraft/`, and the standalone `backend/` tree from this plan was removed after its public ingestion code was ported.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Build a Dockerized FastAPI/PostgreSQL backend that ingests public RSS feeds and public Telegram channel pages, captures images/media, and stores normalized source material for a future post-generation agent.

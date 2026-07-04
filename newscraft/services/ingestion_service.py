@@ -1,6 +1,7 @@
 from newscraft.connectors.legacy import classify_and_score, get_connector_fetchers
 from newscraft.repositories.article_repository import ArticleRepository
 from newscraft.repositories.ingestion_run_repository import IngestionRunRepository
+from newscraft.repositories.source_repository import SourceRepository
 
 
 DEFAULT_SOURCES = ["rss", "hacker_news", "arxiv"]
@@ -12,6 +13,7 @@ class IngestionService:
         self.connector_fetchers = connector_fetchers or get_connector_fetchers()
         self.article_repo = article_repo or ArticleRepository(db)
         self.run_repo = run_repo or IngestionRunRepository(db)
+        self.source_repo = SourceRepository(db)
 
     def run(self, selected_sources=None, **kwargs):
         selected_sources = selected_sources or DEFAULT_SOURCES
@@ -84,5 +86,11 @@ class IngestionService:
                 "telegram_session_name",
                 "diagnostics",
             },
+            "rss_public": {"sources", "limit_per_source"},
+            "telegram_public": {"channels", "limit_per_channel"},
         }.get(source, set(values))
+        if source == "rss_public" and "sources" not in values:
+            values = {**values, "sources": [item for item in self.source_repo.list(enabled=True) if item.connector == "rss_public"]}
+        if source == "telegram_public" and "channels" not in values:
+            values = {**values, "channels": [item for item in self.source_repo.list(enabled=True) if item.connector == "telegram_public"]}
         return {key: value for key, value in values.items() if key in allowed}

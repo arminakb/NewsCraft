@@ -380,3 +380,20 @@ NewsCraft can run as a backend API without Streamlit as the architectural center
 
 ### Status
 Complete
+
+## Phase 24: Armin and Amir backend integration
+
+**Goal:** Combine the tested backend foundation with public ingestion parsing and source catalog work in one clean backend structure.
+
+### Tasks
+- [x] Keep `newscraft/` as the single backend package
+- [x] Port RSS media parsing, public Telegram page parsing, normalization helpers, and seed source catalog into `newscraft/ingestion/`
+- [x] Wire the expanded seed catalog into `scripts/seed_sources.py`
+- [x] Remove the duplicate `backend/` app structure after porting useful code
+- [x] Add tests for public ingestion parsers and seed catalog
+
+### Expected Output
+The final integrated branch keeps Armin's full backend API/service/repository foundation and Amir's public ingestion parser/catalog improvements without maintaining two backend apps.
+
+### Status
+Complete

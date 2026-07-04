@@ -1,15 +1,11 @@
-from __future__ import annotations
-
 import re
 from datetime import datetime
 
 from bs4 import BeautifulSoup, Tag
 
-from app.normalization.dates import parse_source_datetime
-from app.normalization.media import infer_media_kind, is_http_media_url
-from app.normalization.text import infer_direction
-from app.normalization.urls import normalize_url
-from app.sources.base import MediaCandidate, ParsedSourceItem, ParsedSourcePayload
+from newscraft.ingestion.normalization import infer_direction, infer_media_kind, is_http_media_url, normalize_url, parse_source_datetime
+from newscraft.ingestion.parsed import MediaCandidate, ParsedSourceItem, ParsedSourcePayload
+from newscraft.ingestion.rss_public import _parsed_item_to_article
 
 CSS_URL_RE = re.compile(r"background-image:\s*url\((?P<quote>['\"]?)(?P<url>.*?)(?P=quote)\)")
 COUNT_RE = re.compile(r"(?P<number>\d+(?:\.\d+)?)\s*(?P<suffix>[KMB])?", re.IGNORECASE)
@@ -17,13 +13,14 @@ COUNT_RE = re.compile(r"(?P<number>\d+(?:\.\d+)?)\s*(?P<suffix>[KMB])?", re.IGNO
 
 def parse_public_telegram_page(html: str, channel: str) -> ParsedSourcePayload:
     soup = BeautifulSoup(html, "lxml")
-    warnings: list[str] = []
-    items = [
-        _parse_message(block, channel=channel, warnings=warnings)
-        for block in soup.select(".tgme_widget_message[data-post]")
-    ]
-    items = [item for item in items if item is not None]
-    return ParsedSourcePayload(items=items, warnings=warnings, feed_meta={"channel": channel})
+    warnings = []
+    items = [_parse_message(block, channel=channel, warnings=warnings) for block in soup.select(".tgme_widget_message[data-post]")]
+    return ParsedSourcePayload(items=[item for item in items if item is not None], warnings=warnings, feed_meta={"channel": channel})
+
+
+def parsed_telegram_items_to_articles(payload: ParsedSourcePayload) -> list[dict]:
+    channel = payload.feed_meta.get("channel") or "telegram"
+    return [_parsed_item_to_article(item, source_name=f"Telegram - {channel}", connector="telegram_public", source_type="telegram") for item in payload.items if item.title and item.source_url_norm]
 
 
 def _parse_message(block: Tag, channel: str, warnings: list[str]) -> ParsedSourceItem | None:
@@ -34,19 +31,16 @@ def _parse_message(block: Tag, channel: str, warnings: list[str]) -> ParsedSourc
     post_channel, message_id = data_post.split("/", 1)
     if post_channel != channel:
         return None
-
     text_node = block.select_one(".js-message_text")
     content_text = _node_text(text_node) if text_node else ""
     content_html = text_node.decode_contents() if text_node else None
     source_url = f"https://t.me/{data_post}"
     published_raw, published_at, date_parse_status = _message_datetime(block)
     views = parse_compact_count(_select_text(block, ".tgme_widget_message_views"))
-
     if not content_text:
         warnings.append(f"missing_text:{data_post}")
     if published_at is None:
         warnings.append(f"missing_date:{data_post}")
-
     return ParsedSourceItem(
         external_id_raw=data_post,
         external_id_norm=data_post,
@@ -63,13 +57,7 @@ def _parse_message(block: Tag, channel: str, warnings: list[str]) -> ParsedSourc
         published_at=published_at,
         date_parse_status=date_parse_status,
         media_candidates=_extract_media_candidates(block),
-        parser_meta={
-            "channel": channel,
-            "message_id": message_id,
-            "views": views,
-            "reactions": _extract_reactions(block),
-            "direction": infer_direction(content_text),
-        },
+        parser_meta={"channel": channel, "message_id": message_id, "views": views, "reactions": _extract_reactions(block), "direction": infer_direction(content_text)},
     )
 
 
@@ -96,7 +84,7 @@ def _message_datetime(block: Tag) -> tuple[str | None, datetime | None, str]:
 
 
 def _extract_media_candidates(block: Tag) -> list[MediaCandidate]:
-    candidates: list[MediaCandidate] = []
+    candidates = []
     for photo in block.select(".tgme_widget_message_photo_wrap"):
         url = _background_image_url(photo)
         if url:
@@ -118,26 +106,15 @@ def _extract_media_candidates(block: Tag) -> list[MediaCandidate]:
 
 def _append_media(candidates: list[MediaCandidate], url: str, source_field: str, kind: str) -> None:
     normalized_url = normalize_url(url)
-    if not is_http_media_url(normalized_url):
+    if not is_http_media_url(normalized_url) or any(candidate.normalized_url == normalized_url for candidate in candidates):
         return
-    if any(candidate.normalized_url == normalized_url for candidate in candidates):
-        return
-    candidates.append(
-        MediaCandidate(
-            original_url=url,
-            normalized_url=normalized_url,
-            kind=kind if kind else infer_media_kind(normalized_url),
-            source_field=source_field,
-        )
-    )
+    candidates.append(MediaCandidate(original_url=url, normalized_url=normalized_url, kind=kind if kind else infer_media_kind(normalized_url), source_field=source_field))
 
 
 def _background_image_url(node: Tag) -> str | None:
     style = node.get("style") or ""
     match = CSS_URL_RE.search(style)
-    if not match:
-        return None
-    return match.group("url")
+    return match.group("url") if match else None
 
 
 def _first_attr(node: Tag, selector: str, attr: str) -> str | None:
@@ -161,14 +138,12 @@ def _node_text(node: Tag) -> str:
 
 
 def _extract_reactions(block: Tag) -> dict[str, int]:
-    reactions: dict[str, int] = {}
+    reactions = {}
     for reaction in block.select(".tgme_reaction"):
         text = reaction.get_text(" ", strip=True)
         match = COUNT_RE.search(text)
-        if not match:
-            continue
-        label = text[: match.start()].strip() or "reaction"
-        reactions[label] = parse_compact_count(match.group(0)) or 0
+        if match:
+            reactions[text[: match.start()].strip() or "reaction"] = parse_compact_count(match.group(0)) or 0
     return reactions
 
 
@@ -179,5 +154,4 @@ def parse_compact_count(value: str | None) -> int | None:
     if not match:
         return None
     multiplier = {"": 1, "K": 1_000, "M": 1_000_000, "B": 1_000_000_000}
-    suffix = (match.group("suffix") or "").upper()
-    return int(float(match.group("number")) * multiplier[suffix])
+    return int(float(match.group("number")) * multiplier[(match.group("suffix") or "").upper()])

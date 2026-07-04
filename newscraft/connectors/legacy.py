@@ -8,6 +8,7 @@ if str(LEGACY_DIR) not in sys.path:
 
 
 def get_connector_fetchers():
+    from newscraft.connectors.public import fetch_public_rss_sources, fetch_public_telegram_channels
     from connectors import (
         fetch_arxiv_ai,
         fetch_github_repositories,
@@ -26,6 +27,8 @@ def get_connector_fetchers():
         "huggingface": fetch_huggingface_models,
         "youtube": fetch_youtube_videos,
         "telegram": fetch_telegram_posts_sync,
+        "rss_public": fetch_public_rss_sources,
+        "telegram_public": fetch_public_telegram_channels,
     }
 
 

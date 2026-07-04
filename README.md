@@ -12,6 +12,7 @@ The FastAPI backend is now the architectural center. The existing Streamlit app 
 - Pydantic request/response schemas
 - Service/repository boundaries for ingestion, review, sources, assets, and content drafts
 - Existing RSS, Hacker News, arXiv, GitHub, Hugging Face, YouTube RSS, and Telegram connectors reused through a compatibility adapter
+- Public ingestion parsers in `newscraft/ingestion/` for RSS media extraction, public Telegram pages, URL/text/date normalization, and a 50-source seed catalog
 
 ## Setup
 
@@ -93,6 +94,10 @@ cd ai-news-agent
 ```
 
 It still uses the legacy SQLite modules. New backend work should target `newscraft/`.
+
+## Integration Notes
+
+The `Armin` backend foundation and `Amir` public ingestion work were integrated into one backend package. `newscraft/` is the single supported backend structure; Amir's duplicate `backend/` app layout was not kept.
 
 ## Tests
 

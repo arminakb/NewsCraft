@@ -1,5 +1,4 @@
-from __future__ import annotations
-
+from dataclasses import asdict
 from datetime import UTC, datetime
 from email.utils import parsedate_to_datetime
 from typing import Any
@@ -7,49 +6,54 @@ from typing import Any
 import feedparser
 from bs4 import BeautifulSoup
 
-from app.normalization.dates import parse_source_datetime
-from app.normalization.fingerprints import title_date_fingerprint
-from app.normalization.media import infer_media_kind, is_http_media_url, parse_int
-from app.normalization.text import fingerprint_text
-from app.normalization.urls import normalize_url
-from app.sources.base import MediaCandidate, ParsedSourceItem, ParsedSourcePayload
+from newscraft.ingestion.normalization import (
+    fingerprint_text,
+    infer_media_kind,
+    is_http_media_url,
+    normalize_url,
+    parse_int,
+    parse_source_datetime,
+    title_date_fingerprint,
+)
+from newscraft.ingestion.parsed import MediaCandidate, ParsedSourceItem, ParsedSourcePayload
 
 
-def parse_rss_feed(
-    xml: str,
-    source_name: str,
-    source_url: str,
-    default_timezone: str = "UTC",
-) -> ParsedSourcePayload:
+def parse_rss_feed(xml: str, source_name: str, source_url: str, default_timezone: str = "UTC") -> ParsedSourcePayload:
     feed = feedparser.parse(xml)
-    warnings: list[str] = []
+    warnings = []
     if getattr(feed, "bozo", False):
         warnings.append(f"bozo_feed:{getattr(feed, 'bozo_exception', 'unknown')}")
-
-    items = [
-        _parse_entry(entry, source_url=source_url, default_timezone=default_timezone, warnings=warnings)
-        for entry in feed.entries
-    ]
-
+    items = [_parse_entry(entry, source_url=source_url, default_timezone=default_timezone, warnings=warnings) for entry in feed.entries]
     feed_title = feed.feed.get("title") if getattr(feed, "feed", None) else None
-    return ParsedSourcePayload(
-        items=items,
-        warnings=warnings,
-        feed_meta={
-            "source_name": source_name,
-            "source_url": source_url,
-            "feed_title": feed_title,
-            "feed_version": feed.get("version"),
-        },
-    )
+    return ParsedSourcePayload(items=items, warnings=warnings, feed_meta={"source_name": source_name, "source_url": source_url, "feed_title": feed_title, "feed_version": feed.get("version")})
 
 
-def _parse_entry(
-    entry: Any,
-    source_url: str,
-    default_timezone: str,
-    warnings: list[str],
-) -> ParsedSourceItem:
+def parsed_rss_items_to_articles(payload: ParsedSourcePayload) -> list[dict]:
+    source_name = payload.feed_meta.get("source_name") or "RSS"
+    return [_parsed_item_to_article(item, source_name=source_name, connector="rss_public", source_type="rss") for item in payload.items if item.title and item.source_url_norm]
+
+
+def _parsed_item_to_article(item: ParsedSourceItem, source_name: str, connector: str, source_type: str) -> dict:
+    return {
+        "external_id": item.external_id_norm,
+        "source": source_name,
+        "source_type": source_type,
+        "connector": connector,
+        "source_group": "public_ingestion",
+        "title": item.title,
+        "url": item.canonical_url_candidate or item.source_url_norm,
+        "published_at": item.published_at,
+        "summary": item.summary,
+        "content": item.content_text,
+        "author": item.author,
+        "category": item.categories[0] if item.categories else "General",
+        "score": 0,
+        "language": item.parser_meta.get("language"),
+        "metadata": {"parser": connector, "categories": item.categories, "media_candidates": [asdict(candidate) for candidate in item.media_candidates], **item.parser_meta},
+    }
+
+
+def _parse_entry(entry: Any, source_url: str, default_timezone: str, warnings: list[str]) -> ParsedSourceItem:
     link = _entry_link(entry)
     source_url_norm = normalize_url(link, source_url) if link else None
     title = _entry_title(entry)
@@ -61,14 +65,12 @@ def _parse_entry(
     categories = [tag.get("term") for tag in entry.get("tags", []) if tag.get("term")]
     external_id_raw = entry.get("id") or entry.get("guid") or link
     external_id_norm = _external_id_norm(external_id_raw, source_url, title, published_raw)
-
     if not title:
         warnings.append("missing_title")
     if not link:
         warnings.append("missing_link")
     if published_at is None:
         warnings.append("missing_date")
-
     return ParsedSourceItem(
         external_id_raw=external_id_raw,
         external_id_norm=external_id_norm,
@@ -136,7 +138,6 @@ def _entry_date(entry: Any, default_timezone: str) -> tuple[str | None, datetime
             except (TypeError, ValueError):
                 return raw, None, "failed"
             return raw, parsed.astimezone(UTC), "parsed"
-
     parsed_tuple = entry.get("published_parsed") or entry.get("updated_parsed")
     if parsed_tuple:
         return None, datetime(*parsed_tuple[:6], tzinfo=UTC), "parsed_struct_time"
@@ -153,9 +154,8 @@ def _external_id_norm(external_id_raw: str | None, source_url: str, title: str, 
 
 
 def _extract_media_candidates(entry: Any, content_html: str | None, source_url: str) -> list[MediaCandidate]:
-    candidates: list[MediaCandidate] = []
-    seen: set[tuple[str, str]] = set()
-
+    candidates = []
+    seen = set()
     for media in entry.get("media_content") or []:
         _append_media_candidate(candidates, seen, media, source_url, "media_content", confidence=1.0)
     for media in entry.get("media_thumbnail") or []:
@@ -165,33 +165,16 @@ def _extract_media_candidates(entry: Any, content_html: str | None, source_url: 
             _append_media_candidate(candidates, seen, link, source_url, "enclosure", confidence=0.9)
     for enclosure in entry.get("enclosures") or []:
         _append_media_candidate(candidates, seen, enclosure, source_url, "enclosure", confidence=0.9)
-
     if content_html:
         soup = BeautifulSoup(content_html, "lxml")
         for img in soup.find_all("img"):
             src = img.get("src")
-            if not src:
-                continue
-            _append_media_candidate(
-                candidates,
-                seen,
-                {"url": src, "medium": "image", "alt": img.get("alt"), "title": img.get("title")},
-                source_url,
-                "inline_img",
-                confidence=0.7,
-            )
-
+            if src:
+                _append_media_candidate(candidates, seen, {"url": src, "medium": "image", "alt": img.get("alt"), "title": img.get("title")}, source_url, "inline_img", confidence=0.7)
     return candidates
 
 
-def _append_media_candidate(
-    candidates: list[MediaCandidate],
-    seen: set[tuple[str, str]],
-    media: dict,
-    base_url: str,
-    source_field: str,
-    confidence: float,
-) -> None:
+def _append_media_candidate(candidates: list[MediaCandidate], seen: set[tuple[str, str]], media: dict, base_url: str, source_field: str, confidence: float) -> None:
     original_url = media.get("url") or media.get("href")
     if not original_url:
         return
@@ -202,23 +185,9 @@ def _append_media_candidate(
     if dedupe_key in seen:
         return
     seen.add(dedupe_key)
-
     mime_type = media.get("type")
     medium = media.get("medium")
-    candidates.append(
-        MediaCandidate(
-            original_url=original_url,
-            normalized_url=normalized_url,
-            kind=infer_media_kind(normalized_url, mime_type=mime_type, medium=medium),
-            source_field=source_field,
-            mime_type=mime_type,
-            width=parse_int(media.get("width")),
-            height=parse_int(media.get("height")),
-            alt_text=media.get("alt") or media.get("description"),
-            title=media.get("title"),
-            confidence=confidence,
-        )
-    )
+    candidates.append(MediaCandidate(original_url=original_url, normalized_url=normalized_url, kind=infer_media_kind(normalized_url, mime_type=mime_type, medium=medium), source_field=source_field, mime_type=mime_type, width=parse_int(media.get("width")), height=parse_int(media.get("height")), alt_text=media.get("alt") or media.get("description"), title=media.get("title"), confidence=confidence))
 
 
 def _html_to_text(html: str) -> str:

@@ -1,4 +1,5 @@
 from newscraft.db.session import SessionLocal
+from newscraft.ingestion.seed_sources import SEED_SOURCES
 from newscraft.repositories.source_repository import SourceRepository
 
 
@@ -16,10 +17,12 @@ DEFAULT_SOURCES = [
 def main():
     with SessionLocal() as db:
         repo = SourceRepository(db)
-        existing = {source.connector for source in repo.list()}
-        for source in DEFAULT_SOURCES:
-            if source["connector"] not in existing:
+        existing_keys = {(source.connector, source.url or source.name) for source in repo.list()}
+        for source in [*DEFAULT_SOURCES, *SEED_SOURCES]:
+            key = (source["connector"], source.get("url") or source["name"])
+            if key not in existing_keys:
                 repo.create(source)
+                existing_keys.add(key)
 
 
 if __name__ == "__main__":
