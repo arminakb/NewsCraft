@@ -3,6 +3,8 @@
 A small Streamlit MVP that collects AI and technology news from public sources,
 ranks the articles, stores them in SQLite, and displays them for review.
 
+The Streamlit app is the legacy review dashboard. New scheduled ingestion work should use `backend/`, not Streamlit session state.
+
 ## Features
 
 - RSS feed, Hacker News, and arXiv collection

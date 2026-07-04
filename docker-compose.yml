@@ -1,0 +1,49 @@
+services:
+  postgres:
+    image: postgres:18
+    environment:
+      POSTGRES_USER: newscraft
+      POSTGRES_PASSWORD: newscraft
+      POSTGRES_DB: newscraft
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U newscraft -d newscraft"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  api:
+    build:
+      context: ./backend
+    environment:
+      DATABASE_URL: postgresql+asyncpg://newscraft:newscraft@postgres:5432/newscraft
+      ALL_PROXY: ${ALL_PROXY:-}
+      MEDIA_ROOT: /data/media
+    ports:
+      - "8000:8000"
+    volumes:
+      - media_data:/data/media
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  worker:
+    build:
+      context: ./backend
+    command: python -m app.worker --trigger manual --download-media
+    environment:
+      DATABASE_URL: postgresql+asyncpg://newscraft:newscraft@postgres:5432/newscraft
+      ALL_PROXY: ${ALL_PROXY:-}
+      MEDIA_ROOT: /data/media
+    volumes:
+      - media_data:/data/media
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+volumes:
+  postgres_data:
+  media_data:

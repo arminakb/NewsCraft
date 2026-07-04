@@ -61,6 +61,37 @@ cd ai-news-agent
 
 Then open the URL printed by Streamlit.
 
+## Backend Ingestion Service
+
+The new backend service lives in `backend/`. It uses FastAPI, PostgreSQL, and a worker command to ingest RSS feeds and public Telegram channel pages. It stores raw payloads, normalized content items, and media assets for downstream post generation.
+
+Run the backend stack with Docker Compose:
+
+```bash
+docker compose build
+docker compose up -d postgres
+docker compose run --rm api alembic upgrade head
+docker compose up api
+```
+
+Then check:
+
+```bash
+curl http://localhost:8000/health
+```
+
+Run one manual ingestion pass:
+
+```bash
+docker compose run --rm worker
+```
+
+If your network needs a proxy, export it before running Compose:
+
+```bash
+export ALL_PROXY=socks5h://127.0.0.1:10808
+```
+
 ## Basic Usage
 
 1. Open the dashboard.
