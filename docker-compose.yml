@@ -1,0 +1,24 @@
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: newscraft
+      POSTGRES_USER: newscraft
+      POSTGRES_PASSWORD: newscraft
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  api:
+    build: .
+    environment:
+      DATABASE_URL: postgresql+psycopg://newscraft:newscraft@postgres:5432/newscraft
+    ports:
+      - "8000:8000"
+    depends_on:
+      - postgres
+    command: sh -c "alembic upgrade head && uvicorn newscraft.api.main:app --host 0.0.0.0 --port 8000"
+
+volumes:
+  postgres_data:

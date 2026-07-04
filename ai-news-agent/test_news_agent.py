@@ -963,7 +963,7 @@ class AppHelperTests(unittest.TestCase):
         self.assertLessEqual(end - start, timedelta(hours=24, seconds=1))
 
     def test_article_cards_only_expose_approve_action(self):
-        with open("app.py", encoding="utf-8") as handle:
+        with open(os.path.join(os.path.dirname(__file__), "app.py"), encoding="utf-8") as handle:
             source = handle.read()
 
         self.assertIn('st.button("Approve"', source)

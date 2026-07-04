@@ -1,102 +1,102 @@
 # NewsCraft
 
-NewsCraft is a Streamlit dashboard for collecting, ranking, reviewing, and preparing AI and technology news from public sources.
+NewsCraft is moving to a backend-first architecture for collecting, normalizing, reviewing, and preparing AI and technology news.
 
-The app lives in `ai-news-agent/` and uses Python, Streamlit, SQLite, RSS feeds, Hacker News, arXiv, GitHub, Hugging Face, YouTube RSS, and optional Telegram ingestion.
+The FastAPI backend is now the architectural center. The existing Streamlit app in `ai-news-agent/` is preserved as a legacy/temporary interface while the backend stabilizes.
 
-## Features
+## Backend Stack
 
-- Collects AI and tech news from RSS, Hacker News, arXiv, GitHub, Hugging Face, YouTube RSS, and Telegram channels.
-- Scores and classifies articles with simple keyword-based ranking.
-- Stores collected and approved articles in local SQLite databases.
-- Provides a Streamlit review dashboard with source, status, date, and category filters.
-- Supports optional session-only API tokens for higher connector limits.
-- Prepares selected arXiv papers into local PDF, full-text, research brief, Instagram brief, and podcast brief assets.
+- FastAPI API in `newscraft/api/`
+- PostgreSQL primary persistence through SQLAlchemy 2.x
+- Alembic migrations in `newscraft/db/migrations/`
+- Pydantic request/response schemas
+- Service/repository boundaries for ingestion, review, sources, assets, and content drafts
+- Existing RSS, Hacker News, arXiv, GitHub, Hugging Face, YouTube RSS, and Telegram connectors reused through a compatibility adapter
 
-## Tech Stack
-
-- Python
-- Streamlit
-- SQLite
-- feedparser
-- requests
-- python-dateutil
-- huggingface_hub
-- Telethon
-- PyMuPDF
-
-## Installation
+## Setup
 
 ```bash
-cd ai-news-agent
 python3 -m venv .venv
 .venv/bin/python -m pip install -r requirements.txt
+cp .env.example .env
 ```
 
-## Environment Variables
-
-The app reads environment variables from the running shell, or you can enter optional tokens in the dashboard Configuration panel. Copy the example file as a local reference if useful:
+Set `DATABASE_URL` in `.env`:
 
 ```bash
-cp ai-news-agent/.env.example ai-news-agent/.env
+DATABASE_URL=postgresql+psycopg://newscraft:newscraft@localhost:5432/newscraft
 ```
 
-Supported optional variables:
+Optional connector variables:
 
 ```bash
 GITHUB_TOKEN=
 HUGGINGFACE_TOKEN=
-YOUTUBE_API_KEY=
 TELEGRAM_API_ID=
 TELEGRAM_API_HASH=
 TELEGRAM_SESSION_NAME=telegram_news_session
+LOG_LEVEL=INFO
 ```
+
+Do not commit `.env`, Telegram session files, or local database files.
 
 ## Run Locally
 
 ```bash
+alembic upgrade head
+python scripts/seed_sources.py
+uvicorn newscraft.api.main:app --reload
+```
+
+Then open `http://127.0.0.1:8000/docs`.
+
+## Docker
+
+```bash
+docker compose up --build
+```
+
+This starts PostgreSQL and the API, runs Alembic migrations, and exposes the API on `http://127.0.0.1:8000`.
+
+## API Examples
+
+```bash
+curl http://127.0.0.1:8000/health
+curl http://127.0.0.1:8000/sources
+curl -X POST http://127.0.0.1:8000/ingestion/runs \
+  -H "Content-Type: application/json" \
+  -d '{"selected_sources":["rss","hacker_news","arxiv"]}'
+curl http://127.0.0.1:8000/articles
+curl -X POST http://127.0.0.1:8000/articles/1/approve
+curl http://127.0.0.1:8000/approved-articles
+```
+
+## SQLite Migration
+
+Existing SQLite data can be copied into PostgreSQL after migrations:
+
+```bash
+python scripts/migrate_sqlite_to_postgres.py \
+  --news-db ai-news-agent/news.db \
+  --approved-db ai-news-agent/approved_articles.db
+```
+
+The migration skips missing SQLite files and duplicate article URLs. It preserves article status where the old rows expose it.
+
+## Legacy Streamlit
+
+The old dashboard still lives in `ai-news-agent/`:
+
+```bash
 cd ai-news-agent
-.venv/bin/streamlit run app.py
+../.venv/bin/streamlit run app.py
 ```
 
-Then open the URL printed by Streamlit.
+It still uses the legacy SQLite modules. New backend work should target `newscraft/`.
 
-## Basic Usage
+## Tests
 
-1. Open the dashboard.
-2. Choose a time range and source connectors.
-3. Click **Run Agent**.
-4. Review collected articles and approve useful items.
-5. For arXiv articles, click **Prepare Paper Asset** to generate local paper files.
-
-## Project Structure
-
-```text
-.
-├── README.md
-├── ROADMAP.md
-├── ai-news-agent/
-│   ├── app.py
-│   ├── agent.py
-│   ├── connectors.py
-│   ├── storage.py
-│   ├── approved_storage.py
-│   ├── paper_fetcher.py
-│   ├── paper_extractor.py
-│   ├── paper_storage.py
-│   ├── research_brief.py
-│   ├── ranker.py
-│   ├── summarizer.py
-│   ├── telegram_connector.py
-│   ├── telegram_login.py
-│   ├── test_news_agent.py
-│   ├── requirements.txt
-│   ├── README.md
-│   └── PROGRESS.md
-└── .env.example
+```bash
+python -m compileall .
+pytest
 ```
-
-## Notes
-
-- Local databases, virtual environments, Telegram sessions, generated paper assets, and `.env` files are ignored by Git.
-- Paper briefs are rule-based and should be reviewed before publishing.
