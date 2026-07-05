@@ -13,8 +13,8 @@ Overall status: In Progress
 | 2 | Content Type Classification | Completed | 9279cb8 |
 | 3 | Rewrite Buckets and Candidate Queues | Completed | d32411e |
 | 4 | Telegram Title Normalization | Completed | 7728197 |
-| 5 | Type-Aware Scoring and Ranking | Completed | Pending |
-| 6 | Rewrite Readiness Gate | Pending | Pending |
+| 5 | Type-Aware Scoring and Ranking | Completed | ef5901c |
+| 6 | Rewrite Readiness Gate | Completed | Pending |
 | 7 | Media Quality and Primary Media Selection | Pending | Pending |
 | 8 | Source Health and Diagnostics | Pending | Pending |
 | 9 | API Filters and Response Updates | Pending | Pending |
@@ -23,8 +23,8 @@ Overall status: In Progress
 
 ## Latest Update
 
-- Completed Phase 5 type-aware scoring and ranking.
-- Stored score breakdowns, ranking metadata, freshness buckets, and source tiers.
+- Completed Phase 6 rewrite readiness gate.
+- Stored readiness decisions, reasons, and blockers during content item upsert.
 
 ## Baseline Audit
 
@@ -148,6 +148,25 @@ Overall status: In Progress
   - `cd backend && PYTHONPATH=. .venv/bin/ruff check app/content/scoring.py app/ingestion/repository.py tests/test_content_scoring.py` -> passed
 - Before/after examples: Focused tests verify fresh news outranks stale archive content, media bonus is capped, and promo/low-signal/archive penalties reduce score.
 - Validation run: Not applicable for Phase 5.
-- Commit: Pending
+- Commit: ef5901c
 - Known issues:
   - Full test suite still has the Phase 0 baseline hang and was not rerun for Phase 5.
+
+### Phase 6
+- Status: Completed
+- What changed:
+  - Added readiness evaluator at `backend/app/content/readiness.py`.
+  - Ready items require meaningful title, source URL, enough text, supported non-promo/non-low-signal type, positive score, classification metadata, and no duplicate marker.
+  - Blocks stale/archive items from daily news while allowing longform in `longform_analysis`.
+  - Stores `is_rewrite_ready`, `rewrite_ready_reason`, and `rewrite_blockers` during content item value construction.
+  - Keeps tutorial items ready in their tutorial bucket while marking `not_daily_news` as an informational blocker.
+  - Updates rewrite candidate status to `blocked` only when readiness is explicitly false, and keeps promo/low-signal candidates excluded.
+- Files changed: `backend/app/content/readiness.py`, `backend/app/ingestion/repository.py`, `backend/tests/test_rewrite_readiness.py`, `progress.md`
+- Tests run:
+  - `cd backend && PYTHONPATH=. .venv/bin/python -m pytest tests/test_rewrite_readiness.py -q` -> 7 passed
+  - `cd backend && PYTHONPATH=. .venv/bin/python -m pytest tests/test_rewrite_readiness.py tests/test_content_scoring.py tests/test_content_classification.py tests/test_rewrite_buckets.py tests/test_title_normalization.py tests/test_repository.py tests/test_ingestion_service.py -q` -> 51 passed
+  - `cd backend && PYTHONPATH=. .venv/bin/ruff check app/content/readiness.py app/ingestion/repository.py tests/test_rewrite_readiness.py` -> passed
+- Validation run: Not applicable for Phase 6.
+- Commit: Pending
+- Known issues:
+  - Full test suite still has the Phase 0 baseline hang and was not rerun for Phase 6.

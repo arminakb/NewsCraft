@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.content.buckets import assign_rewrite_bucket
 from app.content.classification import classify_content_item
+from app.content.readiness import evaluate_rewrite_readiness
 from app.content.scoring import classify_and_score, score_content_item
 from app.db.models import (
     ContentItem,
@@ -412,7 +413,9 @@ def plan_rewrite_candidate(content_item: ContentItem) -> dict[str, Any]:
         "content_item_id": content_item.id,
         "bucket_type": content_item.rewrite_bucket,
         "priority_score": int(content_item.score or 0),
-        "status": assignment.status,
+        "status": assignment.status if assignment.status == "excluded" else "blocked"
+        if content_item.is_rewrite_ready is False
+        else "pending",
         "reason": assignment.reason,
     }
 
@@ -455,7 +458,7 @@ def _content_item_values(source: Source, parsed_item: ParsedSourceItem) -> dict[
     )
     metrics = dict(normalized_item.parser_meta)
     metrics["classification"] = classification.signals
-    return {
+    values = {
         "item_type": "telegram_post" if source.platform == "telegram_public" else "article",
         "canonical_url": canonical_url,
         "canonical_url_hash": hash_value(canonical_url) if canonical_url else None,
@@ -501,6 +504,15 @@ def _content_item_values(source: Source, parsed_item: ParsedSourceItem) -> dict[
         "created_at": now,
         "updated_at": now,
     }
+    readiness = evaluate_rewrite_readiness(ContentItem(**values))
+    values.update(
+        {
+            "is_rewrite_ready": readiness.is_ready,
+            "rewrite_ready_reason": readiness.reason,
+            "rewrite_blockers": readiness.blockers,
+        }
+    )
+    return values
 
 
 def _title_normalization(source: Source, parsed_item: ParsedSourceItem):
