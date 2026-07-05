@@ -222,3 +222,21 @@ class ItemMedia(Base):
     sort_order: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
     confidence: Mapped[Decimal] = mapped_column(Numeric, nullable=False, server_default="1.0")
     extracted_from: Mapped[str] = mapped_column(Text, nullable=False)
+
+
+class ContentDraft(Base):
+    __tablename__ = "content_drafts"
+
+    id: Mapped[uuid.UUID] = uuid_pk()
+    content_item_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("content_items.id"), nullable=False)
+    platform: Mapped[str] = mapped_column(Text, nullable=False)
+    draft_text: Mapped[str] = mapped_column(Text, nullable=False)
+    status: Mapped[str] = mapped_column(Text, nullable=False, server_default="draft")
+    human_notes: Mapped[str | None] = mapped_column(Text)
+    draft_metadata: Mapped[dict] = mapped_column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
+    created_at: Mapped[datetime] = timestamp_now()
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now()
+    )
+
+    __table_args__ = (Index("ix_content_drafts_content_item", "content_item_id"),)
