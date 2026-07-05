@@ -1,6 +1,7 @@
+from typing import Literal
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -47,8 +48,20 @@ async def run_ingest(request: IngestRunRequest, session: AsyncSession = SessionD
 
 
 @router.get("/content-items", response_model=list[ContentItemOut])
-async def list_content_items(session: AsyncSession = SessionDependency):
-    rows = await session.scalars(select(ContentItem).order_by(ContentItem.sort_at.desc()).limit(100))
+async def list_content_items(
+    status: str | None = None,
+    sort: Literal["latest", "score"] = "latest",
+    limit: int = Query(100, ge=1, le=250),
+    session: AsyncSession = SessionDependency,
+):
+    stmt = select(ContentItem)
+    if status:
+        stmt = stmt.where(ContentItem.status == status)
+    if sort == "score":
+        stmt = stmt.order_by(ContentItem.score.desc(), ContentItem.sort_at.desc())
+    else:
+        stmt = stmt.order_by(ContentItem.sort_at.desc())
+    rows = await session.scalars(stmt.limit(limit))
     return list(rows)
 
 

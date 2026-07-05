@@ -5,7 +5,8 @@ Date: 2026-07-05
 ## Current State
 
 - Main project kept: `/home/armin/Documents/NewsCraft`
-- Second/reference project to remove: `/home/armin/Documents/NewsCraft-armin`
+- Second/reference project removed: `/home/armin/Documents/NewsCraft-armin`
+- Legacy Streamlit app removed: `/home/armin/Documents/NewsCraft/ai-news-agent`
 - Active branch: `integration/selective-armin-parts`
 - Remote tracking branch: `origin/integration/selective-armin-parts`
 - Base branch commit: `0d14536 Merge pull request #5 from arminakb/Amir`
@@ -150,6 +151,17 @@ d409fd4 docs: add armin selective integration audit
 - No real ingestion run or output quality analysis was completed.
 - The old stash was not modified.
 
+## Follow-up Cleanup Completed After Initial Handoff
+
+- Reviewed the legacy `ai-news-agent/` app for backend-relevant features.
+- Ported the useful ranking/classification behavior into the backend as `backend/app/content/scoring.py`.
+- Wired classification into ingestion so `content_items.score`, `content_items.tags`, and `metrics.classification` are populated.
+- Exposed `score`, `tags`, and `metrics` in `GET /content-items`.
+- Added content listing controls: `status`, `sort=latest|score`, and `limit`.
+- Removed the legacy Streamlit app folder.
+- Rewrote the root README and `.env.example` to describe the backend service, not Streamlit.
+- Documented scoring in `docs/ingestion-backend.md`.
+
 ## Next Agent Starting Point
 
 Start in:
@@ -167,8 +179,9 @@ integration/selective-armin-parts
 
 Expected starting condition:
 
-- Working tree should be clean except for any later handoff-summary commit.
+- Working tree should be clean after the latest cleanup commit.
 - `NewsCraft-armin` should no longer exist after this handoff cleanup.
+- `ai-news-agent` should no longer exist.
 - PR should still not exist unless a later agent creates it.
 
 ## Next Agent Required Work

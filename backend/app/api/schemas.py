@@ -43,6 +43,9 @@ class ContentItemOut(BaseModel):
     language_code: str | None = None
     direction: str | None = None
     status: str
+    score: int = 0
+    tags: list[str] = Field(default_factory=list)
+    metrics: dict[str, Any] = Field(default_factory=dict)
     sort_at: datetime
     primary_image_id: UUID | None = None
     primary_media: MediaAssetOut | None = None

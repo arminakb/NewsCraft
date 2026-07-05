@@ -86,6 +86,9 @@ def test_content_items_endpoint_returns_latest_content_with_primary_media():
         language_code="en",
         direction="ltr",
         status="new",
+        score=17,
+        tags=["ai", "agent"],
+        metrics={"classification": {"category": "AI"}},
         sort_at=datetime(2026, 7, 3, tzinfo=UTC),
         primary_image_id=uuid4(),
         primary_media=SimpleNamespace(
@@ -104,7 +107,38 @@ def test_content_items_endpoint_returns_latest_content_with_primary_media():
 
     app.dependency_overrides.clear()
     assert response.status_code == 200
+    assert response.json()[0]["score"] == 17
+    assert response.json()[0]["tags"] == ["ai", "agent"]
+    assert response.json()[0]["metrics"]["classification"]["category"] == "AI"
     assert response.json()[0]["primary_media"]["kind"] == "image"
+
+
+def test_content_items_endpoint_accepts_status_and_score_sort_params():
+    content_item = SimpleNamespace(
+        id=uuid4(),
+        item_type="article",
+        title="AI News",
+        summary="Summary",
+        canonical_url="https://example.com/a",
+        source_url=None,
+        language_code="en",
+        direction="ltr",
+        status="approved",
+        score=22,
+        tags=["ai"],
+        metrics={},
+        sort_at=datetime(2026, 7, 3, tzinfo=UTC),
+        primary_image_id=None,
+        primary_media=None,
+    )
+    _override_session(FakeSession([content_item]))
+
+    response = TestClient(app).get("/content-items?status=approved&sort=score&limit=25")
+
+    app.dependency_overrides.clear()
+    assert response.status_code == 200
+    assert response.json()[0]["status"] == "approved"
+    assert response.json()[0]["score"] == 22
 
 
 def test_approve_content_item_endpoint_marks_item_approved():

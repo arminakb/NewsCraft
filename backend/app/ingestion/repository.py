@@ -10,6 +10,7 @@ from sqlalchemy import Select, and_, func, or_, select, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.content.scoring import classify_and_score
 from app.db.models import (
     ContentItem,
     IngestRun,
@@ -376,6 +377,9 @@ def _content_item_values(source: Source, parsed_item: ParsedSourceItem) -> dict[
     sort_at = parsed_item.published_at or now
     canonical_url = parsed_item.canonical_url_candidate or parsed_item.source_url_norm
     direction = infer_direction(parsed_item.content_text)
+    classification = classify_and_score(source, parsed_item)
+    metrics = dict(parsed_item.parser_meta)
+    metrics["classification"] = classification.signals
     return {
         "item_type": "telegram_post" if source.platform == "telegram_public" else "article",
         "canonical_url": canonical_url,
@@ -389,14 +393,15 @@ def _content_item_values(source: Source, parsed_item: ParsedSourceItem) -> dict[
         "script_code": "Arab" if direction == "rtl" else "Latn",
         "direction": direction,
         "authors": [parsed_item.author] if parsed_item.author else [],
-        "tags": parsed_item.categories,
+        "tags": classification.tags,
         "published_at": parsed_item.published_at,
         "sort_at": sort_at,
         "date_raw": parsed_item.published_raw,
         "date_source": "source",
         "date_parse_status": parsed_item.date_parse_status,
         "primary_source_id": source.id,
-        "metrics": parsed_item.parser_meta,
+        "score": classification.score,
+        "metrics": metrics,
         "first_seen_at": now,
         "last_seen_at": now,
         "created_at": now,

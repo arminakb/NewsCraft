@@ -2,6 +2,8 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
+> Historical note: this plan was written while the legacy `ai-news-agent/` Streamlit MVP still existed. The legacy app has since been removed; the active project is the `backend/` FastAPI/PostgreSQL service.
+
 **Goal:** Build a Dockerized FastAPI/PostgreSQL backend that ingests public RSS feeds and public Telegram channel pages, captures images/media, and stores normalized source material for a future post-generation agent.
 
 **Architecture:** Add a new `backend/` service beside the existing `ai-news-agent/` Streamlit MVP. The backend separates raw source observations from deduplicated content items, stores media as first-class records, and runs ingestion through an explicit worker/CLI rather than Streamlit state.
@@ -125,7 +127,7 @@ ai-news-agent/storage.py
 ai-news-agent/telegram_connector.py
 ```
 
-The Streamlit app remains a legacy review MVP until the backend ingestion service is verified.
+The Streamlit app was a legacy review MVP while this plan was written. It has since been removed after backend ingestion work moved into `backend/`.
 
 ## Data Model
 

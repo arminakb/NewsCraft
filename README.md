@@ -1,89 +1,126 @@
 # NewsCraft
 
-NewsCraft is a Streamlit dashboard for collecting, ranking, reviewing, and preparing AI and technology news from public sources.
+NewsCraft is a FastAPI and PostgreSQL backend for collecting, normalizing, ranking, and reviewing news content from public sources.
 
-The app lives in `ai-news-agent/` and uses Python, Streamlit, SQLite, RSS feeds, Hacker News, arXiv, GitHub, Hugging Face, YouTube RSS, and optional Telegram ingestion.
+The active backend lives in `backend/`. The legacy Streamlit MVP has been removed; new ingestion and review workflows should use the backend service, worker, and API.
 
 ## Features
 
-- Collects AI and tech news from RSS, Hacker News, arXiv, GitHub, Hugging Face, YouTube RSS, and Telegram channels.
-- Scores and classifies articles with simple keyword-based ranking.
-- Stores collected and approved articles in local SQLite databases.
-- Provides a Streamlit review dashboard with source, status, date, and category filters.
-- Supports optional session-only API tokens for higher connector limits.
-- Prepares selected arXiv papers into local PDF, full-text, research brief, Instagram brief, and podcast brief assets.
+- Ingests RSS/Atom feeds and public Telegram channel pages.
+- Stores raw payloads, source items, deduplicated content items, identities, and media assets in PostgreSQL.
+- Extracts feed media, Telegram images/previews/documents, and stores media metadata for downstream use.
+- Scores and classifies content with backend-native keyword and engagement signals.
+- Supports approval and draft workflows for downstream post generation.
+- Provides diagnostics and manual ingestion endpoints.
+- Includes a minimal legacy SQLite article reader for user-provided old `news.db` files.
 
 ## Tech Stack
 
-- Python
-- Streamlit
-- SQLite
+- FastAPI
+- PostgreSQL
+- SQLAlchemy 2 async ORM
+- Alembic
+- httpx
 - feedparser
-- requests
-- python-dateutil
-- huggingface_hub
-- Telethon
-- PyMuPDF
+- BeautifulSoup/lxml
+- pytest
+- Docker Compose
 
-## Installation
+## Project Structure
 
-```bash
-cd ai-news-agent
-python3 -m venv .venv
-.venv/bin/python -m pip install -r requirements.txt
+```text
+.
+├── backend/
+│   ├── app/
+│   │   ├── api/
+│   │   ├── content/
+│   │   ├── db/
+│   │   ├── diagnostics/
+│   │   ├── ingestion/
+│   │   ├── media/
+│   │   ├── normalization/
+│   │   ├── sources/
+│   │   └── workflows/
+│   ├── alembic/
+│   ├── scripts/
+│   └── tests/
+├── docs/
+├── docker-compose.yml
+└── README.md
 ```
 
-## Environment Variables
-
-The app reads environment variables from the running shell, or you can enter optional tokens in the dashboard Configuration panel. Copy the example file as a local reference if useful:
-
-```bash
-cp ai-news-agent/.env.example ai-news-agent/.env
-```
-
-Supported optional variables:
-
-```bash
-GITHUB_TOKEN=
-HUGGINGFACE_TOKEN=
-YOUTUBE_API_KEY=
-TELEGRAM_API_ID=
-TELEGRAM_API_HASH=
-TELEGRAM_SESSION_NAME=telegram_news_session
-```
-
-## Run Locally
-
-```bash
-cd ai-news-agent
-.venv/bin/streamlit run app.py
-```
-
-Then open the URL printed by Streamlit.
-
-## Backend Ingestion Service
-
-The new backend service lives in `backend/`. It uses FastAPI, PostgreSQL, and a worker command to ingest RSS feeds and public Telegram channel pages. It stores raw payloads, normalized content items, and media assets for downstream post generation.
-
-Run the backend stack with Docker Compose:
+## Run With Docker Compose
 
 ```bash
 docker compose build
 docker compose up -d postgres
-docker compose run --rm api alembic upgrade head
 docker compose up api
 ```
 
-Then check:
+The API service runs Alembic migrations before Uvicorn starts.
+
+Check health:
 
 ```bash
 curl http://localhost:8000/health
 ```
 
-Run one manual ingestion pass:
+Seed sources:
+
+```bash
+curl -X POST http://localhost:8000/sources/seed
+```
+
+Run one manual worker ingestion pass:
 
 ```bash
 docker compose run --rm worker
+```
+
+Or trigger ingestion through the API:
+
+```bash
+curl -X POST http://localhost:8000/ingest/run \
+  -H 'content-type: application/json' \
+  -d '{"platforms":["rss"]}'
+```
+
+## Useful Endpoints
+
+- `GET /health`
+- `GET /diagnostics`
+- `GET /sources`
+- `POST /sources/seed`
+- `POST /ingest/run`
+- `GET /content-items`
+- `GET /content-items?status=new&sort=score&limit=50`
+- `POST /content-items/{content_item_id}/approve`
+
+Content item responses include `score`, `tags`, and classification metadata so clients can prioritize higher-value items.
+
+## Local Backend Development
+
+```bash
+cd backend
+.venv/bin/python -m pytest tests -v
+```
+
+If the virtual environment does not exist yet, create it and install backend dependencies from `backend/pyproject.toml`.
+
+## Environment
+
+Copy the root example if useful:
+
+```bash
+cp .env.example .env
+```
+
+Common variables:
+
+```bash
+DATABASE_URL=postgresql+asyncpg://newscraft:newscraft@localhost:5432/newscraft
+MEDIA_ROOT=/data/media
+ALL_PROXY=
 ```
 
 If your network needs a proxy, export it before running Compose:
@@ -92,42 +129,13 @@ If your network needs a proxy, export it before running Compose:
 export ALL_PROXY=socks5h://127.0.0.1:10808
 ```
 
-## Basic Usage
+## Documentation
 
-1. Open the dashboard.
-2. Choose a time range and source connectors.
-3. Click **Run Agent**.
-4. Review collected articles and approve useful items.
-5. For arXiv articles, click **Prepare Paper Asset** to generate local paper files.
-
-## Project Structure
-
-```text
-.
-├── README.md
-├── ROADMAP.md
-├── ai-news-agent/
-│   ├── app.py
-│   ├── agent.py
-│   ├── connectors.py
-│   ├── storage.py
-│   ├── approved_storage.py
-│   ├── paper_fetcher.py
-│   ├── paper_extractor.py
-│   ├── paper_storage.py
-│   ├── research_brief.py
-│   ├── ranker.py
-│   ├── summarizer.py
-│   ├── telegram_connector.py
-│   ├── telegram_login.py
-│   ├── test_news_agent.py
-│   ├── requirements.txt
-│   ├── README.md
-│   └── PROGRESS.md
-└── .env.example
-```
+- Backend ingestion details: `docs/ingestion-backend.md`
+- Source catalog notes: `docs/ingestion-source-catalog.md`
+- Selective integration audit: `docs/armin-selective-audit.md`
 
 ## Notes
 
-- Local databases, virtual environments, Telegram sessions, generated paper assets, and `.env` files are ignored by Git.
-- Paper briefs are rule-based and should be reviewed before publishing.
+- Local databases, virtual environments, generated media, cache files, and `.env` files are ignored by Git.
+- The legacy SQLite reader only reads old article rows; it does not write into PostgreSQL yet.
