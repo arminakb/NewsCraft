@@ -1,13 +1,24 @@
-from fastapi import APIRouter, Depends
+from uuid import UUID
+
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.schemas import ContentItemOut, DiagnosticsOut, IngestRunOut, IngestRunRequest, SourceOut
+from app.api.schemas import (
+    ApproveContentItemIn,
+    ApproveContentItemOut,
+    ContentItemOut,
+    DiagnosticsOut,
+    IngestRunOut,
+    IngestRunRequest,
+    SourceOut,
+)
 from app.db.models import ContentItem, Source
 from app.db.session import get_session
 from app.diagnostics.service import DiagnosticsService
 from app.ingestion.seed_sources import seed_sources
 from app.ingestion.service import IngestionService
+from app.workflows.approval import ApprovalService
 
 router = APIRouter()
 SessionDependency = Depends(get_session)
@@ -39,6 +50,20 @@ async def run_ingest(request: IngestRunRequest, session: AsyncSession = SessionD
 async def list_content_items(session: AsyncSession = SessionDependency):
     rows = await session.scalars(select(ContentItem).order_by(ContentItem.sort_at.desc()).limit(100))
     return list(rows)
+
+
+@router.post("/content-items/{content_item_id}/approve", response_model=ApproveContentItemOut)
+async def approve_content_item(
+    content_item_id: UUID,
+    payload: ApproveContentItemIn,
+    session: AsyncSession = SessionDependency,
+):
+    try:
+        item = await ApprovalService(session).approve(content_item_id, notes=payload.notes)
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    await session.commit()
+    return item
 
 
 @router.get("/diagnostics", response_model=DiagnosticsOut)

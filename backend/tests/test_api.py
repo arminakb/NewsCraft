@@ -107,13 +107,49 @@ def test_content_items_endpoint_returns_latest_content_with_primary_media():
     assert response.json()[0]["primary_media"]["kind"] == "image"
 
 
+def test_approve_content_item_endpoint_marks_item_approved():
+    item = SimpleNamespace(id=uuid4(), status="new", metrics={})
+    fake_session = FakeSession([], item=item)
+    _override_session(fake_session)
+
+    response = TestClient(app).post(f"/content-items/{item.id}/approve", json={"notes": "ready"})
+
+    app.dependency_overrides.clear()
+    assert response.status_code == 200
+    assert response.json()["status"] == "approved"
+    assert response.json()["metrics"]["approval"]["notes"] == "ready"
+    assert item.status == "approved"
+    assert fake_session.committed is True
+    assert fake_session.flushed is True
+
+
+def test_approve_content_item_endpoint_returns_404_for_missing_item():
+    fake_session = FakeSession([])
+    _override_session(fake_session)
+
+    response = TestClient(app).post(f"/content-items/{uuid4()}/approve", json={})
+
+    app.dependency_overrides.clear()
+    assert response.status_code == 404
+    assert response.json()["detail"] == "content item not found"
+    assert fake_session.committed is False
+
+
 class FakeSession:
-    def __init__(self, rows):
+    def __init__(self, rows, item=None):
         self.rows = rows
+        self.item = item
         self.committed = False
+        self.flushed = False
 
     async def scalars(self, stmt):
         return self.rows
+
+    async def get(self, model, item_id):
+        return self.item if self.item and self.item.id == item_id else None
+
+    async def flush(self):
+        self.flushed = True
 
     async def commit(self):
         self.committed = True

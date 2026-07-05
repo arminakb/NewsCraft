@@ -1,7 +1,8 @@
 from datetime import datetime
+from typing import Any
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class SourceOut(BaseModel):
@@ -68,3 +69,15 @@ class IngestRunOut(BaseModel):
 class DiagnosticsOut(BaseModel):
     status: str
     checks: dict[str, str]
+
+
+class ApproveContentItemIn(BaseModel):
+    notes: str | None = None
+
+
+class ApproveContentItemOut(BaseModel):
+    id: UUID
+    status: str
+    metrics: dict[str, Any] = Field(default_factory=dict)
+
+    model_config = ConfigDict(from_attributes=True)
