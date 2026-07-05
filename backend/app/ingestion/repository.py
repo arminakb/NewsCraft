@@ -26,6 +26,7 @@ from app.db.models import (
 )
 from app.normalization.fingerprints import content_hash, title_date_fingerprint
 from app.normalization.text import fingerprint_text, infer_direction
+from app.normalization.titles import normalize_telegram_title
 from app.normalization.urls import hash_value
 from app.sources.base import MediaCandidate, ParsedSourceItem
 
@@ -436,35 +437,37 @@ def _content_item_values(source: Source, parsed_item: ParsedSourceItem) -> dict[
     now = datetime.now(UTC)
     sort_at = parsed_item.published_at or now
     canonical_url = parsed_item.canonical_url_candidate or parsed_item.source_url_norm
-    direction = infer_direction(parsed_item.content_text)
-    classification = classify_and_score(source, parsed_item)
-    content_classification = classify_content_item(source, parsed_item)
+    title_normalization = _title_normalization(source, parsed_item)
+    normalized_item = _parsed_item_with_title(parsed_item, title_normalization.title)
+    direction = infer_direction(normalized_item.content_text)
+    classification = classify_and_score(source, normalized_item)
+    content_classification = classify_content_item(source, normalized_item)
     bucket_assignment = assign_rewrite_bucket(
         content_classification.content_type,
         source_domain=content_classification.metadata.get("source_domain", ""),
         source_name=source.name,
     )
-    metrics = dict(parsed_item.parser_meta)
+    metrics = dict(normalized_item.parser_meta)
     metrics["classification"] = classification.signals
     return {
         "item_type": "telegram_post" if source.platform == "telegram_public" else "article",
         "canonical_url": canonical_url,
         "canonical_url_hash": hash_value(canonical_url) if canonical_url else None,
-        "title": parsed_item.title,
-        "title_fingerprint": fingerprint_text(parsed_item.title),
-        "summary": parsed_item.summary,
-        "content_text": parsed_item.content_text,
-        "content_html_sanitized": parsed_item.content_html,
+        "title": normalized_item.title,
+        "title_fingerprint": fingerprint_text(normalized_item.title),
+        "summary": normalized_item.summary,
+        "content_text": normalized_item.content_text,
+        "content_html_sanitized": normalized_item.content_html,
         "language_code": source.language_hint,
         "script_code": "Arab" if direction == "rtl" else "Latn",
         "direction": direction,
-        "authors": [parsed_item.author] if parsed_item.author else [],
+        "authors": [normalized_item.author] if normalized_item.author else [],
         "tags": classification.tags,
-        "published_at": parsed_item.published_at,
+        "published_at": normalized_item.published_at,
         "sort_at": sort_at,
-        "date_raw": parsed_item.published_raw,
+        "date_raw": normalized_item.published_raw,
         "date_source": "source",
-        "date_parse_status": parsed_item.date_parse_status,
+        "date_parse_status": normalized_item.date_parse_status,
         "primary_source_id": source.id,
         "score": classification.score,
         "metrics": metrics,
@@ -476,12 +479,47 @@ def _content_item_values(source: Source, parsed_item: ParsedSourceItem) -> dict[
             "quality_flags": content_classification.quality_flags,
         },
         "rewrite_bucket": bucket_assignment.bucket_type,
-        "quality_status": "low_signal" if content_classification.content_type == "low_signal" else "needs_review",
+        "title_quality": title_normalization.quality,
+        "title_was_generated": title_normalization.was_generated,
+        "quality_status": (
+            "low_signal"
+            if content_classification.content_type == "low_signal" or title_normalization.low_signal
+            else "needs_review"
+        ),
         "first_seen_at": now,
         "last_seen_at": now,
         "created_at": now,
         "updated_at": now,
     }
+
+
+def _title_normalization(source: Source, parsed_item: ParsedSourceItem):
+    if source.platform == "telegram_public":
+        return normalize_telegram_title(parsed_item.title, parsed_item.content_text)
+    return normalize_telegram_title(parsed_item.title, parsed_item.title)
+
+
+def _parsed_item_with_title(parsed_item: ParsedSourceItem, title: str) -> ParsedSourceItem:
+    if parsed_item.title == title:
+        return parsed_item
+    return ParsedSourceItem(
+        external_id_raw=parsed_item.external_id_raw,
+        external_id_norm=parsed_item.external_id_norm,
+        source_url=parsed_item.source_url,
+        source_url_norm=parsed_item.source_url_norm,
+        canonical_url_candidate=parsed_item.canonical_url_candidate,
+        title=title,
+        summary=parsed_item.summary,
+        content_html=parsed_item.content_html,
+        content_text=parsed_item.content_text,
+        author=parsed_item.author,
+        categories=parsed_item.categories,
+        published_raw=parsed_item.published_raw,
+        published_at=parsed_item.published_at,
+        date_parse_status=parsed_item.date_parse_status,
+        media_candidates=parsed_item.media_candidates,
+        parser_meta=parsed_item.parser_meta,
+    )
 
 
 def _media_asset_values(candidate: MediaCandidate, url_hash: str) -> dict[str, Any]:

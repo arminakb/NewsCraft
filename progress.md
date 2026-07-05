@@ -11,8 +11,8 @@ Overall status: In Progress
 | 0 | Progress Tracking and Baseline Audit | Completed | 8489da6 |
 | 1 | Schema and Data Model Design | Completed | 92766fc |
 | 2 | Content Type Classification | Completed | 9279cb8 |
-| 3 | Rewrite Buckets and Candidate Queues | Completed | Pending |
-| 4 | Telegram Title Normalization | Pending | Pending |
+| 3 | Rewrite Buckets and Candidate Queues | Completed | d32411e |
+| 4 | Telegram Title Normalization | Completed | Pending |
 | 5 | Type-Aware Scoring and Ranking | Pending | Pending |
 | 6 | Rewrite Readiness Gate | Pending | Pending |
 | 7 | Media Quality and Primary Media Selection | Pending | Pending |
@@ -23,8 +23,8 @@ Overall status: In Progress
 
 ## Latest Update
 
-- Completed Phase 3 rewrite bucket assignment and candidate queue upsert.
-- Added deterministic bucket mapping and idempotent `rewrite_candidates` writes.
+- Completed Phase 4 Telegram title normalization.
+- Weak Telegram titles are generated from meaningful body text before classification and scoring.
 
 ## Baseline Audit
 
@@ -108,7 +108,27 @@ Overall status: In Progress
   - `cd backend && PYTHONPATH=. .venv/bin/python -m pytest tests/test_rewrite_buckets.py tests/test_content_classification.py tests/test_repository.py tests/test_ingestion_service.py -q` -> 28 passed
   - `cd backend && PYTHONPATH=. .venv/bin/ruff check app/content/buckets.py app/content/classification.py app/ingestion/repository.py tests/test_rewrite_buckets.py tests/test_content_classification.py` -> passed
 - Validation run: Not applicable for Phase 3.
-- Commit: Pending
+- Commit: d32411e
 - Known issues:
   - Full test suite still has the Phase 0 baseline hang and was not rerun for Phase 3.
   - Queue visibility/API filtering is deferred to Phase 9.
+
+### Phase 4
+- Status: Completed
+- What changed:
+  - Added title normalization module at `backend/app/normalization/titles.py`.
+  - Detects empty, emoji-only, symbol-only, and very weak titles.
+  - Generates Telegram titles from the first meaningful body sentence or line, preserving Persian text.
+  - Limits generated titles to 100 characters.
+  - Stores `title_quality` and `title_was_generated`.
+  - Marks title normalization as `low_signal` when no meaningful title can be generated.
+  - Runs title normalization before classification and scoring inside `_content_item_values()`.
+- Files changed: `backend/app/normalization/titles.py`, `backend/app/ingestion/repository.py`, `backend/tests/test_title_normalization.py`, `progress.md`
+- Tests run:
+  - `cd backend && PYTHONPATH=. .venv/bin/python -m pytest tests/test_title_normalization.py -q` -> 7 passed
+  - `cd backend && PYTHONPATH=. .venv/bin/python -m pytest tests/test_title_normalization.py tests/test_content_classification.py tests/test_rewrite_buckets.py tests/test_repository.py tests/test_ingestion_service.py -q` -> 35 passed
+  - `cd backend && PYTHONPATH=. .venv/bin/ruff check app/normalization/titles.py app/ingestion/repository.py tests/test_title_normalization.py` -> passed
+- Validation run: Not applicable for Phase 4.
+- Commit: Pending
+- Known issues:
+  - Full test suite still has the Phase 0 baseline hang and was not rerun for Phase 4.
