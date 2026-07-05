@@ -9,8 +9,8 @@ Overall status: In Progress
 | Phase | Name | Status | Commit |
 |---:|---|---|---|
 | 0 | Progress Tracking and Baseline Audit | Completed | 8489da6 |
-| 1 | Schema and Data Model Design | Completed | Pending |
-| 2 | Content Type Classification | Pending | Pending |
+| 1 | Schema and Data Model Design | Completed | 92766fc |
+| 2 | Content Type Classification | Completed | Pending |
 | 3 | Rewrite Buckets and Candidate Queues | Pending | Pending |
 | 4 | Telegram Title Normalization | Pending | Pending |
 | 5 | Type-Aware Scoring and Ranking | Pending | Pending |
@@ -23,8 +23,8 @@ Overall status: In Progress
 
 ## Latest Update
 
-- Completed Phase 1 schema and data model design.
-- Added content intelligence fields, media quality fields, source health fields, and generic rewrite candidates table.
+- Completed Phase 2 content type classification.
+- Added deterministic classification rules and stored results during content item upsert.
 
 ## Baseline Audit
 
@@ -68,7 +68,26 @@ Overall status: In Progress
   - `cd backend && PYTHONPATH=. .venv/bin/python -m pytest tests/test_models.py tests/test_repository.py tests/test_content_intelligence_migration.py -q` -> 10 passed
   - `cd backend && PYTHONPATH=. .venv/bin/alembic upgrade head --sql` -> rendered SQL successfully
 - Validation run: Alembic offline SQL render only.
-- Commit: Pending
+- Commit: 92766fc
 - Known issues:
   - Full test suite still has the Phase 0 baseline hang and was not rerun for Phase 1.
   - New fields are schema-only in this phase; ingestion/classification behavior will be wired in later phases.
+
+### Phase 2
+- Status: Completed
+- What changed:
+  - Added classifier module at `backend/app/content/classification.py`.
+  - Implemented deterministic rules for `news`, `article`, `tutorial`, `research`, `video`, `tool_update`, `vendor_update`, `longform`, `promo`, and `low_signal`.
+  - Added Persian and English keyword support for tutorial, research, news, promo, and longform signals.
+  - Added source-specific handling for YouTube/video sources and known vendor domains/source names.
+  - Wired classifier into `_content_item_values()` so ingestion stores `content_type`, `content_type_confidence`, `classification_reasons`, `classification_metadata`, and low-signal `quality_status`.
+- Files changed: `backend/app/content/classification.py`, `backend/app/ingestion/repository.py`, `backend/tests/test_content_classification.py`, `progress.md`
+- Tests run:
+  - `cd backend && PYTHONPATH=. .venv/bin/python -m pytest tests/test_content_classification.py -q` -> 12 passed
+  - `cd backend && PYTHONPATH=. .venv/bin/python -m pytest tests/test_content_classification.py tests/test_content_scoring.py tests/test_repository.py tests/test_ingestion_service.py -q` -> 25 passed
+  - `cd backend && PYTHONPATH=. .venv/bin/python -m pytest tests/test_models.py tests/test_content_intelligence_migration.py -q` -> 5 passed
+- Validation run: Not applicable for Phase 2.
+- Commit: Pending
+- Known issues:
+  - Full test suite still has the Phase 0 baseline hang and was not rerun for Phase 2.
+  - Classifier is deterministic and rule-based; ranking/readiness refinements are deferred to later phases.

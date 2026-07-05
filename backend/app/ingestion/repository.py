@@ -10,6 +10,7 @@ from sqlalchemy import Select, and_, func, or_, select, text, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.content.classification import classify_content_item
 from app.content.scoring import classify_and_score
 from app.db.models import (
     ContentItem,
@@ -393,6 +394,7 @@ def _content_item_values(source: Source, parsed_item: ParsedSourceItem) -> dict[
     canonical_url = parsed_item.canonical_url_candidate or parsed_item.source_url_norm
     direction = infer_direction(parsed_item.content_text)
     classification = classify_and_score(source, parsed_item)
+    content_classification = classify_content_item(source, parsed_item)
     metrics = dict(parsed_item.parser_meta)
     metrics["classification"] = classification.signals
     return {
@@ -417,6 +419,14 @@ def _content_item_values(source: Source, parsed_item: ParsedSourceItem) -> dict[
         "primary_source_id": source.id,
         "score": classification.score,
         "metrics": metrics,
+        "content_type": content_classification.content_type,
+        "content_type_confidence": Decimal(str(content_classification.confidence)),
+        "classification_reasons": content_classification.reasons,
+        "classification_metadata": {
+            **content_classification.metadata,
+            "quality_flags": content_classification.quality_flags,
+        },
+        "quality_status": "low_signal" if content_classification.content_type == "low_signal" else "needs_review",
         "first_seen_at": now,
         "last_seen_at": now,
         "created_at": now,
