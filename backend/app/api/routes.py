@@ -52,6 +52,11 @@ async def run_ingest(request: IngestRunRequest, session: AsyncSession = SessionD
 @router.get("/content-items", response_model=list[ContentItemOut])
 async def list_content_items(
     status: str | None = None,
+    content_type: str | None = None,
+    rewrite_bucket: str | None = None,
+    is_rewrite_ready: bool | None = None,
+    source_tier: str | None = None,
+    quality_status: str | None = None,
     sort: Literal["latest", "score"] = "latest",
     limit: int = Query(100, ge=1, le=250),
     session: AsyncSession = SessionDependency,
@@ -59,6 +64,16 @@ async def list_content_items(
     stmt = select(ContentItem).options(selectinload(ContentItem.primary_media))
     if status:
         stmt = stmt.where(ContentItem.status == status)
+    if content_type:
+        stmt = stmt.where(ContentItem.content_type == content_type)
+    if rewrite_bucket:
+        stmt = stmt.where(ContentItem.rewrite_bucket == rewrite_bucket)
+    if is_rewrite_ready is not None:
+        stmt = stmt.where(ContentItem.is_rewrite_ready.is_(is_rewrite_ready))
+    if source_tier:
+        stmt = stmt.where(ContentItem.source_tier == source_tier)
+    if quality_status:
+        stmt = stmt.where(ContentItem.quality_status == quality_status)
     if sort == "score":
         stmt = stmt.order_by(ContentItem.score.desc(), ContentItem.sort_at.desc())
     else:

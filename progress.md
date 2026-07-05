@@ -16,15 +16,15 @@ Overall status: In Progress
 | 5 | Type-Aware Scoring and Ranking | Completed | ef5901c |
 | 6 | Rewrite Readiness Gate | Completed | 235b64e |
 | 7 | Media Quality and Primary Media Selection | Completed | d08c060 |
-| 8 | Source Health and Diagnostics | Completed | Pending |
-| 9 | API Filters and Response Updates | Pending | Pending |
+| 8 | Source Health and Diagnostics | Completed | f645efb |
+| 9 | API Filters and Response Updates | Completed | Pending |
 | 10 | Validation Report Upgrade | Pending | Pending |
 | 11 | Documentation and Final Verification | Pending | Pending |
 
 ## Latest Update
 
-- Completed Phase 8 source health and diagnostics.
-- Source ingestion now persists health status, failure details, parse/suitability/media counts, and diagnostics now summarizes source health.
+- Completed Phase 9 API filters and response updates.
+- Content item responses now expose content intelligence fields, and content list queries support type, bucket, readiness, source tier, and quality filters.
 
 ## Baseline Audit
 
@@ -209,6 +209,24 @@ Overall status: In Progress
   - `cd backend && PYTHONPATH=. .venv/bin/python -m pytest tests/test_source_health.py tests/test_diagnostics.py tests/test_ingestion_service.py tests/test_media_quality.py tests/test_rewrite_readiness.py tests/test_content_scoring.py tests/test_content_classification.py tests/test_rewrite_buckets.py tests/test_title_normalization.py tests/test_repository.py tests/test_models.py tests/test_content_intelligence_migration.py -q` -> 73 passed
   - `cd backend && PYTHONPATH=. .venv/bin/ruff check app/ingestion/service.py app/diagnostics/service.py app/api/schemas.py tests/test_source_health.py tests/test_diagnostics.py` -> passed
 - Validation run: Not applicable for Phase 8.
-- Commit: Pending
+- Commit: f645efb
 - Known issues:
   - Full test suite still has the Phase 0 baseline hang and was not rerun for Phase 8.
+
+### Phase 9
+- Status: Completed
+- Endpoint changes:
+  - `GET /content-items` now accepts `content_type`, `rewrite_bucket`, `is_rewrite_ready`, `source_tier`, and `quality_status` filters.
+  - Existing `status`, `sort`, and `limit` behavior remains unchanged.
+- Schema changes:
+  - `ContentItemOut` now includes `content_type`, `rewrite_bucket`, `is_rewrite_ready`, `rewrite_ready_reason`, `rewrite_blockers`, `classification_reasons`, `source_tier`, `freshness_bucket`, `quality_status`, and `score_breakdown`.
+  - `primary_media` remains present and includes the Phase 7 media quality fields.
+- Files changed: `backend/app/api/routes.py`, `backend/app/api/schemas.py`, `backend/tests/test_api_content_intelligence.py`, `progress.md`
+- Tests run:
+  - `cd backend && PYTHONPATH=. .venv/bin/python -m pytest tests/test_api_content_intelligence.py -q` -> 2 passed
+  - `cd backend && PYTHONPATH=. .venv/bin/python -m pytest tests/test_api_content_intelligence.py tests/test_source_health.py tests/test_diagnostics.py tests/test_ingestion_service.py tests/test_media_quality.py tests/test_rewrite_readiness.py tests/test_content_scoring.py tests/test_content_classification.py tests/test_rewrite_buckets.py tests/test_title_normalization.py tests/test_repository.py tests/test_models.py tests/test_content_intelligence_migration.py -q` -> 75 passed
+  - `cd backend && PYTHONPATH=. .venv/bin/ruff check app/api/routes.py app/api/schemas.py tests/test_api_content_intelligence.py` -> passed
+- Validation run: Not applicable for Phase 9.
+- Commit: Pending
+- Known issues:
+  - Full test suite still has the Phase 0 baseline hang and was not rerun for Phase 9.

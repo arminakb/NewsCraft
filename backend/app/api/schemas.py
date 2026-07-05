@@ -57,6 +57,16 @@ class ContentItemOut(BaseModel):
     sort_at: datetime
     primary_image_id: UUID | None = None
     primary_media: MediaAssetOut | None = None
+    content_type: str | None = None
+    rewrite_bucket: str | None = None
+    is_rewrite_ready: bool | None = None
+    rewrite_ready_reason: str | None = None
+    rewrite_blockers: list[str] = Field(default_factory=list)
+    classification_reasons: list[str] = Field(default_factory=list)
+    source_tier: str | None = None
+    freshness_bucket: str | None = None
+    quality_status: str | None = None
+    score_breakdown: dict[str, Any] = Field(default_factory=dict)
 
 
 class IngestRunRequest(BaseModel):
