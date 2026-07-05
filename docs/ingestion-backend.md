@@ -57,6 +57,12 @@ The content list endpoint supports review-oriented sorting:
 curl 'http://localhost:8000/content-items?status=new&sort=score&limit=50'
 ```
 
+Fetch one content item, including primary media metadata when available:
+
+```bash
+curl 'http://localhost:8000/content-items/<content_item_id>'
+```
+
 ## Selective `armin` Integration
 
 Useful workflow ideas from `armin` are integrated only when adapted to the canonical `backend/` ingestion model and covered by tests. The backend continues to use public Telegram pages, RSS parsing with media extraction, raw payload storage, identity-based dedupe, and `media_assets` as the source media model.

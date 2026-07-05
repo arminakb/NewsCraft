@@ -65,7 +65,8 @@ def test_ingest_run_endpoint_triggers_ingestion(monkeypatch):
             return {"status": "succeeded", "checked": 1, "items": 2, "platforms": platforms, "source_ids": source_ids}
 
     monkeypatch.setattr(routes, "IngestionService", FakeService)
-    _override_session(FakeSession([]))
+    fake_session = FakeSession([])
+    _override_session(fake_session)
 
     response = TestClient(app).post("/ingest/run", json={"platforms": ["rss"], "source_ids": ["source-1"]})
 
@@ -73,6 +74,7 @@ def test_ingest_run_endpoint_triggers_ingestion(monkeypatch):
     assert response.status_code == 200
     assert response.json()["items"] == 2
     assert response.json()["status"] == "succeeded"
+    assert fake_session.committed is True
 
 
 def test_content_items_endpoint_returns_latest_content_with_primary_media():
@@ -141,6 +143,45 @@ def test_content_items_endpoint_accepts_status_and_score_sort_params():
     assert response.json()[0]["score"] == 22
 
 
+def test_content_item_detail_endpoint_returns_item():
+    content_item = SimpleNamespace(
+        id=uuid4(),
+        item_type="article",
+        title="AI News",
+        summary="Summary",
+        canonical_url="https://example.com/a",
+        language_code="en",
+        direction="ltr",
+        status="new",
+        score=17,
+        tags=["ai"],
+        metrics={},
+        sort_at=datetime(2026, 7, 3, tzinfo=UTC),
+        primary_image_id=None,
+        primary_media=None,
+    )
+    fake_session = FakeSession([], item=content_item)
+    _override_session(fake_session)
+
+    response = TestClient(app).get(f"/content-items/{content_item.id}")
+
+    app.dependency_overrides.clear()
+    assert response.status_code == 200
+    assert response.json()["id"] == str(content_item.id)
+    assert response.json()["title"] == "AI News"
+
+
+def test_content_item_detail_endpoint_returns_404_for_missing_item():
+    fake_session = FakeSession([])
+    _override_session(fake_session)
+
+    response = TestClient(app).get(f"/content-items/{uuid4()}")
+
+    app.dependency_overrides.clear()
+    assert response.status_code == 404
+    assert response.json()["detail"] == "content item not found"
+
+
 def test_approve_content_item_endpoint_marks_item_approved():
     item = SimpleNamespace(id=uuid4(), status="new", metrics={})
     fake_session = FakeSession([], item=item)
@@ -178,6 +219,9 @@ class FakeSession:
 
     async def scalars(self, stmt):
         return self.rows
+
+    async def scalar(self, stmt):
+        return self.item
 
     async def get(self, model, item_id):
         return self.item if self.item and self.item.id == item_id else None

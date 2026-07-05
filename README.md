@@ -94,9 +94,10 @@ curl -X POST http://localhost:8000/ingest/run \
 - `POST /ingest/run`
 - `GET /content-items`
 - `GET /content-items?status=new&sort=score&limit=50`
+- `GET /content-items/{content_item_id}`
 - `POST /content-items/{content_item_id}/approve`
 
-Content item responses include `score`, `tags`, and classification metadata so clients can prioritize higher-value items.
+Content item responses include `score`, `tags`, classification metadata, `primary_image_id`, and `primary_media` when a primary media asset is available.
 
 ## Local Backend Development
 

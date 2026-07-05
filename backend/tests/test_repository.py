@@ -1,8 +1,16 @@
 from datetime import UTC, datetime
+from decimal import Decimal
 from uuid import uuid4
 
+from sqlalchemy.dialects import postgresql
+
 from app.db.models import MediaAsset, Source
-from app.ingestion.repository import IngestionRepository, build_item_identities, plan_item_media_rows
+from app.ingestion.repository import (
+    IngestionRepository,
+    _identity_insert_statement,
+    build_item_identities,
+    plan_item_media_rows,
+)
 from app.sources.base import MediaCandidate, ParsedSourceItem
 
 
@@ -125,6 +133,33 @@ def test_plan_item_media_rows_marks_first_image_primary():
     assert rows[0]["sort_order"] == 0
     assert rows[1]["role"] == "inline_image"
     assert rows[1]["sort_order"] == 1
+
+
+def test_identity_upserts_match_partial_unique_indexes():
+    content_item_id = uuid4()
+    source_item_id = uuid4()
+    source_id = uuid4()
+    values = {
+        "content_item_id": content_item_id,
+        "source_item_id": source_item_id,
+        "identity_type": "canonical_url",
+        "identity_value": "https://example.com/a",
+        "identity_hash": "hash",
+        "scope": "global",
+        "source_id": source_id,
+        "confidence": Decimal("1.0"),
+        "is_strong": True,
+    }
+
+    global_sql = str(_identity_insert_statement(values).compile(dialect=postgresql.dialect()))
+    source_sql = str(
+        _identity_insert_statement({**values, "scope": "source"}).compile(dialect=postgresql.dialect())
+    )
+
+    assert "ON CONFLICT (identity_type, identity_hash) WHERE scope = 'global' AND is_strong" in global_sql
+    assert (
+        "ON CONFLICT (source_id, identity_type, identity_hash) WHERE scope = 'source' AND is_strong" in source_sql
+    )
 
 
 def test_repository_exposes_plan_methods():

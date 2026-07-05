@@ -6,7 +6,7 @@ from decimal import Decimal
 
 from sqlalchemy import BigInteger, Boolean, DateTime, ForeignKey, Index, Integer, Numeric, Text, UniqueConstraint, text
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB, UUID
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, foreign, mapped_column, relationship
 from sqlalchemy.sql import func
 
 from app.db.base import Base
@@ -105,6 +105,13 @@ class ContentItem(Base):
     date_parse_status: Mapped[str] = mapped_column(Text, nullable=False)
     primary_source_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("sources.id"))
     primary_image_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
+    primary_media: Mapped[MediaAsset | None] = relationship(
+        "MediaAsset",
+        primaryjoin=lambda: foreign(ContentItem.primary_image_id) == MediaAsset.id,
+        viewonly=True,
+        uselist=False,
+        lazy="selectin",
+    )
     status: Mapped[str] = mapped_column(Text, nullable=False, server_default="new")
     score: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
     metrics: Mapped[dict] = mapped_column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))

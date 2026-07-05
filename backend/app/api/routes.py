@@ -4,6 +4,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from app.api.schemas import (
     ApproveContentItemIn,
@@ -42,6 +43,7 @@ async def seed(session: AsyncSession = SessionDependency):
 async def run_ingest(request: IngestRunRequest, session: AsyncSession = SessionDependency):
     service = IngestionService(session)
     stats = await service.run_once(platforms=request.platforms, source_ids=request.source_ids, trigger="api")
+    await session.commit()
     if "status" not in stats:
         stats["status"] = "partial" if stats.get("failed") else "succeeded"
     return stats
@@ -54,7 +56,7 @@ async def list_content_items(
     limit: int = Query(100, ge=1, le=250),
     session: AsyncSession = SessionDependency,
 ):
-    stmt = select(ContentItem)
+    stmt = select(ContentItem).options(selectinload(ContentItem.primary_media))
     if status:
         stmt = stmt.where(ContentItem.status == status)
     if sort == "score":
@@ -63,6 +65,18 @@ async def list_content_items(
         stmt = stmt.order_by(ContentItem.sort_at.desc())
     rows = await session.scalars(stmt.limit(limit))
     return list(rows)
+
+
+@router.get("/content-items/{content_item_id}", response_model=ContentItemOut)
+async def get_content_item(content_item_id: UUID, session: AsyncSession = SessionDependency):
+    item = await session.scalar(
+        select(ContentItem)
+        .options(selectinload(ContentItem.primary_media))
+        .where(ContentItem.id == content_item_id)
+    )
+    if item is None:
+        raise HTTPException(status_code=404, detail="content item not found")
+    return item
 
 
 @router.post("/content-items/{content_item_id}/approve", response_model=ApproveContentItemOut)

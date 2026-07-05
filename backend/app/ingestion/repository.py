@@ -6,7 +6,7 @@ from hashlib import sha256
 from typing import Any
 from uuid import UUID
 
-from sqlalchemy import Select, and_, func, or_, select, update
+from sqlalchemy import Select, and_, func, or_, select, text, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -25,6 +25,9 @@ from app.normalization.fingerprints import content_hash, title_date_fingerprint
 from app.normalization.text import fingerprint_text, infer_direction
 from app.normalization.urls import hash_value
 from app.sources.base import MediaCandidate, ParsedSourceItem
+
+GLOBAL_STRONG_IDENTITY_INDEX_WHERE = text("scope = 'global' AND is_strong")
+SOURCE_STRONG_IDENTITY_INDEX_WHERE = text("scope = 'source' AND is_strong")
 
 
 def build_item_identities(source: Source, parsed_item: ParsedSourceItem) -> list[dict[str, Any]]:
@@ -261,20 +264,8 @@ class IngestionRepository:
                 "source_item_id": source_item_id,
                 "source_id": identity["source_id"] or source_id,
             }
-            stmt = insert(ItemIdentity).values(**values)
-            if identity["is_strong"] and identity["scope"] == "global":
-                stmt = stmt.on_conflict_do_update(
-                    index_elements=[ItemIdentity.identity_type, ItemIdentity.identity_hash],
-                    index_where=and_(ItemIdentity.scope == "global", ItemIdentity.is_strong.is_(True)),
-                    set_={"content_item_id": content_item_id, "source_item_id": source_item_id},
-                )
-                await self.session.execute(stmt)
-            elif identity["is_strong"] and identity["scope"] == "source":
-                stmt = stmt.on_conflict_do_update(
-                    index_elements=[ItemIdentity.source_id, ItemIdentity.identity_type, ItemIdentity.identity_hash],
-                    index_where=and_(ItemIdentity.scope == "source", ItemIdentity.is_strong.is_(True)),
-                    set_={"content_item_id": content_item_id, "source_item_id": source_item_id},
-                )
+            stmt = _identity_insert_statement(values)
+            if stmt is not None:
                 await self.session.execute(stmt)
             else:
                 self.session.add(ItemIdentity(**values))
@@ -370,6 +361,30 @@ def _source_item_values(
         "published_raw": parsed_item.published_raw,
         "parser_meta": parsed_item.parser_meta,
     }
+
+
+def _identity_insert_statement(values: dict[str, Any]):
+    if not values["is_strong"]:
+        return None
+
+    stmt = insert(ItemIdentity).values(**values)
+    update_values = {
+        "content_item_id": values["content_item_id"],
+        "source_item_id": values["source_item_id"],
+    }
+    if values["scope"] == "global":
+        return stmt.on_conflict_do_update(
+            index_elements=[ItemIdentity.identity_type, ItemIdentity.identity_hash],
+            index_where=GLOBAL_STRONG_IDENTITY_INDEX_WHERE,
+            set_=update_values,
+        )
+    if values["scope"] == "source":
+        return stmt.on_conflict_do_update(
+            index_elements=[ItemIdentity.source_id, ItemIdentity.identity_type, ItemIdentity.identity_hash],
+            index_where=SOURCE_STRONG_IDENTITY_INDEX_WHERE,
+            set_=update_values,
+        )
+    return None
 
 
 def _content_item_values(source: Source, parsed_item: ParsedSourceItem) -> dict[str, Any]:
