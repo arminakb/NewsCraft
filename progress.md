@@ -8,8 +8,8 @@ Overall status: In Progress
 
 | Phase | Name | Status | Commit |
 |---:|---|---|---|
-| 0 | Progress Tracking and Baseline Audit | Completed | Pending |
-| 1 | Schema and Data Model Design | Pending | Pending |
+| 0 | Progress Tracking and Baseline Audit | Completed | 8489da6 |
+| 1 | Schema and Data Model Design | Completed | Pending |
 | 2 | Content Type Classification | Pending | Pending |
 | 3 | Rewrite Buckets and Candidate Queues | Pending | Pending |
 | 4 | Telegram Title Normalization | Pending | Pending |
@@ -23,8 +23,8 @@ Overall status: In Progress
 
 ## Latest Update
 
-- Completed Phase 0 progress tracking and baseline backend audit.
-- Baseline test run collected 47 tests but hung at the first API health test.
+- Completed Phase 1 schema and data model design.
+- Added content intelligence fields, media quality fields, source health fields, and generic rewrite candidates table.
 
 ## Baseline Audit
 
@@ -49,7 +49,26 @@ Overall status: In Progress
   - `cd backend && PYTHONPATH=. .venv/bin/python -m pytest tests -v`
   - Result: collected 47 tests, then hung at `tests/test_api.py::test_health_endpoint_returns_ok` for more than 90 seconds. No pass/fail summary was produced.
 - Validation run: Not applicable for Phase 0.
-- Commit: Pending
+- Commit: 8489da6
 - Known issues:
   - Baseline full test suite currently hangs before the first test completes. The last visible output was `tests/test_api.py::test_health_endpoint_returns_ok`.
   - The hung command could not be interrupted through the exec session stdin. Future baseline debugging should start with the API health test and `TestClient(app)` behavior.
+
+### Phase 1
+- Status: Completed
+- What changed:
+  - Added `ContentItem` fields: `content_type`, `content_type_confidence`, `classification_reasons`, `classification_metadata`, `rewrite_bucket`, `freshness_bucket`, `source_tier`, `quality_status`, `is_rewrite_ready`, `rewrite_ready_reason`, `rewrite_blockers`, `score_breakdown`, `ranking_metadata`, `title_quality`, `title_was_generated`, and `content_intent`.
+  - Added `MediaAsset` fields: `media_quality`, `media_confidence`, `is_primary_candidate`, `is_primary`, `media_source_type`, and `asset_role`.
+  - Added `Source` health fields: `last_success_at`, `last_failure_at`, `failure_count`, `last_http_status`, `last_error_type`, `last_error_message`, `last_parse_count`, `last_suitable_count`, `last_media_count`, `health_status`, and `disabled_reason`.
+  - Added generic `rewrite_candidates` table with unique `(content_item_id, bucket_type)` rows.
+- Files changed: `backend/app/db/models.py`, `backend/alembic/versions/0003_content_intelligence_schema.py`, `backend/tests/test_models.py`, `backend/tests/test_content_intelligence_migration.py`, `progress.md`
+- Migration: `backend/alembic/versions/0003_content_intelligence_schema.py`
+- Tests run:
+  - `cd backend && PYTHONPATH=. .venv/bin/python -m pytest tests/test_models.py tests/test_content_intelligence_migration.py -q` -> 5 passed
+  - `cd backend && PYTHONPATH=. .venv/bin/python -m pytest tests/test_models.py tests/test_repository.py tests/test_content_intelligence_migration.py -q` -> 10 passed
+  - `cd backend && PYTHONPATH=. .venv/bin/alembic upgrade head --sql` -> rendered SQL successfully
+- Validation run: Alembic offline SQL render only.
+- Commit: Pending
+- Known issues:
+  - Full test suite still has the Phase 0 baseline hang and was not rerun for Phase 1.
+  - New fields are schema-only in this phase; ingestion/classification behavior will be wired in later phases.

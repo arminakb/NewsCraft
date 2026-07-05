@@ -38,6 +38,17 @@ class Source(Base):
     last_modified: Mapped[str | None] = mapped_column(Text)
     active: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="true")
     last_fetch_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_success_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_failure_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    failure_count: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
+    last_http_status: Mapped[int | None] = mapped_column(Integer)
+    last_error_type: Mapped[str | None] = mapped_column(Text)
+    last_error_message: Mapped[str | None] = mapped_column(Text)
+    last_parse_count: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
+    last_suitable_count: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
+    last_media_count: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
+    health_status: Mapped[str] = mapped_column(Text, nullable=False, server_default="healthy")
+    disabled_reason: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = timestamp_now()
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now()
@@ -115,6 +126,22 @@ class ContentItem(Base):
     status: Mapped[str] = mapped_column(Text, nullable=False, server_default="new")
     score: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
     metrics: Mapped[dict] = mapped_column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
+    content_type: Mapped[str] = mapped_column(Text, nullable=False, server_default="article")
+    content_type_confidence: Mapped[Decimal] = mapped_column(Numeric, nullable=False, server_default="0")
+    classification_reasons: Mapped[list] = mapped_column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
+    classification_metadata: Mapped[dict] = mapped_column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
+    rewrite_bucket: Mapped[str | None] = mapped_column(Text)
+    freshness_bucket: Mapped[str] = mapped_column(Text, nullable=False, server_default="unknown")
+    source_tier: Mapped[str] = mapped_column(Text, nullable=False, server_default="unknown")
+    quality_status: Mapped[str] = mapped_column(Text, nullable=False, server_default="needs_review")
+    is_rewrite_ready: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="false")
+    rewrite_ready_reason: Mapped[str | None] = mapped_column(Text)
+    rewrite_blockers: Mapped[list] = mapped_column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
+    score_breakdown: Mapped[dict] = mapped_column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
+    ranking_metadata: Mapped[dict] = mapped_column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
+    title_quality: Mapped[str] = mapped_column(Text, nullable=False, server_default="unknown")
+    title_was_generated: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="false")
+    content_intent: Mapped[str | None] = mapped_column(Text)
     duplicate_of_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("content_items.id"))
     first_seen_at: Mapped[datetime] = timestamp_now()
     last_seen_at: Mapped[datetime] = timestamp_now()
@@ -213,6 +240,12 @@ class MediaAsset(Base):
     checksum_sha256: Mapped[str | None] = mapped_column(Text)
     storage_path: Mapped[str | None] = mapped_column(Text)
     fetch_status: Mapped[str] = mapped_column(Text, nullable=False)
+    media_quality: Mapped[str] = mapped_column(Text, nullable=False, server_default="unknown")
+    media_confidence: Mapped[Decimal] = mapped_column(Numeric, nullable=False, server_default="0")
+    is_primary_candidate: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="false")
+    is_primary: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="false")
+    media_source_type: Mapped[str] = mapped_column(Text, nullable=False, server_default="external")
+    asset_role: Mapped[str] = mapped_column(Text, nullable=False, server_default="unknown")
     raw_metadata: Mapped[dict] = mapped_column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
     created_at: Mapped[datetime] = timestamp_now()
     updated_at: Mapped[datetime] = mapped_column(
@@ -229,6 +262,26 @@ class ItemMedia(Base):
     sort_order: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
     confidence: Mapped[Decimal] = mapped_column(Numeric, nullable=False, server_default="1.0")
     extracted_from: Mapped[str] = mapped_column(Text, nullable=False)
+
+
+class RewriteCandidate(Base):
+    __tablename__ = "rewrite_candidates"
+
+    id: Mapped[uuid.UUID] = uuid_pk()
+    content_item_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("content_items.id"), nullable=False)
+    bucket_type: Mapped[str] = mapped_column(Text, nullable=False)
+    priority_score: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
+    status: Mapped[str] = mapped_column(Text, nullable=False, server_default="pending")
+    reason: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = timestamp_now()
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now()
+    )
+
+    __table_args__ = (
+        UniqueConstraint("content_item_id", "bucket_type", name="uq_rewrite_candidates_content_bucket"),
+        Index("ix_rewrite_candidates_bucket_status", "bucket_type", "status", priority_score.desc()),
+    )
 
 
 class ContentDraft(Base):
