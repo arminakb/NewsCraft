@@ -2,9 +2,10 @@ from fastapi import APIRouter, Depends
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.schemas import ContentItemOut, IngestRunOut, IngestRunRequest, SourceOut
+from app.api.schemas import ContentItemOut, DiagnosticsOut, IngestRunOut, IngestRunRequest, SourceOut
 from app.db.models import ContentItem, Source
 from app.db.session import get_session
+from app.diagnostics.service import DiagnosticsService
 from app.ingestion.seed_sources import seed_sources
 from app.ingestion.service import IngestionService
 
@@ -38,3 +39,8 @@ async def run_ingest(request: IngestRunRequest, session: AsyncSession = SessionD
 async def list_content_items(session: AsyncSession = SessionDependency):
     rows = await session.scalars(select(ContentItem).order_by(ContentItem.sort_at.desc()).limit(100))
     return list(rows)
+
+
+@router.get("/diagnostics", response_model=DiagnosticsOut)
+async def diagnostics(session: AsyncSession = SessionDependency):
+    return await DiagnosticsService(session).check()

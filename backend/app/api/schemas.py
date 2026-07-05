@@ -63,3 +63,8 @@ class IngestRunOut(BaseModel):
     items: int = 0
     media_candidates: int = 0
     errors: list[dict] = []
+
+
+class DiagnosticsOut(BaseModel):
+    status: str
+    checks: dict[str, str]
