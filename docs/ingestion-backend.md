@@ -37,6 +37,10 @@ With Docker Compose:
 docker compose run --rm api alembic upgrade head
 ```
 
+## Legacy SQLite
+
+`backend/scripts/migrate_legacy_sqlite.py` currently provides a minimal reader for legacy `news.db` article rows. It does not write into PostgreSQL yet.
+
 ## Seed Sources
 
 The 50 active seed feeds live in `app/ingestion/seed_sources.py`. Seed them through the API:
