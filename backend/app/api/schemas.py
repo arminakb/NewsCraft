@@ -80,6 +80,8 @@ class IngestRunOut(BaseModel):
 class DiagnosticsOut(BaseModel):
     status: str
     checks: dict[str, str]
+    source_health: dict[str, int] = Field(default_factory=dict)
+    problem_sources: list[dict[str, Any]] = Field(default_factory=list)
 
 
 class ApproveContentItemIn(BaseModel):

@@ -1,12 +1,22 @@
+from uuid import uuid4
+
 from httpx import ASGITransport, AsyncClient
 
 from app.api.routes import get_session
+from app.db.models import Source
+from app.diagnostics.service import DiagnosticsService
 from app.main import app
 
 
 class FakeSession:
+    def __init__(self, sources=None):
+        self.sources = sources or []
+
     async def execute(self, *_args, **_kwargs):
         return None
+
+    async def scalars(self, *_args, **_kwargs):
+        return self.sources
 
 
 async def _override_session():
@@ -28,3 +38,68 @@ async def test_diagnostics_endpoint_reports_database_and_source_support():
     assert payload["checks"]["database"] == "ok"
     assert payload["checks"]["rss_parser"] == "ok"
     assert payload["checks"]["telegram_public_parser"] == "ok"
+
+
+async def test_diagnostics_summarizes_source_health_counts():
+    sources = [
+        _source("Healthy", "healthy"),
+        _source("Slow", "degraded"),
+        _source("Gone", "broken", failure_count=2, error_type="http_404"),
+        _source("Disabled", "disabled", active=False, disabled_reason="manual"),
+    ]
+
+    payload = await DiagnosticsService(FakeSession(sources)).check()
+
+    assert payload["status"] == "degraded"
+    assert payload["checks"]["source_health"] == "degraded"
+    assert payload["source_health"] == {
+        "healthy": 1,
+        "degraded": 1,
+        "broken": 1,
+        "disabled": 1,
+        "total": 4,
+    }
+    assert payload["problem_sources"][0]["name"] == "Gone"
+    assert payload["problem_sources"][0]["health_status"] == "broken"
+    assert payload["problem_sources"][0]["last_error_type"] == "http_404"
+
+
+async def test_diagnostics_reports_failed_source_health_query():
+    payload = await DiagnosticsService(BrokenSession()).check()
+
+    assert payload["status"] == "degraded"
+    assert payload["checks"]["database"] == "failed"
+    assert payload["checks"]["source_health"] == "failed"
+    assert payload["source_health"]["total"] == 0
+    assert payload["problem_sources"] == []
+
+
+class BrokenSession:
+    async def execute(self, *_args, **_kwargs):
+        raise RuntimeError("database down")
+
+    async def scalars(self, *_args, **_kwargs):
+        raise RuntimeError("database down")
+
+
+def _source(
+    name: str,
+    health_status: str,
+    *,
+    active: bool = True,
+    failure_count: int = 0,
+    error_type: str | None = None,
+    disabled_reason: str | None = None,
+) -> Source:
+    return Source(
+        id=uuid4(),
+        platform="rss",
+        name=name,
+        feed_url=f"https://example.com/{name}.xml",
+        source_group="ai",
+        active=active,
+        health_status=health_status,
+        failure_count=failure_count,
+        last_error_type=error_type,
+        disabled_reason=disabled_reason,
+    )

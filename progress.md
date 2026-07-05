@@ -15,16 +15,16 @@ Overall status: In Progress
 | 4 | Telegram Title Normalization | Completed | 7728197 |
 | 5 | Type-Aware Scoring and Ranking | Completed | ef5901c |
 | 6 | Rewrite Readiness Gate | Completed | 235b64e |
-| 7 | Media Quality and Primary Media Selection | Completed | Pending |
-| 8 | Source Health and Diagnostics | Pending | Pending |
+| 7 | Media Quality and Primary Media Selection | Completed | d08c060 |
+| 8 | Source Health and Diagnostics | Completed | Pending |
 | 9 | API Filters and Response Updates | Pending | Pending |
 | 10 | Validation Report Upgrade | Pending | Pending |
 | 11 | Documentation and Final Verification | Pending | Pending |
 
 ## Latest Update
 
-- Completed Phase 7 media quality and primary media selection.
-- Media assets now store quality/source/role metadata, primary media skips weak assets, and primary media API responses include the new fields.
+- Completed Phase 8 source health and diagnostics.
+- Source ingestion now persists health status, failure details, parse/suitability/media counts, and diagnostics now summarizes source health.
 
 ## Baseline Audit
 
@@ -187,7 +187,28 @@ Overall status: In Progress
   - `cd backend && PYTHONPATH=. .venv/bin/python -m pytest tests/test_media_quality.py tests/test_rewrite_readiness.py tests/test_content_scoring.py tests/test_content_classification.py tests/test_rewrite_buckets.py tests/test_title_normalization.py tests/test_repository.py tests/test_ingestion_service.py tests/test_models.py tests/test_content_intelligence_migration.py -q` -> 64 passed
   - `cd backend && PYTHONPATH=. .venv/bin/ruff check app/ingestion/repository.py app/api/schemas.py tests/test_media_quality.py` -> passed
 - Validation run: Not applicable for Phase 7.
-- Commit: Pending
+- Commit: d08c060
 - Known issues:
   - Full test suite still has the Phase 0 baseline hang and was not rerun for Phase 7.
   - Phase 5 already caps media scoring; Phase 7 did not change the ranking formula.
+
+### Phase 8
+- Status: Completed
+- What changed:
+  - Source ingestion now records `last_http_status`, `last_success_at`, `last_failure_at`, `failure_count`, `last_error_type`, `last_error_message`, `last_parse_count`, `last_suitable_count`, `last_media_count`, and `health_status`.
+  - HTTP 403/404 responses are marked `broken` with normalized `http_403` / `http_404` error types.
+  - DNS/connect failures are marked `broken` using the exception class and message.
+  - Malformed/bozo feeds, zero parsed items, and zero suitable items are marked `degraded`.
+  - Disabled sources remain represented as `disabled`; no sources are hard-deleted.
+  - Diagnostics now includes source health counts and severity-sorted problem source details.
+  - Diagnostics fails closed if the source health query cannot run, returning a degraded status instead of raising.
+- Health fields updated: `last_success_at`, `last_failure_at`, `failure_count`, `last_http_status`, `last_error_type`, `last_error_message`, `last_parse_count`, `last_suitable_count`, `last_media_count`, `health_status`, `disabled_reason`.
+- Files changed: `backend/app/ingestion/service.py`, `backend/app/diagnostics/service.py`, `backend/app/api/schemas.py`, `backend/tests/test_source_health.py`, `backend/tests/test_diagnostics.py`, `progress.md`
+- Tests run:
+  - `cd backend && PYTHONPATH=. .venv/bin/python -m pytest tests/test_source_health.py tests/test_diagnostics.py -q` -> 9 passed
+  - `cd backend && PYTHONPATH=. .venv/bin/python -m pytest tests/test_source_health.py tests/test_diagnostics.py tests/test_ingestion_service.py tests/test_media_quality.py tests/test_rewrite_readiness.py tests/test_content_scoring.py tests/test_content_classification.py tests/test_rewrite_buckets.py tests/test_title_normalization.py tests/test_repository.py tests/test_models.py tests/test_content_intelligence_migration.py -q` -> 73 passed
+  - `cd backend && PYTHONPATH=. .venv/bin/ruff check app/ingestion/service.py app/diagnostics/service.py app/api/schemas.py tests/test_source_health.py tests/test_diagnostics.py` -> passed
+- Validation run: Not applicable for Phase 8.
+- Commit: Pending
+- Known issues:
+  - Full test suite still has the Phase 0 baseline hang and was not rerun for Phase 8.
