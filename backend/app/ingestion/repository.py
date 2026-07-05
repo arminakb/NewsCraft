@@ -12,7 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.content.buckets import assign_rewrite_bucket
 from app.content.classification import classify_content_item
-from app.content.scoring import classify_and_score
+from app.content.scoring import classify_and_score, score_content_item
 from app.db.models import (
     ContentItem,
     IngestRun,
@@ -447,6 +447,12 @@ def _content_item_values(source: Source, parsed_item: ParsedSourceItem) -> dict[
         source_domain=content_classification.metadata.get("source_domain", ""),
         source_name=source.name,
     )
+    score_result = score_content_item(
+        source,
+        normalized_item,
+        content_type=content_classification.content_type,
+        title_quality=title_normalization.quality,
+    )
     metrics = dict(normalized_item.parser_meta)
     metrics["classification"] = classification.signals
     return {
@@ -469,7 +475,7 @@ def _content_item_values(source: Source, parsed_item: ParsedSourceItem) -> dict[
         "date_source": "source",
         "date_parse_status": normalized_item.date_parse_status,
         "primary_source_id": source.id,
-        "score": classification.score,
+        "score": score_result.score,
         "metrics": metrics,
         "content_type": content_classification.content_type,
         "content_type_confidence": Decimal(str(content_classification.confidence)),
@@ -479,8 +485,12 @@ def _content_item_values(source: Source, parsed_item: ParsedSourceItem) -> dict[
             "quality_flags": content_classification.quality_flags,
         },
         "rewrite_bucket": bucket_assignment.bucket_type,
+        "freshness_bucket": score_result.freshness_bucket,
+        "source_tier": score_result.source_tier,
         "title_quality": title_normalization.quality,
         "title_was_generated": title_normalization.was_generated,
+        "score_breakdown": score_result.breakdown,
+        "ranking_metadata": score_result.ranking_metadata,
         "quality_status": (
             "low_signal"
             if content_classification.content_type == "low_signal" or title_normalization.low_signal
