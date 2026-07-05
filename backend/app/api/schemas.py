@@ -1,4 +1,5 @@
 from datetime import datetime
+from decimal import Decimal
 from typing import Any
 from uuid import UUID
 
@@ -30,6 +31,13 @@ class MediaAssetOut(BaseModel):
     width: int | None = None
     height: int | None = None
     storage_path: str | None = None
+    fetch_status: str | None = None
+    media_quality: str | None = None
+    media_confidence: Decimal | None = None
+    is_primary_candidate: bool | None = None
+    is_primary: bool | None = None
+    media_source_type: str | None = None
+    asset_role: str | None = None
 
 
 class ContentItemOut(BaseModel):

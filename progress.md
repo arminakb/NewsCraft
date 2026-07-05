@@ -14,8 +14,8 @@ Overall status: In Progress
 | 3 | Rewrite Buckets and Candidate Queues | Completed | d32411e |
 | 4 | Telegram Title Normalization | Completed | 7728197 |
 | 5 | Type-Aware Scoring and Ranking | Completed | ef5901c |
-| 6 | Rewrite Readiness Gate | Completed | Pending |
-| 7 | Media Quality and Primary Media Selection | Pending | Pending |
+| 6 | Rewrite Readiness Gate | Completed | 235b64e |
+| 7 | Media Quality and Primary Media Selection | Completed | Pending |
 | 8 | Source Health and Diagnostics | Pending | Pending |
 | 9 | API Filters and Response Updates | Pending | Pending |
 | 10 | Validation Report Upgrade | Pending | Pending |
@@ -23,8 +23,8 @@ Overall status: In Progress
 
 ## Latest Update
 
-- Completed Phase 6 rewrite readiness gate.
-- Stored readiness decisions, reasons, and blockers during content item upsert.
+- Completed Phase 7 media quality and primary media selection.
+- Media assets now store quality/source/role metadata, primary media skips weak assets, and primary media API responses include the new fields.
 
 ## Baseline Audit
 
@@ -167,6 +167,27 @@ Overall status: In Progress
   - `cd backend && PYTHONPATH=. .venv/bin/python -m pytest tests/test_rewrite_readiness.py tests/test_content_scoring.py tests/test_content_classification.py tests/test_rewrite_buckets.py tests/test_title_normalization.py tests/test_repository.py tests/test_ingestion_service.py -q` -> 51 passed
   - `cd backend && PYTHONPATH=. .venv/bin/ruff check app/content/readiness.py app/ingestion/repository.py tests/test_rewrite_readiness.py` -> passed
 - Validation run: Not applicable for Phase 6.
-- Commit: Pending
+- Commit: 235b64e
 - Known issues:
   - Full test suite still has the Phase 0 baseline hang and was not rerun for Phase 6.
+
+### Phase 7
+- Status: Completed
+- What changed:
+  - Classifies media assets with `media_quality`, `media_confidence`, `media_source_type`, `asset_role`, `is_primary_candidate`, and `is_primary`.
+  - Marks Medium stat URLs and 1x/2x images as `tracking_pixel` media and excludes them from primary selection.
+  - Marks tiny, low-confidence, and unknown-role media as non-primary candidates.
+  - Allows usable images, including YouTube thumbnails, to become `primary_image`.
+  - Treats Telegram CDN URLs as `temporary_external` until an existing stored asset is re-ingested, then preserves `stored`.
+  - Clears stale `primary_image_id` when no usable primary media is available.
+  - Exposes media quality metadata on `MediaAssetOut` for content item API responses.
+- Files changed: `backend/app/ingestion/repository.py`, `backend/app/api/schemas.py`, `backend/tests/test_media_quality.py`, `progress.md`
+- Tests run:
+  - `cd backend && PYTHONPATH=. .venv/bin/python -m pytest tests/test_media_quality.py -q` -> 8 passed
+  - `cd backend && PYTHONPATH=. .venv/bin/python -m pytest tests/test_media_quality.py tests/test_rewrite_readiness.py tests/test_content_scoring.py tests/test_content_classification.py tests/test_rewrite_buckets.py tests/test_title_normalization.py tests/test_repository.py tests/test_ingestion_service.py tests/test_models.py tests/test_content_intelligence_migration.py -q` -> 64 passed
+  - `cd backend && PYTHONPATH=. .venv/bin/ruff check app/ingestion/repository.py app/api/schemas.py tests/test_media_quality.py` -> passed
+- Validation run: Not applicable for Phase 7.
+- Commit: Pending
+- Known issues:
+  - Full test suite still has the Phase 0 baseline hang and was not rerun for Phase 7.
+  - Phase 5 already caps media scoring; Phase 7 did not change the ranking formula.
