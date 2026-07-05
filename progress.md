@@ -10,8 +10,8 @@ Overall status: In Progress
 |---:|---|---|---|
 | 0 | Progress Tracking and Baseline Audit | Completed | 8489da6 |
 | 1 | Schema and Data Model Design | Completed | 92766fc |
-| 2 | Content Type Classification | Completed | Pending |
-| 3 | Rewrite Buckets and Candidate Queues | Pending | Pending |
+| 2 | Content Type Classification | Completed | 9279cb8 |
+| 3 | Rewrite Buckets and Candidate Queues | Completed | Pending |
 | 4 | Telegram Title Normalization | Pending | Pending |
 | 5 | Type-Aware Scoring and Ranking | Pending | Pending |
 | 6 | Rewrite Readiness Gate | Pending | Pending |
@@ -23,8 +23,8 @@ Overall status: In Progress
 
 ## Latest Update
 
-- Completed Phase 2 content type classification.
-- Added deterministic classification rules and stored results during content item upsert.
+- Completed Phase 3 rewrite bucket assignment and candidate queue upsert.
+- Added deterministic bucket mapping and idempotent `rewrite_candidates` writes.
 
 ## Baseline Audit
 
@@ -87,7 +87,28 @@ Overall status: In Progress
   - `cd backend && PYTHONPATH=. .venv/bin/python -m pytest tests/test_content_classification.py tests/test_content_scoring.py tests/test_repository.py tests/test_ingestion_service.py -q` -> 25 passed
   - `cd backend && PYTHONPATH=. .venv/bin/python -m pytest tests/test_models.py tests/test_content_intelligence_migration.py -q` -> 5 passed
 - Validation run: Not applicable for Phase 2.
-- Commit: Pending
+- Commit: 9279cb8
 - Known issues:
   - Full test suite still has the Phase 0 baseline hang and was not rerun for Phase 2.
   - Classifier is deterministic and rule-based; ranking/readiness refinements are deferred to later phases.
+
+### Phase 3
+- Status: Completed
+- What changed:
+  - Added bucket assignment module at `backend/app/content/buckets.py`.
+  - Mapped content types to buckets: `news -> daily_news`, `article -> technical_article`, `tutorial -> tutorial`, `research -> research`, `video -> video`, `vendor_update -> vendor_update`, `longform -> longform_analysis`, `promo -> promo_review`, `low_signal -> low_signal_review`.
+  - Routed `tool_update` to `vendor_update` for vendor sources and `daily_news` otherwise.
+  - Marked `promo` and `low_signal` candidates as `excluded`.
+  - Stored `rewrite_bucket` during content item value construction.
+  - Added idempotent PostgreSQL upsert for `rewrite_candidates` on `(content_item_id, bucket_type)`.
+- Bucket architecture chosen: generic `rewrite_candidates` table.
+- Files changed: `backend/app/content/buckets.py`, `backend/app/ingestion/repository.py`, `backend/tests/test_rewrite_buckets.py`, `progress.md`
+- Tests run:
+  - `cd backend && PYTHONPATH=. .venv/bin/python -m pytest tests/test_rewrite_buckets.py -q` -> 6 passed
+  - `cd backend && PYTHONPATH=. .venv/bin/python -m pytest tests/test_rewrite_buckets.py tests/test_content_classification.py tests/test_repository.py tests/test_ingestion_service.py -q` -> 28 passed
+  - `cd backend && PYTHONPATH=. .venv/bin/ruff check app/content/buckets.py app/content/classification.py app/ingestion/repository.py tests/test_rewrite_buckets.py tests/test_content_classification.py` -> passed
+- Validation run: Not applicable for Phase 3.
+- Commit: Pending
+- Known issues:
+  - Full test suite still has the Phase 0 baseline hang and was not rerun for Phase 3.
+  - Queue visibility/API filtering is deferred to Phase 9.

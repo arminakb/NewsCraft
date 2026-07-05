@@ -10,6 +10,7 @@ from sqlalchemy import Select, and_, func, or_, select, text, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.content.buckets import assign_rewrite_bucket
 from app.content.classification import classify_content_item
 from app.content.scoring import classify_and_score
 from app.db.models import (
@@ -19,6 +20,7 @@ from app.db.models import (
     ItemMedia,
     MediaAsset,
     RawPayload,
+    RewriteCandidate,
     Source,
     SourceItem,
 )
@@ -242,14 +244,22 @@ class IngestionRepository:
             existing.last_seen_at = datetime.now(UTC)
             source_item.content_item_id = existing.id
             await self.session.flush()
+            await self.upsert_rewrite_candidate(existing)
             return existing
 
         content_item = ContentItem(**values)
         self.session.add(content_item)
         await self.session.flush()
         source_item.content_item_id = content_item.id
+        await self.upsert_rewrite_candidate(content_item)
         await self.session.flush()
         return content_item
+
+    async def upsert_rewrite_candidate(self, content_item: ContentItem) -> None:
+        values = plan_rewrite_candidate(content_item)
+        if values:
+            await self.session.execute(_rewrite_candidate_insert_statement(values))
+            await self.session.flush()
 
     async def attach_identities(
         self,
@@ -388,6 +398,40 @@ def _identity_insert_statement(values: dict[str, Any]):
     return None
 
 
+def plan_rewrite_candidate(content_item: ContentItem) -> dict[str, Any]:
+    if not content_item.rewrite_bucket:
+        return {}
+    metadata = content_item.classification_metadata or {}
+    assignment = assign_rewrite_bucket(
+        content_item.content_type,
+        source_domain=metadata.get("source_domain", ""),
+        source_name=metadata.get("source_name", ""),
+    )
+    return {
+        "content_item_id": content_item.id,
+        "bucket_type": content_item.rewrite_bucket,
+        "priority_score": int(content_item.score or 0),
+        "status": assignment.status,
+        "reason": assignment.reason,
+    }
+
+
+def _rewrite_candidate_insert_statement(values: dict[str, Any]):
+    return (
+        insert(RewriteCandidate)
+        .values(**values)
+        .on_conflict_do_update(
+            index_elements=[RewriteCandidate.content_item_id, RewriteCandidate.bucket_type],
+            set_={
+                "priority_score": values["priority_score"],
+                "status": values["status"],
+                "reason": values["reason"],
+                "updated_at": func.now(),
+            },
+        )
+    )
+
+
 def _content_item_values(source: Source, parsed_item: ParsedSourceItem) -> dict[str, Any]:
     now = datetime.now(UTC)
     sort_at = parsed_item.published_at or now
@@ -395,6 +439,11 @@ def _content_item_values(source: Source, parsed_item: ParsedSourceItem) -> dict[
     direction = infer_direction(parsed_item.content_text)
     classification = classify_and_score(source, parsed_item)
     content_classification = classify_content_item(source, parsed_item)
+    bucket_assignment = assign_rewrite_bucket(
+        content_classification.content_type,
+        source_domain=content_classification.metadata.get("source_domain", ""),
+        source_name=source.name,
+    )
     metrics = dict(parsed_item.parser_meta)
     metrics["classification"] = classification.signals
     return {
@@ -426,6 +475,7 @@ def _content_item_values(source: Source, parsed_item: ParsedSourceItem) -> dict[
             **content_classification.metadata,
             "quality_flags": content_classification.quality_flags,
         },
+        "rewrite_bucket": bucket_assignment.bucket_type,
         "quality_status": "low_signal" if content_classification.content_type == "low_signal" else "needs_review",
         "first_seen_at": now,
         "last_seen_at": now,
