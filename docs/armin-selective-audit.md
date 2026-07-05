@@ -29,3 +29,20 @@ This audit reviews `origin/armin` against updated `main` after the `Amir` ingest
 - No blocking network calls may be added to API request paths.
 - No `telethon` dependency may be added for public Telegram channel ingestion.
 - Existing RSS, public Telegram, media, and ingestion repository tests must continue passing.
+
+## Final Integration Result
+
+Integrated:
+
+- Diagnostics endpoint.
+- Approval workflow.
+- Draft workflow.
+- Docker migration startup.
+- SQLite migration reader.
+
+Rejected or deferred:
+
+- Wholesale `newscraft/` backend merge.
+- Telethon-based public Telegram ingestion.
+- Flat article schema as canonical ingestion storage.
+- Blocking network connectors inside API request paths.

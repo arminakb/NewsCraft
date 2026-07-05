@@ -41,6 +41,10 @@ docker compose run --rm api alembic upgrade head
 
 `backend/scripts/migrate_legacy_sqlite.py` currently provides a minimal reader for legacy `news.db` article rows. It does not write into PostgreSQL yet.
 
+## Selective `armin` Integration
+
+Useful workflow ideas from `armin` are integrated only when adapted to the canonical `backend/` ingestion model and covered by tests. The backend continues to use public Telegram pages, RSS parsing with media extraction, raw payload storage, identity-based dedupe, and `media_assets` as the source media model.
+
 ## Seed Sources
 
 The 50 active seed feeds live in `app/ingestion/seed_sources.py`. Seed them through the API:
