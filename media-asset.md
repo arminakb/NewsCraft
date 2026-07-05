@@ -1,0 +1,2585 @@
+# Source and Media Asset Validation
+
+Validation command: `PYTHONPATH=. .venv/bin/python /tmp/collect_new_source_media.py`
+
+Suitability rule: parsed title + normalized source URL + text length >= 80 + positive NewsCraft score.
+
+## Source Results
+
+| Source | Platform | HTTP/result | Parsed | Suitable | Media assets | Decision |
+|---|---:|---:|---:|---:|---:|---|
+| Recomender System 2023 | telegram_public | 200 | 10 | 6 | 23 | Use |
+| ZarinAcc | telegram_public | 200 | 19 | 16 | 12 | Use |
+| CVision | telegram_public | 200 | 20 | 20 | 10 | Use |
+| LLM Hugging Face | telegram_public | 200 | 20 | 18 | 8 | Use |
+| Machine Learning Mastery Blog | rss | 200 | 10 | 6 | 10 | Use |
+| AITopics | rss | 200 | 0 | 0 | 0 | Skip |
+| Machine Learnings | rss | failed: ConnectError: [Errno -5] No address associated with hostname | 0 | 0 | 0 | Skip |
+| Machine Learning Blog | rss | 200 | 10 | 10 | 67 | Use |
+| AI2 YouTube | rss | 200 | 15 | 15 | 30 | Use |
+| Expert System AI | rss | 404 | 0 | 0 | 0 | Skip |
+| AWS Machine Learning Blog | rss | 200 | 20 | 20 | 106 | Use |
+| AI Roadmap Institute Blog | rss | 200 | 6 | 6 | 27 | Use |
+| OpenAI Blog | rss | 403 | 0 | 0 | 0 | Skip |
+| DeepMind Blog | rss | 200 | 100 | 21 | 156 | Use |
+
+## Best Rewrite Candidates
+
+### Recomender System 2023
+- Fetch: HTTP 200 -> https://t.me/s/Recomendersystem2023
+- Parsed: 10; suitable: 6; media assets: 23
+- Parser warnings: missing_text:Recomendersystem2023/3794, missing_text:Recomendersystem2023/3795
+- [good] score=106, len=263: ✅
+  - Item: https://t.me/Recomendersystem2023/3779
+  - Media: video / message_video: https://cdn4.telesco.pe/file/f5ff63235c.mp4?token=as1lhlDli6Bwgmypq7jcP0XItU6YzbPxIHQqZ9GrS1Jn_q5Dv8s1Ay1KpJ8v5GaIYBh_wzPRtlh1sqhCh_yVtacva70B5puYWgVHlJ4RpiEWjmWMFJ1yxPKfsC90HBx-k9e-A-hJb44--tjH6K6JOF1pE1v19USnENAI9U8Rx_cl5pDw7scpBycmqvl5zTkgA0NUdB0kLWikWpwq8xD9abTfqAPd5e7iBSgdlDeGZNhh5JkkI6U6sZOrhGkQwGwZZ3OnFcrXFTmNHFXF7VZ7gY3f_wVYe4nKkaQSi2D1Z877aelf6j64x_dV2o6B6rcktPIYrJxLjhxuzC7Jye76nw
+- [good] score=66, len=868: 🔺
+  - Item: https://t.me/Recomendersystem2023/3780
+  - Media: image / message_photo: https://cdn4.telesco.pe/file/SApvutK-9AiQ0UTcBhStZCqrTsZ77YHgZLxdgDLrbiJseAYJsirxInmyHmXeRQsSoBuzvQNBKMtXPDQTWN0yVN3wWy399PgYqO01MszvRv8XqDBnxbRzNUSOrAoAlGo9XU3z7lKYun4wFGaVOFyLXGxcTVk19aeNSQynhkB98pY6e5Q0JPxMsBBFDXkOp5ntCRPipmj-noIn5Qbqjj1_RRb6kqH3Rkr_OfBq1MvoiyukIjh7gZSK23sknEnALQD6O6aQ9H9K5FpQnn7M-cHGoxvYQhCj6OlXXS4IuEbeOFGqUl92QBA84u55ghe3B5SsKVFauEo9c9_xw4d2k1IPYg.jpg
+  - Media: image / message_photo: https://cdn4.telesco.pe/file/qQIuQ0BoPpF8-0IFxA3-MRsOj1w0MROzUmJUhVCIKLdZLbbHeN0omJiVzIFNlZkm4NIwgNWEGqe3Zz1Q9oIw8a-s2Q0ILgAoJbW7GgyWPtlKDkRaQXpuWaSZ9OB5lON3guSi_yW1BStX1eQmHwQRtV-54OsfVQ-UQFLYSmNDg0L4BYdF0mpOY432OnstwLMDLXQ-NsbaSb4IpikdiK1LD1JnQ_P-xQxiPI4WG9aIlA18tgRYOj8E6KreU4k3OXOXUezMj6P5jM7F0hFb2VjVvBF84cOosRH51aGFDmFsLcNSzD5Z1WjCYIGqqLXCKFJWPeNdXFL_Da6k3_8LiICnhw.jpg
+  - Media: image / message_photo: https://cdn4.telesco.pe/file/WS4OlaUfT3-sMn80Gp-Lrg-zxtCbLqjtWwaOHou_J9E_2wgQZCppVnjPSsGIVCHiw0k5aybvDT6yQeCUMNff0_I8sUltuI-iqu_S0xVf4KzO4HoWwL867UftC6CXspw5orHYoZxCNDfkeNBSCjXw1PEWW3elJOLNhUCj071yImlZHii58bdZyFhx95FLIHIfLyCGimBgOu5EqIlv9HTORj79a3tE70ZxiCV9azn9JVWa3qxUTvTCouIxNE2xLVpChxjqZ01ITxdEldzcX5hKPtdwLlUQ15YD0lrsTc5xn_ZBUXYB8IrG8GHon4VPTPG6spIw06WAxmncSI1CZgn6CQ.jpg
+  - Media: video / message_video: https://cdn4.telesco.pe/file/2f20d2f65a.mp4?token=Fbkggv1GvLi-SFOYZsaFiPAb2WJ-XQLThjjbDaxxrdW_vPxIv3UhXR1raLV-oxk3Z9myXEJuvYuyovz1rOjVXIqOTSUDpCc8_mh7mNHybnAd1uE6qykmf7bKlkTilbVpidBSJrUhxUPxT84sJCNL4GhfmA26_87WgpKR7s-XPl3ExacX6E8yQXI2jaWkyl7bT-gdAOyjXgQNmA2g4A1_4uqth02141WgNbZHJQkrUk9Be78dr-A0D8nkyEG3gqjde10SiXYaQh0Jk7ieJAaOi3LcsPSY1OWzRX0tDSoMdiiWn7NyrtwbHDkABY1SjeM4zmoB5-QfgCsqNw4k-V66tHI5H_8Z5YZ3j3QkW6nhYRjceLxtGEWxyKOVHjFILgJuBtauuYn2-JbDLv9MWZUaV_4xAXTLUXr3yqL80JA3PSCRrDarg8x4w9PT1VQjtswLpfOXO-2aZjyVFiSgFMGjHAiYdHCPo5IEg9Ncza_OuW8i_TzhWcB7zpgzhyHlMKurGf5aaTZEaUXx2NJ_i4MrFZaZ8m0zYp926-VbVobU3ffiarnPrAeqlq_jZitPKctZ1NWhRjNpbEFt1QXznb0io8XbuO5DEcJRawA0XIcHaAH5_3RxMMv5_M8ib-YLqRkKsBDjtmRNe2ZdW4sLM_K92jLxBtUt9jbjHqfjpjApZ_E
+  - Media: video / message_video: https://cdn4.telesco.pe/file/b28b3e34e4.mp4?token=qqmzFlios1SJXYUl06pDzT7vKh8rF29i1Hb4KnaGQNjIU-SQa7yaSeggsN3wzx-YtwF5bYMjUmRz6FuDFadRgdG9tEdj7nY5QpfrK6dTkBw5ffwDG5O4U2Sz-2nvVMM11bCzWfFzi2bzwGxfnD6Mya-JpNQBMjWERMC0Bpe-lpMYqv_YlTvRRyDex4QQf523IhGg32ar2GkK8KPwyqIpa4io99Tza1ImlWtRMgMMN6FLRfQALzOCUAvc33V8xsKv6BiPyqwuMCVBlWzmUZ9FIabymPmZmwAfTG2_NxPqZVrAyl2_ZhSmJvjn_6IGZboLv8ooTgqw5u9T9nQvHQ-2qoWOpGPPJgrUDPjvR3m_yJOfwRxPGsEpzEljmzYPM_ib305LxFaLPd8quvZ40nG9StDJNw4Nax8aoRuL-b8n-6oBPvwGr8dv3EhiyaKqNfG_gV9yGSa5ZYGah72x-eD3NdPOT5KFLz0rHzzCgVpF21iBWL2Mh-pu7emhKtuQ6RrzYc-exPxNBiFoTJJ4PSz4BcA7I0RbPUvvLPVvJS478EhQjqh_St8RHpk-3Wpaz8lMgpmY2V0l6NDEKTgkiX0IrwOxzwQ6jsb7EQRO3f6H6YGX2g2aDZYSErWvG97giqxzjDm64dEXG5M0_9VmmbDUMpm4EEasNpxSft6FvnJPxA8
+- [good] score=61, len=932: بخش پایانی اخبار این هفته تا به الان :
+  - Item: https://t.me/Recomendersystem2023/3786
+  - Media: image / message_photo: https://cdn4.telesco.pe/file/DMJMO9a2w-KPB3m_18H9CCEB5Kgv-7_hpvN2cwTINvCNVTeqQ6Rz0aV96FfBTqu0eBK3zWEJCXDLx2X5hXWl_skbOAA-aSvEd1KRD0q_xRjKZZOo19_nkLpg4IvgJX5z4Xpar8Uby6m0ElbvvOu5dhjuBNfBeZPeqUtZK3otQmTE4fZZNBvZ57wquXaxKh-MyCyKKaSapGjb6oYYcFUhz9vQtX0Qp8xNxd_CFvPKh-qMipWjiDMdxjQoHwZ_zgcD_4ia3bbJBw0h_NVjCHUw19cWntW27uFGLN_TX52sq3DTXH_orM-BYJwlWJW2iPve-NyanpgGQpyDL2EDEMRseg.jpg
+  - Media: image / message_photo: https://cdn4.telesco.pe/file/jgrYl2ifK7JS5JBGbLllwghf7hOXNm__mbBkzs_YMsvYzk3fXnuKCOFH2F7TrRRkA7Q7XfNHJE-tMxShclAj6Q-KddQk8LPyCvZy6SpFVuIGTECNEh21XE60ayVcOQxlWA-_Jv1LQEHB66b3yDSlJ8o86-qjzN1HeodepKA8NOEroepzk4ayo7mfQXdNWSLky_N4ZHHFmCZeUT-B3DRQYfRxmmPnOohVuZyWPslDjAK5OaGOWBBtSvoUeFFbbiRJpGOHXDzJgFGuIB5BQQfBUxipBGF_3sSDkZXAa5ROBkHSoIecw9fBJ4EvS96-YeXrVPXt4sivcReuHnbVBDi6XQ.jpg
+  - Media: image / message_photo: https://cdn4.telesco.pe/file/UY9bCsxO2FRFaw1lOcH23VSHw25s6jyXLYxymztXYqRGeuh45t_DHG-aW09cIzeZKg2ALZ4WQ0yS4z63pI15Pk33dpXNOvpR4uQUlP7oqg6Em8PyseI-hhLO45U0dlsghqwjFqVBxFuyj84LjTS7N7Ig1yyPoP9M_eHtIv0WnGRSc9uSIMdM4v7Io8PfBxF0vgxH0nmdAufdSnTbp-4YW8I6aMvf70yCsZpaAtD9MgTgIt2_8MgDw5Y1AS2lg6vNPlc_Z6uUQ1vPsxpR8L03m12nfVsQ1KAjcbxMWRBXJktqLwjHWGVt-YSiwcBZglmDEycCcLMFaKXky0eWg5YgNg.jpg
+  - Media: video / message_video: https://cdn4.telesco.pe/file/2cd647a1f9.mp4?token=ifZdhDsRvQoZ06MWjpIBfBJ3g_bztrumZgjS0VA0nUOe3jnIPoifb1NcLH8hgOlCTm1pr17sloQTR_XnDyV1iCVFD39XBVq_6ov9JnTxE0UDh2fNBKMwGQ5HYbOQQqBpEQx1l0rjITsAQjsIPWbLQ3rmMp7vT0YkTvDo_ahUrXFhV0CVOdFySG78ckW4sR8sKZjKMrmkCuDZAJblbabpOPej6r_ltmbEzQmSoOjgL5lyfSoxpypUHpDQHK8McmHDKZEoCU5INlAvdWu0EXdZOS8jssSxgO5MwElcLTHVCKddm8kXsyn1nJ77HUncTaUjss3RS1wDiHC9waQZngwFRbsJn8Q0iddUDyqY4phHtl5meqmPDBckmfEvq7IwQ581G0Plkk0eODXKdVGJzApUmScnjNR9g5QEjZ99TcibxQ79LyH3c0qrqKm21sEUhBFywrYGjzXv_bHLyWJBmPbpDy4OmyNzcZ-bgE6U6-P9kwLFqufzRxgXqmMOf0mIi8yeH1hONhYW7gHXPmRN6G-_g0Zk83gaQ4tXkMIzaWSiaPRMN-ZZACdayfJXY3APE3tXIMb49Dk-IcKufa2mouDwhO6KSwGVNv9cVO6vrsKAyct8aKCqaPZM9nFpJGj1u8Tq8JvpBSEH4L5SNzRWoCwAktstaXOy1SiDpKyQziI-7RM
+- [good] score=57, len=992: 💇‍♀
+  - Item: https://t.me/Recomendersystem2023/3797
+  - Media: image / message_photo: https://cdn4.telesco.pe/file/dGxAhyLAVOyiKUyMPVfj2Oo-54oOEWe672E6QqgvgMw28MbgpBdDUqZplKz7k1sefeK0H5sC4joxYTOGtSlqSPWJxbHI2VyXp2taVomIstrW9BZq8R7SOPXpJl_jlts8lUqGi7QcREPS_gV05BkXod_RN_YRM1vpukF8N3PMPw0St_lxbAhgKCGL3dmwKWWN8DvoKWdNa5SqpdnlyLj2wg32z9y4CH8J7zWc_g7ZMD2r9YizBHXvv5k3TUSCLjjKI7mzSJbVb7wwEI4j6TzP_2REJ7wHUfZFB0A_e7xoKhzcw0FcbeZUpHZbTd02z3CQioYj-QLpPhnf3g5msxI9Cg.jpg
+- [good] score=51, len=1017: 🔺
+  - Item: https://t.me/Recomendersystem2023/3770
+  - Media: image / message_photo: https://cdn4.telesco.pe/file/QPUcac2u60H1XL2aHaxce6kK7FBPsdw1ua6gXZ8ZTeY0EDSEB_uPXLvnt5jsU8lRl7BTHNJjGhoSAu6Te0ydu7IEM8tmveJ2CiWV8Z_1R3vay2qXXWFEvJPz8vQmvVQvWO1A5SVFekG7kAUYUS4MqLrOmbvXLHW6mLE65Gr2Sbstx06dlA2VcR4UkrP87ZZKV4im4AdiFkF01-_Nh4hPDUCESYQb5c1H-ADtGAzVV-nhhJfckg4HN2gxhkuUsYBlxNmEmdSpsljKBIJAo7ECPKVHZtpExysNTVEBVwhJyWF_BAvLSPPst-pl38jDmzkCKNy5rNCmtBc6tgVcwvpN6g.jpg
+  - Media: image / message_photo: https://cdn4.telesco.pe/file/S9ajHtXqMx-lcb__XG7c7X4dry8pVBJ6FmF3zjy2dTmnR7MOMC74Zw9g3XqAByTksoSOdVfhPRPZRA2iMdPDuCnEnq6nClwAjBLP3m_y7KuF_nKsYspGpZlWAB4y9ZT00J62FVq8x96y3nJO6TllUj3ra5IF6Ho3XZg2Q77fgZOMXMO20ODr7TjWINXhUatQW0V0MLZ-I8o8bFL_pRTBBRA4mlkz93_RMJaVHlsbtPuauTzNl82WW3OmmsseBxsRPmynQ87zHFhfkBuZboYdq977tyuPtZABa7DtBPxg4O9WFdE34xdFhieZurJNRwULBG5bVCO5bbkrpoirwg0ufA.jpg
+  - Media: image / message_photo: https://cdn4.telesco.pe/file/XvlvsRD1JC0E6qzzPC1pr2jqMyjy3CnPm_xMpHrUwDdHKtFtJvGB9AWqs_yKoFc07suYEpnNH-cGFv91mf9IrPyWzKav-FpGur_BHD15oI1vWsCPOKqMB-Rk3l_n-t2MBu4eCBpfFjZ3ndB-DiEQVaMlKph9q0ZPmStuA9_yuQqy8C3ETIZrhM0NvsjE1dkGuM0nSCBXKBcnDQTfwbRCaLRN8ggp0gv97pKTI_Sf7VEU1mZrZd6evQ9FaGmd9HiCOFvfj3kj0vr-kX_VudNLUl_bw_r8eLPcQNVnuAVZzpstWTW8UYzVDoGXjcTq35hxMi3Aesw2c8ff5jmHEbmu1A.jpg
+  - Media: image / message_photo: https://cdn4.telesco.pe/file/uzn01FoSlbCVFPt-T7uHx7voRlY_1t57ci0XZElEMUS3spTtUTPlQ0NXVRwDsOfBGcuxZS5NXx3kTPYqOYg5zoMqmyngqrUTEApvlGuIUtDnGT_mkpmnog3934SL4hyrFLNB-UAP1jli-d4R4ha_Z9gs5RhHUdtKjkX8fBhQHTg3noq9s_gJV1g0SbTEt5lU5ZmyXX_ck-t60CnPQClzPuWTNz6G2zBMd8lRLlrGs9D5C03PLKHm1Cf-VQjDzbuSmPQqlMSZMTfUQSDTzqc2kjNc8Ipi73Q3VrBcZfMCbnYt0XiIql0TsHWvPSbiLVH4bbeWgYwpUYE-vh7myS7YuQ.jpg
+  - Media: image / message_photo: https://cdn4.telesco.pe/file/G-lnkiwKNPugidYn_hLdcXOnuVpYjsBMFuDGctUG5a3z-Ck-iWV56fufBN4oI_dwaFi4T67K09H85tJ9YRlIjmP9dKobL39Ch1n5QsaQKLbivyBy864owGzE-d_fmppeODP5rCkPb3470yU9aF-iXEnMfm1afPitMJYWnX7Lr_ZXtiklte9bSUld89CsxlbYjIIn5CQS6z2PtEVDt8hB2BinI9X_MfQhZ0gkKLoZ0eMUSv_FZVKZum9OWC0NeuNBbYY_sSNMCQZ-uFHP46G5Os9LaLmLm0_jJGP0EzTIo0csLK7P74nMiaUa1SV2echz0c5Zawko5x1AuSOX1NMxhQ.jpg
+
+### ZarinAcc
+- Fetch: HTTP 200 -> https://t.me/s/zarinacc_com
+- Parsed: 19; suitable: 16; media assets: 12
+- Parser warnings: missing_text:zarinacc_com/931
+- [good] score=226, len=380: اگر می‌خواید لیست بهترین جایگزین‌های هوش مصنوعی Claude رو براتون معرفی کنیم (ابزارهایی که خیلی‌ها هنوز نمی‌شناسن ولی حتی بهتر هم کار می‌کنن
+  - Item: https://t.me/zarinacc_com/932
+  - Media: none extracted by parser
+- [good] score=113, len=855: 🤩
+  - Item: https://t.me/zarinacc_com/938
+  - Media: image / message_photo: https://cdn4.telesco.pe/file/tyBX8GQiKTl0FEGeLU2lKMdhbYRkj_KCMSYkSfKwnWPHCXjlsBGb6N6TPW-DIQlNX6ec8zf89de0FO7_81XcV0ys6yikv2crxUkamYONmo3p9MtkEtwfV9btHrjrcCGwGn4kCyOwGuBeP7Ael4cGhiSd_RWemVLLJPxkx48DzOfcznUF70yPsmANetC0uyyuyTRVoIY7uABBigRNAK2hGIw1Pm8ZXqv_qRb1lk6RHu3m2FB1agXm2Vvt87Lkr8H2Potswarm7Kvr8wSjEQLREvB9gHEEc6Tdy7ctmt5Q5DoXbt5LB_TxPpWS8AKT3s9QTkMRWAHz13QHVdjqtXHG0w.jpg
+- [good] score=75, len=648: 💰
+  - Item: https://t.me/zarinacc_com/933
+  - Media: video / message_video: https://cdn4.telesco.pe/file/ca1d81121f.mp4?token=AKCb0O6QTOltCVAmQ6b98X1f4kypuxu-Ja_PpDRojoeK7W2W275AXryfQn542hwmdE6PPrvFbGlgvyRPQClGTjAfPiPYep9Y4W4QfDr-oWCb0mBBeAqBFwWNdEQo8cqyx63hfBz7zcP31HxIYOmTNVZduR4HV7DLRB2AbsFxzt7cI0Ggstz9O4uZBCMpPcb4SjWQp66tE-larHb_zAlyqJgKAsROo1SbqWATJ0zKtd5xGHs4ncFr7muQbrxQaKhhJk52Q8Nw-JXk6e9LznwzZ3FMe_iHICzhAe_1Bz6HejaG-fLRQpk2oaBgMw1BguL3IvHPDJKRT78uKMlKzYi_2A
+- [good] score=53, len=2754: 👑
+  - Item: https://t.me/zarinacc_com/936
+  - Media: image / message_photo: https://cdn4.telesco.pe/file/dwkliXBsaFBfpvB_qxPM3eT3fdSsmANoqOfVCclfOeLnA-fTNpD0TltgEQjzi2OP5SbDfH76yHRFkOHrXPph6KmUHxQBTffwcObWpHZpkdwoZts77fdydAw8VxQRmGUcL4qF0w57HE-zQwjMY8VJXQmQUynCS_hc8Nh7lZpTFv9YjFFkre_IpzB3DIaNXsvmPEUA0x-4BRtlhTCEOjjWNbCZisfhbf0dhbdDAZ-lEOb8uSDVGNz_lkFpnoz9-Bd8fkJvfuLgJGEMY8btna3s3tPgpu11zmOD5F8xzTWAnAoUYl1wWLvcX40MSQNBbKNcwfA9ZL9jJs_2DV0OcOHUvw.jpg
+- [good] score=34, len=773: ⚠️
+  - Item: https://t.me/zarinacc_com/935
+  - Media: none extracted by parser
+
+### CVision
+- Fetch: HTTP 200 -> https://t.me/s/cvision
+- Parsed: 20; suitable: 20; media assets: 10
+- [good] score=84, len=1880: یادگیری ماشین؛ نسل جدید پیش‌بینی منحنی بازده و مدیریت مدت‌زمان
+  - Item: https://t.me/cvision/4339
+  - Media: none extracted by parser
+- [good] score=82, len=945: 🚀
+  - Item: https://t.me/cvision/4333
+  - Media: none extracted by parser
+- [good] score=53, len=960: روش MiCA جایگزین قدرتمند LoRA در Fine-tuning
+  - Item: https://t.me/cvision/4330
+  - Media: image / message_photo: https://cdn4.telesco.pe/file/iAFo8rOkvGuXYZnrU_fjCUUrkCm3xCMUhXUSHrhWj-AZQG2BNhINeho5d1bW3cvfI4O5AXOQ8B-gch7Vx_UW24bw5vn7lXlroK7ptDc6mcJIkICj6xtbo3lfCh8euk1m09QpwBq8vitFvETYOFOHSVO4Jl3q8AnwzxEiID0RunmIFTl5RxZD8dT-bt5F2tX8zBbUDMU57_05xE5_mNaF0kl-ub6EsXRw-BwTnW7kIlxltR30sLyIesqechDhelSDpqnMuVPOxyD7JIxNfVWDP63Tt7ZJjkQyIQsykoG6GvsdwXKCV4DZcVDaR6jKnLVp4ZQGCNOwsknCxgMwtRDBQw.jpg
+- [good] score=53, len=518: 🗂️
+  - Item: https://t.me/cvision/4328
+  - Media: image / message_photo: https://cdn4.telesco.pe/file/YXEuRRFQQgz8kkvoQai0H2f-M8Ylilm_9I8SP2xZL8UBflNkyZ2IvtNFFIdC7BetoQ1wDWMMDZAkupNDocs5ydQdMG9zYDZqr9U65sajIDPzG3YuRBioo8uYLIfV35QHuOxmZQfIX9NovCn00bunZ_kVieD9gjAe9NnNepKkfk6b1BViHxHJ0h5LfkrZgVuGlNhi9_cAG3d8UbimdQ1HSsZsXXAGXP8MjmcjrRtp8gnH0SDLRfR2DI3Mldol4qw57YSHz2A087fUKUEDwhxf7hlxbbGPMDccR9enFJVf4_vAqAQJEPC6nU-rR9hJk2NopZuCDLXXwHgm5nNkZWckEw.jpg
+- [good] score=48, len=1183: مدل بنیادی
+  - Item: https://t.me/cvision/4336
+  - Media: none extracted by parser
+
+### LLM Hugging Face
+- Fetch: HTTP 200 -> https://t.me/s/llm_huggingface
+- Parsed: 20; suitable: 18; media assets: 8
+- [good] score=158, len=690: 📢
+  - Item: https://t.me/llm_huggingface/179
+  - Media: none extracted by parser
+- [good] score=71, len=721: مینی دوره
+  - Item: https://t.me/llm_huggingface/173
+  - Media: none extracted by parser
+- [good] score=60, len=195: Building Coding Agents with Tool Execution
+  - Item: https://t.me/llm_huggingface/171
+  - Media: none extracted by parser
+- [good] score=57, len=518: 🗂️
+  - Item: https://t.me/llm_huggingface/186
+  - Media: image / message_photo: https://cdn4.telesco.pe/file/HeUncmg8RZLdzt6CGslBHZ208q9FmKwRpuoLq8sp0b2Njfk-RiJCvJv5uuE6NSg1uo5s_DtSQOUMBS6BX4UlzPleG8NCK2reP1pjJxLHdzEioVVLHzsCy-eMR9OAsCs_swTp6JZOROMczin6SfYGD1KTLmzrABoiiY7EV_EF7IeSvjyiCQxXYz7oHseYEpf0h3Qx1MsNO5eoVuLxQLbUNogP0S_RhwFWvQRsbGZYm47lfnZRu6ZTlbPzuhhVnE7ddvpP4862sN0xxKXBh0fJWLzGIg-pd9JdvUynNPusN6uxCm4QzEhPA9ODZnBpDBv8jBZ11XqtP_XVqSc_KjXLHg.jpg
+- [good] score=52, len=953: آیا gzip می‌تواند یک مدل زبانی باشد؟
+  - Item: https://t.me/llm_huggingface/180
+  - Media: video / message_video: https://cdn4.telesco.pe/file/61ebb5cd12.mp4?token=TEt4_6lFIRmPg-RIEbfJwCl7NGrLLXK5CBbjGpw7dXsrwZm4l98Bb6s83txogswHdxDr0y6PKUQnQ_oNSADSQv0w8yZ-umiajUKB4OVuyMki2n4xDOdS2gUGT7uxyv7kqJVlHlCSocaCt_4TNTdAMjgmhatfjBo3P_tBuMHvAXLXu_E6Fr2PT0W1dBY8uHJVaI5z18eer4AFyhE_w4fgrbiOv-Fw859TaI81gzgyUnorWyGZrHqzqdy0j8U5P1fef4X2TGibumlbtSwIRoNFTZzZiTpYNALRAdmxfmIIisFPsWwNLUvmdeVo6YgExyY37MoeE82Lp-EQHu5eMU1Bkg
+
+### Machine Learning Mastery Blog
+- Fetch: HTTP 200 -> https://machinelearningmastery.com/blog/feed
+- Parsed: 10; suitable: 6; media assets: 10
+- [good] score=36, len=194: Clustering Unstructured Text with LLM Embeddings and HDBSCAN
+  - Item: https://machinelearningmastery.com/clustering-unstructured-text-with-llm-embeddings-and-hdbscan
+  - Media: image / media_content: https://machinelearningmastery.com/wp-content/uploads/2026/06/mlm-clustering-unstructured-text-with-llm-embeddings-and-hdbscan-feature.png
+- [good] score=18, len=311: Building an End-to-End Sentiment Analysis Pipeline with Scikit-LLM
+  - Item: https://machinelearningmastery.com/building-an-end-to-end-sentiment-analysis-pipeline-with-scikit-llm
+  - Media: image / media_content: https://machinelearningmastery.com/wp-content/uploads/2026/06/mlm-building-an-end-to-end-sentiment-analysis-pipeline-with-scikit-llm.png
+- [good] score=16, len=148: Context Windows Are Not Memory: What AI Agent Developers Need to Understand
+  - Item: https://machinelearningmastery.com/context-windows-are-not-memory-what-ai-agent-developers-need-to-understand
+  - Media: image / media_content: https://machinelearningmastery.com/wp-content/uploads/2026/06/mlm-context-windows-are-not-memory-what-ai-agent-developers-need-to-understand.png
+- [good] score=15, len=149: Multimodal Browser AI with Transformers.js for Images and Speech
+  - Item: https://machinelearningmastery.com/multimodal-browser-ai-with-transformers-js-for-images-and-speech
+  - Media: image / media_content: https://machinelearningmastery.com/wp-content/uploads/2026/06/mlm-multimodal-browser-ai-with-transformers-js-for-images-and-speech.png
+- [good] score=12, len=144: Python Concepts Every AI Engineer Must Master
+  - Item: https://machinelearningmastery.com/python-concepts-every-ai-engineer-must-master
+  - Media: image / media_content: https://machinelearningmastery.com/wp-content/uploads/2026/06/mlm-python-concepts-every-ai-engineer-must-master.png
+
+### AITopics
+- Fetch: HTTP 200 -> http://feeds.feedburner.com/AIInTheNews
+- Parsed: 0; suitable: 0; media assets: 0
+- Parser warnings: bozo_feed:<unknown>:3:5986: mismatched tag
+- No suitable candidates found.
+
+### Machine Learnings
+- Failed: ConnectError: [Errno -5] No address associated with hostname
+
+### Machine Learning Blog
+- Fetch: HTTP 200 -> https://learn.microsoft.com/en-us/archive/blogs/machinelearning/feed.xml
+- Parsed: 10; suitable: 10; media assets: 67
+- [good] score=260, len=92: Deep Learning Without Labels
+  - Item: https://docs.microsoft.com/archive/blogs/machinelearning/deep-learning-without-labels
+  - Media: image / inline_img: https://msdnshared.blob.core.windows.net/media/2018/10/100318_0425_DeepLearnin1.jpg
+  - Media: image / inline_img: https://msdnshared.blob.core.windows.net/media/2018/10/100318_0425_DeepLearnin2.png
+  - Media: image / inline_img: https://msdnshared.blob.core.windows.net/media/2018/10/100318_0425_DeepLearnin3.png
+  - Media: image / inline_img: https://msdnshared.blob.core.windows.net/media/2018/10/100318_0425_DeepLearnin4.png
+  - Media: image / inline_img: https://msdnshared.blob.core.windows.net/media/2018/10/100318_0425_DeepLearnin5.png
+- [good] score=241, len=102: AI-Based Virtual Tutors – The Future of Education?
+  - Item: https://docs.microsoft.com/archive/blogs/machinelearning/ai-based-virtual-tutors-the-future-of-education
+  - Media: image / inline_img: https://msdnshared.blob.core.windows.net/media/2018/09/092118_1625_AnAIBasedVi1.png
+  - Media: image / inline_img: https://msdnshared.blob.core.windows.net/media/2018/09/092118_1625_AnAIBasedVi2.png
+  - Media: image / inline_img: https://msdnshared.blob.core.windows.net/media/2018/09/092118_1625_AnAIBasedVi3.png
+  - Media: image / inline_img: https://msdnshared.blob.core.windows.net/media/2018/09/092118_1625_AnAIBasedVi4.png
+  - Media: image / inline_img: https://msdnshared.blob.core.windows.net/media/2018/09/092118_1625_AnAIBasedVi5.png
+- [good] score=200, len=97: How Can Autonomous Drones Help the Energy and Utilities Industry?
+  - Item: https://docs.microsoft.com/archive/blogs/machinelearning/how-can-autonomous-drones-help-the-energy-and-utilities-industry
+  - Media: image / inline_img: https://msdnshared.blob.core.windows.net/media/2018/10/102218_1929_HowCanAuton1.png
+  - Media: image / inline_img: https://msdnshared.blob.core.windows.net/media/2018/10/102218_1929_HowCanAuton2.png
+  - Media: image / inline_img: https://msdnshared.blob.core.windows.net/media/2018/10/102218_1929_HowCanAuton3.png
+  - Media: image / inline_img: https://msdnshared.blob.core.windows.net/media/2018/10/102218_1929_HowCanAuton4.png
+  - Media: image / inline_img: https://msdnshared.blob.core.windows.net/media/2018/10/102218_1929_HowCanAuton5.png
+- [good] score=181, len=101: Machine Reading at Scale – Transfer Learning for Large Text Corpuses
+  - Item: https://docs.microsoft.com/archive/blogs/machinelearning/machine-reading-at-scale-transfer-learning-for-large-text-corpuses
+  - Media: image / inline_img: https://msdnshared.blob.core.windows.net/media/2018/10/MRS-1.png
+  - Media: image / inline_img: https://msdnshared.blob.core.windows.net/media/2018/10/MRS-2.png
+  - Media: image / inline_img: https://msdnshared.blob.core.windows.net/media/2018/10/MRS-3.png
+  - Media: image / inline_img: https://msdnshared.blob.core.windows.net/media/2018/10/MRS-4.png
+  - Media: image / inline_img: https://msdnshared.blob.core.windows.net/media/2018/10/MRS-5.png
+- [good] score=144, len=96: Can AI Generate Programs to Help Automate Busy Work?
+  - Item: https://docs.microsoft.com/archive/blogs/machinelearning/can-ai-generated-code-automate-tedious-elements-of-knowledge-work
+  - Media: image / inline_img: https://msdnshared.blob.core.windows.net/media/2018/09/092118_2007_CanAIGenera1.png
+  - Media: image / inline_img: https://msdnshared.blob.core.windows.net/media/2018/09/092118_2007_CanAIGenera2.png
+  - Media: image / inline_img: https://msdnshared.blob.core.windows.net/media/2018/09/092118_2007_CanAIGenera3.png
+  - Media: image / inline_img: https://msdnshared.blob.core.windows.net/media/2018/09/092118_2007_CanAIGenera4.png
+  - Media: image / inline_img: https://msdnshared.blob.core.windows.net/media/2018/09/092118_2007_CanAIGenera5.png
+
+### AI2 YouTube
+- Fetch: HTTP 200 -> https://www.youtube.com/feeds/videos.xml?channel_id=UCEqgmyWChwvt6MFGGlmUQCQ
+- Parsed: 15; suitable: 15; media assets: 30
+- [good] score=95, len=1803: Welcoming AI as a New Colleague: How Should We Evaluate AI for Science?
+  - Item: https://www.youtube.com/watch?v=VcmWKlhDfoc
+  - Media: document / media_content: https://www.youtube.com/v/VcmWKlhDfoc?version=3
+  - Media: image / media_thumbnail: https://i3.ytimg.com/vi/VcmWKlhDfoc/hqdefault.jpg
+- [good] score=87, len=2355: Mitigating Knowledge Collapse through Epistemic Diversity
+  - Item: https://www.youtube.com/watch?v=fb9akKpDAbY
+  - Media: document / media_content: https://www.youtube.com/v/fb9akKpDAbY?version=3
+  - Media: image / media_thumbnail: https://i3.ytimg.com/vi/fb9akKpDAbY/hqdefault.jpg
+- [good] score=81, len=1831: Towards Generalist Agents for Accelerating Scientific Discovery171
+  - Item: https://www.youtube.com/watch?v=jiOhISED5ik
+  - Media: document / media_content: https://www.youtube.com/v/jiOhISED5ik?version=3
+  - Media: image / media_thumbnail: https://i3.ytimg.com/vi/jiOhISED5ik/hqdefault.jpg
+- [good] score=78, len=530: Using MolmoWeb as a Claude Code Skill
+  - Item: https://www.youtube.com/watch?v=_-SZeua4t1c
+  - Media: document / media_content: https://www.youtube.com/v/_-SZeua4t1c?version=3
+  - Media: image / media_thumbnail: https://i4.ytimg.com/vi/_-SZeua4t1c/hqdefault.jpg
+- [good] score=75, len=530: MolmoWeb: Generating Synthetic Data
+  - Item: https://www.youtube.com/watch?v=-Vlcrxj8uxo
+  - Media: document / media_content: https://www.youtube.com/v/-Vlcrxj8uxo?version=3
+  - Media: image / media_thumbnail: https://i2.ytimg.com/vi/-Vlcrxj8uxo/hqdefault.jpg
+
+### Expert System AI
+- Fetch: HTTP 404 -> http://www.expertsystem.com/blog/feed
+- Parsed: 0; suitable: 0; media assets: 0
+- No suitable candidates found.
+
+### AWS Machine Learning Blog
+- Fetch: HTTP 200 -> https://aws.amazon.com/blogs/machine-learning/feed/
+- Parsed: 20; suitable: 20; media assets: 106
+- [good] score=885, len=413: Run NVIDIA Nemotron and OpenAI GPT OSS models on Amazon Bedrock in AWS GovCloud (US)
+  - Item: https://aws.amazon.com/blogs/machine-learning/run-nvidia-nemotron-and-openai-gpt-oss-models-on-amazon-bedrock-in-aws-govcloud-us
+  - Media: image / inline_img: https://d2908q01vomqb2.cloudfront.net/f1f836cb4ea6efb2a0b1b99f41ad8b103eff4b59/2026/07/01/ML-21215-1.jpg
+  - Media: image / inline_img: https://d2908q01vomqb2.cloudfront.net/f1f836cb4ea6efb2a0b1b99f41ad8b103eff4b59/2026/07/01/ML-21215-2.jpg
+  - Media: image / inline_img: https://d2908q01vomqb2.cloudfront.net/f1f836cb4ea6efb2a0b1b99f41ad8b103eff4b59/2026/07/01/ML-21215-3.png
+- [good] score=728, len=226: Structured memory filtering with metadata in AgentCore Memory
+  - Item: https://aws.amazon.com/blogs/machine-learning/structured-memory-filtering-with-metadata-in-agentcore-memory
+  - Media: image / inline_img: https://d2908q01vomqb2.cloudfront.net/f1f836cb4ea6efb2a0b1b99f41ad8b103eff4b59/2026/06/19/ML-20840-1.png
+  - Media: image / inline_img: https://d2908q01vomqb2.cloudfront.net/f1f836cb4ea6efb2a0b1b99f41ad8b103eff4b59/2026/06/25/ml-20840-3phase.png
+  - Media: image / inline_img: https://d2908q01vomqb2.cloudfront.net/f1f836cb4ea6efb2a0b1b99f41ad8b103eff4b59/2026/06/30/image5_v2.png
+  - Media: image / inline_img: https://d2908q01vomqb2.cloudfront.net/f1f836cb4ea6efb2a0b1b99f41ad8b103eff4b59/2026/06/19/ML-20840-3.png
+  - Media: image / inline_img: https://d2908q01vomqb2.cloudfront.net/f1f836cb4ea6efb2a0b1b99f41ad8b103eff4b59/2026/03/10/ML20076-image-9-100x133.jpeg
+- [good] score=719, len=323: Best practices for multi-turn reinforcement learning in Amazon SageMaker AI
+  - Item: https://aws.amazon.com/blogs/machine-learning/best-practices-for-multi-turn-reinforcement-learning-in-amazon-sagemaker-ai
+  - Media: image / inline_img: https://d2908q01vomqb2.cloudfront.net/f1f836cb4ea6efb2a0b1b99f41ad8b103eff4b59/2026/06/29/ML-21260-1.jpg
+  - Media: image / inline_img: https://d2908q01vomqb2.cloudfront.net/f1f836cb4ea6efb2a0b1b99f41ad8b103eff4b59/2026/06/29/ML-21260-2.jpg
+  - Media: image / inline_img: https://d2908q01vomqb2.cloudfront.net/f1f836cb4ea6efb2a0b1b99f41ad8b103eff4b59/2026/06/29/ML-21260-3.jpg
+  - Media: image / inline_img: https://d2908q01vomqb2.cloudfront.net/f1f836cb4ea6efb2a0b1b99f41ad8b103eff4b59/2026/06/29/ML-21260-4.jpg
+  - Media: image / inline_img: https://d2908q01vomqb2.cloudfront.net/f1f836cb4ea6efb2a0b1b99f41ad8b103eff4b59/2026/06/29/ML-21260-5.jpeg
+- [good] score=704, len=217: Building a serverless A2A gateway for agent discovery, routing, and access control
+  - Item: https://aws.amazon.com/blogs/machine-learning/building-a-serverless-a2a-gateway-for-agent-discovery-routing-and-access-control
+  - Media: image / inline_img: https://d2908q01vomqb2.cloudfront.net/f1f836cb4ea6efb2a0b1b99f41ad8b103eff4b59/2026/06/22/ML-20635-1.png
+  - Media: image / inline_img: https://d2908q01vomqb2.cloudfront.net/f1f836cb4ea6efb2a0b1b99f41ad8b103eff4b59/2026/06/22/ML-20635-2.jpeg
+  - Media: image / inline_img: https://d2908q01vomqb2.cloudfront.net/f1f836cb4ea6efb2a0b1b99f41ad8b103eff4b59/2026/06/22/ML-20635-3.jpg
+  - Media: image / inline_img: https://d2908q01vomqb2.cloudfront.net/f1f836cb4ea6efb2a0b1b99f41ad8b103eff4b59/2026/06/22/ML-20635-4.jpg
+- [good] score=670, len=317: Build generative UI for AI agents on Amazon Bedrock AgentCore with the AG-UI protocol
+  - Item: https://aws.amazon.com/blogs/machine-learning/build-generative-ui-for-ai-agents-on-amazon-bedrock-agentcore-with-the-ag-ui-protocol
+  - Media: video / enclosure: https://d2908q01vomqb2.cloudfront.net/artifacts/DBSBlogs/ML-20863/output_progressive.mp4
+  - Media: image / inline_img: https://d2908q01vomqb2.cloudfront.net/f1f836cb4ea6efb2a0b1b99f41ad8b103eff4b59/2026/06/25/ml-20863-img1.png
+  - Media: image / inline_img: https://d2908q01vomqb2.cloudfront.net/f1f836cb4ea6efb2a0b1b99f41ad8b103eff4b59/2026/06/25/ml-20863-img2-2.png
+  - Media: image / inline_img: https://d2908q01vomqb2.cloudfront.net/f1f836cb4ea6efb2a0b1b99f41ad8b103eff4b59/2026/06/23/ML-20863-4.png
+  - Media: image / inline_img: https://d2908q01vomqb2.cloudfront.net/f1f836cb4ea6efb2a0b1b99f41ad8b103eff4b59/2026/06/23/ML-20863-5.png
+
+### AI Roadmap Institute Blog
+- Fetch: HTTP 200 -> https://medium.com/feed/ai-roadmap-institute
+- Parsed: 6; suitable: 6; media assets: 27
+- [good] score=1280, len=39200: Unsolved Problems in AI
+  - Item: https://medium.com/ai-roadmap-institute/unsolved-problems-in-ai-38f4ce18921d?source=rss----11881df16a51---4
+  - Media: image / inline_img: https://cdn-images-1.medium.com/proxy/1*WLJ9lPkmFZ4R_7F4sQtg2g.jpeg
+  - Media: image / inline_img: https://cdn-images-1.medium.com/proxy/1*d_SjXkXyQkA5ECDWy_4G5g.jpeg
+  - Media: image / inline_img: https://cdn-images-1.medium.com/proxy/1*ubBYLhIy6p9kReFu49V9aQ.jpeg
+  - Media: image / inline_img: https://cdn-images-1.medium.com/proxy/1*JR9OrJE0hHjOjJ6EGLj1mQ.jpeg
+  - Media: image / inline_img: https://cdn-images-1.medium.com/proxy/1*swrhPUzD2MWlm6fUXAaVoA.jpeg
+- [good] score=900, len=26070: Report from the AI Race Avoidance Workshop
+  - Item: https://medium.com/ai-roadmap-institute/report-from-the-ai-race-avoidance-workshop-bd631b2bbb2c?source=rss----11881df16a51---4
+  - Media: image / inline_img: https://cdn-images-1.medium.com/max/1024/1*-5UOik5vs3I1MXJfx8VbBg.jpeg
+  - Media: image / inline_img: https://cdn-images-1.medium.com/max/1024/1*h2RJtZo2Aj8QCS4M6CWkFg.png
+  - Media: image / inline_img: https://medium.com/_/stat?event=post.clientViewed&postId=bd631b2bbb2c&referrerSource=full_rss
+- [good] score=730, len=17157: AVOIDING THE PRECIPICE
+  - Item: https://medium.com/ai-roadmap-institute/avoiding-the-precipice-db720a805190?source=rss----11881df16a51---4
+  - Media: image / inline_img: https://cdn-images-1.medium.com/max/1024/1*jopuzv3S48jwK51Xjmhb1w.jpeg
+  - Media: image / inline_img: https://cdn-images-1.medium.com/max/1024/1*U3TBUt89bqwIkkWJ7NjU8w.png
+  - Media: image / inline_img: https://cdn-images-1.medium.com/max/1024/1*F0KqgXUFhoMYUOJY8uHexg.png
+  - Media: image / inline_img: https://cdn-images-1.medium.com/max/1024/1*Wp4BDI5sxx4YecFCocbUSg.png
+  - Media: image / inline_img: https://cdn-images-1.medium.com/max/1024/1*mxpmcDmQnFxgY5ftstZMZw.jpeg
+- [good] score=398, len=13133: Roadmapping the AI race to help ensure safe development of AGI
+  - Item: https://medium.com/ai-roadmap-institute/roadmapping-the-ai-race-to-help-ensure-safe-development-of-agi-acb93b5f2f9f?source=rss----11881df16a51---4
+  - Media: image / inline_img: https://cdn-images-1.medium.com/max/1024/1*eASRJrCIVgsy5VbNMAzD9w.jpeg
+  - Media: image / inline_img: https://medium.com/_/stat?event=post.clientViewed&postId=acb93b5f2f9f&referrerSource=full_rss
+- [good] score=365, len=9058: Back to the core of intelligence … to really move to the future
+  - Item: https://medium.com/ai-roadmap-institute/back-to-the-core-of-intelligence-to-really-move-to-the-future-8eb476c5dd36?source=rss----11881df16a51---4
+  - Media: image / inline_img: https://cdn-images-1.medium.com/max/1024/1*smauzvHTRa2lXJbsXsIfMA.jpeg
+  - Media: image / inline_img: https://cdn-images-1.medium.com/max/1024/1*QRKX2w1gWtuA_LXMPghqBA.jpeg
+  - Media: image / inline_img: https://cdn-images-1.medium.com/max/549/1*jlrAvq3ViG9LE82Jq2fnUA.png
+  - Media: image / inline_img: https://cdn-images-1.medium.com/max/1024/1*gT4d1pisJwVmDD6WryoEiA.jpeg
+  - Media: image / inline_img: https://medium.com/_/stat?event=post.clientViewed&postId=8eb476c5dd36&referrerSource=full_rss
+
+### OpenAI Blog
+- Fetch: HTTP 403 -> https://openai.com/feed.xml?format=xml
+- Parsed: 0; suitable: 0; media assets: 0
+- No suitable candidates found.
+
+### DeepMind Blog
+- Fetch: HTTP 200 -> https://deepmind.google/blog/rss.xml
+- Parsed: 100; suitable: 21; media assets: 156
+- [good] score=26, len=143: Strengthening Singapore’s AI Future: A New National Partnership
+  - Item: https://deepmind.google/blog/strengthening-singapores-ai-future-a-new-national-partnership
+  - Media: image / media_content: https://lh3.googleusercontent.com/Woiv_MqlJsgv6bSWD505JCSu936VdLLtR0y7Ev1wPWDmuhFK1SYxkpyU4N2vhSpSMl22NAtbxuZ1yFMHIcDFwABNZIgRtX0ccRXxWiBaHETRXUQEZQ=w528-h297-n-nu-rw-lo
+  - Media: document / media_thumbnail: https://lh3.googleusercontent.com/Woiv_MqlJsgv6bSWD505JCSu936VdLLtR0y7Ev1wPWDmuhFK1SYxkpyU4N2vhSpSMl22NAtbxuZ1yFMHIcDFwABNZIgRtX0ccRXxWiBaHETRXUQEZQ=w528-h297-n-nu-rw-lo
+- [good] score=26, len=114: Unlocking UK house-building with AI-accelerated planning
+  - Item: https://deepmind.google/blog/unlocking-uk-house-building-with-ai-accelerated-planning
+  - Media: image / media_content: https://lh3.googleusercontent.com/kc7RMwXGDfJAoCsgs6pUuONGMXePGbvF_q_i8i-bWBBakQ91O8VYPk8cyHfpOD1uF-lw8Mk6pd2JpXofi5n4qNoNziPol46lBMmZuxoG9NKl16CW=w528-h297-n-nu-rw-lo
+  - Media: document / media_thumbnail: https://lh3.googleusercontent.com/kc7RMwXGDfJAoCsgs6pUuONGMXePGbvF_q_i8i-bWBBakQ91O8VYPk8cyHfpOD1uF-lw8Mk6pd2JpXofi5n4qNoNziPol46lBMmZuxoG9NKl16CW=w528-h297-n-nu-rw-lo
+- [good] score=23, len=130: Fluid, natural voice translation with Gemini 3.5 Live Translate
+  - Item: https://deepmind.google/blog/fluid-natural-voice-translation-with-gemini-35-live-translate
+  - Media: none extracted by parser
+- [good] score=23, len=97: Announcing our partnership with the Republic of Korea
+  - Item: https://deepmind.google/blog/announcing-our-partnership-with-the-republic-of-korea
+  - Media: image / media_content: https://lh3.googleusercontent.com/3q6uiTEWOv5PKJQYWgYLxCgohyndMqdWTFiwFDbxSzk-tW0HeannPdF7kvqR2hmE_tvSeryfw4IvG7gwuZ11rBgIYGvapEQvHO9RRJXw4JCqyme6uA=w528-h297-n-nu-rw-lo
+  - Media: document / media_thumbnail: https://lh3.googleusercontent.com/3q6uiTEWOv5PKJQYWgYLxCgohyndMqdWTFiwFDbxSzk-tW0HeannPdF7kvqR2hmE_tvSeryfw4IvG7gwuZ11rBgIYGvapEQvHO9RRJXw4JCqyme6uA=w528-h297-n-nu-rw-lo
+- [good] score=23, len=90: Investing in multi-agent AI safety research
+  - Item: https://deepmind.google/blog/investing-in-multi-agent-ai-safety-research
+  - Media: image / media_content: https://lh3.googleusercontent.com/YgqOl-h3mEKPbpttnT89PtoHDKTc1-2fbhwRgDauUPtagZVWiw0lr1IGgRUDZDqb9Ib4nhaU93T0mJSE8FFbhkDRiaT53BGLnLVdpqliTP8v5kvmwu8=w528-h297-n-nu-rw-lo
+  - Media: document / media_thumbnail: https://lh3.googleusercontent.com/YgqOl-h3mEKPbpttnT89PtoHDKTc1-2fbhwRgDauUPtagZVWiw0lr1IGgRUDZDqb9Ib4nhaU93T0mJSE8FFbhkDRiaT53BGLnLVdpqliTP8v5kvmwu8=w528-h297-n-nu-rw-lo
+
+## All Extracted Media Assets
+
+### Recomender System 2023
+- image / message_photo / good
+  - Item: https://t.me/Recomendersystem2023/3770
+  - Title: 🔺
+  - Asset: https://cdn4.telesco.pe/file/QPUcac2u60H1XL2aHaxce6kK7FBPsdw1ua6gXZ8ZTeY0EDSEB_uPXLvnt5jsU8lRl7BTHNJjGhoSAu6Te0ydu7IEM8tmveJ2CiWV8Z_1R3vay2qXXWFEvJPz8vQmvVQvWO1A5SVFekG7kAUYUS4MqLrOmbvXLHW6mLE65Gr2Sbstx06dlA2VcR4UkrP87ZZKV4im4AdiFkF01-_Nh4hPDUCESYQb5c1H-ADtGAzVV-nhhJfckg4HN2gxhkuUsYBlxNmEmdSpsljKBIJAo7ECPKVHZtpExysNTVEBVwhJyWF_BAvLSPPst-pl38jDmzkCKNy5rNCmtBc6tgVcwvpN6g.jpg
+  - Details: confidence=1.0
+- image / message_photo / good
+  - Item: https://t.me/Recomendersystem2023/3770
+  - Title: 🔺
+  - Asset: https://cdn4.telesco.pe/file/S9ajHtXqMx-lcb__XG7c7X4dry8pVBJ6FmF3zjy2dTmnR7MOMC74Zw9g3XqAByTksoSOdVfhPRPZRA2iMdPDuCnEnq6nClwAjBLP3m_y7KuF_nKsYspGpZlWAB4y9ZT00J62FVq8x96y3nJO6TllUj3ra5IF6Ho3XZg2Q77fgZOMXMO20ODr7TjWINXhUatQW0V0MLZ-I8o8bFL_pRTBBRA4mlkz93_RMJaVHlsbtPuauTzNl82WW3OmmsseBxsRPmynQ87zHFhfkBuZboYdq977tyuPtZABa7DtBPxg4O9WFdE34xdFhieZurJNRwULBG5bVCO5bbkrpoirwg0ufA.jpg
+  - Details: confidence=1.0
+- image / message_photo / good
+  - Item: https://t.me/Recomendersystem2023/3770
+  - Title: 🔺
+  - Asset: https://cdn4.telesco.pe/file/XvlvsRD1JC0E6qzzPC1pr2jqMyjy3CnPm_xMpHrUwDdHKtFtJvGB9AWqs_yKoFc07suYEpnNH-cGFv91mf9IrPyWzKav-FpGur_BHD15oI1vWsCPOKqMB-Rk3l_n-t2MBu4eCBpfFjZ3ndB-DiEQVaMlKph9q0ZPmStuA9_yuQqy8C3ETIZrhM0NvsjE1dkGuM0nSCBXKBcnDQTfwbRCaLRN8ggp0gv97pKTI_Sf7VEU1mZrZd6evQ9FaGmd9HiCOFvfj3kj0vr-kX_VudNLUl_bw_r8eLPcQNVnuAVZzpstWTW8UYzVDoGXjcTq35hxMi3Aesw2c8ff5jmHEbmu1A.jpg
+  - Details: confidence=1.0
+- image / message_photo / good
+  - Item: https://t.me/Recomendersystem2023/3770
+  - Title: 🔺
+  - Asset: https://cdn4.telesco.pe/file/uzn01FoSlbCVFPt-T7uHx7voRlY_1t57ci0XZElEMUS3spTtUTPlQ0NXVRwDsOfBGcuxZS5NXx3kTPYqOYg5zoMqmyngqrUTEApvlGuIUtDnGT_mkpmnog3934SL4hyrFLNB-UAP1jli-d4R4ha_Z9gs5RhHUdtKjkX8fBhQHTg3noq9s_gJV1g0SbTEt5lU5ZmyXX_ck-t60CnPQClzPuWTNz6G2zBMd8lRLlrGs9D5C03PLKHm1Cf-VQjDzbuSmPQqlMSZMTfUQSDTzqc2kjNc8Ipi73Q3VrBcZfMCbnYt0XiIql0TsHWvPSbiLVH4bbeWgYwpUYE-vh7myS7YuQ.jpg
+  - Details: confidence=1.0
+- image / message_photo / good
+  - Item: https://t.me/Recomendersystem2023/3770
+  - Title: 🔺
+  - Asset: https://cdn4.telesco.pe/file/G-lnkiwKNPugidYn_hLdcXOnuVpYjsBMFuDGctUG5a3z-Ck-iWV56fufBN4oI_dwaFi4T67K09H85tJ9YRlIjmP9dKobL39Ch1n5QsaQKLbivyBy864owGzE-d_fmppeODP5rCkPb3470yU9aF-iXEnMfm1afPitMJYWnX7Lr_ZXtiklte9bSUld89CsxlbYjIIn5CQS6z2PtEVDt8hB2BinI9X_MfQhZ0gkKLoZ0eMUSv_FZVKZum9OWC0NeuNBbYY_sSNMCQZ-uFHP46G5Os9LaLmLm0_jJGP0EzTIo0csLK7P74nMiaUa1SV2echz0c5Zawko5x1AuSOX1NMxhQ.jpg
+  - Details: confidence=1.0
+- image / message_photo / good
+  - Item: https://t.me/Recomendersystem2023/3770
+  - Title: 🔺
+  - Asset: https://cdn4.telesco.pe/file/oQmHwbkvxlsmKOuUwneqnMzVVyd5Jbs0w4vYFt-WWK7iJ-VUrlnasi1Lu1GwEyNKDrv7hhq_eZQ_A5xjqBo0Xpv5L-zvj0XLTpuqCVaocImMi7M3nN-tV9x3EjTikZKEBZHXg3MpZQkfvFl499cZSZA_37ABlLTwJnHnD28Rx2PKV9KnG3-pbwyIBA-LM0PwlNqZvQU-NO1iBs6GIlH7ttA9-Y_WtQjgutkAwtd4srLXeOrNlpcRWTMN5CFSnncuspDWIGdtNPWw_o4JY-nW2kzazRRJbobwNOotVVll4Q8gVBnBgZw-uCOQLSDEJYGXRabV5wi2vQsskFhJsBNN9g.jpg
+  - Details: confidence=1.0
+- video / message_video / good
+  - Item: https://t.me/Recomendersystem2023/3770
+  - Title: 🔺
+  - Asset: https://cdn4.telesco.pe/file/fb5e5c3734.mp4?token=RyGJEW5uxGwJueDl1L63SbRWuSIn-S8kTPBoK7s6aAuKsrFxLDNezBOLRUw1fWbDG4Vq7KwKFU9C6_2kxymuiAupV2bYtxjb4zDwZatuigScIsoit8f-T6iZQK3gBiJIlL0fgpEtfhhk5_x4IMuGryTup0iCWctuDms_OUGrRAPh7OURDymDUJiJ_dzdA0vfcK_cbdCl3Dtb-gXHOMhr6pYo2Hg878V-HTHTd8xDitWVvTaHBNHQVNM9lX0K2ycKGeN0H_jE5dHQt6dVgswwJC_rBpnPNhGjZKGNoBRAWEjDgOxgnET9g9MEJGmbtJqQaA-01-u7bFLdacCkhNS284WOpGPPJgrUDPjvR3m_yJOfwRxPGsEpzEljmzYPM_ib305LxFaLPd8quvZ40nG9StDJNw4Nax8aoRuL-b8n-6oBPvwGr8dv3EhiyaKqNfG_gV9yGSa5ZYGah72x-eD3NdPOT5KFLz0rHzzCgVpF21iBWL2Mh-pu7emhKtuQ6RrzYc-exPxNBiFoTJJ4PSz4BcA7I0RbPUvvLPVvJS478EhQjqh_St8RHpk-3Wpaz8lMgpmY2V0l6NDEKTgkiX0IrwOxzwQ6jsb7EQRO3f6H6YGX2g2aDZYSErWvG97giqxzjDm64dEXG5M0_9VmmbDUMpm4EEasNpxSft6FvnJPxA8
+  - Details: confidence=1.0
+- video / message_video / good
+  - Item: https://t.me/Recomendersystem2023/3770
+  - Title: 🔺
+  - Asset: https://cdn4.telesco.pe/file/590ecd4341.mp4?token=W76f2MOPDSETjfNkmNegwOxq_-zmv4lPHOyII6xGYj7u3oCYeUnymZTpvO78SOsvkY0BGVR1EPfX0-fksmgwEMyjahLm0XXyqm2KmxQLBZ0UNcLA9YvbvhI7t-kKtKAteSX7Rzl_40qisz4VNUHORemYQh-4TEmERFsVixxT6RJSivGb1vnH-p66RHTFLrQgfuTg_ufzzVIghBcIYbSoV_W8FNKaYdPShZevefhzYp2m6RsoJzRcO7d5X7QfRm8aNK2YfXEKvJnSttr_jG0GvAB02Fo7J_iLAO89fedQvRNP2YF-Apv2yBhw1CycnfdPE7Y9WOU7fiY0hWJqILwe8w
+  - Details: confidence=1.0
+- video / message_video / good
+  - Item: https://t.me/Recomendersystem2023/3779
+  - Title: ✅
+  - Asset: https://cdn4.telesco.pe/file/f5ff63235c.mp4?token=as1lhlDli6Bwgmypq7jcP0XItU6YzbPxIHQqZ9GrS1Jn_q5Dv8s1Ay1KpJ8v5GaIYBh_wzPRtlh1sqhCh_yVtacva70B5puYWgVHlJ4RpiEWjmWMFJ1yxPKfsC90HBx-k9e-A-hJb44--tjH6K6JOF1pE1v19USnENAI9U8Rx_cl5pDw7scpBycmqvl5zTkgA0NUdB0kLWikWpwq8xD9abTfqAPd5e7iBSgdlDeGZNhh5JkkI6U6sZOrhGkQwGwZZ3OnFcrXFTmNHFXF7VZ7gY3f_wVYe4nKkaQSi2D1Z877aelf6j64x_dV2o6B6rcktPIYrJxLjhxuzC7Jye76nw
+  - Details: confidence=1.0
+- image / message_photo / good
+  - Item: https://t.me/Recomendersystem2023/3780
+  - Title: 🔺
+  - Asset: https://cdn4.telesco.pe/file/SApvutK-9AiQ0UTcBhStZCqrTsZ77YHgZLxdgDLrbiJseAYJsirxInmyHmXeRQsSoBuzvQNBKMtXPDQTWN0yVN3wWy399PgYqO01MszvRv8XqDBnxbRzNUSOrAoAlGo9XU3z7lKYun4wFGaVOFyLXGxcTVk19aeNSQynhkB98pY6e5Q0JPxMsBBFDXkOp5ntCRPipmj-noIn5Qbqjj1_RRb6kqH3Rkr_OfBq1MvoiyukIjh7gZSK23sknEnALQD6O6aQ9H9K5FpQnn7M-cHGoxvYQhCj6OlXXS4IuEbeOFGqUl92QBA84u55ghe3B5SsKVFauEo9c9_xw4d2k1IPYg.jpg
+  - Details: confidence=1.0
+- image / message_photo / good
+  - Item: https://t.me/Recomendersystem2023/3780
+  - Title: 🔺
+  - Asset: https://cdn4.telesco.pe/file/qQIuQ0BoPpF8-0IFxA3-MRsOj1w0MROzUmJUhVCIKLdZLbbHeN0omJiVzIFNlZkm4NIwgNWEGqe3Zz1Q9oIw8a-s2Q0ILgAoJbW7GgyWPtlKDkRaQXpuWaSZ9OB5lON3guSi_yW1BStX1eQmHwQRtV-54OsfVQ-UQFLYSmNDg0L4BYdF0mpOY432OnstwLMDLXQ-NsbaSb4IpikdiK1LD1JnQ_P-xQxiPI4WG9aIlA18tgRYOj8E6KreU4k3OXOXUezMj6P5jM7F0hFb2VjVvBF84cOosRH51aGFDmFsLcNSzD5Z1WjCYIGqqLXCKFJWPeNdXFL_Da6k3_8LiICnhw.jpg
+  - Details: confidence=1.0
+- image / message_photo / good
+  - Item: https://t.me/Recomendersystem2023/3780
+  - Title: 🔺
+  - Asset: https://cdn4.telesco.pe/file/WS4OlaUfT3-sMn80Gp-Lrg-zxtCbLqjtWwaOHou_J9E_2wgQZCppVnjPSsGIVCHiw0k5aybvDT6yQeCUMNff0_I8sUltuI-iqu_S0xVf4KzO4HoWwL867UftC6CXspw5orHYoZxCNDfkeNBSCjXw1PEWW3elJOLNhUCj071yImlZHii58bdZyFhx95FLIHIfLyCGimBgOu5EqIlv9HTORj79a3tE70ZxiCV9azn9JVWa3qxUTvTCouIxNE2xLVpChxjqZ01ITxdEldzcX5hKPtdwLlUQ15YD0lrsTc5xn_ZBUXYB8IrG8GHon4VPTPG6spIw06WAxmncSI1CZgn6CQ.jpg
+  - Details: confidence=1.0
+- video / message_video / good
+  - Item: https://t.me/Recomendersystem2023/3780
+  - Title: 🔺
+  - Asset: https://cdn4.telesco.pe/file/2f20d2f65a.mp4?token=Fbkggv1GvLi-SFOYZsaFiPAb2WJ-XQLThjjbDaxxrdW_vPxIv3UhXR1raLV-oxk3Z9myXEJuvYuyovz1rOjVXIqOTSUDpCc8_mh7mNHybnAd1uE6qykmf7bKlkTilbVpidBSJrUhxUPxT84sJCNL4GhfmA26_87WgpKR7s-XPl3ExacX6E8yQXI2jaWkyl7bT-gdAOyjXgQNmA2g4A1_4uqth02141WgNbZHJQkrUk9Be78dr-A0D8nkyEG3gqjde10SiXYaQh0Jk7ieJAaOi3LcsPSY1OWzRX0tDSoMdiiWn7NyrtwbHDkABY1SjeM4zmoB5-QfgCsqNw4k-V66tHI5H_8Z5YZ3j3QkW6nhYRjceLxtGEWxyKOVHjFILgJuBtauuYn2-JbDLv9MWZUaV_4xAXTLUXr3yqL80JA3PSCRrDarg8x4w9PT1VQjtswLpfOXO-2aZjyVFiSgFMGjHAiYdHCPo5IEg9Ncza_OuW8i_TzhWcB7zpgzhyHlMKurGf5aaTZEaUXx2NJ_i4MrFZaZ8m0zYp926-VbVobU3ffiarnPrAeqlq_jZitPKctZ1NWhRjNpbEFt1QXznb0io8XbuO5DEcJRawA0XIcHaAH5_3RxMMv5_M8ib-YLqRkKsBDjtmRNe2ZdW4sLM_K92jLxBtUt9jbjHqfjpjApZ_E
+  - Details: confidence=1.0
+- video / message_video / good
+  - Item: https://t.me/Recomendersystem2023/3780
+  - Title: 🔺
+  - Asset: https://cdn4.telesco.pe/file/b28b3e34e4.mp4?token=qqmzFlios1SJXYUl06pDzT7vKh8rF29i1Hb4KnaGQNjIU-SQa7yaSeggsN3wzx-YtwF5bYMjUmRz6FuDFadRgdG9tEdj7nY5QpfrK6dTkBw5ffwDG5O4U2Sz-2nvVMM11bCzWfFzi2bzwGxfnD6Mya-JpNQBMjWERMC0Bpe-lpMYqv_YlTvRRyDex4QQf523IhGg32ar2GkK8KPwyqIpa4io99Tza1ImlWtRMgMMN6FLRfQALzOCUAvc33V8xsKv6BiPyqwuMCVBlWzmUZ9FIabymPmZmwAfTG2_NxPqZVrAyl2_ZhSmJvjn_6IGZboLv8ooTgqw5u9T9nQvHQ-2qoWOpGPPJgrUDPjvR3m_yJOfwRxPGsEpzEljmzYPM_ib305LxFaLPd8quvZ40nG9StDJNw4Nax8aoRuL-b8n-6oBPvwGr8dv3EhiyaKqNfG_gV9yGSa5ZYGah72x-eD3NdPOT5KFLz0rHzzCgVpF21iBWL2Mh-pu7emhKtuQ6RrzYc-exPxNBiFoTJJ4PSz4BcA7I0RbPUvvLPVvJS478EhQjqh_St8RHpk-3Wpaz8lMgpmY2V0l6NDEKTgkiX0IrwOxzwQ6jsb7EQRO3f6H6YGX2g2aDZYSErWvG97giqxzjDm64dEXG5M0_9VmmbDUMpm4EEasNpxSft6FvnJPxA8
+  - Details: confidence=1.0
+- image / message_photo / good
+  - Item: https://t.me/Recomendersystem2023/3786
+  - Title: بخش پایانی اخبار این هفته تا به الان :
+  - Asset: https://cdn4.telesco.pe/file/DMJMO9a2w-KPB3m_18H9CCEB5Kgv-7_hpvN2cwTINvCNVTeqQ6Rz0aV96FfBTqu0eBK3zWEJCXDLx2X5hXWl_skbOAA-aSvEd1KRD0q_xRjKZZOo19_nkLpg4IvgJX5z4Xpar8Uby6m0ElbvvOu5dhjuBNfBeZPeqUtZK3otQmTE4fZZNBvZ57wquXaxKh-MyCyKKaSapGjb6oYYcFUhz9vQtX0Qp8xNxd_CFvPKh-qMipWjiDMdxjQoHwZ_zgcD_4ia3bbJBw0h_NVjCHUw19cWntW27uFGLN_TX52sq3DTXH_orM-BYJwlWJW2iPve-NyanpgGQpyDL2EDEMRseg.jpg
+  - Details: confidence=1.0
+- image / message_photo / good
+  - Item: https://t.me/Recomendersystem2023/3786
+  - Title: بخش پایانی اخبار این هفته تا به الان :
+  - Asset: https://cdn4.telesco.pe/file/jgrYl2ifK7JS5JBGbLllwghf7hOXNm__mbBkzs_YMsvYzk3fXnuKCOFH2F7TrRRkA7Q7XfNHJE-tMxShclAj6Q-KddQk8LPyCvZy6SpFVuIGTECNEh21XE60ayVcOQxlWA-_Jv1LQEHB66b3yDSlJ8o86-qjzN1HeodepKA8NOEroepzk4ayo7mfQXdNWSLky_N4ZHHFmCZeUT-B3DRQYfRxmmPnOohVuZyWPslDjAK5OaGOWBBtSvoUeFFbbiRJpGOHXDzJgFGuIB5BQQfBUxipBGF_3sSDkZXAa5ROBkHSoIecw9fBJ4EvS96-YeXrVPXt4sivcReuHnbVBDi6XQ.jpg
+  - Details: confidence=1.0
+- image / message_photo / good
+  - Item: https://t.me/Recomendersystem2023/3786
+  - Title: بخش پایانی اخبار این هفته تا به الان :
+  - Asset: https://cdn4.telesco.pe/file/UY9bCsxO2FRFaw1lOcH23VSHw25s6jyXLYxymztXYqRGeuh45t_DHG-aW09cIzeZKg2ALZ4WQ0yS4z63pI15Pk33dpXNOvpR4uQUlP7oqg6Em8PyseI-hhLO45U0dlsghqwjFqVBxFuyj84LjTS7N7Ig1yyPoP9M_eHtIv0WnGRSc9uSIMdM4v7Io8PfBxF0vgxH0nmdAufdSnTbp-4YW8I6aMvf70yCsZpaAtD9MgTgIt2_8MgDw5Y1AS2lg6vNPlc_Z6uUQ1vPsxpR8L03m12nfVsQ1KAjcbxMWRBXJktqLwjHWGVt-YSiwcBZglmDEycCcLMFaKXky0eWg5YgNg.jpg
+  - Details: confidence=1.0
+- video / message_video / good
+  - Item: https://t.me/Recomendersystem2023/3786
+  - Title: بخش پایانی اخبار این هفته تا به الان :
+  - Asset: https://cdn4.telesco.pe/file/2cd647a1f9.mp4?token=ifZdhDsRvQoZ06MWjpIBfBJ3g_bztrumZgjS0VA0nUOe3jnIPoifb1NcLH8hgOlCTm1pr17sloQTR_XnDyV1iCVFD39XBVq_6ov9JnTxE0UDh2fNBKMwGQ5HYbOQQqBpEQx1l0rjITsAQjsIPWbLQ3rmMp7vT0YkTvDo_ahUrXFhV0CVOdFySG78ckW4sR8sKZjKMrmkCuDZAJblbabpOPej6r_ltmbEzQmSoOjgL5lyfSoxpypUHpDQHK8McmHDKZEoCU5INlAvdWu0EXdZOS8jssSxgO5MwElcLTHVCKddm8kXsyn1nJ77HUncTaUjss3RS1wDiHC9waQZngwFRbsJn8Q0iddUDyqY4phHtl5meqmPDBckmfEvq7IwQ581G0Plkk0eODXKdVGJzApUmScnjNR9g5QEjZ99TcibxQ79LyH3c0qrqKm21sEUhBFywrYGjzXv_bHLyWJBmPbpDy4OmyNzcZ-bgE6U6-P9kwLFqufzRxgXqmMOf0mIi8yeH1hONhYW7gHXPmRN6G-_g0Zk83gaQ4tXkMIzaWSiaPRMN-ZZACdayfJXY3APE3tXIMb49Dk-IcKufa2mouDwhO6KSwGVNv9cVO6vrsKAyct8aKCqaPZM9nFpJGj1u8Tq8JvpBSEH4L5SNzRWoCwAktstaXOy1SiDpKyQziI-7RM
+  - Details: confidence=1.0
+- video / message_video / weak
+  - Item: https://t.me/Recomendersystem2023/3790
+  - Title: We can all relate.
+  - Asset: https://cdn4.telesco.pe/file/cab8ebf0cf.mp4?token=FhuB86gbmV0lR3BCNOacgTX9V6JIVRq78OXcsakQIB76N5alIFo0x5sBIVwGryp9doG2cxRTrXx3AZjpm525ufcTXwwGRDXvSgm9zHuRaerkLlYbrR6t8YJ7Kpi-fIlgz8Bg2OKw-gie_4VYLxqorvzKLq3tb4bNf1jzSqbEcBQrZDuTXfgifMyO3p56dbIm6HcKaFXRb2vB4XJHNp23ZMT6gsuXznAdxoY5yAnOXzFSihpEIZf9DJfnFzcl9sSuVRk6k6sUvIUtHLo39XY4FVtsWbKa93wTw0mpmfE9x8fadfLPZlrb3Jw8rcKt-sFlMJ7aNeHAUTle5P5D7Ix-Zw
+  - Details: confidence=1.0
+- document / message_document / weak
+  - Item: https://t.me/Recomendersystem2023/3794
+  - Title: Telegram post 3794
+  - Asset: https://t.me/Recomendersystem2023/3794
+  - Details: confidence=1.0
+- video / message_video / weak
+  - Item: https://t.me/Recomendersystem2023/3796
+  - Title: #From
+  - Asset: https://cdn4.telesco.pe/file/34bee9af76.mp4?token=s0Jj-tKYssVX06lhtxKBt4D3kNz8XgIwzliiuTa6hTYkrBDBD2BtwUX4Iuw0AHz72YuT1pZ8w8wVmH-vL0IC_ehXbrz7n_Yu689Rdb0_L-2CJgrAjs4eRZkxwsaoAzawcGAFB5ZLhn9xpBEAhdo_ZL7x8Qs_Z_HSV3BOgkj_OyYSkyz-NFQWGlwqhFAYe9UToWAmTMiEeCIYrIHZ0nNEBteFVTSybZXmXQ2BqtJgLPkUe5SMPIbcQWC61nGN_4Yi-IEAflTQY5n08G5TXyCT1KqV_75oAbr2GyHWkZJ7sUnPxqYEQafDqfyEN35XmehpMTY3juNeskAenplBb6gr4A
+  - Details: confidence=1.0
+- image / message_photo / good
+  - Item: https://t.me/Recomendersystem2023/3797
+  - Title: 💇‍♀
+  - Asset: https://cdn4.telesco.pe/file/dGxAhyLAVOyiKUyMPVfj2Oo-54oOEWe672E6QqgvgMw28MbgpBdDUqZplKz7k1sefeK0H5sC4joxYTOGtSlqSPWJxbHI2VyXp2taVomIstrW9BZq8R7SOPXpJl_jlts8lUqGi7QcREPS_gV05BkXod_RN_YRM1vpukF8N3PMPw0St_lxbAhgKCGL3dmwKWWN8DvoKWdNa5SqpdnlyLj2wg32z9y4CH8J7zWc_g7ZMD2r9YizBHXvv5k3TUSCLjjKI7mzSJbVb7wwEI4j6TzP_2REJ7wHUfZFB0A_e7xoKhzcw0FcbeZUpHZbTd02z3CQioYj-QLpPhnf3g5msxI9Cg.jpg
+  - Details: confidence=1.0
+- image / message_photo / good
+  - Item: https://t.me/Recomendersystem2023/3798
+  - Title: 🔥
+  - Asset: https://cdn4.telesco.pe/file/QuNl7f_K2QUK8kbkAL5cS-3pBqT0VD3THnWV7Uw7mzK-i5mjowQ6LPYyjhsU6mKh-PX0FMAIBXt9VyAtYrmB2KG_D4evOdDjt4pK-qdnmhA1EM_S3iBnEwNloZfpqi76YWtYgE65L7-v_F7zk5DwXSyQgM4T37cryhyLmEmBXSeXECLYPErGTXWzUSOp1_AgntJtOrv4ltVRzo8NxN8bb50KgBJ_fFv7i84rw3jFDdUNWAZw5-RMJsZ6tPFultWmqoJL9qltxf1MtAkYnOU7NyvcF4kUY95Waq2DqxhgKqBsilwHvlHu_yb8RjCxdBpmLeYYt8QeRBif8wmr7ZY3fw.jpg
+  - Details: confidence=1.0
+
+### ZarinAcc
+- video / message_video / good
+  - Item: https://t.me/zarinacc_com/933
+  - Title: 💰
+  - Asset: https://cdn4.telesco.pe/file/ca1d81121f.mp4?token=AKCb0O6QTOltCVAmQ6b98X1f4kypuxu-Ja_PpDRojoeK7W2W275AXryfQn542hwmdE6PPrvFbGlgvyRPQClGTjAfPiPYep9Y4W4QfDr-oWCb0mBBeAqBFwWNdEQo8cqyx63hfBz7zcP31HxIYOmTNVZduR4HV7DLRB2AbsFxzt7cI0Ggstz9O4uZBCMpPcb4SjWQp66tE-larHb_zAlyqJgKAsROo1SbqWATJ0zKtd5xGHs4ncFr7muQbrxQaKhhJk52Q8Nw-JXk6e9LznwzZ3FMe_iHICzhAe_1Bz6HejaG-fLRQpk2oaBgMw1BguL3IvHPDJKRT78uKMlKzYi_2A
+  - Details: confidence=1.0
+- image / message_photo / good
+  - Item: https://t.me/zarinacc_com/936
+  - Title: 👑
+  - Asset: https://cdn4.telesco.pe/file/dwkliXBsaFBfpvB_qxPM3eT3fdSsmANoqOfVCclfOeLnA-fTNpD0TltgEQjzi2OP5SbDfH76yHRFkOHrXPph6KmUHxQBTffwcObWpHZpkdwoZts77fdydAw8VxQRmGUcL4qF0w57HE-zQwjMY8VJXQmQUynCS_hc8Nh7lZpTFv9YjFFkre_IpzB3DIaNXsvmPEUA0x-4BRtlhTCEOjjWNbCZisfhbf0dhbdDAZ-lEOb8uSDVGNz_lkFpnoz9-Bd8fkJvfuLgJGEMY8btna3s3tPgpu11zmOD5F8xzTWAnAoUYl1wWLvcX40MSQNBbKNcwfA9ZL9jJs_2DV0OcOHUvw.jpg
+  - Details: confidence=1.0
+- image / message_photo / good
+  - Item: https://t.me/zarinacc_com/937
+  - Title: ⁉️
+  - Asset: https://cdn4.telesco.pe/file/bL27_d6TL3FvLTu0D81lZH8cQHAmGBq-iumVQ8TU04zyoun77Q3-Lf78iG6nFiyCRYGf8zXKoSzR-2Ltm5pMFCmijwBjFyx4rd_pPCAn7waKLjeiIJ1enMvg6qX5D5L7seTRz_LEf4RB0NFkXiH0-cViEd9YezOkY5cMOBfBiBUnkWHz3QuMzTvNqZk2OB9SiSRTTbXSPpvOJHULIrP61hTZtgMBHtLeNtO1-InNo1dlgf6G5RjYPKiYsKtuVEUIcC36vtAYeFjDrCvs5aT2mPlVdpPQg8FBRlLvb255_lgs5qFG-VMuSVNHw1NKpPPw_uQs68TS9qISMewLQ_iOKw.jpg
+  - Details: confidence=1.0
+- image / message_photo / good
+  - Item: https://t.me/zarinacc_com/938
+  - Title: 🤩
+  - Asset: https://cdn4.telesco.pe/file/tyBX8GQiKTl0FEGeLU2lKMdhbYRkj_KCMSYkSfKwnWPHCXjlsBGb6N6TPW-DIQlNX6ec8zf89de0FO7_81XcV0ys6yikv2crxUkamYONmo3p9MtkEtwfV9btHrjrcCGwGn4kCyOwGuBeP7Ael4cGhiSd_RWemVLLJPxkx48DzOfcznUF70yPsmANetC0uyyuyTRVoIY7uABBigRNAK2hGIw1Pm8ZXqv_qRb1lk6RHu3m2FB1agXm2Vvt87Lkr8H2Potswarm7Kvr8wSjEQLREvB9gHEEc6Tdy7ctmt5Q5DoXbt5LB_TxPpWS8AKT3s9QTkMRWAHz13QHVdjqtXHG0w.jpg
+  - Details: confidence=1.0
+- video / message_video / good
+  - Item: https://t.me/zarinacc_com/939
+  - Title: 🚨
+  - Asset: https://cdn4.telesco.pe/file/bcceaf1f95.mp4?token=qTMGxApfpVYb3ITaR9qjaZvHQWkLIJmVAh2VsTUQrU6Jv36nMCClDUJIJ4HWYRRYneC7RagfqwVMq2gh3BDAuFQoiIY07qPYFpQEhyWtiX8DRhYbNg_0x34G9bGZxA9XO2qVrnCgBF0giWCrxOeUqviapsPheUJlRtQh0ztkN1pisFBN3oL-o6Mc2utRVeemK6Pkb5jJCw7Yk0h4XY29zWbjkDzcWOICJ7-yxrp1B8yt4Lpi0YnU23tE-NE48Cs9KlnYfg83qVzA5okVoP3aahGzFgXp5VDmLLYaVq7I8INZweAeuV6Z8NjpRLe33oTuuZWXx7RzYzPNznjvik8yyA
+  - Details: confidence=1.0
+- video / message_video / good
+  - Item: https://t.me/zarinacc_com/939
+  - Title: 🚨
+  - Asset: https://cdn4.telesco.pe/file/1c17800ade.mp4?token=LNfL8n262h_EsmKjTm3T2uL-6g3MBHSjKGoK7wNauszYW50DBNaunNCsgBpLOp-Rt3G8ImyVebc_qpug_BwNicWU_RLz1ySMKkwwjaObMuaqfO8E4_ZI10_AJ1QA1NV6SmR6MGIgoIGgn00Fy1ZKQWvOYTUZDNLh6cmVTlVkERJMP1OfKD34iW4_pkp-v2sYRpEBMUDH8UO0L5Zbvh1hKfNX-2eUT2NYwGgyRp8lSW3eT8YjCcuXmt3PSsogMUcRvut35zxjK9tPKGWP5m3FKvXo3fi5-L84ZKkuH11tO47xDe4eLcjacsyvdA1hiJjDM8OUbxNqNlVPpkAEhzWWqw
+  - Details: confidence=1.0
+- video / message_video / good
+  - Item: https://t.me/zarinacc_com/941
+  - Title: 🎬
+  - Asset: https://cdn4.telesco.pe/file/994e30b366.mp4?token=mkpxunUUeCIYmhSzZnzuMERN1KrvP7N4ULBikfKdvfoC45bBP1M5rUjWNkF58RGKMWJBknSrCkaKYJlxQwAUpxP8gMsT_cXMX95v7ixgwnJtSUgYb2ClvwlCk3OYCZtrPD3CDMawKNX_e4376Rbs07aZ6CA1_HRHj45IZtBPa5TNk_WF-d661v0fKbrv3Jlp2nK547sCu59vfT_Xwzk-eZImbyyC3vlJtY9m60LyTrZztTM98LcuYycOi_l4seMC9KXVSC3TUOPkDVZ8rUnfKE11mdSTP0lIMuFSMsGguUd0xs_9ZUQa2D_q_9vQIAE0drqBgwN9ve9a0cyiEJsjxQ
+  - Details: confidence=1.0
+- image / message_photo / good
+  - Item: https://t.me/zarinacc_com/942
+  - Title: 🚀
+  - Asset: https://cdn4.telesco.pe/file/tICw0diiOZm5UEFB9FSptV8rihevkrp7MQCL-Fdly9BqhzogsHyBmjMFXOxt0Kab1jK9tb2sSKoIlIYq9Wiq11b54T5099Mjh87UWpUsVF6o9plUHVNN6DHSF0riNILKyxpOexMuB72k1uPFW75G4yWs4afooSYLCVcr8OXep3g2fqltJ4un8wi5iQNU4xBtDJhPytBKZex7xw-GlqliroANuWwaiNDOam2tGvl2yxYieU97PExp43k2v-rf42vbhLwq7Jj0b9ch8D4SU9r7TU-r9wW8XzxBtygX6zutDcj1ODhImZ-QUeRTO1SQOsxPqYFhyzRJdlj7M3Blxql8gA.jpg
+  - Details: confidence=1.0
+- video / message_video / good
+  - Item: https://t.me/zarinacc_com/943
+  - Title: 🚨
+  - Asset: https://cdn5.telesco.pe/file/1237676f79.mp4?token=WfN-Zb2PzU6NVyiuZfoZqk3CkZlucRma5-pn0c4qaopqcxpixmA2xVDZwXf995YgWvlwrgUrqsJu99WMauuivpQXXE0iU5soPnjzdpd8wDWSv1pPN0QwdhCcsxLoFdruCiNuibkdtLtt5o11eWrLYga_4cJSrMc669KEXWgVkV6UT_RgtVA9-ViOVseDNXEXJaX4OMgqOCnzU4haH3MX7-wza-56k7BO3AaJc1I1SOl1v7_A24LmMaXaJ_-4ZTLB-Itim7AwVRMQvCDBvJ6dhmMad4oeud2MgF3BmyPFO819XhzGKzqIGPdzB9_3T6ytpVJVPJBY8vVHQ0jgvJbxfoi-rc8JTn60jg3WQw8tSra5FJxajnlRbgTcvWPed9A7hoA88mFEYCu96vjiXAEZIAWkQueE-1qfgrnZIiKZoOLSGAUdxqESUh_wv6CWr27chfsCsgVoKSxYSAmHOwd9qM7iqlPdgl1WkxUyV4FV1b61Q8iTvryYmw13wykAZmAL84M8Ol7JirvcyAAKeOKp5D_ZEhqwoY_cuXrmIQkPFgzhCGz6UMwuTUnj_s4PDZe4dZ6NOvNp-dJRftmQqnzb8PDbBsTnn49KDphInnbCV3xZTrl6vLoFMz2QYxq3AZWfks8FtguR1kxPhFOt7Z_JSDXnBAlnUdZaDVx7DBCB7MQ
+  - Details: confidence=1.0
+- image / message_photo / weak
+  - Item: https://t.me/zarinacc_com/944
+  - Title: پرامپت ساخت این تصویر بزارم براتون؟
+  - Asset: https://cdn4.telesco.pe/file/qEYejN1wZEnkF-WyYSLf1pguVx2h7yPMJNW0fUZOzeLc1hvGGGbuosjs4dlutyAipemFwQnMvL5DK-oxr7wkrOvWzuBdEg82cvA6wO7ixXgSEQttCnYJSe8Nhge9xUqzN1scj3p8SaRNI_WBJNo8dVfs7mXP8_sNzNefCciC4EK3fdyZ7Hj6JH5u8UZLLJ9xrFt33LoPv9oI6N8r5CvBVqI4wHmRrXFxj-pcGKDupu-4A0-ecz5bJKqG5yOCnyp8cgnck1enI7QpmGc1wb_itvvr_ZESRcxI69NoXlO834n_w8ebZOKVKkgS7pr5s5bhsswjTTkerNfO7Xp6fZd5JQ.jpg
+  - Details: confidence=1.0
+- image / message_photo / good
+  - Item: https://t.me/zarinacc_com/946
+  - Title: 🚨
+  - Asset: https://cdn4.telesco.pe/file/DlxbYSFYB2fIa_EpYmX4CWdeq4zOTRHxUN3DnfdoAOaRDji88xr9sTTU4Gb3s7Op6LWGDjEF2dqCE8NBjDk3HAtS0zQPFowbxrWQxuHH4OhxDt5F8uLCP9snxGnJEsMeDY3cUf3_H4MYszDkCZroYaVlgSrUUoAFum51y1UbXElMt6MOKjoRAs-p0I_atM3RmE0tG0PKHtEOsRZqhaTtWRr2f8H38KsVj3UQUiXgY7RU19cPN8n5Xc_jv4_AQNd3eCd_uFnm8BsbpReKstkEbIq_A_jPqkqkO6BXb9bheg05HuleVar5iirruPtxF6GwYDCbb4NcsWomTeNZg4qnqA.jpg
+  - Details: confidence=1.0
+- image / message_photo / good
+  - Item: https://t.me/zarinacc_com/947
+  - Title: پرامپت لوگوی شیشه ای
+  - Asset: https://cdn4.telesco.pe/file/JaAU2SF3wj6ZkUqu12tCT5wdeFuxufZogaVr2d6ulyl4rJUNUbGCXhQ8B4m5S7GLEZIzutl4U8i-wbwVx0OGP7EphbsGgWmlYHraTK0UIaxpTGHpH16A8oYsIrXaERl3zlNoU6KPdk8epVIijwe2PuhR6B2y81dsxYMxxOBnrjxcKPmX1PtBPcIAUaWCobd0QBbzhdK3RR50vpG9cf66YDdjXGrXurfUAwCbq0hG4wBxJxh_h7LkycbpUehU5auHHkxc0l6XXuZGLA4rDCx2eJfmmRnCwziKOFeXPXKOwSSegCQRbhreYgRGOuF3b2ufUkRC25YTxuWJe_gQwniXnw.jpg
+  - Details: confidence=1.0
+
+### CVision
+- image / message_photo / good
+  - Item: https://t.me/cvision/4322
+  - Title: فاین تیون کردن مدل‌های MoE با یه خط کد، ۳.۷ برابر سریع‌تر!
+  - Asset: https://cdn4.telesco.pe/file/b7l4HGKPmJO9PbAhBOjjMxSXMFJBJqtVBojuGPwv3vy8hwxjHRDOXpV-KxxtKOzQVYNtCHt5kUednvUZrru7mdpPLDfAnOIVJgHPQ7607k1LdPl8r39VmREXbJpktW3M-s1kfPxnUmeAOsiKWQnAreRQwkhSeFtp0nixryQ9tgM-CvvFvcrqKeprIZquGwJDzcMcA8chL7hFytX-WAoDRZNojAgj6WDq0WkK8x-VyEdHRfODuJomeH_hZynneEyGErEqT4AdDdcLPm72mOOD0Jj-CcSXe4T6A1J9Le3refEU8BgbWlQbo52iMIj481MN7VKucZnuJRaheVbnRyK-vw.jpg
+  - Details: confidence=1.0
+- document / message_document / good
+  - Item: https://t.me/cvision/4325
+  - Title: مثلا
+  - Asset: https://t.me/cvision/4325
+  - Details: confidence=1.0
+- image / message_photo / good
+  - Item: https://t.me/cvision/4328
+  - Title: 🗂️
+  - Asset: https://cdn4.telesco.pe/file/YXEuRRFQQgz8kkvoQai0H2f-M8Ylilm_9I8SP2xZL8UBflNkyZ2IvtNFFIdC7BetoQ1wDWMMDZAkupNDocs5ydQdMG9zYDZqr9U65sajIDPzG3YuRBioo8uYLIfV35QHuOxmZQfIX9NovCn00bunZ_kVieD9gjAe9NnNepKkfk6b1BViHxHJ0h5LfkrZgVuGlNhi9_cAG3d8UbimdQ1HSsZsXXAGXP8MjmcjrRtp8gnH0SDLRfR2DI3Mldol4qw57YSHz2A087fUKUEDwhxf7hlxbbGPMDccR9enFJVf4_vAqAQJEPC6nU-rR9hJk2NopZuCDLXXwHgm5nNkZWckEw.jpg
+  - Details: confidence=1.0
+- image / message_photo / good
+  - Item: https://t.me/cvision/4330
+  - Title: روش MiCA جایگزین قدرتمند LoRA در Fine-tuning
+  - Asset: https://cdn4.telesco.pe/file/iAFo8rOkvGuXYZnrU_fjCUUrkCm3xCMUhXUSHrhWj-AZQG2BNhINeho5d1bW3cvfI4O5AXOQ8B-gch7Vx_UW24bw5vn7lXlroK7ptDc6mcJIkICj6xtbo3lfCh8euk1m09QpwBq8vitFvETYOFOHSVO4Jl3q8AnwzxEiID0RunmIFTl5RxZD8dT-bt5F2tX8zBbUDMU57_05xE5_mNaF0kl-ub6EsXRw-BwTnW7kIlxltR30sLyIesqechDhelSDpqnMuVPOxyD7JIxNfVWDP63Tt7ZJjkQyIQsykoG6GvsdwXKCV4DZcVDaR6jKnLVp4ZQGCNOwsknCxgMwtRDBQw.jpg
+  - Details: confidence=1.0
+- image / message_photo / good
+  - Item: https://t.me/cvision/4331
+  - Title: 📊
+  - Asset: https://cdn4.telesco.pe/file/e4BuOqJf1TmpMDa6_VGlsvoLjST-r9D4RPFnDMI3u0tPl4tEJc9PAt_plSW_Mbsk2RhN2-Dw7LirIW3Z_ni54RGoVcgiZbmySjglvVO2wZdb3m97UYA2vz-M3WfHnoX3XknzoU7m-k80HWg0isbdxjc8efLtxNMtAV1rb6TiEri5B7P2pHdk1eE2NMZndMm7gDgOIAJTS-uDXGcEghEwIXkji_TufarbRzNZMcCUX54hCFhgWCvp7tMXuco2True07z3fyEW1c4AcbXWDSgjQ4y_AnS_KQRr56-5YnKJ8YjqH9ElfCxTQ0JdETHpj4eCXv-PbKbvjgEgNWv23chuNg.jpg
+  - Details: confidence=1.0
+- image / message_photo / good
+  - Item: https://t.me/cvision/4335
+  - Title: یه مدل بنیادی (foundation model) جدید منتشر شده توسط گوگل برای داده های ساختار یافته، هم برای رگرسیون هم طبقه بندی قابل استفادست
+  - Asset: https://cdn4.telesco.pe/file/Z3X-U2fox8Y0MbkUzw6j1eTgdmIa8G3yJSRLICdT_Tt6HN6y3pBWbSr_GE-VyY3QUi0Z6WiG0toelRi5bHEo6ak91W3_qY_u0bIzVlUxcE0DJi95shQbn-xjD1kkWYoFhGntNIrbJDhTEK2GA5srfacUwtr7GAFXc0WfyYMNFUPrbq0HLeG6ARWZTAfW80k38pOkEa1lxCEYNI0mivUCBidfJgtcuIX1b0m-kiZZvoxA3lpNK8_cmBaki_Sm4vgJlhnGI9qTaZrKmdwi6XMfNkvYhhOH0Ieeef2GyzQ_SqFhB2wjPTwiSpegQ8BDvCQUvi-Ysa7j1crY6VVWDxf2cw.jpg
+  - Details: confidence=1.0
+- video / message_video / good
+  - Item: https://t.me/cvision/4337
+  - Title: :
+  - Asset: https://cdn4.telesco.pe/file/8d76c262b1.mp4?token=nmKdHOK5rZUpiS4JeGZeQHDHc-RfJVxlfnH01x2Jg_6QUzEYNwCdP93-PUJOe9xanhpHNkEvmpUP7UaUZngmbeZ9dQoARxEu204RSLbE-4uxKvdpAvAQi6_niUane7PdjD6C7Ep6B4IGtOU-hrEIajwIoDpAG3NAqgSerlOkwen1Jb0HXGEOfwW1QG-k6jl92SpWwR3ECVNbCCP0NaWGEm8DAJ9dnI2fTm-ZcDt4UOFtF0SJ9MqFucBHEFTBeAWZ_IPWmZU1axYTIpbeZF3mB_c-Vx7hmhIG6oAOuTXn91On0A5WlcDrWJ8ZeQMCn7bg41ehr2MYkE9oBSHzVqHAxQ
+  - Details: confidence=1.0
+- image / message_photo / good
+  - Item: https://t.me/cvision/4340
+  - Title: پشتیبانی نامبرلند واقعاً در حد فاجعه‌ست! تلفنی که عمراً جواب بدن!
+  - Asset: https://cdn4.telesco.pe/file/Og71IFYaC5gsuBvzgdDLyV03vdV4Ihg0VbVAqZTr3x3TfSHb6W9yv16ozDG_L-nHnI_fArQiR7VgQSzm1FmeGsQBx6xo8LimTJ1N_StzkEk0jn-pcC2xA2qhxXMv4nHssRNWlEBL8dPGsn9LVp92cKlepZ92udppT0rklvyNXa4tvmPj6NWsj5qd-IEEWi-L3so4NfG3o6y0Qo2nKupwbVnUd13eB4ZkIRP0XlgGohNu6INdlMFvEshUAEZln5crGMt65gj4lI-gE93V_dDvPl7W03P6Rn-Exyf6UngAPdO7XmUnhRSUzVK0DG7SaqEUQpMhsPCGCkqiVbd-ncd9gQ.jpg
+  - Details: confidence=1.0
+- video / message_video / good
+  - Item: https://t.me/cvision/4341
+  - Title: یه بنده خدایی یه پرامپت را آزمایش کرده و اعلام کرده که
+  - Asset: https://cdn4.telesco.pe/file/52e737bddb.mp4?token=iTPYCuhtt7snng-A5NwiEY7kEe1KS_hLSprUCWDNdtukXCwEkMa71e59oNxIfwCrRZ-gp6-hAZRZaH3s2TPmD0FqOMBZwGZIHZcvt0K-kKB1bJeB-41B19qj9SqyDXJCOyp7RzeWgqHVzuoxqylMrW0H7okbNnGJ5O7W1Igwdzf8P-xjWrXen5nikkJLu2Qfe722g8Rc4CmwTg4UbMFsV729jLMJ_tpuKOBVZuPw0n6tfnRQCtUmk060e6_6oRwsnhSSZOaeefMnsu-oySzUA_KUCh6ISI4d8C-_JILNdOisM-1LwWlAnttYhzY7fw61jS0WzwpDJ8QEuBM0jy3L_Q
+  - Details: confidence=1.0
+- video / message_video / good
+  - Item: https://t.me/cvision/4342
+  - Title: مدل
+  - Asset: https://cdn4.telesco.pe/file/a06d0eeeca.mp4?token=ZPkCG1EmuOMZnbZGUMWKqXlX3mza4BmI9ITCb6Q442vNznuMSmMSJyhIqjoqwBk6f62YUBFalScV5Z9ag__VOB72pJyaI6xGokFcsJNpnzdLRoH7fkmqPmFtPoBUDZk0lwYzaDwIZFjRJaQaQ8NHEywObJ0KCSrgBkycVmtXvpPNYlUQzq2HZ8B9v-8Re7s0vtKbVd_k-BYg3LEnHHpLYBm_iq7j4cyewAtsx82Tbz0TV1imvwjB8NR6_4iLMDsyXBtj7sbfRe7VF02B7kyF43F7t_bggw_JlB_EGCMs9-r_ZJoTbha7jgqF64QqCzmk-e_JW8KDDbDjKvjLERthWg
+  - Details: confidence=1.0
+
+### LLM Hugging Face
+- image / message_photo / good
+  - Item: https://t.me/llm_huggingface/172
+  - Title: https://jsai.ir/
+  - Asset: https://cdn4.telesco.pe/file/sWn6EnIcCvNDsVKIt-0sqmTHtclVZj3K06cFUopDCyo9MLElIAD-riTnfZZLMGf0I-LjTfHE8IRCaI0uRCMhfpYlpxFpn67aV6MjAZPkyyi8cW539wu95J8tbtcnvOnhY4-3Hu-WFAP1f5wl1XYKvMFhGNZHqNNGpWF-2wmNwjBUerCMWHYxzjgbOn-NUBXoVujD8GojpUsKPwvY1NeYkd2nEhG5UScPbQ9H8MxAKUrlTvmjOXjcTmWSJG5AX1YdDH8uqmWfKNC998MQByXnRu4wBCwNo7vZSH1PO0wk00VEqhwxS7UMME7nplEsPYb7hFRAZ5fccFzGTFWO_APzsg.jpg
+  - Details: confidence=1.0
+- video / message_video / good
+  - Item: https://t.me/llm_huggingface/180
+  - Title: آیا gzip می‌تواند یک مدل زبانی باشد؟
+  - Asset: https://cdn4.telesco.pe/file/61ebb5cd12.mp4?token=TEt4_6lFIRmPg-RIEbfJwCl7NGrLLXK5CBbjGpw7dXsrwZm4l98Bb6s83txogswHdxDr0y6PKUQnQ_oNSADSQv0w8yZ-umiajUKB4OVuyMki2n4xDOdS2gUGT7uxyv7kqJVlHlCSocaCt_4TNTdAMjgmhatfjBo3P_tBuMHvAXLXu_E6Fr2PT0W1dBY8uHJVaI5z18eer4AFyhE_w4fgrbiOv-Fw859TaI81gzgyUnorWyGZrHqzqdy0j8U5P1fef4X2TGibumlbtSwIRoNFTZzZiTpYNALRAdmxfmIIisFPsWwNLUvmdeVo6YgExyY37MoeE82Lp-EQHu5eMU1Bkg
+  - Details: confidence=1.0
+- image / message_photo / good
+  - Item: https://t.me/llm_huggingface/185
+  - Title: فاین تیون کردن مدل‌های MoE با یه خط کد، ۳.۷ برابر سریع‌تر!
+  - Asset: https://cdn4.telesco.pe/file/JuzDtk0BMU8i-HbgFne5DorBZgq7OY1yuo5LEqDdMZa810gzIz5Vq3AAhWok7NrUPEh-e4onc6O1q-oVCljjP4dbhgdTua-WW84vJHvJQqzdqTkeIShyUSeaIGZvV_X9gA9RgXFPPcCjn47CUQZAsdSZ586w3AtOA-dEYbYqLWImImg8qhEYNW0ksmxeycdDAbxUtmiDsWMLbGq2bBfB-2DRoc5JecMuahPatCXtpWKvJ9VD-Uob7z2j0O18-qCc9RhD7l7hl4K6ZtP7oBp-jgaVADRoGxol6cDo_s91Fc1q2tHmidKBm674egowLgHKVtK_Si8ArpyOKIipHcQc6g.jpg
+  - Details: confidence=1.0
+- image / message_photo / good
+  - Item: https://t.me/llm_huggingface/186
+  - Title: 🗂️
+  - Asset: https://cdn4.telesco.pe/file/HeUncmg8RZLdzt6CGslBHZ208q9FmKwRpuoLq8sp0b2Njfk-RiJCvJv5uuE6NSg1uo5s_DtSQOUMBS6BX4UlzPleG8NCK2reP1pjJxLHdzEioVVLHzsCy-eMR9OAsCs_swTp6JZOROMczin6SfYGD1KTLmzrABoiiY7EV_EF7IeSvjyiCQxXYz7oHseYEpf0h3Qx1MsNO5eoVuLxQLbUNogP0S_RhwFWvQRsbGZYm47lfnZRu6ZTlbPzuhhVnE7ddvpP4862sN0xxKXBh0fJWLzGIg-pd9JdvUynNPusN6uxCm4QzEhPA9ODZnBpDBv8jBZ11XqtP_XVqSc_KjXLHg.jpg
+  - Details: confidence=1.0
+- image / message_photo / good
+  - Item: https://t.me/llm_huggingface/189
+  - Title: روش MiCA جایگزین قدرتمند LoRA در Fine-tuning
+  - Asset: https://cdn4.telesco.pe/file/fNRKwqZtTRKKFJM_EXule35_CV5lhh8Wi5CAw6Nb9UWJu1qOz89Ii96pPr9oXthe2BMbT_Jhm2S4NVuX109PCN1Kg9_FTWWgjLLC8HAZz_w-bIEjktzHmBhZvpjLpqflF6ndflkFYKUzy2Wj8gdJk9yO6JQEiW2u3H3kzyjkjwZ0mg28YaZquogCPRRjSV6RrBfbK5KyDigtV9vrALoYFDdPgT1xKx2Vw-9zr-bETMfmTPJMXj-6NoqA39OQrKMqD17ueG8ilA2BV54gVadQdX3OanWrZWbYI5X_Vxqc_aFMw5betg3son6faQLRD1fLPMzeo8ZJHpUAnXjT8Bkn-Q.jpg
+  - Details: confidence=1.0
+- image / message_photo / good
+  - Item: https://t.me/llm_huggingface/191
+  - Title: https://github.com/huggingface/peft/blob/main/examples/mica_finetuning/README.md
+  - Asset: https://cdn4.telesco.pe/file/i3C5GwKq_NzlHObnjb28dyOKV7JTwRXs04XikrDroo1hb2CFqMz357LUZiJJWoxL8MdEYocEFdCSOuX3JY5EkuxSGJvg8dfsyYe695gOZ5vHKJ4itAE5zNhojS-FpkV5NU88CmP9MbaKHFGRG32aTXB74nh4a92OIYIstxE2QG4Zlplo3ft1hr43VGA8Ck5FzkPcgXPSujvAJe1wF1WCOgwwv5XLzwk8hAmrPCJ5oytZ-Y6o3--EkU3sEhxWdHi2qr6MJLZftAsKO9gzobmQ6qKHhwPAHTDNhJ1Kw1ICPssOQkFLl1BFnDa6Yx9HWI9DeF7cmymF8xo3rkj0pcvLgQ.jpg
+  - Details: confidence=1.0
+- image / message_photo / good
+  - Item: https://t.me/llm_huggingface/192
+  - Title: 📊
+  - Asset: https://cdn4.telesco.pe/file/iZXrP_ZUIkt6BysPRfyNnhjARw3rUDKyrxEfYrN3EDEMae3kVHi2ytr2sQLcHSJvFbLrI_ZraWv7TDgZbgFXPjDcrD0tBhoJ7VbwA6FCMdSaxtcAmMCTfhVSNEO6niIiXIWFKtiElUv8v-LARIMLQNlkOI5YIWGZrENB-PGjULu61WgDL5pbHfJdFCZwIfOXTt8RulpBgLOttXvpl3RA91U0v5VJvmh8dekqbb8W8rjfXVawANiCjKTYZW2jyFGigjsCjznyHMeG_156AKg0m9c3e2gSCLRZ3_u3UPenXa8phMIRQmyMfjSpgRx1qg3MYxsv8M7u7RvYMT3LlW9Yug.jpg
+  - Details: confidence=1.0
+- video / message_video / good
+  - Item: https://t.me/llm_huggingface/193
+  - Title: مدل
+  - Asset: https://cdn4.telesco.pe/file/a06d0eeeca.mp4?token=VTrJy0SVG7DPxEm5_oh1_8x42qV3hso4G3t6ElmWfLDq15J6XZHFpaBJpjIkHNoLOqbApbMQcVyxjG4lxHnHqGEvqHGduTAWCW76Altgktk6V2eCbPPvpBgzbgSxW1VrOo8dTsi2lCpQG-ZIr3c_k18swRekmLlpmAKrx-C29L_p5zG7LSsEQBPwzXkofJT0Mcu4ytJzIBUJ7Wby0_Upv_pS6J2Ep4bj6LAn9oJ7ZY6Z3SZEx8EcIRXI6ozoEu8uePqDMmWxgiUHC13nC4ZLSXUSKtArNic7aA4I_Y98bNAsmmXNjL6EOZjbpry2DT2Rbh9fJlD9fl9lC7nzsNw6Jg
+  - Details: confidence=1.0
+
+### Machine Learning Mastery Blog
+- image / media_content / good
+  - Item: https://machinelearningmastery.com/context-windows-are-not-memory-what-ai-agent-developers-need-to-understand
+  - Title: Context Windows Are Not Memory: What AI Agent Developers Need to Understand
+  - Asset: https://machinelearningmastery.com/wp-content/uploads/2026/06/mlm-context-windows-are-not-memory-what-ai-agent-developers-need-to-understand.png
+  - Details: confidence=1.0
+- image / media_content / good
+  - Item: https://machinelearningmastery.com/clustering-unstructured-text-with-llm-embeddings-and-hdbscan
+  - Title: Clustering Unstructured Text with LLM Embeddings and HDBSCAN
+  - Asset: https://machinelearningmastery.com/wp-content/uploads/2026/06/mlm-clustering-unstructured-text-with-llm-embeddings-and-hdbscan-feature.png
+  - Details: confidence=1.0
+- image / media_content / weak
+  - Item: https://machinelearningmastery.com/building-browser-using-ai-agents-in-python
+  - Title: Building Browser-Using AI Agents in Python
+  - Asset: https://machinelearningmastery.com/wp-content/uploads/2026/06/MLM-Shittu-Building-Browser-Using-AI-Agents-in-Python.png
+  - Details: confidence=1.0
+- image / media_content / weak
+  - Item: https://machinelearningmastery.com/the-roadmap-to-mastering-ai-agent-evaluation
+  - Title: The Roadmap to Mastering AI Agent Evaluation
+  - Asset: https://machinelearningmastery.com/wp-content/uploads/2026/06/mlm-the-roadmap-to-mastering-ai-agent-evaluation.png
+  - Details: confidence=1.0
+- image / media_content / good
+  - Item: https://machinelearningmastery.com/building-an-end-to-end-sentiment-analysis-pipeline-with-scikit-llm
+  - Title: Building an End-to-End Sentiment Analysis Pipeline with Scikit-LLM
+  - Asset: https://machinelearningmastery.com/wp-content/uploads/2026/06/mlm-building-an-end-to-end-sentiment-analysis-pipeline-with-scikit-llm.png
+  - Details: confidence=1.0
+- image / media_content / weak
+  - Item: https://machinelearningmastery.com/ai-agent-tool-design-what-works-and-what-doesnt
+  - Title: AI Agent Tool Design: What Works and What Doesn’t
+  - Asset: https://machinelearningmastery.com/wp-content/uploads/2026/06/mlm-agent-tool-design.png
+  - Details: confidence=1.0
+- image / media_content / good
+  - Item: https://machinelearningmastery.com/python-concepts-every-ai-engineer-must-master
+  - Title: Python Concepts Every AI Engineer Must Master
+  - Asset: https://machinelearningmastery.com/wp-content/uploads/2026/06/mlm-python-concepts-every-ai-engineer-must-master.png
+  - Details: confidence=1.0
+- image / media_content / good
+  - Item: https://machinelearningmastery.com/multi-label-text-classification-with-scikit-llm
+  - Title: Multi-Label Text Classification with Scikit-LLM
+  - Asset: https://machinelearningmastery.com/wp-content/uploads/2026/06/mlm-multi-label-text-classification-with-scikit-llm-feature.png
+  - Details: confidence=1.0
+- image / media_content / good
+  - Item: https://machinelearningmastery.com/multimodal-browser-ai-with-transformers-js-for-images-and-speech
+  - Title: Multimodal Browser AI with Transformers.js for Images and Speech
+  - Asset: https://machinelearningmastery.com/wp-content/uploads/2026/06/mlm-multimodal-browser-ai-with-transformers-js-for-images-and-speech.png
+  - Details: confidence=1.0
+- image / media_content / weak
+  - Item: https://machinelearningmastery.com/the-practitioners-guide-to-agentops
+  - Title: The Practitioner’s Guide to AgentOps
+  - Asset: https://machinelearningmastery.com/wp-content/uploads/2026/05/Shittu-MLM-The-Practitioners-Guide-to-AgentOps.png
+  - Details: confidence=1.0
+
+### AITopics
+- None extracted.
+
+### Machine Learning Blog
+- image / inline_img / good
+  - Item: https://docs.microsoft.com/archive/blogs/machinelearning/how-ai-transforms-business-a-new-microsoft-series
+  - Title: How AI Transforms Business – A New Microsoft Series
+  - Asset: https://msdnshared.blob.core.windows.net/media/2018/10/102218_1920_HowAITransf1.jpg
+  - Details: confidence=0.7
+- image / inline_img / good
+  - Item: https://docs.microsoft.com/archive/blogs/machinelearning/how-can-autonomous-drones-help-the-energy-and-utilities-industry
+  - Title: How Can Autonomous Drones Help the Energy and Utilities Industry?
+  - Asset: https://msdnshared.blob.core.windows.net/media/2018/10/102218_1929_HowCanAuton1.png
+  - Details: confidence=0.7
+- image / inline_img / good
+  - Item: https://docs.microsoft.com/archive/blogs/machinelearning/how-can-autonomous-drones-help-the-energy-and-utilities-industry
+  - Title: How Can Autonomous Drones Help the Energy and Utilities Industry?
+  - Asset: https://msdnshared.blob.core.windows.net/media/2018/10/102218_1929_HowCanAuton2.png
+  - Details: confidence=0.7
+- image / inline_img / good
+  - Item: https://docs.microsoft.com/archive/blogs/machinelearning/how-can-autonomous-drones-help-the-energy-and-utilities-industry
+  - Title: How Can Autonomous Drones Help the Energy and Utilities Industry?
+  - Asset: https://msdnshared.blob.core.windows.net/media/2018/10/102218_1929_HowCanAuton3.png
+  - Details: confidence=0.7
+- image / inline_img / good
+  - Item: https://docs.microsoft.com/archive/blogs/machinelearning/how-can-autonomous-drones-help-the-energy-and-utilities-industry
+  - Title: How Can Autonomous Drones Help the Energy and Utilities Industry?
+  - Asset: https://msdnshared.blob.core.windows.net/media/2018/10/102218_1929_HowCanAuton4.png
+  - Details: confidence=0.7
+- image / inline_img / good
+  - Item: https://docs.microsoft.com/archive/blogs/machinelearning/how-can-autonomous-drones-help-the-energy-and-utilities-industry
+  - Title: How Can Autonomous Drones Help the Energy and Utilities Industry?
+  - Asset: https://msdnshared.blob.core.windows.net/media/2018/10/102218_1929_HowCanAuton5.png
+  - Details: confidence=0.7
+- image / inline_img / good
+  - Item: https://docs.microsoft.com/archive/blogs/machinelearning/how-can-autonomous-drones-help-the-energy-and-utilities-industry
+  - Title: How Can Autonomous Drones Help the Energy and Utilities Industry?
+  - Asset: https://msdnshared.blob.core.windows.net/media/2018/10/102218_1929_HowCanAuton6.png
+  - Details: confidence=0.7
+- image / inline_img / good
+  - Item: https://docs.microsoft.com/archive/blogs/machinelearning/how-can-autonomous-drones-help-the-energy-and-utilities-industry
+  - Title: How Can Autonomous Drones Help the Energy and Utilities Industry?
+  - Asset: https://msdnshared.blob.core.windows.net/media/2018/10/102218_1929_HowCanAuton7.png
+  - Details: confidence=0.7
+- image / inline_img / good
+  - Item: https://docs.microsoft.com/archive/blogs/machinelearning/how-can-autonomous-drones-help-the-energy-and-utilities-industry
+  - Title: How Can Autonomous Drones Help the Energy and Utilities Industry?
+  - Asset: https://msdnshared.blob.core.windows.net/media/2018/10/102218_1929_HowCanAuton8.jpg
+  - Details: confidence=0.7
+- image / inline_img / good
+  - Item: https://docs.microsoft.com/archive/blogs/machinelearning/machine-reading-at-scale-transfer-learning-for-large-text-corpuses
+  - Title: Machine Reading at Scale – Transfer Learning for Large Text Corpuses
+  - Asset: https://msdnshared.blob.core.windows.net/media/2018/10/MRS-1.png
+  - Details: confidence=0.7
+- image / inline_img / good
+  - Item: https://docs.microsoft.com/archive/blogs/machinelearning/machine-reading-at-scale-transfer-learning-for-large-text-corpuses
+  - Title: Machine Reading at Scale – Transfer Learning for Large Text Corpuses
+  - Asset: https://msdnshared.blob.core.windows.net/media/2018/10/MRS-2.png
+  - Details: confidence=0.7
+- image / inline_img / good
+  - Item: https://docs.microsoft.com/archive/blogs/machinelearning/machine-reading-at-scale-transfer-learning-for-large-text-corpuses
+  - Title: Machine Reading at Scale – Transfer Learning for Large Text Corpuses
+  - Asset: https://msdnshared.blob.core.windows.net/media/2018/10/MRS-3.png
+  - Details: confidence=0.7
+- image / inline_img / good
+  - Item: https://docs.microsoft.com/archive/blogs/machinelearning/machine-reading-at-scale-transfer-learning-for-large-text-corpuses
+  - Title: Machine Reading at Scale – Transfer Learning for Large Text Corpuses
+  - Asset: https://msdnshared.blob.core.windows.net/media/2018/10/MRS-4.png
+  - Details: confidence=0.7
+- image / inline_img / good
+  - Item: https://docs.microsoft.com/archive/blogs/machinelearning/machine-reading-at-scale-transfer-learning-for-large-text-corpuses
+  - Title: Machine Reading at Scale – Transfer Learning for Large Text Corpuses
+  - Asset: https://msdnshared.blob.core.windows.net/media/2018/10/MRS-5.png
+  - Details: confidence=0.7
+- image / inline_img / good
+  - Item: https://docs.microsoft.com/archive/blogs/machinelearning/power-bat-how-spektacom-is-powering-the-game-of-cricket-with-microsoft-ai
+  - Title: Power Bat – How Spektacom is Powering the Game of Cricket with Microsoft AI
+  - Asset: https://msdnshared.blob.core.windows.net/media/2018/10/PowerBat-1.gif
+  - Details: confidence=0.7
+- image / inline_img / good
+  - Item: https://docs.microsoft.com/archive/blogs/machinelearning/power-bat-how-spektacom-is-powering-the-game-of-cricket-with-microsoft-ai
+  - Title: Power Bat – How Spektacom is Powering the Game of Cricket with Microsoft AI
+  - Asset: https://msdnshared.blob.core.windows.net/media/2018/10/PowerBat-2.png
+  - Details: confidence=0.7
+- image / inline_img / good
+  - Item: https://docs.microsoft.com/archive/blogs/machinelearning/power-bat-how-spektacom-is-powering-the-game-of-cricket-with-microsoft-ai
+  - Title: Power Bat – How Spektacom is Powering the Game of Cricket with Microsoft AI
+  - Asset: https://msdnshared.blob.core.windows.net/media/2018/10/PowerBat-3.png
+  - Details: confidence=0.7
+- image / inline_img / good
+  - Item: https://docs.microsoft.com/archive/blogs/machinelearning/deep-learning-without-labels
+  - Title: Deep Learning Without Labels
+  - Asset: https://msdnshared.blob.core.windows.net/media/2018/10/100318_0425_DeepLearnin1.jpg
+  - Details: confidence=0.7
+- image / inline_img / good
+  - Item: https://docs.microsoft.com/archive/blogs/machinelearning/deep-learning-without-labels
+  - Title: Deep Learning Without Labels
+  - Asset: https://msdnshared.blob.core.windows.net/media/2018/10/100318_0425_DeepLearnin2.png
+  - Details: confidence=0.7
+- image / inline_img / good
+  - Item: https://docs.microsoft.com/archive/blogs/machinelearning/deep-learning-without-labels
+  - Title: Deep Learning Without Labels
+  - Asset: https://msdnshared.blob.core.windows.net/media/2018/10/100318_0425_DeepLearnin3.png
+  - Details: confidence=0.7
+- image / inline_img / good
+  - Item: https://docs.microsoft.com/archive/blogs/machinelearning/deep-learning-without-labels
+  - Title: Deep Learning Without Labels
+  - Asset: https://msdnshared.blob.core.windows.net/media/2018/10/100318_0425_DeepLearnin4.png
+  - Details: confidence=0.7
+- image / inline_img / good
+  - Item: https://docs.microsoft.com/archive/blogs/machinelearning/deep-learning-without-labels
+  - Title: Deep Learning Without Labels
+  - Asset: https://msdnshared.blob.core.windows.net/media/2018/10/100318_0425_DeepLearnin5.png
+  - Details: confidence=0.7
+- image / inline_img / good
+  - Item: https://docs.microsoft.com/archive/blogs/machinelearning/deep-learning-without-labels
+  - Title: Deep Learning Without Labels
+  - Asset: https://msdnshared.blob.core.windows.net/media/2018/10/100318_0425_DeepLearnin6.png
+  - Details: confidence=0.7
+- image / inline_img / good
+  - Item: https://docs.microsoft.com/archive/blogs/machinelearning/deep-learning-without-labels
+  - Title: Deep Learning Without Labels
+  - Asset: https://msdnshared.blob.core.windows.net/media/2018/10/100318_0425_DeepLearnin7.gif
+  - Details: confidence=0.7
+- image / inline_img / good
+  - Item: https://docs.microsoft.com/archive/blogs/machinelearning/deep-learning-without-labels
+  - Title: Deep Learning Without Labels
+  - Asset: https://msdnshared.blob.core.windows.net/media/2018/10/100318_0425_DeepLearnin8.png
+  - Details: confidence=0.7
+- image / inline_img / good
+  - Item: https://docs.microsoft.com/archive/blogs/machinelearning/deep-learning-without-labels
+  - Title: Deep Learning Without Labels
+  - Asset: https://msdnshared.blob.core.windows.net/media/2018/10/100318_0425_DeepLearnin9.jpg
+  - Details: confidence=0.7
+- image / inline_img / good
+  - Item: https://docs.microsoft.com/archive/blogs/machinelearning/deep-learning-without-labels
+  - Title: Deep Learning Without Labels
+  - Asset: https://msdnshared.blob.core.windows.net/media/2018/10/100318_0425_DeepLearnin10.png
+  - Details: confidence=0.7
+- image / inline_img / good
+  - Item: https://docs.microsoft.com/archive/blogs/machinelearning/deep-learning-without-labels
+  - Title: Deep Learning Without Labels
+  - Asset: https://msdnshared.blob.core.windows.net/media/2018/10/100318_0425_DeepLearnin11.png
+  - Details: confidence=0.7
+- image / inline_img / good
+  - Item: https://docs.microsoft.com/archive/blogs/machinelearning/deep-learning-without-labels
+  - Title: Deep Learning Without Labels
+  - Asset: https://msdnshared.blob.core.windows.net/media/2018/10/100318_0425_DeepLearnin12.png
+  - Details: confidence=0.7
+- image / inline_img / good
+  - Item: https://docs.microsoft.com/archive/blogs/machinelearning/deep-learning-without-labels
+  - Title: Deep Learning Without Labels
+  - Asset: https://msdnshared.blob.core.windows.net/media/2018/10/100318_0425_DeepLearnin13.png
+  - Details: confidence=0.7
+- image / inline_img / good
+  - Item: https://docs.microsoft.com/archive/blogs/machinelearning/deep-learning-without-labels
+  - Title: Deep Learning Without Labels
+  - Asset: https://msdnshared.blob.core.windows.net/media/2018/10/100318_0425_DeepLearnin14.png
+  - Details: confidence=0.7
+- image / inline_img / good
+  - Item: https://docs.microsoft.com/archive/blogs/machinelearning/snip-insights-an-open-source-cross-platform-ai-tool-for-intelligent-screen-capture
+  - Title: “Snip Insights” – An Open Source Cross-Platform AI Tool for Intelligent Screen Capture
+  - Asset: https://msdnshared.blob.core.windows.net/media/2018/10/SnipInsights_Homepage-Carousel_580x326_V2b.gif
+  - Details: confidence=0.7
+- image / inline_img / good
+  - Item: https://docs.microsoft.com/archive/blogs/machinelearning/snip-insights-an-open-source-cross-platform-ai-tool-for-intelligent-screen-capture
+  - Title: “Snip Insights” – An Open Source Cross-Platform AI Tool for Intelligent Screen Capture
+  - Asset: https://msdnshared.blob.core.windows.net/media/2018/10/SnipInsights_Content_Image_B_1280x752.jpg
+  - Details: confidence=0.7
+- image / inline_img / good
+  - Item: https://docs.microsoft.com/archive/blogs/machinelearning/snip-insights-an-open-source-cross-platform-ai-tool-for-intelligent-screen-capture
+  - Title: “Snip Insights” – An Open Source Cross-Platform AI Tool for Intelligent Screen Capture
+  - Asset: https://msdnshared.blob.core.windows.net/media/2018/10/100318_0415_SnipInsight2.png
+  - Details: confidence=0.7
+- image / inline_img / good
+  - Item: https://docs.microsoft.com/archive/blogs/machinelearning/snip-insights-an-open-source-cross-platform-ai-tool-for-intelligent-screen-capture
+  - Title: “Snip Insights” – An Open Source Cross-Platform AI Tool for Intelligent Screen Capture
+  - Asset: https://msdnshared.blob.core.windows.net/media/2018/10/100318_0415_SnipInsight3.png
+  - Details: confidence=0.7
+- image / inline_img / good
+  - Item: https://docs.microsoft.com/archive/blogs/machinelearning/snip-insights-an-open-source-cross-platform-ai-tool-for-intelligent-screen-capture
+  - Title: “Snip Insights” – An Open Source Cross-Platform AI Tool for Intelligent Screen Capture
+  - Asset: https://msdnshared.blob.core.windows.net/media/2018/10/100318_0415_SnipInsight4.jpg
+  - Details: confidence=0.7
+- image / inline_img / good
+  - Item: https://docs.microsoft.com/archive/blogs/machinelearning/snip-insights-an-open-source-cross-platform-ai-tool-for-intelligent-screen-capture
+  - Title: “Snip Insights” – An Open Source Cross-Platform AI Tool for Intelligent Screen Capture
+  - Asset: https://msdnshared.blob.core.windows.net/media/2018/10/100318_0415_SnipInsight5.png
+  - Details: confidence=0.7
+- image / inline_img / good
+  - Item: https://docs.microsoft.com/archive/blogs/machinelearning/snip-insights-an-open-source-cross-platform-ai-tool-for-intelligent-screen-capture
+  - Title: “Snip Insights” – An Open Source Cross-Platform AI Tool for Intelligent Screen Capture
+  - Asset: https://msdnshared.blob.core.windows.net/media/2018/10/100318_0415_SnipInsight6.png
+  - Details: confidence=0.7
+- image / inline_img / good
+  - Item: https://docs.microsoft.com/archive/blogs/machinelearning/can-ai-generated-code-automate-tedious-elements-of-knowledge-work
+  - Title: Can AI Generate Programs to Help Automate Busy Work?
+  - Asset: https://msdnshared.blob.core.windows.net/media/2018/09/092118_2007_CanAIGenera1.png
+  - Details: confidence=0.7
+- image / inline_img / good
+  - Item: https://docs.microsoft.com/archive/blogs/machinelearning/can-ai-generated-code-automate-tedious-elements-of-knowledge-work
+  - Title: Can AI Generate Programs to Help Automate Busy Work?
+  - Asset: https://msdnshared.blob.core.windows.net/media/2018/09/092118_2007_CanAIGenera2.png
+  - Details: confidence=0.7
+- image / inline_img / good
+  - Item: https://docs.microsoft.com/archive/blogs/machinelearning/can-ai-generated-code-automate-tedious-elements-of-knowledge-work
+  - Title: Can AI Generate Programs to Help Automate Busy Work?
+  - Asset: https://msdnshared.blob.core.windows.net/media/2018/09/092118_2007_CanAIGenera3.png
+  - Details: confidence=0.7
+- image / inline_img / good
+  - Item: https://docs.microsoft.com/archive/blogs/machinelearning/can-ai-generated-code-automate-tedious-elements-of-knowledge-work
+  - Title: Can AI Generate Programs to Help Automate Busy Work?
+  - Asset: https://msdnshared.blob.core.windows.net/media/2018/09/092118_2007_CanAIGenera4.png
+  - Details: confidence=0.7
+- image / inline_img / good
+  - Item: https://docs.microsoft.com/archive/blogs/machinelearning/can-ai-generated-code-automate-tedious-elements-of-knowledge-work
+  - Title: Can AI Generate Programs to Help Automate Busy Work?
+  - Asset: https://msdnshared.blob.core.windows.net/media/2018/09/092118_2007_CanAIGenera5.png
+  - Details: confidence=0.7
+- image / inline_img / good
+  - Item: https://docs.microsoft.com/archive/blogs/machinelearning/can-ai-generated-code-automate-tedious-elements-of-knowledge-work
+  - Title: Can AI Generate Programs to Help Automate Busy Work?
+  - Asset: https://msdnshared.blob.core.windows.net/media/2018/09/092118_2007_CanAIGenera6.png
+  - Details: confidence=0.7
+- image / inline_img / good
+  - Item: https://docs.microsoft.com/archive/blogs/machinelearning/can-ai-generated-code-automate-tedious-elements-of-knowledge-work
+  - Title: Can AI Generate Programs to Help Automate Busy Work?
+  - Asset: https://msdnshared.blob.core.windows.net/media/2018/09/092118_2007_CanAIGenera7.png
+  - Details: confidence=0.7
+- image / inline_img / good
+  - Item: https://docs.microsoft.com/archive/blogs/machinelearning/can-ai-generated-code-automate-tedious-elements-of-knowledge-work
+  - Title: Can AI Generate Programs to Help Automate Busy Work?
+  - Asset: https://msdnshared.blob.core.windows.net/media/2018/09/092118_2007_CanAIGenera8.png
+  - Details: confidence=0.7
+- image / inline_img / good
+  - Item: https://docs.microsoft.com/archive/blogs/machinelearning/can-ai-generated-code-automate-tedious-elements-of-knowledge-work
+  - Title: Can AI Generate Programs to Help Automate Busy Work?
+  - Asset: https://msdnshared.blob.core.windows.net/media/2018/09/092118_2007_CanAIGenera9.png
+  - Details: confidence=0.7
+- image / inline_img / good
+  - Item: https://docs.microsoft.com/archive/blogs/machinelearning/can-ai-generated-code-automate-tedious-elements-of-knowledge-work
+  - Title: Can AI Generate Programs to Help Automate Busy Work?
+  - Asset: https://msdnshared.blob.core.windows.net/media/2018/09/092118_2007_CanAIGenera10.png
+  - Details: confidence=0.7
+- image / inline_img / good
+  - Item: https://docs.microsoft.com/archive/blogs/machinelearning/can-ai-generated-code-automate-tedious-elements-of-knowledge-work
+  - Title: Can AI Generate Programs to Help Automate Busy Work?
+  - Asset: https://msdnshared.blob.core.windows.net/media/2018/09/092118_2007_CanAIGenera11.png
+  - Details: confidence=0.7
+- image / inline_img / good
+  - Item: https://docs.microsoft.com/archive/blogs/machinelearning/can-ai-generated-code-automate-tedious-elements-of-knowledge-work
+  - Title: Can AI Generate Programs to Help Automate Busy Work?
+  - Asset: https://msdnshared.blob.core.windows.net/media/2018/09/092118_2007_CanAIGenera12.png
+  - Details: confidence=0.7
+- image / inline_img / good
+  - Item: https://docs.microsoft.com/archive/blogs/machinelearning/the-key-differentiator-of-the-ai-platform-of-today
+  - Title: This New [AI] Software Constantly Improves – and that Makes all the Difference
+  - Asset: https://msdnshared.blob.core.windows.net/media/2018/09/092118_2122_Traditional1.png
+  - Details: confidence=0.7
+- image / inline_img / good
+  - Item: https://docs.microsoft.com/archive/blogs/machinelearning/ai-based-virtual-tutors-the-future-of-education
+  - Title: AI-Based Virtual Tutors – The Future of Education?
+  - Asset: https://msdnshared.blob.core.windows.net/media/2018/09/092118_1625_AnAIBasedVi1.png
+  - Details: confidence=0.7
+- image / inline_img / good
+  - Item: https://docs.microsoft.com/archive/blogs/machinelearning/ai-based-virtual-tutors-the-future-of-education
+  - Title: AI-Based Virtual Tutors – The Future of Education?
+  - Asset: https://msdnshared.blob.core.windows.net/media/2018/09/092118_1625_AnAIBasedVi2.png
+  - Details: confidence=0.7
+- image / inline_img / good
+  - Item: https://docs.microsoft.com/archive/blogs/machinelearning/ai-based-virtual-tutors-the-future-of-education
+  - Title: AI-Based Virtual Tutors – The Future of Education?
+  - Asset: https://msdnshared.blob.core.windows.net/media/2018/09/092118_1625_AnAIBasedVi3.png
+  - Details: confidence=0.7
+- image / inline_img / good
+  - Item: https://docs.microsoft.com/archive/blogs/machinelearning/ai-based-virtual-tutors-the-future-of-education
+  - Title: AI-Based Virtual Tutors – The Future of Education?
+  - Asset: https://msdnshared.blob.core.windows.net/media/2018/09/092118_1625_AnAIBasedVi4.png
+  - Details: confidence=0.7
+- image / inline_img / good
+  - Item: https://docs.microsoft.com/archive/blogs/machinelearning/ai-based-virtual-tutors-the-future-of-education
+  - Title: AI-Based Virtual Tutors – The Future of Education?
+  - Asset: https://msdnshared.blob.core.windows.net/media/2018/09/092118_1625_AnAIBasedVi5.png
+  - Details: confidence=0.7
+- image / inline_img / good
+  - Item: https://docs.microsoft.com/archive/blogs/machinelearning/ai-based-virtual-tutors-the-future-of-education
+  - Title: AI-Based Virtual Tutors – The Future of Education?
+  - Asset: https://msdnshared.blob.core.windows.net/media/2018/09/092118_1625_AnAIBasedVi6.png
+  - Details: confidence=0.7
+- image / inline_img / good
+  - Item: https://docs.microsoft.com/archive/blogs/machinelearning/ai-based-virtual-tutors-the-future-of-education
+  - Title: AI-Based Virtual Tutors – The Future of Education?
+  - Asset: https://msdnshared.blob.core.windows.net/media/2018/09/092118_1625_AnAIBasedVi7.png
+  - Details: confidence=0.7
+- image / inline_img / good
+  - Item: https://docs.microsoft.com/archive/blogs/machinelearning/ai-based-virtual-tutors-the-future-of-education
+  - Title: AI-Based Virtual Tutors – The Future of Education?
+  - Asset: https://msdnshared.blob.core.windows.net/media/2018/09/092118_1625_AnAIBasedVi8.png
+  - Details: confidence=0.7
+- image / inline_img / good
+  - Item: https://docs.microsoft.com/archive/blogs/machinelearning/ai-based-virtual-tutors-the-future-of-education
+  - Title: AI-Based Virtual Tutors – The Future of Education?
+  - Asset: https://msdnshared.blob.core.windows.net/media/2018/09/092118_1625_AnAIBasedVi9.png
+  - Details: confidence=0.7
+- image / inline_img / good
+  - Item: https://docs.microsoft.com/archive/blogs/machinelearning/ai-based-virtual-tutors-the-future-of-education
+  - Title: AI-Based Virtual Tutors – The Future of Education?
+  - Asset: https://msdnshared.blob.core.windows.net/media/2018/09/092118_1625_AnAIBasedVi10.png
+  - Details: confidence=0.7
+- image / inline_img / good
+  - Item: https://docs.microsoft.com/archive/blogs/machinelearning/ai-based-virtual-tutors-the-future-of-education
+  - Title: AI-Based Virtual Tutors – The Future of Education?
+  - Asset: https://msdnshared.blob.core.windows.net/media/2018/09/092118_1625_AnAIBasedVi11.png
+  - Details: confidence=0.7
+- image / inline_img / good
+  - Item: https://docs.microsoft.com/archive/blogs/machinelearning/ai-based-virtual-tutors-the-future-of-education
+  - Title: AI-Based Virtual Tutors – The Future of Education?
+  - Asset: https://msdnshared.blob.core.windows.net/media/2018/09/092118_1625_AnAIBasedVi12.png
+  - Details: confidence=0.7
+- image / inline_img / good
+  - Item: https://docs.microsoft.com/archive/blogs/machinelearning/ai-based-virtual-tutors-the-future-of-education
+  - Title: AI-Based Virtual Tutors – The Future of Education?
+  - Asset: https://msdnshared.blob.core.windows.net/media/2018/09/092118_1625_AnAIBasedVi13.png
+  - Details: confidence=0.7
+- image / inline_img / good
+  - Item: https://docs.microsoft.com/archive/blogs/machinelearning/ai-based-virtual-tutors-the-future-of-education
+  - Title: AI-Based Virtual Tutors – The Future of Education?
+  - Asset: https://msdnshared.blob.core.windows.net/media/2018/09/092118_1625_AnAIBasedVi14.png
+  - Details: confidence=0.7
+- image / inline_img / good
+  - Item: https://docs.microsoft.com/archive/blogs/machinelearning/ai-adoption-in-industry-new-report-from-mit-sloan-and-bcg
+  - Title: How to Implement AI-First Business Models at Scale
+  - Asset: https://msdnshared.blob.core.windows.net/media/2018/09/092118_1628_AIAdoptioni1.png
+  - Details: confidence=0.7
+- image / inline_img / good
+  - Item: https://docs.microsoft.com/archive/blogs/machinelearning/ai-adoption-in-industry-new-report-from-mit-sloan-and-bcg
+  - Title: How to Implement AI-First Business Models at Scale
+  - Asset: https://msdnshared.blob.core.windows.net/media/2018/09/Ignite-2018-2-500x267.gif
+  - Details: confidence=0.7
+
+### AI2 YouTube
+- document / media_content / good
+  - Item: https://www.youtube.com/watch?v=fb9akKpDAbY
+  - Title: Mitigating Knowledge Collapse through Epistemic Diversity
+  - Asset: https://www.youtube.com/v/fb9akKpDAbY?version=3
+  - Details: mime=application/x-shockwave-flash, size=640x390, confidence=1.0
+- image / media_thumbnail / good
+  - Item: https://www.youtube.com/watch?v=fb9akKpDAbY
+  - Title: Mitigating Knowledge Collapse through Epistemic Diversity
+  - Asset: https://i3.ytimg.com/vi/fb9akKpDAbY/hqdefault.jpg
+  - Details: size=480x360, confidence=0.95
+- document / media_content / good
+  - Item: https://www.youtube.com/watch?v=RgHKmOqb7I4
+  - Title: WildDet3D - an open model for monocular 3D detection
+  - Asset: https://www.youtube.com/v/RgHKmOqb7I4?version=3
+  - Details: mime=application/x-shockwave-flash, size=640x390, confidence=1.0
+- image / media_thumbnail / good
+  - Item: https://www.youtube.com/watch?v=RgHKmOqb7I4
+  - Title: WildDet3D - an open model for monocular 3D detection
+  - Asset: https://i3.ytimg.com/vi/RgHKmOqb7I4/hqdefault.jpg
+  - Details: size=480x360, confidence=0.95
+- document / media_content / good
+  - Item: https://www.youtube.com/watch?v=LJPNJ8jpOao
+  - Title: WildDet3D | iphone app demo
+  - Asset: https://www.youtube.com/v/LJPNJ8jpOao?version=3
+  - Details: mime=application/x-shockwave-flash, size=640x390, confidence=1.0
+- image / media_thumbnail / good
+  - Item: https://www.youtube.com/watch?v=LJPNJ8jpOao
+  - Title: WildDet3D | iphone app demo
+  - Asset: https://i1.ytimg.com/vi/LJPNJ8jpOao/hqdefault.jpg
+  - Details: size=480x360, confidence=0.95
+- document / media_content / good
+  - Item: https://www.youtube.com/watch?v=-Vlcrxj8uxo
+  - Title: MolmoWeb: Generating Synthetic Data
+  - Asset: https://www.youtube.com/v/-Vlcrxj8uxo?version=3
+  - Details: mime=application/x-shockwave-flash, size=640x390, confidence=1.0
+- image / media_thumbnail / good
+  - Item: https://www.youtube.com/watch?v=-Vlcrxj8uxo
+  - Title: MolmoWeb: Generating Synthetic Data
+  - Asset: https://i2.ytimg.com/vi/-Vlcrxj8uxo/hqdefault.jpg
+  - Details: size=480x360, confidence=0.95
+- document / media_content / good
+  - Item: https://www.youtube.com/watch?v=NildZeAzB8U
+  - Title: Adaptability of MolmoWeb
+  - Asset: https://www.youtube.com/v/NildZeAzB8U?version=3
+  - Details: mime=application/x-shockwave-flash, size=640x390, confidence=1.0
+- image / media_thumbnail / good
+  - Item: https://www.youtube.com/watch?v=NildZeAzB8U
+  - Title: Adaptability of MolmoWeb
+  - Asset: https://i3.ytimg.com/vi/NildZeAzB8U/hqdefault.jpg
+  - Details: size=480x360, confidence=0.95
+- document / media_content / good
+  - Item: https://www.youtube.com/watch?v=_-SZeua4t1c
+  - Title: Using MolmoWeb as a Claude Code Skill
+  - Asset: https://www.youtube.com/v/_-SZeua4t1c?version=3
+  - Details: mime=application/x-shockwave-flash, size=640x390, confidence=1.0
+- image / media_thumbnail / good
+  - Item: https://www.youtube.com/watch?v=_-SZeua4t1c
+  - Title: Using MolmoWeb as a Claude Code Skill
+  - Asset: https://i4.ytimg.com/vi/_-SZeua4t1c/hqdefault.jpg
+  - Details: size=480x360, confidence=0.95
+- document / media_content / good
+  - Item: https://www.youtube.com/watch?v=O2p5k3xUhT0
+  - Title: Automatic web workflows with MolmoWeb
+  - Asset: https://www.youtube.com/v/O2p5k3xUhT0?version=3
+  - Details: mime=application/x-shockwave-flash, size=640x390, confidence=1.0
+- image / media_thumbnail / good
+  - Item: https://www.youtube.com/watch?v=O2p5k3xUhT0
+  - Title: Automatic web workflows with MolmoWeb
+  - Asset: https://i4.ytimg.com/vi/O2p5k3xUhT0/hqdefault.jpg
+  - Details: size=480x360, confidence=0.95
+- document / media_content / good
+  - Item: https://www.youtube.com/watch?v=EAlyCeqEqqE
+  - Title: MolmoWeb Inference Library
+  - Asset: https://www.youtube.com/v/EAlyCeqEqqE?version=3
+  - Details: mime=application/x-shockwave-flash, size=640x390, confidence=1.0
+- image / media_thumbnail / good
+  - Item: https://www.youtube.com/watch?v=EAlyCeqEqqE
+  - Title: MolmoWeb Inference Library
+  - Asset: https://i2.ytimg.com/vi/EAlyCeqEqqE/hqdefault.jpg
+  - Details: size=480x360, confidence=0.95
+- document / media_content / good
+  - Item: https://www.youtube.com/watch?v=rzkBE8J7mXQ
+  - Title: MolmoWeb in Action
+  - Asset: https://www.youtube.com/v/rzkBE8J7mXQ?version=3
+  - Details: mime=application/x-shockwave-flash, size=640x390, confidence=1.0
+- image / media_thumbnail / good
+  - Item: https://www.youtube.com/watch?v=rzkBE8J7mXQ
+  - Title: MolmoWeb in Action
+  - Asset: https://i3.ytimg.com/vi/rzkBE8J7mXQ/hqdefault.jpg
+  - Details: size=480x360, confidence=0.95
+- document / media_content / good
+  - Item: https://www.youtube.com/watch?v=fJMTgqf8spg
+  - Title: Ai2 at NVIDIA GTC 2026
+  - Asset: https://www.youtube.com/v/fJMTgqf8spg?version=3
+  - Details: mime=application/x-shockwave-flash, size=640x390, confidence=1.0
+- image / media_thumbnail / good
+  - Item: https://www.youtube.com/watch?v=fJMTgqf8spg
+  - Title: Ai2 at NVIDIA GTC 2026
+  - Asset: https://i3.ytimg.com/vi/fJMTgqf8spg/hqdefault.jpg
+  - Details: size=480x360, confidence=0.95
+- document / media_content / good
+  - Item: https://www.youtube.com/watch?v=VcmWKlhDfoc
+  - Title: Welcoming AI as a New Colleague: How Should We Evaluate AI for Science?
+  - Asset: https://www.youtube.com/v/VcmWKlhDfoc?version=3
+  - Details: mime=application/x-shockwave-flash, size=640x390, confidence=1.0
+- image / media_thumbnail / good
+  - Item: https://www.youtube.com/watch?v=VcmWKlhDfoc
+  - Title: Welcoming AI as a New Colleague: How Should We Evaluate AI for Science?
+  - Asset: https://i3.ytimg.com/vi/VcmWKlhDfoc/hqdefault.jpg
+  - Details: size=480x360, confidence=0.95
+- document / media_content / good
+  - Item: https://www.youtube.com/watch?v=UQVX0iq67mo
+  - Title: Introducing MolmoBot | Sim-to-real zero shot transfer for robotics
+  - Asset: https://www.youtube.com/v/UQVX0iq67mo?version=3
+  - Details: mime=application/x-shockwave-flash, size=640x390, confidence=1.0
+- image / media_thumbnail / good
+  - Item: https://www.youtube.com/watch?v=UQVX0iq67mo
+  - Title: Introducing MolmoBot | Sim-to-real zero shot transfer for robotics
+  - Asset: https://i2.ytimg.com/vi/UQVX0iq67mo/hqdefault.jpg
+  - Details: size=480x360, confidence=0.95
+- document / media_content / good
+  - Item: https://www.youtube.com/watch?v=jiOhISED5ik
+  - Title: Towards Generalist Agents for Accelerating Scientific Discovery171
+  - Asset: https://www.youtube.com/v/jiOhISED5ik?version=3
+  - Details: mime=application/x-shockwave-flash, size=640x390, confidence=1.0
+- image / media_thumbnail / good
+  - Item: https://www.youtube.com/watch?v=jiOhISED5ik
+  - Title: Towards Generalist Agents for Accelerating Scientific Discovery171
+  - Asset: https://i3.ytimg.com/vi/jiOhISED5ik/hqdefault.jpg
+  - Details: size=480x360, confidence=0.95
+- document / media_content / good
+  - Item: https://www.youtube.com/watch?v=_bY50NqTrSc
+  - Title: SPOKE: A massive biomedical knowledge graph for precision health and drug discovery
+  - Asset: https://www.youtube.com/v/_bY50NqTrSc?version=3
+  - Details: mime=application/x-shockwave-flash, size=640x390, confidence=1.0
+- image / media_thumbnail / good
+  - Item: https://www.youtube.com/watch?v=_bY50NqTrSc
+  - Title: SPOKE: A massive biomedical knowledge graph for precision health and drug discovery
+  - Asset: https://i4.ytimg.com/vi/_bY50NqTrSc/hqdefault.jpg
+  - Details: size=480x360, confidence=0.95
+- document / media_content / good
+  - Item: https://www.youtube.com/watch?v=_Jbwn2ajoZQ
+  - Title: Automated Scientific Discovery of Mind and Behavior
+  - Asset: https://www.youtube.com/v/_Jbwn2ajoZQ?version=3
+  - Details: mime=application/x-shockwave-flash, size=640x390, confidence=1.0
+- image / media_thumbnail / good
+  - Item: https://www.youtube.com/watch?v=_Jbwn2ajoZQ
+  - Title: Automated Scientific Discovery of Mind and Behavior
+  - Asset: https://i4.ytimg.com/vi/_Jbwn2ajoZQ/hqdefault.jpg
+  - Details: size=480x360, confidence=0.95
+
+### Expert System AI
+- None extracted.
+
+### AWS Machine Learning Blog
+- image / inline_img / good
+  - Item: https://aws.amazon.com/blogs/machine-learning/how-amazon-bedrock-catches-ai-generated-phishing
+  - Title: How Amazon Bedrock catches AI-generated phishing
+  - Asset: https://d2908q01vomqb2.cloudfront.net/f1f836cb4ea6efb2a0b1b99f41ad8b103eff4b59/2026/06/22/ML-19725-1-2.png
+  - Details: confidence=0.7
+- image / inline_img / good
+  - Item: https://aws.amazon.com/blogs/machine-learning/how-amazon-bedrock-catches-ai-generated-phishing
+  - Title: How Amazon Bedrock catches AI-generated phishing
+  - Asset: https://d2908q01vomqb2.cloudfront.net/f1f836cb4ea6efb2a0b1b99f41ad8b103eff4b59/2026/06/22/ML-19725-2-2.png
+  - Details: confidence=0.7
+- image / inline_img / good
+  - Item: https://aws.amazon.com/blogs/machine-learning/how-amazon-bedrock-catches-ai-generated-phishing
+  - Title: How Amazon Bedrock catches AI-generated phishing
+  - Asset: https://d2908q01vomqb2.cloudfront.net/f1f836cb4ea6efb2a0b1b99f41ad8b103eff4b59/2026/06/22/ML-19725-3-2.png
+  - Details: confidence=0.7
+- image / inline_img / good
+  - Item: https://aws.amazon.com/blogs/machine-learning/how-amazon-bedrock-catches-ai-generated-phishing
+  - Title: How Amazon Bedrock catches AI-generated phishing
+  - Asset: https://d2908q01vomqb2.cloudfront.net/f1f836cb4ea6efb2a0b1b99f41ad8b103eff4b59/2026/06/22/ML-19725-4-1.png
+  - Details: confidence=0.7
+- image / inline_img / good
+  - Item: https://aws.amazon.com/blogs/machine-learning/best-practices-for-multi-turn-reinforcement-learning-in-amazon-sagemaker-ai
+  - Title: Best practices for multi-turn reinforcement learning in Amazon SageMaker AI
+  - Asset: https://d2908q01vomqb2.cloudfront.net/f1f836cb4ea6efb2a0b1b99f41ad8b103eff4b59/2026/06/29/ML-21260-1.jpg
+  - Details: confidence=0.7
+- image / inline_img / good
+  - Item: https://aws.amazon.com/blogs/machine-learning/best-practices-for-multi-turn-reinforcement-learning-in-amazon-sagemaker-ai
+  - Title: Best practices for multi-turn reinforcement learning in Amazon SageMaker AI
+  - Asset: https://d2908q01vomqb2.cloudfront.net/f1f836cb4ea6efb2a0b1b99f41ad8b103eff4b59/2026/06/29/ML-21260-2.jpg
+  - Details: confidence=0.7
+- image / inline_img / good
+  - Item: https://aws.amazon.com/blogs/machine-learning/best-practices-for-multi-turn-reinforcement-learning-in-amazon-sagemaker-ai
+  - Title: Best practices for multi-turn reinforcement learning in Amazon SageMaker AI
+  - Asset: https://d2908q01vomqb2.cloudfront.net/f1f836cb4ea6efb2a0b1b99f41ad8b103eff4b59/2026/06/29/ML-21260-3.jpg
+  - Details: confidence=0.7
+- image / inline_img / good
+  - Item: https://aws.amazon.com/blogs/machine-learning/best-practices-for-multi-turn-reinforcement-learning-in-amazon-sagemaker-ai
+  - Title: Best practices for multi-turn reinforcement learning in Amazon SageMaker AI
+  - Asset: https://d2908q01vomqb2.cloudfront.net/f1f836cb4ea6efb2a0b1b99f41ad8b103eff4b59/2026/06/29/ML-21260-4.jpg
+  - Details: confidence=0.7
+- image / inline_img / good
+  - Item: https://aws.amazon.com/blogs/machine-learning/best-practices-for-multi-turn-reinforcement-learning-in-amazon-sagemaker-ai
+  - Title: Best practices for multi-turn reinforcement learning in Amazon SageMaker AI
+  - Asset: https://d2908q01vomqb2.cloudfront.net/f1f836cb4ea6efb2a0b1b99f41ad8b103eff4b59/2026/06/29/ML-21260-5.jpeg
+  - Details: confidence=0.7
+- image / inline_img / good
+  - Item: https://aws.amazon.com/blogs/machine-learning/best-practices-for-multi-turn-reinforcement-learning-in-amazon-sagemaker-ai
+  - Title: Best practices for multi-turn reinforcement learning in Amazon SageMaker AI
+  - Asset: https://d2908q01vomqb2.cloudfront.net/f1f836cb4ea6efb2a0b1b99f41ad8b103eff4b59/2026/06/29/ML-21260-6.jpeg
+  - Details: confidence=0.7
+- image / inline_img / good
+  - Item: https://aws.amazon.com/blogs/machine-learning/run-nvidia-nemotron-and-openai-gpt-oss-models-on-amazon-bedrock-in-aws-govcloud-us
+  - Title: Run NVIDIA Nemotron and OpenAI GPT OSS models on Amazon Bedrock in AWS GovCloud (US)
+  - Asset: https://d2908q01vomqb2.cloudfront.net/f1f836cb4ea6efb2a0b1b99f41ad8b103eff4b59/2026/07/01/ML-21215-1.jpg
+  - Details: confidence=0.7
+- image / inline_img / good
+  - Item: https://aws.amazon.com/blogs/machine-learning/run-nvidia-nemotron-and-openai-gpt-oss-models-on-amazon-bedrock-in-aws-govcloud-us
+  - Title: Run NVIDIA Nemotron and OpenAI GPT OSS models on Amazon Bedrock in AWS GovCloud (US)
+  - Asset: https://d2908q01vomqb2.cloudfront.net/f1f836cb4ea6efb2a0b1b99f41ad8b103eff4b59/2026/07/01/ML-21215-2.jpg
+  - Details: confidence=0.7
+- image / inline_img / good
+  - Item: https://aws.amazon.com/blogs/machine-learning/run-nvidia-nemotron-and-openai-gpt-oss-models-on-amazon-bedrock-in-aws-govcloud-us
+  - Title: Run NVIDIA Nemotron and OpenAI GPT OSS models on Amazon Bedrock in AWS GovCloud (US)
+  - Asset: https://d2908q01vomqb2.cloudfront.net/f1f836cb4ea6efb2a0b1b99f41ad8b103eff4b59/2026/07/01/ML-21215-3.png
+  - Details: confidence=0.7
+- image / inline_img / good
+  - Item: https://aws.amazon.com/blogs/machine-learning/building-a-serverless-a2a-gateway-for-agent-discovery-routing-and-access-control
+  - Title: Building a serverless A2A gateway for agent discovery, routing, and access control
+  - Asset: https://d2908q01vomqb2.cloudfront.net/f1f836cb4ea6efb2a0b1b99f41ad8b103eff4b59/2026/06/22/ML-20635-1.png
+  - Details: confidence=0.7
+- image / inline_img / good
+  - Item: https://aws.amazon.com/blogs/machine-learning/building-a-serverless-a2a-gateway-for-agent-discovery-routing-and-access-control
+  - Title: Building a serverless A2A gateway for agent discovery, routing, and access control
+  - Asset: https://d2908q01vomqb2.cloudfront.net/f1f836cb4ea6efb2a0b1b99f41ad8b103eff4b59/2026/06/22/ML-20635-2.jpeg
+  - Details: confidence=0.7
+- image / inline_img / good
+  - Item: https://aws.amazon.com/blogs/machine-learning/building-a-serverless-a2a-gateway-for-agent-discovery-routing-and-access-control
+  - Title: Building a serverless A2A gateway for agent discovery, routing, and access control
+  - Asset: https://d2908q01vomqb2.cloudfront.net/f1f836cb4ea6efb2a0b1b99f41ad8b103eff4b59/2026/06/22/ML-20635-3.jpg
+  - Details: confidence=0.7
+- image / inline_img / good
+  - Item: https://aws.amazon.com/blogs/machine-learning/building-a-serverless-a2a-gateway-for-agent-discovery-routing-and-access-control
+  - Title: Building a serverless A2A gateway for agent discovery, routing, and access control
+  - Asset: https://d2908q01vomqb2.cloudfront.net/f1f836cb4ea6efb2a0b1b99f41ad8b103eff4b59/2026/06/22/ML-20635-4.jpg
+  - Details: confidence=0.7
+- image / inline_img / good
+  - Item: https://aws.amazon.com/blogs/machine-learning/structured-memory-filtering-with-metadata-in-agentcore-memory
+  - Title: Structured memory filtering with metadata in AgentCore Memory
+  - Asset: https://d2908q01vomqb2.cloudfront.net/f1f836cb4ea6efb2a0b1b99f41ad8b103eff4b59/2026/06/19/ML-20840-1.png
+  - Details: confidence=0.7
+- image / inline_img / good
+  - Item: https://aws.amazon.com/blogs/machine-learning/structured-memory-filtering-with-metadata-in-agentcore-memory
+  - Title: Structured memory filtering with metadata in AgentCore Memory
+  - Asset: https://d2908q01vomqb2.cloudfront.net/f1f836cb4ea6efb2a0b1b99f41ad8b103eff4b59/2026/06/25/ml-20840-3phase.png
+  - Details: confidence=0.7
+- image / inline_img / good
+  - Item: https://aws.amazon.com/blogs/machine-learning/structured-memory-filtering-with-metadata-in-agentcore-memory
+  - Title: Structured memory filtering with metadata in AgentCore Memory
+  - Asset: https://d2908q01vomqb2.cloudfront.net/f1f836cb4ea6efb2a0b1b99f41ad8b103eff4b59/2026/06/30/image5_v2.png
+  - Details: confidence=0.7
+- image / inline_img / good
+  - Item: https://aws.amazon.com/blogs/machine-learning/structured-memory-filtering-with-metadata-in-agentcore-memory
+  - Title: Structured memory filtering with metadata in AgentCore Memory
+  - Asset: https://d2908q01vomqb2.cloudfront.net/f1f836cb4ea6efb2a0b1b99f41ad8b103eff4b59/2026/06/19/ML-20840-3.png
+  - Details: confidence=0.7
+- image / inline_img / good
+  - Item: https://aws.amazon.com/blogs/machine-learning/structured-memory-filtering-with-metadata-in-agentcore-memory
+  - Title: Structured memory filtering with metadata in AgentCore Memory
+  - Asset: https://d2908q01vomqb2.cloudfront.net/f1f836cb4ea6efb2a0b1b99f41ad8b103eff4b59/2026/03/10/ML20076-image-9-100x133.jpeg
+  - Details: confidence=0.7
+- image / inline_img / good
+  - Item: https://aws.amazon.com/blogs/machine-learning/structured-memory-filtering-with-metadata-in-agentcore-memory
+  - Title: Structured memory filtering with metadata in AgentCore Memory
+  - Asset: https://d2908q01vomqb2.cloudfront.net/f1f836cb4ea6efb2a0b1b99f41ad8b103eff4b59/2026/06/19/ML-20840-4.jpg
+  - Details: confidence=0.7
+- image / inline_img / good
+  - Item: https://aws.amazon.com/blogs/machine-learning/structured-memory-filtering-with-metadata-in-agentcore-memory
+  - Title: Structured memory filtering with metadata in AgentCore Memory
+  - Asset: https://d2908q01vomqb2.cloudfront.net/f1f836cb4ea6efb2a0b1b99f41ad8b103eff4b59/2026/06/19/ML-20840-5.jpg
+  - Details: confidence=0.7
+- image / inline_img / good
+  - Item: https://aws.amazon.com/blogs/machine-learning/hipporag-neurobiologically-inspired-rag-using-amazon-bedrock-amazon-neptune-and-personalized-pagerank
+  - Title: HippoRAG: Neurobiologically inspired RAG using Amazon Bedrock, Amazon Neptune, and personalized PageRank
+  - Asset: https://d2908q01vomqb2.cloudfront.net/f1f836cb4ea6efb2a0b1b99f41ad8b103eff4b59/2026/06/23/ML-19373-1.png
+  - Details: confidence=0.7
+- image / inline_img / good
+  - Item: https://aws.amazon.com/blogs/machine-learning/hipporag-neurobiologically-inspired-rag-using-amazon-bedrock-amazon-neptune-and-personalized-pagerank
+  - Title: HippoRAG: Neurobiologically inspired RAG using Amazon Bedrock, Amazon Neptune, and personalized PageRank
+  - Asset: https://d2908q01vomqb2.cloudfront.net/f1f836cb4ea6efb2a0b1b99f41ad8b103eff4b59/2026/06/23/ML-19373-2.jpeg
+  - Details: confidence=0.7
+- image / inline_img / good
+  - Item: https://aws.amazon.com/blogs/machine-learning/hipporag-neurobiologically-inspired-rag-using-amazon-bedrock-amazon-neptune-and-personalized-pagerank
+  - Title: HippoRAG: Neurobiologically inspired RAG using Amazon Bedrock, Amazon Neptune, and personalized PageRank
+  - Asset: https://d2908q01vomqb2.cloudfront.net/f1f836cb4ea6efb2a0b1b99f41ad8b103eff4b59/2026/06/23/ML-19373-3.jpg
+  - Details: confidence=0.7
+- image / inline_img / good
+  - Item: https://aws.amazon.com/blogs/machine-learning/hipporag-neurobiologically-inspired-rag-using-amazon-bedrock-amazon-neptune-and-personalized-pagerank
+  - Title: HippoRAG: Neurobiologically inspired RAG using Amazon Bedrock, Amazon Neptune, and personalized PageRank
+  - Asset: https://d2908q01vomqb2.cloudfront.net/f1f836cb4ea6efb2a0b1b99f41ad8b103eff4b59/2026/06/23/ML-19373-4.png
+  - Details: confidence=0.7
+- image / inline_img / good
+  - Item: https://aws.amazon.com/blogs/machine-learning/how-inscribe-uses-amazon-bedrock-to-stop-document-fraud-in-seconds
+  - Title: How Inscribe uses Amazon Bedrock to stop document fraud in seconds
+  - Asset: https://d2908q01vomqb2.cloudfront.net/f1f836cb4ea6efb2a0b1b99f41ad8b103eff4b59/2026/06/23/ML-19301-1.png
+  - Details: confidence=0.7
+- image / inline_img / good
+  - Item: https://aws.amazon.com/blogs/machine-learning/how-inscribe-uses-amazon-bedrock-to-stop-document-fraud-in-seconds
+  - Title: How Inscribe uses Amazon Bedrock to stop document fraud in seconds
+  - Asset: https://d2908q01vomqb2.cloudfront.net/f1f836cb4ea6efb2a0b1b99f41ad8b103eff4b59/2026/06/23/ML-19301-2.jpg
+  - Details: confidence=0.7
+- image / inline_img / good
+  - Item: https://aws.amazon.com/blogs/machine-learning/how-inscribe-uses-amazon-bedrock-to-stop-document-fraud-in-seconds
+  - Title: How Inscribe uses Amazon Bedrock to stop document fraud in seconds
+  - Asset: https://d2908q01vomqb2.cloudfront.net/f1f836cb4ea6efb2a0b1b99f41ad8b103eff4b59/2026/06/23/ML-19301-3.jpg
+  - Details: confidence=0.7
+- image / inline_img / good
+  - Item: https://aws.amazon.com/blogs/machine-learning/how-inscribe-uses-amazon-bedrock-to-stop-document-fraud-in-seconds
+  - Title: How Inscribe uses Amazon Bedrock to stop document fraud in seconds
+  - Asset: https://d2908q01vomqb2.cloudfront.net/f1f836cb4ea6efb2a0b1b99f41ad8b103eff4b59/2026/06/23/ML-19301-4.jpg
+  - Details: confidence=0.7
+- image / inline_img / good
+  - Item: https://aws.amazon.com/blogs/machine-learning/simplify-model-selection-in-amazon-bedrock-with-the-open-source-model-profiler
+  - Title: Simplify model selection in Amazon Bedrock with the open source Model Profiler
+  - Asset: https://d2908q01vomqb2.cloudfront.net/f1f836cb4ea6efb2a0b1b99f41ad8b103eff4b59/2026/06/23/ML-20648-1.png
+  - Details: confidence=0.7
+- image / inline_img / good
+  - Item: https://aws.amazon.com/blogs/machine-learning/simplify-model-selection-in-amazon-bedrock-with-the-open-source-model-profiler
+  - Title: Simplify model selection in Amazon Bedrock with the open source Model Profiler
+  - Asset: https://d2908q01vomqb2.cloudfront.net/f1f836cb4ea6efb2a0b1b99f41ad8b103eff4b59/2026/06/23/ML-20648-2.png
+  - Details: confidence=0.7
+- image / inline_img / good
+  - Item: https://aws.amazon.com/blogs/machine-learning/simplify-model-selection-in-amazon-bedrock-with-the-open-source-model-profiler
+  - Title: Simplify model selection in Amazon Bedrock with the open source Model Profiler
+  - Asset: https://d2908q01vomqb2.cloudfront.net/f1f836cb4ea6efb2a0b1b99f41ad8b103eff4b59/2026/06/23/ML-20648-3.png
+  - Details: confidence=0.7
+- image / inline_img / good
+  - Item: https://aws.amazon.com/blogs/machine-learning/simplify-model-selection-in-amazon-bedrock-with-the-open-source-model-profiler
+  - Title: Simplify model selection in Amazon Bedrock with the open source Model Profiler
+  - Asset: https://d2908q01vomqb2.cloudfront.net/f1f836cb4ea6efb2a0b1b99f41ad8b103eff4b59/2026/06/23/ML-20648-4.png
+  - Details: confidence=0.7
+- image / inline_img / good
+  - Item: https://aws.amazon.com/blogs/machine-learning/simplify-model-selection-in-amazon-bedrock-with-the-open-source-model-profiler
+  - Title: Simplify model selection in Amazon Bedrock with the open source Model Profiler
+  - Asset: https://d2908q01vomqb2.cloudfront.net/f1f836cb4ea6efb2a0b1b99f41ad8b103eff4b59/2026/06/23/ML-20648-5.png
+  - Details: confidence=0.7
+- image / inline_img / good
+  - Item: https://aws.amazon.com/blogs/machine-learning/simplify-model-selection-in-amazon-bedrock-with-the-open-source-model-profiler
+  - Title: Simplify model selection in Amazon Bedrock with the open source Model Profiler
+  - Asset: https://d2908q01vomqb2.cloudfront.net/f1f836cb4ea6efb2a0b1b99f41ad8b103eff4b59/2026/06/23/ML-20648-6.png
+  - Details: confidence=0.7
+- image / inline_img / good
+  - Item: https://aws.amazon.com/blogs/machine-learning/simplify-model-selection-in-amazon-bedrock-with-the-open-source-model-profiler
+  - Title: Simplify model selection in Amazon Bedrock with the open source Model Profiler
+  - Asset: https://d2908q01vomqb2.cloudfront.net/f1f836cb4ea6efb2a0b1b99f41ad8b103eff4b59/2026/06/23/ML-20648-7.jpeg
+  - Details: confidence=0.7
+- image / inline_img / good
+  - Item: https://aws.amazon.com/blogs/machine-learning/simplify-model-selection-in-amazon-bedrock-with-the-open-source-model-profiler
+  - Title: Simplify model selection in Amazon Bedrock with the open source Model Profiler
+  - Asset: https://d2908q01vomqb2.cloudfront.net/f1f836cb4ea6efb2a0b1b99f41ad8b103eff4b59/2026/06/23/ML-20648-8.png
+  - Details: confidence=0.7
+- image / inline_img / good
+  - Item: https://aws.amazon.com/blogs/machine-learning/simplify-model-selection-in-amazon-bedrock-with-the-open-source-model-profiler
+  - Title: Simplify model selection in Amazon Bedrock with the open source Model Profiler
+  - Asset: https://d2908q01vomqb2.cloudfront.net/f1f836cb4ea6efb2a0b1b99f41ad8b103eff4b59/2026/06/23/ML-20648-9.jpeg
+  - Details: confidence=0.7
+- image / inline_img / good
+  - Item: https://aws.amazon.com/blogs/machine-learning/accelerate-protein-design-with-boltzgen-on-amazon-sagemaker-ai
+  - Title: Accelerate protein design with BoltzGen on Amazon SageMaker AI
+  - Asset: https://d2908q01vomqb2.cloudfront.net/f1f836cb4ea6efb2a0b1b99f41ad8b103eff4b59/2026/06/17/ML-20375-1.png
+  - Details: confidence=0.7
+- image / inline_img / good
+  - Item: https://aws.amazon.com/blogs/machine-learning/accelerate-protein-design-with-boltzgen-on-amazon-sagemaker-ai
+  - Title: Accelerate protein design with BoltzGen on Amazon SageMaker AI
+  - Asset: https://d2908q01vomqb2.cloudfront.net/f1f836cb4ea6efb2a0b1b99f41ad8b103eff4b59/2026/06/17/ML-20375-2.png
+  - Details: confidence=0.7
+- image / inline_img / good
+  - Item: https://aws.amazon.com/blogs/machine-learning/accelerate-protein-design-with-boltzgen-on-amazon-sagemaker-ai
+  - Title: Accelerate protein design with BoltzGen on Amazon SageMaker AI
+  - Asset: https://d2908q01vomqb2.cloudfront.net/f1f836cb4ea6efb2a0b1b99f41ad8b103eff4b59/2026/06/17/ML-20375-3.jpeg
+  - Details: confidence=0.7
+- image / inline_img / good
+  - Item: https://aws.amazon.com/blogs/machine-learning/accelerate-protein-design-with-boltzgen-on-amazon-sagemaker-ai
+  - Title: Accelerate protein design with BoltzGen on Amazon SageMaker AI
+  - Asset: https://d2908q01vomqb2.cloudfront.net/f1f836cb4ea6efb2a0b1b99f41ad8b103eff4b59/2026/06/17/ML-20375-4.jpeg
+  - Details: confidence=0.7
+- image / inline_img / good
+  - Item: https://aws.amazon.com/blogs/machine-learning/accelerate-protein-design-with-boltzgen-on-amazon-sagemaker-ai
+  - Title: Accelerate protein design with BoltzGen on Amazon SageMaker AI
+  - Asset: https://d2908q01vomqb2.cloudfront.net/f1f836cb4ea6efb2a0b1b99f41ad8b103eff4b59/2026/06/17/ML-20375-5.jpeg
+  - Details: confidence=0.7
+- image / inline_img / good
+  - Item: https://aws.amazon.com/blogs/machine-learning/safely-releasing-frontier-models-to-customers
+  - Title: Safely Releasing Frontier Models to Customers
+  - Asset: https://d2908q01vomqb2.cloudfront.net/f1f836cb4ea6efb2a0b1b99f41ad8b103eff4b59/2026/06/20/Amy-Herzog-Headshot-e1775513682742-225x300-1-100x133.jpg
+  - Details: confidence=0.7
+- image / inline_img / good
+  - Item: https://aws.amazon.com/blogs/machine-learning/introducing-claude-sonnet-5-on-aws-anthropics-most-capable-sonnet-model
+  - Title: Introducing Claude Sonnet 5 on AWS: Anthropic’s most capable Sonnet model
+  - Asset: https://d2908q01vomqb2.cloudfront.net/f1f836cb4ea6efb2a0b1b99f41ad8b103eff4b59/2026/06/25/ML-21192-1.jpg
+  - Details: confidence=0.7
+- image / inline_img / good
+  - Item: https://aws.amazon.com/blogs/machine-learning/introducing-claude-sonnet-5-on-aws-anthropics-most-capable-sonnet-model
+  - Title: Introducing Claude Sonnet 5 on AWS: Anthropic’s most capable Sonnet model
+  - Asset: https://d2908q01vomqb2.cloudfront.net/f1f836cb4ea6efb2a0b1b99f41ad8b103eff4b59/2026/06/25/ML-21192-2.jpg
+  - Details: confidence=0.7
+- image / inline_img / good
+  - Item: https://aws.amazon.com/blogs/machine-learning/introducing-claude-sonnet-5-on-aws-anthropics-most-capable-sonnet-model
+  - Title: Introducing Claude Sonnet 5 on AWS: Anthropic’s most capable Sonnet model
+  - Asset: https://d2908q01vomqb2.cloudfront.net/f1f836cb4ea6efb2a0b1b99f41ad8b103eff4b59/2026/06/25/ML-21192-3.png
+  - Details: confidence=0.7
+- image / inline_img / good
+  - Item: https://aws.amazon.com/blogs/machine-learning/introducing-claude-sonnet-5-on-aws-anthropics-most-capable-sonnet-model
+  - Title: Introducing Claude Sonnet 5 on AWS: Anthropic’s most capable Sonnet model
+  - Asset: https://d2908q01vomqb2.cloudfront.net/f1f836cb4ea6efb2a0b1b99f41ad8b103eff4b59/2026/06/25/ML-21192-4.png
+  - Details: confidence=0.7
+- image / inline_img / good
+  - Item: https://aws.amazon.com/blogs/machine-learning/introducing-claude-sonnet-5-on-aws-anthropics-most-capable-sonnet-model
+  - Title: Introducing Claude Sonnet 5 on AWS: Anthropic’s most capable Sonnet model
+  - Asset: https://d2908q01vomqb2.cloudfront.net/f1f836cb4ea6efb2a0b1b99f41ad8b103eff4b59/2026/06/25/ML-21192-5.png
+  - Details: confidence=0.7
+- image / inline_img / good
+  - Item: https://aws.amazon.com/blogs/machine-learning/introducing-claude-sonnet-5-on-aws-anthropics-most-capable-sonnet-model
+  - Title: Introducing Claude Sonnet 5 on AWS: Anthropic’s most capable Sonnet model
+  - Asset: https://d2908q01vomqb2.cloudfront.net/f1f836cb4ea6efb2a0b1b99f41ad8b103eff4b59/2026/06/25/ML-21192-6.png
+  - Details: confidence=0.7
+- image / inline_img / good
+  - Item: https://aws.amazon.com/blogs/machine-learning/introducing-claude-sonnet-5-on-aws-anthropics-most-capable-sonnet-model
+  - Title: Introducing Claude Sonnet 5 on AWS: Anthropic’s most capable Sonnet model
+  - Asset: https://d2908q01vomqb2.cloudfront.net/f1f836cb4ea6efb2a0b1b99f41ad8b103eff4b59/2026/06/25/ML-21192-7.png
+  - Details: confidence=0.7
+- image / inline_img / good
+  - Item: https://aws.amazon.com/blogs/machine-learning/introducing-claude-sonnet-5-on-aws-anthropics-most-capable-sonnet-model
+  - Title: Introducing Claude Sonnet 5 on AWS: Anthropic’s most capable Sonnet model
+  - Asset: https://d2908q01vomqb2.cloudfront.net/f1f836cb4ea6efb2a0b1b99f41ad8b103eff4b59/2026/05/11/ml-20969-image-6.png
+  - Details: confidence=0.7
+- video / enclosure / good
+  - Item: https://aws.amazon.com/blogs/machine-learning/build-generative-ui-for-ai-agents-on-amazon-bedrock-agentcore-with-the-ag-ui-protocol
+  - Title: Build generative UI for AI agents on Amazon Bedrock AgentCore with the AG-UI protocol
+  - Asset: https://d2908q01vomqb2.cloudfront.net/artifacts/DBSBlogs/ML-20863/output_progressive.mp4
+  - Details: mime=video/mp4, confidence=0.9
+- image / inline_img / good
+  - Item: https://aws.amazon.com/blogs/machine-learning/build-generative-ui-for-ai-agents-on-amazon-bedrock-agentcore-with-the-ag-ui-protocol
+  - Title: Build generative UI for AI agents on Amazon Bedrock AgentCore with the AG-UI protocol
+  - Asset: https://d2908q01vomqb2.cloudfront.net/f1f836cb4ea6efb2a0b1b99f41ad8b103eff4b59/2026/06/25/ml-20863-img1.png
+  - Details: confidence=0.7
+- image / inline_img / good
+  - Item: https://aws.amazon.com/blogs/machine-learning/build-generative-ui-for-ai-agents-on-amazon-bedrock-agentcore-with-the-ag-ui-protocol
+  - Title: Build generative UI for AI agents on Amazon Bedrock AgentCore with the AG-UI protocol
+  - Asset: https://d2908q01vomqb2.cloudfront.net/f1f836cb4ea6efb2a0b1b99f41ad8b103eff4b59/2026/06/25/ml-20863-img2-2.png
+  - Details: confidence=0.7
+- image / inline_img / good
+  - Item: https://aws.amazon.com/blogs/machine-learning/build-generative-ui-for-ai-agents-on-amazon-bedrock-agentcore-with-the-ag-ui-protocol
+  - Title: Build generative UI for AI agents on Amazon Bedrock AgentCore with the AG-UI protocol
+  - Asset: https://d2908q01vomqb2.cloudfront.net/f1f836cb4ea6efb2a0b1b99f41ad8b103eff4b59/2026/06/23/ML-20863-4.png
+  - Details: confidence=0.7
+- image / inline_img / good
+  - Item: https://aws.amazon.com/blogs/machine-learning/build-generative-ui-for-ai-agents-on-amazon-bedrock-agentcore-with-the-ag-ui-protocol
+  - Title: Build generative UI for AI agents on Amazon Bedrock AgentCore with the AG-UI protocol
+  - Asset: https://d2908q01vomqb2.cloudfront.net/f1f836cb4ea6efb2a0b1b99f41ad8b103eff4b59/2026/06/23/ML-20863-5.png
+  - Details: confidence=0.7
+- image / inline_img / good
+  - Item: https://aws.amazon.com/blogs/machine-learning/build-generative-ui-for-ai-agents-on-amazon-bedrock-agentcore-with-the-ag-ui-protocol
+  - Title: Build generative UI for AI agents on Amazon Bedrock AgentCore with the AG-UI protocol
+  - Asset: https://d2908q01vomqb2.cloudfront.net/f1f836cb4ea6efb2a0b1b99f41ad8b103eff4b59/2026/06/23/ML-20863-6.png
+  - Details: confidence=0.7
+- image / inline_img / good
+  - Item: https://aws.amazon.com/blogs/machine-learning/build-generative-ui-for-ai-agents-on-amazon-bedrock-agentcore-with-the-ag-ui-protocol
+  - Title: Build generative UI for AI agents on Amazon Bedrock AgentCore with the AG-UI protocol
+  - Asset: https://d2908q01vomqb2.cloudfront.net/f1f836cb4ea6efb2a0b1b99f41ad8b103eff4b59/2026/06/23/ML-20863-7.png
+  - Details: confidence=0.7
+- image / inline_img / good
+  - Item: https://aws.amazon.com/blogs/machine-learning/build-generative-ui-for-ai-agents-on-amazon-bedrock-agentcore-with-the-ag-ui-protocol
+  - Title: Build generative UI for AI agents on Amazon Bedrock AgentCore with the AG-UI protocol
+  - Asset: https://d2908q01vomqb2.cloudfront.net/f1f836cb4ea6efb2a0b1b99f41ad8b103eff4b59/2026/06/23/ML-20863-8.png
+  - Details: confidence=0.7
+- image / inline_img / good
+  - Item: https://aws.amazon.com/blogs/machine-learning/simplify-multi-account-access-to-amazon-bedrock-models-with-managed-entitlements
+  - Title: Simplify multi-account access to Amazon Bedrock models with managed entitlements
+  - Asset: https://d2908q01vomqb2.cloudfront.net/f1f836cb4ea6efb2a0b1b99f41ad8b103eff4b59/2026/06/18/ML-20435-1.png
+  - Details: confidence=0.7
+- image / inline_img / good
+  - Item: https://aws.amazon.com/blogs/machine-learning/simplify-multi-account-access-to-amazon-bedrock-models-with-managed-entitlements
+  - Title: Simplify multi-account access to Amazon Bedrock models with managed entitlements
+  - Asset: https://d2908q01vomqb2.cloudfront.net/f1f836cb4ea6efb2a0b1b99f41ad8b103eff4b59/2026/06/18/ML-20435-2.png
+  - Details: confidence=0.7
+- image / inline_img / good
+  - Item: https://aws.amazon.com/blogs/machine-learning/simplify-multi-account-access-to-amazon-bedrock-models-with-managed-entitlements
+  - Title: Simplify multi-account access to Amazon Bedrock models with managed entitlements
+  - Asset: https://d2908q01vomqb2.cloudfront.net/f1f836cb4ea6efb2a0b1b99f41ad8b103eff4b59/2026/06/18/ML-20435-3.png
+  - Details: confidence=0.7
+- image / inline_img / good
+  - Item: https://aws.amazon.com/blogs/machine-learning/implementing-resilience-patterns-with-amazon-bedrock-and-llm-gateway
+  - Title: Implementing resilience patterns with Amazon Bedrock and LLM gateway
+  - Asset: https://d2908q01vomqb2.cloudfront.net/f1f836cb4ea6efb2a0b1b99f41ad8b103eff4b59/2026/06/23/ML-19331-1.png
+  - Details: confidence=0.7
+- image / inline_img / good
+  - Item: https://aws.amazon.com/blogs/machine-learning/implementing-resilience-patterns-with-amazon-bedrock-and-llm-gateway
+  - Title: Implementing resilience patterns with Amazon Bedrock and LLM gateway
+  - Asset: https://d2908q01vomqb2.cloudfront.net/f1f836cb4ea6efb2a0b1b99f41ad8b103eff4b59/2026/06/23/ML-19331-2.png
+  - Details: confidence=0.7
+- image / inline_img / good
+  - Item: https://aws.amazon.com/blogs/machine-learning/implementing-resilience-patterns-with-amazon-bedrock-and-llm-gateway
+  - Title: Implementing resilience patterns with Amazon Bedrock and LLM gateway
+  - Asset: https://d2908q01vomqb2.cloudfront.net/f1f836cb4ea6efb2a0b1b99f41ad8b103eff4b59/2026/06/23/ML-19331-3.png
+  - Details: confidence=0.7
+- image / inline_img / good
+  - Item: https://aws.amazon.com/blogs/machine-learning/implementing-resilience-patterns-with-amazon-bedrock-and-llm-gateway
+  - Title: Implementing resilience patterns with Amazon Bedrock and LLM gateway
+  - Asset: https://d2908q01vomqb2.cloudfront.net/f1f836cb4ea6efb2a0b1b99f41ad8b103eff4b59/2026/06/23/ML-19331-4.png
+  - Details: confidence=0.7
+- image / inline_img / good
+  - Item: https://aws.amazon.com/blogs/machine-learning/implementing-resilience-patterns-with-amazon-bedrock-and-llm-gateway
+  - Title: Implementing resilience patterns with Amazon Bedrock and LLM gateway
+  - Asset: https://d2908q01vomqb2.cloudfront.net/f1f836cb4ea6efb2a0b1b99f41ad8b103eff4b59/2026/06/23/ML-19331-5.png
+  - Details: confidence=0.7
+- image / inline_img / good
+  - Item: https://aws.amazon.com/blogs/machine-learning/implementing-resilience-patterns-with-amazon-bedrock-and-llm-gateway
+  - Title: Implementing resilience patterns with Amazon Bedrock and LLM gateway
+  - Asset: https://d2908q01vomqb2.cloudfront.net/f1f836cb4ea6efb2a0b1b99f41ad8b103eff4b59/2026/06/23/ML-19331-6.png
+  - Details: confidence=0.7
+- image / inline_img / good
+  - Item: https://aws.amazon.com/blogs/machine-learning/implementing-resilience-patterns-with-amazon-bedrock-and-llm-gateway
+  - Title: Implementing resilience patterns with Amazon Bedrock and LLM gateway
+  - Asset: https://d2908q01vomqb2.cloudfront.net/f1f836cb4ea6efb2a0b1b99f41ad8b103eff4b59/2026/06/23/ML-19331-7.png
+  - Details: confidence=0.7
+- image / inline_img / good
+  - Item: https://aws.amazon.com/blogs/machine-learning/implementing-resilience-patterns-with-amazon-bedrock-and-llm-gateway
+  - Title: Implementing resilience patterns with Amazon Bedrock and LLM gateway
+  - Asset: https://d2908q01vomqb2.cloudfront.net/f1f836cb4ea6efb2a0b1b99f41ad8b103eff4b59/2026/06/23/ML-19331-8.png
+  - Details: confidence=0.7
+- image / inline_img / good
+  - Item: https://aws.amazon.com/blogs/machine-learning/implementing-resilience-patterns-with-amazon-bedrock-and-llm-gateway
+  - Title: Implementing resilience patterns with Amazon Bedrock and LLM gateway
+  - Asset: https://d2908q01vomqb2.cloudfront.net/f1f836cb4ea6efb2a0b1b99f41ad8b103eff4b59/2026/06/23/ML-19331-9.jpeg
+  - Details: confidence=0.7
+- image / inline_img / good
+  - Item: https://aws.amazon.com/blogs/machine-learning/implementing-resilience-patterns-with-amazon-bedrock-and-llm-gateway
+  - Title: Implementing resilience patterns with Amazon Bedrock and LLM gateway
+  - Asset: https://d2908q01vomqb2.cloudfront.net/f1f836cb4ea6efb2a0b1b99f41ad8b103eff4b59/2026/06/23/ML-19331-10.jpeg
+  - Details: confidence=0.7
+- image / inline_img / good
+  - Item: https://aws.amazon.com/blogs/machine-learning/implementing-resilience-patterns-with-amazon-bedrock-and-llm-gateway
+  - Title: Implementing resilience patterns with Amazon Bedrock and LLM gateway
+  - Asset: https://d2908q01vomqb2.cloudfront.net/f1f836cb4ea6efb2a0b1b99f41ad8b103eff4b59/2026/06/23/ML-19331-11.png
+  - Details: confidence=0.7
+- image / inline_img / good
+  - Item: https://aws.amazon.com/blogs/machine-learning/how-outpost-vfx-uses-aws-to-accelerate-ai-model-training-for-visual-effects
+  - Title: How Outpost VFX Uses AWS to Accelerate AI Model Training for Visual Effects
+  - Asset: https://d2908q01vomqb2.cloudfront.net/f1f836cb4ea6efb2a0b1b99f41ad8b103eff4b59/2026/05/26/image-ML-20295-1.png
+  - Details: confidence=0.7
+- image / inline_img / good
+  - Item: https://aws.amazon.com/blogs/machine-learning/how-outpost-vfx-uses-aws-to-accelerate-ai-model-training-for-visual-effects
+  - Title: How Outpost VFX Uses AWS to Accelerate AI Model Training for Visual Effects
+  - Asset: https://d2908q01vomqb2.cloudfront.net/f1f836cb4ea6efb2a0b1b99f41ad8b103eff4b59/2026/05/26/image-ML-20295-2.jpeg
+  - Details: confidence=0.7
+- image / inline_img / good
+  - Item: https://aws.amazon.com/blogs/machine-learning/how-outpost-vfx-uses-aws-to-accelerate-ai-model-training-for-visual-effects
+  - Title: How Outpost VFX Uses AWS to Accelerate AI Model Training for Visual Effects
+  - Asset: https://d2908q01vomqb2.cloudfront.net/f1f836cb4ea6efb2a0b1b99f41ad8b103eff4b59/2026/05/26/image-ML-20295-3.jpeg
+  - Details: confidence=0.7
+- image / inline_img / good
+  - Item: https://aws.amazon.com/blogs/machine-learning/how-outpost-vfx-uses-aws-to-accelerate-ai-model-training-for-visual-effects
+  - Title: How Outpost VFX Uses AWS to Accelerate AI Model Training for Visual Effects
+  - Asset: https://d2908q01vomqb2.cloudfront.net/f1f836cb4ea6efb2a0b1b99f41ad8b103eff4b59/2026/05/26/image-ML-20295-4.jpeg
+  - Details: confidence=0.7
+- image / inline_img / good
+  - Item: https://aws.amazon.com/blogs/machine-learning/how-outpost-vfx-uses-aws-to-accelerate-ai-model-training-for-visual-effects
+  - Title: How Outpost VFX Uses AWS to Accelerate AI Model Training for Visual Effects
+  - Asset: https://d2908q01vomqb2.cloudfront.net/f1f836cb4ea6efb2a0b1b99f41ad8b103eff4b59/2026/05/26/image-ML-20295-8.png
+  - Details: confidence=0.7
+- image / inline_img / good
+  - Item: https://aws.amazon.com/blogs/machine-learning/how-outpost-vfx-uses-aws-to-accelerate-ai-model-training-for-visual-effects
+  - Title: How Outpost VFX Uses AWS to Accelerate AI Model Training for Visual Effects
+  - Asset: https://d2908q01vomqb2.cloudfront.net/f1f836cb4ea6efb2a0b1b99f41ad8b103eff4b59/2026/05/26/image-ML-20295-9.jpeg
+  - Details: confidence=0.7
+- image / inline_img / good
+  - Item: https://aws.amazon.com/blogs/machine-learning/building-bilingual-ner-for-cargo-logistics-with-amazon-bedrock
+  - Title: Building bilingual NER for cargo logistics with Amazon Bedrock
+  - Asset: https://d2908q01vomqb2.cloudfront.net/f1f836cb4ea6efb2a0b1b99f41ad8b103eff4b59/2026/06/25/ML-20433-1.png
+  - Details: confidence=0.7
+- image / inline_img / good
+  - Item: https://aws.amazon.com/blogs/machine-learning/fine-tune-amazon-nova-models-for-accurate-email-data-extraction
+  - Title: Fine-tune Amazon Nova models for accurate email data extraction
+  - Asset: https://d2908q01vomqb2.cloudfront.net/f1f836cb4ea6efb2a0b1b99f41ad8b103eff4b59/2026/06/10/ML-20559-1.png
+  - Details: confidence=0.7
+- image / inline_img / good
+  - Item: https://aws.amazon.com/blogs/machine-learning/fine-tune-amazon-nova-models-for-accurate-email-data-extraction
+  - Title: Fine-tune Amazon Nova models for accurate email data extraction
+  - Asset: https://d2908q01vomqb2.cloudfront.net/f1f836cb4ea6efb2a0b1b99f41ad8b103eff4b59/2026/06/15/Le-Vy.png
+  - Details: confidence=0.7
+- image / inline_img / good
+  - Item: https://aws.amazon.com/blogs/machine-learning/fine-tune-amazon-nova-models-for-accurate-email-data-extraction
+  - Title: Fine-tune Amazon Nova models for accurate email data extraction
+  - Asset: https://d2908q01vomqb2.cloudfront.net/f1f836cb4ea6efb2a0b1b99f41ad8b103eff4b59/2026/06/10/ML-20559-2.jpg
+  - Details: confidence=0.7
+- image / inline_img / good
+  - Item: https://aws.amazon.com/blogs/machine-learning/fine-tune-amazon-nova-models-for-accurate-email-data-extraction
+  - Title: Fine-tune Amazon Nova models for accurate email data extraction
+  - Asset: https://d2908q01vomqb2.cloudfront.net/f1f836cb4ea6efb2a0b1b99f41ad8b103eff4b59/2026/06/15/Bill-Cai.jpg
+  - Details: confidence=0.7
+- image / inline_img / good
+  - Item: https://aws.amazon.com/blogs/machine-learning/fine-tune-amazon-nova-models-for-accurate-email-data-extraction
+  - Title: Fine-tune Amazon Nova models for accurate email data extraction
+  - Asset: https://d2908q01vomqb2.cloudfront.net/f1f836cb4ea6efb2a0b1b99f41ad8b103eff4b59/2025/07/02/yudho-full2.jpg
+  - Details: confidence=0.7
+- image / inline_img / good
+  - Item: https://aws.amazon.com/blogs/machine-learning/implement-a-backup-strategy-for-amazon-quick-sight-bi-assets
+  - Title: Implement a backup strategy for Amazon Quick Sight BI assets
+  - Asset: https://d2908q01vomqb2.cloudfront.net/f1f836cb4ea6efb2a0b1b99f41ad8b103eff4b59/2026/06/05/ML-20472-1.png
+  - Details: confidence=0.7
+- image / inline_img / good
+  - Item: https://aws.amazon.com/blogs/machine-learning/implement-a-backup-strategy-for-amazon-quick-sight-bi-assets
+  - Title: Implement a backup strategy for Amazon Quick Sight BI assets
+  - Asset: https://d2908q01vomqb2.cloudfront.net/f1f836cb4ea6efb2a0b1b99f41ad8b103eff4b59/2026/06/05/ML-20472-2.png
+  - Details: confidence=0.7
+- image / inline_img / good
+  - Item: https://aws.amazon.com/blogs/machine-learning/implement-a-backup-strategy-for-amazon-quick-sight-bi-assets
+  - Title: Implement a backup strategy for Amazon Quick Sight BI assets
+  - Asset: https://d2908q01vomqb2.cloudfront.net/f1f836cb4ea6efb2a0b1b99f41ad8b103eff4b59/2026/06/05/ML-20472-3.png
+  - Details: confidence=0.7
+- image / inline_img / good
+  - Item: https://aws.amazon.com/blogs/machine-learning/implement-a-backup-strategy-for-amazon-quick-sight-bi-assets
+  - Title: Implement a backup strategy for Amazon Quick Sight BI assets
+  - Asset: https://d2908q01vomqb2.cloudfront.net/f1f836cb4ea6efb2a0b1b99f41ad8b103eff4b59/2026/06/05/ML-20472-4.png
+  - Details: confidence=0.7
+- image / inline_img / good
+  - Item: https://aws.amazon.com/blogs/machine-learning/implement-a-backup-strategy-for-amazon-quick-sight-bi-assets
+  - Title: Implement a backup strategy for Amazon Quick Sight BI assets
+  - Asset: https://d2908q01vomqb2.cloudfront.net/f1f836cb4ea6efb2a0b1b99f41ad8b103eff4b59/2026/06/05/ML-20472-5.png
+  - Details: confidence=0.7
+- image / inline_img / good
+  - Item: https://aws.amazon.com/blogs/machine-learning/implement-a-backup-strategy-for-amazon-quick-sight-bi-assets
+  - Title: Implement a backup strategy for Amazon Quick Sight BI assets
+  - Asset: https://d2908q01vomqb2.cloudfront.net/f1f836cb4ea6efb2a0b1b99f41ad8b103eff4b59/2026/06/05/ML-20472-6.jpg
+  - Details: confidence=0.7
+- image / inline_img / good
+  - Item: https://aws.amazon.com/blogs/machine-learning/pair-nova-2-lite-with-claude-for-cost-optimized-document-processing
+  - Title: Pair Nova 2 Lite with Claude for cost-optimized document processing
+  - Asset: https://d2908q01vomqb2.cloudfront.net/f1f836cb4ea6efb2a0b1b99f41ad8b103eff4b59/2026/06/19/ML-20681-1.png
+  - Details: confidence=0.7
+- image / inline_img / good
+  - Item: https://aws.amazon.com/blogs/machine-learning/pair-nova-2-lite-with-claude-for-cost-optimized-document-processing
+  - Title: Pair Nova 2 Lite with Claude for cost-optimized document processing
+  - Asset: https://d2908q01vomqb2.cloudfront.net/f1f836cb4ea6efb2a0b1b99f41ad8b103eff4b59/2026/06/19/ML-20681-2.png
+  - Details: confidence=0.7
+- image / inline_img / good
+  - Item: https://aws.amazon.com/blogs/machine-learning/pair-nova-2-lite-with-claude-for-cost-optimized-document-processing
+  - Title: Pair Nova 2 Lite with Claude for cost-optimized document processing
+  - Asset: https://d2908q01vomqb2.cloudfront.net/f1f836cb4ea6efb2a0b1b99f41ad8b103eff4b59/2026/06/23/ML-20681-combined.png
+  - Details: confidence=0.7
+- image / inline_img / good
+  - Item: https://aws.amazon.com/blogs/machine-learning/pair-nova-2-lite-with-claude-for-cost-optimized-document-processing
+  - Title: Pair Nova 2 Lite with Claude for cost-optimized document processing
+  - Asset: https://d2908q01vomqb2.cloudfront.net/f1f836cb4ea6efb2a0b1b99f41ad8b103eff4b59/2026/06/19/ML-20681-6.png
+  - Details: confidence=0.7
+- image / inline_img / good
+  - Item: https://aws.amazon.com/blogs/machine-learning/pair-nova-2-lite-with-claude-for-cost-optimized-document-processing
+  - Title: Pair Nova 2 Lite with Claude for cost-optimized document processing
+  - Asset: https://d2908q01vomqb2.cloudfront.net/f1f836cb4ea6efb2a0b1b99f41ad8b103eff4b59/2026/06/19/ML-20681-7.jpg
+  - Details: confidence=0.7
+- image / inline_img / good
+  - Item: https://aws.amazon.com/blogs/machine-learning/multi-tenant-llm-analytics-with-row-level-security-how-we-built-a-secure-agent-on-aws
+  - Title: Multi-tenant LLM analytics with row-level security: How we built a secure agent on AWS
+  - Asset: https://d2908q01vomqb2.cloudfront.net/f1f836cb4ea6efb2a0b1b99f41ad8b103eff4b59/2026/06/25/ML-19651-1.png
+  - Details: confidence=0.7
+- image / inline_img / good
+  - Item: https://aws.amazon.com/blogs/machine-learning/multi-tenant-llm-analytics-with-row-level-security-how-we-built-a-secure-agent-on-aws
+  - Title: Multi-tenant LLM analytics with row-level security: How we built a secure agent on AWS
+  - Asset: https://d2908q01vomqb2.cloudfront.net/f1f836cb4ea6efb2a0b1b99f41ad8b103eff4b59/2026/06/25/ML-19651-2.png
+  - Details: confidence=0.7
+- image / inline_img / good
+  - Item: https://aws.amazon.com/blogs/machine-learning/multi-tenant-llm-analytics-with-row-level-security-how-we-built-a-secure-agent-on-aws
+  - Title: Multi-tenant LLM analytics with row-level security: How we built a secure agent on AWS
+  - Asset: https://d2908q01vomqb2.cloudfront.net/f1f836cb4ea6efb2a0b1b99f41ad8b103eff4b59/2026/06/25/ML-19651-3.png
+  - Details: confidence=0.7
+- image / inline_img / good
+  - Item: https://aws.amazon.com/blogs/machine-learning/multi-tenant-llm-analytics-with-row-level-security-how-we-built-a-secure-agent-on-aws
+  - Title: Multi-tenant LLM analytics with row-level security: How we built a secure agent on AWS
+  - Asset: https://d2908q01vomqb2.cloudfront.net/f1f836cb4ea6efb2a0b1b99f41ad8b103eff4b59/2026/06/25/ML-19651-4.png
+  - Details: confidence=0.7
+- image / inline_img / good
+  - Item: https://aws.amazon.com/blogs/machine-learning/multi-tenant-llm-analytics-with-row-level-security-how-we-built-a-secure-agent-on-aws
+  - Title: Multi-tenant LLM analytics with row-level security: How we built a secure agent on AWS
+  - Asset: https://d2908q01vomqb2.cloudfront.net/f1f836cb4ea6efb2a0b1b99f41ad8b103eff4b59/2026/06/25/ML-19651-5.png
+  - Details: confidence=0.7
+- image / inline_img / good
+  - Item: https://aws.amazon.com/blogs/machine-learning/multi-tenant-llm-analytics-with-row-level-security-how-we-built-a-secure-agent-on-aws
+  - Title: Multi-tenant LLM analytics with row-level security: How we built a secure agent on AWS
+  - Asset: https://d2908q01vomqb2.cloudfront.net/f1f836cb4ea6efb2a0b1b99f41ad8b103eff4b59/2026/06/25/ML-19651-6.png
+  - Details: confidence=0.7
+
+### AI Roadmap Institute Blog
+- image / inline_img / good
+  - Item: https://medium.com/ai-roadmap-institute/roadmapping-the-ai-race-to-help-ensure-safe-development-of-agi-acb93b5f2f9f?source=rss----11881df16a51---4
+  - Title: Roadmapping the AI race to help ensure safe development of AGI
+  - Asset: https://cdn-images-1.medium.com/max/1024/1*eASRJrCIVgsy5VbNMAzD9w.jpeg
+  - Details: confidence=0.7
+- image / inline_img / good
+  - Item: https://medium.com/ai-roadmap-institute/roadmapping-the-ai-race-to-help-ensure-safe-development-of-agi-acb93b5f2f9f?source=rss----11881df16a51---4
+  - Title: Roadmapping the AI race to help ensure safe development of AGI
+  - Asset: https://medium.com/_/stat?event=post.clientViewed&postId=acb93b5f2f9f&referrerSource=full_rss
+  - Details: confidence=0.7
+- image / inline_img / good
+  - Item: https://medium.com/ai-roadmap-institute/report-from-the-ai-race-avoidance-workshop-bd631b2bbb2c?source=rss----11881df16a51---4
+  - Title: Report from the AI Race Avoidance Workshop
+  - Asset: https://cdn-images-1.medium.com/max/1024/1*-5UOik5vs3I1MXJfx8VbBg.jpeg
+  - Details: confidence=0.7
+- image / inline_img / good
+  - Item: https://medium.com/ai-roadmap-institute/report-from-the-ai-race-avoidance-workshop-bd631b2bbb2c?source=rss----11881df16a51---4
+  - Title: Report from the AI Race Avoidance Workshop
+  - Asset: https://cdn-images-1.medium.com/max/1024/1*h2RJtZo2Aj8QCS4M6CWkFg.png
+  - Details: confidence=0.7
+- image / inline_img / good
+  - Item: https://medium.com/ai-roadmap-institute/report-from-the-ai-race-avoidance-workshop-bd631b2bbb2c?source=rss----11881df16a51---4
+  - Title: Report from the AI Race Avoidance Workshop
+  - Asset: https://medium.com/_/stat?event=post.clientViewed&postId=bd631b2bbb2c&referrerSource=full_rss
+  - Details: confidence=0.7
+- image / inline_img / good
+  - Item: https://medium.com/ai-roadmap-institute/avoiding-the-precipice-db720a805190?source=rss----11881df16a51---4
+  - Title: AVOIDING THE PRECIPICE
+  - Asset: https://cdn-images-1.medium.com/max/1024/1*jopuzv3S48jwK51Xjmhb1w.jpeg
+  - Details: confidence=0.7
+- image / inline_img / good
+  - Item: https://medium.com/ai-roadmap-institute/avoiding-the-precipice-db720a805190?source=rss----11881df16a51---4
+  - Title: AVOIDING THE PRECIPICE
+  - Asset: https://cdn-images-1.medium.com/max/1024/1*U3TBUt89bqwIkkWJ7NjU8w.png
+  - Details: confidence=0.7
+- image / inline_img / good
+  - Item: https://medium.com/ai-roadmap-institute/avoiding-the-precipice-db720a805190?source=rss----11881df16a51---4
+  - Title: AVOIDING THE PRECIPICE
+  - Asset: https://cdn-images-1.medium.com/max/1024/1*F0KqgXUFhoMYUOJY8uHexg.png
+  - Details: confidence=0.7
+- image / inline_img / good
+  - Item: https://medium.com/ai-roadmap-institute/avoiding-the-precipice-db720a805190?source=rss----11881df16a51---4
+  - Title: AVOIDING THE PRECIPICE
+  - Asset: https://cdn-images-1.medium.com/max/1024/1*Wp4BDI5sxx4YecFCocbUSg.png
+  - Details: confidence=0.7
+- image / inline_img / good
+  - Item: https://medium.com/ai-roadmap-institute/avoiding-the-precipice-db720a805190?source=rss----11881df16a51---4
+  - Title: AVOIDING THE PRECIPICE
+  - Asset: https://cdn-images-1.medium.com/max/1024/1*mxpmcDmQnFxgY5ftstZMZw.jpeg
+  - Details: confidence=0.7
+- image / inline_img / good
+  - Item: https://medium.com/ai-roadmap-institute/avoiding-the-precipice-db720a805190?source=rss----11881df16a51---4
+  - Title: AVOIDING THE PRECIPICE
+  - Asset: https://medium.com/_/stat?event=post.clientViewed&postId=db720a805190&referrerSource=full_rss
+  - Details: confidence=0.7
+- image / inline_img / good
+  - Item: https://medium.com/ai-roadmap-institute/back-to-the-core-of-intelligence-to-really-move-to-the-future-8eb476c5dd36?source=rss----11881df16a51---4
+  - Title: Back to the core of intelligence … to really move to the future
+  - Asset: https://cdn-images-1.medium.com/max/1024/1*smauzvHTRa2lXJbsXsIfMA.jpeg
+  - Details: confidence=0.7
+- image / inline_img / good
+  - Item: https://medium.com/ai-roadmap-institute/back-to-the-core-of-intelligence-to-really-move-to-the-future-8eb476c5dd36?source=rss----11881df16a51---4
+  - Title: Back to the core of intelligence … to really move to the future
+  - Asset: https://cdn-images-1.medium.com/max/1024/1*QRKX2w1gWtuA_LXMPghqBA.jpeg
+  - Details: confidence=0.7
+- image / inline_img / good
+  - Item: https://medium.com/ai-roadmap-institute/back-to-the-core-of-intelligence-to-really-move-to-the-future-8eb476c5dd36?source=rss----11881df16a51---4
+  - Title: Back to the core of intelligence … to really move to the future
+  - Asset: https://cdn-images-1.medium.com/max/549/1*jlrAvq3ViG9LE82Jq2fnUA.png
+  - Details: confidence=0.7
+- image / inline_img / good
+  - Item: https://medium.com/ai-roadmap-institute/back-to-the-core-of-intelligence-to-really-move-to-the-future-8eb476c5dd36?source=rss----11881df16a51---4
+  - Title: Back to the core of intelligence … to really move to the future
+  - Asset: https://cdn-images-1.medium.com/max/1024/1*gT4d1pisJwVmDD6WryoEiA.jpeg
+  - Details: confidence=0.7
+- image / inline_img / good
+  - Item: https://medium.com/ai-roadmap-institute/back-to-the-core-of-intelligence-to-really-move-to-the-future-8eb476c5dd36?source=rss----11881df16a51---4
+  - Title: Back to the core of intelligence … to really move to the future
+  - Asset: https://medium.com/_/stat?event=post.clientViewed&postId=8eb476c5dd36&referrerSource=full_rss
+  - Details: confidence=0.7
+- image / inline_img / good
+  - Item: https://medium.com/ai-roadmap-institute/unsolved-problems-in-ai-38f4ce18921d?source=rss----11881df16a51---4
+  - Title: Unsolved Problems in AI
+  - Asset: https://cdn-images-1.medium.com/proxy/1*WLJ9lPkmFZ4R_7F4sQtg2g.jpeg
+  - Details: confidence=0.7
+- image / inline_img / good
+  - Item: https://medium.com/ai-roadmap-institute/unsolved-problems-in-ai-38f4ce18921d?source=rss----11881df16a51---4
+  - Title: Unsolved Problems in AI
+  - Asset: https://cdn-images-1.medium.com/proxy/1*d_SjXkXyQkA5ECDWy_4G5g.jpeg
+  - Details: confidence=0.7
+- image / inline_img / good
+  - Item: https://medium.com/ai-roadmap-institute/unsolved-problems-in-ai-38f4ce18921d?source=rss----11881df16a51---4
+  - Title: Unsolved Problems in AI
+  - Asset: https://cdn-images-1.medium.com/proxy/1*ubBYLhIy6p9kReFu49V9aQ.jpeg
+  - Details: confidence=0.7
+- image / inline_img / good
+  - Item: https://medium.com/ai-roadmap-institute/unsolved-problems-in-ai-38f4ce18921d?source=rss----11881df16a51---4
+  - Title: Unsolved Problems in AI
+  - Asset: https://cdn-images-1.medium.com/proxy/1*JR9OrJE0hHjOjJ6EGLj1mQ.jpeg
+  - Details: confidence=0.7
+- image / inline_img / good
+  - Item: https://medium.com/ai-roadmap-institute/unsolved-problems-in-ai-38f4ce18921d?source=rss----11881df16a51---4
+  - Title: Unsolved Problems in AI
+  - Asset: https://cdn-images-1.medium.com/proxy/1*swrhPUzD2MWlm6fUXAaVoA.jpeg
+  - Details: confidence=0.7
+- image / inline_img / good
+  - Item: https://medium.com/ai-roadmap-institute/unsolved-problems-in-ai-38f4ce18921d?source=rss----11881df16a51---4
+  - Title: Unsolved Problems in AI
+  - Asset: https://cdn-images-1.medium.com/proxy/1*AfsaIrUHuue8eTzuyEdC5A.jpeg
+  - Details: confidence=0.7
+- image / inline_img / good
+  - Item: https://medium.com/ai-roadmap-institute/unsolved-problems-in-ai-38f4ce18921d?source=rss----11881df16a51---4
+  - Title: Unsolved Problems in AI
+  - Asset: https://medium.com/_/stat?event=post.clientViewed&postId=38f4ce18921d&referrerSource=full_rss
+  - Details: confidence=0.7
+- image / inline_img / good
+  - Item: https://medium.com/ai-roadmap-institute/roadmap-comparison-at-goodai-cfba094c645b?source=rss----11881df16a51---4
+  - Title: Roadmap Comparison at GoodAI
+  - Asset: https://cdn-images-1.medium.com/max/1024/1*A7rQ_8MfGERc34w9N6wORQ.png
+  - Details: confidence=0.7
+- image / inline_img / good
+  - Item: https://medium.com/ai-roadmap-institute/roadmap-comparison-at-goodai-cfba094c645b?source=rss----11881df16a51---4
+  - Title: Roadmap Comparison at GoodAI
+  - Asset: https://cdn-images-1.medium.com/max/1024/1*Qvo450agLrr0hyZWrmg9qg.png
+  - Details: confidence=0.7
+- image / inline_img / good
+  - Item: https://medium.com/ai-roadmap-institute/roadmap-comparison-at-goodai-cfba094c645b?source=rss----11881df16a51---4
+  - Title: Roadmap Comparison at GoodAI
+  - Asset: https://cdn-images-1.medium.com/max/1024/1*sl0YbsCPq468Q3QV1zU3YQ.png
+  - Details: confidence=0.7
+- image / inline_img / good
+  - Item: https://medium.com/ai-roadmap-institute/roadmap-comparison-at-goodai-cfba094c645b?source=rss----11881df16a51---4
+  - Title: Roadmap Comparison at GoodAI
+  - Asset: https://medium.com/_/stat?event=post.clientViewed&postId=cfba094c645b&referrerSource=full_rss
+  - Details: confidence=0.7
+
+### OpenAI Blog
+- None extracted.
+
+### DeepMind Blog
+- image / media_content / good
+  - Item: https://deepmind.google/blog/unlocking-uk-house-building-with-ai-accelerated-planning
+  - Title: Unlocking UK house-building with AI-accelerated planning
+  - Asset: https://lh3.googleusercontent.com/kc7RMwXGDfJAoCsgs6pUuONGMXePGbvF_q_i8i-bWBBakQ91O8VYPk8cyHfpOD1uF-lw8Mk6pd2JpXofi5n4qNoNziPol46lBMmZuxoG9NKl16CW=w528-h297-n-nu-rw-lo
+  - Details: confidence=1.0
+- document / media_thumbnail / good
+  - Item: https://deepmind.google/blog/unlocking-uk-house-building-with-ai-accelerated-planning
+  - Title: Unlocking UK house-building with AI-accelerated planning
+  - Asset: https://lh3.googleusercontent.com/kc7RMwXGDfJAoCsgs6pUuONGMXePGbvF_q_i8i-bWBBakQ91O8VYPk8cyHfpOD1uF-lw8Mk6pd2JpXofi5n4qNoNziPol46lBMmZuxoG9NKl16CW=w528-h297-n-nu-rw-lo
+  - Details: confidence=0.95
+- image / media_content / good
+  - Item: https://deepmind.google/blog/securing-the-future-of-ai-agents
+  - Title: Securing the future of AI agents
+  - Asset: https://lh3.googleusercontent.com/X6w_t9eA7TLFiq3JMp1kXlon25qi9N6O0AxPyp7j0qOIu8oz-QDsaOP-oKz7FIuqlA3W1evDbeLYssDJM_fjkqeyscPO_fHJd0xeD0IoDlHkiUQW1w=w528-h297-n-nu-rw-lo
+  - Details: confidence=1.0
+- document / media_thumbnail / good
+  - Item: https://deepmind.google/blog/securing-the-future-of-ai-agents
+  - Title: Securing the future of AI agents
+  - Asset: https://lh3.googleusercontent.com/X6w_t9eA7TLFiq3JMp1kXlon25qi9N6O0AxPyp7j0qOIu8oz-QDsaOP-oKz7FIuqlA3W1evDbeLYssDJM_fjkqeyscPO_fHJd0xeD0IoDlHkiUQW1w=w528-h297-n-nu-rw-lo
+  - Details: confidence=0.95
+- image / media_content / good
+  - Item: https://deepmind.google/blog/investing-in-multi-agent-ai-safety-research
+  - Title: Investing in multi-agent AI safety research
+  - Asset: https://lh3.googleusercontent.com/YgqOl-h3mEKPbpttnT89PtoHDKTc1-2fbhwRgDauUPtagZVWiw0lr1IGgRUDZDqb9Ib4nhaU93T0mJSE8FFbhkDRiaT53BGLnLVdpqliTP8v5kvmwu8=w528-h297-n-nu-rw-lo
+  - Details: confidence=1.0
+- document / media_thumbnail / good
+  - Item: https://deepmind.google/blog/investing-in-multi-agent-ai-safety-research
+  - Title: Investing in multi-agent AI safety research
+  - Asset: https://lh3.googleusercontent.com/YgqOl-h3mEKPbpttnT89PtoHDKTc1-2fbhwRgDauUPtagZVWiw0lr1IGgRUDZDqb9Ib4nhaU93T0mJSE8FFbhkDRiaT53BGLnLVdpqliTP8v5kvmwu8=w528-h297-n-nu-rw-lo
+  - Details: confidence=0.95
+- image / media_content / good
+  - Item: https://deepmind.google/blog/measuring-the-impact-of-learning-with-ai-in-sierra-leone-and-beyond
+  - Title: Measuring the impact of learning with AI in Sierra Leone and beyond
+  - Asset: https://lh3.googleusercontent.com/5g2RQPPxqVGuOzfaYj1-8r_6B-Ytp79c9mpWXzBIrk2vUhtxZmA7bMywH41h-8b0EJAdW_K4l7kqHZlfS-QTFk8kFB5MA2bgxZ4hxbuAiOuDIn3ohA=w528-h297-n-nu-rw-lo
+  - Details: confidence=1.0
+- document / media_thumbnail / good
+  - Item: https://deepmind.google/blog/measuring-the-impact-of-learning-with-ai-in-sierra-leone-and-beyond
+  - Title: Measuring the impact of learning with AI in Sierra Leone and beyond
+  - Asset: https://lh3.googleusercontent.com/5g2RQPPxqVGuOzfaYj1-8r_6B-Ytp79c9mpWXzBIrk2vUhtxZmA7bMywH41h-8b0EJAdW_K4l7kqHZlfS-QTFk8kFB5MA2bgxZ4hxbuAiOuDIn3ohA=w528-h297-n-nu-rw-lo
+  - Details: confidence=0.95
+- image / media_content / good
+  - Item: https://deepmind.google/blog/fast-tracking-genetic-leads-to-reverse-cellular-aging
+  - Title: Fast-tracking genetic leads to reverse cellular aging
+  - Asset: https://lh3.googleusercontent.com/Xyt_1kwd_q4W4dKV0YND9MzHJF0UOGAYyZjfKEVQK0LoE2HC7i29ZnIG32Sd8RR1qj5iXEzbexg20aePXF5vLjYUB5vO_zdoqAZhKrSV4VVyce5VT1s=w528-h297-n-nu-rw-lo
+  - Details: confidence=1.0
+- document / media_thumbnail / good
+  - Item: https://deepmind.google/blog/fast-tracking-genetic-leads-to-reverse-cellular-aging
+  - Title: Fast-tracking genetic leads to reverse cellular aging
+  - Asset: https://lh3.googleusercontent.com/Xyt_1kwd_q4W4dKV0YND9MzHJF0UOGAYyZjfKEVQK0LoE2HC7i29ZnIG32Sd8RR1qj5iXEzbexg20aePXF5vLjYUB5vO_zdoqAZhKrSV4VVyce5VT1s=w528-h297-n-nu-rw-lo
+  - Details: confidence=0.95
+- image / media_content / good
+  - Item: https://deepmind.google/blog/strengthening-singapores-ai-future-a-new-national-partnership
+  - Title: Strengthening Singapore’s AI Future: A New National Partnership
+  - Asset: https://lh3.googleusercontent.com/Woiv_MqlJsgv6bSWD505JCSu936VdLLtR0y7Ev1wPWDmuhFK1SYxkpyU4N2vhSpSMl22NAtbxuZ1yFMHIcDFwABNZIgRtX0ccRXxWiBaHETRXUQEZQ=w528-h297-n-nu-rw-lo
+  - Details: confidence=1.0
+- document / media_thumbnail / good
+  - Item: https://deepmind.google/blog/strengthening-singapores-ai-future-a-new-national-partnership
+  - Title: Strengthening Singapore’s AI Future: A New National Partnership
+  - Asset: https://lh3.googleusercontent.com/Woiv_MqlJsgv6bSWD505JCSu936VdLLtR0y7Ev1wPWDmuhFK1SYxkpyU4N2vhSpSMl22NAtbxuZ1yFMHIcDFwABNZIgRtX0ccRXxWiBaHETRXUQEZQ=w528-h297-n-nu-rw-lo
+  - Details: confidence=0.95
+- image / media_content / good
+  - Item: https://deepmind.google/blog/finding-the-molecular-switches-behind-new-infectious-diseases
+  - Title: Finding the molecular switches behind new infectious diseases
+  - Asset: https://lh3.googleusercontent.com/N1YiCxjf6dUaR3FRHJhNIw6EiWvYEIUrcRZqQJXAJK96qNIio-YlutelO-JQBcmWugKOGF4Cc5n_ugnggILDFXvfud-hTAb3qAQVED2NWcR9TW6azQ=w528-h297-n-nu-rw-lo
+  - Details: confidence=1.0
+- document / media_thumbnail / good
+  - Item: https://deepmind.google/blog/finding-the-molecular-switches-behind-new-infectious-diseases
+  - Title: Finding the molecular switches behind new infectious diseases
+  - Asset: https://lh3.googleusercontent.com/N1YiCxjf6dUaR3FRHJhNIw6EiWvYEIUrcRZqQJXAJK96qNIio-YlutelO-JQBcmWugKOGF4Cc5n_ugnggILDFXvfud-hTAb3qAQVED2NWcR9TW6azQ=w528-h297-n-nu-rw-lo
+  - Details: confidence=0.95
+- image / media_content / good
+  - Item: https://deepmind.google/blog/opening-new-paths-in-aging-research
+  - Title: Opening new paths in aging research
+  - Asset: https://lh3.googleusercontent.com/B7CCW8x-V6U0PvCuF6-9V6Cm50m5gRG8SigI6yTMQYs-S7HpY_cKeGn8uLZrJom_0Wuok-iltNFic4I8Eel7riB7Dytm2k1_pytxTtvk-vrEIxw9pg=w528-h297-n-nu-rw-lo
+  - Details: confidence=1.0
+- document / media_thumbnail / good
+  - Item: https://deepmind.google/blog/opening-new-paths-in-aging-research
+  - Title: Opening new paths in aging research
+  - Asset: https://lh3.googleusercontent.com/B7CCW8x-V6U0PvCuF6-9V6Cm50m5gRG8SigI6yTMQYs-S7HpY_cKeGn8uLZrJom_0Wuok-iltNFic4I8Eel7riB7Dytm2k1_pytxTtvk-vrEIxw9pg=w528-h297-n-nu-rw-lo
+  - Details: confidence=0.95
+- image / media_content / good
+  - Item: https://deepmind.google/blog/accelerating-discovery-of-liver-disease-mechanisms
+  - Title: Accelerating discovery of liver disease mechanisms
+  - Asset: https://lh3.googleusercontent.com/BviYtfKhFkYTOW9MCZSU9GB3fFLNEupgc1ZynnxKJDiZqNVBaCN-1vtpF1H5e9vXubypNvruDDTrEMwuUEEHPiO4DeohPfocpIXVR7hdcolcP5WX3K4=w528-h297-n-nu-rw-lo
+  - Details: confidence=1.0
+- document / media_thumbnail / good
+  - Item: https://deepmind.google/blog/accelerating-discovery-of-liver-disease-mechanisms
+  - Title: Accelerating discovery of liver disease mechanisms
+  - Asset: https://lh3.googleusercontent.com/BviYtfKhFkYTOW9MCZSU9GB3fFLNEupgc1ZynnxKJDiZqNVBaCN-1vtpF1H5e9vXubypNvruDDTrEMwuUEEHPiO4DeohPfocpIXVR7hdcolcP5WX3K4=w528-h297-n-nu-rw-lo
+  - Details: confidence=0.95
+- image / media_content / good
+  - Item: https://deepmind.google/blog/uniting-biological-toolkits-for-a-new-approach-to-als
+  - Title: Uniting biological toolkits for a new approach to ALS
+  - Asset: https://lh3.googleusercontent.com/fR4KAfFp4Ns7W90QSrwVipuPprhWP4kEnH-hYbP07bEryUBVGjCAm4yEgo6MRBZAhf6Hp6TTzA-z9EKXm7doG9A-hHTbL1IVeIcjtVg_8cI06LYf=w528-h297-n-nu-rw-lo
+  - Details: confidence=1.0
+- document / media_thumbnail / good
+  - Item: https://deepmind.google/blog/uniting-biological-toolkits-for-a-new-approach-to-als
+  - Title: Uniting biological toolkits for a new approach to ALS
+  - Asset: https://lh3.googleusercontent.com/fR4KAfFp4Ns7W90QSrwVipuPprhWP4kEnH-hYbP07bEryUBVGjCAm4yEgo6MRBZAhf6Hp6TTzA-z9EKXm7doG9A-hHTbL1IVeIcjtVg_8cI06LYf=w528-h297-n-nu-rw-lo
+  - Details: confidence=0.95
+- image / media_content / good
+  - Item: https://deepmind.google/blog/uncovering-repurposed-medicines-to-fight-liver-fibrosis
+  - Title: Uncovering repurposed medicines to fight liver fibrosis
+  - Asset: https://lh3.googleusercontent.com/WjgQH7IbetdRNwoNAOp7_2JAoHaEckFl7ph9ffhCEtEiGWqzonO9MtqdjOl3n_ZEIAb3uVQ3z-Hq3whlg3ob9lcx6vDOF5lb3MyTE1rIoAeX6peAhOM=w528-h297-n-nu-rw-lo
+  - Details: confidence=1.0
+- document / media_thumbnail / good
+  - Item: https://deepmind.google/blog/uncovering-repurposed-medicines-to-fight-liver-fibrosis
+  - Title: Uncovering repurposed medicines to fight liver fibrosis
+  - Asset: https://lh3.googleusercontent.com/WjgQH7IbetdRNwoNAOp7_2JAoHaEckFl7ph9ffhCEtEiGWqzonO9MtqdjOl3n_ZEIAb3uVQ3z-Hq3whlg3ob9lcx6vDOF5lb3MyTE1rIoAeX6peAhOM=w528-h297-n-nu-rw-lo
+  - Details: confidence=0.95
+- image / media_content / good
+  - Item: https://deepmind.google/blog/how-weathernext-helped-the-national-hurricane-center-better-predict-hurricane-melissas-historic-landfall-in-jamaica
+  - Title: How WeatherNext helped the National Hurricane Center better predict Hurricane Melissa’s historic landfall in Jamaica
+  - Asset: https://lh3.googleusercontent.com/iLgzjfK9faS-SQePs9fq0zjKGOVGpcyS0J0wQ3SS7llJjJhzz214LUtuy82bJIjweaMRiRWcLMDhPxdP1Z2VitCvWEQyMpY8xLFekP2RG255e2td=w528-h297-n-nu-rw-lo
+  - Details: confidence=1.0
+- document / media_thumbnail / good
+  - Item: https://deepmind.google/blog/how-weathernext-helped-the-national-hurricane-center-better-predict-hurricane-melissas-historic-landfall-in-jamaica
+  - Title: How WeatherNext helped the National Hurricane Center better predict Hurricane Melissa’s historic landfall in Jamaica
+  - Asset: https://lh3.googleusercontent.com/iLgzjfK9faS-SQePs9fq0zjKGOVGpcyS0J0wQ3SS7llJjJhzz214LUtuy82bJIjweaMRiRWcLMDhPxdP1Z2VitCvWEQyMpY8xLFekP2RG255e2td=w528-h297-n-nu-rw-lo
+  - Details: confidence=0.95
+- image / media_content / good
+  - Item: https://deepmind.google/blog/co-scientist-a-multi-agent-ai-partner-to-accelerate-research
+  - Title: Co-Scientist: A multi-agent AI partner to accelerate research
+  - Asset: https://lh3.googleusercontent.com/8kFWTjhROuwZK6kVFk-ol13YlKLABvppqzVl9LIhYyY3NP4Z8Y0i2ubSuVIfgmknluXTgYmTMAzRR21CxJPbgSK5m37ARzv26S8TPX5QhNWG6wq11Q=w528-h297-n-nu-rw-lo
+  - Details: confidence=1.0
+- document / media_thumbnail / good
+  - Item: https://deepmind.google/blog/co-scientist-a-multi-agent-ai-partner-to-accelerate-research
+  - Title: Co-Scientist: A multi-agent AI partner to accelerate research
+  - Asset: https://lh3.googleusercontent.com/8kFWTjhROuwZK6kVFk-ol13YlKLABvppqzVl9LIhYyY3NP4Z8Y0i2ubSuVIfgmknluXTgYmTMAzRR21CxJPbgSK5m37ARzv26S8TPX5QhNWG6wq11Q=w528-h297-n-nu-rw-lo
+  - Details: confidence=0.95
+- image / media_content / good
+  - Item: https://deepmind.google/blog/alphaevolve-impact
+  - Title: AlphaEvolve: How our Gemini-powered coding agent is scaling impact across fields
+  - Asset: https://lh3.googleusercontent.com/UNlyTVoqkmAoTzbbF4QRoPXr-X-QBkXeVpcHxIjte0y5mn_f6ZYHVsynQswOhGLJx-7hnbwt1NcTOQDQoCbum3-l8wPPP5dC6kw0tGmBQAw60nEHog=w528-h297-n-nu-rw-lo
+  - Details: confidence=1.0
+- document / media_thumbnail / good
+  - Item: https://deepmind.google/blog/alphaevolve-impact
+  - Title: AlphaEvolve: How our Gemini-powered coding agent is scaling impact across fields
+  - Asset: https://lh3.googleusercontent.com/UNlyTVoqkmAoTzbbF4QRoPXr-X-QBkXeVpcHxIjte0y5mn_f6ZYHVsynQswOhGLJx-7hnbwt1NcTOQDQoCbum3-l8wPPP5dC6kw0tGmBQAw60nEHog=w528-h297-n-nu-rw-lo
+  - Details: confidence=0.95
+- image / media_content / good
+  - Item: https://deepmind.google/blog/ai-co-clinician
+  - Title: Enabling a new model for healthcare with AI co-clinician
+  - Asset: https://lh3.googleusercontent.com/z2sN_eil5tgap-Ji1W_4l1xnbfLRghzxdXzyCMdnKFVW1xTfgm0o8bpg9pNwE4RcHTR2QGEGhGx7LFn7Q6bg-LEPBW20d4Djo3Erii8PBYYrWz36=w528-h297-n-nu-rw-lo
+  - Details: confidence=1.0
+- document / media_thumbnail / good
+  - Item: https://deepmind.google/blog/ai-co-clinician
+  - Title: Enabling a new model for healthcare with AI co-clinician
+  - Asset: https://lh3.googleusercontent.com/z2sN_eil5tgap-Ji1W_4l1xnbfLRghzxdXzyCMdnKFVW1xTfgm0o8bpg9pNwE4RcHTR2QGEGhGx7LFn7Q6bg-LEPBW20d4Djo3Erii8PBYYrWz36=w528-h297-n-nu-rw-lo
+  - Details: confidence=0.95
+- image / media_content / good
+  - Item: https://deepmind.google/blog/announcing-our-partnership-with-the-republic-of-korea
+  - Title: Announcing our partnership with the Republic of Korea
+  - Asset: https://lh3.googleusercontent.com/3q6uiTEWOv5PKJQYWgYLxCgohyndMqdWTFiwFDbxSzk-tW0HeannPdF7kvqR2hmE_tvSeryfw4IvG7gwuZ11rBgIYGvapEQvHO9RRJXw4JCqyme6uA=w528-h297-n-nu-rw-lo
+  - Details: confidence=1.0
+- document / media_thumbnail / good
+  - Item: https://deepmind.google/blog/announcing-our-partnership-with-the-republic-of-korea
+  - Title: Announcing our partnership with the Republic of Korea
+  - Asset: https://lh3.googleusercontent.com/3q6uiTEWOv5PKJQYWgYLxCgohyndMqdWTFiwFDbxSzk-tW0HeannPdF7kvqR2hmE_tvSeryfw4IvG7gwuZ11rBgIYGvapEQvHO9RRJXw4JCqyme6uA=w528-h297-n-nu-rw-lo
+  - Details: confidence=0.95
+- image / media_content / weak
+  - Item: https://deepmind.google/blog/decoupled-diloco
+  - Title: Decoupled DiLoCo: A new frontier for resilient, distributed AI training
+  - Asset: https://lh3.googleusercontent.com/1-K_kcmoX-fIzTJ13T0-uF4gylS2tK00ZVvx87B2WSayzUS2fxDoDDXFq5hOhxptrBeG8AbjG_URN5OOTpGMqad9zILjMsTdAHWroiDKpziBQjzErw=w528-h297-n-nu-rw-lo
+  - Details: confidence=1.0
+- document / media_thumbnail / weak
+  - Item: https://deepmind.google/blog/decoupled-diloco
+  - Title: Decoupled DiLoCo: A new frontier for resilient, distributed AI training
+  - Asset: https://lh3.googleusercontent.com/1-K_kcmoX-fIzTJ13T0-uF4gylS2tK00ZVvx87B2WSayzUS2fxDoDDXFq5hOhxptrBeG8AbjG_URN5OOTpGMqad9zILjMsTdAHWroiDKpziBQjzErw=w528-h297-n-nu-rw-lo
+  - Details: confidence=0.95
+- image / media_content / good
+  - Item: https://deepmind.google/blog/partnering-with-industry-leaders-to-accelerate-ai-transformation
+  - Title: Partnering with industry leaders to accelerate AI transformation
+  - Asset: https://lh3.googleusercontent.com/t9KvGjgjHJMLDqzAzXuDUOXFI4IlnMiYLhRmxohCRvB1qGSr8-8-TDEI24qk8ilY4OzRB2et5dSlWOjMs6lm-R718xmtQwdiGBxOO7VjxBfMq4a3yoI=w528-h297-n-nu-rw-lo
+  - Details: confidence=1.0
+- document / media_thumbnail / good
+  - Item: https://deepmind.google/blog/partnering-with-industry-leaders-to-accelerate-ai-transformation
+  - Title: Partnering with industry leaders to accelerate AI transformation
+  - Asset: https://lh3.googleusercontent.com/t9KvGjgjHJMLDqzAzXuDUOXFI4IlnMiYLhRmxohCRvB1qGSr8-8-TDEI24qk8ilY4OzRB2et5dSlWOjMs6lm-R718xmtQwdiGBxOO7VjxBfMq4a3yoI=w528-h297-n-nu-rw-lo
+  - Details: confidence=0.95
+- image / media_content / good
+  - Item: https://deepmind.google/blog/gemini-3-1-flash-tts-the-next-generation-of-expressive-ai-speech
+  - Title: Gemini 3.1 Flash TTS: the next generation of expressive AI speech
+  - Asset: https://lh3.googleusercontent.com/O9K0a0MXOACPhUzvThQiyTaWdZ95b_hS-foyHQcYMiCQCB5HKoBXYGyEjnsqcQEjHYjwfNVyqg4Ipk0G-fLiP9hd6JfbD9S-jx7ndLgImfZankCY-9I=w528-h297-n-nu-rw-lo
+  - Details: confidence=1.0
+- document / media_thumbnail / good
+  - Item: https://deepmind.google/blog/gemini-3-1-flash-tts-the-next-generation-of-expressive-ai-speech
+  - Title: Gemini 3.1 Flash TTS: the next generation of expressive AI speech
+  - Asset: https://lh3.googleusercontent.com/O9K0a0MXOACPhUzvThQiyTaWdZ95b_hS-foyHQcYMiCQCB5HKoBXYGyEjnsqcQEjHYjwfNVyqg4Ipk0G-fLiP9hd6JfbD9S-jx7ndLgImfZankCY-9I=w528-h297-n-nu-rw-lo
+  - Details: confidence=0.95
+- image / media_content / good
+  - Item: https://deepmind.google/blog/gemini-robotics-er-1-6
+  - Title: Gemini Robotics-ER 1.6: Powering real-world robotics tasks through enhanced embodied reasoning
+  - Asset: https://lh3.googleusercontent.com/bQ5TgF2iHJq48mxL5ZVxz3KGmIhOj7c62H7WEWrHqIWGrMexTYoqtrAhF8z12ESUeAj4miWZrHKF-SpMkXG3VVqNtzfJDBULlkMZZw06k05QLuHCww=w528-h297-n-nu-rw-lo
+  - Details: confidence=1.0
+- document / media_thumbnail / good
+  - Item: https://deepmind.google/blog/gemini-robotics-er-1-6
+  - Title: Gemini Robotics-ER 1.6: Powering real-world robotics tasks through enhanced embodied reasoning
+  - Asset: https://lh3.googleusercontent.com/bQ5TgF2iHJq48mxL5ZVxz3KGmIhOj7c62H7WEWrHqIWGrMexTYoqtrAhF8z12ESUeAj4miWZrHKF-SpMkXG3VVqNtzfJDBULlkMZZw06k05QLuHCww=w528-h297-n-nu-rw-lo
+  - Details: confidence=0.95
+- image / media_content / good
+  - Item: https://deepmind.google/blog/gemma-4-byte-for-byte-the-most-capable-open-models
+  - Title: Gemma 4: Byte for byte, the most capable open models
+  - Asset: https://lh3.googleusercontent.com/dP82fYfjynerdo1ze8VAz5F-miu-ghwM9mrzzQoi_FDYVcG4lLTtb7id7b_IKbFVDuv9q765JG_dEWRJK8cFDrxfCeMpzjzvlj3kwqyZWA6zqt_ecw=w528-h297-n-nu-rw-lo
+  - Details: confidence=1.0
+- document / media_thumbnail / good
+  - Item: https://deepmind.google/blog/gemma-4-byte-for-byte-the-most-capable-open-models
+  - Title: Gemma 4: Byte for byte, the most capable open models
+  - Asset: https://lh3.googleusercontent.com/dP82fYfjynerdo1ze8VAz5F-miu-ghwM9mrzzQoi_FDYVcG4lLTtb7id7b_IKbFVDuv9q765JG_dEWRJK8cFDrxfCeMpzjzvlj3kwqyZWA6zqt_ecw=w528-h297-n-nu-rw-lo
+  - Details: confidence=0.95
+- image / media_content / good
+  - Item: https://deepmind.google/blog/ai-pointer
+  - Title: Reimagining the mouse pointer for the AI era
+  - Asset: https://lh3.googleusercontent.com/6ktOlNMbk7CGwt_Oyi8aCEfeSX1B2DJUnrMF5X9bmzo0MdX9AHqW3iCCGo4RUFX2_8eN_4U3Sam_3tnc8Q0uLK6dMmcC3j5aiAyFMe9AhwYaYF59KA=w528-h297-n-nu-rw-lo
+  - Details: confidence=1.0
+- document / media_thumbnail / good
+  - Item: https://deepmind.google/blog/ai-pointer
+  - Title: Reimagining the mouse pointer for the AI era
+  - Asset: https://lh3.googleusercontent.com/6ktOlNMbk7CGwt_Oyi8aCEfeSX1B2DJUnrMF5X9bmzo0MdX9AHqW3iCCGo4RUFX2_8eN_4U3Sam_3tnc8Q0uLK6dMmcC3j5aiAyFMe9AhwYaYF59KA=w528-h297-n-nu-rw-lo
+  - Details: confidence=0.95
+- image / media_content / good
+  - Item: https://deepmind.google/blog/gemini-3-1-flash-live-making-audio-ai-more-natural-and-reliable
+  - Title: Gemini 3.1 Flash Live: Making audio AI more natural and reliable
+  - Asset: https://lh3.googleusercontent.com/X3xXSd8ns-IojsGTjvadPFyaBWT5bBGhubcQd_WSiIgQ9bESUPceaHtfOxwgYzwv3P-Gtz2r3sWs-1XFB5X72HuTMbVz30hqJCKOxBaQdq1Oq6895A=w528-h297-n-nu-rw-lo
+  - Details: confidence=1.0
+- document / media_thumbnail / good
+  - Item: https://deepmind.google/blog/gemini-3-1-flash-live-making-audio-ai-more-natural-and-reliable
+  - Title: Gemini 3.1 Flash Live: Making audio AI more natural and reliable
+  - Asset: https://lh3.googleusercontent.com/X3xXSd8ns-IojsGTjvadPFyaBWT5bBGhubcQd_WSiIgQ9bESUPceaHtfOxwgYzwv3P-Gtz2r3sWs-1XFB5X72HuTMbVz30hqJCKOxBaQdq1Oq6895A=w528-h297-n-nu-rw-lo
+  - Details: confidence=0.95
+- image / media_content / good
+  - Item: https://deepmind.google/blog/protecting-people-from-harmful-manipulation
+  - Title: Protecting people from harmful manipulation
+  - Asset: https://lh3.googleusercontent.com/IH7SOCSd4lrXu8YVkyRw45zg4Jc__pHM0SJlbDssVL3_5XjYGVYE1jt8DCiPgM9JGdwmdO_gYnQ4-QIo2l9Rz04l7KK4jAbsdAyWLriTV-iOC2_Y3bI=w528-h297-n-nu-rw-lo
+  - Details: confidence=1.0
+- document / media_thumbnail / good
+  - Item: https://deepmind.google/blog/protecting-people-from-harmful-manipulation
+  - Title: Protecting people from harmful manipulation
+  - Asset: https://lh3.googleusercontent.com/IH7SOCSd4lrXu8YVkyRw45zg4Jc__pHM0SJlbDssVL3_5XjYGVYE1jt8DCiPgM9JGdwmdO_gYnQ4-QIo2l9Rz04l7KK4jAbsdAyWLriTV-iOC2_Y3bI=w528-h297-n-nu-rw-lo
+  - Details: confidence=0.95
+- image / media_content / good
+  - Item: https://deepmind.google/blog/lyria-3-pro-create-longer-tracks-in-more
+  - Title: Lyria 3 Pro: Create longer tracks in more
+  - Asset: https://lh3.googleusercontent.com/jcDZxU6wx4tQ5XBOVae89SPyssJfB24ifHGOA_pGrzdRp9SgP6q2vnx5rr6yeyr_nuFh6b3qHDQzqZFDB3ey-inIlXC2aEEXzUhr_Vy_9AuE7dPuSRs=w528-h297-n-nu-rw-lo
+  - Details: confidence=1.0
+- document / media_thumbnail / good
+  - Item: https://deepmind.google/blog/lyria-3-pro-create-longer-tracks-in-more
+  - Title: Lyria 3 Pro: Create longer tracks in more
+  - Asset: https://lh3.googleusercontent.com/jcDZxU6wx4tQ5XBOVae89SPyssJfB24ifHGOA_pGrzdRp9SgP6q2vnx5rr6yeyr_nuFh6b3qHDQzqZFDB3ey-inIlXC2aEEXzUhr_Vy_9AuE7dPuSRs=w528-h297-n-nu-rw-lo
+  - Details: confidence=0.95
+- image / media_content / good
+  - Item: https://deepmind.google/blog/measuring-progress-toward-agi-a-cognitive-framework
+  - Title: Measuring progress toward AGI: A cognitive framework
+  - Asset: https://lh3.googleusercontent.com/kOpPqSCIuZr9xSaOZM-eZl314VHQ80Nmv-PfUJgzGOaHU0KY08nNAahjcjoNWT4T_xy5DH6TfOCXwhgR6POERmrPoXnpCsN8J2LJPgoM01rO3nAWPg=w528-h297-n-nu-rw-lo
+  - Details: confidence=1.0
+- document / media_thumbnail / good
+  - Item: https://deepmind.google/blog/measuring-progress-toward-agi-a-cognitive-framework
+  - Title: Measuring progress toward AGI: A cognitive framework
+  - Asset: https://lh3.googleusercontent.com/kOpPqSCIuZr9xSaOZM-eZl314VHQ80Nmv-PfUJgzGOaHU0KY08nNAahjcjoNWT4T_xy5DH6TfOCXwhgR6POERmrPoXnpCsN8J2LJPgoM01rO3nAWPg=w528-h297-n-nu-rw-lo
+  - Details: confidence=0.95
+- image / media_content / good
+  - Item: https://deepmind.google/blog/10-years-of-alphago
+  - Title: From games to biology and beyond: 10 years of AlphaGo’s impact
+  - Asset: https://lh3.googleusercontent.com/kKeug1hkQnNyG362692WROTmFRkJUTgZ3TnYbLZPTIbjvYL9np0UqAGJS0uxRhZLq_LSBOroG486f9RRLv0mKESv1RP-6JfEdI3SMXsEyeVTaXlnOEg=w528-h297-n-nu-rw-lo
+  - Details: confidence=1.0
+- document / media_thumbnail / good
+  - Item: https://deepmind.google/blog/10-years-of-alphago
+  - Title: From games to biology and beyond: 10 years of AlphaGo’s impact
+  - Asset: https://lh3.googleusercontent.com/kKeug1hkQnNyG362692WROTmFRkJUTgZ3TnYbLZPTIbjvYL9np0UqAGJS0uxRhZLq_LSBOroG486f9RRLv0mKESv1RP-6JfEdI3SMXsEyeVTaXlnOEg=w528-h297-n-nu-rw-lo
+  - Details: confidence=0.95
+- image / media_content / good
+  - Item: https://deepmind.google/blog/gemini-3-1-flash-lite-built-for-intelligence-at-scale
+  - Title: Gemini 3.1 Flash-Lite: Built for intelligence at scale
+  - Asset: https://lh3.googleusercontent.com/L943nW-XsLGjzWrBOj8x7RhlajW6yigzhd8q45ia33L0uNyClu_XT600bTZevv5c2end6MZ5dFKekGXGMjfxIsYCdlqYlcnyNEmAy4Gd0B6Ovd6Z=w528-h297-n-nu-rw-lo
+  - Details: confidence=1.0
+- document / media_thumbnail / good
+  - Item: https://deepmind.google/blog/gemini-3-1-flash-lite-built-for-intelligence-at-scale
+  - Title: Gemini 3.1 Flash-Lite: Built for intelligence at scale
+  - Asset: https://lh3.googleusercontent.com/L943nW-XsLGjzWrBOj8x7RhlajW6yigzhd8q45ia33L0uNyClu_XT600bTZevv5c2end6MZ5dFKekGXGMjfxIsYCdlqYlcnyNEmAy4Gd0B6Ovd6Z=w528-h297-n-nu-rw-lo
+  - Details: confidence=0.95
+- image / media_content / good
+  - Item: https://deepmind.google/blog/nano-banana-2-combining-pro-capabilities-with-lightning-fast-speed
+  - Title: Nano Banana 2: Combining Pro capabilities with lightning-fast speed
+  - Asset: https://lh3.googleusercontent.com/uzAd6nlnEh3lSFyE5Ay-1tvY6xesJLBuPucsK64LfxUwhMk5odcsyH-pAaIKRDVh1PniKOsihrha1qqspCc2f3CgPv61TSgTReKWdUlPiavUkH3R8lM=w528-h297-n-nu-rw-lo
+  - Details: confidence=1.0
+- document / media_thumbnail / good
+  - Item: https://deepmind.google/blog/nano-banana-2-combining-pro-capabilities-with-lightning-fast-speed
+  - Title: Nano Banana 2: Combining Pro capabilities with lightning-fast speed
+  - Asset: https://lh3.googleusercontent.com/uzAd6nlnEh3lSFyE5Ay-1tvY6xesJLBuPucsK64LfxUwhMk5odcsyH-pAaIKRDVh1PniKOsihrha1qqspCc2f3CgPv61TSgTReKWdUlPiavUkH3R8lM=w528-h297-n-nu-rw-lo
+  - Details: confidence=0.95
+- image / media_content / weak
+  - Item: https://deepmind.google/blog/gemini-3-1-pro-a-smarter-model-for-your-most-complex-tasks
+  - Title: Gemini 3.1 Pro: A smarter model for your most complex tasks
+  - Asset: https://lh3.googleusercontent.com/bZ8aFD7yMP8ue-XfAwrEMPDLgVua4ThZvdZu9mFYcsQTk0QVfc_kd2ygbXCCmTOR6dTvw6FhCkzc55j7-rUW_cYHnsOzmPHrzzJqDLTCCrhnCrOQkg=w528-h297-n-nu-rw-lo
+  - Details: confidence=1.0
+- document / media_thumbnail / weak
+  - Item: https://deepmind.google/blog/gemini-3-1-pro-a-smarter-model-for-your-most-complex-tasks
+  - Title: Gemini 3.1 Pro: A smarter model for your most complex tasks
+  - Asset: https://lh3.googleusercontent.com/bZ8aFD7yMP8ue-XfAwrEMPDLgVua4ThZvdZu9mFYcsQTk0QVfc_kd2ygbXCCmTOR6dTvw6FhCkzc55j7-rUW_cYHnsOzmPHrzzJqDLTCCrhnCrOQkg=w528-h297-n-nu-rw-lo
+  - Details: confidence=0.95
+- image / media_content / good
+  - Item: https://deepmind.google/blog/a-new-way-to-express-yourself-gemini-can-now-create-music
+  - Title: A new way to express yourself: Gemini can now create music
+  - Asset: https://lh3.googleusercontent.com/WaabCY2Z_smMKiEvzihBKsLEg8g8pNqP_TIy1il9bQGD1zbwwoyAjwawnHB5WRpqyeozc4kiNDFTJY1UTbvoia-FwMM8rI9LPVmt3ESbzKAcDf5j=w528-h297-n-nu-rw-lo
+  - Details: confidence=1.0
+- document / media_thumbnail / good
+  - Item: https://deepmind.google/blog/a-new-way-to-express-yourself-gemini-can-now-create-music
+  - Title: A new way to express yourself: Gemini can now create music
+  - Asset: https://lh3.googleusercontent.com/WaabCY2Z_smMKiEvzihBKsLEg8g8pNqP_TIy1il9bQGD1zbwwoyAjwawnHB5WRpqyeozc4kiNDFTJY1UTbvoia-FwMM8rI9LPVmt3ESbzKAcDf5j=w528-h297-n-nu-rw-lo
+  - Details: confidence=0.95
+- image / media_content / good
+  - Item: https://deepmind.google/blog/accelerating-discovery-in-india-through-ai-powered-science-and-education
+  - Title: Accelerating discovery in India through AI-powered science and education
+  - Asset: https://lh3.googleusercontent.com/YElycD2T8J2GDnFczuvtRJbPHGUMWPZiT-sLhQdv0ngl9hX0-Y4-KsOWaQxpUuwBCLrjW0FnWncfwgVP6TySgyUPjqyqd7x4czAJbGrRvTlhiV87sA=w528-h297-n-nu-rw-lo
+  - Details: confidence=1.0
+- document / media_thumbnail / good
+  - Item: https://deepmind.google/blog/accelerating-discovery-in-india-through-ai-powered-science-and-education
+  - Title: Accelerating discovery in India through AI-powered science and education
+  - Asset: https://lh3.googleusercontent.com/YElycD2T8J2GDnFczuvtRJbPHGUMWPZiT-sLhQdv0ngl9hX0-Y4-KsOWaQxpUuwBCLrjW0FnWncfwgVP6TySgyUPjqyqd7x4czAJbGrRvTlhiV87sA=w528-h297-n-nu-rw-lo
+  - Details: confidence=0.95
+- image / media_content / good
+  - Item: https://deepmind.google/blog/gemini-3-deep-think-advancing-science-research-and-engineering
+  - Title: Gemini 3 Deep Think: Advancing science, research and engineering
+  - Asset: https://lh3.googleusercontent.com/RlrY06Cc3MLbXna5gqMdx9jpY1yDikXD5v5qOFSgfDsnXOR71u3s1_dh6hWimLrEybCkyGyqazG6UF2DWrK4F52tVpdaf9amz5R-ZgJQ7uogoSuo-g=w528-h297-n-nu-rw-lo
+  - Details: confidence=1.0
+- document / media_thumbnail / good
+  - Item: https://deepmind.google/blog/gemini-3-deep-think-advancing-science-research-and-engineering
+  - Title: Gemini 3 Deep Think: Advancing science, research and engineering
+  - Asset: https://lh3.googleusercontent.com/RlrY06Cc3MLbXna5gqMdx9jpY1yDikXD5v5qOFSgfDsnXOR71u3s1_dh6hWimLrEybCkyGyqazG6UF2DWrK4F52tVpdaf9amz5R-ZgJQ7uogoSuo-g=w528-h297-n-nu-rw-lo
+  - Details: confidence=0.95
+- image / media_content / weak
+  - Item: https://deepmind.google/blog/accelerating-mathematical-and-scientific-discovery-with-gemini-deep-think
+  - Title: Accelerating Mathematical and Scientific Discovery with Gemini Deep Think
+  - Asset: https://lh3.googleusercontent.com/bbLVCxqhbnzzj_eIy29oKJigrlL6m4ewSwfCK-sNKVI0l1StFklsEADVPHXtTw9YorgOeIiQmM8vzmM3LBRyKu0pQeMHK4pzA_r4oIVjB_5dj8DU=w528-h297-n-nu-rw-lo
+  - Details: confidence=1.0
+- document / media_thumbnail / weak
+  - Item: https://deepmind.google/blog/accelerating-mathematical-and-scientific-discovery-with-gemini-deep-think
+  - Title: Accelerating Mathematical and Scientific Discovery with Gemini Deep Think
+  - Asset: https://lh3.googleusercontent.com/bbLVCxqhbnzzj_eIy29oKJigrlL6m4ewSwfCK-sNKVI0l1StFklsEADVPHXtTw9YorgOeIiQmM8vzmM3LBRyKu0pQeMHK4pzA_r4oIVjB_5dj8DU=w528-h297-n-nu-rw-lo
+  - Details: confidence=0.95
+- image / media_content / good
+  - Item: https://deepmind.google/blog/project-genie-experimenting-with-infinite-interactive-worlds
+  - Title: Project Genie: Experimenting with infinite, interactive worlds
+  - Asset: https://lh3.googleusercontent.com/g1e5YBOfHlTTVhsysCBrfpB_kVz2HZf2MUyvKmA_GkGPil0NridDLi-Iy5qz3EbmG_dB7OhzqEWUHsZMRTkb4bjtUPeFovOGi6zG1di9UTHFGDXLw7A=w528-h297-n-nu-rw-lo
+  - Details: confidence=1.0
+- document / media_thumbnail / good
+  - Item: https://deepmind.google/blog/project-genie-experimenting-with-infinite-interactive-worlds
+  - Title: Project Genie: Experimenting with infinite, interactive worlds
+  - Asset: https://lh3.googleusercontent.com/g1e5YBOfHlTTVhsysCBrfpB_kVz2HZf2MUyvKmA_GkGPil0NridDLi-Iy5qz3EbmG_dB7OhzqEWUHsZMRTkb4bjtUPeFovOGi6zG1di9UTHFGDXLw7A=w528-h297-n-nu-rw-lo
+  - Details: confidence=0.95
+- image / media_content / good
+  - Item: https://deepmind.google/blog/d4rt-teaching-ai-to-see-the-world-in-four-dimensions
+  - Title: D4RT: Teaching AI to see the world in four dimensions
+  - Asset: https://lh3.googleusercontent.com/ozG6v7VcBOV2eYZ8TnGTAe1Z-7EjkNiBPHxdQEG1wy_F5QwRN_4IJ_jJYMNQiOMHEWyNMZg3tmC00bzGQX0IYfXHMVuoQS6OLptEV-H6CUpIOnWOaQ=w528-h297-n-nu-rw-lo
+  - Details: confidence=1.0
+- document / media_thumbnail / good
+  - Item: https://deepmind.google/blog/d4rt-teaching-ai-to-see-the-world-in-four-dimensions
+  - Title: D4RT: Teaching AI to see the world in four dimensions
+  - Asset: https://lh3.googleusercontent.com/ozG6v7VcBOV2eYZ8TnGTAe1Z-7EjkNiBPHxdQEG1wy_F5QwRN_4IJ_jJYMNQiOMHEWyNMZg3tmC00bzGQX0IYfXHMVuoQS6OLptEV-H6CUpIOnWOaQ=w528-h297-n-nu-rw-lo
+  - Details: confidence=0.95
+- image / media_content / good
+  - Item: https://deepmind.google/blog/veo-3-1-ingredients-to-video-more-consistency-creativity-and-control
+  - Title: Veo 3.1 Ingredients to Video: More consistency, creativity and control
+  - Asset: https://lh3.googleusercontent.com/PfhcT9uJ6J5kHhhqYkeW2gP7Ae-Oj74cyXy7rK9urd9IrVCTZcyF8poHTklbLZXYH4TTNJ22N-NgABm9hA_0AybulGLtmTQSA85OqKyWdThLc-S095s=w528-h297-n-nu-rw-lo
+  - Details: confidence=1.0
+- document / media_thumbnail / good
+  - Item: https://deepmind.google/blog/veo-3-1-ingredients-to-video-more-consistency-creativity-and-control
+  - Title: Veo 3.1 Ingredients to Video: More consistency, creativity and control
+  - Asset: https://lh3.googleusercontent.com/PfhcT9uJ6J5kHhhqYkeW2gP7Ae-Oj74cyXy7rK9urd9IrVCTZcyF8poHTklbLZXYH4TTNJ22N-NgABm9hA_0AybulGLtmTQSA85OqKyWdThLc-S095s=w528-h297-n-nu-rw-lo
+  - Details: confidence=0.95
+- image / media_content / weak
+  - Item: https://deepmind.google/blog/googles-year-in-review-8-areas-with-research-breakthroughs-in-2025
+  - Title: Google's year in review: 8 areas with research breakthroughs in 2025
+  - Asset: https://lh3.googleusercontent.com/CKYdTuHZvo3suDXuWRQfFRfWZdWC3ahrFgIB7eTfGc1zJTcfwiFGNR9WEKRZHrpf8thov-uMXgW1fMYCcIot1NqvvmwBkZFhu7azK0sIlzr0tlBZ9A=w528-h297-n-nu-rw-lo
+  - Details: confidence=1.0
+- document / media_thumbnail / weak
+  - Item: https://deepmind.google/blog/googles-year-in-review-8-areas-with-research-breakthroughs-in-2025
+  - Title: Google's year in review: 8 areas with research breakthroughs in 2025
+  - Asset: https://lh3.googleusercontent.com/CKYdTuHZvo3suDXuWRQfFRfWZdWC3ahrFgIB7eTfGc1zJTcfwiFGNR9WEKRZHrpf8thov-uMXgW1fMYCcIot1NqvvmwBkZFhu7azK0sIlzr0tlBZ9A=w528-h297-n-nu-rw-lo
+  - Details: confidence=0.95
+- image / media_content / good
+  - Item: https://deepmind.google/blog/gemini-3-flash-frontier-intelligence-built-for-speed
+  - Title: Gemini 3 Flash: frontier intelligence built for speed
+  - Asset: https://lh3.googleusercontent.com/6RPdrvGOHnyvo4twPwkjLRiZ37xYNnjBm6YyAp3Q52T-hJcOSNLzS7ErxFMV64G4Ir4yMLpKCxJ9amMQaNq01GpSwusn1i7JM1UVwQ47FqPuOCRUYg=w528-h297-n-nu-rw-lo
+  - Details: confidence=1.0
+- document / media_thumbnail / good
+  - Item: https://deepmind.google/blog/gemini-3-flash-frontier-intelligence-built-for-speed
+  - Title: Gemini 3 Flash: frontier intelligence built for speed
+  - Asset: https://lh3.googleusercontent.com/6RPdrvGOHnyvo4twPwkjLRiZ37xYNnjBm6YyAp3Q52T-hJcOSNLzS7ErxFMV64G4Ir4yMLpKCxJ9amMQaNq01GpSwusn1i7JM1UVwQ47FqPuOCRUYg=w528-h297-n-nu-rw-lo
+  - Details: confidence=0.95
+- image / media_content / good
+  - Item: https://deepmind.google/blog/gemma-scope-2-helping-the-ai-safety-community-deepen-understanding-of-complex-language-model-behavior
+  - Title: Gemma Scope 2: helping the AI safety community deepen understanding of complex language model behavior
+  - Asset: https://lh3.googleusercontent.com/6xaDTQdD_X-XOnyaiOJyIeZrXSldI98ijQCzxNqtmlQvsl-Qy6B3qUQIbCnkY2Cfa2AV4hNwo7UV2wzZ6mG1O5q0tfBfYSGZhOH1Cpp7AKfApuY1=w528-h297-n-nu-rw-lo
+  - Details: confidence=1.0
+- document / media_thumbnail / good
+  - Item: https://deepmind.google/blog/gemma-scope-2-helping-the-ai-safety-community-deepen-understanding-of-complex-language-model-behavior
+  - Title: Gemma Scope 2: helping the AI safety community deepen understanding of complex language model behavior
+  - Asset: https://lh3.googleusercontent.com/6xaDTQdD_X-XOnyaiOJyIeZrXSldI98ijQCzxNqtmlQvsl-Qy6B3qUQIbCnkY2Cfa2AV4hNwo7UV2wzZ6mG1O5q0tfBfYSGZhOH1Cpp7AKfApuY1=w528-h297-n-nu-rw-lo
+  - Details: confidence=0.95
+- image / media_content / weak
+  - Item: https://deepmind.google/blog/improved-gemini-audio-models-for-powerful-voice-experiences
+  - Title: Improved Gemini audio models for powerful voice experiences
+  - Asset: https://lh3.googleusercontent.com/cJcAt2SxY4kjrZw_0k3hRQXJo81A-BhMUGWVnNVR0Uy8-ieIlWZyID9gRpioFGH1P9ODTf5rd3--9jJ9vUOnAM969Sprqbj0Sg6-RW87Ll_XPJw-_g=w528-h297-n-nu-rw-lo
+  - Details: confidence=1.0
+- document / media_thumbnail / weak
+  - Item: https://deepmind.google/blog/improved-gemini-audio-models-for-powerful-voice-experiences
+  - Title: Improved Gemini audio models for powerful voice experiences
+  - Asset: https://lh3.googleusercontent.com/cJcAt2SxY4kjrZw_0k3hRQXJo81A-BhMUGWVnNVR0Uy8-ieIlWZyID9gRpioFGH1P9ODTf5rd3--9jJ9vUOnAM969Sprqbj0Sg6-RW87Ll_XPJw-_g=w528-h297-n-nu-rw-lo
+  - Details: confidence=0.95
+- image / media_content / good
+  - Item: https://deepmind.google/blog/deepening-our-partnership-with-the-uk-ai-security-institute
+  - Title: Deepening our partnership with the UK AI Security Institute
+  - Asset: https://lh3.googleusercontent.com/AMN7wwGsZm8pTcW-nitk9SkxhXFSiFV4aM44e4NzZlbm0MgdLCUYrhsW312j9DpOvtiBv9COlSOTf90tsFp0FuBQ_ggpm-ft4IZrtPo95uC8B73mgw=w528-h297-n-nu-rw-lo
+  - Details: confidence=1.0
+- document / media_thumbnail / good
+  - Item: https://deepmind.google/blog/deepening-our-partnership-with-the-uk-ai-security-institute
+  - Title: Deepening our partnership with the UK AI Security Institute
+  - Asset: https://lh3.googleusercontent.com/AMN7wwGsZm8pTcW-nitk9SkxhXFSiFV4aM44e4NzZlbm0MgdLCUYrhsW312j9DpOvtiBv9COlSOTf90tsFp0FuBQ_ggpm-ft4IZrtPo95uC8B73mgw=w528-h297-n-nu-rw-lo
+  - Details: confidence=0.95
+- image / media_content / good
+  - Item: https://deepmind.google/blog/strengthening-our-partnership-with-the-uk-government-to-support-prosperity-and-security-in-the-ai-era
+  - Title: Strengthening our partnership with the UK government to support prosperity and security in the AI era
+  - Asset: https://lh3.googleusercontent.com/9ovdV4CyNmELMyuOSj2ZpyzRnJymh1gWQpzYVfd0oDzN82i8p08x_JRnArOWGge9IxvraD6ZRxYWD3pKNB0hhhueSmVHHn1xY4iXAOi2v7b0IYb8iw=w528-h297-n-nu-rw-lo
+  - Details: confidence=1.0
+- document / media_thumbnail / good
+  - Item: https://deepmind.google/blog/strengthening-our-partnership-with-the-uk-government-to-support-prosperity-and-security-in-the-ai-era
+  - Title: Strengthening our partnership with the UK government to support prosperity and security in the AI era
+  - Asset: https://lh3.googleusercontent.com/9ovdV4CyNmELMyuOSj2ZpyzRnJymh1gWQpzYVfd0oDzN82i8p08x_JRnArOWGge9IxvraD6ZRxYWD3pKNB0hhhueSmVHHn1xY4iXAOi2v7b0IYb8iw=w528-h297-n-nu-rw-lo
+  - Details: confidence=0.95
+- image / media_content / good
+  - Item: https://deepmind.google/blog/facts-benchmark-suite-systematically-evaluating-the-factuality-of-large-language-models
+  - Title: FACTS Benchmark Suite: Systematically evaluating the factuality of large language models
+  - Asset: https://lh3.googleusercontent.com/eEfDhwb-u99oZnuvwc3STyyWrtN-4LnaqKBXCTP6Zy7yZGEJ-ryNjOOYaWJ3Lc8JmRXVH9DA-EqSb7k61rXtDeG0wB6Tj0ho0mAax8QWUHDkpyUjig=w528-h297-n-nu-rw-lo
+  - Details: confidence=1.0
+- document / media_thumbnail / good
+  - Item: https://deepmind.google/blog/facts-benchmark-suite-systematically-evaluating-the-factuality-of-large-language-models
+  - Title: FACTS Benchmark Suite: Systematically evaluating the factuality of large language models
+  - Asset: https://lh3.googleusercontent.com/eEfDhwb-u99oZnuvwc3STyyWrtN-4LnaqKBXCTP6Zy7yZGEJ-ryNjOOYaWJ3Lc8JmRXVH9DA-EqSb7k61rXtDeG0wB6Tj0ho0mAax8QWUHDkpyUjig=w528-h297-n-nu-rw-lo
+  - Details: confidence=0.95
+- image / media_content / good
+  - Item: https://deepmind.google/blog/engineering-more-resilient-crops-for-a-warming-climate
+  - Title: Engineering more resilient crops for a warming climate
+  - Asset: https://lh3.googleusercontent.com/SmNXY162ZZ5ADiU59tS5YPlCdCd7A7G8ubHeSH8CAyniaPAUUEvrNUm_u7ve1S7QGpNjajkmrQWzSz-ZTG58RNRVVl8GEFcajpTK7rA6VCFnMdC0=w528-h297-n-nu-rw-lo
+  - Details: confidence=1.0
+- document / media_thumbnail / good
+  - Item: https://deepmind.google/blog/engineering-more-resilient-crops-for-a-warming-climate
+  - Title: Engineering more resilient crops for a warming climate
+  - Asset: https://lh3.googleusercontent.com/SmNXY162ZZ5ADiU59tS5YPlCdCd7A7G8ubHeSH8CAyniaPAUUEvrNUm_u7ve1S7QGpNjajkmrQWzSz-ZTG58RNRVVl8GEFcajpTK7rA6VCFnMdC0=w528-h297-n-nu-rw-lo
+  - Details: confidence=0.95
+- image / media_content / good
+  - Item: https://deepmind.google/blog/alphafold-five-years-of-impact
+  - Title: AlphaFold: Five years of impact
+  - Asset: https://lh3.googleusercontent.com/ilVw2lFf7j4sXdrcpi5lAe9Hl3ZjGXdj92fjgmtmTkIKIW69XiTfosSpaGmTqJif6_yjlQAVdMFBfxfLRMC9oYqEWFvX0lY6f9J7tMm7SNzTysGbng=w528-h297-n-nu-rw-lo
+  - Details: confidence=1.0
+- document / media_thumbnail / good
+  - Item: https://deepmind.google/blog/alphafold-five-years-of-impact
+  - Title: AlphaFold: Five years of impact
+  - Asset: https://lh3.googleusercontent.com/ilVw2lFf7j4sXdrcpi5lAe9Hl3ZjGXdj92fjgmtmTkIKIW69XiTfosSpaGmTqJif6_yjlQAVdMFBfxfLRMC9oYqEWFvX0lY6f9J7tMm7SNzTysGbng=w528-h297-n-nu-rw-lo
+  - Details: confidence=0.95
+- image / media_content / weak
+  - Item: https://deepmind.google/blog/revealing-a-key-protein-behind-heart-disease
+  - Title: Revealing a key protein behind heart disease
+  - Asset: https://lh3.googleusercontent.com/RwD4LRoI4MaL8yOjRgJoH9cjv4T54vy4V7ZNnToTVaVksw4pCKyRwoz1RbCwweWxot6Q2vLEZdSk-29k79pNqutMiBrRHd6IbvKepvWQvjpWxIenFg=w528-h297-n-nu-rw-lo
+  - Details: confidence=1.0
+- document / media_thumbnail / weak
+  - Item: https://deepmind.google/blog/revealing-a-key-protein-behind-heart-disease
+  - Title: Revealing a key protein behind heart disease
+  - Asset: https://lh3.googleusercontent.com/RwD4LRoI4MaL8yOjRgJoH9cjv4T54vy4V7ZNnToTVaVksw4pCKyRwoz1RbCwweWxot6Q2vLEZdSk-29k79pNqutMiBrRHd6IbvKepvWQvjpWxIenFg=w528-h297-n-nu-rw-lo
+  - Details: confidence=0.95
+- image / media_content / good
+  - Item: https://deepmind.google/blog/google-deepmind-supports-us-department-of-energy-on-genesis
+  - Title: Google DeepMind supports U.S. Department of Energy on Genesis: a national mission to accelerate innovation and scientific discovery
+  - Asset: https://lh3.googleusercontent.com/Aij3S61tCOKUv_-lxFEBAvGZBWAlGh2E0gGRyol8p0L53KFkhgEEDcuw2rg9JzpdH40kwy_e_PkjaHdvbInPj55lDIKx6cd9xzzmRAy9eUapVkKJrw=w528-h297-n-nu-rw-lo
+  - Details: confidence=1.0
+- document / media_thumbnail / good
+  - Item: https://deepmind.google/blog/google-deepmind-supports-us-department-of-energy-on-genesis
+  - Title: Google DeepMind supports U.S. Department of Energy on Genesis: a national mission to accelerate innovation and scientific discovery
+  - Asset: https://lh3.googleusercontent.com/Aij3S61tCOKUv_-lxFEBAvGZBWAlGh2E0gGRyol8p0L53KFkhgEEDcuw2rg9JzpdH40kwy_e_PkjaHdvbInPj55lDIKx6cd9xzzmRAy9eUapVkKJrw=w528-h297-n-nu-rw-lo
+  - Details: confidence=0.95
+- image / media_content / good
+  - Item: https://deepmind.google/blog/were-expanding-our-presence-in-singapore-to-advance-ai-in-the-asia-pacific-region
+  - Title: We’re expanding our presence in Singapore to advance AI in the Asia-Pacific region
+  - Asset: https://lh3.googleusercontent.com/FD0l9MC2qTshsHf8AaVKRbfdkExWeGVCEKAxiEBeN3DzSUf9mS3eFBbsJBtFEbmQD8NZm75g1a59VBkkTSmpRAVCmShn82wjgukKzIJk54p4S3QM3A=w528-h297-n-nu-rw-lo
+  - Details: confidence=1.0
+- document / media_thumbnail / good
+  - Item: https://deepmind.google/blog/were-expanding-our-presence-in-singapore-to-advance-ai-in-the-asia-pacific-region
+  - Title: We’re expanding our presence in Singapore to advance AI in the Asia-Pacific region
+  - Asset: https://lh3.googleusercontent.com/FD0l9MC2qTshsHf8AaVKRbfdkExWeGVCEKAxiEBeN3DzSUf9mS3eFBbsJBtFEbmQD8NZm75g1a59VBkkTSmpRAVCmShn82wjgukKzIJk54p4S3QM3A=w528-h297-n-nu-rw-lo
+  - Details: confidence=0.95
+- image / media_content / good
+  - Item: https://deepmind.google/blog/weathernext-2-our-most-advanced-weather-forecasting-model
+  - Title: WeatherNext 2: Our most advanced weather forecasting model
+  - Asset: https://lh3.googleusercontent.com/nLLjA96gb4kz3UEnKvyMjFdJQwud0fvr8kyoBLzvb28GjhS22TCTdRAAnBKSFs5GO_IfhXjAeHvGWDXM7Bqp9024X-K2mgSCLuhb-KW7weQbXruZOg=w528-h297-n-nu-rw-lo
+  - Details: confidence=1.0
+- document / media_thumbnail / good
+  - Item: https://deepmind.google/blog/weathernext-2-our-most-advanced-weather-forecasting-model
+  - Title: WeatherNext 2: Our most advanced weather forecasting model
+  - Asset: https://lh3.googleusercontent.com/nLLjA96gb4kz3UEnKvyMjFdJQwud0fvr8kyoBLzvb28GjhS22TCTdRAAnBKSFs5GO_IfhXjAeHvGWDXM7Bqp9024X-K2mgSCLuhb-KW7weQbXruZOg=w528-h297-n-nu-rw-lo
+  - Details: confidence=0.95
+- image / media_content / good
+  - Item: https://deepmind.google/blog/sima-2-an-agent-that-plays-reasons-and-learns-with-you-in-virtual-3d-worlds
+  - Title: SIMA 2: An Agent that Plays, Reasons, and Learns With You in Virtual 3D Worlds
+  - Asset: https://lh3.googleusercontent.com/A5vgACWjzxaEanLkjrZSNlQDjI0SEZ4tKJqE2EtboljSRIkcbEVv4JA2H7a-BEYNoWK097hNdthFdB6h537DUVvFbAUwhWUFSzzA0E0ndr6zMC8tMA=w528-h297-n-nu-rw-lo
+  - Details: confidence=1.0
+- document / media_thumbnail / good
+  - Item: https://deepmind.google/blog/sima-2-an-agent-that-plays-reasons-and-learns-with-you-in-virtual-3d-worlds
+  - Title: SIMA 2: An Agent that Plays, Reasons, and Learns With You in Virtual 3D Worlds
+  - Asset: https://lh3.googleusercontent.com/A5vgACWjzxaEanLkjrZSNlQDjI0SEZ4tKJqE2EtboljSRIkcbEVv4JA2H7a-BEYNoWK097hNdthFdB6h537DUVvFbAUwhWUFSzzA0E0ndr6zMC8tMA=w528-h297-n-nu-rw-lo
+  - Details: confidence=0.95
+- image / media_content / good
+  - Item: https://deepmind.google/blog/teaching-ai-to-see-the-world-more-like-we-do
+  - Title: Teaching AI to see the world more like we do
+  - Asset: https://lh3.googleusercontent.com/pr1odwZzuCO8826Vd7ekb3yIHpt4iP9sULx5f_fa-BaTzJob88Lsr_y03zjtGV6J0q-zfPOe7Ym9JE2nyoGV7a4MbNZ3VP5IEAQCCUhzL7YZlT7KRg=w528-h297-n-nu-rw-lo
+  - Details: confidence=1.0
+- document / media_thumbnail / good
+  - Item: https://deepmind.google/blog/teaching-ai-to-see-the-world-more-like-we-do
+  - Title: Teaching AI to see the world more like we do
+  - Asset: https://lh3.googleusercontent.com/pr1odwZzuCO8826Vd7ekb3yIHpt4iP9sULx5f_fa-BaTzJob88Lsr_y03zjtGV6J0q-zfPOe7Ym9JE2nyoGV7a4MbNZ3VP5IEAQCCUhzL7YZlT7KRg=w528-h297-n-nu-rw-lo
+  - Details: confidence=0.95
+- image / media_content / good
+  - Item: https://deepmind.google/blog/mapping-modeling-and-understanding-nature-with-ai
+  - Title: Mapping, modeling, and understanding nature with AI
+  - Asset: https://lh3.googleusercontent.com/gAGr-25CPQL8Ewa1qI2LxPmBSpfIfjXOOYoMhGxW94q4ORz9fe7koObRkriLCE5WPPRQiHZtKRBzdSgBd0fSDFX_tjf7NnqtBEugJ4KF07IUdmdEWg=w528-h297-n-nu-rw-lo
+  - Details: confidence=1.0
+- document / media_thumbnail / good
+  - Item: https://deepmind.google/blog/mapping-modeling-and-understanding-nature-with-ai
+  - Title: Mapping, modeling, and understanding nature with AI
+  - Asset: https://lh3.googleusercontent.com/gAGr-25CPQL8Ewa1qI2LxPmBSpfIfjXOOYoMhGxW94q4ORz9fe7koObRkriLCE5WPPRQiHZtKRBzdSgBd0fSDFX_tjf7NnqtBEugJ4KF07IUdmdEWg=w528-h297-n-nu-rw-lo
+  - Details: confidence=0.95
+- image / media_content / weak
+  - Item: https://deepmind.google/blog/t5gemma-a-new-collection-of-encoder-decoder-gemma-models
+  - Title: T5Gemma: A new collection of encoder-decoder Gemma models
+  - Asset: https://lh3.googleusercontent.com/G6ZuFr6d2i13JlGsO-_Sw5JxpyrqKqeQWkfCQRfgFZfabMfHW4kHIBxnFnvQz8Y5-VrTrX_4gY4PdmSm59R3rVKMoS7R6rH4ymrt-SSzvMedTINZBQ=w528-h297-n-nu-rw-lo
+  - Details: confidence=1.0
+- document / media_thumbnail / weak
+  - Item: https://deepmind.google/blog/t5gemma-a-new-collection-of-encoder-decoder-gemma-models
+  - Title: T5Gemma: A new collection of encoder-decoder Gemma models
+  - Asset: https://lh3.googleusercontent.com/G6ZuFr6d2i13JlGsO-_Sw5JxpyrqKqeQWkfCQRfgFZfabMfHW4kHIBxnFnvQz8Y5-VrTrX_4gY4PdmSm59R3rVKMoS7R6rH4ymrt-SSzvMedTINZBQ=w528-h297-n-nu-rw-lo
+  - Details: confidence=0.95
+- image / media_content / good
+  - Item: https://deepmind.google/blog/medgemma-our-most-capable-open-models-for-health-ai-development
+  - Title: MedGemma: Our most capable open models for health AI development
+  - Asset: https://lh3.googleusercontent.com/9ORfmyRK985B2p8J18NGBCEKWe9deGWaYCxvKtMg8FULW2eiShH-OfZh72wAXROrpcC4UalsW_cGIVzBssP8Q3NZJEQbsD9RwWvy9tJpzNpTNklHqQ=w528-h297-n-nu-rw-lo
+  - Details: confidence=1.0
+- document / media_thumbnail / good
+  - Item: https://deepmind.google/blog/medgemma-our-most-capable-open-models-for-health-ai-development
+  - Title: MedGemma: Our most capable open models for health AI development
+  - Asset: https://lh3.googleusercontent.com/9ORfmyRK985B2p8J18NGBCEKWe9deGWaYCxvKtMg8FULW2eiShH-OfZh72wAXROrpcC4UalsW_cGIVzBssP8Q3NZJEQbsD9RwWvy9tJpzNpTNklHqQ=w528-h297-n-nu-rw-lo
+  - Details: confidence=0.95
+- image / media_content / weak
+  - Item: https://deepmind.google/blog/introducing-gemma-3n-the-developer-guide
+  - Title: Introducing Gemma 3n: The developer guide
+  - Asset: https://lh3.googleusercontent.com/Ri-lKi1MXY7To2V-fqySROe00Ch5OIvyTsN0p3cuEr7DbumWfLwOLOomK66OiS6WDs6UGAYM9vso9kOsaXCshYBVM09VDrgMOnQJToQpCJET5zLgxw=w528-h297-n-nu-rw-lo
+  - Details: confidence=1.0
+- document / media_thumbnail / weak
+  - Item: https://deepmind.google/blog/introducing-gemma-3n-the-developer-guide
+  - Title: Introducing Gemma 3n: The developer guide
+  - Asset: https://lh3.googleusercontent.com/Ri-lKi1MXY7To2V-fqySROe00Ch5OIvyTsN0p3cuEr7DbumWfLwOLOomK66OiS6WDs6UGAYM9vso9kOsaXCshYBVM09VDrgMOnQJToQpCJET5zLgxw=w528-h297-n-nu-rw-lo
+  - Details: confidence=0.95
+- image / media_content / good
+  - Item: https://deepmind.google/blog/gemini-25-flash-lite-is-now-ready-for-scaled-production-use
+  - Title: Gemini 2.5 Flash-Lite is now ready for scaled production use
+  - Asset: https://lh3.googleusercontent.com/dPmQ-koIEMBj9zIAJpOyeALOE4GFH_HWC5ra3kAa76NkGuX_YkpQ25tG25Bpqeq4idwYwt2GTBw-8lfJMzxsvHsGp07l2F_R2TDmEAwTyPLgnCSxlg=w528-h297-n-nu-rw-lo
+  - Details: confidence=1.0
+- document / media_thumbnail / good
+  - Item: https://deepmind.google/blog/gemini-25-flash-lite-is-now-ready-for-scaled-production-use
+  - Title: Gemini 2.5 Flash-Lite is now ready for scaled production use
+  - Asset: https://lh3.googleusercontent.com/dPmQ-koIEMBj9zIAJpOyeALOE4GFH_HWC5ra3kAa76NkGuX_YkpQ25tG25Bpqeq4idwYwt2GTBw-8lfJMzxsvHsGp07l2F_R2TDmEAwTyPLgnCSxlg=w528-h297-n-nu-rw-lo
+  - Details: confidence=0.95
+- image / media_content / good
+  - Item: https://deepmind.google/blog/behind-ancestra-combining-veo-with-live-action-filmmaking
+  - Title: Behind “ANCESTRA”: combining Veo with live-action filmmaking
+  - Asset: https://lh3.googleusercontent.com/q5T7-rJ0N5GKh8w1VSMyJo64aLMkxGZkzy0kaLuVe3tzL5RN9N2owKza3BLdyW6QXUImofOc2F9MnBHwKOGIUzBcrQKGhPNTCertEY-jmBc6w_DGww=w528-h297-n-nu-rw-lo
+  - Details: confidence=1.0
+- document / media_thumbnail / good
+  - Item: https://deepmind.google/blog/behind-ancestra-combining-veo-with-live-action-filmmaking
+  - Title: Behind “ANCESTRA”: combining Veo with live-action filmmaking
+  - Asset: https://lh3.googleusercontent.com/q5T7-rJ0N5GKh8w1VSMyJo64aLMkxGZkzy0kaLuVe3tzL5RN9N2owKza3BLdyW6QXUImofOc2F9MnBHwKOGIUzBcrQKGhPNTCertEY-jmBc6w_DGww=w528-h297-n-nu-rw-lo
+  - Details: confidence=0.95
+- image / media_content / good
+  - Item: https://deepmind.google/blog/alphaearth-foundations-helps-map-our-planet-in-unprecedented-detail
+  - Title: AlphaEarth Foundations helps map our planet in unprecedented detail
+  - Asset: https://lh3.googleusercontent.com/7vH7h8I8REIlyuvVWa6rIBAuFi8Wgx2YNE5j2F1tcym5UCjH6e6KcDji_ZHvYutiLFypKUuHK-fvJ2LaGTTp_8Fxs-qLf_ul74zLW-Y5pMWiYwfskg=w528-h297-n-nu-rw-lo
+  - Details: confidence=1.0
+- document / media_thumbnail / good
+  - Item: https://deepmind.google/blog/alphaearth-foundations-helps-map-our-planet-in-unprecedented-detail
+  - Title: AlphaEarth Foundations helps map our planet in unprecedented detail
+  - Asset: https://lh3.googleusercontent.com/7vH7h8I8REIlyuvVWa6rIBAuFi8Wgx2YNE5j2F1tcym5UCjH6e6KcDji_ZHvYutiLFypKUuHK-fvJ2LaGTTp_8Fxs-qLf_ul74zLW-Y5pMWiYwfskg=w528-h297-n-nu-rw-lo
+  - Details: confidence=0.95
+- image / media_content / good
+  - Item: https://deepmind.google/blog/exploring-the-context-of-online-images-with-backstory
+  - Title: Exploring the context of online images with Backstory
+  - Asset: https://lh3.googleusercontent.com/2Cwwo2mo_5ltAq1yvhcn6ACIDM_Ssy97xFjF0uMH1AKq04Vc2v6ArZnnw4IiSwx-MTzTvF1WNCYMxu_zFoc0xF_ZqkrYuQHlP9_zwKjYGFoH99SPOA=w528-h297-n-nu-rw-lo
+  - Details: confidence=1.0
+- document / media_thumbnail / good
+  - Item: https://deepmind.google/blog/exploring-the-context-of-online-images-with-backstory
+  - Title: Exploring the context of online images with Backstory
+  - Asset: https://lh3.googleusercontent.com/2Cwwo2mo_5ltAq1yvhcn6ACIDM_Ssy97xFjF0uMH1AKq04Vc2v6ArZnnw4IiSwx-MTzTvF1WNCYMxu_zFoc0xF_ZqkrYuQHlP9_zwKjYGFoH99SPOA=w528-h297-n-nu-rw-lo
+  - Details: confidence=0.95
+- image / media_content / good
+  - Item: https://deepmind.google/blog/advanced-version-of-gemini-with-deep-think-officially-achieves-gold-medal-standard-at-the-international-mathematical-olympiad
+  - Title: Advanced version of Gemini with Deep Think officially achieves gold-medal standard at the International Mathematical Olympiad
+  - Asset: https://lh3.googleusercontent.com/dMX-NWqRTUb0n79tmSHEBiBGJT7THkkAf9dxVviw9zXMF4YYTUl8K4s1reIPTYNvOer7-_aAlIMFQLdcTscYaHtS7Uw2BIkzh6gPmvwUVzThkjf46h4=w528-h297-n-nu-rw-lo
+  - Details: confidence=1.0
+- document / media_thumbnail / good
+  - Item: https://deepmind.google/blog/advanced-version-of-gemini-with-deep-think-officially-achieves-gold-medal-standard-at-the-international-mathematical-olympiad
+  - Title: Advanced version of Gemini with Deep Think officially achieves gold-medal standard at the International Mathematical Olympiad
+  - Asset: https://lh3.googleusercontent.com/dMX-NWqRTUb0n79tmSHEBiBGJT7THkkAf9dxVviw9zXMF4YYTUl8K4s1reIPTYNvOer7-_aAlIMFQLdcTscYaHtS7Uw2BIkzh6gPmvwUVzThkjf46h4=w528-h297-n-nu-rw-lo
+  - Details: confidence=0.95
+- image / media_content / good
+  - Item: https://deepmind.google/blog/aeneas-transforms-how-historians-connect-the-past
+  - Title: Aeneas transforms how historians connect the past
+  - Asset: https://lh3.googleusercontent.com/RtYRby64YEBq-DMmlqZsVIMpiuVymqQD27nSvo1UJoxtcPOH4bmu0Of7Vm4vUC1xxOA91DhGh5-dHVHsy3f-7Vz6f-y7RjXDfOyz0z4e7aK8_65_LQ=w528-h297-n-nu-rw-lo
+  - Details: confidence=1.0
+- document / media_thumbnail / good
+  - Item: https://deepmind.google/blog/aeneas-transforms-how-historians-connect-the-past
+  - Title: Aeneas transforms how historians connect the past
+  - Asset: https://lh3.googleusercontent.com/RtYRby64YEBq-DMmlqZsVIMpiuVymqQD27nSvo1UJoxtcPOH4bmu0Of7Vm4vUC1xxOA91DhGh5-dHVHsy3f-7Vz6f-y7RjXDfOyz0z4e7aK8_65_LQ=w528-h297-n-nu-rw-lo
+  - Details: confidence=0.95
+- image / media_content / good
+  - Item: https://deepmind.google/blog/genie-3-a-new-frontier-for-world-models
+  - Title: Genie 3: A new frontier for world models
+  - Asset: https://lh3.googleusercontent.com/MZsGi3QroEY4lNLxrQVBVpn_5NZDXMCKwXs8nStlzGvjS7p76pP-FjyyO-hrYuBhERc60C5-KosmVJFfITEYN7wx_cV94Wju48IyYRwQ39_DtRDU=w528-h297-n-nu-rw-lo
+  - Details: confidence=1.0
+- document / media_thumbnail / good
+  - Item: https://deepmind.google/blog/genie-3-a-new-frontier-for-world-models
+  - Title: Genie 3: A new frontier for world models
+  - Asset: https://lh3.googleusercontent.com/MZsGi3QroEY4lNLxrQVBVpn_5NZDXMCKwXs8nStlzGvjS7p76pP-FjyyO-hrYuBhERc60C5-KosmVJFfITEYN7wx_cV94Wju48IyYRwQ39_DtRDU=w528-h297-n-nu-rw-lo
+  - Details: confidence=0.95
+- image / media_content / good
+  - Item: https://deepmind.google/blog/how-ai-is-helping-advance-the-science-of-bioacoustics-to-save-endangered-species
+  - Title: How AI is helping advance the science of bioacoustics to save endangered species
+  - Asset: https://lh3.googleusercontent.com/ZQcPGFYeQXxngk2iQlNKgcUUOyGORpNFEDVCq2jNDL3sBDCgCQ-UsgB8hWFtxvEBHycX_WlV3tdho0Ppn8av9nykERWjrMw4QRqhBc-TObJ2Cv-0=w528-h297-n-nu-rw-lo
+  - Details: confidence=1.0
+- document / media_thumbnail / good
+  - Item: https://deepmind.google/blog/how-ai-is-helping-advance-the-science-of-bioacoustics-to-save-endangered-species
+  - Title: How AI is helping advance the science of bioacoustics to save endangered species
+  - Asset: https://lh3.googleusercontent.com/ZQcPGFYeQXxngk2iQlNKgcUUOyGORpNFEDVCq2jNDL3sBDCgCQ-UsgB8hWFtxvEBHycX_WlV3tdho0Ppn8av9nykERWjrMw4QRqhBc-TObJ2Cv-0=w528-h297-n-nu-rw-lo
+  - Details: confidence=0.95
+- image / media_content / weak
+  - Item: https://deepmind.google/blog/using-ai-to-perceive-the-universe-in-greater-depth
+  - Title: Using AI to perceive the universe in greater depth
+  - Asset: https://lh3.googleusercontent.com/GgO6VkvHoYDdCPahHFAkWhCeSLm6MtzzF0zsfiH-qDtjWOB68fD0pFRfurPaY9ZjFbZAXK6YjKeXVrD-O_OWI1-0MOhrGirdgf9i1C0ohRHhsSgM5g=w528-h297-n-nu-rw-lo
+  - Details: confidence=1.0
+- document / media_thumbnail / weak
+  - Item: https://deepmind.google/blog/using-ai-to-perceive-the-universe-in-greater-depth
+  - Title: Using AI to perceive the universe in greater depth
+  - Asset: https://lh3.googleusercontent.com/GgO6VkvHoYDdCPahHFAkWhCeSLm6MtzzF0zsfiH-qDtjWOB68fD0pFRfurPaY9ZjFbZAXK6YjKeXVrD-O_OWI1-0MOhrGirdgf9i1C0ohRHhsSgM5g=w528-h297-n-nu-rw-lo
+  - Details: confidence=0.95
+- image / media_content / good
+  - Item: https://deepmind.google/blog/gemini-achieves-gold-medal-level-at-the-international-collegiate-programming-contest-world-finals
+  - Title: Gemini achieves gold-medal level at the International Collegiate Programming Contest World Finals
+  - Asset: https://lh3.googleusercontent.com/qvRvHwfAo6VBmQsyNOWvRJ5N-H_sYxezQa7ap6SPxLhWT7jUi7EvI7TK6dZmsO8WtS7xkC6uqMOUHSPNF8y9KFuRg_FUievitpcgJX_wOQnle8jg=w528-h297-n-nu-rw-lo
+  - Details: confidence=1.0
+- document / media_thumbnail / good
+  - Item: https://deepmind.google/blog/gemini-achieves-gold-medal-level-at-the-international-collegiate-programming-contest-world-finals
+  - Title: Gemini achieves gold-medal level at the International Collegiate Programming Contest World Finals
+  - Asset: https://lh3.googleusercontent.com/qvRvHwfAo6VBmQsyNOWvRJ5N-H_sYxezQa7ap6SPxLhWT7jUi7EvI7TK6dZmsO8WtS7xkC6uqMOUHSPNF8y9KFuRg_FUievitpcgJX_wOQnle8jg=w528-h297-n-nu-rw-lo
+  - Details: confidence=0.95
+- image / media_content / good
+  - Item: https://deepmind.google/blog/discovering-new-solutions-to-century-old-problems-in-fluid-dynamics
+  - Title: Discovering new solutions to century-old problems in fluid dynamics
+  - Asset: https://lh3.googleusercontent.com/zv1R07FlUC13VLtRxjmaGze53ybr3AgVpR_xP69HtBbEsQWOMH0qxWpiVhRxl2fP4kjUBi2OP4RR093Sll7KYkNeKAuIS2K1nu1gZWPZnj_T7GGM5Q=w528-h297-n-nu-rw-lo
+  - Details: confidence=1.0
+- document / media_thumbnail / good
+  - Item: https://deepmind.google/blog/discovering-new-solutions-to-century-old-problems-in-fluid-dynamics
+  - Title: Discovering new solutions to century-old problems in fluid dynamics
+  - Asset: https://lh3.googleusercontent.com/zv1R07FlUC13VLtRxjmaGze53ybr3AgVpR_xP69HtBbEsQWOMH0qxWpiVhRxl2fP4kjUBi2OP4RR093Sll7KYkNeKAuIS2K1nu1gZWPZnj_T7GGM5Q=w528-h297-n-nu-rw-lo
+  - Details: confidence=0.95
+- image / media_content / good
+  - Item: https://deepmind.google/blog/strengthening-our-frontier-safety-framework
+  - Title: Strengthening our Frontier Safety Framework
+  - Asset: https://lh3.googleusercontent.com/XBQUPBcBgBVTRKNQ1O15YdcfRRmjOAYakt8-ikTza94oBRBz6dq5A4goEDahtZ7KN3NhfOltH3MLtIgiQ1OnutYe1m8DRjVNJ8mHS2WuPjqqvpSrOts=w528-h297-n-nu-rw-lo
+  - Details: confidence=1.0
+- document / media_thumbnail / good
+  - Item: https://deepmind.google/blog/strengthening-our-frontier-safety-framework
+  - Title: Strengthening our Frontier Safety Framework
+  - Asset: https://lh3.googleusercontent.com/XBQUPBcBgBVTRKNQ1O15YdcfRRmjOAYakt8-ikTza94oBRBz6dq5A4goEDahtZ7KN3NhfOltH3MLtIgiQ1OnutYe1m8DRjVNJ8mHS2WuPjqqvpSrOts=w528-h297-n-nu-rw-lo
+  - Details: confidence=0.95
+- image / media_content / good
+  - Item: https://deepmind.google/blog/gemini-robotics-15-brings-ai-agents-into-the-physical-world
+  - Title: Gemini Robotics 1.5 brings AI agents into the physical world
+  - Asset: https://lh3.googleusercontent.com/6AYpHM-f9lYVHZSRX_NkYS5S8Lk8J9-6SFz8yZlyLJtAWnETOksYNd5TEf3bq_Zx_wxSxCWOsBayp2IVV05wwy7jiTkKfHIJFhX80lsRmzp5r8g8kQ=w528-h297-n-nu-rw-lo
+  - Details: confidence=1.0
+- document / media_thumbnail / good
+  - Item: https://deepmind.google/blog/gemini-robotics-15-brings-ai-agents-into-the-physical-world
+  - Title: Gemini Robotics 1.5 brings AI agents into the physical world
+  - Asset: https://lh3.googleusercontent.com/6AYpHM-f9lYVHZSRX_NkYS5S8Lk8J9-6SFz8yZlyLJtAWnETOksYNd5TEf3bq_Zx_wxSxCWOsBayp2IVV05wwy7jiTkKfHIJFhX80lsRmzp5r8g8kQ=w528-h297-n-nu-rw-lo
+  - Details: confidence=0.95
+- image / media_content / weak
+  - Item: https://deepmind.google/blog/introducing-codemender-an-ai-agent-for-code-security
+  - Title: Introducing CodeMender: an AI agent for code security
+  - Asset: https://lh3.googleusercontent.com/k8UqDSugJHO4Rf-O3s7Hm9jxtuHtK93lQI1KFdoElscGZywC7x5Xuuw_LlzNTvt3fx_Shho1BjokMBVH5ACIt7hmx_y6P4PO0dfvwOlBj7JVAsC_Kg=w528-h297-n-nu-rw-lo
+  - Details: confidence=1.0
+- document / media_thumbnail / weak
+  - Item: https://deepmind.google/blog/introducing-codemender-an-ai-agent-for-code-security
+  - Title: Introducing CodeMender: an AI agent for code security
+  - Asset: https://lh3.googleusercontent.com/k8UqDSugJHO4Rf-O3s7Hm9jxtuHtK93lQI1KFdoElscGZywC7x5Xuuw_LlzNTvt3fx_Shho1BjokMBVH5ACIt7hmx_y6P4PO0dfvwOlBj7JVAsC_Kg=w528-h297-n-nu-rw-lo
+  - Details: confidence=0.95
+- image / media_content / good
+  - Item: https://deepmind.google/blog/bringing-ai-to-the-next-generation-of-fusion-energy
+  - Title: Bringing AI to the next generation of fusion energy
+  - Asset: https://lh3.googleusercontent.com/I0hKlXnKlWRgtf0wd3UNbqHoLCzBo-AhaA-lRU99ohvb90leYc-IWZVsS2a9_kQNO4EphPerQjYNehMGmsBUu2S1HAfrIRJO6h_5hCrGYA80PPq7=w528-h297-n-nu-rw-lo
+  - Details: confidence=1.0
+- document / media_thumbnail / good
+  - Item: https://deepmind.google/blog/bringing-ai-to-the-next-generation-of-fusion-energy
+  - Title: Bringing AI to the next generation of fusion energy
+  - Asset: https://lh3.googleusercontent.com/I0hKlXnKlWRgtf0wd3UNbqHoLCzBo-AhaA-lRU99ohvb90leYc-IWZVsS2a9_kQNO4EphPerQjYNehMGmsBUu2S1HAfrIRJO6h_5hCrGYA80PPq7=w528-h297-n-nu-rw-lo
+  - Details: confidence=0.95
+- image / media_content / good
+  - Item: https://deepmind.google/blog/try-deep-think-in-the-gemini-app
+  - Title: Try Deep Think in the Gemini app
+  - Asset: https://lh3.googleusercontent.com/_aOt_AgzrKwu6-2-4w04bWFaWnbagJ9nHCx4kIQwJQPlzt7NxAdAacSMVb1H6qAkT1PQ23MNeXP33Z7leGfYjk4fjZoJfw4LSeA78JzLKyl2NgY_=w528-h297-n-nu-rw-lo
+  - Details: confidence=1.0
+- document / media_thumbnail / good
+  - Item: https://deepmind.google/blog/try-deep-think-in-the-gemini-app
+  - Title: Try Deep Think in the Gemini app
+  - Asset: https://lh3.googleusercontent.com/_aOt_AgzrKwu6-2-4w04bWFaWnbagJ9nHCx4kIQwJQPlzt7NxAdAacSMVb1H6qAkT1PQ23MNeXP33Z7leGfYjk4fjZoJfw4LSeA78JzLKyl2NgY_=w528-h297-n-nu-rw-lo
+  - Details: confidence=0.95
+- image / media_content / good
+  - Item: https://deepmind.google/blog/rethinking-how-we-measure-ai-intelligence
+  - Title: Rethinking how we measure AI intelligence
+  - Asset: https://lh3.googleusercontent.com/2WyNtbfktF5_6esvBvhLRr_Rlzh7UQwyb1yISpp9KZxQxcJkEBXrYDNjtHcQ3bSb0lhJ8l-iynBcjar4QRCpBJ_8dmBGMJJ4hpUe6AkrX_UnX12OSg=w528-h297-n-nu-rw-lo
+  - Details: confidence=1.0
+- document / media_thumbnail / good
+  - Item: https://deepmind.google/blog/rethinking-how-we-measure-ai-intelligence
+  - Title: Rethinking how we measure AI intelligence
+  - Asset: https://lh3.googleusercontent.com/2WyNtbfktF5_6esvBvhLRr_Rlzh7UQwyb1yISpp9KZxQxcJkEBXrYDNjtHcQ3bSb0lhJ8l-iynBcjar4QRCpBJ_8dmBGMJJ4hpUe6AkrX_UnX12OSg=w528-h297-n-nu-rw-lo
+  - Details: confidence=0.95
+- image / media_content / good
+  - Item: https://deepmind.google/blog/introducing-gemma-3-270m-the-compact-model-for-hyper-efficient-ai
+  - Title: Introducing Gemma 3 270M: The compact model for hyper-efficient AI
+  - Asset: https://lh3.googleusercontent.com/Cj5-NRySEIqc358UslPI7Dm-e-vQndVW8nVvtJnoXmxSZFygqHqKLOsefc6ohOFNojkFdRaYYCCpcigEHqVP5xGx9yLyrldbw0-atctzJM_cW8z1=w528-h297-n-nu-rw-lo
+  - Details: confidence=1.0
+- document / media_thumbnail / good
+  - Item: https://deepmind.google/blog/introducing-gemma-3-270m-the-compact-model-for-hyper-efficient-ai
+  - Title: Introducing Gemma 3 270M: The compact model for hyper-efficient AI
+  - Asset: https://lh3.googleusercontent.com/Cj5-NRySEIqc358UslPI7Dm-e-vQndVW8nVvtJnoXmxSZFygqHqKLOsefc6ohOFNojkFdRaYYCCpcigEHqVP5xGx9yLyrldbw0-atctzJM_cW8z1=w528-h297-n-nu-rw-lo
+  - Details: confidence=0.95
+- image / media_content / good
+  - Item: https://deepmind.google/blog/image-editing-in-gemini-just-got-a-major-upgrade
+  - Title: Image editing in Gemini just got a major upgrade
+  - Asset: https://lh3.googleusercontent.com/lO9TXZYt8a2_kJFCs-_fjBXKXh11uig76_ykc8-E3ChCbkkx3vLA9H_eMgsKUKh5RL4oNlas0S4uYBBkUQQ1RsAQzn1YsOWvGty_c5_QTbiGChR7=w528-h297-n-nu-rw-lo
+  - Details: confidence=1.0
+- document / media_thumbnail / good
+  - Item: https://deepmind.google/blog/image-editing-in-gemini-just-got-a-major-upgrade
+  - Title: Image editing in Gemini just got a major upgrade
+  - Asset: https://lh3.googleusercontent.com/lO9TXZYt8a2_kJFCs-_fjBXKXh11uig76_ykc8-E3ChCbkkx3vLA9H_eMgsKUKh5RL4oNlas0S4uYBBkUQQ1RsAQzn1YsOWvGty_c5_QTbiGChR7=w528-h297-n-nu-rw-lo
+  - Details: confidence=0.95
+- image / media_content / good
+  - Item: https://deepmind.google/blog/vaultgemma-the-worlds-most-capable-differentially-private-llm
+  - Title: VaultGemma: The world's most capable differentially private LLM
+  - Asset: https://lh3.googleusercontent.com/KD1gM-4cczisPKkhOg47FmPjkJbE1bTzLU_QB0Il6ITen15chFme1B0cyuRlUBQUppBGhvLQ9xzpjz-z2Kv1P15iZ1tcIYiVI_XxSANbdxouEQY5cg=w528-h297-n-nu-rw-lo
+  - Details: confidence=1.0
+- document / media_thumbnail / good
+  - Item: https://deepmind.google/blog/vaultgemma-the-worlds-most-capable-differentially-private-llm
+  - Title: VaultGemma: The world's most capable differentially private LLM
+  - Asset: https://lh3.googleusercontent.com/KD1gM-4cczisPKkhOg47FmPjkJbE1bTzLU_QB0Il6ITen15chFme1B0cyuRlUBQUppBGhvLQ9xzpjz-z2Kv1P15iZ1tcIYiVI_XxSANbdxouEQY5cg=w528-h297-n-nu-rw-lo
+  - Details: confidence=0.95
+- image / media_content / good
+  - Item: https://deepmind.google/blog/introducing-the-gemini-25-computer-use-model
+  - Title: Introducing the Gemini 2.5 Computer Use model
+  - Asset: https://lh3.googleusercontent.com/mpPfqsVMBchtkVgk4awepqwg8ymKPIqhflBqVkdnyaLhuysVmno9Y4zP1gcgOPfuAQnGsv5st7sEksSxDjzJbzPHzsytngTZou5BQtGuVDCdV4o8mDU=w528-h297-n-nu-rw-lo
+  - Details: confidence=1.0
+- document / media_thumbnail / good
+  - Item: https://deepmind.google/blog/introducing-the-gemini-25-computer-use-model
+  - Title: Introducing the Gemini 2.5 Computer Use model
+  - Asset: https://lh3.googleusercontent.com/mpPfqsVMBchtkVgk4awepqwg8ymKPIqhflBqVkdnyaLhuysVmno9Y4zP1gcgOPfuAQnGsv5st7sEksSxDjzJbzPHzsytngTZou5BQtGuVDCdV4o8mDU=w528-h297-n-nu-rw-lo
+  - Details: confidence=0.95
+- image / media_content / good
+  - Item: https://deepmind.google/blog/introducing-veo-31-and-advanced-creative-capabilities
+  - Title: Introducing Veo 3.1 and advanced creative capabilities
+  - Asset: https://lh3.googleusercontent.com/VtuEZvNPbrd8hBbWpsfhmBCWSMz0YWgafhahsD4tOrHKbin9gFO-CXYVaoGcwHWUYyCBoDVoVq7Z0Eqw_ZzaPO776yxIpQzCKsW0OREKgSwYQtO7vg=w528-h297-n-nu-rw-lo
+  - Details: confidence=1.0
+- document / media_thumbnail / good
+  - Item: https://deepmind.google/blog/introducing-veo-31-and-advanced-creative-capabilities
+  - Title: Introducing Veo 3.1 and advanced creative capabilities
+  - Asset: https://lh3.googleusercontent.com/VtuEZvNPbrd8hBbWpsfhmBCWSMz0YWgafhahsD4tOrHKbin9gFO-CXYVaoGcwHWUYyCBoDVoVq7Z0Eqw_ZzaPO776yxIpQzCKsW0OREKgSwYQtO7vg=w528-h297-n-nu-rw-lo
+  - Details: confidence=0.95
