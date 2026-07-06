@@ -2,22 +2,21 @@ from datetime import UTC, datetime
 from types import SimpleNamespace
 from uuid import uuid4
 
-from fastapi.testclient import TestClient
+from httpx import ASGITransport, AsyncClient
 
 from app.db.models import Source
 from app.db.session import get_session
 from app.main import app
 
 
-def test_health_endpoint_returns_ok():
-    client = TestClient(app)
-    response = client.get("/health")
+async def test_health_endpoint_returns_ok():
+    response = await _get("/health")
 
     assert response.status_code == 200
     assert response.json() == {"status": "ok"}
 
 
-def test_sources_endpoint_returns_source_summaries():
+async def test_sources_endpoint_returns_source_summaries():
     source = Source(
         id=uuid4(),
         platform="rss",
@@ -29,14 +28,14 @@ def test_sources_endpoint_returns_source_summaries():
     )
     _override_session(FakeSession([source]))
 
-    response = TestClient(app).get("/sources")
+    response = await _get("/sources")
 
     app.dependency_overrides.clear()
     assert response.status_code == 200
     assert response.json()[0]["name"] == "OpenAI News"
 
 
-def test_sources_seed_endpoint_seeds_catalog(monkeypatch):
+async def test_sources_seed_endpoint_seeds_catalog(monkeypatch):
     import app.api.routes as routes
 
     async def fake_seed_sources(session):
@@ -46,7 +45,7 @@ def test_sources_seed_endpoint_seeds_catalog(monkeypatch):
     monkeypatch.setattr(routes, "seed_sources", fake_seed_sources)
     _override_session(fake_session)
 
-    response = TestClient(app).post("/sources/seed")
+    response = await _post("/sources/seed")
 
     app.dependency_overrides.clear()
     assert response.status_code == 200
@@ -54,7 +53,7 @@ def test_sources_seed_endpoint_seeds_catalog(monkeypatch):
     assert fake_session.committed is True
 
 
-def test_ingest_run_endpoint_triggers_ingestion(monkeypatch):
+async def test_ingest_run_endpoint_triggers_ingestion(monkeypatch):
     import app.api.routes as routes
 
     class FakeService:
@@ -68,7 +67,7 @@ def test_ingest_run_endpoint_triggers_ingestion(monkeypatch):
     fake_session = FakeSession([])
     _override_session(fake_session)
 
-    response = TestClient(app).post("/ingest/run", json={"platforms": ["rss"], "source_ids": ["source-1"]})
+    response = await _post("/ingest/run", json={"platforms": ["rss"], "source_ids": ["source-1"]})
 
     app.dependency_overrides.clear()
     assert response.status_code == 200
@@ -77,7 +76,7 @@ def test_ingest_run_endpoint_triggers_ingestion(monkeypatch):
     assert fake_session.committed is True
 
 
-def test_content_items_endpoint_returns_latest_content_with_primary_media():
+async def test_content_items_endpoint_returns_latest_content_with_primary_media():
     content_item = SimpleNamespace(
         id=uuid4(),
         item_type="article",
@@ -105,7 +104,7 @@ def test_content_items_endpoint_returns_latest_content_with_primary_media():
     )
     _override_session(FakeSession([content_item]))
 
-    response = TestClient(app).get("/content-items")
+    response = await _get("/content-items")
 
     app.dependency_overrides.clear()
     assert response.status_code == 200
@@ -115,7 +114,7 @@ def test_content_items_endpoint_returns_latest_content_with_primary_media():
     assert response.json()[0]["primary_media"]["kind"] == "image"
 
 
-def test_content_items_endpoint_accepts_status_and_score_sort_params():
+async def test_content_items_endpoint_accepts_status_and_score_sort_params():
     content_item = SimpleNamespace(
         id=uuid4(),
         item_type="article",
@@ -135,7 +134,7 @@ def test_content_items_endpoint_accepts_status_and_score_sort_params():
     )
     _override_session(FakeSession([content_item]))
 
-    response = TestClient(app).get("/content-items?status=approved&sort=score&limit=25")
+    response = await _get("/content-items?status=approved&sort=score&limit=25")
 
     app.dependency_overrides.clear()
     assert response.status_code == 200
@@ -143,7 +142,7 @@ def test_content_items_endpoint_accepts_status_and_score_sort_params():
     assert response.json()[0]["score"] == 22
 
 
-def test_content_item_detail_endpoint_returns_item():
+async def test_content_item_detail_endpoint_returns_item():
     content_item = SimpleNamespace(
         id=uuid4(),
         item_type="article",
@@ -163,7 +162,7 @@ def test_content_item_detail_endpoint_returns_item():
     fake_session = FakeSession([], item=content_item)
     _override_session(fake_session)
 
-    response = TestClient(app).get(f"/content-items/{content_item.id}")
+    response = await _get(f"/content-items/{content_item.id}")
 
     app.dependency_overrides.clear()
     assert response.status_code == 200
@@ -171,23 +170,23 @@ def test_content_item_detail_endpoint_returns_item():
     assert response.json()["title"] == "AI News"
 
 
-def test_content_item_detail_endpoint_returns_404_for_missing_item():
+async def test_content_item_detail_endpoint_returns_404_for_missing_item():
     fake_session = FakeSession([])
     _override_session(fake_session)
 
-    response = TestClient(app).get(f"/content-items/{uuid4()}")
+    response = await _get(f"/content-items/{uuid4()}")
 
     app.dependency_overrides.clear()
     assert response.status_code == 404
     assert response.json()["detail"] == "content item not found"
 
 
-def test_approve_content_item_endpoint_marks_item_approved():
+async def test_approve_content_item_endpoint_marks_item_approved():
     item = SimpleNamespace(id=uuid4(), status="new", metrics={})
     fake_session = FakeSession([], item=item)
     _override_session(fake_session)
 
-    response = TestClient(app).post(f"/content-items/{item.id}/approve", json={"notes": "ready"})
+    response = await _post(f"/content-items/{item.id}/approve", json={"notes": "ready"})
 
     app.dependency_overrides.clear()
     assert response.status_code == 200
@@ -198,11 +197,11 @@ def test_approve_content_item_endpoint_marks_item_approved():
     assert fake_session.flushed is True
 
 
-def test_approve_content_item_endpoint_returns_404_for_missing_item():
+async def test_approve_content_item_endpoint_returns_404_for_missing_item():
     fake_session = FakeSession([])
     _override_session(fake_session)
 
-    response = TestClient(app).post(f"/content-items/{uuid4()}/approve", json={})
+    response = await _post(f"/content-items/{uuid4()}/approve", json={})
 
     app.dependency_overrides.clear()
     assert response.status_code == 404
@@ -238,3 +237,13 @@ def _override_session(fake_session: FakeSession) -> None:
         yield fake_session
 
     app.dependency_overrides[get_session] = override
+
+
+async def _get(path: str):
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        return await client.get(path)
+
+
+async def _post(path: str, **kwargs):
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        return await client.post(path, **kwargs)
