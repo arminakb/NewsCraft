@@ -17,14 +17,14 @@ Overall status: In Progress
 | 6 | Rewrite Readiness Gate | Completed | 235b64e |
 | 7 | Media Quality and Primary Media Selection | Completed | d08c060 |
 | 8 | Source Health and Diagnostics | Completed | f645efb |
-| 9 | API Filters and Response Updates | Completed | Pending |
-| 10 | Validation Report Upgrade | Pending | Pending |
+| 9 | API Filters and Response Updates | Completed | c194c0b |
+| 10 | Validation Report Upgrade | Completed | Pending |
 | 11 | Documentation and Final Verification | Pending | Pending |
 
 ## Latest Update
 
-- Completed Phase 9 API filters and response updates.
-- Content item responses now expose content intelligence fields, and content list queries support type, bucket, readiness, source tier, and quality filters.
+- Completed Phase 10 validation report upgrade.
+- Added a content intelligence validation report generator with a script entrypoint and predictable markdown output path.
 
 ## Baseline Audit
 
@@ -227,6 +227,28 @@ Overall status: In Progress
   - `cd backend && PYTHONPATH=. .venv/bin/python -m pytest tests/test_api_content_intelligence.py tests/test_source_health.py tests/test_diagnostics.py tests/test_ingestion_service.py tests/test_media_quality.py tests/test_rewrite_readiness.py tests/test_content_scoring.py tests/test_content_classification.py tests/test_rewrite_buckets.py tests/test_title_normalization.py tests/test_repository.py tests/test_models.py tests/test_content_intelligence_migration.py -q` -> 75 passed
   - `cd backend && PYTHONPATH=. .venv/bin/ruff check app/api/routes.py app/api/schemas.py tests/test_api_content_intelligence.py` -> passed
 - Validation run: Not applicable for Phase 9.
-- Commit: Pending
+- Commit: c194c0b
 - Known issues:
   - Full test suite still has the Phase 0 baseline hang and was not rerun for Phase 9.
+
+### Phase 10
+- Status: Completed
+- Validation script path: `backend/scripts/content_intelligence_report.py`
+- Report output path: `validation/content-intelligence-report.md`
+- What changed:
+  - Added `backend/app/validation/report.py` with report aggregation and markdown rendering.
+  - Report includes source health, parsed/suitable/media counts, content type distribution, rewrite bucket distribution, top candidates per bucket, promo/excluded items, low-signal/parser problems, media quality, scoring warnings, duplicate count, score breakdown examples, and final recommendations.
+  - Added database-backed `generate_content_intelligence_report()` and file writer helpers.
+  - Added script entrypoint to generate the report from the configured database.
+- Sample results from tests: 3 sources summarized, 9 content items distributed by type/bucket, primary media coverage shown as `1/9`, promo count `1`, low-signal count `1`, duplicate count `1`, and archive penalty example `archive_penalty=18`.
+- Files changed: `backend/app/validation/__init__.py`, `backend/app/validation/report.py`, `backend/scripts/content_intelligence_report.py`, `backend/tests/test_validation_report.py`, `progress.md`
+- Tests run:
+  - `cd backend && PYTHONPATH=. .venv/bin/python -m pytest tests/test_validation_report.py -q` -> 2 passed
+  - `cd backend && PYTHONPATH=. .venv/bin/python -m pytest tests/test_validation_report.py tests/test_api_content_intelligence.py tests/test_source_health.py tests/test_diagnostics.py tests/test_ingestion_service.py tests/test_media_quality.py tests/test_rewrite_readiness.py tests/test_content_scoring.py tests/test_content_classification.py tests/test_rewrite_buckets.py tests/test_title_normalization.py tests/test_repository.py tests/test_models.py tests/test_content_intelligence_migration.py -q` -> 77 passed
+  - `cd backend && PYTHONPATH=. .venv/bin/ruff check app/validation/report.py app/validation/__init__.py scripts/content_intelligence_report.py tests/test_validation_report.py` -> passed
+  - `cd backend && PYTHONPATH=. .venv/bin/python -m py_compile app/validation/report.py scripts/content_intelligence_report.py` -> passed
+- Validation run:
+  - Database-backed report generation was not run in Phase 10 because the current environment does not have a confirmed live backend database session; the script is ready for Phase 11 validation.
+- Commit: Pending
+- Known issues:
+  - Full test suite still has the Phase 0 baseline hang and was not rerun for Phase 10.
