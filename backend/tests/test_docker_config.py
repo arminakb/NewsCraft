@@ -17,9 +17,36 @@ def test_compose_defines_postgres_api_and_worker():
     compose = (ROOT / "docker-compose.yml").read_text(encoding="utf-8")
 
     assert "postgres:18" in compose
-    assert "DATABASE_URL: postgresql+asyncpg://newscraft:newscraft@postgres:5432/newscraft" in compose
+    assert "DATABASE_URL: postgresql+asyncpg://newscraft:newscraft@newscraft-postgres:5432/newscraft" in compose
     assert "python -m app.worker" in compose
     assert "--download-media" in compose
+
+
+def test_daily_bundle_command_is_documented_for_docker():
+    compose = (ROOT / "docker-compose.yml").read_text(encoding="utf-8")
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+
+    assert "python -m app.daily_bundle" in readme
+    assert "/workspace/today-news" in readme
+    assert ".:/workspace" in compose
+
+
+def test_api_and_worker_default_to_dockerized_xray_proxy():
+    compose = (ROOT / "docker-compose.yml").read_text(encoding="utf-8")
+
+    assert "HTTP_PROXY: ${HTTP_PROXY:-http://xray-proxy:10808}" in compose
+    assert "HTTPS_PROXY: ${HTTPS_PROXY:-http://xray-proxy:10808}" in compose
+    assert "ALL_PROXY: ${ALL_PROXY:-http://xray-proxy:10808}" in compose
+    assert "xray_proxy:" in compose
+    assert "name: ${XRAY_PROXY_NETWORK:-contenthub_default}" in compose
+
+
+def test_database_url_uses_newscraft_specific_postgres_alias():
+    compose = (ROOT / "docker-compose.yml").read_text(encoding="utf-8")
+
+    assert "DATABASE_URL: postgresql+asyncpg://newscraft:newscraft@newscraft-postgres:5432/newscraft" in compose
+    assert "aliases:" in compose
+    assert "newscraft-postgres" in compose
 
 
 def test_api_service_runs_alembic_before_uvicorn():
