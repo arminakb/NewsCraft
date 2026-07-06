@@ -2,7 +2,7 @@ from typing import Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import select
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -10,12 +10,16 @@ from app.api.schemas import (
     ApproveContentItemIn,
     ApproveContentItemOut,
     ContentItemOut,
+    DashboardSummaryOut,
     DiagnosticsOut,
     IngestRunOut,
     IngestRunRequest,
+    IngestRunSummaryOut,
+    MediaAssetListOut,
+    SourceDetailOut,
     SourceOut,
 )
-from app.db.models import ContentItem, Source
+from app.db.models import ContentItem, IngestRun, MediaAsset, Source
 from app.db.session import get_session
 from app.diagnostics.service import DiagnosticsService
 from app.ingestion.seed_sources import seed_sources
@@ -39,6 +43,40 @@ async def seed(session: AsyncSession = SessionDependency):
     return {"upserted": count}
 
 
+@router.get("/sources/{source_id}", response_model=SourceDetailOut)
+async def get_source(source_id: UUID, session: AsyncSession = SessionDependency):
+    source = await session.get(Source, source_id)
+    if source is None:
+        raise HTTPException(status_code=404, detail="source not found")
+    return source
+
+
+@router.get("/dashboard/summary", response_model=DashboardSummaryOut)
+async def dashboard_summary(session: AsyncSession = SessionDependency):
+    rss_feeds = await _count(session, Source, Source.platform == "rss")
+    telegram_channels = await _count(session, Source, Source.platform == "telegram_public")
+    content_items = await _count(session, ContentItem)
+    media_assets = await _count(session, MediaAsset)
+    warnings = await _count(
+        session,
+        Source,
+        or_(Source.health_status != "healthy", Source.failure_count > 0, Source.active.is_(False)),
+    )
+    return DashboardSummaryOut(
+        rss_feeds=rss_feeds,
+        telegram_channels=telegram_channels,
+        content_items=content_items,
+        media_assets=media_assets,
+        warnings=warnings,
+    )
+
+
+@router.get("/ingest/runs", response_model=list[IngestRunSummaryOut])
+async def list_ingest_runs(limit: int = Query(100, ge=1, le=250), session: AsyncSession = SessionDependency):
+    rows = await session.scalars(select(IngestRun).order_by(IngestRun.started_at.desc()).limit(limit))
+    return list(rows)
+
+
 @router.post("/ingest/run", response_model=IngestRunOut)
 async def run_ingest(request: IngestRunRequest, session: AsyncSession = SessionDependency):
     service = IngestionService(session)
@@ -47,6 +85,12 @@ async def run_ingest(request: IngestRunRequest, session: AsyncSession = SessionD
     if "status" not in stats:
         stats["status"] = "partial" if stats.get("failed") else "succeeded"
     return stats
+
+
+@router.get("/media-assets", response_model=list[MediaAssetListOut])
+async def list_media_assets(limit: int = Query(100, ge=1, le=250), session: AsyncSession = SessionDependency):
+    rows = await session.scalars(select(MediaAsset).order_by(MediaAsset.created_at.desc()).limit(limit))
+    return list(rows)
 
 
 @router.get("/content-items", response_model=list[ContentItemOut])
@@ -111,3 +155,10 @@ async def approve_content_item(
 @router.get("/diagnostics", response_model=DiagnosticsOut)
 async def diagnostics(session: AsyncSession = SessionDependency):
     return await DiagnosticsService(session).check()
+
+
+async def _count(session: AsyncSession, model, *criteria) -> int:
+    stmt = select(func.count()).select_from(model)
+    for condition in criteria:
+        stmt = stmt.where(condition)
+    return int(await session.scalar(stmt) or 0)
