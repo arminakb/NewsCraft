@@ -21,8 +21,13 @@ services:
     command: sh -c "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000"
     environment:
       DATABASE_URL: postgresql+asyncpg://newscraft:newscraft@postgres:5432/newscraft
+      HTTP_PROXY: ${HTTP_PROXY:-}
+      HTTPS_PROXY: ${HTTPS_PROXY:-}
       ALL_PROXY: ${ALL_PROXY:-}
+      NO_PROXY: ${NO_PROXY:-postgres,localhost,127.0.0.1}
       MEDIA_ROOT: /data/media
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     ports:
       - "8000:8000"
     volumes:
@@ -37,8 +42,13 @@ services:
     command: python -m app.worker --trigger manual --download-media
     environment:
       DATABASE_URL: postgresql+asyncpg://newscraft:newscraft@postgres:5432/newscraft
+      HTTP_PROXY: ${HTTP_PROXY:-}
+      HTTPS_PROXY: ${HTTPS_PROXY:-}
       ALL_PROXY: ${ALL_PROXY:-}
+      NO_PROXY: ${NO_PROXY:-postgres,localhost,127.0.0.1}
       MEDIA_ROOT: /data/media
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     volumes:
       - media_data:/data/media
     depends_on:

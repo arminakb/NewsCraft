@@ -134,13 +134,16 @@ Common variables:
 DATABASE_URL=postgresql+asyncpg://newscraft:newscraft@localhost:5432/newscraft
 MEDIA_ROOT=/data/media
 ALL_PROXY=
+NO_PROXY=postgres,localhost,127.0.0.1
 ```
 
 If your network needs a proxy, export it before running Compose:
 
 ```bash
-export ALL_PROXY=socks5h://127.0.0.1:10808
+export ALL_PROXY=socks5h://host.docker.internal:10808
 ```
+
+Use `127.0.0.1` only for backend commands that run directly on the host. Docker containers need `host.docker.internal` to reach a proxy bound to the host loopback interface.
 
 ## Documentation
 

@@ -17,10 +17,12 @@ This replaces Telethon for public-channel ingestion. Telethon still makes sense 
 If the host needs a proxy, export `ALL_PROXY` before running the worker or Docker Compose:
 
 ```bash
-export ALL_PROXY=socks5h://127.0.0.1:10808
+export ALL_PROXY=socks5h://host.docker.internal:10808
 ```
 
-The service also accepts `HTTP_PROXY`, `HTTPS_PROXY`, and `ALL_PROXY` through environment variables.
+Use `127.0.0.1` only for commands that run directly on the host. Docker containers need `host.docker.internal` to reach a proxy bound to the host loopback interface. The service accepts `HTTP_PROXY`, `HTTPS_PROXY`, and `ALL_PROXY` through environment variables.
+
+See `docs/proxy-validation-notes.md` for the 2026-07-06 requested source validation benchmark and Docker proxy failure analysis.
 
 ## Migrations
 
