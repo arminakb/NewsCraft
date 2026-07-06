@@ -1,3 +1,4 @@
+from datetime import UTC, datetime
 from uuid import uuid4
 
 from httpx import ASGITransport, AsyncClient
@@ -6,6 +7,8 @@ from app.api.routes import get_session
 from app.db.models import Source
 from app.diagnostics.service import DiagnosticsService
 from app.main import app
+
+CHECKED_AT = datetime(2026, 7, 6, tzinfo=UTC)
 
 
 class FakeSession:
@@ -57,11 +60,31 @@ async def test_diagnostics_summarizes_source_health_counts():
         "degraded": 1,
         "broken": 1,
         "disabled": 1,
+        "unknown": 0,
         "total": 4,
     }
     assert payload["problem_sources"][0]["name"] == "Gone"
     assert payload["problem_sources"][0]["health_status"] == "broken"
     assert payload["problem_sources"][0]["last_error_type"] == "http_404"
+
+
+async def test_diagnostics_marks_active_never_checked_sources_unknown():
+    source = _source("Never Checked", "healthy", last_fetch_at=None)
+
+    payload = await DiagnosticsService(FakeSession([source])).check()
+
+    assert payload["status"] == "degraded"
+    assert payload["checks"]["source_health"] == "degraded"
+    assert payload["source_health"] == {
+        "healthy": 0,
+        "degraded": 0,
+        "broken": 0,
+        "disabled": 0,
+        "unknown": 1,
+        "total": 1,
+    }
+    assert payload["problem_sources"][0]["name"] == "Never Checked"
+    assert payload["problem_sources"][0]["health_status"] == "unknown"
 
 
 async def test_diagnostics_reports_failed_source_health_query():
@@ -90,6 +113,7 @@ def _source(
     failure_count: int = 0,
     error_type: str | None = None,
     disabled_reason: str | None = None,
+    last_fetch_at: datetime | None = CHECKED_AT,
 ) -> Source:
     return Source(
         id=uuid4(),
@@ -102,4 +126,5 @@ def _source(
         failure_count=failure_count,
         last_error_type=error_type,
         disabled_reason=disabled_reason,
+        last_fetch_at=last_fetch_at,
     )

@@ -88,6 +88,11 @@ def test_telegram_public_source_uses_tme_s_channel():
 
 def test_http_304_marks_source_skipped_without_parser_failure():
     source = _rss_source()
+    source.health_status = "healthy"
+    source.failure_count = 0
+    source.last_parse_count = 12
+    source.last_suitable_count = 10
+    source.last_media_count = 4
     repository = FakeRepository([source])
     client = httpx.AsyncClient(transport=httpx.MockTransport(lambda request: httpx.Response(304, text="")))
 
@@ -96,6 +101,12 @@ def test_http_304_marks_source_skipped_without_parser_failure():
     assert stats["skipped"] == 1
     assert repository.finished["status"] == "succeeded"
     assert "source_item" not in [event[0] for event in repository.events]
+    assert source.health_status == "healthy"
+    assert source.failure_count == 0
+    assert source.last_error_type is None
+    assert source.last_parse_count == 12
+    assert source.last_suitable_count == 10
+    assert source.last_media_count == 4
 
 
 def test_source_fetch_error_produces_partial_run_status():

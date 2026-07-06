@@ -9,4 +9,5 @@ def test_content_intelligence_migration_adds_schema_fields():
     assert "score_breakdown" in migration
     assert "media_quality" in migration
     assert "last_success_at" in migration
+    assert 'health_status", sa.Text(), server_default="unknown"' in migration
     assert "rewrite_candidates" in migration

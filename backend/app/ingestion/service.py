@@ -92,14 +92,7 @@ class IngestionService:
         _update_source_fetch_state(source, response)
         if response.status_code == 304:
             stats["skipped"] += 1
-            _record_source_success(
-                source,
-                response,
-                parse_count=0,
-                suitable_count=0,
-                media_count=0,
-                parser_warnings=[],
-            )
+            _record_source_not_modified(source, response)
             await _flush(self.session)
             return
         if response.status_code >= 400:
@@ -249,6 +242,15 @@ def _record_source_success(
     source.failure_count = 0
     source.last_error_type = None
     source.last_error_message = None
+
+
+def _record_source_not_modified(source: Source, response: httpx.Response) -> None:
+    now = datetime.now(UTC)
+    source.last_fetch_at = now
+    source.last_http_status = response.status_code
+    source.last_success_at = now
+    if _source_is_disabled(source):
+        source.health_status = "disabled"
 
 
 def _record_source_failure(

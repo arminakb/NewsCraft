@@ -47,7 +47,7 @@ class Source(Base):
     last_parse_count: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
     last_suitable_count: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
     last_media_count: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
-    health_status: Mapped[str] = mapped_column(Text, nullable=False, server_default="healthy")
+    health_status: Mapped[str] = mapped_column(Text, nullable=False, server_default="unknown")
     disabled_reason: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = timestamp_now()
     updated_at: Mapped[datetime] = mapped_column(

@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.models import ContentItem, MediaAsset, RewriteCandidate, Source
 
 DEFAULT_REPORT_PATH = Path("validation/content-intelligence-report.md")
+SOURCE_HEALTH_STATUSES = ("healthy", "degraded", "broken", "disabled", "unknown")
 BUCKET_SECTIONS = {
     "daily_news": "Top Daily News Candidates",
     "technical_article": "Top Technical Articles",
@@ -87,7 +88,7 @@ def _source_health_section(sources: list[Any]) -> list[str]:
         "",
         f"- Total sources: {len(sources)}",
     ]
-    for status in ("healthy", "degraded", "broken", "disabled"):
+    for status in SOURCE_HEALTH_STATUSES:
         lines.append(f"- {status}: {counts[status]}")
     lines.extend(["", "| Source | Health | Parsed | Suitable | Media | Issue |", "|---|---:|---:|---:|---:|---|"])
     for source in sources:
@@ -252,17 +253,36 @@ def _table(counts: Counter) -> list[str]:
 def _source_status(source: Any) -> str:
     if not _get(source, "active", True):
         return "disabled"
-    if _get(source, "disabled_reason") and _get(source, "health_status") == "disabled":
+    if _get(source, "disabled_reason"):
         return "disabled"
-    return _get(source, "health_status", "unknown") or "unknown"
+    status = _get(source, "health_status", "unknown") or "unknown"
+    if status == "healthy" and not _has_health_history(source):
+        return "unknown"
+    if status not in SOURCE_HEALTH_STATUSES:
+        return "degraded"
+    return status
 
 
 def _source_issue(source: Any) -> str:
+    if _source_status(source) == "unknown":
+        return "not checked yet"
     return (
         _get(source, "disabled_reason")
         or _get(source, "last_error_type")
         or _get(source, "last_error_message")
         or ""
+    )
+
+
+def _has_health_history(source: Any) -> bool:
+    if any(
+        _get(source, field) is not None
+        for field in ("last_fetch_at", "last_success_at", "last_failure_at", "last_http_status")
+    ):
+        return True
+    return any(
+        int(_get(source, field, 0) or 0) > 0
+        for field in ("last_parse_count", "last_suitable_count", "last_media_count", "failure_count")
     )
 
 

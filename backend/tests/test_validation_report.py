@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from types import SimpleNamespace
 from uuid import uuid4
 
@@ -8,6 +9,8 @@ from app.validation.report import (
     build_content_intelligence_report,
     write_content_intelligence_report,
 )
+
+CHECKED_AT = datetime(2026, 7, 6, tzinfo=UTC)
 
 
 def test_validation_report_includes_required_sections_and_summaries():
@@ -77,6 +80,7 @@ def test_validation_report_includes_required_sections_and_summaries():
     assert "- healthy: 1" in report
     assert "- broken: 1" in report
     assert "- disabled: 1" in report
+    assert "- unknown: 0" in report
     assert "| Healthy RSS | healthy | 3 | 2 | 4 |" in report
     assert "| news | 3 |" in report
     assert "| daily_news | 3 |" in report
@@ -88,6 +92,17 @@ def test_validation_report_includes_required_sections_and_summaries():
     assert "Parser problem" in report
     assert "Old archive" in report
     assert "archive_penalty=18" in report
+
+
+def test_validation_report_marks_never_checked_sources_unknown():
+    report = build_content_intelligence_report(
+        sources=[_source("Never Checked", "healthy", last_fetch_at=None)],
+        content_items=[],
+        media_assets=[],
+    )
+
+    assert "- unknown: 1" in report
+    assert "| Never Checked | unknown | 0 | 0 | 0 | not checked yet |" in report
 
 
 def test_validation_report_writes_to_predictable_path(tmp_path):
@@ -110,6 +125,7 @@ def _source(
     media_count: int = 0,
     error_type: str | None = None,
     error_message: str | None = None,
+    last_fetch_at: datetime | None = CHECKED_AT,
 ):
     return SimpleNamespace(
         name=name,
@@ -121,6 +137,7 @@ def _source(
         last_error_type=error_type,
         last_error_message=error_message,
         disabled_reason=None if active else error_message,
+        last_fetch_at=last_fetch_at,
     )
 
 

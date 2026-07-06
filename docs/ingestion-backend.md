@@ -118,6 +118,7 @@ Sources persist fetch and parsing health:
 - `degraded`: fetch succeeded but the feed was malformed, parsed zero items, or produced zero suitable items.
 - `broken`: HTTP errors such as 403/404 or network failures such as DNS/connect errors.
 - `disabled`: source is inactive or has an explicit disabled reason.
+- `unknown`: source has no fetch or parser history yet.
 
 Stored health fields include last HTTP status, last success/failure timestamps, failure count, last error type/message, parsed count, suitable count, and media count. The diagnostics endpoint returns source health totals and severity-sorted problem sources.
 

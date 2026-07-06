@@ -4,6 +4,8 @@ from sqlalchemy import select, text
 
 from app.db.models import Source
 
+SOURCE_HEALTH_STATUSES = ("healthy", "degraded", "broken", "disabled", "unknown")
+
 
 class DiagnosticsService:
     def __init__(self, session):
@@ -39,17 +41,15 @@ class DiagnosticsService:
         except Exception:
             return {
                 "status": "failed",
-                "counts": {"healthy": 0, "degraded": 0, "broken": 0, "disabled": 0, "total": 0},
+                "counts": _empty_counts(total=0),
                 "problem_sources": [],
             }
-        counts = {"healthy": 0, "degraded": 0, "broken": 0, "disabled": 0, "total": len(sources)}
+        counts = _empty_counts(total=len(sources))
         problem_sources = []
         for source in sources:
-            status = source.health_status or ("disabled" if not source.active else "healthy")
-            if status not in counts:
-                status = "degraded"
+            status = _source_health_status(source)
             counts[status] += 1
-            if status in {"degraded", "broken", "disabled"}:
+            if status in {"degraded", "broken", "disabled", "unknown"}:
                 problem_sources.append(
                     {
                         "id": str(source.id),
@@ -65,9 +65,36 @@ class DiagnosticsService:
                 )
 
         problem_sources.sort(key=lambda source: _health_sort_key(source["health_status"], source["name"]))
-        status = "ok" if counts["broken"] == 0 and counts["degraded"] == 0 else "degraded"
+        status = "ok" if counts["broken"] == 0 and counts["degraded"] == 0 and counts["unknown"] == 0 else "degraded"
         return {"status": status, "counts": counts, "problem_sources": problem_sources}
 
 
+def _empty_counts(total: int) -> dict[str, int]:
+    return {**{status: 0 for status in SOURCE_HEALTH_STATUSES}, "total": total}
+
+
+def _source_health_status(source: Source) -> str:
+    if not source.active or source.disabled_reason:
+        return "disabled"
+    status = source.health_status or "unknown"
+    if status == "healthy" and not _has_health_history(source):
+        return "unknown"
+    if status not in SOURCE_HEALTH_STATUSES:
+        return "degraded"
+    return status
+
+
+def _has_health_history(source: Source) -> bool:
+    if any(
+        getattr(source, field) is not None
+        for field in ("last_fetch_at", "last_success_at", "last_failure_at", "last_http_status")
+    ):
+        return True
+    return any(
+        int(getattr(source, field) or 0) > 0
+        for field in ("last_parse_count", "last_suitable_count", "last_media_count", "failure_count")
+    )
+
+
 def _health_sort_key(status: str, name: str) -> tuple[int, str]:
-    return {"broken": 0, "degraded": 1, "disabled": 2}.get(status, 3), name
+    return {"broken": 0, "degraded": 1, "unknown": 2, "disabled": 3}.get(status, 4), name

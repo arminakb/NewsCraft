@@ -26,7 +26,7 @@ def upgrade() -> None:
     op.add_column("sources", sa.Column("last_parse_count", sa.Integer(), server_default="0", nullable=False))
     op.add_column("sources", sa.Column("last_suitable_count", sa.Integer(), server_default="0", nullable=False))
     op.add_column("sources", sa.Column("last_media_count", sa.Integer(), server_default="0", nullable=False))
-    op.add_column("sources", sa.Column("health_status", sa.Text(), server_default="healthy", nullable=False))
+    op.add_column("sources", sa.Column("health_status", sa.Text(), server_default="unknown", nullable=False))
     op.add_column("sources", sa.Column("disabled_reason", sa.Text(), nullable=True))
 
     op.add_column("content_items", sa.Column("content_type", sa.Text(), server_default="article", nullable=False))
