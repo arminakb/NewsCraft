@@ -9,6 +9,10 @@ services:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql
+    networks:
+      default:
+        aliases:
+          - newscraft-postgres
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U newscraft -d newscraft"]
       interval: 5s
@@ -20,11 +24,11 @@ services:
       context: ./backend
     command: sh -c "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000"
     environment:
-      DATABASE_URL: postgresql+asyncpg://newscraft:newscraft@postgres:5432/newscraft
-      HTTP_PROXY: ${HTTP_PROXY:-}
-      HTTPS_PROXY: ${HTTPS_PROXY:-}
-      ALL_PROXY: ${ALL_PROXY:-}
-      NO_PROXY: ${NO_PROXY:-postgres,localhost,127.0.0.1}
+      DATABASE_URL: postgresql+asyncpg://newscraft:newscraft@newscraft-postgres:5432/newscraft
+      HTTP_PROXY: ${HTTP_PROXY:-http://xray-proxy:10808}
+      HTTPS_PROXY: ${HTTPS_PROXY:-http://xray-proxy:10808}
+      ALL_PROXY: ${ALL_PROXY:-http://xray-proxy:10808}
+      NO_PROXY: ${NO_PROXY:-newscraft-postgres,postgres,localhost,127.0.0.1}
       MEDIA_ROOT: /data/media
     extra_hosts:
       - "host.docker.internal:host-gateway"
@@ -32,6 +36,10 @@ services:
       - "8000:8000"
     volumes:
       - media_data:/data/media
+      - .:/workspace
+    networks:
+      - default
+      - xray_proxy
     depends_on:
       postgres:
         condition: service_healthy
@@ -41,16 +49,19 @@ services:
       context: ./backend
     command: python -m app.worker --trigger manual --download-media
     environment:
-      DATABASE_URL: postgresql+asyncpg://newscraft:newscraft@postgres:5432/newscraft
-      HTTP_PROXY: ${HTTP_PROXY:-}
-      HTTPS_PROXY: ${HTTPS_PROXY:-}
-      ALL_PROXY: ${ALL_PROXY:-}
-      NO_PROXY: ${NO_PROXY:-postgres,localhost,127.0.0.1}
+      DATABASE_URL: postgresql+asyncpg://newscraft:newscraft@newscraft-postgres:5432/newscraft
+      HTTP_PROXY: ${HTTP_PROXY:-http://xray-proxy:10808}
+      HTTPS_PROXY: ${HTTPS_PROXY:-http://xray-proxy:10808}
+      ALL_PROXY: ${ALL_PROXY:-http://xray-proxy:10808}
+      NO_PROXY: ${NO_PROXY:-newscraft-postgres,postgres,localhost,127.0.0.1}
       MEDIA_ROOT: /data/media
     extra_hosts:
       - "host.docker.internal:host-gateway"
     volumes:
       - media_data:/data/media
+    networks:
+      - default
+      - xray_proxy
     depends_on:
       postgres:
         condition: service_healthy
@@ -58,3 +69,8 @@ services:
 volumes:
   postgres_data:
   media_data:
+
+networks:
+  xray_proxy:
+    external: true
+    name: ${XRAY_PROXY_NETWORK:-contenthub_default}

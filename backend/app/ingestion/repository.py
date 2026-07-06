@@ -34,6 +34,26 @@ from app.sources.base import MediaCandidate, ParsedSourceItem
 
 GLOBAL_STRONG_IDENTITY_INDEX_WHERE = text("scope = 'global' AND is_strong")
 SOURCE_STRONG_IDENTITY_INDEX_WHERE = text("scope = 'source' AND is_strong")
+DISCOVERY_SOURCE_DEFINITIONS = {
+    "gdelt": {
+        "name": "GDELT",
+        "feed_url": "https://api.gdeltproject.org/api/v2/doc/doc",
+        "source_group": "discovery",
+        "language_hint": "en",
+    },
+    "google_news": {
+        "name": "Google News RSS",
+        "feed_url": "https://news.google.com/rss/search",
+        "source_group": "discovery",
+        "language_hint": "en",
+    },
+    "hackernews": {
+        "name": "Hacker News",
+        "feed_url": "https://hacker-news.firebaseio.com/v0",
+        "source_group": "tech",
+        "language_hint": "en",
+    },
+}
 
 
 def build_item_identities(source: Source, parsed_item: ParsedSourceItem) -> list[dict[str, Any]]:
@@ -138,6 +158,29 @@ class IngestionRepository:
             stmt = stmt.where(Source.platform.in_(platforms))
         rows = await self.session.scalars(stmt.order_by(Source.name))
         return list(rows)
+
+    async def ensure_discovery_source(self, platform: str) -> Source:
+        definition = DISCOVERY_SOURCE_DEFINITIONS.get(platform)
+        if definition is None:
+            raise ValueError(f"Unsupported discovery platform: {platform}")
+
+        stmt = select(Source).where(Source.platform == platform, Source.feed_url == definition["feed_url"]).limit(1)
+        existing = await self.session.scalar(stmt)
+        if existing:
+            return existing
+
+        source = Source(
+            platform=platform,
+            name=definition["name"],
+            feed_url=definition["feed_url"],
+            source_group=definition["source_group"],
+            language_hint=definition["language_hint"],
+            default_timezone="UTC",
+            active=True,
+        )
+        self.session.add(source)
+        await self.session.flush()
+        return source
 
     async def save_raw_payload(
         self,

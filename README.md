@@ -77,6 +77,20 @@ Run one manual worker ingestion pass:
 docker compose run --rm worker
 ```
 
+Export a date-range daily news bundle for the writing agent:
+
+```bash
+docker compose run --rm api python -m app.daily_bundle \
+  --start 2026-07-05 \
+  --end 2026-07-06 \
+  --topic "AI" \
+  --topic "economy" \
+  --output /workspace/today-news/2026-07-05 \
+  --download-media
+```
+
+The bundle command first runs the existing RSS, Atom, and public Telegram ingestion path, then adds no-signup discovery from GDELT, Google News RSS, and Hacker News. It writes `index.md`, `items.json`, `sources.json`, article markdown files, and image references under the selected output folder.
+
 Or trigger ingestion through the API:
 
 ```bash

@@ -152,8 +152,15 @@ class IngestionService:
 
 
 def _build_http_client() -> httpx.AsyncClient:
-    proxy = settings.all_proxy or settings.https_proxy or settings.http_proxy
+    proxy = _configured_proxy()
     return httpx.AsyncClient(timeout=20.0, proxy=proxy, trust_env=True)
+
+
+def _configured_proxy() -> str | None:
+    for value in (settings.all_proxy, settings.https_proxy, settings.http_proxy):
+        if value and value.strip():
+            return value
+    return None
 
 
 def _filter_sources(sources: list[Source], source_ids: list[str] | None) -> list[Source]:

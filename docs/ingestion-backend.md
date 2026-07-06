@@ -2,6 +2,62 @@
 
 The backend service in `backend/` is the new ingestion path for RSS feeds and public Telegram channels. It uses FastAPI, PostgreSQL, Alembic, SQLAlchemy, `httpx`, `feedparser`, BeautifulSoup, and a worker command.
 
+## Daily News Bundle
+
+Phase 1 adds a single command that prepares an agent-readable folder for a selected date range:
+
+```bash
+cd backend
+PYTHONPATH=. .venv/bin/python -m app.daily_bundle \
+  --start 2026-07-05 \
+  --end 2026-07-06 \
+  --topic "AI" \
+  --topic "economy" \
+  --output ../today-news/2026-07-05 \
+  --download-media
+```
+
+With Docker Compose:
+
+```bash
+docker compose run --rm api python -m app.daily_bundle \
+  --start 2026-07-05 \
+  --end 2026-07-06 \
+  --topic "AI" \
+  --topic "economy" \
+  --output /workspace/today-news/2026-07-05 \
+  --download-media
+```
+
+The command treats `--start` as inclusive local midnight and `--end` as exclusive local midnight. If both are omitted, it exports yesterday in the selected timezone, defaulting to `Asia/Tehran`.
+
+Phase 1 sources are:
+
+- Existing curated RSS and Atom feeds through `IngestionService`.
+- Existing public Telegram channels through `IngestionService`.
+- GDELT document API for broad no-signup global news discovery.
+- Google News RSS topic searches.
+- Hacker News top, new, and best stories for AI, startup, and technical trend signals.
+
+Every discovered URL is passed through full article extraction. Extraction failures are stored item-by-item with fallback discovery text, so one bad URL does not abort the bundle.
+
+The output folder has this structure:
+
+```text
+today-news/YYYY-MM-DD/
+├── index.md
+├── items.json
+├── sources.json
+├── articles/
+│   ├── 001-example-title.md
+│   └── 002-another-story.md
+└── images/
+    ├── 001.jpg
+    └── 002.webp
+```
+
+Article markdown includes source URL, title, date, score, summary, extracted text, image path or URL, and provenance metadata. YouTube, Reddit, X, TikTok, Instagram, Threads, economic statistics APIs, and weather/disaster APIs are deferred to Phase 2.
+
 ## Public Telegram
 
 Public Telegram channels are fetched from static public pages:
