@@ -50,6 +50,8 @@ class IngestionService:
                 try:
                     await self._ingest_source(client, run.id, source, stats)
                 except Exception as exc:  # noqa: BLE001 - source-level failures should not abort the whole run
+                    if source.last_error_message != str(exc):
+                        _record_source_failure(source, exc)
                     stats["failed"] += 1
                     stats["errors"].append({"source": source.name, "error": str(exc)})
 
@@ -90,14 +92,32 @@ class IngestionService:
         _update_source_fetch_state(source, response)
         if response.status_code == 304:
             stats["skipped"] += 1
+            _record_source_success(
+                source,
+                response,
+                parse_count=0,
+                suitable_count=0,
+                media_count=0,
+                parser_warnings=[],
+            )
             await _flush(self.session)
             return
         if response.status_code >= 400:
-            raise RuntimeError(f"HTTP {response.status_code} for {request_url}")
+            error = RuntimeError(f"HTTP {response.status_code} for {request_url}")
+            _record_source_failure(
+                source,
+                error,
+                http_status=response.status_code,
+                error_type=f"http_{response.status_code}",
+            )
+            raise error
 
         stats["fetched"] += 1
         parsed_payload = _parse_source_payload(source, response.text, request_url)
         payload.parser_warnings = parsed_payload.warnings
+        parse_count = len(parsed_payload.items)
+        suitable_count = sum(1 for item in parsed_payload.items if _is_suitable_item(item))
+        media_count = sum(len(item.media_candidates) for item in parsed_payload.items)
 
         for parsed_item in parsed_payload.items:
             source_item = await self.repository.upsert_source_item(
@@ -127,6 +147,14 @@ class IngestionService:
             )
             stats["items"] += 1
             stats["media_candidates"] += len(parsed_item.media_candidates)
+        _record_source_success(
+            source,
+            response,
+            parse_count=parse_count,
+            suitable_count=suitable_count,
+            media_count=media_count,
+            parser_warnings=parsed_payload.warnings,
+        )
         await _flush(self.session)
 
 
@@ -185,6 +213,82 @@ def _update_source_fetch_state(source: Source, response: httpx.Response) -> None
     source.etag = response.headers.get("etag") or source.etag
     source.last_modified = response.headers.get("last-modified") or source.last_modified
     source.last_fetch_at = datetime.now(UTC)
+    source.last_http_status = response.status_code
+
+
+def _record_source_success(
+    source: Source,
+    response: httpx.Response,
+    *,
+    parse_count: int,
+    suitable_count: int,
+    media_count: int,
+    parser_warnings: list[str],
+) -> None:
+    now = datetime.now(UTC)
+    source.last_fetch_at = now
+    source.last_http_status = response.status_code
+    source.last_success_at = now
+    source.last_parse_count = parse_count
+    source.last_suitable_count = suitable_count
+    source.last_media_count = media_count
+
+    error_type, error_message = _source_quality_issue(parse_count, suitable_count, parser_warnings)
+    if _source_is_disabled(source):
+        source.health_status = "disabled"
+        return
+    if error_type:
+        source.health_status = "degraded"
+        source.last_failure_at = now
+        source.failure_count = int(source.failure_count or 0) + 1
+        source.last_error_type = error_type
+        source.last_error_message = error_message
+        return
+
+    source.health_status = "healthy"
+    source.failure_count = 0
+    source.last_error_type = None
+    source.last_error_message = None
+
+
+def _record_source_failure(
+    source: Source,
+    error: Exception,
+    *,
+    http_status: int | None = None,
+    error_type: str | None = None,
+) -> None:
+    now = datetime.now(UTC)
+    source.last_fetch_at = now
+    source.last_failure_at = now
+    source.failure_count = int(source.failure_count or 0) + 1
+    source.last_http_status = http_status
+    source.last_error_type = error_type or error.__class__.__name__
+    source.last_error_message = str(error)
+    source.health_status = "disabled" if _source_is_disabled(source) else "broken"
+
+
+def _source_quality_issue(
+    parse_count: int,
+    suitable_count: int,
+    parser_warnings: list[str],
+) -> tuple[str | None, str | None]:
+    bozo_warnings = [warning for warning in parser_warnings if warning.startswith("bozo_feed:")]
+    if bozo_warnings:
+        return "malformed_feed", "; ".join(bozo_warnings)
+    if parse_count == 0:
+        return "zero_parsed_items", "Parser returned no items."
+    if suitable_count == 0:
+        return "zero_suitable_items", "Parser returned no items with usable text."
+    return None, None
+
+
+def _is_suitable_item(item) -> bool:
+    return bool((item.content_text or "").strip() and (item.title or "").strip())
+
+
+def _source_is_disabled(source: Source) -> bool:
+    return not source.active or bool(source.disabled_reason)
 
 
 async def _flush(session) -> None:

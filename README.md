@@ -9,9 +9,9 @@ The active backend lives in `backend/`. The legacy Streamlit MVP has been remove
 - Ingests RSS/Atom feeds and public Telegram channel pages.
 - Stores raw payloads, source items, deduplicated content items, identities, and media assets in PostgreSQL.
 - Extracts feed media, Telegram images/previews/documents, and stores media metadata for downstream use.
-- Scores and classifies content with backend-native keyword and engagement signals.
+- Classifies, scores, buckets, and readiness-checks content for downstream rewriting.
 - Supports approval and draft workflows for downstream post generation.
-- Provides diagnostics and manual ingestion endpoints.
+- Provides source health diagnostics, validation reports, and manual ingestion endpoints.
 - Includes a minimal legacy SQLite article reader for user-provided old `news.db` files.
 
 ## Tech Stack
@@ -94,10 +94,22 @@ curl -X POST http://localhost:8000/ingest/run \
 - `POST /ingest/run`
 - `GET /content-items`
 - `GET /content-items?status=new&sort=score&limit=50`
+- `GET /content-items?content_type=news&is_rewrite_ready=true&sort=score`
+- `GET /content-items?rewrite_bucket=tutorial`
+- `GET /content-items?quality_status=low_signal`
 - `GET /content-items/{content_item_id}`
 - `POST /content-items/{content_item_id}/approve`
 
-Content item responses include `score`, `tags`, classification metadata, `primary_image_id`, and `primary_media` when a primary media asset is available.
+Content item responses include `score`, `content_type`, `rewrite_bucket`, rewrite readiness fields, score breakdowns, `primary_image_id`, and `primary_media` with media quality metadata when available.
+
+Generate the content intelligence validation report:
+
+```bash
+cd backend
+PYTHONPATH=. .venv/bin/python scripts/content_intelligence_report.py
+```
+
+The report is written to `validation/content-intelligence-report.md`.
 
 ## Local Backend Development
 
@@ -122,13 +134,16 @@ Common variables:
 DATABASE_URL=postgresql+asyncpg://newscraft:newscraft@localhost:5432/newscraft
 MEDIA_ROOT=/data/media
 ALL_PROXY=
+NO_PROXY=postgres,localhost,127.0.0.1
 ```
 
 If your network needs a proxy, export it before running Compose:
 
 ```bash
-export ALL_PROXY=socks5h://127.0.0.1:10808
+export ALL_PROXY=socks5h://host.docker.internal:10808
 ```
+
+Use `127.0.0.1` only for backend commands that run directly on the host. Docker containers need `host.docker.internal` to reach a proxy bound to the host loopback interface.
 
 ## Documentation
 

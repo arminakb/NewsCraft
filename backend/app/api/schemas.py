@@ -1,4 +1,5 @@
 from datetime import datetime
+from decimal import Decimal
 from typing import Any
 from uuid import UUID
 
@@ -30,6 +31,13 @@ class MediaAssetOut(BaseModel):
     width: int | None = None
     height: int | None = None
     storage_path: str | None = None
+    fetch_status: str | None = None
+    media_quality: str | None = None
+    media_confidence: Decimal | None = None
+    is_primary_candidate: bool | None = None
+    is_primary: bool | None = None
+    media_source_type: str | None = None
+    asset_role: str | None = None
 
 
 class ContentItemOut(BaseModel):
@@ -49,6 +57,16 @@ class ContentItemOut(BaseModel):
     sort_at: datetime
     primary_image_id: UUID | None = None
     primary_media: MediaAssetOut | None = None
+    content_type: str | None = None
+    rewrite_bucket: str | None = None
+    is_rewrite_ready: bool | None = None
+    rewrite_ready_reason: str | None = None
+    rewrite_blockers: list[str] = Field(default_factory=list)
+    classification_reasons: list[str] = Field(default_factory=list)
+    source_tier: str | None = None
+    freshness_bucket: str | None = None
+    quality_status: str | None = None
+    score_breakdown: dict[str, Any] = Field(default_factory=dict)
 
 
 class IngestRunRequest(BaseModel):
@@ -72,6 +90,8 @@ class IngestRunOut(BaseModel):
 class DiagnosticsOut(BaseModel):
     status: str
     checks: dict[str, str]
+    source_health: dict[str, int] = Field(default_factory=dict)
+    problem_sources: list[dict[str, Any]] = Field(default_factory=list)
 
 
 class ApproveContentItemIn(BaseModel):

@@ -4,13 +4,17 @@ from datetime import UTC, datetime
 from decimal import Decimal
 from hashlib import sha256
 from typing import Any
+from urllib.parse import urlsplit
 from uuid import UUID
 
 from sqlalchemy import Select, and_, func, or_, select, text, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.content.scoring import classify_and_score
+from app.content.buckets import assign_rewrite_bucket
+from app.content.classification import classify_content_item
+from app.content.readiness import evaluate_rewrite_readiness
+from app.content.scoring import classify_and_score, score_content_item
 from app.db.models import (
     ContentItem,
     IngestRun,
@@ -18,11 +22,13 @@ from app.db.models import (
     ItemMedia,
     MediaAsset,
     RawPayload,
+    RewriteCandidate,
     Source,
     SourceItem,
 )
 from app.normalization.fingerprints import content_hash, title_date_fingerprint
 from app.normalization.text import fingerprint_text, infer_direction
+from app.normalization.titles import normalize_telegram_title
 from app.normalization.urls import hash_value
 from app.sources.base import MediaCandidate, ParsedSourceItem
 
@@ -95,13 +101,14 @@ def plan_item_media_rows(
         role = _media_role(media_asset, candidate, primary_image_assigned)
         if role == "primary_image":
             primary_image_assigned = True
+        media_asset.is_primary = role == "primary_image"
         rows.append(
             {
                 "content_item_id": content_item_id,
                 "media_asset_id": media_asset.id,
                 "role": role,
                 "sort_order": sort_order,
-                "confidence": Decimal(str(candidate.confidence if candidate else 1.0)),
+                "confidence": _media_confidence(media_asset, candidate),
                 "extracted_from": candidate.source_field if candidate else media_asset.source_field,
             }
         )
@@ -241,14 +248,22 @@ class IngestionRepository:
             existing.last_seen_at = datetime.now(UTC)
             source_item.content_item_id = existing.id
             await self.session.flush()
+            await self.upsert_rewrite_candidate(existing)
             return existing
 
         content_item = ContentItem(**values)
         self.session.add(content_item)
         await self.session.flush()
         source_item.content_item_id = content_item.id
+        await self.upsert_rewrite_candidate(content_item)
         await self.session.flush()
         return content_item
+
+    async def upsert_rewrite_candidate(self, content_item: ContentItem) -> None:
+        values = plan_rewrite_candidate(content_item)
+        if values:
+            await self.session.execute(_rewrite_candidate_insert_statement(values))
+            await self.session.flush()
 
     async def attach_identities(
         self,
@@ -308,10 +323,9 @@ class IngestionRepository:
                 )
             )
             await self.session.execute(stmt)
-        if primary_image_id:
-            await self.session.execute(
-                update(ContentItem).where(ContentItem.id == content_item_id).values(primary_image_id=primary_image_id)
-            )
+        await self.session.execute(
+            update(ContentItem).where(ContentItem.id == content_item_id).values(primary_image_id=primary_image_id)
+        )
         await self.session.flush()
 
 
@@ -387,44 +401,152 @@ def _identity_insert_statement(values: dict[str, Any]):
     return None
 
 
+def plan_rewrite_candidate(content_item: ContentItem) -> dict[str, Any]:
+    if not content_item.rewrite_bucket:
+        return {}
+    metadata = content_item.classification_metadata or {}
+    assignment = assign_rewrite_bucket(
+        content_item.content_type,
+        source_domain=metadata.get("source_domain", ""),
+        source_name=metadata.get("source_name", ""),
+    )
+    return {
+        "content_item_id": content_item.id,
+        "bucket_type": content_item.rewrite_bucket,
+        "priority_score": int(content_item.score or 0),
+        "status": assignment.status if assignment.status == "excluded" else "blocked"
+        if content_item.is_rewrite_ready is False
+        else "pending",
+        "reason": assignment.reason,
+    }
+
+
+def _rewrite_candidate_insert_statement(values: dict[str, Any]):
+    return (
+        insert(RewriteCandidate)
+        .values(**values)
+        .on_conflict_do_update(
+            index_elements=[RewriteCandidate.content_item_id, RewriteCandidate.bucket_type],
+            set_={
+                "priority_score": values["priority_score"],
+                "status": values["status"],
+                "reason": values["reason"],
+                "updated_at": func.now(),
+            },
+        )
+    )
+
+
 def _content_item_values(source: Source, parsed_item: ParsedSourceItem) -> dict[str, Any]:
     now = datetime.now(UTC)
     sort_at = parsed_item.published_at or now
     canonical_url = parsed_item.canonical_url_candidate or parsed_item.source_url_norm
-    direction = infer_direction(parsed_item.content_text)
-    classification = classify_and_score(source, parsed_item)
-    metrics = dict(parsed_item.parser_meta)
+    title_normalization = _title_normalization(source, parsed_item)
+    normalized_item = _parsed_item_with_title(parsed_item, title_normalization.title)
+    direction = infer_direction(normalized_item.content_text)
+    classification = classify_and_score(source, normalized_item)
+    content_classification = classify_content_item(source, normalized_item)
+    bucket_assignment = assign_rewrite_bucket(
+        content_classification.content_type,
+        source_domain=content_classification.metadata.get("source_domain", ""),
+        source_name=source.name,
+    )
+    score_result = score_content_item(
+        source,
+        normalized_item,
+        content_type=content_classification.content_type,
+        title_quality=title_normalization.quality,
+    )
+    metrics = dict(normalized_item.parser_meta)
     metrics["classification"] = classification.signals
-    return {
+    values = {
         "item_type": "telegram_post" if source.platform == "telegram_public" else "article",
         "canonical_url": canonical_url,
         "canonical_url_hash": hash_value(canonical_url) if canonical_url else None,
-        "title": parsed_item.title,
-        "title_fingerprint": fingerprint_text(parsed_item.title),
-        "summary": parsed_item.summary,
-        "content_text": parsed_item.content_text,
-        "content_html_sanitized": parsed_item.content_html,
+        "title": normalized_item.title,
+        "title_fingerprint": fingerprint_text(normalized_item.title),
+        "summary": normalized_item.summary,
+        "content_text": normalized_item.content_text,
+        "content_html_sanitized": normalized_item.content_html,
         "language_code": source.language_hint,
         "script_code": "Arab" if direction == "rtl" else "Latn",
         "direction": direction,
-        "authors": [parsed_item.author] if parsed_item.author else [],
+        "authors": [normalized_item.author] if normalized_item.author else [],
         "tags": classification.tags,
-        "published_at": parsed_item.published_at,
+        "published_at": normalized_item.published_at,
         "sort_at": sort_at,
-        "date_raw": parsed_item.published_raw,
+        "date_raw": normalized_item.published_raw,
         "date_source": "source",
-        "date_parse_status": parsed_item.date_parse_status,
+        "date_parse_status": normalized_item.date_parse_status,
         "primary_source_id": source.id,
-        "score": classification.score,
+        "score": score_result.score,
         "metrics": metrics,
+        "content_type": content_classification.content_type,
+        "content_type_confidence": Decimal(str(content_classification.confidence)),
+        "classification_reasons": content_classification.reasons,
+        "classification_metadata": {
+            **content_classification.metadata,
+            "quality_flags": content_classification.quality_flags,
+        },
+        "rewrite_bucket": bucket_assignment.bucket_type,
+        "freshness_bucket": score_result.freshness_bucket,
+        "source_tier": score_result.source_tier,
+        "title_quality": title_normalization.quality,
+        "title_was_generated": title_normalization.was_generated,
+        "score_breakdown": score_result.breakdown,
+        "ranking_metadata": score_result.ranking_metadata,
+        "quality_status": (
+            "low_signal"
+            if content_classification.content_type == "low_signal" or title_normalization.low_signal
+            else "needs_review"
+        ),
         "first_seen_at": now,
         "last_seen_at": now,
         "created_at": now,
         "updated_at": now,
     }
+    readiness = evaluate_rewrite_readiness(ContentItem(**values))
+    values.update(
+        {
+            "is_rewrite_ready": readiness.is_ready,
+            "rewrite_ready_reason": readiness.reason,
+            "rewrite_blockers": readiness.blockers,
+        }
+    )
+    return values
+
+
+def _title_normalization(source: Source, parsed_item: ParsedSourceItem):
+    if source.platform == "telegram_public":
+        return normalize_telegram_title(parsed_item.title, parsed_item.content_text)
+    return normalize_telegram_title(parsed_item.title, parsed_item.title)
+
+
+def _parsed_item_with_title(parsed_item: ParsedSourceItem, title: str) -> ParsedSourceItem:
+    if parsed_item.title == title:
+        return parsed_item
+    return ParsedSourceItem(
+        external_id_raw=parsed_item.external_id_raw,
+        external_id_norm=parsed_item.external_id_norm,
+        source_url=parsed_item.source_url,
+        source_url_norm=parsed_item.source_url_norm,
+        canonical_url_candidate=parsed_item.canonical_url_candidate,
+        title=title,
+        summary=parsed_item.summary,
+        content_html=parsed_item.content_html,
+        content_text=parsed_item.content_text,
+        author=parsed_item.author,
+        categories=parsed_item.categories,
+        published_raw=parsed_item.published_raw,
+        published_at=parsed_item.published_at,
+        date_parse_status=parsed_item.date_parse_status,
+        media_candidates=parsed_item.media_candidates,
+        parser_meta=parsed_item.parser_meta,
+    )
 
 
 def _media_asset_values(candidate: MediaCandidate, url_hash: str) -> dict[str, Any]:
+    quality = _classify_media(candidate)
     return {
         "original_url": candidate.original_url,
         "normalized_url": candidate.normalized_url,
@@ -437,12 +559,23 @@ def _media_asset_values(candidate: MediaCandidate, url_hash: str) -> dict[str, A
         "title": candidate.title,
         "source_field": candidate.source_field,
         "fetch_status": "remote_only",
-        "raw_metadata": {"confidence": candidate.confidence},
+        "media_quality": quality["media_quality"],
+        "media_confidence": quality["media_confidence"],
+        "media_source_type": quality["media_source_type"],
+        "asset_role": quality["asset_role"],
+        "is_primary_candidate": quality["is_primary_candidate"],
+        "is_primary": False,
+        "raw_metadata": {
+            "confidence": candidate.confidence,
+            "quality_reasons": quality["quality_reasons"],
+        },
     }
 
 
 def _apply_media_candidate(asset: MediaAsset, candidate: MediaCandidate, url_hash: str) -> None:
     values = _media_asset_values(candidate, url_hash)
+    if asset.storage_path:
+        values["media_source_type"] = "stored"
     for key, value in values.items():
         if key in {"fetch_status", "raw_metadata"} and getattr(asset, key) not in (None, {}, "remote_only"):
             continue
@@ -455,14 +588,123 @@ def _media_role(
     primary_image_assigned: bool,
 ) -> str:
     source_field = candidate.source_field if candidate else media_asset.source_field
-    if media_asset.kind == "image" and not primary_image_assigned:
+    asset_role = getattr(media_asset, "asset_role", None) or _asset_role(media_asset.kind, source_field)
+    if asset_role == "tracking_pixel" or getattr(media_asset, "media_quality", None) == "tracking":
+        return "tracking_pixel"
+    if _can_be_primary(media_asset, candidate) and not primary_image_assigned:
         return "primary_image"
+    if asset_role in {"thumbnail", "inline_image", "video", "document", "preview", "unknown"}:
+        return asset_role
     if source_field in {"media_thumbnail", "link_preview_image"}:
         return "thumbnail"
     if media_asset.kind == "image":
         return "inline_image"
     if source_field == "enclosure":
-        return "enclosure"
+        return "document"
     if media_asset.kind == "document":
-        return "attachment"
-    return "attachment"
+        return "document"
+    return "unknown"
+
+
+def _classify_media(candidate: MediaCandidate) -> dict[str, Any]:
+    role = _asset_role(candidate.kind, candidate.source_field)
+    source_type = _media_source_type(candidate.normalized_url)
+    confidence = Decimal(str(candidate.confidence))
+    reasons: list[str] = []
+
+    if _is_tracking_pixel(candidate):
+        return {
+            "media_quality": "tracking",
+            "media_confidence": Decimal("0.05"),
+            "media_source_type": source_type,
+            "asset_role": "tracking_pixel",
+            "is_primary_candidate": False,
+            "quality_reasons": ["tracking_pixel"],
+        }
+    if candidate.confidence < 0.4:
+        reasons.append("low_candidate_confidence")
+        quality = "low"
+        confidence = min(confidence, Decimal("0.30"))
+    elif candidate.kind == "image" and _is_tiny_image(candidate):
+        reasons.append("tiny_image")
+        quality = "low"
+        confidence = min(confidence, Decimal("0.30"))
+    elif role == "unknown":
+        reasons.append("unknown_role")
+        quality = "unknown"
+        confidence = min(confidence, Decimal("0.20"))
+    else:
+        quality = "good"
+        reasons.append("usable_media")
+
+    return {
+        "media_quality": quality,
+        "media_confidence": confidence,
+        "media_source_type": source_type,
+        "asset_role": role,
+        "is_primary_candidate": quality == "good" and candidate.kind == "image",
+        "quality_reasons": reasons,
+    }
+
+
+def _asset_role(kind: str, source_field: str | None) -> str:
+    if source_field == "media_thumbnail":
+        return "thumbnail"
+    if source_field == "link_preview_image":
+        return "preview"
+    if kind == "image":
+        return "inline_image"
+    if kind == "video":
+        return "video"
+    if kind == "document":
+        return "document"
+    return "unknown"
+
+
+def _media_source_type(url: str) -> str:
+    host = urlsplit(url).hostname or ""
+    if "cdn-telegram.org" in host:
+        return "temporary_external"
+    return "external"
+
+
+def _is_tracking_pixel(candidate: MediaCandidate) -> bool:
+    if _is_medium_stat_url(candidate.normalized_url):
+        return True
+    return candidate.kind == "image" and candidate.width is not None and candidate.height is not None and (
+        candidate.width <= 2 or candidate.height <= 2
+    )
+
+
+def _is_medium_stat_url(url: str) -> bool:
+    parsed = urlsplit(url)
+    host = parsed.hostname or ""
+    return host.endswith("medium.com") and (parsed.path.startswith("/_/stat") or "event=" in parsed.query)
+
+
+def _is_tiny_image(candidate: MediaCandidate) -> bool:
+    if candidate.width is None or candidate.height is None:
+        return False
+    return candidate.width < 120 or candidate.height < 90
+
+
+def _can_be_primary(media_asset: MediaAsset, candidate: MediaCandidate | None) -> bool:
+    explicit_candidate = getattr(media_asset, "is_primary_candidate", None)
+    if explicit_candidate is False:
+        return False
+    if media_asset.kind != "image":
+        return False
+    if getattr(media_asset, "media_quality", None) in {"tracking", "low", "unknown"}:
+        return False
+    if candidate and candidate.confidence < 0.4:
+        return False
+    if candidate and _is_tracking_pixel(candidate):
+        return False
+    return True
+
+
+def _media_confidence(media_asset: MediaAsset, candidate: MediaCandidate | None) -> Decimal:
+    value = getattr(media_asset, "media_confidence", None)
+    if value is not None:
+        return Decimal(str(value))
+    return Decimal(str(candidate.confidence if candidate else 1.0))
