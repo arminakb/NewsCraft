@@ -12,6 +12,7 @@ class Settings(BaseSettings):
     all_proxy: str | None = None
     media_root: str = "/data/media"
     parser_version: str = "2026-07-03-public-ingestion-v1"
+    cors_origins: str = "http://localhost:3000,http://127.0.0.1:3000"
 
 
 settings = Settings()

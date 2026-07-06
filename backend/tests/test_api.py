@@ -16,6 +16,21 @@ async def test_health_endpoint_returns_ok():
     assert response.json() == {"status": "ok"}
 
 
+async def test_cors_allows_frontend_origin():
+    response = await _get("/health", headers={"Origin": "http://localhost:3000"})
+    preflight = await _options(
+        "/ingest/run",
+        headers={
+            "Origin": "http://localhost:3000",
+            "Access-Control-Request-Method": "POST",
+        },
+    )
+
+    assert response.headers["access-control-allow-origin"] == "http://localhost:3000"
+    assert preflight.status_code == 200
+    assert preflight.headers["access-control-allow-origin"] == "http://localhost:3000"
+
+
 async def test_sources_endpoint_returns_source_summaries():
     source = Source(
         id=uuid4(),
@@ -340,11 +355,16 @@ def _override_session(fake_session: FakeSession) -> None:
     app.dependency_overrides[get_session] = override
 
 
-async def _get(path: str):
+async def _get(path: str, **kwargs):
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-        return await client.get(path)
+        return await client.get(path, **kwargs)
 
 
 async def _post(path: str, **kwargs):
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         return await client.post(path, **kwargs)
+
+
+async def _options(path: str, **kwargs):
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        return await client.options(path, **kwargs)
