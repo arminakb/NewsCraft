@@ -4,7 +4,7 @@ from uuid import uuid4
 
 from httpx import ASGITransport, AsyncClient
 
-from app.db.models import Source
+from app.db.models import IngestRun, MediaAsset, Source
 from app.db.session import get_session
 from app.main import app
 
@@ -14,6 +14,21 @@ async def test_health_endpoint_returns_ok():
 
     assert response.status_code == 200
     assert response.json() == {"status": "ok"}
+
+
+async def test_cors_allows_frontend_origin():
+    response = await _get("/health", headers={"Origin": "http://localhost:3000"})
+    preflight = await _options(
+        "/ingest/run",
+        headers={
+            "Origin": "http://localhost:3000",
+            "Access-Control-Request-Method": "POST",
+        },
+    )
+
+    assert response.headers["access-control-allow-origin"] == "http://localhost:3000"
+    assert preflight.status_code == 200
+    assert preflight.headers["access-control-allow-origin"] == "http://localhost:3000"
 
 
 async def test_sources_endpoint_returns_source_summaries():
@@ -181,6 +196,104 @@ async def test_content_item_detail_endpoint_returns_404_for_missing_item():
     assert response.json()["detail"] == "content item not found"
 
 
+async def test_dashboard_summary_endpoint_returns_counts():
+    _override_session(FakeSession([], scalar_results=[50, 3, 1284, 912, 18]))
+
+    response = await _get("/dashboard/summary")
+
+    app.dependency_overrides.clear()
+    assert response.status_code == 200
+    assert response.json() == {
+        "rss_feeds": 50,
+        "telegram_channels": 3,
+        "content_items": 1284,
+        "media_assets": 912,
+        "warnings": 18,
+    }
+
+
+async def test_ingest_runs_endpoint_returns_latest_runs():
+    run = IngestRun(
+        id=uuid4(),
+        trigger="api",
+        parser_version="test",
+        status="succeeded",
+        stats={"items": 12},
+        started_at=datetime(2026, 7, 6, 8, 0, tzinfo=UTC),
+        finished_at=datetime(2026, 7, 6, 8, 2, tzinfo=UTC),
+    )
+    _override_session(FakeSession([run]))
+
+    response = await _get("/ingest/runs")
+
+    app.dependency_overrides.clear()
+    assert response.status_code == 200
+    assert response.json()[0]["status"] == "succeeded"
+    assert response.json()[0]["stats"]["items"] == 12
+
+
+async def test_media_assets_endpoint_returns_latest_media():
+    media = MediaAsset(
+        id=uuid4(),
+        original_url="https://example.com/image.jpg",
+        normalized_url="https://example.com/image.jpg",
+        url_hash="hash",
+        kind="image",
+        mime_type="image/jpeg",
+        width=1200,
+        height=675,
+        byte_length=64000,
+        source_field="image",
+        fetch_status="fetched",
+        storage_path="/data/media/image.jpg",
+    )
+    _override_session(FakeSession([media]))
+
+    response = await _get("/media-assets")
+
+    app.dependency_overrides.clear()
+    assert response.status_code == 200
+    assert response.json()[0]["normalized_url"] == "https://example.com/image.jpg"
+    assert response.json()[0]["width"] == 1200
+    assert response.json()[0]["byte_length"] == 64000
+
+
+async def test_source_detail_endpoint_returns_source_detail():
+    source = Source(
+        id=uuid4(),
+        platform="rss",
+        name="TechCrunch",
+        feed_url="https://techcrunch.com/feed/",
+        source_group="ai",
+        language_hint="en",
+        active=True,
+        health_status="healthy",
+        last_parse_count=128,
+        last_suitable_count=42,
+        last_media_count=76,
+    )
+    fake_session = FakeSession([], item=source)
+    _override_session(fake_session)
+
+    response = await _get(f"/sources/{source.id}")
+
+    app.dependency_overrides.clear()
+    assert response.status_code == 200
+    assert response.json()["name"] == "TechCrunch"
+    assert response.json()["health_status"] == "healthy"
+    assert response.json()["last_parse_count"] == 128
+
+
+async def test_source_detail_endpoint_returns_404_for_missing_source():
+    _override_session(FakeSession([]))
+
+    response = await _get(f"/sources/{uuid4()}")
+
+    app.dependency_overrides.clear()
+    assert response.status_code == 404
+    assert response.json()["detail"] == "source not found"
+
+
 async def test_approve_content_item_endpoint_marks_item_approved():
     item = SimpleNamespace(id=uuid4(), status="new", metrics={})
     fake_session = FakeSession([], item=item)
@@ -210,9 +323,10 @@ async def test_approve_content_item_endpoint_returns_404_for_missing_item():
 
 
 class FakeSession:
-    def __init__(self, rows, item=None):
+    def __init__(self, rows, item=None, scalar_results=None):
         self.rows = rows
         self.item = item
+        self.scalar_results = list(scalar_results or [])
         self.committed = False
         self.flushed = False
 
@@ -220,6 +334,8 @@ class FakeSession:
         return self.rows
 
     async def scalar(self, stmt):
+        if self.scalar_results:
+            return self.scalar_results.pop(0)
         return self.item
 
     async def get(self, model, item_id):
@@ -239,11 +355,16 @@ def _override_session(fake_session: FakeSession) -> None:
     app.dependency_overrides[get_session] = override
 
 
-async def _get(path: str):
+async def _get(path: str, **kwargs):
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-        return await client.get(path)
+        return await client.get(path, **kwargs)
 
 
 async def _post(path: str, **kwargs):
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         return await client.post(path, **kwargs)
+
+
+async def _options(path: str, **kwargs):
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        return await client.options(path, **kwargs)

@@ -2,7 +2,7 @@
 
 NewsCraft is a FastAPI and PostgreSQL backend for collecting, normalizing, ranking, and reviewing news content from public sources.
 
-The active backend lives in `backend/`. The legacy Streamlit MVP has been removed; new ingestion and review workflows should use the backend service, worker, and API.
+The active backend lives in `backend/`. The ingestion dashboard lives in `frontend/`. The legacy Streamlit MVP has been removed; new ingestion and review workflows should use the backend service, worker, API, and dashboard.
 
 ## Features
 
@@ -12,6 +12,7 @@ The active backend lives in `backend/`. The legacy Streamlit MVP has been remove
 - Classifies, scores, buckets, and readiness-checks content for downstream rewriting.
 - Supports approval and draft workflows for downstream post generation.
 - Provides source health diagnostics, validation reports, and manual ingestion endpoints.
+- Provides a Next.js ingestion dashboard for source health, runs, content queue, media extraction, and source detail review.
 - Includes a minimal legacy SQLite article reader for user-provided old `news.db` files.
 
 ## Tech Stack
@@ -24,6 +25,9 @@ The active backend lives in `backend/`. The legacy Streamlit MVP has been remove
 - feedparser
 - BeautifulSoup/lxml
 - pytest
+- Next.js
+- TanStack Query/Table
+- Tailwind CSS and shadcn/ui
 - Docker Compose
 
 ## Project Structure
@@ -44,6 +48,12 @@ The active backend lives in `backend/`. The legacy Streamlit MVP has been remove
 │   ├── alembic/
 │   ├── scripts/
 │   └── tests/
+├── frontend/
+│   ├── app/
+│   ├── components/
+│   ├── e2e/
+│   ├── lib/
+│   └── tests/
 ├── docs/
 ├── docker-compose.yml
 └── README.md
@@ -58,6 +68,14 @@ docker compose up api
 ```
 
 The API service runs Alembic migrations before Uvicorn starts.
+
+Run the dashboard with the API and database:
+
+```bash
+docker compose up frontend api postgres
+```
+
+The dashboard is available at `http://localhost:3000` and calls the API at `http://localhost:8000`.
 
 Check health:
 
@@ -102,10 +120,14 @@ curl -X POST http://localhost:8000/ingest/run \
 ## Useful Endpoints
 
 - `GET /health`
+- `GET /dashboard/summary`
 - `GET /diagnostics`
 - `GET /sources`
+- `GET /sources/{source_id}`
 - `POST /sources/seed`
+- `GET /ingest/runs`
 - `POST /ingest/run`
+- `GET /media-assets`
 - `GET /content-items`
 - `GET /content-items?status=new&sort=score&limit=50`
 - `GET /content-items?content_type=news&is_rewrite_ready=true&sort=score`
@@ -133,6 +155,24 @@ cd backend
 ```
 
 If the virtual environment does not exist yet, create it and install backend dependencies from `backend/pyproject.toml`.
+
+## Local Frontend Development
+
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+Useful frontend checks:
+
+```bash
+npm run test
+npm run build
+npm run test:e2e
+```
+
+If Playwright browser downloads are unavailable in your environment, set `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH` to an installed Chromium binary. The local config defaults to `/usr/bin/chromium`.
 
 ## Environment
 

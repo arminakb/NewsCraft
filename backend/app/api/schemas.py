@@ -19,6 +19,15 @@ class SourceOut(BaseModel):
     language_hint: str | None = None
     active: bool
     last_fetch_at: datetime | None = None
+    last_success_at: datetime | None = None
+    last_failure_at: datetime | None = None
+    failure_count: int | None = 0
+    health_status: str | None = None
+    last_parse_count: int | None = 0
+    last_suitable_count: int | None = 0
+    last_media_count: int | None = 0
+    fetch_interval_minutes: int | None = 1440
+    created_at: datetime | None = None
 
 
 class MediaAssetOut(BaseModel):
@@ -38,6 +47,8 @@ class MediaAssetOut(BaseModel):
     is_primary: bool | None = None
     media_source_type: str | None = None
     asset_role: str | None = None
+    byte_length: int | None = None
+    created_at: datetime | None = None
 
 
 class ContentItemOut(BaseModel):
@@ -85,6 +96,33 @@ class IngestRunOut(BaseModel):
     items: int = 0
     media_candidates: int = 0
     errors: list[dict] = []
+
+
+class DashboardSummaryOut(BaseModel):
+    rss_feeds: int = 0
+    telegram_channels: int = 0
+    content_items: int = 0
+    media_assets: int = 0
+    warnings: int = 0
+
+
+class IngestRunSummaryOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    started_at: datetime
+    finished_at: datetime | None = None
+    trigger: str
+    status: str
+    stats: dict[str, Any] = Field(default_factory=dict)
+
+
+class MediaAssetListOut(MediaAssetOut):
+    pass
+
+
+class SourceDetailOut(SourceOut):
+    pass
 
 
 class DiagnosticsOut(BaseModel):
