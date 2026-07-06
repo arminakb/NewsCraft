@@ -6,7 +6,7 @@ from decimal import Decimal
 
 from sqlalchemy import BigInteger, Boolean, DateTime, ForeignKey, Index, Integer, Numeric, Text, UniqueConstraint, text
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB, UUID
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, foreign, mapped_column, relationship
 from sqlalchemy.sql import func
 
 from app.db.base import Base
@@ -105,6 +105,13 @@ class ContentItem(Base):
     date_parse_status: Mapped[str] = mapped_column(Text, nullable=False)
     primary_source_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("sources.id"))
     primary_image_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
+    primary_media: Mapped[MediaAsset | None] = relationship(
+        "MediaAsset",
+        primaryjoin=lambda: foreign(ContentItem.primary_image_id) == MediaAsset.id,
+        viewonly=True,
+        uselist=False,
+        lazy="selectin",
+    )
     status: Mapped[str] = mapped_column(Text, nullable=False, server_default="new")
     score: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
     metrics: Mapped[dict] = mapped_column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
@@ -222,3 +229,21 @@ class ItemMedia(Base):
     sort_order: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
     confidence: Mapped[Decimal] = mapped_column(Numeric, nullable=False, server_default="1.0")
     extracted_from: Mapped[str] = mapped_column(Text, nullable=False)
+
+
+class ContentDraft(Base):
+    __tablename__ = "content_drafts"
+
+    id: Mapped[uuid.UUID] = uuid_pk()
+    content_item_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("content_items.id"), nullable=False)
+    platform: Mapped[str] = mapped_column(Text, nullable=False)
+    draft_text: Mapped[str] = mapped_column(Text, nullable=False)
+    status: Mapped[str] = mapped_column(Text, nullable=False, server_default="draft")
+    human_notes: Mapped[str | None] = mapped_column(Text)
+    draft_metadata: Mapped[dict] = mapped_column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
+    created_at: Mapped[datetime] = timestamp_now()
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now()
+    )
+
+    __table_args__ = (Index("ix_content_drafts_content_item", "content_item_id"),)

@@ -19,6 +19,7 @@ async def main() -> None:
         if args.download_media:
             downloader = MediaDownloader(session)
             stats["media_downloads"] = await downloader.download_missing()
+        await session.commit()
         print(stats)
 
 

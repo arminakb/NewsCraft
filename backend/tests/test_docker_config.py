@@ -1,5 +1,7 @@
 from pathlib import Path
 
+import yaml
+
 ROOT = Path(__file__).resolve().parents[2]
 
 
@@ -18,6 +20,22 @@ def test_compose_defines_postgres_api_and_worker():
     assert "DATABASE_URL: postgresql+asyncpg://newscraft:newscraft@postgres:5432/newscraft" in compose
     assert "python -m app.worker" in compose
     assert "--download-media" in compose
+
+
+def test_api_service_runs_alembic_before_uvicorn():
+    compose = yaml.safe_load((ROOT / "docker-compose.yml").read_text(encoding="utf-8"))
+    command = compose["services"]["api"]["command"]
+
+    assert command == 'sh -c "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000"'
+
+
+def test_postgres_18_volume_uses_supported_data_parent():
+    compose = yaml.safe_load((ROOT / "docker-compose.yml").read_text(encoding="utf-8"))
+    postgres = compose["services"]["postgres"]
+
+    assert postgres["image"] == "postgres:18"
+    assert "postgres_data:/var/lib/postgresql" in postgres["volumes"]
+    assert "postgres_data:/var/lib/postgresql/data" not in postgres["volumes"]
 
 
 def test_dockerignore_excludes_local_build_noise():

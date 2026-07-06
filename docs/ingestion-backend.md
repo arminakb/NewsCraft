@@ -37,6 +37,36 @@ With Docker Compose:
 docker compose run --rm api alembic upgrade head
 ```
 
+## Legacy SQLite
+
+`backend/scripts/migrate_legacy_sqlite.py` currently provides a minimal reader for legacy `news.db` article rows. It does not write into PostgreSQL yet.
+
+## Content Scoring
+
+Every parsed item is classified and scored before it is stored as a `content_items` row. The scorer uses keyword signals from the title, summary, content text, source categories, source group, and Telegram public-page engagement metadata when available.
+
+Stored content items include:
+
+- `score`: ranking signal for review and downstream post selection.
+- `tags`: normalized source and classification tags.
+- `metrics.classification`: category, keyword scores, matched keywords, source group, and engagement signals.
+
+The content list endpoint supports review-oriented sorting:
+
+```bash
+curl 'http://localhost:8000/content-items?status=new&sort=score&limit=50'
+```
+
+Fetch one content item, including primary media metadata when available:
+
+```bash
+curl 'http://localhost:8000/content-items/<content_item_id>'
+```
+
+## Selective `armin` Integration
+
+Useful workflow ideas from `armin` are integrated only when adapted to the canonical `backend/` ingestion model and covered by tests. The backend continues to use public Telegram pages, RSS parsing with media extraction, raw payload storage, identity-based dedupe, and `media_assets` as the source media model.
+
 ## Seed Sources
 
 The 50 active seed feeds live in `app/ingestion/seed_sources.py`. Seed them through the API:

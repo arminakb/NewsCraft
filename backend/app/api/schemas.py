@@ -1,7 +1,8 @@
 from datetime import datetime
+from typing import Any
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class SourceOut(BaseModel):
@@ -42,6 +43,9 @@ class ContentItemOut(BaseModel):
     language_code: str | None = None
     direction: str | None = None
     status: str
+    score: int = 0
+    tags: list[str] = Field(default_factory=list)
+    metrics: dict[str, Any] = Field(default_factory=dict)
     sort_at: datetime
     primary_image_id: UUID | None = None
     primary_media: MediaAssetOut | None = None
@@ -63,3 +67,20 @@ class IngestRunOut(BaseModel):
     items: int = 0
     media_candidates: int = 0
     errors: list[dict] = []
+
+
+class DiagnosticsOut(BaseModel):
+    status: str
+    checks: dict[str, str]
+
+
+class ApproveContentItemIn(BaseModel):
+    notes: str | None = None
+
+
+class ApproveContentItemOut(BaseModel):
+    id: UUID
+    status: str
+    metrics: dict[str, Any] = Field(default_factory=dict)
+
+    model_config = ConfigDict(from_attributes=True)

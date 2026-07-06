@@ -6,10 +6,11 @@ from hashlib import sha256
 from typing import Any
 from uuid import UUID
 
-from sqlalchemy import Select, and_, func, or_, select, update
+from sqlalchemy import Select, and_, func, or_, select, text, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.content.scoring import classify_and_score
 from app.db.models import (
     ContentItem,
     IngestRun,
@@ -24,6 +25,9 @@ from app.normalization.fingerprints import content_hash, title_date_fingerprint
 from app.normalization.text import fingerprint_text, infer_direction
 from app.normalization.urls import hash_value
 from app.sources.base import MediaCandidate, ParsedSourceItem
+
+GLOBAL_STRONG_IDENTITY_INDEX_WHERE = text("scope = 'global' AND is_strong")
+SOURCE_STRONG_IDENTITY_INDEX_WHERE = text("scope = 'source' AND is_strong")
 
 
 def build_item_identities(source: Source, parsed_item: ParsedSourceItem) -> list[dict[str, Any]]:
@@ -260,20 +264,8 @@ class IngestionRepository:
                 "source_item_id": source_item_id,
                 "source_id": identity["source_id"] or source_id,
             }
-            stmt = insert(ItemIdentity).values(**values)
-            if identity["is_strong"] and identity["scope"] == "global":
-                stmt = stmt.on_conflict_do_update(
-                    index_elements=[ItemIdentity.identity_type, ItemIdentity.identity_hash],
-                    index_where=and_(ItemIdentity.scope == "global", ItemIdentity.is_strong.is_(True)),
-                    set_={"content_item_id": content_item_id, "source_item_id": source_item_id},
-                )
-                await self.session.execute(stmt)
-            elif identity["is_strong"] and identity["scope"] == "source":
-                stmt = stmt.on_conflict_do_update(
-                    index_elements=[ItemIdentity.source_id, ItemIdentity.identity_type, ItemIdentity.identity_hash],
-                    index_where=and_(ItemIdentity.scope == "source", ItemIdentity.is_strong.is_(True)),
-                    set_={"content_item_id": content_item_id, "source_item_id": source_item_id},
-                )
+            stmt = _identity_insert_statement(values)
+            if stmt is not None:
                 await self.session.execute(stmt)
             else:
                 self.session.add(ItemIdentity(**values))
@@ -371,11 +363,38 @@ def _source_item_values(
     }
 
 
+def _identity_insert_statement(values: dict[str, Any]):
+    if not values["is_strong"]:
+        return None
+
+    stmt = insert(ItemIdentity).values(**values)
+    update_values = {
+        "content_item_id": values["content_item_id"],
+        "source_item_id": values["source_item_id"],
+    }
+    if values["scope"] == "global":
+        return stmt.on_conflict_do_update(
+            index_elements=[ItemIdentity.identity_type, ItemIdentity.identity_hash],
+            index_where=GLOBAL_STRONG_IDENTITY_INDEX_WHERE,
+            set_=update_values,
+        )
+    if values["scope"] == "source":
+        return stmt.on_conflict_do_update(
+            index_elements=[ItemIdentity.source_id, ItemIdentity.identity_type, ItemIdentity.identity_hash],
+            index_where=SOURCE_STRONG_IDENTITY_INDEX_WHERE,
+            set_=update_values,
+        )
+    return None
+
+
 def _content_item_values(source: Source, parsed_item: ParsedSourceItem) -> dict[str, Any]:
     now = datetime.now(UTC)
     sort_at = parsed_item.published_at or now
     canonical_url = parsed_item.canonical_url_candidate or parsed_item.source_url_norm
     direction = infer_direction(parsed_item.content_text)
+    classification = classify_and_score(source, parsed_item)
+    metrics = dict(parsed_item.parser_meta)
+    metrics["classification"] = classification.signals
     return {
         "item_type": "telegram_post" if source.platform == "telegram_public" else "article",
         "canonical_url": canonical_url,
@@ -389,14 +408,15 @@ def _content_item_values(source: Source, parsed_item: ParsedSourceItem) -> dict[
         "script_code": "Arab" if direction == "rtl" else "Latn",
         "direction": direction,
         "authors": [parsed_item.author] if parsed_item.author else [],
-        "tags": parsed_item.categories,
+        "tags": classification.tags,
         "published_at": parsed_item.published_at,
         "sort_at": sort_at,
         "date_raw": parsed_item.published_raw,
         "date_source": "source",
         "date_parse_status": parsed_item.date_parse_status,
         "primary_source_id": source.id,
-        "metrics": parsed_item.parser_meta,
+        "score": classification.score,
+        "metrics": metrics,
         "first_seen_at": now,
         "last_seen_at": now,
         "created_at": now,
