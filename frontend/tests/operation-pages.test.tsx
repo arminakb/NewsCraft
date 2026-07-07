@@ -35,12 +35,39 @@ describe("operational pages", () => {
   })
 
   it("renders content operations including approval actions", async () => {
-    renderWithQuery(<ContentItemsPage initialItems={dashboardMock.queue} />)
+    renderWithQuery(
+      <ContentItemsPage
+        initialItems={[
+          {
+            ...dashboardMock.queue[0],
+            score: 87,
+            summary: "Long-form source summary",
+            canonicalUrl: "https://example.com/deep-ai",
+            tags: ["ai", "chips"],
+            status: "approved",
+            rewriteBucket: "ready",
+            isRewriteReady: true,
+            rewriteReadyReason: "has summary and image",
+            rewriteBlockers: ["needs Persian angle"],
+            classificationReasons: ["AI infrastructure topic"],
+            sourceTier: "tier_1",
+            freshnessBucket: "breaking",
+            qualityStatus: "strong",
+            scoreBreakdown: { media: 12, source: 25 },
+          },
+        ]}
+      />
+    )
 
     expect(await screen.findByRole("heading", { name: /content items/i })).toBeInTheDocument()
     expect(screen.getByRole("combobox", { name: /status/i })).toBeInTheDocument()
     expect(screen.getByRole("combobox", { name: /sort/i })).toBeInTheDocument()
     expect(screen.getByRole("checkbox", { name: /rewrite-ready only/i })).toBeInTheDocument()
+    expect(screen.getByText("Score 87")).toBeInTheDocument()
+    expect(screen.getByText("Long-form source summary")).toBeInTheDocument()
+    expect(screen.getByText("ready")).toBeInTheDocument()
+    expect(screen.getByText("strong")).toBeInTheDocument()
+    expect(screen.getByText("needs Persian angle")).toBeInTheDocument()
     expect(screen.getAllByRole("button", { name: /approve/i }).length).toBeGreaterThan(0)
   })
 

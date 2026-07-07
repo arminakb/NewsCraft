@@ -101,6 +101,66 @@ describe("api-client", () => {
     ])
   })
 
+  it("maps content intelligence fields from GET /content-items", async () => {
+    stubFetch([
+      {
+        id: "item-2",
+        title: "Deep AI Story",
+        summary: "Long-form source summary",
+        canonical_url: "https://example.com/deep-ai",
+        language_code: "en",
+        status: "approved",
+        score: 87,
+        tags: ["ai", "chips"],
+        sort_at: "2026-07-06T08:00:00Z",
+        primary_media: {
+          normalized_url: "https://example.com/deep-ai.jpg",
+          media_quality: "high",
+          fetch_status: "downloaded",
+        },
+        metrics: { classification: { category: "AI Infrastructure" } },
+        content_type: "article",
+        rewrite_bucket: "ready",
+        is_rewrite_ready: true,
+        rewrite_ready_reason: "has summary and image",
+        rewrite_blockers: ["needs Persian angle"],
+        classification_reasons: ["AI infrastructure topic"],
+        source_tier: "tier_1",
+        freshness_bucket: "breaking",
+        quality_status: "strong",
+        score_breakdown: { media: 12, source: 25 },
+      },
+    ])
+
+    await expect(getContentItems()).resolves.toEqual([
+      expect.objectContaining({
+        id: "item-2",
+        title: "Deep AI Story",
+        summary: "Long-form source summary",
+        canonicalUrl: "https://example.com/deep-ai",
+        score: 87,
+        tags: ["ai", "chips"],
+        status: "approved",
+        category: "AI Infrastructure",
+        contentType: "article",
+        rewriteBucket: "ready",
+        isRewriteReady: true,
+        rewriteReadyReason: "has summary and image",
+        rewriteBlockers: ["needs Persian angle"],
+        classificationReasons: ["AI infrastructure topic"],
+        sourceTier: "tier_1",
+        freshnessBucket: "breaking",
+        qualityStatus: "strong",
+        scoreBreakdown: { media: 12, source: 25 },
+        primaryMedia: expect.objectContaining({
+          src: "https://example.com/deep-ai.jpg",
+          quality: "high",
+          fetchStatus: "downloaded",
+        }),
+      }),
+    ])
+  })
+
   it("sends content item filter query params", async () => {
     const fetchSpy = stubFetch([])
 

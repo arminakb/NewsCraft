@@ -38,13 +38,31 @@ type BackendSource = {
 
 type BackendContentItem = {
   id: string
+  item_type?: string | null
   title?: string | null
+  summary?: string | null
+  canonical_url?: string | null
   language_code?: string | null
   status: string
+  score?: number
+  tags?: string[]
   sort_at?: string
-  primary_media?: { normalized_url?: string | null } | null
+  primary_media?: {
+    normalized_url?: string | null
+    media_quality?: string | null
+    fetch_status?: string | null
+  } | null
   metrics?: Record<string, unknown>
+  content_type?: string | null
+  rewrite_bucket?: string | null
+  is_rewrite_ready?: boolean | null
+  rewrite_ready_reason?: string | null
+  rewrite_blockers?: string[]
+  classification_reasons?: string[]
   source_tier?: string | null
+  freshness_bucket?: string | null
+  quality_status?: string | null
+  score_breakdown?: Record<string, unknown>
 }
 
 type BackendMediaAsset = {
@@ -238,13 +256,34 @@ function mapContentItem(row: BackendContentItem): ContentQueueItem {
   return {
     id: row.id,
     title: row.title ?? "Untitled content item",
+    summary: row.summary ?? null,
+    canonicalUrl: row.canonical_url ?? null,
     thumbnailUrl: row.primary_media?.normalized_url ?? null,
+    primaryMedia: row.primary_media
+      ? {
+          src: row.primary_media.normalized_url ?? null,
+          quality: row.primary_media.media_quality ?? null,
+          fetchStatus: row.primary_media.fetch_status ?? null,
+        }
+      : null,
     sourceName: "NewsCraft",
     sourcePlatform: "rss",
     category,
     language: row.language_code ?? "en",
     age: row.sort_at ? formatRelativeAge(row.sort_at) : "now",
-    status: row.status === "queued" ? "queued" : "new",
+    status: row.status,
+    score: row.score ?? 0,
+    tags: row.tags ?? [],
+    contentType: row.content_type ?? row.item_type ?? null,
+    rewriteBucket: row.rewrite_bucket ?? null,
+    isRewriteReady: row.is_rewrite_ready ?? null,
+    rewriteReadyReason: row.rewrite_ready_reason ?? null,
+    rewriteBlockers: row.rewrite_blockers ?? [],
+    classificationReasons: row.classification_reasons ?? [],
+    sourceTier: row.source_tier ?? null,
+    freshnessBucket: row.freshness_bucket ?? null,
+    qualityStatus: row.quality_status ?? null,
+    scoreBreakdown: row.score_breakdown ?? {},
   }
 }
 

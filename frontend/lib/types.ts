@@ -34,13 +34,32 @@ export type IngestionRunSummary = {
 export type ContentQueueItem = {
   id: string
   title: string
+  summary?: string | null
+  canonicalUrl?: string | null
   thumbnailUrl: string | null
+  primaryMedia?: {
+    src: string | null
+    quality: string | null
+    fetchStatus: string | null
+  } | null
   sourceName: string
   sourcePlatform: SourcePlatform
   category: string
   language: string
   age: string
-  status: "new" | "queued"
+  status: string
+  score?: number
+  tags?: string[]
+  contentType?: string | null
+  rewriteBucket?: string | null
+  isRewriteReady?: boolean | null
+  rewriteReadyReason?: string | null
+  rewriteBlockers?: string[]
+  classificationReasons?: string[]
+  sourceTier?: string | null
+  freshnessBucket?: string | null
+  qualityStatus?: string | null
+  scoreBreakdown?: Record<string, unknown>
 }
 
 export type MediaTile = {

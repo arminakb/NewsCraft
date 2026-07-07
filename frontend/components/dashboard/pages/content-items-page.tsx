@@ -5,8 +5,6 @@ import { CheckCircle2, ExternalLink } from "lucide-react"
 import { useMemo, useState } from "react"
 
 import { OperationsPageFrame } from "@/components/dashboard/pages/operations-page-frame"
-import { SourceIcon } from "@/components/dashboard/source-icon"
-import { StatusBadge } from "@/components/dashboard/status-badge"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
@@ -86,34 +84,76 @@ export function ContentItemsPage({ initialItems }: { initialItems: ContentQueueI
         <CardContent className="px-0">
           <div className="overflow-x-auto">
             <div className="min-w-[820px]">
-              <div className="grid grid-cols-[minmax(300px,1.5fr)_160px_100px_80px_110px] border-b px-3 py-2 text-xs text-muted-foreground">
+              <div className="grid grid-cols-[minmax(340px,1.5fr)_120px_110px_140px_110px_110px] border-b px-3 py-2 text-xs text-muted-foreground">
                 <span>Item</span>
-                <span>Source</span>
+                <span>Score</span>
                 <span>Category</span>
+                <span>Rewrite</span>
+                <span>Quality</span>
                 <span>Status</span>
-                <span className="text-right">Action</span>
               </div>
               <div className="divide-y">
                 {contentQuery.data.map((item) => (
-                  <div key={item.id} className="grid grid-cols-[minmax(300px,1.5fr)_160px_100px_80px_110px] items-center gap-3 px-3 py-3 text-sm">
+                  <div key={item.id} className="grid grid-cols-[minmax(340px,1.5fr)_120px_110px_140px_110px_110px] items-start gap-3 px-3 py-3 text-sm">
                     <div className="flex min-w-0 items-center gap-3">
                       {item.thumbnailUrl ? <img src={item.thumbnailUrl} alt="" className="h-12 w-16 rounded-md object-cover" /> : <div className="h-12 w-16 rounded-md bg-muted" />}
                       <div className="min-w-0">
                         <div className="line-clamp-2 font-medium leading-snug">{item.title}</div>
+                        {item.summary ? <div className="mt-1 line-clamp-2 text-xs text-muted-foreground">{item.summary}</div> : null}
                         <div className="mt-1 flex items-center gap-2 text-xs text-muted-foreground">
                           <span>{item.language}</span>
                           <span>{item.age}</span>
-                          <ExternalLink className="size-3" aria-hidden="true" />
+                          {item.canonicalUrl ? (
+                            <a href={item.canonicalUrl} className="inline-flex items-center gap-1 text-primary hover:underline">
+                              Source
+                              <ExternalLink className="size-3" aria-hidden="true" />
+                            </a>
+                          ) : null}
                         </div>
+                        {item.tags?.length ? (
+                          <div className="mt-2 flex flex-wrap gap-1">
+                            {item.tags.map((tag) => (
+                              <Badge key={tag} variant="outline" className="h-5 rounded-md text-[11px]">
+                                {tag}
+                              </Badge>
+                            ))}
+                          </div>
+                        ) : null}
                       </div>
                     </div>
-                    <div className="flex min-w-0 items-center gap-2">
-                      <SourceIcon platform={item.sourcePlatform} className="size-5" />
-                      <span className="truncate text-xs">{item.sourceName}</span>
+                    <div className="space-y-1">
+                      <div className="font-medium tabular-nums">Score {item.score ?? 0}</div>
+                      {Object.keys(item.scoreBreakdown ?? {}).length ? (
+                        <div className="text-xs text-muted-foreground">
+                          {Object.entries(item.scoreBreakdown ?? {})
+                            .map(([key, value]) => `${key}: ${String(value)}`)
+                            .join(", ")}
+                        </div>
+                      ) : null}
                     </div>
-                    <Badge variant="outline" className="h-6 rounded-md">{item.category}</Badge>
-                    <StatusBadge status={item.status === "new" ? "partial" : "healthy"} />
-                    <div className="text-right">
+                    <div className="space-y-1">
+                      <Badge variant="outline" className="h-6 rounded-md">{item.category}</Badge>
+                      {item.contentType ? <div className="text-xs text-muted-foreground">{item.contentType}</div> : null}
+                      {item.freshnessBucket ? <div className="text-xs text-muted-foreground">{item.freshnessBucket}</div> : null}
+                    </div>
+                    <div className="space-y-1 text-xs">
+                      <div className="font-medium">{item.rewriteBucket ?? "unbucketed"}</div>
+                      {item.isRewriteReady ? <Badge variant="outline" className="h-5 rounded-md border-emerald-200 bg-emerald-50 text-emerald-700">Ready</Badge> : null}
+                      {item.rewriteReadyReason ? <div className="text-muted-foreground">{item.rewriteReadyReason}</div> : null}
+                      {(item.rewriteBlockers ?? []).map((blocker) => (
+                        <div key={blocker} className="text-red-600">{blocker}</div>
+                      ))}
+                    </div>
+                    <div className="space-y-1 text-xs">
+                      <div className="font-medium">{item.qualityStatus ?? "unknown"}</div>
+                      {item.primaryMedia?.quality ? <div className="text-muted-foreground">Media {item.primaryMedia.quality}</div> : null}
+                      {item.sourceTier ? <div className="text-muted-foreground">{item.sourceTier}</div> : null}
+                      {(item.classificationReasons ?? []).map((reason) => (
+                        <div key={reason} className="text-muted-foreground">{reason}</div>
+                      ))}
+                    </div>
+                    <div className="space-y-2 text-right">
+                      <Badge variant="outline" className="h-6 rounded-md capitalize">{item.status}</Badge>
                       <Button
                         variant="outline"
                         className="h-8 gap-2 rounded-md"
