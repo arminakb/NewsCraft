@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react"
+import { fireEvent, render, screen } from "@testing-library/react"
 
 import { ContentItemsPage } from "@/components/dashboard/pages/content-items-page"
 import { DiagnosticsPage } from "@/components/dashboard/pages/diagnostics-page"
@@ -13,6 +13,15 @@ vi.mock("@/lib/api-client", async () => {
   return {
     ...actual,
     getSources: vi.fn(async () => dashboardMock.sources),
+    getContentItem: vi.fn(async () => ({
+      ...dashboardMock.queue[0],
+      score: 87,
+      summary: "Long-form source summary",
+      canonicalUrl: "https://example.com/deep-ai",
+      status: "approved",
+      rewriteBucket: "ready",
+      qualityStatus: "strong",
+    })),
     getContentItems: vi.fn(async () => dashboardMock.queue),
     getIngestRuns: vi.fn(async () => dashboardMock.runs),
     getMediaAssets: vi.fn(async () => dashboardMock.media),
@@ -68,6 +77,8 @@ describe("operational pages", () => {
     expect(screen.getByText("ready")).toBeInTheDocument()
     expect(screen.getByText("strong")).toBeInTheDocument()
     expect(screen.getByText("needs Persian angle")).toBeInTheDocument()
+    fireEvent.click(screen.getByRole("button", { name: /view details/i }))
+    expect(await screen.findByRole("region", { name: /content item details/i })).toBeInTheDocument()
     expect(screen.getAllByRole("button", { name: /approve/i }).length).toBeGreaterThan(0)
   })
 

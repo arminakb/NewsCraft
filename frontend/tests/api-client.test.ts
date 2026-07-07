@@ -1,10 +1,12 @@
 import {
   ApiError,
   approveContentItem,
+  getContentItem,
   getContentItems,
   getDashboardSnapshot,
   getDiagnostics,
   getMediaAssets,
+  getSource,
   getSources,
   runIngest,
   seedSources,
@@ -26,6 +28,20 @@ describe("api-client", () => {
         status: "healthy",
       }),
     ])
+  })
+
+  it("maps GET /sources/{id} to source details", async () => {
+    const fetchSpy = stubFetch({ id: "source-1", platform: "telegram_public", name: "DW Persian", telegram_username: "dw_farsi" })
+
+    await expect(getSource("source-1")).resolves.toEqual(
+      expect.objectContaining({
+        id: "source-1",
+        platform: "telegram_public",
+        name: "DW Persian",
+        url: "https://t.me/dw_farsi",
+      })
+    )
+    expect(fetchSpy).toHaveBeenCalledWith("/api/backend/sources/source-1", undefined)
   })
 
   it("maps POST /sources/seed response", async () => {
@@ -160,6 +176,29 @@ describe("api-client", () => {
         }),
       }),
     ])
+  })
+
+  it("maps GET /content-items/{id} to content details", async () => {
+    const fetchSpy = stubFetch({
+      id: "item-2",
+      title: "Deep AI Story",
+      summary: "Long-form source summary",
+      canonical_url: "https://example.com/deep-ai",
+      language_code: "en",
+      status: "new",
+      score: 87,
+      sort_at: "2026-07-06T08:00:00Z",
+    })
+
+    await expect(getContentItem("item-2")).resolves.toEqual(
+      expect.objectContaining({
+        id: "item-2",
+        summary: "Long-form source summary",
+        canonicalUrl: "https://example.com/deep-ai",
+        score: 87,
+      })
+    )
+    expect(fetchSpy).toHaveBeenCalledWith("/api/backend/content-items/item-2", undefined)
   })
 
   it("sends content item filter query params", async () => {

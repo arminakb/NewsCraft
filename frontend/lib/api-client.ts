@@ -135,6 +135,11 @@ export async function getSources(): Promise<SourceSummary[]> {
   return rows.map(mapSource)
 }
 
+export async function getSource(id: string): Promise<SourceSummary> {
+  const row = await request<BackendSource>(`/sources/${id}`)
+  return mapSource(row)
+}
+
 export async function getDashboardSummary(): Promise<DashboardCounts> {
   const row = await request<BackendDashboardSummary>("/dashboard/summary")
   return {
@@ -189,6 +194,11 @@ export async function getContentItems(filters: ContentItemFilters = {}): Promise
 
   const rows = await request<BackendContentItem[]>(`/content-items?${params.toString()}`)
   return rows.map(mapContentItem)
+}
+
+export async function getContentItem(id: string): Promise<ContentQueueItem> {
+  const row = await request<BackendContentItem>(`/content-items/${id}`)
+  return mapContentItem(row)
 }
 
 export async function getIngestRuns(): Promise<IngestionRunSummary[]> {
