@@ -75,7 +75,7 @@ Run the dashboard with the API and database:
 docker compose up frontend api postgres
 ```
 
-The dashboard is available at `http://localhost:3000` and calls the API at `http://localhost:8000`.
+The dashboard is available at `http://localhost:3000` and proxies API calls through the frontend to the backend service.
 
 Check health:
 

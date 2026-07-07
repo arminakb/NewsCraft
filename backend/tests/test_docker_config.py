@@ -18,6 +18,7 @@ def test_compose_defines_postgres_api_and_worker():
 
     assert "postgres:18" in compose
     assert "DATABASE_URL: postgresql+asyncpg://newscraft:newscraft@newscraft-postgres:5432/newscraft" in compose
+    assert "API_INTERNAL_BASE_URL: http://api:8000" in compose
     assert "python -m app.worker" in compose
     assert "--download-media" in compose
 

@@ -30,7 +30,7 @@ describe("api-client", () => {
     await runIngest({ platforms: ["rss"], source_ids: ["source-1"] })
 
     expect(fetchSpy).toHaveBeenCalledWith(
-      "http://localhost:8000/ingest/run",
+      "/api/backend/ingest/run",
       expect.objectContaining({
         method: "POST",
         body: JSON.stringify({ platforms: ["rss"], source_ids: ["source-1"] }),

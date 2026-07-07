@@ -10,7 +10,7 @@ import type {
 } from "./types"
 import { formatBytes, formatPlatform, titleCase } from "./format"
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000"
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? "/api/backend"
 
 type BackendSource = {
   id: string
