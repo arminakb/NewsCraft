@@ -70,6 +70,13 @@ export type MediaTile = {
   fileName: string
   age: string
   size: string
+  fetchStatus?: string | null
+  quality?: string | null
+  confidence?: string | null
+  isPrimaryCandidate?: boolean | null
+  isPrimary?: boolean | null
+  sourceType?: string | null
+  role?: string | null
 }
 
 export type DashboardSnapshot = {

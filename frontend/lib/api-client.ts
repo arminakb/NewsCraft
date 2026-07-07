@@ -73,6 +73,13 @@ type BackendMediaAsset = {
   width?: number | null
   height?: number | null
   storage_path?: string | null
+  fetch_status?: string | null
+  media_quality?: string | null
+  media_confidence?: string | number | null
+  is_primary_candidate?: boolean | null
+  is_primary?: boolean | null
+  media_source_type?: string | null
+  asset_role?: string | null
   byte_length?: number | null
   created_at?: string | null
 }
@@ -313,6 +320,13 @@ function mapMedia(row: BackendMediaAsset): MediaTile {
     fileName: row.storage_path?.split("/").pop() ?? row.normalized_url.split("/").pop() ?? "media",
     age: row.created_at ? `${formatRelativeAge(row.created_at)} ago` : "now",
     size: formatBytes(row.byte_length),
+    fetchStatus: row.fetch_status ?? null,
+    quality: row.media_quality ?? null,
+    confidence: row.media_confidence === undefined || row.media_confidence === null ? null : String(row.media_confidence),
+    isPrimaryCandidate: row.is_primary_candidate ?? null,
+    isPrimary: row.is_primary ?? null,
+    sourceType: row.media_source_type ?? null,
+    role: row.asset_role ?? null,
   }
 }
 

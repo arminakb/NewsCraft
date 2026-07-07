@@ -75,8 +75,27 @@ describe("operational pages", () => {
     renderWithQuery(<RunsPage initialRuns={dashboardMock.runs} />)
     expect(await screen.findByRole("heading", { name: /ingestion runs/i })).toBeInTheDocument()
 
-    renderWithQuery(<MediaAssetsPage initialMedia={dashboardMock.media} />)
+    renderWithQuery(
+      <MediaAssetsPage
+        initialMedia={[
+          {
+            ...dashboardMock.media[0],
+            fetchStatus: "downloaded",
+            quality: "high",
+            confidence: "0.92",
+            isPrimaryCandidate: true,
+            isPrimary: false,
+            sourceType: "article_body",
+            role: "hero",
+          },
+        ]}
+      />
+    )
     expect(await screen.findByRole("heading", { name: /media assets/i })).toBeInTheDocument()
+    expect(screen.getByText("downloaded")).toBeInTheDocument()
+    expect(screen.getByText("high")).toBeInTheDocument()
+    expect(screen.getByText("article_body")).toBeInTheDocument()
+    expect(screen.getByText("hero")).toBeInTheDocument()
 
     renderWithQuery(<DiagnosticsPage />)
     expect(await screen.findByRole("heading", { name: /diagnostics/i })).toBeInTheDocument()

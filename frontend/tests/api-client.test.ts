@@ -4,6 +4,7 @@ import {
   getContentItems,
   getDashboardSnapshot,
   getDiagnostics,
+  getMediaAssets,
   getSources,
   runIngest,
   seedSources,
@@ -170,6 +171,43 @@ describe("api-client", () => {
       "/api/backend/content-items?limit=25&status=approved&is_rewrite_ready=true&sort=score",
       undefined
     )
+  })
+
+  it("maps GET /media-assets metadata", async () => {
+    stubFetch([
+      {
+        id: "media-1",
+        normalized_url: "https://example.com/image.jpg",
+        kind: "image",
+        mime_type: "image/jpeg",
+        width: 1200,
+        height: 800,
+        storage_path: "/data/media/image.jpg",
+        fetch_status: "downloaded",
+        media_quality: "high",
+        media_confidence: "0.92",
+        is_primary_candidate: true,
+        is_primary: false,
+        media_source_type: "article_body",
+        asset_role: "hero",
+        byte_length: 2048,
+        created_at: "2026-07-06T08:00:00Z",
+      },
+    ])
+
+    await expect(getMediaAssets()).resolves.toEqual([
+      expect.objectContaining({
+        id: "media-1",
+        src: "https://example.com/image.jpg",
+        fetchStatus: "downloaded",
+        quality: "high",
+        confidence: "0.92",
+        isPrimaryCandidate: true,
+        isPrimary: false,
+        sourceType: "article_body",
+        role: "hero",
+      }),
+    ])
   })
 
   it("uses backend dashboard summary counts without replacing zeroes with mock data", async () => {
