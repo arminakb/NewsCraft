@@ -1,7 +1,9 @@
 import { dashboardMock } from "./mock-data"
 import type {
   ContentQueueItem,
+  DashboardCounts,
   DashboardSnapshot,
+  DiagnosticsSnapshot,
   IngestionRunSummary,
   MediaTile,
   SourcePlatform,
@@ -66,6 +68,21 @@ type BackendRun = {
   stats?: Record<string, unknown>
 }
 
+type BackendDashboardSummary = {
+  rss_feeds: number
+  telegram_channels: number
+  content_items: number
+  media_assets: number
+  warnings: number
+}
+
+type BackendDiagnostics = {
+  status: string
+  checks: Record<string, string>
+  source_health: Record<string, number>
+  problem_sources: Array<Record<string, unknown>>
+}
+
 export class ApiError extends Error {
   constructor(
     message: string,
@@ -82,12 +99,41 @@ export async function getSources(): Promise<SourceSummary[]> {
   return rows.map(mapSource)
 }
 
+export async function getDashboardSummary(): Promise<DashboardCounts> {
+  const row = await request<BackendDashboardSummary>("/dashboard/summary")
+  return {
+    rssFeeds: row.rss_feeds,
+    telegramChannels: row.telegram_channels,
+    contentItems: row.content_items,
+    mediaAssets: row.media_assets,
+    warnings: row.warnings,
+  }
+}
+
 export async function seedSources(): Promise<{ upserted: number }> {
   return request("/sources/seed", { method: "POST" })
 }
 
+export async function getDiagnostics(): Promise<DiagnosticsSnapshot> {
+  const row = await request<BackendDiagnostics>("/diagnostics")
+  return {
+    status: row.status,
+    checks: row.checks,
+    sourceHealth: row.source_health,
+    problemSources: row.problem_sources,
+  }
+}
+
 export async function runIngest(input: { platforms?: string[]; source_ids?: string[] }) {
   return request("/ingest/run", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(input),
+  })
+}
+
+export async function approveContentItem(id: string, input: { notes?: string | null }) {
+  return request(`/content-items/${id}/approve`, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify(input),
@@ -110,7 +156,8 @@ export async function getMediaAssets(): Promise<MediaTile[]> {
 }
 
 export async function getDashboardSnapshot(): Promise<DashboardSnapshot> {
-  const [sources, queue, runs, media] = await Promise.all([
+  const [counts, sources, queue, runs, media] = await Promise.all([
+    getDashboardSummary(),
     getSources(),
     getContentItems(),
     getIngestRuns().catch(() => dashboardMock.runs),
@@ -118,18 +165,11 @@ export async function getDashboardSnapshot(): Promise<DashboardSnapshot> {
   ])
 
   return {
-    counts: {
-      rssFeeds: sources.filter((source) => source.platform === "rss").length || dashboardMock.counts.rssFeeds,
-      telegramChannels:
-        sources.filter((source) => source.platform === "telegram_public").length || dashboardMock.counts.telegramChannels,
-      contentItems: queue.length || dashboardMock.counts.contentItems,
-      mediaAssets: media.length || dashboardMock.counts.mediaAssets,
-      warnings: sources.filter((source) => source.status !== "healthy").length || dashboardMock.counts.warnings,
-    },
-    sources: sources.length ? sources : dashboardMock.sources,
-    runs: runs.length ? runs : dashboardMock.runs,
-    queue: queue.length ? queue : dashboardMock.queue,
-    media: media.length ? media : dashboardMock.media,
+    counts,
+    sources,
+    runs,
+    queue,
+    media,
   }
 }
 

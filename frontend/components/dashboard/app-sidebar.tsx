@@ -1,19 +1,38 @@
-import { AlertTriangle, Clock3, Database, FileText, ImageIcon, Rss, Send, Settings, ChevronLeft } from "lucide-react"
+"use client"
 
-import { Button } from "@/components/ui/button"
+import Link from "next/link"
+import { usePathname } from "next/navigation"
+import {
+  Activity,
+  AlertTriangle,
+  ChevronLeft,
+  Clock3,
+  Database,
+  FileText,
+  ImageIcon,
+  LayoutDashboard,
+  Rss,
+  Send,
+} from "lucide-react"
+
+import { Button, buttonVariants } from "@/components/ui/button"
 import { Separator } from "@/components/ui/separator"
 import { formatNumber } from "@/lib/format"
+import { cn } from "@/lib/utils"
 import type { DashboardSnapshot } from "@/lib/types"
 
 const navItems = [
-  { label: "Sources", icon: Database, active: true },
-  { label: "Runs", icon: Clock3 },
-  { label: "Content Items", icon: FileText },
-  { label: "Media", icon: ImageIcon },
-  { label: "Settings", icon: Settings },
+  { label: "Overview", href: "/", icon: LayoutDashboard },
+  { label: "Sources", href: "/sources", icon: Database },
+  { label: "Runs", href: "/runs", icon: Clock3 },
+  { label: "Content Items", href: "/content", icon: FileText },
+  { label: "Media", href: "/media", icon: ImageIcon },
+  { label: "Diagnostics", href: "/diagnostics", icon: Activity },
 ]
 
 export function AppSidebar({ counts }: { counts: DashboardSnapshot["counts"] }) {
+  const pathname = usePathname()
+
   return (
     <aside className="hidden min-h-screen border-r bg-sidebar text-sidebar-foreground md:flex md:flex-col">
       <div className="px-5 py-5">
@@ -23,14 +42,18 @@ export function AppSidebar({ counts }: { counts: DashboardSnapshot["counts"] }) 
       <Separator />
       <nav aria-label="Dashboard navigation" className="flex-1 space-y-1 p-3">
         {navItems.map((item) => (
-          <Button
+          <Link
             key={item.label}
-            variant={item.active ? "secondary" : "ghost"}
-            className="h-10 w-full justify-start gap-3 rounded-md px-3"
+            href={item.href}
+            aria-current={pathname === item.href ? "page" : undefined}
+            className={cn(
+              buttonVariants({ variant: pathname === item.href ? "secondary" : "ghost" }),
+              "h-10 w-full justify-start gap-3 rounded-md px-3"
+            )}
           >
             <item.icon className="size-5" aria-hidden="true" />
             {item.label}
-          </Button>
+          </Link>
         ))}
       </nav>
       <div className="p-3">

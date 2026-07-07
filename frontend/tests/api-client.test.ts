@@ -1,4 +1,13 @@
-import { ApiError, getContentItems, getSources, runIngest, seedSources } from "@/lib/api-client"
+import {
+  ApiError,
+  approveContentItem,
+  getContentItems,
+  getDashboardSnapshot,
+  getDiagnostics,
+  getSources,
+  runIngest,
+  seedSources,
+} from "@/lib/api-client"
 
 describe("api-client", () => {
   afterEach(() => {
@@ -24,6 +33,24 @@ describe("api-client", () => {
     await expect(seedSources()).resolves.toEqual({ upserted: 50 })
   })
 
+  it("maps GET /diagnostics response", async () => {
+    stubFetch({
+      status: "ok",
+      checks: { database: "ok", sources: "ok" },
+      source_health: { healthy: 3, partial: 1, failed: 0, unknown: 2 },
+      problem_sources: [{ id: "source-1", name: "Reuters", status: "partial" }],
+    })
+
+    await expect(getDiagnostics()).resolves.toEqual(
+      expect.objectContaining({
+        status: "ok",
+        checks: { database: "ok", sources: "ok" },
+        sourceHealth: { healthy: 3, partial: 1, failed: 0, unknown: 2 },
+        problemSources: [expect.objectContaining({ id: "source-1", name: "Reuters", status: "partial" })],
+      })
+    )
+  })
+
   it("sends run ingest payload", async () => {
     const fetchSpy = stubFetch({ status: "succeeded", items: 12 })
 
@@ -34,6 +61,20 @@ describe("api-client", () => {
       expect.objectContaining({
         method: "POST",
         body: JSON.stringify({ platforms: ["rss"], source_ids: ["source-1"] }),
+      })
+    )
+  })
+
+  it("sends approve content item payload", async () => {
+    const fetchSpy = stubFetch({ id: "item-1", status: "approved", metrics: { approval_notes: "ready" } })
+
+    await approveContentItem("item-1", { notes: "ready" })
+
+    expect(fetchSpy).toHaveBeenCalledWith(
+      "/api/backend/content-items/item-1/approve",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({ notes: "ready" }),
       })
     )
   })
@@ -58,6 +99,50 @@ describe("api-client", () => {
         status: "new",
       }),
     ])
+  })
+
+  it("uses backend dashboard summary counts without replacing zeroes with mock data", async () => {
+    const fetchSpy = vi.fn((url: string) => {
+      const payloads: Record<string, unknown> = {
+        "/api/backend/dashboard/summary": {
+          rss_feeds: 0,
+          telegram_channels: 0,
+          content_items: 0,
+          media_assets: 0,
+          warnings: 0,
+        },
+        "/api/backend/sources": [],
+        "/api/backend/content-items?limit=50": [],
+        "/api/backend/ingest/runs": [],
+        "/api/backend/media-assets": [],
+      }
+
+      return Promise.resolve({
+        ok: true,
+        status: 200,
+        statusText: "OK",
+        json: async () => payloads[url],
+        text: async () => JSON.stringify(payloads[url]),
+      })
+    })
+    vi.stubGlobal("fetch", fetchSpy)
+
+    await expect(getDashboardSnapshot()).resolves.toEqual(
+      expect.objectContaining({
+        counts: {
+          rssFeeds: 0,
+          telegramChannels: 0,
+          contentItems: 0,
+          mediaAssets: 0,
+          warnings: 0,
+        },
+        sources: [],
+        runs: [],
+        queue: [],
+        media: [],
+      })
+    )
+    expect(fetchSpy).toHaveBeenCalledWith("/api/backend/dashboard/summary", undefined)
   })
 
   it("throws typed ApiError on network failures", async () => {

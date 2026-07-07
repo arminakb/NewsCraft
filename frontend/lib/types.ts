@@ -54,15 +54,24 @@ export type MediaTile = {
 }
 
 export type DashboardSnapshot = {
-  counts: {
-    rssFeeds: number
-    telegramChannels: number
-    contentItems: number
-    mediaAssets: number
-    warnings: number
-  }
+  counts: DashboardCounts
   sources: SourceSummary[]
   runs: IngestionRunSummary[]
   queue: ContentQueueItem[]
   media: MediaTile[]
+}
+
+export type DashboardCounts = {
+  rssFeeds: number
+  telegramChannels: number
+  contentItems: number
+  mediaAssets: number
+  warnings: number
+}
+
+export type DiagnosticsSnapshot = {
+  status: string
+  checks: Record<string, string>
+  sourceHealth: Record<string, number>
+  problemSources: Array<Record<string, unknown>>
 }

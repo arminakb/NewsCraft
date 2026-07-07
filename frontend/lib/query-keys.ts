@@ -6,4 +6,5 @@ export const queryKeys = {
   contentItems: ["content-items"] as const,
   media: ["media-assets"] as const,
   dashboardSnapshot: ["dashboard-snapshot"] as const,
+  diagnostics: ["diagnostics"] as const,
 }
