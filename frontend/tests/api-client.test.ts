@@ -101,6 +101,17 @@ describe("api-client", () => {
     ])
   })
 
+  it("sends content item filter query params", async () => {
+    const fetchSpy = stubFetch([])
+
+    await getContentItems({ status: "approved", sort: "score", limit: 25, isRewriteReady: true })
+
+    expect(fetchSpy).toHaveBeenCalledWith(
+      "/api/backend/content-items?limit=25&status=approved&is_rewrite_ready=true&sort=score",
+      undefined
+    )
+  })
+
   it("uses backend dashboard summary counts without replacing zeroes with mock data", async () => {
     const fetchSpy = vi.fn((url: string) => {
       const payloads: Record<string, unknown> = {

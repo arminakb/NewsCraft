@@ -38,6 +38,9 @@ describe("operational pages", () => {
     renderWithQuery(<ContentItemsPage initialItems={dashboardMock.queue} />)
 
     expect(await screen.findByRole("heading", { name: /content items/i })).toBeInTheDocument()
+    expect(screen.getByRole("combobox", { name: /status/i })).toBeInTheDocument()
+    expect(screen.getByRole("combobox", { name: /sort/i })).toBeInTheDocument()
+    expect(screen.getByRole("checkbox", { name: /rewrite-ready only/i })).toBeInTheDocument()
     expect(screen.getAllByRole("button", { name: /approve/i }).length).toBeGreaterThan(0)
   })
 

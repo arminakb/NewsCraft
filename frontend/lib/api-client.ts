@@ -83,6 +83,17 @@ type BackendDiagnostics = {
   problem_sources: Array<Record<string, unknown>>
 }
 
+type ContentItemFilters = {
+  status?: string
+  contentType?: string
+  rewriteBucket?: string
+  isRewriteReady?: boolean
+  sourceTier?: string
+  qualityStatus?: string
+  sort?: "latest" | "score"
+  limit?: number
+}
+
 export class ApiError extends Error {
   constructor(
     message: string,
@@ -140,8 +151,18 @@ export async function approveContentItem(id: string, input: { notes?: string | n
   })
 }
 
-export async function getContentItems(): Promise<ContentQueueItem[]> {
-  const rows = await request<BackendContentItem[]>("/content-items?limit=50")
+export async function getContentItems(filters: ContentItemFilters = {}): Promise<ContentQueueItem[]> {
+  const params = new URLSearchParams()
+  params.set("limit", String(filters.limit ?? 50))
+  if (filters.status) params.set("status", filters.status)
+  if (filters.contentType) params.set("content_type", filters.contentType)
+  if (filters.rewriteBucket) params.set("rewrite_bucket", filters.rewriteBucket)
+  if (filters.isRewriteReady !== undefined) params.set("is_rewrite_ready", String(filters.isRewriteReady))
+  if (filters.sourceTier) params.set("source_tier", filters.sourceTier)
+  if (filters.qualityStatus) params.set("quality_status", filters.qualityStatus)
+  if (filters.sort) params.set("sort", filters.sort)
+
+  const rows = await request<BackendContentItem[]>(`/content-items?${params.toString()}`)
   return rows.map(mapContentItem)
 }
 

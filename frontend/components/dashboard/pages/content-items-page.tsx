@@ -2,6 +2,7 @@
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { CheckCircle2, ExternalLink } from "lucide-react"
+import { useMemo, useState } from "react"
 
 import { OperationsPageFrame } from "@/components/dashboard/pages/operations-page-frame"
 import { SourceIcon } from "@/components/dashboard/source-icon"
@@ -15,9 +16,21 @@ import type { ContentQueueItem } from "@/lib/types"
 
 export function ContentItemsPage({ initialItems }: { initialItems: ContentQueueItem[] }) {
   const queryClient = useQueryClient()
+  const [status, setStatus] = useState("all")
+  const [sort, setSort] = useState<"latest" | "score">("latest")
+  const [rewriteReadyOnly, setRewriteReadyOnly] = useState(false)
+  const filters = useMemo(
+    () => ({
+      status: status === "all" ? undefined : status,
+      sort,
+      isRewriteReady: rewriteReadyOnly ? true : undefined,
+      limit: 50,
+    }),
+    [rewriteReadyOnly, sort, status]
+  )
   const contentQuery = useQuery({
-    queryKey: queryKeys.contentItems,
-    queryFn: getContentItems,
+    queryKey: [...queryKeys.contentItems, filters],
+    queryFn: () => getContentItems(filters),
     initialData: initialItems,
     enabled: process.env.NODE_ENV !== "test",
   })
@@ -27,7 +40,48 @@ export function ContentItemsPage({ initialItems }: { initialItems: ContentQueueI
   })
 
   return (
-    <OperationsPageFrame title="Content Items" subtitle="Review, classify, and approve captured items.">
+    <OperationsPageFrame
+      title="Content Items"
+      subtitle="Review, classify, and approve captured items."
+      actions={
+        <div className="flex flex-wrap items-center gap-3">
+          <label className="flex items-center gap-2 text-sm">
+            <span className="text-muted-foreground">Status</span>
+            <select
+              aria-label="Status"
+              value={status}
+              onChange={(event) => setStatus(event.target.value)}
+              className="h-9 rounded-md border bg-white px-2 text-sm"
+            >
+              <option value="all">All</option>
+              <option value="new">New</option>
+              <option value="queued">Queued</option>
+              <option value="approved">Approved</option>
+            </select>
+          </label>
+          <label className="flex items-center gap-2 text-sm">
+            <span className="text-muted-foreground">Sort</span>
+            <select
+              aria-label="Sort"
+              value={sort}
+              onChange={(event) => setSort(event.target.value as "latest" | "score")}
+              className="h-9 rounded-md border bg-white px-2 text-sm"
+            >
+              <option value="latest">Latest</option>
+              <option value="score">Score</option>
+            </select>
+          </label>
+          <label className="flex h-9 items-center gap-2 rounded-md border px-2 text-sm">
+            <input
+              type="checkbox"
+              checked={rewriteReadyOnly}
+              onChange={(event) => setRewriteReadyOnly(event.target.checked)}
+            />
+            Rewrite-ready only
+          </label>
+        </div>
+      }
+    >
       <Card className="rounded-md py-0" size="sm">
         <CardContent className="px-0">
           <div className="overflow-x-auto">
