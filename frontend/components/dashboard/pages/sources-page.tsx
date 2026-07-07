@@ -8,7 +8,7 @@ import { OperationsPageFrame } from "@/components/dashboard/pages/operations-pag
 import { SourceDetailPanel } from "@/components/dashboard/source-detail-panel"
 import { SourceHealthTable } from "@/components/dashboard/source-health-table"
 import { Button } from "@/components/ui/button"
-import { getSources, runIngest, seedSources } from "@/lib/api-client"
+import { getSource, getSources, runIngest, seedSources } from "@/lib/api-client"
 import { queryKeys } from "@/lib/query-keys"
 import type { SourceSummary } from "@/lib/types"
 
@@ -32,6 +32,12 @@ export function SourcesPage({ initialSources }: { initialSources: SourceSummary[
   })
   const sources = sourcesQuery.data
   const selectedSource = sources.find((source) => source.id === selectedSourceId) ?? sources[0]
+  const sourceDetailQuery = useQuery({
+    queryKey: selectedSourceId ? queryKeys.source(selectedSourceId) : ["sources", "detail"],
+    queryFn: () => getSource(selectedSourceId),
+    enabled: Boolean(selectedSourceId) && process.env.NODE_ENV !== "test",
+    initialData: selectedSource,
+  })
 
   return (
     <OperationsPageFrame
@@ -64,7 +70,9 @@ export function SourcesPage({ initialSources }: { initialSources: SourceSummary[
             setDetailOpen(true)
           }}
         />
-        {selectedSource ? <SourceDetailPanel source={selectedSource} open={detailOpen} onOpenChange={setDetailOpen} /> : null}
+        {sourceDetailQuery.data ? (
+          <SourceDetailPanel source={sourceDetailQuery.data} open={detailOpen} onOpenChange={setDetailOpen} />
+        ) : null}
       </div>
     </OperationsPageFrame>
   )
