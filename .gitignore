@@ -40,3 +40,10 @@ data/
 
 # Generated analysis artifacts
 graphify-out/
+
+# Generated docs/articles
+today-news/
+articles/
+generated-docs/
+docs/generated/
+docs/articles/
