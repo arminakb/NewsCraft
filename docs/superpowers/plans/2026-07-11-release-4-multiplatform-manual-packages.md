@@ -420,7 +420,7 @@ The POST creates `build_export:{pack_id}:{sorted_revision_hashes}:{request_hash}
 
 ```bash
 cd backend
-PYTHONPATH=. .venv/bin/python -m pytest tests/exports tests/api/test_export_routes.py tests/jobs -q
+PYTHONPATH=. .venv/bin/python -m pytest tests/exports tests/api/test_export_routes.py tests/test_job_handler_registry.py tests/test_job_worker.py tests/postgres/test_job_repository.py -q
 .venv/bin/ruff check app/exports app/api/exports.py tests/exports tests/api/test_export_routes.py
 git diff --check
 cd ..

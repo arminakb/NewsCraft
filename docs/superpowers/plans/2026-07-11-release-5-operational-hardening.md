@@ -316,16 +316,17 @@ async def test_confirm_published_creates_one_receipt_for_exact_attempt(db_sessio
         permalink="https://t.me/target/701",
         operator_note="Verified in target channel",
     )
-    assert publication.publish_attempt_id == ambiguous_attempt.id
+    assert publication.publish_job_id == ambiguous_attempt.publish_job_id
     assert publication.remote_message_ids == [701, 702]
     assert publication.reconciliation_status == "operator_confirmed"
+    assert (await latest_reconciliation_event()).event_data["publish_attempt_id"] == str(ambiguous_attempt.id)
 
 
 async def test_confirm_not_published_enqueues_same_idempotency_key_once(db_session, ambiguous_attempt):
     first = await ReconciliationService(db_session).confirm_not_published(ambiguous_attempt.id, "Checked target channel")
     second = await ReconciliationService(db_session).confirm_not_published(ambiguous_attempt.id, "Checked target channel")
     assert first.retry_job_id == second.retry_job_id
-    assert first.idempotency_key == ambiguous_attempt.idempotency_key
+    assert first.idempotency_key == ambiguous_attempt.publish_job.idempotency_key
 ```
 
 - [ ] **Step 2: Run tests and verify failure**
@@ -461,7 +462,7 @@ Use idempotency `retention:{preview_token}` and global pause sensitivity. Never 
 
 ```bash
 cd backend
-PYTHONPATH=. .venv/bin/python -m pytest tests/retention tests/test_retention_migration.py tests/jobs -q
+PYTHONPATH=. .venv/bin/python -m pytest tests/retention tests/test_retention_migration.py tests/test_job_handler_registry.py tests/test_job_worker.py tests/postgres/test_job_repository.py -q
 .venv/bin/ruff check app/retention app/api/operations.py tests/retention
 alembic upgrade head
 alembic downgrade 0007_manual_publication_plans
@@ -570,7 +571,7 @@ def redact_secrets(value: object, *, seen: set[int] | None = None, depth: int = 
 
 ```bash
 cd backend
-PYTHONPATH=. .venv/bin/python -m pytest tests/core/test_redaction.py tests/core/test_secret_boundary.py tests/jobs tests/research tests/generation tests/publishing tests/operations -q
+PYTHONPATH=. .venv/bin/python -m pytest tests/core/test_redaction.py tests/core/test_secret_boundary.py tests/test_job_handler_registry.py tests/test_job_worker.py tests/postgres/test_job_repository.py tests/research tests/generation tests/publishing tests/operations -q
 .venv/bin/ruff check app/core app/jobs app/research app/generation app/publishing app/operations tests/core
 git diff --check
 cd ..
@@ -737,7 +738,7 @@ For side effects before durable receipt, `telegram.after_send_before_receipt` cr
 
 ```bash
 cd backend
-APP_ENV=test PYTHONPATH=. .venv/bin/python -m pytest tests/operations/test_fault_injection.py tests/integration/test_worker_crash_recovery.py tests/integration/test_publish_crash_recovery.py tests/jobs tests/publishing tests/research tests/generation tests/exports -q
+APP_ENV=test PYTHONPATH=. .venv/bin/python -m pytest tests/operations/test_fault_injection.py tests/integration/test_worker_crash_recovery.py tests/integration/test_publish_crash_recovery.py tests/test_job_handler_registry.py tests/test_job_worker.py tests/postgres/test_job_repository.py tests/publishing tests/research tests/generation tests/exports -q
 .venv/bin/ruff check app/core/faults.py app/jobs app/research app/generation app/exports app/publishing tests/operations tests/integration
 git diff --check
 cd ..

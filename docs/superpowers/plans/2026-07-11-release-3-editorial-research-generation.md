@@ -973,7 +973,7 @@ The GET endpoints return completeness input hashes, backend/model identity, atte
 
 ```bash
 cd backend
-PYTHONPATH=. .venv/bin/python -m pytest tests/research tests/api/test_story_routes.py tests/jobs -q
+PYTHONPATH=. .venv/bin/python -m pytest tests/research tests/api/test_story_routes.py tests/test_job_handler_registry.py tests/test_job_worker.py tests/postgres/test_job_repository.py -q
 .venv/bin/ruff check app/research app/api/stories.py tests/research tests/api/test_story_routes.py
 git diff --check
 cd ..
@@ -1116,7 +1116,7 @@ All mutating long operations return HTTP 202 plus a job. Edit/approve/reject are
 
 ```bash
 cd backend
-PYTHONPATH=. .venv/bin/python -m pytest tests/generation tests/api/test_content_pack_routes.py tests/research tests/publishing -q
+PYTHONPATH=. .venv/bin/python -m pytest tests/generation tests/api/test_content_pack_routes.py tests/research tests/test_telegram_publish_service.py tests/test_telegram_process_handler.py -q
 .venv/bin/ruff check app/generation app/api/content_packs.py tests/generation tests/api/test_content_pack_routes.py
 git diff --check
 cd ..
