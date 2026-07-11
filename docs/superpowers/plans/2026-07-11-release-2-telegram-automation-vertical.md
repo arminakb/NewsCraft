@@ -15,6 +15,7 @@
 - Use Release 1 `JobRepository.enqueue_job`, `claim_next_job`, `heartbeat_job`, `finish_job`, `fail_job`, `retry_job`, `cancel_job`, and `requeue_expired_leases`; do not introduce a second queue.
 - Register `telegram.route.initialize`, `telegram.route.poll`, `telegram.route.backfill`, `telegram.route.dry_run`, `telegram.route.process`, `telegram.destination.check`, and `telegram.publish` through `JobHandlerRegistry.register()` and `build_default_registry()`.
 - Handlers accept `JobContext(session, providers)` plus one `WorkflowJob` and return a JSON-serializable `dict`; provider implementations use Release 1 `GenerationProviderRequest`, `GenerationProviderResult`, `GenerationProvider.generate()`, and `ProviderRegistry.register/get`.
+- `JobContext` remains exactly the Release 1 contract. Telegram source clients, media staging, secret resolution, and Bot API clients are injected into handler closures when the worker builds its registry; never add credentials or transport objects to `JobContext` or job payloads.
 - `review_required` is the default route policy. `auto_publish` requires an explicit route choice, a destination that permits auto-publish, a healthy destination, all validation gates, and `AutomationControl.global_pause == false` and `AutomationControl.dry_run == false` at dispatch time.
 - New-post-only is the route activation default. Backfill always supplies exactly one bound: `count` in `1..100` or an ISO-8601 `since` timestamp no more than 30 days old. Backfill never moves the live cursor.
 - Media policy is exactly `preserve`, `omit`, or `replace_manually`; `preserve` is the default. Albums remain one `AutomationDispatch` and one platform revision even if Telegram requires multiple deterministic Bot API operations.
@@ -60,6 +61,7 @@
 - `backend/app/generation/telegram_schema.py`: validated Telegram rewrite request/output and platform limits.
 - `backend/app/generation/default_prompts.py`: idempotent immutable default `telegram_rewrite` prompt version.
 - `backend/app/generation/providers/openrouter.py`: OpenRouter structured-output adapter.
+- `backend/app/core/redaction.py`: shared recursive redaction for provider, source, and publishing boundaries.
 - `backend/app/publishing/telegram/contracts.py`: deterministic publish plans, operations, results, and classified errors.
 - `backend/app/publishing/telegram/renderer.py`: exact text/caption/media operation planning.
 - `backend/app/publishing/telegram/client.py`: Bot API transport with multipart upload and error classification.
@@ -1076,7 +1078,7 @@ Expected: FAIL because Telegram handlers and due-route scheduler support do not 
 
 In `backend/app/automations/telegram/handlers.py`, define Pydantic payloads `RouteJobPayload(route_id: UUID)`, `BackfillJobPayload(route_id, count, since)`, and `DryRunJobPayload(route_id, source_message_id, force_review=True)`. Reject malformed payloads as permanent job errors before any network call.
 
-Implement handlers with signature `(job: WorkflowJob, context: JobContext) -> dict[str, Any]`. Every handler first loads route/source config and `AutomationControl(key="global")`. Poll/backfill/dry-run choose the source adapter, fetch and materialize outside `session.begin()`, then open one short transaction per envelope around `capture_and_enqueue()`.
+Implement handlers with signature `(job: WorkflowJob, context: JobContext) -> dict[str, Any]`. Add `build_telegram_route_handlers(source_registry, media_stager)` which returns initialize/poll/backfill/dry-run closures with those transport dependencies captured. Every handler first loads route/source config and `AutomationControl(key="global")`. Poll/backfill/dry-run choose the source adapter, fetch and materialize outside `session.begin()`, then open one short transaction per envelope around `capture_and_enqueue()`.
 
 Initialization fetches the newest one complete envelope, stores its maximum message ID plus the existing activation boundary, and captures nothing. If the channel is empty, store `last_message_id=0`; later polling additionally rejects any envelope whose `published_at < activation_boundary`.
 
@@ -1084,7 +1086,7 @@ Polling requests `after_id=cursor_state["last_message_id"]`, sorts complete enve
 
 - [ ] **Step 4: Register handlers and materialize due route jobs**
 
-Add these registrations in `build_default_registry()`:
+Extend `build_default_registry()` with optional keyword-only source and publishing dependency bundles. When source dependencies are supplied, add these registrations using the closures returned by `build_telegram_route_handlers()`:
 
 ```python
 registry.register("telegram.route.initialize", initialize_route)
@@ -1101,7 +1103,7 @@ Task 7 registers `telegram.route.process` only after its real handler exists. Sc
 cd backend
 PYTHONPATH=. .venv/bin/python -m pytest \
   tests/test_telegram_route_handlers.py tests/test_scheduler.py \
-  tests/test_job_repository.py tests/test_job_handlers.py -q
+  tests/postgres/test_job_repository.py tests/test_job_handler_registry.py tests/test_job_worker.py -q
 .venv/bin/ruff check app/automations/telegram/handlers.py app/jobs/registry.py app/jobs/scheduler.py
 ```
 
@@ -1123,12 +1125,16 @@ git commit -m "feat: run bounded Telegram route collection"
 - Create: `backend/app/generation/telegram_schema.py`
 - Create: `backend/app/generation/default_prompts.py`
 - Create: `backend/app/generation/providers/openrouter.py`
+- Create: `backend/app/core/redaction.py`
+- Modify: `backend/app/jobs/events.py`
+- Modify: `backend/app/jobs/repository.py`
 - Modify: `backend/app/generation/providers/registry.py`
 - Modify: `backend/app/core/config.py`
 - Modify: `backend/app/main.py`
 - Create: `backend/tests/test_telegram_generation_schema.py`
 - Create: `backend/tests/test_openrouter_provider.py`
 - Create: `backend/tests/test_default_prompts.py`
+- Create: `backend/tests/test_secret_redaction.py`
 
 **Interfaces:**
 - Consumes: Release 1 `ProviderMessage`, `GenerationProviderRequest`, `GenerationProviderResult`, `GenerationProvider`, `ProviderRegistry`, `PromptTemplate`, and `PromptTemplateVersion`.
@@ -1171,14 +1177,16 @@ async def test_default_prompt_seed_is_idempotent_and_versions_content():
 
 Also assert 401/403 are permanent provider errors, 408/429/5xx are retryable, invalid JSON/schema is `needs_review`, Authorization never appears in exception text, and the deterministic fake provider satisfies the same request/result contract.
 
+In `backend/tests/test_secret_redaction.py`, assert recursive redaction covers secret-like keys, Bearer/Basic values, Telegram bot-token patterns, URL userinfo, secret query parameters, nested mappings/sequences, and explicitly supplied secret substrings without mutating the input.
+
 - [ ] **Step 2: Run focused tests and verify they fail**
 
 ```bash
 cd backend
-PYTHONPATH=. .venv/bin/python -m pytest tests/test_telegram_generation_schema.py tests/test_openrouter_provider.py tests/test_default_prompts.py -q
+PYTHONPATH=. .venv/bin/python -m pytest tests/test_telegram_generation_schema.py tests/test_openrouter_provider.py tests/test_default_prompts.py tests/test_secret_redaction.py -q
 ```
 
-Expected: FAIL because the Telegram schema, default prompt, and OpenRouter provider do not exist.
+Expected: FAIL because the Telegram schema, default prompt, OpenRouter provider, and shared redactor do not exist.
 
 - [ ] **Step 3: Implement exact structured schemas and immutable prompt seed**
 
@@ -1212,7 +1220,7 @@ Validate HTML with an allowlist of `b`, `strong`, `i`, `em`, `u`, `s`, `code`, `
 
 - [ ] **Step 4: Implement OpenRouter with injected HTTP and register it**
 
-`OpenRouterProvider.provider_name = "openrouter"`. Its constructor accepts `http_client`, `api_key`, and `base_url="https://openrouter.ai/api/v1"`. `generate()` sends `model`, mapped messages, and strict `response_format` to `/chat/completions`, parses either string JSON or object content, and returns the exact Release 1 `GenerationProviderResult`. Provider attempts may store request messages and response bodies but must replace all secret-like headers/values through the Release 1 redactor.
+Create `redact_secrets(value, *, secrets=())` and `redact_url(url)` in `app/core/redaction.py`. They recursively sanitize secret-like keys, authorization values, Telegram token patterns, URL userinfo/query secrets, nested values, and any literal secret supplied by the caller. Make Release 1 `redact_event_data()` delegate to the shared redactor and sanitize job failure/result payloads before persistence. `OpenRouterProvider.provider_name = "openrouter"`. Its constructor accepts `http_client`, `api_key`, and `base_url="https://openrouter.ai/api/v1"`. `generate()` sends `model`, mapped messages, and strict `response_format` to `/chat/completions`, parses either string JSON or object content, and returns the exact Release 1 `GenerationProviderResult`. Every exception and safe metadata value passes through the shared redactor with the API key supplied explicitly; authentication response bodies are never persisted.
 
 Add settings `openrouter_api_key: str | None`, `openrouter_base_url`, `telegram_media_staging_root`, `telegram_max_photo_bytes=10_000_000`, and `telegram_max_file_bytes=49_000_000`. Register OpenRouter only when a key exists; the fake provider remains available without credentials. Call `seed_default_telegram_prompt(session)` from the existing idempotent application bootstrap/lifespan transaction so a clean install exposes one selectable version without a manual seed command.
 
@@ -1220,10 +1228,10 @@ Add settings `openrouter_api_key: str | None`, `openrouter_base_url`, `telegram_
 
 ```bash
 cd backend
-PYTHONPATH=. .venv/bin/python -m pytest tests/test_telegram_generation_schema.py tests/test_openrouter_provider.py tests/test_default_prompts.py tests/test_generation_providers.py -q
-.venv/bin/ruff check app/generation/telegram_schema.py app/generation/default_prompts.py app/generation/providers/openrouter.py
-git add backend/app/generation backend/app/core/config.py backend/app/main.py backend/tests/test_telegram_generation_schema.py \
-  backend/tests/test_openrouter_provider.py backend/tests/test_default_prompts.py
+PYTHONPATH=. .venv/bin/python -m pytest tests/test_telegram_generation_schema.py tests/test_openrouter_provider.py tests/test_default_prompts.py tests/test_secret_redaction.py tests/test_job_event_redaction.py tests/test_generation_provider_contract.py -q
+.venv/bin/ruff check app/core/redaction.py app/jobs/events.py app/jobs/repository.py app/generation/telegram_schema.py app/generation/default_prompts.py app/generation/providers/openrouter.py
+git add backend/app/generation backend/app/core/redaction.py backend/app/jobs/events.py backend/app/jobs/repository.py backend/app/core/config.py backend/app/main.py backend/tests/test_telegram_generation_schema.py \
+  backend/tests/test_openrouter_provider.py backend/tests/test_default_prompts.py backend/tests/test_secret_redaction.py
 git commit -m "feat: generate structured Telegram rewrites"
 ```
 
@@ -1335,7 +1343,7 @@ Edit input is `{content: TelegramRewriteOutput, media_asset_ids: list[UUID]}` an
 
 ```bash
 cd backend
-PYTHONPATH=. .venv/bin/python -m pytest tests/test_telegram_process_handler.py tests/test_telegram_draft_api.py tests/test_generation_providers.py -q
+PYTHONPATH=. .venv/bin/python -m pytest tests/test_telegram_process_handler.py tests/test_telegram_draft_api.py tests/test_generation_provider_contract.py -q
 .venv/bin/ruff check app/automations/telegram/policy.py app/automations/telegram/handlers.py app/api/telegram_drafts.py
 git add backend/app/automations/telegram/policy.py backend/app/automations/telegram/handlers.py \
   backend/app/api/telegram_drafts.py backend/app/api/routes.py backend/app/jobs/registry.py \
@@ -1464,7 +1472,7 @@ PYTHONPATH=. .venv/bin/python -m pytest tests/test_telegram_publish_service.py t
 
 `publish_telegram()` must lock `PublishJob`, return existing Publication, verify exact approved revision/hash, re-evaluate global/route/destination pause and health, render the plan, and upsert all `PublishOperationReceipt` rows. For each non-succeeded receipt: mark `dispatching` and increment attempt count in a committed transaction; resolve token by `Destination.secret_ref`; execute outside a transaction; then record success/classified failure in a new transaction. It must never re-send a succeeded or ambiguous receipt.
 
-When all receipts succeed, create one Release 1 `Publication` with ordered remote IDs, permalink `https://t.me/{public_target_without_at}/{first_id}` when derivable, exact payload hash, UTC time, and `reconciliation_status="confirmed"`. Update publish/dispatch status and append a success event. Register `telegram.destination.check` (Bot API `getChat`) and `telegram.publish` handlers in `build_default_registry()`.
+When all receipts succeed, create one Release 1 `Publication` with ordered remote IDs, permalink `https://t.me/{public_target_without_at}/{first_id}` when derivable, exact payload hash, UTC time, and `reconciliation_status="confirmed"`. Update publish/dispatch status and append a success event. Add `build_telegram_publish_handlers(client, secret_resolver)` and register its `telegram.destination.check` (Bot API `getChat`) and `telegram.publish` closures only when publishing dependencies are supplied to `build_default_registry()`.
 
 - [ ] **Step 4: Implement explicit reconciliation only for ambiguous jobs**
 
@@ -1485,7 +1493,7 @@ class TelegramReconcileIn(BaseModel):
 cd backend
 PYTHONPATH=. .venv/bin/python -m pytest \
   tests/test_telegram_publish_service.py tests/test_telegram_reconciliation_api.py \
-  tests/test_job_handlers.py tests/test_telegram_bot_client.py -q
+  tests/test_job_handler_registry.py tests/test_job_worker.py tests/test_telegram_bot_client.py -q
 .venv/bin/ruff check app/publishing/telegram/service.py app/publishing/telegram/handlers.py app/api/telegram_drafts.py
 git add backend/app/publishing/telegram/service.py backend/app/publishing/telegram/handlers.py \
   backend/app/jobs/registry.py backend/app/api/telegram_drafts.py \
@@ -1502,7 +1510,7 @@ git commit -m "feat: publish Telegram revisions idempotently"
 - Modify: `.env.example`
 - Modify: `docker-compose.yml`
 - Modify: `README.md`
-- Modify: `backend/app/worker.py`
+- Modify: `backend/app/jobs/worker.py`
 - Modify: `backend/tests/test_docker_config.py`
 
 **Interfaces:**
@@ -1565,15 +1573,15 @@ TELEGRAM_DESTINATION_NEWS_TOKEN=
 TELEGRAM_MEDIA_STAGING_ROOT=/data/media-staging
 ```
 
-Extend the Release 1 worker CLI with repeatable `--capability` choices `ingestion`, `source`, `generation`, and `publishing`; the handler registry must reject a claimed job whose capability is absent and leave it queued for a capable worker. Compose uses these exact commands:
+Extend the Release 1 worker CLI with repeatable `--capability` choices `ingestion`, `source`, `generation`, and `publishing`; the worker constructs only the dependency bundles needed by its selected capabilities and passes them to `build_default_registry()`. A source/generation worker must never resolve destination tokens, and a publishing worker must never resolve MTProto or OpenRouter credentials. The handler registry must reject a claimed job whose capability is absent and leave it queued for a capable worker. Compose uses these exact commands:
 
 ```yaml
 worker-source-generation:
-  command: python -m app.worker --capability ingestion --capability source --capability generation
+  command: python -m app.jobs.worker --capability ingestion --capability source --capability generation
 worker-publishing:
-  command: python -m app.worker --capability publishing
+  command: python -m app.jobs.worker --capability publishing
 scheduler:
-  command: python -m app.scheduler
+  command: python -m app.jobs.scheduler
 ```
 
 Pass only OpenRouter/source secret variables to `worker-source-generation` and only destination token variables to `worker-publishing`; scheduler receives no AI or Telegram secret. Add shared media/staging volumes, preserve localhost-only ports, and document: configure refs in UI, run destination check, activate new-only route, run fake-provider dry run, review, and use opt-in real credentials. Extend Docker tests to assert the exact commands, capability separation, and absence of secret values from committed YAML.
@@ -1601,7 +1609,7 @@ Expected: every deterministic backend/frontend/browser gate passes; migration he
 - [ ] **Step 8: Commit runtime/docs and record the release boundary**
 
 ```bash
-git add .env.example docker-compose.yml README.md backend/app/worker.py backend/tests/test_docker_config.py
+git add .env.example docker-compose.yml README.md backend/app/jobs/worker.py backend/tests/test_docker_config.py
 git commit -m "chore: run the Telegram automation vertical locally"
 git log --oneline --decorate -12
 git status --short
