@@ -201,6 +201,7 @@ def test_openrouter_provider_configuration_builds_chat_completions_adapter():
 
 def test_example_configuration_contains_no_provider_credentials():
     lines = Path("../.env.example").read_text().splitlines()
+    text = "\n".join(lines).casefold()
     credential_lines = [line for line in lines if line.startswith(("OPENAI_API_KEY=", "OPENROUTER_API_KEY="))]
     assert credential_lines == ["OPENAI_API_KEY=", "OPENROUTER_API_KEY="]
     assert "token=" not in text
