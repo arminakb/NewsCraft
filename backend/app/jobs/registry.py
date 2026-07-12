@@ -39,20 +39,9 @@ class JobHandlerRegistry:
         return tuple(sorted(self._handlers))
 
 
-async def _lazy_handle_ingest_collect(job: WorkflowJob, context: JobContext) -> dict[str, Any]:
-    """Resolve the Task 5 ingestion handler only when the worker invokes it.
-
-    Release 1 Task 4 locks the registry surface before Task 5 creates
-    ``app.jobs.handlers.handle_ingest_collect``. Task 5 should replace this
-    temporary adapter with direct registration once that handler exists.
-    """
-
+def build_default_registry() -> JobHandlerRegistry:
     from app.jobs.handlers import handle_ingest_collect
 
-    return await handle_ingest_collect(job, context)
-
-
-def build_default_registry() -> JobHandlerRegistry:
     registry = JobHandlerRegistry()
-    registry.register("ingest.collect", _lazy_handle_ingest_collect)
+    registry.register("ingest.collect", handle_ingest_collect)
     return registry

@@ -21,6 +21,7 @@ class IngestionService:
         http_client: httpx.AsyncClient | None = None,
     ):
         self.session = session
+        self._repository_supplied = repository is not None
         self.repository = repository or IngestionRepository(session)
         self.http_client = http_client
 
@@ -30,6 +31,15 @@ class IngestionService:
         source_ids: list[str] | None = None,
         trigger: str = "manual",
     ) -> dict[str, Any]:
+        if not self._repository_supplied and self.session is not None:
+            from app.ingestion.workflow import IngestionWorkflow
+
+            return await IngestionWorkflow(http_client=self.http_client).run(
+                session=self.session,
+                platforms=platforms,
+                source_ids=source_ids,
+                trigger=trigger,
+            )
         run = await self.repository.create_run(trigger=trigger, parser_version=settings.parser_version)
         stats = {
             "checked": 0,
