@@ -1,6 +1,6 @@
 # NewsCraft
 
-NewsCraft is a FastAPI and PostgreSQL backend for collecting, normalizing, ranking, and reviewing news content from public sources.
+NewsCraft is a FastAPI and PostgreSQL system for collecting, normalizing, ranking, reviewing, and producing Persian news content from public sources.
 
 The active backend lives in `backend/`. The ingestion dashboard lives in `frontend/`. The legacy Streamlit MVP has been removed; new ingestion and review workflows should use the backend service, worker, API, and dashboard.
 
@@ -11,6 +11,9 @@ The active backend lives in `backend/`. The ingestion dashboard lives in `fronte
 - Extracts feed media, Telegram images/previews/documents, and stores media metadata for downstream use.
 - Classifies, scores, buckets, and readiness-checks content for downstream rewriting.
 - Supports approval and draft workflows for downstream post generation.
+- Runs a durable event-driven Persian content-production workflow with replay-safe artifacts and traced handler execution.
+- Enforces separate human shortlist and final-package approval gates before creating a Telegram dispatch handoff.
+- Supports safe article extraction, bounded DuckDuckGo enrichment, OpenAI Responses, and OpenRouter Chat Completions adapters.
 - Provides source health diagnostics, validation reports, and manual ingestion endpoints.
 - Provides a Next.js ingestion dashboard for source health, runs, content queue, media extraction, and source detail review.
 - Includes a minimal legacy SQLite article reader for user-provided old `news.db` files.
@@ -38,6 +41,7 @@ The active backend lives in `backend/`. The ingestion dashboard lives in `fronte
 │   ├── app/
 │   │   ├── api/
 │   │   ├── content/
+│   │   ├── content_production/
 │   │   ├── db/
 │   │   ├── diagnostics/
 │   │   ├── ingestion/
@@ -117,6 +121,37 @@ curl -X POST http://localhost:8000/ingest/run \
   -d '{"platforms":["rss"]}'
 ```
 
+## Content Production
+
+The content-production backend uses a durable PostgreSQL outbox and an explicit event dispatcher:
+
+```text
+API command
+→ durable outbox
+→ worker
+→ dispatcher
+→ traced handlers
+→ idempotent artifacts
+→ human approval
+→ dispatch handoff
+```
+
+After shortlist approval, each selected item passes through bounded sufficiency routing. The workflow may safely extract the source article and perform bounded enrichment before re-checking sufficiency. Sufficient items proceed through an evidence-grounded editorial brief, one-pass Persian draft, automated quality evaluation, media/package resolution, and a second mandatory human approval gate.
+
+Approval creates a `TelegramDispatchRequest` handoff only. NewsCraft does not publish to Telegram.
+
+Apply migrations before processing content-production events:
+
+```bash
+cd backend
+.venv/bin/alembic upgrade head
+.venv/bin/alembic heads
+```
+
+The expected migration head is `0016_persian_llm_generation`. API contracts include request creation and inspection, shortlist approval/rejection, run artifact inspection, final package approval/rejection, revision requests, and event inspection under `/content-production/*`.
+
+See [Content production architecture](docs/content-production.md) for module boundaries, provider configuration, safety controls, test commands, and current limitations.
+
 ## Useful Endpoints
 
 - `GET /health`
@@ -191,6 +226,8 @@ ALL_PROXY=
 NO_PROXY=postgres,localhost,127.0.0.1
 ```
 
+Content-production providers default to disabled for safe local and automated testing. Configure credentials only through the process environment; `.env.example` contains empty placeholders. Never use live provider credentials in the test suite.
+
 If your network needs a proxy, export it before running Compose:
 
 ```bash
@@ -202,6 +239,7 @@ Use `127.0.0.1` only for backend commands that run directly on the host. Docker 
 ## Documentation
 
 - Backend ingestion details: `docs/ingestion-backend.md`
+- Content production architecture: `docs/content-production.md`
 - Source catalog notes: `docs/ingestion-source-catalog.md`
 - Selective integration audit: `docs/armin-selective-audit.md`
 

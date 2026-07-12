@@ -40,3 +40,5 @@ data/
 
 # Generated analysis artifacts
 graphify-out/
+validation/pilot/
+.sentry-native/
