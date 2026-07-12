@@ -3,7 +3,7 @@ from decimal import Decimal
 from typing import Any
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 class SourceOut(BaseModel):
@@ -142,3 +142,182 @@ class ApproveContentItemOut(BaseModel):
     metrics: dict[str, Any] = Field(default_factory=dict)
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class ContentProductionRequestCreateIn(BaseModel):
+    topic: str | None = None
+    platform: str = "telegram"
+    language: str = "fa"
+    tone: str | None = None
+    audience: str | None = None
+    max_candidates: int = Field(default=10, ge=1, le=50)
+    require_rewrite_ready: bool = True
+    require_media: bool = False
+    constraints_json: dict[str, Any] = Field(default_factory=dict)
+    created_by: str | None = None
+
+
+class ContentProductionRequestOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    topic: str | None = None
+    platform: str
+    language: str
+    tone: str | None = None
+    audience: str | None = None
+    max_candidates: int
+    require_rewrite_ready: bool
+    require_media: bool
+    status: str
+    constraints_json: dict[str, Any] = Field(default_factory=dict)
+    created_by: str | None = None
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
+
+
+class CandidateShortlistOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    request_id: UUID
+    selection_execution_id: UUID
+    content_item_id: UUID
+    rank: int
+    score: Decimal
+    selection_reason_json: dict[str, Any] = Field(default_factory=dict)
+    risk_flags_json: list[str] = Field(default_factory=list)
+    source_snapshot_json: dict[str, Any] = Field(default_factory=dict)
+    approval_status: str
+    approved_at: datetime | None = None
+    rejected_at: datetime | None = None
+    created_at: datetime | None = None
+
+
+class ShortlistDecisionIn(BaseModel):
+    selection_execution_id: UUID
+    content_item_ids: list[UUID] = Field(min_length=1)
+
+    @field_validator("content_item_ids")
+    @classmethod
+    def canonicalize_candidate_ids(cls, values: list[UUID]) -> list[UUID]:
+        if len(set(values)) != len(values):
+            raise ValueError("content_item_ids must not contain duplicates")
+        return sorted(values, key=lambda value: value.int)
+
+
+class ContentProductionRequestDetailOut(ContentProductionRequestOut):
+    shortlist: list[CandidateShortlistOut] = Field(default_factory=list)
+
+
+class ContentProductionRunOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    request_id: UUID
+    content_item_id: UUID
+    platform: str
+    state: str
+    current_step: str | None = None
+    failure_reason: str | None = None
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
+
+
+class EditorialBriefOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    production_run_id: UUID
+    angle: str
+    key_facts_json: list[dict[str, Any]] = Field(default_factory=list)
+    source_claims_json: list[dict[str, Any]] = Field(default_factory=list)
+    unsafe_or_unverified_claims_json: list[dict[str, Any]] = Field(default_factory=list)
+    audience: str | None = None
+    tone: str | None = None
+    do_not_say_json: list[str] = Field(default_factory=list)
+    created_at: datetime | None = None
+
+
+class TelegramDraftOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    production_run_id: UUID
+    brief_id: UUID
+    draft_text: str
+    title: str | None = None
+    hashtags_json: list[str] = Field(default_factory=list)
+    source_links_json: list[str] = Field(default_factory=list)
+    warnings_json: list[str] = Field(default_factory=list)
+    status: str
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
+
+
+class DraftQualityReportOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    production_run_id: UUID
+    draft_id: UUID
+    status: str
+    score: Decimal
+    factuality_warnings_json: list[str] = Field(default_factory=list)
+    unsupported_claims_json: list[str] = Field(default_factory=list)
+    style_warnings_json: list[str] = Field(default_factory=list)
+    required_revisions_json: list[str] = Field(default_factory=list)
+    created_at: datetime | None = None
+
+
+class VisualBriefOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    production_run_id: UUID
+    status: str
+    selected_media_asset_id: UUID | None = None
+    needs_generation: bool
+    visual_prompt: str | None = None
+    visual_style: str | None = None
+    provider_name: str | None = None
+    provider_request_json: dict[str, Any] = Field(default_factory=dict)
+    provider_result_json: dict[str, Any] = Field(default_factory=dict)
+    error_message: str | None = None
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
+
+
+class TelegramPostPackageOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    production_run_id: UUID
+    draft_id: UUID
+    media_asset_id: UUID | None = None
+    image_request_id: UUID | None = None
+    package_json: dict[str, Any] = Field(default_factory=dict)
+    approval_status: str
+    approved_at: datetime | None = None
+    rejected_at: datetime | None = None
+    revision_requested_at: datetime | None = None
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
+
+
+class WorkflowEventOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    event_id: UUID
+    event_type: str
+    aggregate_type: str
+    aggregate_id: UUID
+    correlation_id: UUID
+    causation_id: UUID | None = None
+    payload: dict[str, Any] = Field(default_factory=dict)
+    status: str
+    attempt_count: int
+    last_error: str | None = None
+    occurred_at: datetime | None = None
+    available_at: datetime | None = None
+    processed_at: datetime | None = None
