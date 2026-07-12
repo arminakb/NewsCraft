@@ -47,6 +47,7 @@ def build_default_registry(
     profile_resolver: Any | None = None,
     telegram_client: Any | None = None,
     destination_secret_resolver: Any | None = None,
+    research_backend_resolver: Any | None = None,
 ) -> JobHandlerRegistry:
     from app.jobs.handlers import handle_ingest_collect
     from app.stories.handlers import group_pending_content, handle_manual_intake
@@ -94,6 +95,13 @@ def build_default_registry(
         registry.register(
             "telegram.route.process",
             build_telegram_process_handler(profile_resolver),
+        )
+    if research_backend_resolver is not None:
+        from app.research.handlers import build_research_story_handler
+
+        registry.register(
+            "research_story",
+            build_research_story_handler(research_backend_resolver),
         )
     if "publishing" in selected:
         from app.publishing.telegram.handlers import build_telegram_publish_handlers

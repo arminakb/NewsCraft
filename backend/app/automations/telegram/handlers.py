@@ -110,6 +110,7 @@ class ProcessDispatchPayload(BaseModel):
 
     dispatch_id: UUID
     force_review: bool = False
+    completed_research_run_id: UUID | None = None
 
 
 class InitializeJobPayload(RouteJobPayload):
@@ -1800,6 +1801,140 @@ def build_telegram_process_handler(profile_resolver: Any) -> JobHandler:
                     code="telegram_dispatch_context_missing",
                     message="Telegram dispatch context is incomplete",
                 )
+            if payload.completed_research_run_id is not None:
+                from app.research.models import ResearchRun
+
+                completed_run = await session.get(
+                    ResearchRun, payload.completed_research_run_id
+                )
+                if (
+                    completed_run is None
+                    or completed_run.status != "succeeded"
+                    or completed_run.story_id != story_revision.story_id
+                    or completed_run.result_story_revision_id != story_revision.id
+                ):
+                    raise NeedsReviewJobError(
+                        code="telegram_research_continuation_invalid",
+                        message="Completed research continuation is invalid",
+                    )
+            if payload.completed_research_run_id is None and route.research_mode == "manual":
+                from app.research.models import ResearchRun
+
+                profile_value = (route.content_filters or {}).get(
+                    "research_provider_profile_id"
+                )
+                try:
+                    research_profile_id = UUID(str(profile_value))
+                except (TypeError, ValueError):
+                    raise PermanentJobError(
+                        code="telegram_research_profile_invalid",
+                        message="Telegram research provider profile is invalid",
+                    ) from None
+                manual_run = await session.scalar(
+                    select(ResearchRun)
+                    .where(
+                        ResearchRun.story_id == story_revision.story_id,
+                        ResearchRun.provider_profile_id == research_profile_id,
+                        ResearchRun.requested_mode == "manual",
+                        ResearchRun.status == "succeeded",
+                        ResearchRun.result_story_revision_id.is_not(None),
+                        ResearchRun.created_at >= dispatch.created_at,
+                    )
+                    .order_by(ResearchRun.finished_at.desc(), ResearchRun.id.desc())
+                    .limit(1)
+                )
+                if manual_run is None:
+                    dispatch.status = "needs_review"
+                    dispatch.error_code = "telegram_manual_research_required"
+                    dispatch.error_message = "Manual research is required before generation"
+                    session.add(
+                        WorkflowEvent(
+                            workflow_job_id=job.id,
+                            event_type="telegram.research.review_required",
+                            actor="automation",
+                            event_data=redact_event_data(
+                                {
+                                    "dispatch_id": str(dispatch.id),
+                                    "story_id": str(story_revision.story_id),
+                                }
+                            ),
+                        )
+                    )
+                    raise NeedsReviewJobError(
+                        code="telegram_manual_research_required",
+                        message="Manual research is required before generation",
+                    )
+                selected_revision = await session.get(
+                    StoryRevision, manual_run.result_story_revision_id
+                )
+                if (
+                    selected_revision is None
+                    or selected_revision.story_id != story_revision.story_id
+                ):
+                    raise NeedsReviewJobError(
+                        code="telegram_manual_research_result_invalid",
+                        message="Manual research result revision is invalid",
+                    )
+                dispatch.story_revision_id = selected_revision.id
+                dispatch.status = "captured"
+                dispatch.error_code = None
+                dispatch.error_message = None
+                story_revision = selected_revision
+            if (
+                payload.completed_research_run_id is None
+                and route.research_mode == "auto_if_incomplete"
+            ):
+                from app.research.service import ResearchRequestError, ResearchService
+
+                profile_value = (route.content_filters or {}).get(
+                    "research_provider_profile_id"
+                )
+                try:
+                    profile_id = UUID(str(profile_value))
+                except (TypeError, ValueError):
+                    raise PermanentJobError(
+                        code="telegram_research_profile_invalid",
+                        message="Telegram research provider profile is invalid",
+                    ) from None
+                continuation = {
+                    "job_type": "telegram.route.process",
+                    "payload": {
+                        "dispatch_id": str(dispatch.id),
+                        "force_review": payload.force_review,
+                    },
+                    "idempotency_prefix": (
+                        f"telegram-route-process-after-research:{dispatch.id}"
+                    ),
+                    "subscriber_id": f"telegram-dispatch:{dispatch.id}",
+                    "expected_route_id": str(route.id),
+                    "expected_story_id": str(story_revision.story_id),
+                    "expected_story_revision_id": str(story_revision.id),
+                    "expected_provider_profile_id": str(profile_id),
+                    "expected_research_mode": "auto_if_incomplete",
+                }
+                try:
+                    research = await ResearchService(session).request(
+                        story_id=story_revision.story_id,
+                        mode="auto_if_incomplete",
+                        depth="standard",
+                        provider_profile_id=profile_id,
+                        query_hint=None,
+                        continuation=continuation,
+                    )
+                except ResearchRequestError as exc:
+                    raise PermanentJobError(
+                        code="telegram_research_request_invalid",
+                        message=str(exc),
+                    ) from None
+                if research.disposition == "enqueued":
+                    dispatch.status = "researching"
+                    dispatch.error_code = None
+                    dispatch.error_message = None
+                    return {
+                        "dispatch_id": str(dispatch.id),
+                        "research_run_id": str(research.run_id),
+                        "research_job_id": str(research.job_id),
+                    }
             snapshot = await _exact_dispatch_evidence(session, story_revision.id)
             content_item, media = await _dispatch_media(session, source_item)
             prompt = await session.get(PromptTemplateVersion, route.prompt_template_version_id)

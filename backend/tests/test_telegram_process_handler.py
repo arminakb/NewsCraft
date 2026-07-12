@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+from datetime import UTC, datetime
 from types import SimpleNamespace
 from uuid import uuid4
 
@@ -27,6 +28,7 @@ from app.generation.providers.profiles import ResolvedProviderProfile
 from app.generation.telegram_schema import TelegramRewriteOutput
 from app.jobs.registry import JobContext
 from app.publishing.models import Destination
+from app.research.models import ResearchRun
 from app.stories.models import StoryEvidenceLink, StoryEvidenceSnapshot, StoryRevision
 
 
@@ -157,6 +159,12 @@ class HandlerProbeSession:
     def begin(self):
         return AsyncContext()
 
+    def in_transaction(self):
+        return False
+
+    async def rollback(self):
+        return None
+
     async def scalar(self, statement):
         entity = statement.column_descriptions[0].get("entity")
         if entity is AutomationDispatch:
@@ -190,7 +198,7 @@ class HandlerProbeSession:
         return None
 
 
-async def test_real_handler_passes_selected_profile_id_to_codex_provider():
+async def test_manual_route_resumes_once_successful_research_revision_is_persisted():
     profile = AIProviderProfile(
         id=uuid4(),
         name="Codex CLI",
@@ -208,7 +216,8 @@ async def test_real_handler_passes_selected_profile_id_to_codex_provider():
         brand_profile_id=uuid4(),
         prompt_template_version_id=uuid4(),
         ai_provider_profile_id=profile.id,
-        content_filters={},
+        research_mode="manual",
+        content_filters={"research_provider_profile_id": str(profile.id)},
         attribution_policy="preserve",
         custom_footer=None,
         retry_policy={},
@@ -276,9 +285,21 @@ async def test_real_handler_passes_selected_profile_id_to_codex_provider():
         source_message_ids=[1],
         dispatch_kind="live",
         status="captured",
+        created_at=datetime.now(UTC),
+    )
+    manual_run = ResearchRun(
+        id=uuid4(), story_id=story_revision.story_id, requested_mode="manual",
+        provider_profile_id=profile.id, status="succeeded", query_budget=4,
+        page_budget=8, time_budget_seconds=120,
+        result_story_revision_id=story_revision.id,
+        created_at=dispatch.created_at,
+        finished_at=dispatch.created_at,
     )
     session = HandlerProbeSession(
-        [route, story_revision, source_item, content_item, snapshot, prompt, brand, profile, destination],
+        [
+            route, story_revision, source_item, content_item, snapshot, prompt, brand,
+            profile, destination,
+        ],
         dispatch,
         link,
     )
@@ -289,6 +310,15 @@ async def test_real_handler_passes_selected_profile_id_to_codex_provider():
     )
     handler = build_telegram_process_handler(ProbeResolver(profile, provider))
 
+    from app.jobs.errors import NeedsReviewJobError
+
+    with pytest.raises(NeedsReviewJobError, match="Manual research"):
+        await handler(job, JobContext(session=session, providers=SimpleNamespace()))
+    assert provider.request is None
+
+    # Represents the operator-requested ResearchService/handler result becoming durable.
+    session.values.append(manual_run)
+    job.attempt_count = 2
     with pytest.raises(ProbeStop):
         await handler(job, JobContext(session=session, providers=SimpleNamespace()))
 
@@ -302,3 +332,34 @@ async def test_real_handler_passes_selected_profile_id_to_codex_provider():
     }
     assert "secret" not in str(provider.request.metadata).lower()
     assert "settings" not in provider.request.metadata
+
+
+async def test_manual_route_stops_for_review_until_operator_research_succeeds():
+    research_profile_id = uuid4()
+    route = AutomationRoute(
+        id=uuid4(), source_id=uuid4(), destination_id=uuid4(), brand_profile_id=uuid4(),
+        prompt_template_version_id=uuid4(), ai_provider_profile_id=uuid4(),
+        research_mode="manual",
+        content_filters={"research_provider_profile_id": str(research_profile_id)},
+    )
+    revision = StoryRevision(id=uuid4(), story_id=uuid4(), revision_number=1)
+    source_item = SourceItem(id=uuid4(), source_id=route.source_id, content_item_id=uuid4())
+    dispatch = AutomationDispatch(
+        id=uuid4(), route_id=route.id, source_item_id=source_item.id,
+        story_revision_id=revision.id, source_key="source:1", source_fingerprint="f" * 64,
+        source_message_ids=[1], dispatch_kind="live", status="captured",
+        created_at=datetime.now(UTC),
+    )
+    session = HandlerProbeSession([route, revision, source_item], dispatch, SimpleNamespace())
+    job = SimpleNamespace(
+        id=uuid4(), payload={"dispatch_id": str(dispatch.id)}, attempt_count=1,
+    )
+    from app.jobs.errors import NeedsReviewJobError
+
+    with pytest.raises(NeedsReviewJobError, match="Manual research"):
+        await build_telegram_process_handler(SimpleNamespace())(
+            job, JobContext(session=session, providers=SimpleNamespace())
+        )
+    assert dispatch.status == "needs_review"
+    assert dispatch.error_code == "telegram_manual_research_required"
+    assert not any(isinstance(value, GenerationAttempt) for value in session.values)

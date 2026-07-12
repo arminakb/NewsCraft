@@ -26,6 +26,7 @@ class JobOrigin(StrEnum):
 class JobType(StrEnum):
     MANUAL_INTAKE = "manual_intake"
     STORY_GROUP_PENDING = "story.group_pending"
+    RESEARCH_STORY = "research_story"
     TELEGRAM_ROUTE_INITIALIZE = "telegram.route.initialize"
     TELEGRAM_ROUTE_POLL = "telegram.route.poll"
     TELEGRAM_ROUTE_BACKFILL = "telegram.route.backfill"

@@ -19,6 +19,7 @@ from app.api.telegram_destinations import (
 )
 from app.api.telegram_schemas import (
     TelegramAutomationOptionsOut,
+    TelegramResearchPolicyInput,
     TelegramRouteAcceptedOut,
     TelegramRouteBackfillIn,
     TelegramRouteCreate,
@@ -58,6 +59,15 @@ def _provider_is_configured(
         profile, secrets, executable_resolver
     )
     return capabilities["generation"]
+
+
+def _provider_supports_research(
+    profile: AIProviderProfile,
+    secrets: SecretResolver,
+    executable_resolver: ExecutableResolver,
+) -> bool:
+    capabilities, _codes = provider_capabilities(profile, secrets, executable_resolver)
+    return capabilities["research"]
 
 
 def _job_out(result) -> JobAcceptedOut:
@@ -177,6 +187,13 @@ async def create_route(
         raise HTTPException(422, "AI provider profile is not configured")
     if body.content_filters.model is None and profile.default_model is None:
         raise HTTPException(422, "Route requires a model override or provider default model")
+    research_profile_id = body.content_filters.research_provider_profile_id
+    if research_profile_id is not None:
+        research_profile = await session.get(AIProviderProfile, research_profile_id)
+        if research_profile is None or not _provider_supports_research(
+            research_profile, secrets, executable_resolver
+        ):
+            raise HTTPException(422, "Research provider profile is not configured")
     if body.publishing_policy == "auto_publish" and not bool(
         (destination.settings or {}).get("allow_auto_publish")
     ):
@@ -239,6 +256,37 @@ async def create_route(
 @router.get("/{route_id}", response_model=TelegramRouteOut)
 async def get_route(route_id: UUID, session: AsyncSession = SessionDependency):
     return await _route_or_404(session, route_id)
+
+
+@router.patch("/{route_id}/research-policy", response_model=TelegramRouteOut)
+async def update_research_policy(
+    route_id: UUID,
+    body: TelegramResearchPolicyInput,
+    session: AsyncSession = SessionDependency,
+    secrets: SecretResolverDependency = None,
+    executable_resolver: ExecutableResolverDependency = shutil.which,
+):
+    route = await session.scalar(
+        select(AutomationRoute).where(AutomationRoute.id == route_id).with_for_update()
+    )
+    if route is None:
+        raise HTTPException(404, "Telegram automation route not found")
+    if body.research_provider_profile_id is not None:
+        profile = await session.get(AIProviderProfile, body.research_provider_profile_id)
+        if profile is None or not _provider_supports_research(
+            profile, secrets, executable_resolver
+        ):
+            raise HTTPException(422, "Research provider profile is not configured")
+    filters = dict(route.content_filters or {})
+    filters.pop("research_backend", None)
+    if body.research_provider_profile_id is None:
+        filters.pop("research_provider_profile_id", None)
+    else:
+        filters["research_provider_profile_id"] = str(body.research_provider_profile_id)
+    route.research_mode = body.research_mode
+    route.content_filters = filters
+    await session.commit()
+    return route
 
 
 @router.post("/{route_id}/activate", response_model=TelegramRouteAcceptedOut, status_code=202)

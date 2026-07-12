@@ -144,8 +144,7 @@ def _build_generation_dependencies(owner: HttpClientOwner) -> dict[str, Any]:
     from app.core.secrets import EnvironmentSecretResolver
     from app.generation.providers.registry import build_provider_profile_resolver
 
-    return {
-        "profile_resolver": build_provider_profile_resolver(
+    profile_resolver = build_provider_profile_resolver(
             secret_resolver=EnvironmentSecretResolver(),
             http_client_factory=lambda **kwargs: owner.get(
                 "openrouter",
@@ -153,6 +152,11 @@ def _build_generation_dependencies(owner: HttpClientOwner) -> dict[str, Any]:
                 timeout=kwargs["timeout_seconds"],
             ),
         )
+    from app.research.handlers import DefaultResearchBackendResolver
+
+    return {
+        "profile_resolver": profile_resolver,
+        "research_backend_resolver": DefaultResearchBackendResolver(profile_resolver),
     }
 
 

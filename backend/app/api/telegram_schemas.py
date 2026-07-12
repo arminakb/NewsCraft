@@ -47,6 +47,7 @@ class TelegramContentFilters(BaseModel):
     exclude_terms: list[str] = Field(default_factory=list, max_length=20)
     min_text_characters: int = Field(default=1, ge=0, le=100_000)
     require_media: bool = False
+    research_provider_profile_id: UUID | None = None
 
 
 class TelegramQuietHours(BaseModel):
@@ -85,7 +86,7 @@ class TelegramRouteCreate(BaseModel):
     prompt_template_version_id: UUID
     ai_provider_profile_id: UUID
     access_mode: Literal["public_html", "mtproto_user"]
-    research_mode: Literal["off"] = "off"
+    research_mode: Literal["off", "manual", "auto_if_incomplete"] = "off"
     content_filters: TelegramContentFilters = Field(default_factory=TelegramContentFilters)
     media_policy: Literal["preserve", "omit", "replace_manually"] = "preserve"
     attribution_policy: Literal["preserve", "remove", "custom"] = "preserve"
@@ -102,6 +103,25 @@ class TelegramRouteCreate(BaseModel):
             raise ValueError("auto_publish requires confirm_auto_publish=true")
         if self.attribution_policy == "custom" and not (self.custom_footer or "").strip():
             raise ValueError("custom attribution requires custom_footer")
+        if self.research_mode == "off" and self.content_filters.research_provider_profile_id is not None:
+            raise ValueError("off research mode cannot select a research provider profile")
+        if self.research_mode != "off" and self.content_filters.research_provider_profile_id is None:
+            raise ValueError("manual and automatic research require a research provider profile")
+        return self
+
+
+class TelegramResearchPolicyInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    research_mode: Literal["off", "manual", "auto_if_incomplete"]
+    research_provider_profile_id: UUID | None = None
+
+    @model_validator(mode="after")
+    def validate_profile_selection(self):
+        if self.research_mode == "off" and self.research_provider_profile_id is not None:
+            raise ValueError("off research mode requires a null research provider profile")
+        if self.research_mode != "off" and self.research_provider_profile_id is None:
+            raise ValueError("manual and automatic research require a research provider profile")
         return self
 
 
