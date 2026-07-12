@@ -3,8 +3,8 @@ from uuid import uuid4
 
 from httpx import ASGITransport, AsyncClient
 
-from app.api.routes import get_session
 from app.db.models import Source
+from app.db.session import get_session
 from app.diagnostics.service import DiagnosticsService
 from app.main import app
 

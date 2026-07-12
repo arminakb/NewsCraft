@@ -6,6 +6,9 @@ from httpx import ASGITransport, AsyncClient
 
 from app.db.models import IngestRun, MediaAsset, Source
 from app.db.session import get_session
+from app.jobs.models import WorkflowJob
+from app.jobs.repository import JobRepository
+from app.jobs.types import JobOrigin, JobStatus
 from app.main import app
 
 
@@ -51,13 +54,13 @@ async def test_sources_endpoint_returns_source_summaries():
 
 
 async def test_sources_seed_endpoint_seeds_catalog(monkeypatch):
-    import app.api.routes as routes
+    import app.api.sources as sources
 
     async def fake_seed_sources(session):
         return 50
 
     fake_session = FakeSession([])
-    monkeypatch.setattr(routes, "seed_sources", fake_seed_sources)
+    monkeypatch.setattr(sources, "seed_sources", fake_seed_sources)
     _override_session(fake_session)
 
     response = await _post("/sources/seed")
@@ -68,27 +71,112 @@ async def test_sources_seed_endpoint_seeds_catalog(monkeypatch):
     assert fake_session.committed is True
 
 
-async def test_ingest_run_endpoint_triggers_ingestion(monkeypatch):
-    import app.api.routes as routes
+async def test_ingest_run_endpoint_enqueues_one_idempotent_job_without_network(monkeypatch):
+    request_id = uuid4()
+    fake_session = FakeJobSession()
 
-    class FakeService:
-        def __init__(self, session):
-            self.session = session
+    def fail_if_constructed(*_args, **_kwargs):
+        raise AssertionError("the API must not construct the network ingestion service")
 
-        async def run_once(self, platforms, source_ids, trigger):
-            return {"status": "succeeded", "checked": 1, "items": 2, "platforms": platforms, "source_ids": source_ids}
-
-    monkeypatch.setattr(routes, "IngestionService", FakeService)
-    fake_session = FakeSession([])
+    monkeypatch.setattr("app.ingestion.service.IngestionService.__init__", fail_if_constructed)
     _override_session(fake_session)
 
-    response = await _post("/ingest/run", json={"platforms": ["rss"], "source_ids": ["source-1"]})
+    payload = {
+        "request_id": str(request_id),
+        "platforms": ["rss"],
+        "source_ids": ["source-1"],
+    }
+    try:
+        first = await _post("/ingest/run", json=payload)
+        second = await _post("/ingest/run", json=payload)
+    finally:
+        app.dependency_overrides.clear()
+    assert first.status_code == second.status_code == 202
+    assert first.json() == {
+        "job_id": str(fake_session.job.id),
+        "status": "queued",
+        "deduplicated": False,
+    }
+    assert second.json() == {
+        "job_id": str(fake_session.job.id),
+        "status": "queued",
+        "deduplicated": True,
+    }
+    assert fake_session.job.job_type == "ingest.collect"
+    assert fake_session.job.origin == JobOrigin.MANUAL
+    assert fake_session.job.pause_sensitive is False
+    assert fake_session.job.idempotency_key == f"manual:ingest:{request_id}"
+    assert fake_session.job.scheduled_for is not None
+    assert fake_session.job.scheduled_for.tzinfo is not None
+    assert fake_session.job.payload == {
+        "platforms": ["rss"],
+        "source_ids": ["source-1"],
+    }
+    assert fake_session.commit_count == 2
 
-    app.dependency_overrides.clear()
-    assert response.status_code == 200
-    assert response.json()["items"] == 2
-    assert response.json()["status"] == "succeeded"
-    assert fake_session.committed is True
+
+async def test_ingest_run_endpoint_requires_request_id(monkeypatch):
+    class LegacyNetworkService:
+        async def run_once(self, **_kwargs):
+            return {"status": "succeeded"}
+
+    monkeypatch.setattr(
+        "app.ingestion.service.IngestionService.__init__",
+        lambda self, _session: setattr(self, "run_once", LegacyNetworkService().run_once),
+    )
+    _override_session(FakeSession([]))
+    try:
+        response = await _post("/ingest/run", json={"platforms": ["rss"]})
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 422
+
+
+async def test_job_repository_assigns_runtime_schedule_when_caller_omits_it():
+    session = FakeJobSession()
+
+    result = await JobRepository(session).enqueue_job(
+        job_type="ingest.collect",
+        payload={},
+        idempotency_key="central-schedule-default",
+        origin=JobOrigin.MANUAL,
+        pause_sensitive=False,
+    )
+
+    assert result.job.scheduled_for is not None
+    assert result.job.scheduled_for.tzinfo is not None
+
+
+async def test_job_repository_repairs_null_schedule_on_idempotent_replay():
+    session = FakeJobSession()
+    repository = JobRepository(session)
+    first = await repository.enqueue_job(
+        job_type="ingest.collect",
+        payload={},
+        idempotency_key="legacy-null-schedule",
+        origin=JobOrigin.MANUAL,
+    )
+    first.job.scheduled_for = None
+
+    replay = await repository.enqueue_job(
+        job_type="ingest.collect",
+        payload={"ignored": True},
+        idempotency_key="legacy-null-schedule",
+        origin=JobOrigin.MANUAL,
+    )
+
+    assert replay.created is False
+    assert replay.job.id == first.job.id
+    assert replay.job.scheduled_for is not None
+    assert replay.job.scheduled_for.tzinfo is not None
+
+
+def test_routes_module_contains_no_legacy_handler_or_dependency_reexports():
+    import app.api.routes as routes
+
+    assert not hasattr(routes, "list_content_items")
+    assert not hasattr(routes, "get_session")
 
 
 async def test_content_items_endpoint_returns_latest_content_with_primary_media():
@@ -346,6 +434,61 @@ class FakeSession:
 
     async def commit(self):
         self.committed = True
+
+
+class FakeInsertResult:
+    def __init__(self, value):
+        self.value = value
+
+    def scalar_one_or_none(self):
+        return self.value
+
+
+class FakeJobSession(FakeSession):
+    def __init__(self):
+        super().__init__([])
+        self.job = None
+        self.commit_count = 0
+
+    async def execute(self, statement):
+        params = statement.compile().params
+        idempotency_key = params["idempotency_key"]
+        if self.job is not None:
+            assert self.job.idempotency_key == idempotency_key
+            return FakeInsertResult(None)
+
+        self.job = WorkflowJob(
+            id=uuid4(),
+            job_type=params["job_type"],
+            status=JobStatus.QUEUED,
+            payload=params["payload"],
+            result={},
+            priority=params["priority"],
+            idempotency_key=idempotency_key,
+            origin=params["origin"],
+            pause_sensitive=params["pause_sensitive"],
+            scheduled_for=params["scheduled_for"],
+            attempt_count=0,
+            max_attempts=params["max_attempts"],
+            progress=0,
+            created_at=datetime.now(UTC),
+            updated_at=datetime.now(UTC),
+        )
+        return FakeInsertResult(self.job.id)
+
+    async def get(self, model, item_id):
+        assert model is WorkflowJob
+        return self.job if self.job and self.job.id == item_id else None
+
+    async def scalar(self, _statement):
+        return self.job
+
+    def add(self, _value):
+        pass
+
+    async def commit(self):
+        self.committed = True
+        self.commit_count += 1
 
 
 def _override_session(fake_session: FakeSession) -> None:

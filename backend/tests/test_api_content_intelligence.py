@@ -7,7 +7,7 @@ from uuid import uuid4
 import pytest
 from sqlalchemy.dialects import postgresql
 
-from app.api.routes import list_content_items
+from app.api.content import list_content_items
 from app.api.schemas import ContentItemOut
 
 

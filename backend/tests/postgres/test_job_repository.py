@@ -31,6 +31,7 @@ async def enqueue_claimed_job(
         idempotency_key=key,
         origin=JobOrigin.AUTOMATION,
         max_attempts=max_attempts,
+        scheduled_for=now,
     )
     claimed = await repository.claim_next_job(worker_id=worker_id, lease_seconds=120, now=now)
     assert claimed is not None
@@ -66,16 +67,71 @@ async def test_enqueue_is_idempotent_and_emits_one_event(job_repository: JobRepo
     assert await event_types(db_session, first.job.id) == Counter(["job.enqueued"])
 
 
+async def test_enqueue_without_schedule_persists_timezone_aware_runtime_schedule(
+    job_repository: JobRepository,
+    db_session: AsyncSession,
+):
+    before = datetime.now(UTC)
+
+    result = await job_repository.enqueue_job(
+        job_type="ingest.collect",
+        payload={},
+        idempotency_key="default-runtime-schedule",
+        origin=JobOrigin.MANUAL,
+    )
+    await db_session.commit()
+    await db_session.refresh(result.job)
+
+    assert before <= result.job.scheduled_for <= datetime.now(UTC)
+
+
+async def test_idempotent_enqueue_repairs_legacy_null_schedule(
+    job_repository: JobRepository,
+    db_session: AsyncSession,
+):
+    legacy = WorkflowJob(
+        job_type="ingest.collect",
+        payload={},
+        idempotency_key="legacy-null-schedule",
+        origin=JobOrigin.MANUAL,
+        scheduled_for=None,
+    )
+    db_session.add(legacy)
+    await db_session.commit()
+
+    result = await job_repository.enqueue_job(
+        job_type="ingest.collect",
+        payload={"ignored": True},
+        idempotency_key="legacy-null-schedule",
+        origin=JobOrigin.MANUAL,
+    )
+    await db_session.commit()
+    await db_session.refresh(result.job)
+
+    assert result.created is False
+    assert result.job.id == legacy.id
+    assert result.job.scheduled_for is not None
+    assert result.job.scheduled_for.tzinfo is not None
+
+
 async def test_claim_uses_skip_locked_to_let_another_session_claim_a_different_job(
     session_factory: async_sessionmaker[AsyncSession],
 ):
     async with session_factory() as seed_session:
         seed_repository = JobRepository(seed_session)
         await seed_repository.enqueue_job(
-            job_type="first", payload={}, idempotency_key="first", origin=JobOrigin.AUTOMATION
+            job_type="first",
+            payload={},
+            idempotency_key="first",
+            origin=JobOrigin.AUTOMATION,
+            scheduled_for=NOW,
         )
         await seed_repository.enqueue_job(
-            job_type="second", payload={}, idempotency_key="second", origin=JobOrigin.AUTOMATION
+            job_type="second",
+            payload={},
+            idempotency_key="second",
+            origin=JobOrigin.AUTOMATION,
+            scheduled_for=NOW,
         )
         await seed_session.commit()
 
@@ -98,7 +154,11 @@ async def test_actual_claim_statement_contains_postgresql_skip_locked(
     postgres_engine: AsyncEngine,
 ):
     await job_repository.enqueue_job(
-        job_type="ingest.collect", payload={}, idempotency_key="sql-shape", origin=JobOrigin.AUTOMATION
+        job_type="ingest.collect",
+        payload={},
+        idempotency_key="sql-shape",
+        origin=JobOrigin.AUTOMATION,
+        scheduled_for=NOW,
     )
     statements = []
 
@@ -130,12 +190,14 @@ async def test_claim_filters_job_type_before_lock_or_state_change(
         idempotency_key="source-job",
         origin=JobOrigin.AUTOMATION,
         priority=100,
+        scheduled_for=NOW,
     )
     publish = await job_repository.enqueue_job(
         job_type="telegram.publish",
         payload={},
         idempotency_key="publish-job",
         origin=JobOrigin.AUTOMATION,
+        scheduled_for=NOW,
     )
     statements = []
 
@@ -205,6 +267,7 @@ async def test_none_allowed_job_types_keeps_claim_any_behavior(job_repository: J
         payload={},
         idempotency_key="claim-any",
         origin=JobOrigin.AUTOMATION,
+        scheduled_for=NOW,
     )
 
     claimed = await job_repository.claim_next_job(
@@ -217,7 +280,12 @@ async def test_none_allowed_job_types_keeps_claim_any_behavior(job_repository: J
 
 async def test_claim_orders_by_priority_then_schedule_then_creation(job_repository: JobRepository):
     low_priority = await job_repository.enqueue_job(
-        job_type="ordered", payload={}, idempotency_key="low", origin=JobOrigin.AUTOMATION, priority=1
+        job_type="ordered",
+        payload={},
+        idempotency_key="low",
+        origin=JobOrigin.AUTOMATION,
+        priority=1,
+        scheduled_for=NOW,
     )
     later_schedule = await job_repository.enqueue_job(
         job_type="ordered",
@@ -265,10 +333,20 @@ async def test_claim_orders_by_priority_then_schedule_then_creation(job_reposito
 
 async def test_capability_filter_is_applied_before_claim_ordering(job_repository: JobRepository):
     unsupported = await job_repository.enqueue_job(
-        job_type="unsupported", payload={}, idempotency_key="unsupported-high", origin=JobOrigin.AUTOMATION, priority=99
+        job_type="unsupported",
+        payload={},
+        idempotency_key="unsupported-high",
+        origin=JobOrigin.AUTOMATION,
+        priority=99,
+        scheduled_for=NOW,
     )
     supported = await job_repository.enqueue_job(
-        job_type="supported", payload={}, idempotency_key="supported-low", origin=JobOrigin.AUTOMATION, priority=1
+        job_type="supported",
+        payload={},
+        idempotency_key="supported-low",
+        origin=JobOrigin.AUTOMATION,
+        priority=1,
+        scheduled_for=NOW,
     )
 
     claimed = await job_repository.claim_next_job(
@@ -300,7 +378,11 @@ async def test_global_pause_holds_sensitive_work_but_allows_manual_non_sensitive
         update(AutomationControl).where(AutomationControl.id == "global").values(global_pause=True)
     )
     sensitive = await job_repository.enqueue_job(
-        job_type="scheduled", payload={}, idempotency_key="sensitive", origin=JobOrigin.SCHEDULER
+        job_type="scheduled",
+        payload={},
+        idempotency_key="sensitive",
+        origin=JobOrigin.SCHEDULER,
+        scheduled_for=NOW,
     )
     manual = await job_repository.enqueue_job(
         job_type="manual",
@@ -308,6 +390,7 @@ async def test_global_pause_holds_sensitive_work_but_allows_manual_non_sensitive
         idempotency_key="manual-non-sensitive",
         origin=JobOrigin.MANUAL,
         pause_sensitive=False,
+        scheduled_for=NOW,
     )
 
     claimed = await job_repository.claim_next_job(worker_id="worker-1", lease_seconds=120, now=NOW)
@@ -323,7 +406,11 @@ async def test_claim_fills_running_attempt_and_lease_fields_and_emits_event(
     db_session: AsyncSession,
 ):
     queued = await job_repository.enqueue_job(
-        job_type="ingest.collect", payload={}, idempotency_key="claim-fields", origin=JobOrigin.AUTOMATION
+        job_type="ingest.collect",
+        payload={},
+        idempotency_key="claim-fields",
+        origin=JobOrigin.AUTOMATION,
+        scheduled_for=NOW,
     )
 
     claimed = await job_repository.claim_next_job(worker_id="worker-1", lease_seconds=120, now=NOW)
@@ -504,6 +591,34 @@ async def test_retryable_failure_with_attempts_remaining_requeues_at_explicit_ti
     assert failed.scheduled_for == retry_at
     assert failed.error_class == JobErrorClass.RETRYABLE
     assert failed.lease_owner is None
+    assert await event_types(db_session, claimed.id) == Counter(
+        ["job.enqueued", "job.claimed", "job.retry_scheduled"]
+    )
+
+
+async def test_retryable_failure_without_retry_time_requeues_at_observed_time(
+    job_repository: JobRepository,
+    db_session: AsyncSession,
+):
+    claimed = await enqueue_claimed_job(
+        job_repository,
+        key="retryable-default-time",
+        max_attempts=3,
+    )
+    observed_at = NOW + timedelta(minutes=1)
+
+    failed = await job_repository.fail_job(
+        job_id=claimed.id,
+        worker_id="worker-1",
+        error_class=JobErrorClass.RETRYABLE,
+        error_code="network_timeout",
+        error_message="Temporary timeout",
+        now=observed_at,
+    )
+
+    assert failed.status == JobStatus.QUEUED
+    assert failed.scheduled_for == observed_at
+    assert failed.error_class == JobErrorClass.RETRYABLE
     assert await event_types(db_session, claimed.id) == Counter(
         ["job.enqueued", "job.claimed", "job.retry_scheduled"]
     )

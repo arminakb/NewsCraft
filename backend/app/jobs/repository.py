@@ -72,6 +72,7 @@ class JobRepository:
         max_attempts: int = 3,
         pause_sensitive: bool = True,
     ) -> EnqueueJobResult:
+        effective_scheduled_for = _now(scheduled_for)
         statement = (
             insert(WorkflowJob)
             .values(
@@ -80,7 +81,7 @@ class JobRepository:
                 idempotency_key=idempotency_key,
                 origin=_enum_value(origin),
                 priority=priority,
-                scheduled_for=scheduled_for,
+                scheduled_for=effective_scheduled_for,
                 max_attempts=max_attempts,
                 pause_sensitive=pause_sensitive,
             )
@@ -107,6 +108,9 @@ class JobRepository:
         )
         if job is None:  # pragma: no cover - conflict target guarantees a matching row
             raise RuntimeError("Idempotent workflow job could not be loaded")
+        if job.scheduled_for is None:
+            job.scheduled_for = effective_scheduled_for
+            await self.session.flush()
         return EnqueueJobResult(job=job, created=False)
 
     def _claim_statement(
@@ -281,11 +285,12 @@ class JobRepository:
         }
 
         if error_class == JobErrorClass.RETRYABLE and job.attempt_count < job.max_attempts:
+            effective_retry_at = retry_at if retry_at is not None else observed_at
             job.status = JobStatus.QUEUED
-            job.scheduled_for = retry_at
+            job.scheduled_for = effective_retry_at
             job.finished_at = None
             event_type = "job.retry_scheduled"
-            event_data["retry_at"] = retry_at.isoformat() if retry_at is not None else None
+            event_data["retry_at"] = effective_retry_at.isoformat()
         elif error_class == JobErrorClass.NEEDS_REVIEW:
             job.status = JobStatus.NEEDS_REVIEW
             job.finished_at = observed_at

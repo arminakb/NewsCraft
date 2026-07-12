@@ -87,6 +87,7 @@ class ContentItemOut(BaseModel):
 
 
 class IngestRunRequest(BaseModel):
+    request_id: UUID
     platforms: list[str] | None = None
     source_ids: list[str] | None = None
 
