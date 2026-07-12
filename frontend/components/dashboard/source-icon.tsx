@@ -1,4 +1,4 @@
-import { Rss, Send } from "lucide-react"
+import { CircleHelp, Globe2, MessageSquare, Newspaper, Rss, Send } from "lucide-react"
 
 import { cn } from "@/lib/utils"
 import type { SourcePlatform } from "@/lib/types"
@@ -8,6 +8,26 @@ export function SourceIcon({ platform, className }: { platform: SourcePlatform; 
     return (
       <span className={cn("inline-flex size-7 items-center justify-center rounded-full bg-sky-500 text-white", className)}>
         <Send className="size-4" aria-hidden="true" />
+      </span>
+    )
+  }
+
+  const serviceIcon =
+    platform === "google_news"
+      ? Newspaper
+      : platform === "gdelt"
+        ? Globe2
+        : platform === "hackernews"
+          ? MessageSquare
+          : platform === "unknown"
+            ? CircleHelp
+            : null
+
+  if (serviceIcon) {
+    const ServiceIcon = serviceIcon
+    return (
+      <span className={cn("inline-flex size-7 items-center justify-center rounded-md bg-slate-600 text-white", className)}>
+        <ServiceIcon className="size-4" aria-hidden="true" />
       </span>
     )
   }

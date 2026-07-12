@@ -65,6 +65,12 @@ describe("operational pages", () => {
             freshnessBucket: "breaking",
             qualityStatus: "strong",
             scoreBreakdown: { media: 12, source: 25 },
+            contentText: "Complete source post body",
+            direction: "rtl",
+            sourceName: "Source Channel",
+            sourcePlatform: "telegram_public",
+            authors: ["Source Channel"],
+            publishedAt: "2026-07-11T08:00:00Z",
           },
         ]}
       />
@@ -81,6 +87,11 @@ describe("operational pages", () => {
     expect(screen.getByText("needs Persian angle")).toBeInTheDocument()
     fireEvent.click(screen.getByRole("button", { name: /view details/i }))
     expect(await screen.findByRole("region", { name: /content item details/i })).toBeInTheDocument()
+    expect(screen.getByText("Complete source post body")).toHaveAttribute("dir", "rtl")
+    expect(screen.getAllByText("Source Channel")).toHaveLength(2)
+    expect(screen.getByText("Telegram")).toBeInTheDocument()
+    expect(screen.getByText("2026-07-11T08:00:00Z")).toBeInTheDocument()
+    expect(screen.getByText("https://example.com/deep-ai")).toBeInTheDocument()
     expect(screen.getAllByRole("button", { name: /approve/i }).length).toBeGreaterThan(0)
   })
 

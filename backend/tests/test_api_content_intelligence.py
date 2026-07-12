@@ -78,6 +78,51 @@ def test_content_item_schema_exposes_content_intelligence_fields():
     assert payload["score_breakdown"] == {"final_score": 42}
 
 
+def test_content_item_schema_exposes_generation_evidence_and_source_metadata():
+    source_id = uuid4()
+    item = SimpleNamespace(
+        id=uuid4(),
+        item_type="telegram_post",
+        title="Source post",
+        summary="Short summary",
+        content_text="Complete source post body",
+        content_html_sanitized="<p>Complete source post body</p>",
+        canonical_url="https://t.me/source/42",
+        language_code="fa",
+        direction="rtl",
+        authors=["Source Channel"],
+        published_at=datetime(2026, 7, 11, 8, 0, tzinfo=UTC),
+        primary_source_id=source_id,
+        status="new",
+        score=80,
+        tags=["news"],
+        metrics={},
+        sort_at=datetime(2026, 7, 11, 8, 0, tzinfo=UTC),
+        primary_image_id=None,
+        primary_media=None,
+        content_type="news",
+        rewrite_bucket="daily_news",
+        is_rewrite_ready=True,
+        rewrite_ready_reason="ready",
+        rewrite_blockers=[],
+        classification_reasons=["news signal"],
+        classification_metadata={"source_name": "Source Channel", "source_platform": "telegram_public"},
+        source_tier="tier_b",
+        freshness_bucket="fresh",
+        quality_status="needs_review",
+        score_breakdown={},
+    )
+
+    payload = ContentItemOut.model_validate(item).model_dump()
+
+    assert payload["content_text"] == "Complete source post body"
+    assert payload["content_html_sanitized"] == "<p>Complete source post body</p>"
+    assert payload["authors"] == ["Source Channel"]
+    assert payload["published_at"] == datetime(2026, 7, 11, 8, 0, tzinfo=UTC)
+    assert payload["primary_source_id"] == source_id
+    assert payload["classification_metadata"]["source_name"] == "Source Channel"
+
+
 class CapturingSession:
     def __init__(self, rows):
         self.rows = rows

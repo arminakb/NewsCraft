@@ -14,12 +14,13 @@ describe("SourceHealthTable", () => {
     )
 
     expect(screen.getAllByRole("row")).toHaveLength(6)
-    expect(screen.getByRole("tab", { name: /all 53/i })).toBeInTheDocument()
-    expect(screen.getByRole("tab", { name: /rss 50/i })).toBeInTheDocument()
-    expect(screen.getByRole("tab", { name: /telegram 3/i })).toBeInTheDocument()
+    expect(screen.getByRole("tab", { name: /all 5/i })).toBeInTheDocument()
+    expect(screen.getByRole("tab", { name: /rss 3/i })).toBeInTheDocument()
+    expect(screen.getByRole("tab", { name: /telegram 2/i })).toBeInTheDocument()
     expect(screen.getAllByText("Healthy")).toHaveLength(3)
     expect(screen.getByText("Degraded")).toBeInTheDocument()
     expect(screen.getByText("Broken")).toBeInTheDocument()
+    expect(screen.queryByRole("columnheader", { name: "Next run" })).not.toBeInTheDocument()
     expect(screen.queryByRole("button", { name: /source table options/i })).not.toBeInTheDocument()
     expect(screen.queryByRole("button", { name: /view all sources/i })).not.toBeInTheDocument()
   })
@@ -36,7 +37,6 @@ describe("SourceHealthTable", () => {
         ]}
         selectedSourceId="healthy"
         onSelectSource={() => undefined}
-        counts={{ all: 5, rss: 5, telegram: 0 }}
       />
     )
 
@@ -46,6 +46,30 @@ describe("SourceHealthTable", () => {
     expect(screen.getByText("Disabled")).toBeInTheDocument()
     expect(screen.getByText("Unknown")).toBeInTheDocument()
     expect(screen.getByText("Showing 5 of 5")).toBeInTheDocument()
+  })
+
+  it("derives tab and total counts from every actual source platform", () => {
+    const sources = ["rss", "atom", "telegram_public", "google_news", "gdelt", "hackernews", "unknown"].map(
+      (platform, index) => ({
+        ...dashboardMock.sources[0],
+        id: `source-${platform}`,
+        name: `Source ${index}`,
+        platform: platform as (typeof dashboardMock.sources)[number]["platform"],
+      })
+    )
+
+    render(
+      <SourceHealthTable
+        sources={sources}
+        selectedSourceId={sources[0].id}
+        onSelectSource={() => undefined}
+      />
+    )
+
+    expect(screen.getByRole("tab", { name: /all 7/i })).toBeInTheDocument()
+    expect(screen.getByRole("tab", { name: /rss 1/i })).toBeInTheDocument()
+    expect(screen.getByRole("tab", { name: /telegram 1/i })).toBeInTheDocument()
+    expect(screen.getByText("Showing 7 of 7")).toBeInTheDocument()
   })
 
   it("selects a source row", () => {

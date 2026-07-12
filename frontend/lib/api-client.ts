@@ -62,6 +62,11 @@ type BackendContentItem = {
   freshness_bucket?: string | null
   quality_status?: string | null
   score_breakdown?: Record<string, unknown>
+  content_text?: string | null
+  direction?: "ltr" | "rtl" | null
+  authors?: string[]
+  published_at?: string | null
+  classification_metadata?: Record<string, unknown>
 }
 
 type BackendMediaAsset = {
@@ -240,8 +245,12 @@ function mapSource(row: BackendSource): SourceSummary {
   const platform = normalizePlatform(row.platform)
   const url = row.feed_url ?? row.homepage_url ?? (row.telegram_username ? `https://t.me/${row.telegram_username}` : "")
   const status = normalizeSourceStatus(row.health_status, row.active, row.failure_count)
-  const lastSuccess = row.last_success_at ? formatTime(row.last_success_at) : row.last_fetch_at ? formatTime(row.last_fetch_at) : null
-  const interval = row.fetch_interval_minutes ?? 30
+  const lastSuccess = row.last_success_at
+    ? formatDateTime(row.last_success_at)
+    : row.last_fetch_at
+      ? formatDateTime(row.last_fetch_at)
+      : null
+  const interval = row.fetch_interval_minutes ?? 1440
 
   return {
     id: row.id,
@@ -255,12 +264,10 @@ function mapSource(row: BackendSource): SourceSummary {
     new24h: row.last_suitable_count ?? 0,
     failed24h: row.failure_count ?? 0,
     lastSuccess,
-    nextRun: row.active === false ? null : `in ${interval}m`,
+    fetchIntervalMinutes: interval,
     totalItems: row.last_parse_count ?? 0,
     media24h: row.last_media_count ?? 0,
     addedAt: row.created_at ? formatDateTime(row.created_at) : "Unknown",
-    parser: platform === "rss" ? "RSS 2.0" : "Telegram public HTML",
-    deduplication: platform === "rss" ? "URL + GUID" : "Message ID + URL",
   }
 }
 
@@ -268,6 +275,11 @@ function mapContentItem(row: BackendContentItem): ContentQueueItem {
   const metrics = row.metrics ?? {}
   const classification = typeof metrics.classification === "object" && metrics.classification ? metrics.classification : {}
   const category = "category" in classification ? String(classification.category) : titleCase(row.source_tier ?? "AI")
+  const metadata = row.classification_metadata ?? {}
+  const sourceName = typeof metadata.source_name === "string" ? metadata.source_name : "Unknown source"
+  const sourcePlatform = normalizePlatform(
+    typeof metadata.source_platform === "string" ? metadata.source_platform : "unknown"
+  )
 
   return {
     id: row.id,
@@ -282,8 +294,8 @@ function mapContentItem(row: BackendContentItem): ContentQueueItem {
           fetchStatus: row.primary_media.fetch_status ?? null,
         }
       : null,
-    sourceName: "NewsCraft",
-    sourcePlatform: "rss",
+    sourceName,
+    sourcePlatform,
     category,
     language: row.language_code ?? "en",
     age: row.sort_at ? formatRelativeAge(row.sort_at) : "now",
@@ -300,6 +312,10 @@ function mapContentItem(row: BackendContentItem): ContentQueueItem {
     freshnessBucket: row.freshness_bucket ?? null,
     qualityStatus: row.quality_status ?? null,
     scoreBreakdown: row.score_breakdown ?? {},
+    contentText: row.content_text ?? null,
+    direction: row.direction ?? null,
+    authors: row.authors ?? [],
+    publishedAt: row.published_at ?? null,
   }
 }
 
@@ -340,7 +356,17 @@ function mapMedia(row: BackendMediaAsset): MediaTile {
 }
 
 function normalizePlatform(platform: string): SourcePlatform {
-  return platform === "telegram_public" ? "telegram_public" : "rss"
+  switch (platform) {
+    case "rss":
+    case "atom":
+    case "telegram_public":
+    case "google_news":
+    case "gdelt":
+    case "hackernews":
+      return platform
+    default:
+      return "unknown"
+  }
 }
 
 function normalizeSourceStatus(status: string | null | undefined, active = true, failureCount = 0): SourceStatus {
@@ -370,11 +396,7 @@ function normalizeSourceStatus(status: string | null | undefined, active = true,
   if (failureCount > 0) {
     return "degraded"
   }
-  return status ? "unknown" : "healthy"
-}
-
-function formatTime(value: string) {
-  return new Intl.DateTimeFormat("en-US", { hour: "2-digit", minute: "2-digit", hour12: false }).format(new Date(value))
+  return "unknown"
 }
 
 function formatDateTime(value: string) {
@@ -391,7 +413,7 @@ function formatDateTime(value: string) {
 }
 
 function formatRunLabel(value: string) {
-  return `Today ${formatTime(value)}`
+  return formatDateTime(value)
 }
 
 function formatDuration(start: string, end?: string | null) {

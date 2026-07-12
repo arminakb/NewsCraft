@@ -67,11 +67,6 @@ export function SourcesPage({
         <SourceHealthTable
           sources={sources}
           selectedSourceId={selectedSource?.id ?? ""}
-          counts={{
-            all: sources.length,
-            rss: sources.filter((source) => source.platform === "rss").length,
-            telegram: sources.filter((source) => source.platform === "telegram_public").length,
-          }}
           onSelectSource={(sourceId) => {
             setSelectedSourceId(sourceId)
             setDetailOpen(true)

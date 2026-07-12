@@ -5,6 +5,7 @@ import {
   getContentItems,
   getDashboardSnapshot,
   getDiagnostics,
+  getIngestRuns,
   getMediaAssets,
   getSource,
   getSources,
@@ -25,9 +26,85 @@ describe("api-client", () => {
         id: "source-1",
         platform: "rss",
         name: "OpenAI",
-        status: "healthy",
+        status: "unknown",
       }),
     ])
+  })
+
+  it("keeps missing source health unknown while honoring disabled and failure-count states", async () => {
+    stubFetch([
+      { id: "absent", platform: "rss", name: "Absent", feed_url: "https://example.com/absent.xml" },
+      { id: "null", platform: "rss", name: "Null", feed_url: "https://example.com/null.xml", health_status: null },
+      { id: "inactive", platform: "rss", name: "Inactive", feed_url: "https://example.com/inactive.xml", active: false },
+      { id: "one-failure", platform: "rss", name: "One failure", feed_url: "https://example.com/one.xml", failure_count: 1 },
+      { id: "five-failures", platform: "rss", name: "Five failures", feed_url: "https://example.com/five.xml", failure_count: 5 },
+    ])
+
+    await expect(getSources()).resolves.toEqual([
+      expect.objectContaining({ id: "absent", status: "unknown" }),
+      expect.objectContaining({ id: "null", status: "unknown" }),
+      expect.objectContaining({ id: "inactive", status: "disabled" }),
+      expect.objectContaining({ id: "one-failure", status: "degraded" }),
+      expect.objectContaining({ id: "five-failures", status: "broken" }),
+    ])
+  })
+
+  it.each([
+    ["rss", "rss"],
+    ["atom", "atom"],
+    ["telegram_public", "telegram_public"],
+    ["google_news", "google_news"],
+    ["gdelt", "gdelt"],
+    ["hackernews", "hackernews"],
+    ["unsupported-platform", "unknown"],
+  ])("maps source platform %s to %s without relabeling it", async (platform, expected) => {
+    stubFetch([{ id: `source-${platform}`, platform, name: platform, feed_url: "https://example.com/source" }])
+
+    const [source] = await getSources()
+
+    expect(source.platform).toBe(expected)
+  })
+
+  it("does not invent parser or deduplication metadata for sources", async () => {
+    stubFetch([{ id: "source-1", platform: "rss", name: "Feed", feed_url: "https://example.com/rss" }])
+
+    const [source] = await getSources()
+
+    expect(source).not.toHaveProperty("parser")
+    expect(source).not.toHaveProperty("deduplication")
+  })
+
+  it("does not invent a next run before the scheduler exists", async () => {
+    stubFetch([
+      {
+        id: "source-1",
+        platform: "rss",
+        name: "Feed",
+        feed_url: "https://example.com/rss",
+        fetch_interval_minutes: 1440,
+      },
+    ])
+
+    const [source] = await getSources()
+
+    expect(source).toEqual(expect.objectContaining({ fetchIntervalMinutes: 1440 }))
+    expect(source).not.toHaveProperty("nextRun")
+  })
+
+  it("retains the calendar date when formatting a source last success", async () => {
+    stubFetch([
+      {
+        id: "source-1",
+        platform: "rss",
+        name: "Feed",
+        feed_url: "https://example.com/rss",
+        last_success_at: "2026-07-11T08:00:00Z",
+      },
+    ])
+
+    const [source] = await getSources()
+
+    expect(source.lastSuccess).toContain("2026-07-11")
   })
 
   it("maps backend source health statuses without compressing them", async () => {
@@ -134,6 +211,57 @@ describe("api-client", () => {
         status: "new",
       }),
     ])
+  })
+
+  it("maps real source provenance and complete content without inventing RSS", async () => {
+    stubFetch([
+      {
+        id: "item-telegram-42",
+        item_type: "telegram_post",
+        title: "Source post",
+        summary: "Short summary",
+        content_text: "Complete source post body",
+        canonical_url: "https://t.me/source/42",
+        language_code: "fa",
+        direction: "rtl",
+        authors: ["Source Channel"],
+        published_at: "2026-07-11T08:00:00Z",
+        status: "new",
+        sort_at: "2026-07-11T08:00:00Z",
+        classification_metadata: {
+          source_name: "Source Channel",
+          source_platform: "telegram_public",
+        },
+      },
+    ])
+
+    await expect(getContentItems()).resolves.toEqual([
+      expect.objectContaining({
+        sourceName: "Source Channel",
+        sourcePlatform: "telegram_public",
+        contentText: "Complete source post body",
+        direction: "rtl",
+        authors: ["Source Channel"],
+        publishedAt: "2026-07-11T08:00:00Z",
+      }),
+    ])
+  })
+
+  it("uses an ingestion run's actual formatted date", async () => {
+    stubFetch([
+      {
+        id: "run-1",
+        started_at: "2026-07-11T08:00:00Z",
+        finished_at: "2026-07-11T08:01:00Z",
+        status: "succeeded",
+        trigger: "manual",
+      },
+    ])
+
+    const [run] = await getIngestRuns()
+
+    expect(run.label).toContain("2026-07-11")
+    expect(run.label).not.toMatch(/^Today/)
   })
 
   it("maps content intelligence fields from GET /content-items", async () => {

@@ -1,36 +1,42 @@
 "use client"
 
-import { Clock3, Play, Radio } from "lucide-react"
+import { CircleAlert, CircleCheck, LoaderCircle, Play } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 
-export function TopStatusBar({ onRunIngest, isRunning = false }: { onRunIngest: () => void; isRunning?: boolean }) {
-  return (
-    <header className="flex h-14 items-center justify-between border-b bg-white px-4">
-      <h1 className="text-lg font-semibold">NewsCraft Ingestion</h1>
-      <div className="hidden items-center gap-6 text-sm lg:flex">
-        <StatusCell label="PostgreSQL" value="Healthy" />
-        <StatusCell label="Proxy" value="Active" />
-        <div className="flex items-center gap-3 border-l pl-6">
-          <Clock3 className="size-4" aria-hidden="true" />
-          <span>Last run</span>
-          <span className="tabular-nums">09:32</span>
-        </div>
-      </div>
-      <Button onClick={onRunIngest} disabled={isRunning} className="h-9 min-w-32 gap-2 rounded-md bg-primary">
-        <Play className="size-4" aria-hidden="true" />
-        {isRunning ? "Running" : "Run ingest"}
-      </Button>
-    </header>
-  )
-}
+type ConnectionState = "checking" | "connected" | "unavailable"
 
-function StatusCell({ label, value }: { label: string; value: string }) {
+export function TopStatusBar({
+  onRunIngest,
+  isRunning = false,
+  connectionState,
+  lastRunLabel,
+}: {
+  onRunIngest: () => void
+  isRunning?: boolean
+  connectionState: ConnectionState
+  lastRunLabel: string | null
+}) {
+  const status = {
+    checking: { label: "Checking backend", Icon: LoaderCircle, className: "text-slate-500" },
+    connected: { label: "Backend connected", Icon: CircleCheck, className: "text-emerald-700" },
+    unavailable: { label: "Backend unavailable", Icon: CircleAlert, className: "text-red-700" },
+  }[connectionState]
+
   return (
-    <div className="flex items-center gap-3 border-l pl-6 first:border-l-0 first:pl-0">
-      <Radio className="size-3 fill-emerald-600 text-emerald-600" aria-hidden="true" />
-      <span>{label}</span>
-      <span className="text-emerald-700">{value}</span>
-    </div>
+    <header className="flex min-h-14 flex-wrap items-center justify-between gap-3 border-b bg-white px-4 py-2">
+      <h1 className="text-lg font-semibold">NewsCraft</h1>
+      <div className="flex items-center gap-4 text-sm">
+        <span className={`inline-flex items-center gap-2 ${status.className}`}>
+          <status.Icon className="size-4" aria-hidden="true" />
+          {status.label}
+        </span>
+        <span className="hidden text-muted-foreground lg:inline">{lastRunLabel ?? "No ingestion runs yet"}</span>
+        <Button onClick={onRunIngest} disabled={isRunning} className="h-9 min-w-32 gap-2 rounded-md bg-primary">
+          <Play className="size-4" aria-hidden="true" />
+          {isRunning ? "Running" : "Run ingest"}
+        </Button>
+      </div>
+    </header>
   )
 }

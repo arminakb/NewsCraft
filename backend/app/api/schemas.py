@@ -78,6 +78,12 @@ class ContentItemOut(BaseModel):
     freshness_bucket: str | None = None
     quality_status: str | None = None
     score_breakdown: dict[str, Any] = Field(default_factory=dict)
+    content_text: str | None = None
+    content_html_sanitized: str | None = None
+    authors: list[str] = Field(default_factory=list)
+    published_at: datetime | None = None
+    primary_source_id: UUID | None = None
+    classification_metadata: dict[str, Any] = Field(default_factory=dict)
 
 
 class IngestRunRequest(BaseModel):

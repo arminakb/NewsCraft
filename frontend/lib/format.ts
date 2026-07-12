@@ -3,10 +3,22 @@ export function formatNumber(value: number) {
 }
 
 export function formatPlatform(platform: string) {
-  if (platform === "telegram_public") {
-    return "Telegram"
+  switch (platform) {
+    case "rss":
+      return "RSS"
+    case "atom":
+      return "Atom"
+    case "telegram_public":
+      return "Telegram"
+    case "google_news":
+      return "Google News"
+    case "gdelt":
+      return "GDELT"
+    case "hackernews":
+      return "Hacker News"
+    default:
+      return "Unknown"
   }
-  return "RSS"
 }
 
 export function titleCase(value: string) {

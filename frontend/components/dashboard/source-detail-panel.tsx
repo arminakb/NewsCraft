@@ -10,8 +10,6 @@ import { formatNumber, formatPlatform } from "@/lib/format"
 import { cn } from "@/lib/utils"
 import type { SourceSummary } from "@/lib/types"
 
-const tabs = ["Overview", "Settings", "History", "Logs"]
-
 const statusDotClass: Record<SourceSummary["status"], string> = {
   healthy: "bg-emerald-600",
   degraded: "bg-amber-500",
@@ -63,7 +61,7 @@ export function SourceDetailPanel({
               <StatusBadge status={source.status} />
             </div>
             <div className="mt-1 text-sm text-muted-foreground">
-              {formatPlatform(source.platform)} feed - {source.url}
+              {formatPlatform(source.platform)} source - {source.url}
             </div>
             <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
               <span>Category: {source.category}</span>
@@ -72,22 +70,6 @@ export function SourceDetailPanel({
           </div>
         </div>
         <Separator className="my-4" />
-        <div role="tablist" aria-label="Source detail tabs" className="flex border-b">
-          {tabs.map((tab, index) => (
-            <button
-              key={tab}
-              type="button"
-              role="tab"
-              aria-selected={index === 0}
-              className={cn(
-                "h-10 border-b-2 border-transparent px-3 text-sm text-muted-foreground",
-                index === 0 && "border-primary text-primary"
-              )}
-            >
-              {tab}
-            </button>
-          ))}
-        </div>
         <div className="mt-4 grid grid-cols-3 gap-3">
           {metrics.map(([label, value]) => (
             <div key={label} className="rounded-md border bg-white p-3">
@@ -98,7 +80,7 @@ export function SourceDetailPanel({
         </div>
         <dl className="mt-6 space-y-4 text-sm">
           <Row
-            label="Feed URL"
+            label="Source URL"
             value={
               <a href={source.url} className="inline-flex items-center gap-1 text-primary underline-offset-4 hover:underline">
                 {source.url}
@@ -108,11 +90,7 @@ export function SourceDetailPanel({
           />
           <Row label="Source ID" value={source.id} />
           <Row label="Added" value={source.addedAt} />
-          <Row label="Last run" value={source.lastSuccess ? `2025-05-18 ${source.lastSuccess}` : "-"} />
-          <Row label="Next run" value={source.nextRun ? `${source.nextRun} (10:00)` : "-"} />
-          <Row label="Schedule" value="Every 30 minutes" />
-          <Row label="Parser" value={source.parser} />
-          <Row label="Deduplication" value={source.deduplication} />
+          <Row label="Fetch interval" value={`Every ${source.fetchIntervalMinutes} minutes`} />
           <Row
             label="Status"
             value={

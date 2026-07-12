@@ -21,11 +21,6 @@ type SourceHealthTableProps = {
   sources: SourceSummary[]
   selectedSourceId: string
   onSelectSource: (sourceId: string) => void
-  counts?: {
-    all: number
-    rss: number
-    telegram: number
-  }
 }
 
 const filters: { label: string; value: "all" | SourcePlatform }[] = [
@@ -38,10 +33,14 @@ export function SourceHealthTable({
   sources,
   selectedSourceId,
   onSelectSource,
-  counts = { all: 53, rss: 50, telegram: 3 },
 }: SourceHealthTableProps) {
   const [filter, setFilter] = useState<"all" | SourcePlatform>("all")
   const visibleSources = filter === "all" ? sources : sources.filter((source) => source.platform === filter)
+  const counts = {
+    all: sources.length,
+    rss: sources.filter((source) => source.platform === "rss").length,
+    telegram: sources.filter((source) => source.platform === "telegram_public").length,
+  }
 
   const columns = useMemo<ColumnDef<SourceSummary>[]>(
     () => [
@@ -85,10 +84,6 @@ export function SourceHealthTable({
       {
         header: "Last success",
         cell: ({ row }) => row.original.lastSuccess ?? "-",
-      },
-      {
-        header: "Next run",
-        cell: ({ row }) => row.original.nextRun ?? "-",
       },
       {
         header: "",

@@ -49,6 +49,11 @@ export function DashboardShell({
     () => data.sources.find((source) => source.id === selectedSourceId) ?? data.sources[0],
     [data.sources, selectedSourceId]
   )
+  const connectionState = dashboardQuery.isError
+    ? "unavailable"
+    : dashboardQuery.isFetching && hasNoDashboardData(data)
+      ? "checking"
+      : "connected"
 
   const selectSource = (sourceId: string) => {
     setSelectedSourceId(sourceId)
@@ -60,7 +65,12 @@ export function DashboardShell({
       <div className="grid min-h-screen grid-cols-1 md:grid-cols-[240px_minmax(0,1fr)] xl:grid-cols-[240px_minmax(0,1fr)_440px]">
         <AppSidebar counts={data.counts} />
         <div className="min-w-0 border-x bg-white">
-          <TopStatusBar onRunIngest={() => ingestMutation.mutate()} isRunning={ingestMutation.isPending} />
+          <TopStatusBar
+            onRunIngest={() => ingestMutation.mutate()}
+            isRunning={ingestMutation.isPending}
+            connectionState={connectionState}
+            lastRunLabel={data.runs[0]?.label ?? null}
+          />
           <main className="space-y-4 p-4">
             {dashboardQuery.isError ? (
               <div role="alert" className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
@@ -75,11 +85,6 @@ export function DashboardShell({
             <SourceHealthTable
               sources={data.sources}
               selectedSourceId={selectedSource?.id ?? ""}
-              counts={{
-                all: data.counts.rssFeeds + data.counts.telegramChannels,
-                rss: data.counts.rssFeeds,
-                telegram: data.counts.telegramChannels,
-              }}
               onSelectSource={selectSource}
             />
             <div className="grid grid-cols-1 gap-4 2xl:grid-cols-2">

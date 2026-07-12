@@ -40,8 +40,7 @@ describe("DashboardShell", () => {
     )
 
     expect(screen.getByRole("navigation", { name: /dashboard navigation/i })).toBeInTheDocument()
-    expect(screen.getByText("PostgreSQL")).toBeInTheDocument()
-    expect(screen.getByText("Proxy")).toBeInTheDocument()
+    expect(screen.getByText("Backend connected")).toBeInTheDocument()
     expect(screen.getByRole("button", { name: /run ingest/i })).toBeInTheDocument()
     expect(screen.getByRole("region", { name: /source details/i })).toBeInTheDocument()
   })
@@ -54,7 +53,7 @@ describe("DashboardShell", () => {
     )
 
     expect(screen.getByText("No sources found")).toBeInTheDocument()
-    expect(screen.getByText("No ingestion runs yet")).toBeInTheDocument()
+    expect(screen.getAllByText("No ingestion runs yet")).toHaveLength(2)
     expect(screen.getByText("No content items yet")).toBeInTheDocument()
     expect(screen.getByText("No media assets yet")).toBeInTheDocument()
     expect(screen.queryByText("TechCrunch")).not.toBeInTheDocument()
@@ -66,6 +65,7 @@ describe("DashboardShell", () => {
     renderWithQueryClient(<DashboardShell initialData={emptyDashboard} enableQueries />)
 
     expect(await screen.findByRole("alert")).toHaveTextContent("Backend data unavailable")
+    expect(screen.getByText("Backend unavailable")).toBeInTheDocument()
   })
 
   it("renders a loading state while the empty dashboard fetch is pending", () => {

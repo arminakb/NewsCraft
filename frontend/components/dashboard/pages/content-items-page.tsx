@@ -9,6 +9,7 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { approveContentItem, getContentItem, getContentItems } from "@/lib/api-client"
+import { formatPlatform } from "@/lib/format"
 import { queryKeys } from "@/lib/query-keys"
 import type { ContentQueueItem } from "@/lib/types"
 
@@ -208,7 +209,16 @@ export function ContentItemsPage({
             </div>
             {selectedItem.thumbnailUrl ? <img src={selectedItem.thumbnailUrl} alt="" className="mt-4 aspect-video w-full rounded-md object-cover" /> : null}
             {selectedItem.summary ? <p className="mt-4 text-sm leading-6">{selectedItem.summary}</p> : null}
+            {selectedItem.contentText ? (
+              <p className="mt-4 text-sm leading-6" dir={selectedItem.direction ?? "auto"}>
+                {selectedItem.contentText}
+              </p>
+            ) : null}
             <dl className="mt-4 space-y-3 text-sm">
+              <DetailRow label="Source" value={selectedItem.sourceName} />
+              <DetailRow label="Platform" value={formatPlatform(selectedItem.sourcePlatform)} />
+              <DetailRow label="Authors" value={selectedItem.authors?.join(", ") || "-"} />
+              <DetailRow label="Published" value={selectedItem.publishedAt ?? "-"} />
               <DetailRow label="Score" value={String(selectedItem.score ?? 0)} />
               <DetailRow label="Category" value={selectedItem.category} />
               <DetailRow label="Quality" value={selectedItem.qualityStatus ?? "unknown"} />

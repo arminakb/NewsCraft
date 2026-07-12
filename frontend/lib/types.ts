@@ -1,5 +1,5 @@
 export type SourceStatus = "healthy" | "degraded" | "broken" | "disabled" | "unknown"
-export type SourcePlatform = "rss" | "telegram_public"
+export type SourcePlatform = "rss" | "atom" | "telegram_public" | "google_news" | "gdelt" | "hackernews" | "unknown"
 
 export type SourceSummary = {
   id: string
@@ -13,12 +13,10 @@ export type SourceSummary = {
   new24h: number
   failed24h: number
   lastSuccess: string | null
-  nextRun: string | null
+  fetchIntervalMinutes: number
   totalItems: number
   media24h: number
   addedAt: string
-  parser: string
-  deduplication: string
 }
 
 export type IngestionRunSummary = {
@@ -60,6 +58,10 @@ export type ContentQueueItem = {
   freshnessBucket?: string | null
   qualityStatus?: string | null
   scoreBreakdown?: Record<string, unknown>
+  contentText?: string | null
+  direction?: "ltr" | "rtl" | null
+  authors?: string[]
+  publishedAt?: string | null
 }
 
 export type MediaTile = {
