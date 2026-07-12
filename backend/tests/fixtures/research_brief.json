@@ -1,0 +1,36 @@
+{
+  "sources": [
+    {
+      "evidence_key": "url:https://fixture.example/report:c6622cf891201f912ebf854592beb6b46db0cd78010917a23cb2473d5cc64329",
+      "url": "https://fixture.example/report",
+      "title": "Fixture report",
+      "publisher": "Fixture News",
+      "published_at": "2026-07-01T09:00:00Z",
+      "retrieved_at": "2026-07-02T10:00:00Z",
+      "content_text": "Fixture source body confirms the announced release date.",
+      "content_sha256": "c6622cf891201f912ebf854592beb6b46db0cd78010917a23cb2473d5cc64329",
+      "extraction_status": "ok"
+    }
+  ],
+  "brief": {
+    "summary": "The fixture source confirms the announced release date.",
+    "verified_facts": [
+      {
+        "text": "A release date was announced.",
+        "citations": [
+          {
+            "evidence_key": "url:https://fixture.example/report:c6622cf891201f912ebf854592beb6b46db0cd78010917a23cb2473d5cc64329",
+            "locator": "chars:0-14",
+            "excerpt_sha256": "a677225a86f1729bbefe76380c6525e7ec0378e049e6614305aad3d3b511aec2"
+          }
+        ]
+      }
+    ],
+    "disagreements": [],
+    "missing_information": [],
+    "suggested_angles": ["Explain the release timeline."],
+    "discovered_evidence_keys": [
+      "url:https://fixture.example/report:c6622cf891201f912ebf854592beb6b46db0cd78010917a23cb2473d5cc64329"
+    ]
+  }
+}
