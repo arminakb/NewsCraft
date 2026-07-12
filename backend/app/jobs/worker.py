@@ -1,12 +1,17 @@
 from __future__ import annotations
 
+import argparse
 import asyncio
 import logging
+import shutil
 import signal
+import tempfile
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 from typing import Any
 
+import httpx
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.core.config import settings
@@ -27,6 +32,177 @@ logger = logging.getLogger(__name__)
 
 RepositoryFactory = Callable[[AsyncSession], JobRepository]
 RuntimeServiceFactory = Callable[[AsyncSession], RuntimeHeartbeatService]
+CAPABILITY_CHOICES = ("ingestion", "source", "generation", "publishing")
+
+
+class HttpClientOwner:
+    def __init__(
+        self,
+        *,
+        client_factory: Callable[..., Any] = httpx.AsyncClient,
+        max_clients: int = 16,
+    ) -> None:
+        if max_clients <= 0:
+            raise ValueError("max_clients must be positive")
+        self.client_factory = client_factory
+        self.max_clients = max_clients
+        self._clients: dict[tuple[str, tuple[tuple[str, str], ...]], Any] = {}
+
+    def get(self, purpose: str, **configuration: Any) -> Any:
+        key = (purpose, tuple(sorted((name, repr(value)) for name, value in configuration.items())))
+        existing = self._clients.get(key)
+        if existing is not None:
+            return existing
+        if len(self._clients) >= self.max_clients:
+            raise RuntimeError("HTTP client configuration limit exceeded")
+        client = self.client_factory(**configuration)
+        self._clients[key] = client
+        return client
+
+    async def aclose(self) -> None:
+        clients = tuple(self._clients.values())
+        self._clients.clear()
+        failure: BaseException | None = None
+        for client in clients:
+            try:
+                await client.aclose()
+            except BaseException as exc:  # noqa: BLE001 - close every owned client before propagating
+                failure = failure or exc
+        if failure is not None:
+            raise failure
+
+
+class _TelegramMediaStager:
+    def __init__(self) -> None:
+        from app.automations.telegram.media import TelegramMediaStore
+
+        self.staging_root = Path(settings.telegram_media_staging_root)
+        self.media_store = TelegramMediaStore(
+            Path(settings.media_root),
+            max_photo_bytes=settings.telegram_max_photo_bytes,
+            max_file_bytes=settings.telegram_max_file_bytes,
+        )
+
+    async def materialize(self, adapter: Any, envelope: Any) -> tuple[Any, ...]:
+        self.staging_root.mkdir(parents=True, exist_ok=True)
+        staging_dir = Path(tempfile.mkdtemp(prefix="telegram-", dir=self.staging_root))
+        try:
+            materialized = tuple(await adapter.materialize_media(envelope, staging_dir))
+        except BaseException:
+            shutil.rmtree(staging_dir, ignore_errors=True)
+            raise
+        if not materialized:
+            shutil.rmtree(staging_dir, ignore_errors=True)
+        return materialized
+
+    def capture_repository(self, session: AsyncSession) -> Any:
+        from app.automations.telegram.repository import TelegramCaptureRepository
+
+        return TelegramCaptureRepository(session, media_store=self.media_store)
+
+    @staticmethod
+    def cleanup(materialized: tuple[Any, ...]) -> None:
+        from app.automations.telegram.repository import TelegramCaptureRepository
+
+        staging_dirs = {item.path.parent for item in materialized}
+        TelegramCaptureRepository.cleanup_staged_media(materialized)
+        for staging_dir in staging_dirs:
+            shutil.rmtree(staging_dir, ignore_errors=True)
+
+
+def _build_source_dependencies(owner: HttpClientOwner) -> dict[str, Any]:
+    from telethon import TelegramClient
+
+    from app.automations.telegram.mtproto import MtprotoTelegramAdapter
+    from app.automations.telegram.public_html import PublicHtmlTelegramAdapter
+    from app.automations.telegram.registry import TelegramSourceRegistry
+    from app.core.secrets import EnvironmentSecretResolver
+
+    source_registry = TelegramSourceRegistry()
+    source_registry.register(
+        "public_html",
+        PublicHtmlTelegramAdapter(
+            owner.get(
+                "telegram-public-html",
+                timeout=30.0,
+                follow_redirects=True,
+                trust_env=True,
+            )
+        ),
+    )
+    source_registry.register(
+        "mtproto_user",
+        MtprotoTelegramAdapter(
+            secret_resolver=EnvironmentSecretResolver(),
+            client_factory=TelegramClient,
+        ),
+    )
+    return {"source_registry": source_registry, "media_stager": _TelegramMediaStager()}
+
+
+def _build_generation_dependencies(owner: HttpClientOwner) -> dict[str, Any]:
+    from app.core.secrets import EnvironmentSecretResolver
+    from app.generation.providers.registry import build_provider_profile_resolver
+
+    return {
+        "profile_resolver": build_provider_profile_resolver(
+            secret_resolver=EnvironmentSecretResolver(),
+            http_client_factory=lambda **kwargs: owner.get(
+                "openrouter",
+                base_url=kwargs["base_url"],
+                timeout=kwargs["timeout_seconds"],
+            ),
+        )
+    }
+
+
+def _build_publishing_dependencies(owner: HttpClientOwner) -> dict[str, Any]:
+    from app.core.secrets import EnvironmentSecretResolver
+    from app.publishing.telegram.client import TelegramBotClient
+
+    return {
+        "telegram_client": TelegramBotClient(
+            owner.get(
+                "telegram-bot",
+                timeout=30.0,
+                follow_redirects=True,
+                trust_env=True,
+            )
+        ),
+        "destination_secret_resolver": EnvironmentSecretResolver(),
+    }
+
+
+def parse_capabilities(argv: list[str] | None = None) -> tuple[str, ...]:
+    parser = argparse.ArgumentParser(description="Run a capability-scoped NewsCraft worker")
+    parser.add_argument(
+        "--capability",
+        action="append",
+        choices=CAPABILITY_CHOICES,
+        required=True,
+    )
+    arguments = parser.parse_args(argv)
+    return tuple(dict.fromkeys(arguments.capability))
+
+
+def build_worker_runner(
+    capabilities: tuple[str, ...],
+    resource_owner: HttpClientOwner | None = None,
+) -> WorkerRunner:
+    owner = resource_owner or HttpClientOwner()
+    dependencies: dict[str, Any] = {}
+    if "source" in capabilities:
+        dependencies.update(_build_source_dependencies(owner))
+    if "generation" in capabilities:
+        dependencies.update(_build_generation_dependencies(owner))
+    if "publishing" in capabilities:
+        dependencies.update(_build_publishing_dependencies(owner))
+    registry = build_default_registry(capabilities=capabilities, **dependencies)
+    return WorkerRunner(
+        handler_registry=registry,
+        capabilities=capabilities,
+        resource_owner=owner,
+    )
 
 
 class WorkerRunner:
@@ -38,6 +214,7 @@ class WorkerRunner:
         provider_registry: ProviderRegistry | None = None,
         repository_factory: RepositoryFactory = JobRepository,
         runtime_service_factory: RuntimeServiceFactory = RuntimeHeartbeatService,
+        resource_owner: HttpClientOwner | None = None,
         worker_id: str | None = None,
         capabilities: tuple[str, ...] = ("generation", "ingestion", "source"),
         clock: Callable[[], datetime] | None = None,
@@ -49,13 +226,14 @@ class WorkerRunner:
         self.provider_registry = provider_registry or build_default_provider_registry()
         self.repository_factory = repository_factory
         self.runtime_service_factory = runtime_service_factory
+        self.resource_owner = resource_owner
         self.worker_id = worker_id or build_component_id("worker")
         self.capabilities = tuple(sorted(set(capabilities)))
         self.clock = clock or (lambda: datetime.now(UTC))
         self.lease_seconds = lease_seconds
         self.heartbeat_seconds = heartbeat_seconds
 
-    async def run_once(self, allowed_job_types: tuple[str, ...] | None = None) -> bool:
+    async def run_once(self) -> bool:
         observed_at = self._now()
         await self._record_runtime_heartbeat(observed_at)
 
@@ -64,7 +242,7 @@ class WorkerRunner:
             job = await repository.claim_next_job(
                 worker_id=self.worker_id,
                 lease_seconds=self.lease_seconds,
-                allowed_job_types=allowed_job_types,
+                allowed_job_types=self.handler_registry.job_types(),
                 now=observed_at,
             )
             await session.commit()
@@ -165,7 +343,7 @@ class WorkerRunner:
                 component_type="worker",
                 capabilities=self.capabilities,
                 observed_at=observed_at,
-                metadata={},
+                metadata={"job_types": list(self.handler_registry.job_types())},
             )
             await session.commit()
 
@@ -207,7 +385,7 @@ class WorkerRunner:
         stop_event = stop or asyncio.Event()
         await self._record_runtime_heartbeat(self._now())
         while not stop_event.is_set():
-            handled = await self.run_once(allowed_job_types=self.handler_registry.job_types())
+            handled = await self.run_once()
             if handled:
                 continue
             try:
@@ -215,17 +393,30 @@ class WorkerRunner:
             except TimeoutError:
                 pass
 
+    async def close(self) -> None:
+        if self.resource_owner is not None:
+            await self.resource_owner.aclose()
 
-async def run_worker() -> None:
+
+async def run_worker(capabilities: tuple[str, ...]) -> None:
     stop = asyncio.Event()
     loop = asyncio.get_running_loop()
     for signum in (signal.SIGINT, signal.SIGTERM):
         loop.add_signal_handler(signum, stop.set)
-    await WorkerRunner().run_forever(stop=stop)
+    owner = HttpClientOwner()
+    runner: WorkerRunner | None = None
+    try:
+        runner = build_worker_runner(capabilities, owner)
+        await runner.run_forever(stop=stop)
+    finally:
+        if runner is None:
+            await owner.aclose()
+        else:
+            await runner.close()
 
 
 def main() -> None:
-    asyncio.run(run_worker())
+    asyncio.run(run_worker(parse_capabilities()))
 
 
 if __name__ == "__main__":

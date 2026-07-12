@@ -11,7 +11,9 @@ from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from sqlalchemy.pool import NullPool
 
 from app.jobs.models import RuntimeHeartbeat
+from app.jobs.registry import JobHandlerRegistry
 from app.jobs.runtime import RuntimeHeartbeatService, build_component_id
+from app.jobs.worker import WorkerRunner
 
 TEST_DATABASE_URL = os.getenv("TEST_DATABASE_URL")
 
@@ -151,3 +153,89 @@ async def test_repeated_component_heartbeat_updates_in_place(heartbeat_db_sessio
     assert len(rows) == 1
     assert rows[0].observed_at == second
     assert rows[0].runtime_metadata == {"tick": 2}
+
+
+@pytest.mark.asyncio
+async def test_two_worker_heartbeats_report_exact_capabilities_registry_jobs_and_supplied_time():
+    records = []
+
+    class SessionContext(FakeSession):
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return None
+
+        async def commit(self):
+            return None
+
+    class Recorder:
+        def __init__(self, session):
+            pass
+
+        async def record(self, **kwargs):
+            records.append(kwargs)
+
+    observed_at = datetime(2026, 7, 12, 10, 30, tzinfo=UTC)
+    source_registry = JobHandlerRegistry()
+    publishing_registry = JobHandlerRegistry()
+
+    async def handler(job, context):
+        return {}
+
+    source_registry.register("telegram.route.poll", handler)
+    source_registry.register("telegram.route.process", handler)
+    publishing_registry.register("telegram.publish", handler)
+
+    for component_id, capabilities, registry in (
+        ("worker-source-generation", ("ingestion", "source", "generation"), source_registry),
+        ("worker-publishing", ("publishing",), publishing_registry),
+    ):
+        runner = WorkerRunner(
+            session_factory=lambda: SessionContext(),
+            handler_registry=registry,
+            runtime_service_factory=Recorder,
+            worker_id=component_id,
+            capabilities=capabilities,
+            clock=lambda: observed_at,
+        )
+        await runner._record_runtime_heartbeat(observed_at)
+
+    assert records == [
+        {
+            "component_id": "worker-source-generation",
+            "component_type": "worker",
+            "capabilities": ("generation", "ingestion", "source"),
+            "observed_at": observed_at,
+            "metadata": {"job_types": ["telegram.route.poll", "telegram.route.process"]},
+        },
+        {
+            "component_id": "worker-publishing",
+            "component_type": "worker",
+            "capabilities": ("publishing",),
+            "observed_at": observed_at,
+            "metadata": {"job_types": ["telegram.publish"]},
+        },
+    ]
+
+
+@pytest.mark.asyncio
+async def test_scheduler_heartbeat_has_own_identity_type_and_no_secret_metadata(monkeypatch):
+    monkeypatch.setenv("NEWSCRAFT_COMPONENT_ID", "scheduler")
+    observed_at = datetime(2026, 7, 12, 10, 31, tzinfo=UTC)
+    session = FakeSession()
+
+    await RuntimeHeartbeatService(session).record(
+        component_id=build_component_id("scheduler"),
+        component_type="scheduler",
+        capabilities=("scheduling",),
+        observed_at=observed_at,
+        metadata={},
+    )
+
+    params = session.statements[0].compile(dialect=postgresql.dialect()).params
+    assert params["component_id"] == "scheduler"
+    assert params["component_type"] == "scheduler"
+    assert params["capabilities"] == ["scheduling"]
+    assert params["observed_at"] == observed_at
+    assert params["metadata"] == {}

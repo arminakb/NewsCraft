@@ -42,25 +42,33 @@ def test_compose_defines_exact_normal_runtime_services_and_test_profile():
     services = _compose_yaml()["services"]
     normal_services = {name for name, service in services.items() if not service.get("profiles")}
 
-    assert normal_services == {"postgres", "api", "frontend", "worker", "scheduler"}
+    assert normal_services == {
+        "postgres", "api", "frontend", "worker-source-generation", "worker-publishing", "scheduler"
+    }
     assert services["postgres-test"]["profiles"] == ["test"]
 
 
 def test_worker_and_scheduler_are_long_running_backend_services():
     services = _compose_yaml()["services"]
     api = services["api"]
-    worker = services["worker"]
+    source_worker = services["worker-source-generation"]
+    publishing_worker = services["worker-publishing"]
     scheduler = services["scheduler"]
 
-    assert worker["command"] == "python -m app.jobs.worker"
+    assert source_worker["command"] == (
+        "python -m app.jobs.worker --capability ingestion --capability source --capability generation"
+    )
+    assert publishing_worker["command"] == "python -m app.jobs.worker --capability publishing"
     assert scheduler["command"] == "python -m app.jobs.scheduler"
-    assert "--trigger manual" not in worker["command"]
-    assert "--download-media" not in worker["command"]
+    assert source_worker["environment"]["NEWSCRAFT_COMPONENT_ID"] == "worker-source-generation"
+    assert publishing_worker["environment"]["NEWSCRAFT_COMPONENT_ID"] == "worker-publishing"
+    assert scheduler["environment"]["NEWSCRAFT_COMPONENT_ID"] == "scheduler"
 
-    for service in (worker, scheduler):
+    for service in (source_worker, publishing_worker, scheduler):
         assert service["build"] == api["build"]
         assert service["image"] == api["image"]
         assert "media_data:/data/media" in service["volumes"]
+        assert "media_staging:/data/media-staging" in service["volumes"]
         assert service["depends_on"]["postgres"]["condition"] == "service_healthy"
         assert service["depends_on"]["api"]["condition"] == "service_healthy"
         assert set(service["depends_on"]) == {"postgres", "api"}
@@ -75,12 +83,82 @@ def test_worker_and_scheduler_are_long_running_backend_services():
         ):
             assert service["environment"][setting] == api["environment"][setting]
 
-    secret_markers = ("PUBLISH", "TELEGRAM", "TOKEN", "SECRET")
+    source_secret_names = {
+        "OPENROUTER_API_KEY", "OPENROUTER_BASE_URL", "TELEGRAM_SOURCE_EDITOR_API_ID",
+        "TELEGRAM_SOURCE_EDITOR_API_HASH", "TELEGRAM_SOURCE_EDITOR_SESSION",
+    }
+    destination_secret_names = {"TELEGRAM_DESTINATION_NEWS_TOKEN"}
+    assert source_secret_names <= set(source_worker["environment"])
+    assert not destination_secret_names & set(source_worker["environment"])
+    assert destination_secret_names <= set(publishing_worker["environment"])
+    assert not source_secret_names & set(publishing_worker["environment"])
+
+    secret_markers = ("OPENROUTER", "TELEGRAM", "TOKEN", "SECRET")
     assert not any(
         marker in name.upper()
         for name in scheduler["environment"]
         for marker in secret_markers
     )
+
+
+def test_compose_contains_no_literal_runtime_secret_values():
+    compose = _compose_yaml()
+    for name in ("api", "worker-source-generation", "worker-publishing", "scheduler"):
+        for key, value in compose["services"][name]["environment"].items():
+            if any(marker in key for marker in ("API_KEY", "API_HASH", "SESSION", "TOKEN")):
+                assert value == "${" + key + ":-}"
+
+
+def test_api_can_authoritatively_check_all_configured_secret_references():
+    services = _compose_yaml()["services"]
+    api_environment = services["api"]["environment"]
+    source_environment = services["worker-source-generation"]["environment"]
+    publishing_environment = services["worker-publishing"]["environment"]
+    scheduler_environment = services["scheduler"]["environment"]
+    reference_names = {
+        "OPENROUTER_API_KEY",
+        "TELEGRAM_SOURCE_EDITOR_API_ID",
+        "TELEGRAM_SOURCE_EDITOR_API_HASH",
+        "TELEGRAM_SOURCE_EDITOR_SESSION",
+        "TELEGRAM_DESTINATION_NEWS_TOKEN",
+    }
+
+    assert reference_names <= set(api_environment)
+    assert "TELEGRAM_DESTINATION_NEWS_TOKEN" not in source_environment
+    assert not {
+        "OPENROUTER_API_KEY",
+        "TELEGRAM_SOURCE_EDITOR_API_ID",
+        "TELEGRAM_SOURCE_EDITOR_API_HASH",
+        "TELEGRAM_SOURCE_EDITOR_SESSION",
+    } & set(publishing_environment)
+    assert not reference_names & set(scheduler_environment)
+
+
+def test_runtime_environment_names_and_review_first_dry_run_are_documented():
+    env_example = (ROOT / ".env.example").read_text(encoding="utf-8")
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    for line in (
+        "OPENROUTER_API_KEY=",
+        "OPENROUTER_BASE_URL=https://openrouter.ai/api/v1",
+        "TELEGRAM_SOURCE_EDITOR_API_ID=",
+        "TELEGRAM_SOURCE_EDITOR_API_HASH=",
+        "TELEGRAM_SOURCE_EDITOR_SESSION=",
+        "TELEGRAM_DESTINATION_NEWS_TOKEN=",
+        "TELEGRAM_MEDIA_STAGING_ROOT=/data/media-staging",
+    ):
+        assert line in env_example
+    for phrase in (
+        "configure credential references",
+        "destination check",
+        "gap-free new-only",
+        "fake provider",
+        "dry run",
+        "review",
+        "opt in to real credentials",
+        "restart the API and only the relevant worker",
+        "No live credentials or publishing are used by default tests",
+    ):
+        assert phrase in readme
 
 
 def test_api_healthcheck_waits_for_post_migration_uvicorn_without_dependency_cycle():

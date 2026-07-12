@@ -41,6 +41,7 @@ class JobHandlerRegistry:
 
 def build_default_registry(
     *,
+    capabilities: tuple[str, ...] | None = None,
     source_registry: Any | None = None,
     media_stager: Any | None = None,
     profile_resolver: Any | None = None,
@@ -49,14 +50,34 @@ def build_default_registry(
 ) -> JobHandlerRegistry:
     from app.jobs.handlers import handle_ingest_collect
 
+    if capabilities is None:
+        selected = {"ingestion"}
+        if source_registry is not None or media_stager is not None:
+            selected.add("source")
+        if profile_resolver is not None:
+            selected.add("generation")
+        if telegram_client is not None or destination_secret_resolver is not None:
+            selected.add("publishing")
+    else:
+        selected = set(capabilities)
+    unknown = selected - {"ingestion", "source", "generation", "publishing"}
+    if unknown:
+        raise ValueError(f"unsupported worker capabilities: {', '.join(sorted(unknown))}")
     if (source_registry is None) != (media_stager is None):
         raise ValueError("source_registry and media_stager must be supplied together")
     if (telegram_client is None) != (destination_secret_resolver is None):
         raise ValueError("telegram_client and destination_secret_resolver must be supplied together")
+    if "source" in selected and source_registry is None:
+        raise ValueError("source capability requires source_registry and media_stager")
+    if "generation" in selected and profile_resolver is None:
+        raise ValueError("generation capability requires profile_resolver")
+    if "publishing" in selected and telegram_client is None:
+        raise ValueError("publishing capability requires telegram_client and destination_secret_resolver")
 
     registry = JobHandlerRegistry()
-    registry.register("ingest.collect", handle_ingest_collect)
-    if source_registry is not None and media_stager is not None:
+    if "ingestion" in selected:
+        registry.register("ingest.collect", handle_ingest_collect)
+    if "source" in selected:
         from app.automations.telegram.handlers import build_telegram_route_handlers
 
         handlers = build_telegram_route_handlers(source_registry, media_stager)
@@ -64,14 +85,14 @@ def build_default_registry(
         registry.register("telegram.route.dry_run", handlers.dry_run)
         registry.register("telegram.route.initialize", handlers.initialize)
         registry.register("telegram.route.poll", handlers.poll)
-    if profile_resolver is not None:
+    if "generation" in selected:
         from app.automations.telegram.handlers import build_telegram_process_handler
 
         registry.register(
             "telegram.route.process",
             build_telegram_process_handler(profile_resolver),
         )
-    if telegram_client is not None and destination_secret_resolver is not None:
+    if "publishing" in selected:
         from app.publishing.telegram.handlers import build_telegram_publish_handlers
 
         handlers = build_telegram_publish_handlers(telegram_client, destination_secret_resolver)

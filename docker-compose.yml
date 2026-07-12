@@ -48,6 +48,12 @@ services:
       ALL_PROXY: ${ALL_PROXY:-http://xray-proxy:10808}
       NO_PROXY: ${NO_PROXY:-newscraft-postgres,postgres,localhost,127.0.0.1}
       MEDIA_ROOT: /data/media
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      OPENROUTER_BASE_URL: ${OPENROUTER_BASE_URL:-https://openrouter.ai/api/v1}
+      TELEGRAM_SOURCE_EDITOR_API_ID: ${TELEGRAM_SOURCE_EDITOR_API_ID:-}
+      TELEGRAM_SOURCE_EDITOR_API_HASH: ${TELEGRAM_SOURCE_EDITOR_API_HASH:-}
+      TELEGRAM_SOURCE_EDITOR_SESSION: ${TELEGRAM_SOURCE_EDITOR_SESSION:-}
+      TELEGRAM_DESTINATION_NEWS_TOKEN: ${TELEGRAM_DESTINATION_NEWS_TOKEN:-}
     extra_hosts:
       - "host.docker.internal:host-gateway"
     ports:
@@ -78,22 +84,59 @@ services:
     depends_on:
       - api
 
-  worker:
+  worker-source-generation:
     image: newscraft-backend:local
     build:
       context: ./backend
-    command: python -m app.jobs.worker
+    command: python -m app.jobs.worker --capability ingestion --capability source --capability generation
     environment:
+      NEWSCRAFT_COMPONENT_ID: worker-source-generation
       DATABASE_URL: postgresql+asyncpg://newscraft:newscraft@newscraft-postgres:5432/newscraft
       HTTP_PROXY: ${HTTP_PROXY:-http://xray-proxy:10808}
       HTTPS_PROXY: ${HTTPS_PROXY:-http://xray-proxy:10808}
       ALL_PROXY: ${ALL_PROXY:-http://xray-proxy:10808}
       NO_PROXY: ${NO_PROXY:-newscraft-postgres,postgres,localhost,127.0.0.1}
       MEDIA_ROOT: /data/media
+      TELEGRAM_MEDIA_STAGING_ROOT: /data/media-staging
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      OPENROUTER_BASE_URL: ${OPENROUTER_BASE_URL:-https://openrouter.ai/api/v1}
+      TELEGRAM_SOURCE_EDITOR_API_ID: ${TELEGRAM_SOURCE_EDITOR_API_ID:-}
+      TELEGRAM_SOURCE_EDITOR_API_HASH: ${TELEGRAM_SOURCE_EDITOR_API_HASH:-}
+      TELEGRAM_SOURCE_EDITOR_SESSION: ${TELEGRAM_SOURCE_EDITOR_SESSION:-}
     extra_hosts:
       - "host.docker.internal:host-gateway"
     volumes:
       - media_data:/data/media
+      - media_staging:/data/media-staging
+    networks:
+      - default
+      - xray_proxy
+    depends_on:
+      postgres:
+        condition: service_healthy
+      api:
+        condition: service_healthy
+
+  worker-publishing:
+    image: newscraft-backend:local
+    build:
+      context: ./backend
+    command: python -m app.jobs.worker --capability publishing
+    environment:
+      NEWSCRAFT_COMPONENT_ID: worker-publishing
+      DATABASE_URL: postgresql+asyncpg://newscraft:newscraft@newscraft-postgres:5432/newscraft
+      HTTP_PROXY: ${HTTP_PROXY:-http://xray-proxy:10808}
+      HTTPS_PROXY: ${HTTPS_PROXY:-http://xray-proxy:10808}
+      ALL_PROXY: ${ALL_PROXY:-http://xray-proxy:10808}
+      NO_PROXY: ${NO_PROXY:-newscraft-postgres,postgres,localhost,127.0.0.1}
+      MEDIA_ROOT: /data/media
+      TELEGRAM_MEDIA_STAGING_ROOT: /data/media-staging
+      TELEGRAM_DESTINATION_NEWS_TOKEN: ${TELEGRAM_DESTINATION_NEWS_TOKEN:-}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - media_data:/data/media
+      - media_staging:/data/media-staging
     networks:
       - default
       - xray_proxy
@@ -109,6 +152,7 @@ services:
       context: ./backend
     command: python -m app.jobs.scheduler
     environment:
+      NEWSCRAFT_COMPONENT_ID: scheduler
       DATABASE_URL: postgresql+asyncpg://newscraft:newscraft@newscraft-postgres:5432/newscraft
       HTTP_PROXY: ${HTTP_PROXY:-http://xray-proxy:10808}
       HTTPS_PROXY: ${HTTPS_PROXY:-http://xray-proxy:10808}
@@ -119,6 +163,7 @@ services:
       - "host.docker.internal:host-gateway"
     volumes:
       - media_data:/data/media
+      - media_staging:/data/media-staging
     networks:
       - default
       - xray_proxy
@@ -131,6 +176,7 @@ services:
 volumes:
   postgres_data:
   media_data:
+  media_staging:
 
 networks:
   xray_proxy:

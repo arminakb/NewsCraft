@@ -68,3 +68,33 @@ def test_generation_dependency_registers_only_real_telegram_process_handler():
 
     assert registry.job_types() == ("ingest.collect", "telegram.route.process")
     assert callable(registry.get("telegram.route.process"))
+
+
+def test_capabilities_control_the_registry_without_a_static_job_type_switch():
+    source_registry = object()
+    media_stager = object()
+    profile_resolver = object()
+    telegram_client = object()
+    destination_resolver = object()
+
+    source_generation = build_default_registry(
+        capabilities=("ingestion", "source", "generation"),
+        source_registry=source_registry,
+        media_stager=media_stager,
+        profile_resolver=profile_resolver,
+    )
+    publishing = build_default_registry(
+        capabilities=("publishing",),
+        telegram_client=telegram_client,
+        destination_secret_resolver=destination_resolver,
+    )
+
+    assert source_generation.job_types() == (
+        "ingest.collect",
+        "telegram.route.backfill",
+        "telegram.route.dry_run",
+        "telegram.route.initialize",
+        "telegram.route.poll",
+        "telegram.route.process",
+    )
+    assert publishing.job_types() == ("telegram.destination.check", "telegram.publish")

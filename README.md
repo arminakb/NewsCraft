@@ -71,12 +71,23 @@ The API service runs Alembic migrations before Uvicorn starts.
 
 ## Workflow runtime
 
-`docker compose up --build` starts PostgreSQL, API, frontend, a long-running leased worker, and a scheduler. The scheduler creates source collection jobs; API mutation endpoints enqueue jobs and return immediately.
+`docker compose up --build` starts PostgreSQL, API, frontend, capability-separated leased workers, and a scheduler. The source/generation worker cannot publish, and the publishing worker cannot construct source or AI dependencies. The scheduler creates source collection jobs; API mutation endpoints enqueue jobs and return immediately.
 
 - Newsroom: http://127.0.0.1:3000
 - API: http://127.0.0.1:8000
 - Global pause holds scheduled/automation work; manual Run ingest remains available.
-- Dry run is persisted for future publishing flows. Release 1 does not publish externally.
+- Review is the default. No live credentials or publishing are used by default tests.
+
+### Local Telegram automation dry run
+
+1. Copy `.env.example` to `.env`, leave real credential values empty, and configure credential references in the UI.
+2. Create the destination and run its destination check before enabling a route.
+3. Activate the route to record a gap-free new-only boundary; activation does not backfill older messages.
+4. Select the fake provider and start a dry run. A dry run is always review-only and cannot publish.
+5. Open the generated draft, compare its source evidence, and review the exact revision.
+6. Only after the fake-provider review succeeds should an operator opt in to real credentials by filling the referenced environment variables, then restart the API and only the relevant worker.
+
+Source access uses `TELEGRAM_SOURCE_EDITOR_API_ID`, `TELEGRAM_SOURCE_EDITOR_API_HASH`, and `TELEGRAM_SOURCE_EDITOR_SESSION`. Generation uses `OPENROUTER_API_KEY` only when an enabled OpenRouter profile references it. Publishing alone receives `TELEGRAM_DESTINATION_NEWS_TOKEN`. The scheduler receives none of these values.
 
 Run the PostgreSQL queue contract suite:
 
