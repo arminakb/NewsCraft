@@ -104,6 +104,18 @@ class OpenRouterProvider:
                 },
             },
         }
+        max_output_tokens = request.metadata.get("max_output_tokens")
+        if max_output_tokens is not None:
+            if (
+                isinstance(max_output_tokens, bool)
+                or not isinstance(max_output_tokens, int)
+                or max_output_tokens < 1
+            ):
+                raise OpenRouterPermanentError(
+                    code="openrouter_max_output_tokens_invalid",
+                    message="OpenRouter output token allowance is invalid",
+                )
+            payload["max_tokens"] = max_output_tokens
         try:
             response = await self.http_client.post(
                 f"{self.base_url}/chat/completions",
@@ -160,6 +172,12 @@ class OpenRouterProvider:
                 "output_tokens": output_tokens,
                 "cost_usd": cost_usd,
             }
+            if request.purpose == "research_action":
+                normalized_usage["usage_supplied"] = (
+                    supplied_usage is not None
+                    and "prompt_tokens" in usage
+                    and "completion_tokens" in usage
+                )
             resolved_model = body.get("model") or request.requested_model
             if not isinstance(resolved_model, str):
                 raise TypeError

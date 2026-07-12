@@ -136,6 +136,8 @@ def test_provider_contract_has_no_database_dependency() -> None:
         __import__("app.research.fake", fromlist=["*"]),
         __import__("app.research.prompts", fromlist=["*"]),
         __import__("app.research.safe_fetch", fromlist=["*"]),
+        __import__("app.research.duckduckgo", fromlist=["*"]),
+        __import__("app.research.openrouter_loop", fromlist=["*"]),
     ]
     forbidden = ("sqlalchemy", "AsyncSession", "repository")
     for module in modules:
