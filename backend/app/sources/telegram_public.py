@@ -31,9 +31,18 @@ def _parse_message(block: Tag, channel: str, warnings: list[str]) -> ParsedSourc
     if not data_post or "/" not in data_post:
         warnings.append("missing_data_post")
         return None
-    post_channel, message_id = data_post.split("/", 1)
+    post_channel, raw_message_id = data_post.rsplit("/", 1)
     if post_channel != channel:
         return None
+    try:
+        data_post_message_id = int(raw_message_id)
+    except ValueError:
+        warnings.append(f"invalid_message_id:{data_post}")
+        return None
+
+    message_ids = _message_ids(block, data_post_message_id)
+    message_id = max(message_ids)
+    grouped_id = _grouped_id(block)
 
     text_node = block.select_one(".js-message_text")
     content_text = _node_text(text_node) if text_node else ""
@@ -48,8 +57,8 @@ def _parse_message(block: Tag, channel: str, warnings: list[str]) -> ParsedSourc
         warnings.append(f"missing_date:{data_post}")
 
     return ParsedSourceItem(
-        external_id_raw=data_post,
-        external_id_norm=data_post,
+        external_id_raw=f"{channel}/{message_id}",
+        external_id_norm=f"{channel}/{message_id}",
         source_url=source_url,
         source_url_norm=normalize_url(source_url),
         canonical_url_candidate=normalize_url(source_url),
@@ -66,14 +75,17 @@ def _parse_message(block: Tag, channel: str, warnings: list[str]) -> ParsedSourc
         parser_meta={
             "channel": channel,
             "message_id": message_id,
+            "message_ids": message_ids,
+            "grouped_id": grouped_id,
             "views": views,
             "reactions": _extract_reactions(block),
+            "entities": _extract_entities(text_node),
             "direction": infer_direction(content_text),
         },
     )
 
 
-def _message_title(content_text: str, message_id: str) -> str:
+def _message_title(content_text: str, message_id: int) -> str:
     for line in content_text.splitlines():
         stripped = line.strip()
         if stripped:
@@ -97,18 +109,23 @@ def _message_datetime(block: Tag) -> tuple[str | None, datetime | None, str]:
 
 def _extract_media_candidates(block: Tag) -> list[MediaCandidate]:
     candidates: list[MediaCandidate] = []
-    for photo in block.select(".tgme_widget_message_photo_wrap"):
-        url = _background_image_url(photo)
+    selector = (
+        ".tgme_widget_message_photo_wrap, .tgme_widget_message_video_wrap, "
+        ".tgme_widget_message_document_wrap, .tgme_widget_message_document"
+    )
+    for media_node in block.select(selector):
+        classes = set(media_node.get("class") or ())
+        if "tgme_widget_message_photo_wrap" in classes:
+            url = _background_image_url(media_node)
+            source_field, kind = "message_photo", "image"
+        elif "tgme_widget_message_video_wrap" in classes:
+            url = _background_image_url(media_node) or _first_attr(media_node, "video", "src")
+            source_field, kind = "message_video", "video"
+        else:
+            url = media_node.get("href") or _first_attr(media_node, "a", "href")
+            source_field, kind = "message_document", "document"
         if url:
-            _append_media(candidates, url, source_field="message_photo", kind="image")
-    for video in block.select(".tgme_widget_message_video_wrap"):
-        url = _background_image_url(video) or _first_attr(video, "video", "src")
-        if url:
-            _append_media(candidates, url, source_field="message_video", kind="video")
-    for document in block.select(".tgme_widget_message_document_wrap, .tgme_widget_message_document"):
-        url = document.get("href") or _first_attr(document, "a", "href")
-        if url:
-            _append_media(candidates, url, source_field="message_document", kind="document")
+            _append_media(candidates, str(url), source_field=source_field, kind=kind)
     for preview in block.select(".tgme_widget_message_link_preview"):
         url = _background_image_url(preview)
         if url:
@@ -170,6 +187,55 @@ def _extract_reactions(block: Tag) -> dict[str, int]:
         label = text[: match.start()].strip() or "reaction"
         reactions[label] = parse_compact_count(match.group(0)) or 0
     return reactions
+
+
+def _message_ids(block: Tag, data_post_message_id: int) -> list[int]:
+    message_ids: list[int] = []
+    for node in block.select("[data-message-id]"):
+        value = node.get("data-message-id")
+        try:
+            message_id = int(str(value))
+        except (TypeError, ValueError):
+            continue
+        if message_id not in message_ids:
+            message_ids.append(message_id)
+    if data_post_message_id not in message_ids:
+        message_ids.append(data_post_message_id)
+    return message_ids
+
+
+def _grouped_id(block: Tag) -> str | None:
+    value = block.get("data-grouped-id")
+    if value:
+        return str(value)
+    wrapper = block.select_one("[data-grouped-id]")
+    return str(wrapper.get("data-grouped-id")) if wrapper and wrapper.get("data-grouped-id") else None
+
+
+def _extract_entities(text_node: Tag | None) -> list[dict]:
+    if text_node is None:
+        return []
+    entities: list[dict] = []
+    tag_types = {
+        "b": "bold",
+        "strong": "bold",
+        "i": "italic",
+        "em": "italic",
+        "u": "underline",
+        "s": "strikethrough",
+        "code": "code",
+    }
+    for node in text_node.find_all(["a", *tag_types]):
+        text_value = _node_text(node)
+        if not text_value:
+            continue
+        if node.name == "a":
+            href = node.get("href")
+            if href:
+                entities.append({"type": "link", "text": text_value, "url": str(href)})
+        else:
+            entities.append({"type": tag_types[node.name], "text": text_value})
+    return entities
 
 
 def parse_compact_count(value: str | None) -> int | None:

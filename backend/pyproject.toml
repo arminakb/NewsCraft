@@ -14,6 +14,7 @@ dependencies = [
   "pydantic-settings>=2.10",
   "python-dateutil>=2.9",
   "sqlalchemy>=2.0",
+  "telethon>=1.40,<2",
   "trafilatura>=2.0",
   "uvicorn[standard]>=0.35",
 ]
