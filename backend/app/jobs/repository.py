@@ -9,6 +9,7 @@ from sqlalchemy import Select, or_, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.redaction import redact_secrets
 from app.jobs.errors import InvalidJobTransition
 from app.jobs.events import redact_event_data
 from app.jobs.models import AutomationControl, WorkflowEvent, WorkflowJob
@@ -244,7 +245,8 @@ class JobRepository:
             raise self._invalid(job_id, action="finish", job=job)
 
         job.status = JobStatus.SUCCEEDED
-        job.result = result
+        safe_result = redact_secrets(result)
+        job.result = safe_result
         job.progress = 100
         job.finished_at = observed_at
         self._clear_lease(job)
@@ -252,7 +254,7 @@ class JobRepository:
             job_id=job.id,
             event_type="job.succeeded",
             actor=worker_id,
-            event_data={"result": result},
+            event_data={"result": safe_result},
         )
         await self.session.flush()
         return job
@@ -275,13 +277,15 @@ class JobRepository:
 
         error_class_value = _enum_value(error_class)
         job.error_class = error_class_value
-        job.error_code = error_code
-        job.error_message = error_message
+        safe_error_code = str(redact_secrets(error_code))
+        safe_error_message = str(redact_secrets(error_message))
+        job.error_code = safe_error_code
+        job.error_message = safe_error_message
         self._clear_lease(job)
         event_data = {
             "error_class": error_class_value,
-            "error_code": error_code,
-            "error_message": error_message,
+            "error_code": safe_error_code,
+            "error_message": safe_error_message,
         }
 
         if error_class == JobErrorClass.RETRYABLE and job.attempt_count < job.max_attempts:

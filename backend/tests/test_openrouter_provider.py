@@ -1,0 +1,391 @@
+import json
+from uuid import uuid4
+
+import httpx
+import pytest
+
+from app.generation.providers.base import GenerationProviderRequest, ProviderMessage
+from app.generation.providers.openrouter import (
+    OpenRouterNeedsReviewError,
+    OpenRouterPermanentError,
+    OpenRouterProvider,
+    OpenRouterRetryableError,
+)
+from app.generation.telegram_schema import TelegramRewriteOutput
+
+
+def provider_request() -> GenerationProviderRequest:
+    return GenerationProviderRequest(
+        run_id=uuid4(),
+        purpose="telegram_rewrite",
+        requested_model="openai/gpt-5-mini",
+        messages=(ProviderMessage(role="user", content="Rewrite"),),
+        response_schema=TelegramRewriteOutput.model_json_schema(),
+        metadata={},
+    )
+
+
+def provider_with_response(payload, *, status=200):
+    requests = []
+
+    async def respond(request):
+        requests.append(request)
+        return httpx.Response(status, json=payload, request=request)
+
+    client = httpx.AsyncClient(transport=httpx.MockTransport(respond))
+    return OpenRouterProvider(http_client=client, api_key="test-key"), requests, client
+
+
+async def test_openrouter_posts_json_schema_and_returns_normalized_result():
+    provider, requests, client = provider_with_response(
+        {
+            "choices": [
+                {
+                    "message": {
+                        "content": '{"body":"بازنویسی","parse_mode":"HTML","buttons":[]}'
+                    },
+                    "finish_reason": "stop",
+                }
+            ],
+            "usage": {"prompt_tokens": 10, "completion_tokens": 4},
+            "model": "openai/gpt-5-mini",
+        }
+    )
+    try:
+        result = await provider.generate(provider_request())
+    finally:
+        await client.aclose()
+
+    sent = json.loads(requests[0].content)
+    assert sent["response_format"]["type"] == "json_schema"
+    assert sent["response_format"]["json_schema"]["strict"] is True
+    assert requests[0].headers["authorization"] == "Bearer test-key"
+    assert result.output["body"] == "بازنویسی"
+    assert result.resolved_model == "openai/gpt-5-mini"
+    assert result.usage == {"input_tokens": 10, "output_tokens": 4, "cost_usd": 0}
+
+
+async def test_openrouter_accepts_object_content_and_maps_transport_failure_retryably():
+    provider, _, client = provider_with_response(
+        {
+            "choices": [
+                {
+                    "message": {
+                        "content": {"body": "Object", "parse_mode": "HTML", "buttons": []}
+                    },
+                    "finish_reason": "stop",
+                }
+            ],
+            "model": "model",
+        }
+    )
+    try:
+        assert (await provider.generate(provider_request())).output["body"] == "Object"
+    finally:
+        await client.aclose()
+
+    async def fail(request):
+        raise httpx.ConnectError("Bearer test-key", request=request)
+
+    failing_client = httpx.AsyncClient(transport=httpx.MockTransport(fail))
+    failing = OpenRouterProvider(http_client=failing_client, api_key="test-key")
+    try:
+        with pytest.raises(OpenRouterRetryableError) as caught:
+            await failing.generate(provider_request())
+    finally:
+        await failing_client.aclose()
+    assert "test-key" not in str(caught.value)
+
+
+@pytest.mark.parametrize(
+    ("status", "error_type"),
+    [
+        (401, OpenRouterPermanentError),
+        (403, OpenRouterPermanentError),
+        (408, OpenRouterRetryableError),
+        (429, OpenRouterRetryableError),
+        (500, OpenRouterRetryableError),
+    ],
+)
+async def test_openrouter_maps_http_failures_without_leaking_authorization(status, error_type):
+    provider, _, client = provider_with_response(
+        {"error": {"message": "Bearer test-key upstream"}}, status=status
+    )
+    try:
+        with pytest.raises(error_type) as caught:
+            await provider.generate(provider_request())
+    finally:
+        await client.aclose()
+    assert "test-key" not in str(caught.value)
+    assert "Bearer" not in str(caught.value)
+
+
+@pytest.mark.parametrize(
+    "content",
+    ["not-json", '{"body":"<script>x</script>","parse_mode":"HTML","buttons":[]}'],
+)
+async def test_openrouter_maps_invalid_json_or_schema_to_needs_review(content):
+    provider, _, client = provider_with_response(
+        {
+            "choices": [{"message": {"content": content}, "finish_reason": "stop"}],
+            "model": "model",
+        }
+    )
+    try:
+        with pytest.raises(OpenRouterNeedsReviewError):
+            await provider.generate(provider_request())
+    finally:
+        await client.aclose()
+
+
+async def test_openrouter_honors_nontelegram_schema_and_classifies_malformed_usage():
+    provider, _, client = provider_with_response(
+        {
+            "choices": [
+                {"message": {"content": '{"status":"ok"}'}, "finish_reason": "stop"}
+            ],
+            "usage": {},
+            "model": "model",
+        }
+    )
+    request = provider_request()
+    request = GenerationProviderRequest(
+        run_id=request.run_id,
+        purpose="generic_status",
+        requested_model=request.requested_model,
+        messages=request.messages,
+        response_schema={
+            "type": "object",
+            "additionalProperties": False,
+            "required": ["status"],
+            "properties": {"status": {"type": "string"}},
+        },
+        metadata={},
+    )
+    try:
+        assert (await provider.generate(request)).output == {"status": "ok"}
+    finally:
+        await client.aclose()
+
+    malformed, _, malformed_client = provider_with_response(
+        {
+            "choices": [
+                {
+                    "message": {
+                        "content": '{"body":"ok","parse_mode":"HTML","buttons":[]}'
+                    },
+                    "finish_reason": "stop",
+                }
+            ],
+            "usage": {"prompt_tokens": "invalid"},
+            "model": "model",
+        }
+    )
+    try:
+        with pytest.raises(OpenRouterNeedsReviewError):
+            await malformed.generate(provider_request())
+    finally:
+        await malformed_client.aclose()
+
+
+async def test_openrouter_uses_draft_202012_formats_and_redacts_success_fields():
+    invalid, _, invalid_client = provider_with_response(
+        {
+            "choices": [
+                {
+                    "message": {"content": '{"email":"not-an-email","extra":true}'},
+                    "finish_reason": "stop",
+                }
+            ],
+            "model": "model",
+        }
+    )
+    request = provider_request()
+    format_request = GenerationProviderRequest(
+        run_id=request.run_id,
+        purpose="format_check",
+        requested_model=request.requested_model,
+        messages=request.messages,
+        response_schema={
+            "$schema": "https://json-schema.org/draft/2020-12/schema",
+            "type": "object",
+            "properties": {"email": {"type": "string", "format": "email"}},
+            "required": ["email"],
+            "unevaluatedProperties": False,
+        },
+        metadata={},
+    )
+    try:
+        with pytest.raises(OpenRouterNeedsReviewError):
+            await invalid.generate(format_request)
+    finally:
+        await invalid_client.aclose()
+
+    safe, _, safe_client = provider_with_response(
+        {
+            "choices": [
+                {
+                    "message": {"content": '{"value":"test-key"}'},
+                    "finish_reason": "test-key",
+                }
+            ],
+            "usage": {"prompt_tokens": 1, "completion_tokens": 1, "cost": 1.25},
+            "model": "test-key",
+        }
+    )
+    secret_request = GenerationProviderRequest(
+        run_id=request.run_id,
+        purpose="secret_echo",
+        requested_model=request.requested_model,
+        messages=request.messages,
+        response_schema={
+            "type": "object",
+            "properties": {"value": {"type": "string"}},
+            "required": ["value"],
+            "additionalProperties": False,
+        },
+        metadata={},
+    )
+    try:
+        result = await safe.generate(secret_request)
+    finally:
+        await safe_client.aclose()
+    for value in (
+        result.output,
+        result.raw_text,
+        result.resolved_model,
+        result.usage,
+        result.finish_reason,
+    ):
+        assert "test-key" not in str(value)
+
+
+async def test_openrouter_rejects_invalid_application_schema_before_http():
+    provider, requests, client = provider_with_response({})
+    request = provider_request()
+    invalid = GenerationProviderRequest(
+        run_id=request.run_id,
+        purpose=request.purpose,
+        requested_model=request.requested_model,
+        messages=request.messages,
+        response_schema={"type": "unsupported-json-type"},
+        metadata={},
+    )
+    try:
+        with pytest.raises(OpenRouterPermanentError):
+            await provider.generate(invalid)
+    finally:
+        await client.aclose()
+    assert requests == []
+
+
+async def test_openrouter_revalidates_redacted_output_against_exact_schema():
+    provider, _, client = provider_with_response(
+        {
+            "choices": [
+                {
+                    "message": {"content": '{"value":"test-key"}'},
+                    "finish_reason": "stop",
+                }
+            ],
+            "model": "model",
+        }
+    )
+    request = provider_request()
+    exact = GenerationProviderRequest(
+        run_id=request.run_id,
+        purpose="exact_secret_echo",
+        requested_model=request.requested_model,
+        messages=request.messages,
+        response_schema={
+            "type": "object",
+            "properties": {"value": {"const": "test-key"}},
+            "required": ["value"],
+            "additionalProperties": False,
+        },
+        metadata={},
+    )
+    try:
+        with pytest.raises(OpenRouterNeedsReviewError):
+            await provider.generate(exact)
+    finally:
+        await client.aclose()
+
+
+@pytest.mark.parametrize(
+    ("usage", "finish_reason"),
+    [
+        ({"prompt_tokens": 1, "completion_tokens": 1, "cost": "1.25"}, "stop"),
+        ({"prompt_tokens": 1, "completion_tokens": 1, "cost": True}, "stop"),
+        ({"prompt_tokens": 1, "completion_tokens": 1, "cost": 1.25}, 123),
+    ],
+)
+async def test_openrouter_rejects_malformed_cost_or_finish_metadata(usage, finish_reason):
+    provider, _, client = provider_with_response(
+        {
+            "choices": [
+                {
+                    "message": {
+                        "content": '{"body":"ok","parse_mode":"HTML","buttons":[]}'
+                    },
+                    "finish_reason": finish_reason,
+                }
+            ],
+            "usage": usage,
+            "model": "model",
+        }
+    )
+    try:
+        with pytest.raises(OpenRouterNeedsReviewError):
+            await provider.generate(provider_request())
+    finally:
+        await client.aclose()
+
+
+@pytest.mark.parametrize("usage", [[], "", False, 0])
+async def test_openrouter_rejects_falsey_supplied_nonmapping_usage(usage):
+    provider, _, client = provider_with_response(
+        {
+            "choices": [
+                {
+                    "message": {
+                        "content": '{"body":"ok","parse_mode":"HTML","buttons":[]}'
+                    },
+                    "finish_reason": "stop",
+                }
+            ],
+            "usage": usage,
+            "model": "model",
+        }
+    )
+    try:
+        with pytest.raises(OpenRouterNeedsReviewError):
+            await provider.generate(provider_request())
+    finally:
+        await client.aclose()
+
+
+async def test_openrouter_classifies_enormous_integer_cost_as_needs_review():
+    provider, _, client = provider_with_response(
+        {
+            "choices": [
+                {
+                    "message": {
+                        "content": '{"body":"ok","parse_mode":"HTML","buttons":[]}'
+                    },
+                    "finish_reason": "stop",
+                }
+            ],
+            "usage": {
+                "prompt_tokens": 1,
+                "completion_tokens": 1,
+                "cost": 10**1_000,
+            },
+            "model": "model",
+        }
+    )
+    try:
+        with pytest.raises(OpenRouterNeedsReviewError):
+            await provider.generate(provider_request())
+    finally:
+        await client.aclose()

@@ -9,12 +9,41 @@ from sqlalchemy import event, select, update
 from sqlalchemy.dialects import postgresql
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
+from app.generation.default_prompts import (
+    seed_default_telegram_configuration,
+    seed_default_telegram_prompt,
+)
+from app.generation.models import AIProviderProfile, BrandProfile, PromptTemplate, PromptTemplateVersion
 from app.jobs.errors import InvalidJobTransition
 from app.jobs.models import AutomationControl, WorkflowEvent, WorkflowJob
 from app.jobs.repository import JobRepository
 from app.jobs.types import JobErrorClass, JobOrigin, JobStatus
 
 NOW = datetime(2026, 7, 12, 8, 0, tzinfo=UTC)
+
+
+async def test_default_telegram_seed_is_concurrency_safe_across_two_sessions(
+    session_factory: async_sessionmaker[AsyncSession],
+):
+    async def seed_once():
+        async with session_factory() as session:
+            prompt = await seed_default_telegram_prompt(session)
+            configuration = await seed_default_telegram_configuration(
+                session, openrouter_available=True
+            )
+            await session.commit()
+            return prompt.id, configuration.brand.id, tuple(
+                sorted(item.id for item in configuration.providers)
+            )
+
+    first, second = await asyncio.gather(seed_once(), seed_once())
+    assert first == second
+
+    async with session_factory() as session:
+        assert len(list(await session.scalars(select(PromptTemplate)))) == 1
+        assert len(list(await session.scalars(select(PromptTemplateVersion)))) == 1
+        assert len(list(await session.scalars(select(BrandProfile)))) == 1
+        assert len(list(await session.scalars(select(AIProviderProfile)))) == 2
 
 
 async def enqueue_claimed_job(
@@ -527,7 +556,7 @@ async def test_finish_requires_owner_stores_result_clears_lease_and_sanitizes_ev
     )
 
     assert finished.status == JobStatus.SUCCEEDED
-    assert finished.result == {"safe": "yes", "nested": {"token": "real-token"}}
+    assert finished.result == {"safe": "yes", "nested": {"token": "[REDACTED]"}}
     assert finished.progress == 100
     assert finished.finished_at == NOW + timedelta(minutes=1)
     assert finished.lease_owner is None

@@ -10,6 +10,7 @@ dependencies = [
   "fastapi>=0.128",
   "feedparser>=6.0",
   "httpx[socks]>=0.28",
+  "jsonschema>=4.23",
   "lxml>=6.0",
   "pydantic-settings>=2.10",
   "python-dateutil>=2.9",

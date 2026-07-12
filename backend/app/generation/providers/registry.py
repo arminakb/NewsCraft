@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+from typing import Any
+
+from app.core.config import Settings, settings
+from app.core.secrets import SecretResolver
 from app.generation.providers.base import GenerationProvider
 from app.generation.providers.fake import DeterministicFakeProvider
 
@@ -36,3 +40,19 @@ def build_default_provider_registry() -> ProviderRegistry:
     registry = ProviderRegistry()
     registry.register(DeterministicFakeProvider())
     return registry
+
+
+def build_provider_profile_resolver(
+    *,
+    secret_resolver: SecretResolver,
+    http_client_factory: Any,
+    application_settings: Settings = settings,
+):
+    from app.generation.providers.profiles import ProviderProfileResolver
+
+    return ProviderProfileResolver(
+        secret_resolver=secret_resolver,
+        http_client_factory=http_client_factory,
+        provider_registry=build_default_provider_registry(),
+        application_settings=application_settings,
+    )
