@@ -33,9 +33,9 @@ Turn NewsCraft from a one-shot ingestion dashboard into a local, single-operator
 - The worktree still contains the pre-existing validated cleanup diff: 46 files, 666 insertions, and 8,092 deletions.
 - Preserve and do not stage these unrelated untracked artifacts unless a later explicit task says otherwise:
   - `refactor.txt`
-  - `docs/superpowers/plans/2026-07-07-local-app-audit-remediation.md`
   - `.superpowers/`
 - `backend/.dockerignore` and `frontend/lib/empty-data.ts` belong to the Release 0 cleanup checkpoint.
+- Superseded pre-rescue plans and their generated image were deleted; only the design, this index, and Release 0-5 below are authoritative planning documents.
 
 Before execution, verify the state instead of trusting this snapshot:
 

@@ -28,7 +28,7 @@
 - API requests never perform URL fetches, Codex execution, DuckDuckGo searches, or model calls inline; they persist input, enqueue a job transactionally, and return its identifier.
 - Time is stored in UTC; the UI renders it in the configured operator timezone, default `Asia/Tehran`.
 - No AI process receives Telegram tokens, MTProto sessions, `DATABASE_URL`, or arbitrary shell access.
-- Every task ends in a focused commit. Never stage `.superpowers/`, local media, credentials, `refactor.txt`, or the superseded 2026-07-07 audit plan.
+- Every task ends in a focused commit. Never stage `.superpowers/`, local media, credentials, or `refactor.txt`.
 
 ## Dependencies and Execution Boundary
 

@@ -15,7 +15,7 @@
 - Normal runtime must never display mock data or fabricated health, source, schedule, or time values.
 - API, frontend, and PostgreSQL host ports bind to `127.0.0.1` by default.
 - Secrets and `.superpowers/` companion output remain outside Git.
-- Existing unrelated untracked files `refactor.txt` and `docs/superpowers/plans/2026-07-07-local-app-audit-remediation.md` are not staged or deleted.
+- Existing unrelated untracked file `refactor.txt` is not staged or deleted.
 - Every task uses test-first changes where behavior changes and ends in an independently reviewable commit.
 
 ---
@@ -28,7 +28,6 @@
 - Add: `frontend/lib/empty-data.ts`
 - Exclude: `.superpowers/`
 - Exclude: `refactor.txt`
-- Exclude: `docs/superpowers/plans/2026-07-07-local-app-audit-remediation.md`
 
 **Interfaces:**
 - Consumes: the current `refactor-cleanup` worktree with validated runtime-preserving deletions.
@@ -72,7 +71,7 @@ Expected cleanup evidence before new Release 0 behavior changes:
 46 files changed, 666 insertions(+), 8092 deletions(-)
 ```
 
-Confirm `.superpowers/`, `refactor.txt`, and `docs/superpowers/plans/2026-07-07-local-app-audit-remediation.md` are untracked and will remain unstaged.
+Confirm `.superpowers/` and `refactor.txt` are untracked and will remain unstaged.
 
 - [ ] **Step 3: Stage only the validated cleanup**
 
@@ -84,7 +83,7 @@ git add backend/.dockerignore frontend/lib/empty-data.ts
 git diff --cached --name-only
 ```
 
-Expected: the staged list contains the tracked cleanup plus the two named new runtime files, and does not contain `.superpowers/`, `refactor.txt`, or `2026-07-07-local-app-audit-remediation.md`.
+Expected: the staged list contains the tracked cleanup plus the two named new runtime files, and does not contain `.superpowers/` or `refactor.txt`.
 
 - [ ] **Step 4: Commit the cleanup checkpoint**
 
