@@ -1,6 +1,5 @@
-import { DashboardShell } from "@/components/dashboard/dashboard-shell"
-import { emptyDashboardSnapshot } from "@/lib/empty-data"
+import { TodayPage } from "@/features/today/today-page"
 
 export default function Page() {
-  return <DashboardShell initialData={emptyDashboardSnapshot} />
+  return <TodayPage />
 }
