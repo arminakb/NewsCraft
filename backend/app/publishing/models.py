@@ -35,6 +35,9 @@ class PublishJob(Base):
     __tablename__ = "publish_jobs"
 
     id: Mapped[uuid.UUID] = uuid_pk()
+    workflow_job_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("workflow_jobs.id"), nullable=True
+    )
     destination_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("destinations.id"), nullable=False)
     platform_variant_revision_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("platform_variant_revisions.id"), nullable=False
@@ -51,6 +54,7 @@ class PublishJob(Base):
     __table_args__ = (
         UniqueConstraint("idempotency_key", name="uq_publish_jobs_idempotency_key"),
         Index("ix_publish_jobs_status_scheduled", "status", "scheduled_for"),
+        Index("ix_publish_jobs_workflow_job_id", "workflow_job_id"),
     )
 
 

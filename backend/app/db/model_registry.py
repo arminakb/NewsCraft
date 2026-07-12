@@ -23,6 +23,7 @@ from app.generation.models import (
     PromptTemplate,
     PromptTemplateVersion,
 )
+from app.jobs.models import AutomationControl, RuntimeHeartbeat, WorkflowEvent, WorkflowJob, WorkflowSchedule
 from app.publishing.models import Destination, Publication, PublishAttempt, PublishJob
 from app.research.models import ResearchAttempt, ResearchRun, ResearchSource
 from app.stories.models import Story, StoryEvidenceLink, StoryEvidenceSnapshot, StoryRevision
@@ -48,6 +49,11 @@ _MAPPED_CLASSES = (
     PlatformVariantRevision,
     PromptTemplate,
     PromptTemplateVersion,
+    AutomationControl,
+    RuntimeHeartbeat,
+    WorkflowEvent,
+    WorkflowJob,
+    WorkflowSchedule,
     Destination,
     Publication,
     PublishAttempt,

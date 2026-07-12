@@ -238,6 +238,7 @@ PLATFORM_SPINE_COLUMNS = {
     },
     "publish_jobs": {
         "id",
+        "workflow_job_id",
         "destination_id",
         "platform_variant_revision_id",
         "status",

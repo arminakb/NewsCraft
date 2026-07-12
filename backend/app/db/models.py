@@ -30,6 +30,7 @@ class Source(Base):
     last_modified: Mapped[str | None] = mapped_column(Text)
     active: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="true")
     last_fetch_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    next_fetch_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     last_success_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     last_failure_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     failure_count: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
@@ -49,6 +50,7 @@ class Source(Base):
     __table_args__ = (
         UniqueConstraint("platform", "feed_url", name="uq_sources_platform_feed_url"),
         UniqueConstraint("platform", "telegram_username", name="uq_sources_platform_telegram_username"),
+        Index("ix_sources_next_fetch_at", "next_fetch_at"),
     )
 
 

@@ -87,6 +87,17 @@ def test_postgres_18_volume_uses_supported_data_parent():
     assert "postgres_data:/var/lib/postgresql/data" not in postgres["volumes"]
 
 
+def test_compose_has_ephemeral_postgres_test_profile():
+    compose = yaml.safe_load((ROOT / "docker-compose.yml").read_text(encoding="utf-8"))
+    service = compose["services"]["postgres-test"]
+
+    assert service["image"] == "postgres:18"
+    assert service["profiles"] == ["test"]
+    assert service["environment"]["POSTGRES_DB"] == "newscraft_test"
+    assert service["ports"] == ["127.0.0.1:55432:5432"]
+    assert "/var/lib/postgresql" in service["tmpfs"]
+
+
 def test_dockerignore_excludes_local_build_noise():
     dockerignore = (ROOT / ".dockerignore").read_text(encoding="utf-8")
 
