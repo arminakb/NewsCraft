@@ -7,7 +7,7 @@ from pydantic import ValidationError
 from sqlalchemy.dialects import postgresql
 
 from app.core.config import Settings
-from app.jobs.scheduler import SchedulerService, build_due_schedule_statement
+from app.jobs.scheduler import SchedulerService, build_due_route_statement, build_due_schedule_statement
 
 
 class Transaction:
@@ -40,6 +40,7 @@ class FakeJobRepository:
         self.requeues = 0
         self.enqueued = []
         self.enqueue_created = True
+        self.seen_keys = set()
 
     async def requeue_expired_leases(self, *, now):
         self.requeues += 1
@@ -47,15 +48,18 @@ class FakeJobRepository:
 
     async def enqueue_job(self, **kwargs):
         self.enqueued.append(kwargs)
-        return SimpleNamespace(created=self.enqueue_created)
+        created = self.enqueue_created and kwargs["idempotency_key"] not in self.seen_keys
+        self.seen_keys.add(kwargs["idempotency_key"])
+        return SimpleNamespace(created=created)
 
 
 class MemoryScheduler(SchedulerService):
-    def __init__(self, *, sources, paused=False):
+    def __init__(self, *, sources, routes=None, paused=False):
         self.fake_session = FakeSession()
         self.fake_jobs = FakeJobRepository()
         super().__init__(self.fake_session, repository=self.fake_jobs, settings=Settings())
         self.sources = sources
+        self.routes = list(routes or [])
         self.schedules = {}
         self.paused = paused
 
@@ -76,6 +80,17 @@ class MemoryScheduler(SchedulerService):
             schedule
             for schedule in self.schedules.values()
             if schedule.enabled and schedule.next_run_at is not None and schedule.next_run_at <= now
+        ]
+
+    async def _lock_due_routes(self, now):
+        return [
+            route
+            for route in self.routes
+            if route.enabled
+            and route.paused_at is None
+            and route.cursor_state.get("status") == "ready"
+            and route.next_poll_at is not None
+            and route.next_poll_at <= now
         ]
 
 
@@ -280,3 +295,84 @@ async def test_non_zero_padded_durable_daily_time_disables_schedule_and_emits_in
 def test_due_schedule_query_locks_with_skip_locked():
     sql = str(build_due_schedule_statement(datetime(2026, 7, 11, tzinfo=UTC)).compile(dialect=postgresql.dialect()))
     assert "FOR UPDATE SKIP LOCKED" in sql
+
+
+@pytest.mark.asyncio
+async def test_due_ready_route_materializes_one_deterministic_poll_across_two_ticks():
+    due = datetime(2026, 7, 11, 8, 0, tzinfo=UTC)
+    route = SimpleNamespace(
+        id=uuid4(),
+        enabled=True,
+        paused_at=None,
+        cursor_state={"status": "ready"},
+        next_poll_at=due,
+        poll_interval_seconds=300,
+    )
+    service = MemoryScheduler(sources=[], routes=[route])
+
+    await service.tick(due)
+    await service.tick(due)
+
+    assert len(service.fake_jobs.enqueued) == 2
+    call = service.fake_jobs.enqueued[0]
+    assert call == {
+        "job_type": "telegram.route.poll",
+        "payload": {"route_id": str(route.id)},
+        "idempotency_key": f"telegram-route-poll:{route.id}:{due.isoformat()}",
+        "origin": call["origin"],
+        "scheduled_for": due,
+        "priority": 10,
+        "pause_sensitive": True,
+    }
+    assert call["origin"].value == "scheduler"
+    assert service.fake_jobs.enqueued[1]["idempotency_key"] == call["idempotency_key"]
+    assert route.next_poll_at == due
+
+
+@pytest.mark.asyncio
+async def test_scheduler_ignores_nonready_disabled_paused_not_due_routes_and_global_pause():
+    now = datetime(2026, 7, 11, 8, 0, tzinfo=UTC)
+    routes = [
+        SimpleNamespace(
+            id=uuid4(),
+            enabled=enabled,
+            paused_at=paused_at,
+            cursor_state={"status": status},
+            next_poll_at=next_poll_at,
+            poll_interval_seconds=300,
+        )
+        for enabled, paused_at, status, next_poll_at in (
+            (False, None, "ready", now),
+            (True, now, "ready", now),
+            (True, None, "initializing", now),
+            (True, None, "catching_up", now),
+            (True, None, "not_initialized", now),
+            (True, None, "ready", now + timedelta(seconds=1)),
+        )
+    ]
+    service = MemoryScheduler(sources=[], routes=routes)
+    await service.tick(now)
+    assert service.fake_jobs.enqueued == []
+
+    due = SimpleNamespace(
+        id=uuid4(),
+        enabled=True,
+        paused_at=None,
+        cursor_state={"status": "ready"},
+        next_poll_at=now,
+        poll_interval_seconds=300,
+    )
+    paused = MemoryScheduler(sources=[], routes=[due], paused=True)
+    await paused.tick(now)
+    assert paused.fake_jobs.enqueued == []
+
+
+def test_due_route_query_locks_with_skip_locked_and_requires_ready_state():
+    sql = str(build_due_route_statement(datetime(2026, 7, 11, tzinfo=UTC)).compile(dialect=postgresql.dialect()))
+    assert "FOR UPDATE SKIP LOCKED" in sql
+    assert "automation_routes.enabled" in sql
+    assert "paused_at IS NULL" in sql
+    assert "next_poll_at" in sql
+    assert "ready" in str(build_due_route_statement(datetime(2026, 7, 11, tzinfo=UTC)).compile(
+        dialect=postgresql.dialect(), compile_kwargs={"literal_binds": True}
+    ))

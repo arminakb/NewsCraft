@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime
 from hashlib import sha256
 from typing import Literal
 from uuid import UUID
@@ -50,6 +51,11 @@ class TelegramCaptureRepository:
         materialized_media: tuple[MaterializedTelegramMedia, ...],
         dispatch_kind: DispatchKind,
         dry_run_job_id: UUID | None,
+        enqueue_process: bool = True,
+        process_scheduled_for: datetime | None = None,
+        process_max_attempts: int = 3,
+        force_review: bool = False,
+        filter_reason: str | None = None,
     ) -> AutomationDispatch:
         route = await self.session.scalar(
             select(AutomationRoute).where(AutomationRoute.id == route_id).with_for_update()
@@ -75,6 +81,8 @@ class TelegramCaptureRepository:
             )
         )
         if existing is not None:
+            _update_cursor(route, envelope, source_fingerprint, dispatch_kind)
+            await self.session.flush()
             return existing
         parent_revision = None
         if dispatch_kind == "source_edit":
@@ -210,21 +218,25 @@ class TelegramCaptureRepository:
             source_fingerprint=source_fingerprint,
             source_message_ids=list(envelope.message_ids),
             dispatch_kind=dispatch_kind,
-            status="captured",
+            status="captured" if enqueue_process else "filtered",
         )
         self.session.add(dispatch)
         await self.session.flush()
-        enqueue_result = await self.jobs.enqueue_job(
-            job_type="telegram.route.process",
-            payload={"dispatch_id": str(dispatch.id)},
-            idempotency_key=f"telegram-process:{route_id}:{dispatch.source_key}",
-            origin=JobOrigin.AUTOMATION,
-        )
+        enqueue_result = None
+        if enqueue_process:
+            enqueue_result = await self.jobs.enqueue_job(
+                job_type="telegram.route.process",
+                payload={"dispatch_id": str(dispatch.id), "force_review": force_review},
+                idempotency_key=f"telegram-process:{route_id}:{dispatch.source_key}",
+                origin=JobOrigin.AUTOMATION,
+                scheduled_for=process_scheduled_for,
+                max_attempts=process_max_attempts,
+            )
         _update_cursor(route, envelope, source_fingerprint, dispatch_kind)
         await self.session.flush()
         self.session.add(
             WorkflowEvent(
-                workflow_job_id=enqueue_result.job.id,
+                workflow_job_id=enqueue_result.job.id if enqueue_result is not None else None,
                 event_type="telegram.source.captured",
                 actor="automation",
                 event_data=redact_event_data(
@@ -234,6 +246,7 @@ class TelegramCaptureRepository:
                         "source_item_id": str(source_item.id),
                         "message_ids": list(envelope.message_ids),
                         "media_count": len(media_assets),
+                        "filter_reason": filter_reason,
                     }
                 ),
             )

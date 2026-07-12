@@ -11,6 +11,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from sqlalchemy import Select, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.automations.models import AutomationRoute
 from app.core.config import Settings, settings
 from app.db.models import Source
 from app.db.session import async_session
@@ -42,6 +43,21 @@ def build_due_schedule_statement(now: datetime) -> Select[tuple[WorkflowSchedule
             WorkflowSchedule.next_run_at <= now,
         )
         .order_by(WorkflowSchedule.next_run_at, WorkflowSchedule.created_at)
+        .with_for_update(skip_locked=True)
+    )
+
+
+def build_due_route_statement(now: datetime) -> Select[tuple[AutomationRoute]]:
+    return (
+        select(AutomationRoute)
+        .where(
+            AutomationRoute.enabled.is_(True),
+            AutomationRoute.paused_at.is_(None),
+            AutomationRoute.next_poll_at.is_not(None),
+            AutomationRoute.next_poll_at <= now,
+            AutomationRoute.cursor_state["status"].astext == "ready",
+        )
+        .order_by(AutomationRoute.next_poll_at, AutomationRoute.created_at)
         .with_for_update(skip_locked=True)
     )
 
@@ -93,6 +109,24 @@ class SchedulerService:
 
             enqueued = 0
             deduplicated = 0
+            for route in await self._lock_due_routes(observed_at):
+                due_time = route.next_poll_at
+                if due_time is None:  # pragma: no cover - due query excludes nulls
+                    continue
+                result = await self.repository.enqueue_job(
+                    job_type="telegram.route.poll",
+                    payload={"route_id": str(route.id)},
+                    idempotency_key=f"telegram-route-poll:{route.id}:{due_time.isoformat()}",
+                    origin=JobOrigin.SCHEDULER,
+                    scheduled_for=due_time,
+                    priority=10,
+                    pause_sensitive=True,
+                )
+                if result.created:
+                    enqueued += 1
+                else:
+                    deduplicated += 1
+
             for schedule in await self._lock_due_schedules(observed_at):
                 if not self._valid_schedule(schedule, observed_at):
                     invalid += 1
@@ -281,6 +315,9 @@ class SchedulerService:
 
     async def _lock_due_schedules(self, now: datetime) -> list[WorkflowSchedule]:
         return list(await self.session.scalars(build_due_schedule_statement(now)))
+
+    async def _lock_due_routes(self, now: datetime) -> list[AutomationRoute]:
+        return list(await self.session.scalars(build_due_route_statement(now)))
 
 
 async def run_scheduler() -> None:

@@ -39,9 +39,24 @@ class JobHandlerRegistry:
         return tuple(sorted(self._handlers))
 
 
-def build_default_registry() -> JobHandlerRegistry:
+def build_default_registry(
+    *,
+    source_registry: Any | None = None,
+    media_stager: Any | None = None,
+) -> JobHandlerRegistry:
     from app.jobs.handlers import handle_ingest_collect
+
+    if (source_registry is None) != (media_stager is None):
+        raise ValueError("source_registry and media_stager must be supplied together")
 
     registry = JobHandlerRegistry()
     registry.register("ingest.collect", handle_ingest_collect)
+    if source_registry is not None and media_stager is not None:
+        from app.automations.telegram.handlers import build_telegram_route_handlers
+
+        handlers = build_telegram_route_handlers(source_registry, media_stager)
+        registry.register("telegram.route.backfill", handlers.backfill)
+        registry.register("telegram.route.dry_run", handlers.dry_run)
+        registry.register("telegram.route.initialize", handlers.initialize)
+        registry.register("telegram.route.poll", handlers.poll)
     return registry
