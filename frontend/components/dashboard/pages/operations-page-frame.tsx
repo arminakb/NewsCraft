@@ -12,23 +12,25 @@ export function OperationsPageFrame({
   subtitle,
   actions,
   children,
+  enableQueries = true,
 }: {
   title: string
   subtitle: string
   actions?: React.ReactNode
   children: React.ReactNode
+  enableQueries?: boolean
 }) {
   const countsQuery = useQuery({
     queryKey: queryKeys.dashboardSummary,
     queryFn: getDashboardSummary,
-    initialData: emptyDashboardCounts,
-    enabled: process.env.NODE_ENV !== "test",
+    placeholderData: emptyDashboardCounts,
+    enabled: enableQueries,
   })
 
   return (
     <div className="min-h-screen bg-slate-50 text-sm text-foreground">
       <div className="grid min-h-screen grid-cols-1 md:grid-cols-[240px_minmax(0,1fr)]">
-        <AppSidebar counts={countsQuery.data} />
+        <AppSidebar counts={countsQuery.data ?? emptyDashboardCounts} />
         <main className="min-w-0 bg-white">
           <header className="flex min-h-14 flex-wrap items-center justify-between gap-3 border-b px-4 py-3">
             <div>

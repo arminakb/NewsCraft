@@ -16,7 +16,7 @@ import type { DashboardSnapshot } from "@/lib/types"
 
 export function DashboardShell({
   initialData,
-  enableQueries = process.env.NODE_ENV !== "test",
+  enableQueries = true,
 }: {
   initialData: DashboardSnapshot
   enableQueries?: boolean
@@ -28,7 +28,7 @@ export function DashboardShell({
   const dashboardQuery = useQuery({
     queryKey: queryKeys.dashboardSnapshot,
     queryFn: getDashboardSnapshot,
-    initialData,
+    placeholderData: initialData,
     enabled: enableQueries,
     refetchInterval: 30_000,
   })
@@ -44,7 +44,7 @@ export function DashboardShell({
     },
   })
 
-  const data = dashboardQuery.data
+  const data = dashboardQuery.data ?? initialData
   const selectedSource = useMemo(
     () => data.sources.find((source) => source.id === selectedSourceId) ?? data.sources[0],
     [data.sources, selectedSourceId]

@@ -12,15 +12,21 @@ import { getSource, getSources, runIngest, seedSources } from "@/lib/api-client"
 import { queryKeys } from "@/lib/query-keys"
 import type { SourceSummary } from "@/lib/types"
 
-export function SourcesPage({ initialSources }: { initialSources: SourceSummary[] }) {
+export function SourcesPage({
+  initialSources = [],
+  enableQueries = true,
+}: {
+  initialSources?: SourceSummary[]
+  enableQueries?: boolean
+}) {
   const queryClient = useQueryClient()
   const [selectedSourceId, setSelectedSourceId] = useState(initialSources[0]?.id ?? "")
   const [detailOpen, setDetailOpen] = useState(false)
   const sourcesQuery = useQuery({
     queryKey: queryKeys.sources,
     queryFn: getSources,
-    initialData: initialSources,
-    enabled: process.env.NODE_ENV !== "test",
+    placeholderData: initialSources,
+    enabled: enableQueries,
   })
   const seedMutation = useMutation({
     mutationFn: seedSources,
@@ -30,17 +36,18 @@ export function SourcesPage({ initialSources }: { initialSources: SourceSummary[
     mutationFn: () => runIngest({}),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: queryKeys.sources }),
   })
-  const sources = sourcesQuery.data
+  const sources = sourcesQuery.data ?? initialSources
   const selectedSource = sources.find((source) => source.id === selectedSourceId) ?? sources[0]
   const sourceDetailQuery = useQuery({
     queryKey: selectedSourceId ? queryKeys.source(selectedSourceId) : ["sources", "detail"],
     queryFn: () => getSource(selectedSourceId),
-    enabled: Boolean(selectedSourceId) && process.env.NODE_ENV !== "test",
-    initialData: selectedSource,
+    enabled: Boolean(selectedSourceId) && enableQueries,
+    placeholderData: selectedSource,
   })
 
   return (
     <OperationsPageFrame
+      enableQueries={enableQueries}
       title="Sources"
       subtitle="Manage RSS feeds and public Telegram channels."
       actions={

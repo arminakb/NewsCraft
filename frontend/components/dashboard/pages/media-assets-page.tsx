@@ -10,17 +10,28 @@ import { getMediaAssets } from "@/lib/api-client"
 import { queryKeys } from "@/lib/query-keys"
 import type { MediaTile } from "@/lib/types"
 
-export function MediaAssetsPage({ initialMedia }: { initialMedia: MediaTile[] }) {
+export function MediaAssetsPage({
+  initialMedia = [],
+  enableQueries = true,
+}: {
+  initialMedia?: MediaTile[]
+  enableQueries?: boolean
+}) {
   const mediaQuery = useQuery({
     queryKey: queryKeys.media,
     queryFn: getMediaAssets,
-    initialData: initialMedia,
-    enabled: process.env.NODE_ENV !== "test",
+    placeholderData: initialMedia,
+    enabled: enableQueries,
   })
+  const media = mediaQuery.data ?? initialMedia
 
   return (
-    <OperationsPageFrame title="Media Assets" subtitle="Inspect extracted images and downloaded media candidates.">
-      <MediaStrip media={mediaQuery.data} />
+    <OperationsPageFrame
+      enableQueries={enableQueries}
+      title="Media Assets"
+      subtitle="Inspect extracted images and downloaded media candidates."
+    >
+      <MediaStrip media={media} />
       <Card className="rounded-md py-0" size="sm">
         <CardHeader className="border-b px-3 py-3">
           <CardTitle className="text-base">Media metadata</CardTitle>
@@ -38,7 +49,7 @@ export function MediaAssetsPage({ initialMedia }: { initialMedia: MediaTile[] })
                 <span>Primary</span>
               </div>
               <div className="divide-y">
-                {mediaQuery.data.map((asset) => (
+                {media.map((asset) => (
                   <div key={asset.id} className="grid grid-cols-[minmax(220px,1fr)_110px_90px_100px_130px_90px_90px] items-center gap-3 px-3 py-3 text-sm">
                     <div className="min-w-0">
                       <div className="truncate font-medium">{asset.fileName}</div>

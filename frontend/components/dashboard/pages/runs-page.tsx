@@ -10,21 +10,29 @@ import { getIngestRuns, runIngest } from "@/lib/api-client"
 import { queryKeys } from "@/lib/query-keys"
 import type { IngestionRunSummary } from "@/lib/types"
 
-export function RunsPage({ initialRuns }: { initialRuns: IngestionRunSummary[] }) {
+export function RunsPage({
+  initialRuns = [],
+  enableQueries = true,
+}: {
+  initialRuns?: IngestionRunSummary[]
+  enableQueries?: boolean
+}) {
   const queryClient = useQueryClient()
   const runsQuery = useQuery({
     queryKey: queryKeys.runs,
     queryFn: getIngestRuns,
-    initialData: initialRuns,
-    enabled: process.env.NODE_ENV !== "test",
+    placeholderData: initialRuns,
+    enabled: enableQueries,
   })
   const ingestMutation = useMutation({
     mutationFn: () => runIngest({}),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: queryKeys.runs }),
   })
+  const runs = runsQuery.data ?? initialRuns
 
   return (
     <OperationsPageFrame
+      enableQueries={enableQueries}
       title="Ingestion Runs"
       subtitle="Track manual and scheduled ingestion activity."
       actions={
@@ -34,7 +42,7 @@ export function RunsPage({ initialRuns }: { initialRuns: IngestionRunSummary[] }
         </Button>
       }
     >
-      <IngestionRunsPanel runs={runsQuery.data} />
+      <IngestionRunsPanel runs={runs} />
     </OperationsPageFrame>
   )
 }

@@ -12,7 +12,13 @@ import { approveContentItem, getContentItem, getContentItems } from "@/lib/api-c
 import { queryKeys } from "@/lib/query-keys"
 import type { ContentQueueItem } from "@/lib/types"
 
-export function ContentItemsPage({ initialItems }: { initialItems: ContentQueueItem[] }) {
+export function ContentItemsPage({
+  initialItems = [],
+  enableQueries = true,
+}: {
+  initialItems?: ContentQueueItem[]
+  enableQueries?: boolean
+}) {
   const queryClient = useQueryClient()
   const [status, setStatus] = useState("all")
   const [sort, setSort] = useState<"latest" | "score">("latest")
@@ -30,24 +36,26 @@ export function ContentItemsPage({ initialItems }: { initialItems: ContentQueueI
   const contentQuery = useQuery({
     queryKey: [...queryKeys.contentItems, filters],
     queryFn: () => getContentItems(filters),
-    initialData: initialItems,
-    enabled: process.env.NODE_ENV !== "test",
+    placeholderData: initialItems,
+    enabled: enableQueries,
   })
   const approveMutation = useMutation({
     mutationFn: (id: string) => approveContentItem(id, { notes: "Approved from dashboard" }),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: queryKeys.contentItems }),
   })
-  const selectedListItem = contentQuery.data.find((item) => item.id === selectedItemId)
+  const items = contentQuery.data ?? initialItems
+  const selectedListItem = items.find((item) => item.id === selectedItemId)
   const detailQuery = useQuery({
     queryKey: selectedItemId ? ["content-item", selectedItemId] : ["content-item"],
     queryFn: () => getContentItem(selectedItemId as string),
-    enabled: Boolean(selectedItemId) && process.env.NODE_ENV !== "test",
-    initialData: selectedListItem,
+    enabled: Boolean(selectedItemId) && enableQueries,
+    placeholderData: selectedListItem,
   })
   const selectedItem = detailQuery.data
 
   return (
     <OperationsPageFrame
+      enableQueries={enableQueries}
       title="Content Items"
       subtitle="Review, classify, and approve captured items."
       actions={
@@ -103,7 +111,7 @@ export function ContentItemsPage({ initialItems }: { initialItems: ContentQueueI
                 <span>Status</span>
                 </div>
                 <div className="divide-y">
-                  {contentQuery.data.map((item) => (
+                  {items.map((item) => (
                     <div key={item.id} className="grid grid-cols-[minmax(340px,1.5fr)_120px_110px_140px_110px_150px] items-start gap-3 px-3 py-3 text-sm">
                     <div className="flex min-w-0 items-center gap-3">
                       {item.thumbnailUrl ? <img src={item.thumbnailUrl} alt="" className="h-12 w-16 rounded-md object-cover" /> : <div className="h-12 w-16 rounded-md bg-muted" />}

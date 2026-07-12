@@ -12,6 +12,7 @@ vi.mock("@/lib/api-client", async () => {
   const actual = await vi.importActual<typeof import("@/lib/api-client")>("@/lib/api-client")
   return {
     ...actual,
+    getDashboardSummary: vi.fn(async () => dashboardMock.counts),
     getSources: vi.fn(async () => dashboardMock.sources),
     getContentItem: vi.fn(async () => ({
       ...dashboardMock.queue[0],
@@ -36,7 +37,7 @@ vi.mock("@/lib/api-client", async () => {
 
 describe("operational pages", () => {
   it("renders source operations including seeding", async () => {
-    renderWithQuery(<SourcesPage initialSources={dashboardMock.sources} />)
+    renderWithQuery(<SourcesPage initialSources={dashboardMock.sources} enableQueries={false} />)
 
     expect(await screen.findByRole("heading", { name: /sources/i })).toBeInTheDocument()
     expect(screen.getByRole("button", { name: /seed sources/i })).toBeInTheDocument()
@@ -46,6 +47,7 @@ describe("operational pages", () => {
   it("renders content operations including approval actions", async () => {
     renderWithQuery(
       <ContentItemsPage
+        enableQueries={false}
         initialItems={[
           {
             ...dashboardMock.queue[0],
@@ -83,11 +85,12 @@ describe("operational pages", () => {
   })
 
   it("renders runs, media, and diagnostics pages", async () => {
-    renderWithQuery(<RunsPage initialRuns={dashboardMock.runs} />)
+    renderWithQuery(<RunsPage initialRuns={dashboardMock.runs} enableQueries={false} />)
     expect(await screen.findByRole("heading", { name: /ingestion runs/i })).toBeInTheDocument()
 
     renderWithQuery(
       <MediaAssetsPage
+        enableQueries={false}
         initialMedia={[
           {
             ...dashboardMock.media[0],
