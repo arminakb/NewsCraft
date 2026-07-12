@@ -24,6 +24,8 @@ class Settings(BaseSettings):
     worker_heartbeat_seconds: int = Field(default=30, ge=5)
     openrouter_base_url: str = "https://openrouter.ai/api/v1"
     openrouter_default_model: str = "openai/gpt-5-mini"
+    codex_enabled: bool = False
+    codex_executable: str = "codex"
     telegram_media_staging_root: str = "/data/telegram-staging"
     telegram_max_photo_bytes: int = Field(default=10_000_000, gt=0)
     telegram_max_file_bytes: int = Field(default=49_000_000, gt=0)

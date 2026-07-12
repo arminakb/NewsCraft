@@ -145,6 +145,26 @@ def test_provider_contract_has_no_database_dependency() -> None:
     assert set(inspect.signature(FakeResearchBackend).parameters) == {"output"}
 
 
+def test_codex_raw_contract_forbids_database_ids_provider_body_and_ambiguous_citations() -> None:
+    from app.research.codex_adapter import CodexCandidateCitation, CodexSourceCandidate
+
+    with pytest.raises(ValidationError):
+        CodexSourceCandidate.model_validate(
+            {
+                "url": "https://example.com/report",
+                "content_text": "provider-authored body",
+            }
+        )
+    with pytest.raises(ValidationError):
+        CodexCandidateCitation.model_validate(
+            {
+                "evidence_key": "existing:key",
+                "source_url": "https://example.com/report",
+                "quote": "quote",
+            }
+        )
+
+
 def test_research_prompt_is_deterministic_evidence_grounded_and_omits_free_ids_and_secrets(
     evidence_records: list[EvidenceRecord],
 ) -> None:

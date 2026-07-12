@@ -131,11 +131,18 @@ async def test_application_lifespan_seeds_defaults_in_one_transaction(monkeypatc
         assert value is session
         calls.append("configuration")
 
+    async def seed_codex(value, *, enabled, model):
+        assert value is session
+        assert enabled is main.settings.codex_enabled
+        assert model == "gpt-5.4"
+        calls.append("codex")
+
     monkeypatch.setattr(main, "async_session", lambda: session)
     monkeypatch.setattr(main, "seed_default_telegram_prompt", seed_prompt)
     monkeypatch.setattr(main, "seed_default_telegram_configuration", seed_configuration)
+    monkeypatch.setattr(main, "seed_codex_provider_profile", seed_codex)
 
     async with main.lifespan(main.app):
         calls.append("serve")
 
-    assert calls == ["prompt", "configuration", "commit", "exit", "serve"]
+    assert calls == ["prompt", "configuration", "codex", "commit", "exit", "serve"]

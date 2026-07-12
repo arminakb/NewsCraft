@@ -6,12 +6,28 @@ from uuid import uuid4
 
 import pytest
 
+from app.automations.models import AutomationDispatch, AutomationRoute
 from app.automations.telegram.handlers import (
     build_evidence_map,
+    build_telegram_process_handler,
     sha256_canonical,
     validate_evidence_snapshot,
 )
 from app.automations.telegram.policy import evaluate_auto_publish
+from app.db.models import ContentItem, MediaAsset, SourceItem
+from app.generation.models import (
+    AIProviderProfile,
+    BrandProfile,
+    GenerationAttempt,
+    PromptTemplateVersion,
+)
+from app.generation.provider_settings import default_codex_provider_settings
+from app.generation.providers.codex import CodexGenerationProvider
+from app.generation.providers.profiles import ResolvedProviderProfile
+from app.generation.telegram_schema import TelegramRewriteOutput
+from app.jobs.registry import JobContext
+from app.publishing.models import Destination
+from app.stories.models import StoryEvidenceLink, StoryEvidenceSnapshot, StoryRevision
 
 
 def valid_gate_input() -> dict:
@@ -82,3 +98,207 @@ def test_invalid_snapshot_fails_before_generation(text, digest):
 
     with pytest.raises(ValueError, match="evidence"):
         validate_evidence_snapshot(snapshot)
+
+
+class ProbeStop(BaseException):
+    pass
+
+
+class ProbeExecutor:
+    async def run(self, *args, **kwargs):
+        raise ProbeStop
+
+
+class CapturingCodexProvider:
+    provider_name = "codex"
+
+    def __init__(self, profile):
+        self.inner = CodexGenerationProvider(executor=ProbeExecutor(), profile=profile)
+        self.request = None
+        self.validation_error = None
+
+    async def generate(self, request):
+        self.request = request
+        try:
+            return await self.inner.generate(request)
+        except ValueError as exc:
+            self.validation_error = exc
+            raise ProbeStop from None
+
+
+class ProbeResolver:
+    def __init__(self, profile, provider):
+        self.profile = profile
+        self.provider = provider
+
+    async def resolve(self, profile, model_override):
+        return ResolvedProviderProfile(
+            profile_id=profile.id,
+            provider_type="codex",
+            model=profile.default_model,
+            provider=self.provider,
+        )
+
+
+class AsyncContext:
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, exc_type, exc, tb):
+        return False
+
+
+class HandlerProbeSession:
+    def __init__(self, values, dispatch, link):
+        self.values = list(values)
+        self.dispatch = dispatch
+        self.link = link
+
+    def begin(self):
+        return AsyncContext()
+
+    async def scalar(self, statement):
+        entity = statement.column_descriptions[0].get("entity")
+        if entity is AutomationDispatch:
+            return self.dispatch
+        return next((value for value in self.values if isinstance(value, entity)), None)
+
+    async def scalars(self, statement):
+        entity = statement.column_descriptions[0].get("entity")
+        if entity is StoryEvidenceLink:
+            return [self.link]
+        if entity in {MediaAsset, GenerationAttempt}:
+            return []
+        return [value for value in self.values if isinstance(value, entity)]
+
+    async def get(self, model, identifier):
+        return next(
+            (
+                value
+                for value in self.values
+                if isinstance(value, model) and value.id == identifier
+            ),
+            None,
+        )
+
+    def add(self, value):
+        if getattr(value, "id", None) is None:
+            value.id = uuid4()
+        self.values.append(value)
+
+    async def flush(self):
+        return None
+
+
+async def test_real_handler_passes_selected_profile_id_to_codex_provider():
+    profile = AIProviderProfile(
+        id=uuid4(),
+        name="Codex CLI",
+        provider_type="codex",
+        default_model="gpt-5.4",
+        secret_ref=None,
+        settings=default_codex_provider_settings().model_dump(mode="json"),
+        enabled=True,
+    )
+    provider = CapturingCodexProvider(profile)
+    route = AutomationRoute(
+        id=uuid4(),
+        source_id=uuid4(),
+        destination_id=uuid4(),
+        brand_profile_id=uuid4(),
+        prompt_template_version_id=uuid4(),
+        ai_provider_profile_id=profile.id,
+        content_filters={},
+        attribution_policy="preserve",
+        custom_footer=None,
+        retry_policy={},
+    )
+    story_revision = StoryRevision(id=uuid4(), story_id=uuid4(), revision_number=1)
+    content_item = ContentItem(id=uuid4(), content_text="source", direction="ltr")
+    source_item = SourceItem(
+        id=uuid4(),
+        source_id=route.source_id,
+        content_item_id=content_item.id,
+        external_id_raw="source:1",
+        external_id_norm="source:1",
+        content_text_raw="source",
+    )
+    text = "source"
+    digest = hashlib.sha256(text.encode()).hexdigest()
+    snapshot = StoryEvidenceSnapshot(
+        id=uuid4(),
+        story_id=story_revision.story_id,
+        evidence_key="telegram.source.1",
+        source_url="https://t.me/source/1",
+        content_text=text,
+        content_sha256=digest,
+        authors=[],
+        snapshot_metadata={},
+    )
+    link = StoryEvidenceLink(
+        story_revision_id=story_revision.id,
+        evidence_snapshot_id=snapshot.id,
+        claim_key="telegram.source",
+        relationship="supports",
+    )
+    prompt = PromptTemplateVersion(
+        id=route.prompt_template_version_id,
+        prompt_template_id=uuid4(),
+        version=1,
+        system_template="Locked system",
+        user_template=(
+            "{source_text} {source_url} {source_channel} {language} {direction} "
+            "{attribution_policy} {custom_footer}"
+        ),
+        output_schema_version="telegram_rewrite.v1",
+        output_schema=TelegramRewriteOutput.model_json_schema(),
+        checksum_sha256="a" * 64,
+        is_active=True,
+    )
+    brand = BrandProfile(id=route.brand_profile_id, name="Brand", output_language="fa", tone="neutral")
+    destination = Destination(
+        id=route.destination_id,
+        name="Destination",
+        platform="telegram",
+        target_ref="@destination",
+        secret_ref="TELEGRAM_DESTINATION_TOKEN",
+        enabled=True,
+        health_status="healthy",
+        settings={},
+    )
+    dispatch = AutomationDispatch(
+        id=uuid4(),
+        route_id=route.id,
+        source_item_id=source_item.id,
+        story_revision_id=story_revision.id,
+        source_key="source:1",
+        source_fingerprint="f" * 64,
+        source_message_ids=[1],
+        dispatch_kind="live",
+        status="captured",
+    )
+    session = HandlerProbeSession(
+        [route, story_revision, source_item, content_item, snapshot, prompt, brand, profile, destination],
+        dispatch,
+        link,
+    )
+    job = SimpleNamespace(
+        id=uuid4(),
+        payload={"dispatch_id": str(dispatch.id), "force_review": False},
+        attempt_count=1,
+    )
+    handler = build_telegram_process_handler(ProbeResolver(profile, provider))
+
+    with pytest.raises(ProbeStop):
+        await handler(job, JobContext(session=session, providers=SimpleNamespace()))
+
+    assert provider.validation_error is None
+    assert provider.request.metadata["provider_profile_id"] == str(profile.id)
+    assert set(provider.request.metadata) == {
+        "dispatch_id",
+        "route_id",
+        "evidence_snapshot_id",
+        "provider_profile_id",
+    }
+    assert "secret" not in str(provider.request.metadata).lower()
+    assert "settings" not in provider.request.metadata

@@ -27,7 +27,9 @@ from app.api.generation_settings import (
     create_provider_profile,
     list_prompt_versions,
     patch_provider_profile,
+    seed_codex_provider_profile,
 )
+from app.core.config import Settings
 from app.db.session import get_session
 from app.generation.models import (
     AIProviderProfile,
@@ -35,7 +37,12 @@ from app.generation.models import (
     PromptTemplate,
     PromptTemplateVersion,
 )
-from app.generation.provider_settings import OpenRouterProviderSettings
+from app.generation.provider_settings import (
+    CodexProviderSettings,
+    OpenRouterProviderSettings,
+    default_codex_provider_settings,
+    effective_codex_provider_settings,
+)
 from app.main import app
 
 
@@ -88,6 +95,111 @@ def test_provider_contract_rejects_fake_settings_and_requires_openrouter_model_a
 def test_provider_contract_forbids_unknown_settings_keys():
     with pytest.raises(ValidationError):
         OpenRouterProviderSettings.model_validate({"api_key": "must-never-be-stored"})
+
+
+def test_codex_provider_settings_are_strict_and_apply_effective_nested_defaults():
+    defaults = default_codex_provider_settings()
+    assert defaults.research_budgets.standard.max_pages == 8
+    assert defaults.research_budgets.deep.max_pages == 16
+    assert defaults.generation_limits.max_model_calls == 1
+    omitted = CodexProviderSettings.model_validate({})
+    effective = effective_codex_provider_settings(omitted)
+    assert omitted.research_budgets is None
+    assert effective.research_budgets == defaults.research_budgets
+    with pytest.raises(ValidationError):
+        CodexProviderSettings.model_validate({"executable": "/usr/bin/codex"})
+
+
+def test_codex_profile_forbids_secret_and_requires_model():
+    with pytest.raises(ValidationError, match="codex"):
+        AIProviderProfileCreate.model_validate(
+            {
+                "name": "Codex CLI",
+                "provider_type": "codex",
+                "default_model": "gpt-5.4",
+                "secret_ref": "OPENAI_API_KEY",
+            }
+        )
+
+
+def test_codex_runtime_settings_have_safe_disabled_defaults():
+    runtime = Settings(_env_file=None)
+    assert runtime.codex_enabled is False
+    assert runtime.codex_executable == "codex"
+    with pytest.raises(ValidationError, match="codex"):
+        AIProviderProfileCreate.model_validate(
+            {"name": "Codex CLI", "provider_type": "codex"}
+        )
+
+
+async def test_codex_profile_create_applies_defaults_and_exposes_only_safe_capabilities(
+    monkeypatch,
+):
+    monkeypatch.setattr("app.api.generation_settings.application_settings.codex_enabled", True)
+    session = GenerationSession()
+    secrets = SimpleNamespace(configured=lambda reference: False)
+    def executable(name):
+        return "/private/operator/bin/codex" if name == "codex" else None
+    created = await create_provider_profile(
+        AIProviderProfileCreate.model_validate(
+            {
+                "name": "Codex CLI",
+                "provider_type": "codex",
+                "default_model": "gpt-5.4",
+                "settings": {},
+            }
+        ),
+        session,
+        secrets,
+        executable,
+    )
+    stored = session.one(AIProviderProfile)
+    assert stored.settings == {}
+    assert created.configured is True
+    assert created.capabilities == {"generation": True, "research": True}
+    assert created.unavailability_codes == []
+    assert "/private/operator" not in created.model_dump_json()
+    assert "environment" not in created.model_dump_json().lower()
+
+
+async def test_codex_profile_seed_is_idempotent_and_has_no_secret():
+    session = GenerationSession()
+    first = await seed_codex_provider_profile(
+        session, enabled=True, model="gpt-5.4"
+    )
+    second = await seed_codex_provider_profile(
+        session, enabled=True, model="gpt-5.4"
+    )
+    assert first.id == second.id
+    assert first.secret_ref is None
+    assert first.provider_type == "codex"
+    settings = CodexProviderSettings.model_validate(first.settings)
+    assert settings.research_budgets.deep.max_model_calls == 1
+
+
+async def test_codex_profile_seed_repairs_drift_to_canonical_safe_configuration():
+    session = GenerationSession()
+    drifted = AIProviderProfile(
+        id=uuid4(),
+        name="Codex CLI",
+        provider_type="openrouter",
+        default_model="wrong-model",
+        secret_ref="OPENROUTER_API_KEY",
+        settings={"base_url": "https://example.com"},
+        enabled=False,
+    )
+    session.values.append(drifted)
+
+    repaired = await seed_codex_provider_profile(
+        session, enabled=True, model="gpt-5.4"
+    )
+
+    assert repaired is drifted
+    assert repaired.provider_type == "codex"
+    assert repaired.default_model == "gpt-5.4"
+    assert repaired.secret_ref is None
+    assert repaired.settings == default_codex_provider_settings().model_dump(mode="json")
+    assert repaired.enabled is True
 
 
 @pytest.mark.parametrize(

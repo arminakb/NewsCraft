@@ -21,6 +21,7 @@ from app.api.telegram_schemas import TelegramRouteBackfillIn, TelegramRouteCreat
 from app.automations.models import AutomationRoute, TelegramSourceConfig
 from app.db.models import Source
 from app.generation.models import AIProviderProfile, BrandProfile, PromptTemplate, PromptTemplateVersion
+from app.generation.provider_settings import default_codex_provider_settings
 from app.jobs.repository import EnqueueJobResult
 from app.jobs.types import JobStatus
 from app.publishing.models import Destination
@@ -274,6 +275,143 @@ async def test_route_create_validates_references_and_options_omit_all_secret_ref
         )
     assert conflict.value.status_code == 409
     assert session.source_lock_count == 3
+
+
+def codex_route_configuration():
+    source = Source(id=uuid4(), platform="telegram_public", name="Source", source_group="telegram")
+    config = TelegramSourceConfig(
+        source_id=source.id, access_mode="public_html", channel_ref="source_channel"
+    )
+    destination = Destination(
+        id=uuid4(),
+        name="Destination",
+        platform="telegram",
+        target_ref="@destination",
+        secret_ref="TELEGRAM_DESTINATION_TOKEN",
+        enabled=True,
+        health_status="healthy",
+        settings={"allow_auto_publish": False},
+    )
+    brand = BrandProfile(id=uuid4(), name="Brand", output_language="fa", tone="neutral")
+    prompt = PromptTemplate(id=uuid4(), purpose_key="telegram_rewrite", name="Rewrite")
+    version = PromptTemplateVersion(
+        id=uuid4(),
+        prompt_template_id=prompt.id,
+        version=1,
+        system_template="system",
+        user_template="user",
+        output_schema_version="telegram_rewrite.v1",
+        checksum_sha256="a" * 64,
+        is_active=True,
+    )
+    provider = AIProviderProfile(
+        id=uuid4(),
+        name="Codex CLI",
+        provider_type="codex",
+        default_model="gpt-5.4",
+        secret_ref=None,
+        settings=default_codex_provider_settings().model_dump(mode="json"),
+        enabled=True,
+    )
+    session = ConfigurationSession(
+        [source, config, destination, brand, prompt, version, provider]
+    )
+    payload = TelegramRouteCreate.model_validate(
+        {
+            **valid_route_payload(),
+            "source_id": source.id,
+            "destination_id": destination.id,
+            "brand_profile_id": brand.id,
+            "prompt_template_version_id": version.id,
+            "ai_provider_profile_id": provider.id,
+            "content_filters": {},
+        }
+    )
+    return session, payload, provider
+
+
+async def test_codex_is_safe_telegram_option_and_route_when_runtime_available(monkeypatch):
+    monkeypatch.setattr("app.api.generation_settings.application_settings.codex_enabled", True)
+    session, payload, provider = codex_route_configuration()
+    secrets = SimpleNamespace(configured=lambda reference: False)
+
+    options = await automation_options(
+        session, secrets, lambda name: "/private/bin/codex"
+    )
+    route = await create_route(
+        payload, session, secrets, lambda name: "/private/bin/codex"
+    )
+
+    assert route.ai_provider_profile_id == provider.id
+    assert options.ai_provider_profiles == [
+        {
+            "id": provider.id,
+            "name": "Codex CLI",
+            "provider_type": "codex",
+            "default_model": "gpt-5.4",
+            "configured": True,
+        }
+    ]
+    assert "/private/bin" not in str(options)
+
+
+@pytest.mark.parametrize(
+    "mutation,available",
+    [
+        ({"enabled": False}, True),
+        ({"settings": {"unexpected": True}}, True),
+        ({"secret_ref": "OPENAI_API_KEY"}, True),
+        ({}, False),
+    ],
+)
+async def test_telegram_route_rejects_unavailable_or_invalid_codex(
+    monkeypatch, mutation, available
+):
+    monkeypatch.setattr("app.api.generation_settings.application_settings.codex_enabled", True)
+    session, payload, provider = codex_route_configuration()
+    for key, value in mutation.items():
+        setattr(provider, key, value)
+    def executable(name):
+        return "/private/bin/codex" if available else None
+    secrets = SimpleNamespace(configured=lambda reference: True)
+
+    options = await automation_options(session, secrets, executable)
+    assert options.ai_provider_profiles == []
+    with pytest.raises(HTTPException, match="not configured") as error:
+        await create_route(payload, session, secrets, executable)
+    assert error.value.status_code == 422
+
+
+@pytest.mark.parametrize(
+    "provider_type,mutation,configured_secrets",
+    [
+        ("fake", {"secret_ref": "OPENROUTER_API_KEY"}, {"OPENROUTER_API_KEY"}),
+        ("fake", {"settings": {"unexpected": True}}, set()),
+        ("openrouter", {"default_model": None}, {"OPENROUTER_API_KEY"}),
+        ("openrouter", {"settings": {"unexpected": True}}, {"OPENROUTER_API_KEY"}),
+        ("openrouter", {"secret_ref": None}, set()),
+    ],
+)
+async def test_telegram_rejects_drifted_fake_and_openrouter_profiles(
+    monkeypatch, provider_type, mutation, configured_secrets
+):
+    monkeypatch.setattr("app.api.generation_settings.application_settings.codex_enabled", True)
+    session, payload, provider = codex_route_configuration()
+    provider.provider_type = provider_type
+    provider.default_model = "fake-v1" if provider_type == "fake" else "model-a"
+    provider.secret_ref = None if provider_type == "fake" else "OPENROUTER_API_KEY"
+    provider.settings = {}
+    for key, value in mutation.items():
+        setattr(provider, key, value)
+    secrets = SimpleNamespace(
+        configured=lambda reference: reference in configured_secrets
+    )
+
+    options = await automation_options(session, secrets, lambda name: "/bin/codex")
+    assert options.ai_provider_profiles == []
+    with pytest.raises(HTTPException, match="not configured") as error:
+        await create_route(payload, session, secrets, lambda name: "/bin/codex")
+    assert error.value.status_code == 422
 
 
 async def test_auto_route_is_rejected_when_destination_disallows_auto_publish():

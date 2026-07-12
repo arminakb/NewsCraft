@@ -1985,6 +1985,7 @@ def build_telegram_process_handler(profile_resolver: Any) -> JobHandler:
                         "dispatch_id": str(dispatch.id),
                         "route_id": str(route.id),
                         "evidence_snapshot_id": str(snapshot.id),
+                        "provider_profile_id": str(profile.id),
                     },
                 )
 

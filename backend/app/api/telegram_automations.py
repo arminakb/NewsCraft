@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import hashlib
 import json
+import shutil
+from collections.abc import Callable
 from datetime import UTC, datetime
 from typing import Annotated
 from uuid import UUID
@@ -10,6 +12,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.generation_settings import provider_capabilities
 from app.api.telegram_destinations import (
     get_job_repository,
     get_secret_resolver,
@@ -36,6 +39,25 @@ router = APIRouter(prefix="/telegram/automations", tags=["telegram"])
 SessionDependency = Depends(get_session)
 JobRepositoryDependency = Annotated[JobRepository, Depends(get_job_repository)]
 SecretResolverDependency = Annotated[SecretResolver, Depends(get_secret_resolver)]
+type ExecutableResolver = Callable[[str], str | None]
+
+
+def get_executable_resolver() -> ExecutableResolver:
+    return shutil.which
+
+
+ExecutableResolverDependency = Annotated[ExecutableResolver, Depends(get_executable_resolver)]
+
+
+def _provider_is_configured(
+    profile: AIProviderProfile,
+    secrets: SecretResolver,
+    executable_resolver: ExecutableResolver,
+) -> bool:
+    capabilities, _codes = provider_capabilities(
+        profile, secrets, executable_resolver
+    )
+    return capabilities["generation"]
 
 
 def _job_out(result) -> JobAcceptedOut:
@@ -62,6 +84,7 @@ async def list_routes(session: AsyncSession = SessionDependency):
 async def automation_options(
     session: AsyncSession = SessionDependency,
     secrets: SecretResolverDependency = None,
+    executable_resolver: ExecutableResolverDependency = shutil.which,
 ):
     sources = list(await session.scalars(select(Source).where(Source.platform == "telegram_public")))
     source_configs = list(await session.scalars(select(TelegramSourceConfig)))
@@ -86,9 +109,7 @@ async def automation_options(
     )
     safe_profiles = []
     for profile in profiles:
-        configured = profile.provider_type == "fake" or bool(
-            profile.secret_ref and secrets.configured(profile.secret_ref)
-        )
+        configured = _provider_is_configured(profile, secrets, executable_resolver)
         if configured:
             safe_profiles.append(
                 {
@@ -133,6 +154,7 @@ async def create_route(
     body: TelegramRouteCreate,
     session: AsyncSession = SessionDependency,
     secrets: SecretResolverDependency = None,
+    executable_resolver: ExecutableResolverDependency = shutil.which,
 ):
     source = await session.scalar(
         select(Source).where(Source.id == body.source_id).with_for_update()
@@ -151,10 +173,7 @@ async def create_route(
         raise HTTPException(422, "Telegram destination is not enabled")
     if prompt is None or prompt.purpose_key != "telegram_rewrite" or not prompt_version.is_active:
         raise HTTPException(422, "Route requires an active telegram_rewrite prompt")
-    if not profile.enabled or (
-        profile.provider_type != "fake"
-        and (not profile.secret_ref or not secrets.configured(profile.secret_ref))
-    ):
+    if not _provider_is_configured(profile, secrets, executable_resolver):
         raise HTTPException(422, "AI provider profile is not configured")
     if body.content_filters.model is None and profile.default_model is None:
         raise HTTPException(422, "Route requires a model override or provider default model")

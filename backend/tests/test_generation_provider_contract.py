@@ -135,3 +135,8 @@ def test_default_provider_registry_contains_only_the_fake_provider():
     registry = build_default_provider_registry()
 
     assert registry.names() == ("fake",)
+
+
+def test_default_provider_registry_contains_internal_codex_factory():
+    registry = build_default_provider_registry()
+    assert registry.factory_names() == ("codex",)

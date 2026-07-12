@@ -3,7 +3,9 @@ from uuid import uuid4
 import httpx
 import pytest
 
+from app.core.config import Settings
 from app.generation.models import AIProviderProfile
+from app.generation.provider_settings import default_codex_provider_settings
 from app.generation.providers.base import GenerationProviderRequest, ProviderMessage
 from app.generation.providers.profiles import (
     ProviderProfileConfigurationError,
@@ -168,3 +170,62 @@ async def test_profile_resolver_rejects_unconfigured_selected_secret_before_http
     with pytest.raises(ProviderProfileConfigurationError, match="not configured"):
         await resolver.resolve(profile(), model_override=None)
     assert factory.last_kwargs is None
+
+
+async def test_profile_resolver_builds_codex_from_selected_profile_and_runtime_executable():
+    executor = object()
+    executables = []
+
+    def executor_factory(executable):
+        executables.append(executable)
+        return executor
+
+    codex = profile(
+        provider_type="codex",
+        default_model="gpt-5.4",
+        secret_ref=None,
+        settings=default_codex_provider_settings().model_dump(mode="json"),
+    )
+    resolver = ProviderProfileResolver(
+        secret_resolver=FakeSecrets({}),
+        http_client_factory=RecordingFactory(),
+        provider_registry=build_default_provider_registry(),
+        application_settings=Settings(
+            _env_file=None,
+            codex_enabled=True,
+            codex_executable="codex-private",
+        ),
+        executable_resolver=lambda name: "/resolved/codex" if name == "codex-private" else None,
+        codex_executor_factory=executor_factory,
+    )
+
+    resolved = await resolver.resolve(codex, model_override=None)
+
+    assert resolved.provider_type == "codex"
+    assert resolved.model == "gpt-5.4"
+    assert resolved.provider.profile is codex
+    assert resolved.provider.executor is executor
+    assert executables == ["/resolved/codex"]
+
+
+async def test_profile_resolver_rejects_codex_when_disabled_or_executable_missing():
+    codex = profile(
+        provider_type="codex",
+        default_model="gpt-5.4",
+        secret_ref=None,
+        settings={},
+    )
+    for application_settings, executable_resolver in (
+        (Settings(_env_file=None, codex_enabled=False), lambda name: "/resolved/codex"),
+        (Settings(_env_file=None, codex_enabled=True), lambda name: None),
+    ):
+        resolver = ProviderProfileResolver(
+            secret_resolver=FakeSecrets({}),
+            http_client_factory=RecordingFactory(),
+            provider_registry=build_default_provider_registry(),
+            application_settings=application_settings,
+            executable_resolver=executable_resolver,
+            codex_executor_factory=lambda executable: object(),
+        )
+        with pytest.raises(ProviderProfileConfigurationError):
+            await resolver.resolve(codex, model_override=None)

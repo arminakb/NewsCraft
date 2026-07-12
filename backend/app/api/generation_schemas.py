@@ -8,6 +8,8 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from app.api.telegram_schemas import SecretRef
 from app.generation.provider_settings import (
+    CodexGenerationLimits,
+    CodexProviderSettings,
     OpenRouterProviderSettings,
     ProviderPricingSettings,
     ResearchBudgetSettings,
@@ -76,10 +78,10 @@ class PromptTemplateVersionOut(BaseModel):
 
 class AIProviderProfileCreate(BaseModel):
     name: str = Field(min_length=1, max_length=120)
-    provider_type: Literal["fake", "openrouter"]
+    provider_type: Literal["fake", "openrouter", "codex"]
     default_model: str | None = Field(default=None, min_length=1, max_length=200)
     secret_ref: SecretRef | None = None
-    settings: OpenRouterProviderSettings | None = None
+    settings: dict | None = None
     enabled: bool = True
 
     @model_validator(mode="after")
@@ -87,8 +89,17 @@ class AIProviderProfileCreate(BaseModel):
         if self.provider_type == "fake":
             if self.secret_ref is not None or self.settings is not None:
                 raise ValueError("fake provider cannot have secret or provider settings")
-        elif self.secret_ref is None or self.default_model is None:
-            raise ValueError("openrouter requires secret_ref and default_model")
+        elif self.provider_type == "openrouter":
+            if self.secret_ref is None or self.default_model is None:
+                raise ValueError("openrouter requires secret_ref and default_model")
+            if self.settings is not None:
+                OpenRouterProviderSettings.model_validate(self.settings)
+        else:
+            if self.secret_ref is not None or self.default_model is None or self.settings is None:
+                raise ValueError(
+                    "codex forbids secret_ref and requires default_model and settings"
+                )
+            CodexProviderSettings.model_validate(self.settings or {})
         return self
 
 
@@ -113,6 +124,8 @@ class AIProviderProfileOut(BaseModel):
     settings: dict
     enabled: bool
     configured: bool
+    capabilities: dict[Literal["generation", "research"], bool]
+    unavailability_codes: list[str]
 
 
 __all__ = [
@@ -122,6 +135,8 @@ __all__ = [
     "BrandProfileCreate",
     "BrandProfilePatch",
     "BrandProfileOut",
+    "CodexGenerationLimits",
+    "CodexProviderSettings",
     "OpenRouterProviderSettings",
     "PromptTemplateVersionOut",
     "ProviderPricingSettings",

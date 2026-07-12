@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import hashlib
 import json
+import shutil
+from collections.abc import Callable
 from typing import Annotated
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import ValidationError
@@ -23,14 +25,28 @@ from app.api.generation_schemas import (
     PromptTemplateVersionOut,
 )
 from app.api.telegram_destinations import get_secret_resolver
+from app.core.config import settings as application_settings
 from app.core.secrets import SecretResolver
 from app.db.session import get_session
 from app.generation.models import AIProviderProfile, BrandProfile, PromptTemplate, PromptTemplateVersion
-from app.generation.provider_settings import merge_provider_settings
+from app.generation.provider_settings import (
+    CodexProviderSettings,
+    OpenRouterProviderSettings,
+    default_codex_provider_settings,
+    merge_provider_settings,
+)
 
 router = APIRouter(tags=["generation-settings"])
 SessionDependency = Depends(get_session)
 SecretResolverDependency = Annotated[SecretResolver, Depends(get_secret_resolver)]
+type ExecutableResolver = Callable[[str], str | None]
+
+
+def get_executable_resolver() -> ExecutableResolver:
+    return shutil.which
+
+
+ExecutableResolverDependency = Annotated[ExecutableResolver, Depends(get_executable_resolver)]
 
 _TELEGRAM_REWRITE_VARIABLES = (
     "source_text",
@@ -65,10 +81,17 @@ _TELEGRAM_REWRITE_SCHEMA = {
 }
 
 
-def _profile_out(profile: AIProviderProfile, secrets: SecretResolver) -> AIProviderProfileOut:
-    configured = profile.provider_type == "fake" or bool(
-        profile.secret_ref and secrets.configured(profile.secret_ref)
+def _profile_out(
+    profile: AIProviderProfile,
+    secrets: SecretResolver,
+    executable_resolver: ExecutableResolver = shutil.which,
+) -> AIProviderProfileOut:
+    capabilities, codes = provider_capabilities(
+        profile, secrets, executable_resolver
     )
+    generation = capabilities["generation"]
+    research = capabilities["research"]
+    configured = generation or research
     return AIProviderProfileOut(
         id=profile.id,
         name=profile.name,
@@ -77,7 +100,75 @@ def _profile_out(profile: AIProviderProfile, secrets: SecretResolver) -> AIProvi
         settings=dict(profile.settings or {}),
         enabled=profile.enabled,
         configured=configured,
+        capabilities=capabilities,
+        unavailability_codes=codes,
     )
+
+
+def provider_capabilities(
+    profile: AIProviderProfile,
+    secrets: SecretResolver,
+    executable_resolver: ExecutableResolver = shutil.which,
+) -> tuple[dict[str, bool], list[str]]:
+    codes: list[str] = []
+    generation = False
+    research = False
+    if not profile.enabled:
+        codes.append("disabled")
+    elif profile.provider_type == "fake":
+        generation = research = profile.secret_ref is None and not dict(profile.settings or {})
+        if not generation:
+            codes.append("invalid_settings")
+    elif profile.provider_type == "codex":
+        try:
+            CodexProviderSettings.model_validate(dict(profile.settings or {}))
+            valid_settings = True
+        except ValidationError:
+            valid_settings = False
+        executable_available = (
+            application_settings.codex_enabled
+            and executable_resolver(application_settings.codex_executable) is not None
+        )
+        generation = research = bool(
+            profile.default_model
+            and profile.secret_ref is None
+            and valid_settings
+            and executable_available
+        )
+        if not profile.default_model:
+            codes.append("model_missing")
+        if profile.secret_ref is not None or not valid_settings:
+            codes.append("invalid_settings")
+        if not executable_available:
+            codes.append("executable_unavailable")
+    elif profile.provider_type == "openrouter":
+        try:
+            validated = OpenRouterProviderSettings.model_validate(dict(profile.settings or {}))
+            valid_settings = True
+        except ValidationError:
+            validated = None
+            valid_settings = False
+        secret_available = bool(
+            profile.secret_ref and secrets.configured(profile.secret_ref)
+        )
+        generation = bool(profile.default_model and secret_available and valid_settings)
+        research = bool(
+            generation
+            and validated is not None
+            and validated.pricing is not None
+            and validated.research_budgets is not None
+        )
+        if not profile.default_model:
+            codes.append("model_missing")
+        if not secret_available:
+            codes.append("secret_unavailable")
+        if not valid_settings:
+            codes.append("invalid_settings")
+        elif not research:
+            codes.append("research_settings_missing")
+    else:
+        codes.append("unsupported_provider")
+    return {"generation": generation, "research": research}, codes
 
 
 def _brand_values(body: BrandProfileCreate) -> dict:
@@ -98,13 +189,53 @@ def _provider_values(body: AIProviderProfileCreate) -> dict:
         "provider_type": body.provider_type,
         "default_model": body.default_model,
         "secret_ref": body.secret_ref,
-        "settings": body.settings.model_dump(mode="json") if body.settings is not None else {},
+        "settings": _validated_settings(body.provider_type, body.settings),
         "enabled": body.enabled,
     }
 
 
 def _provider_matches(profile: AIProviderProfile, body: AIProviderProfileCreate) -> bool:
     return all(getattr(profile, key) == value for key, value in _provider_values(body).items())
+
+
+def _validated_settings(provider_type: str, value: dict | None) -> dict:
+    if provider_type == "fake" or value is None:
+        return {}
+    if provider_type == "codex":
+        CodexProviderSettings.model_validate(value)
+        return dict(value)
+    return OpenRouterProviderSettings.model_validate(value).model_dump(mode="json")
+
+
+async def seed_codex_provider_profile(
+    session: AsyncSession,
+    *,
+    enabled: bool,
+    model: str,
+) -> AIProviderProfile:
+    rows = list(await session.scalars(select(AIProviderProfile).with_for_update()))
+    profile = next((row for row in rows if row.name == "Codex CLI"), None)
+    if profile is None:
+        profile = AIProviderProfile(
+            id=uuid4(),
+            name="Codex CLI",
+            provider_type="codex",
+            default_model=model,
+            secret_ref=None,
+            settings=default_codex_provider_settings().model_dump(mode="json"),
+            enabled=enabled,
+        )
+        session.add(profile)
+        await session.flush()
+    else:
+        profile.provider_type = "codex"
+        profile.default_model = model
+        profile.secret_ref = None
+        profile.settings = default_codex_provider_settings().model_dump(mode="json")
+        profile.enabled = enabled
+    return profile
+
+
 @router.get("/brand-profiles", response_model=list[BrandProfileOut])
 async def list_brand_profiles(session: AsyncSession = SessionDependency):
     return list(await session.scalars(select(BrandProfile).order_by(BrandProfile.name)))
@@ -277,9 +408,10 @@ async def activate_prompt_version(version_id: UUID, session: AsyncSession = Sess
 async def list_provider_profiles(
     session: AsyncSession = SessionDependency,
     secrets: SecretResolverDependency = None,
+    executable_resolver: ExecutableResolverDependency = shutil.which,
 ):
     rows = list(await session.scalars(select(AIProviderProfile).order_by(AIProviderProfile.name)))
-    return [_profile_out(row, secrets) for row in rows]
+    return [_profile_out(row, secrets, executable_resolver) for row in rows]
 
 
 @router.post("/ai-provider-profiles", response_model=AIProviderProfileOut, status_code=201)
@@ -287,11 +419,12 @@ async def create_provider_profile(
     body: AIProviderProfileCreate,
     session: AsyncSession = SessionDependency,
     secrets: SecretResolverDependency = None,
+    executable_resolver: ExecutableResolverDependency = shutil.which,
 ):
     existing = await session.scalar(select(AIProviderProfile).where(AIProviderProfile.name == body.name))
     if existing is not None:
         if _provider_matches(existing, body):
-            return _profile_out(existing, secrets)
+            return _profile_out(existing, secrets, executable_resolver)
         raise HTTPException(409, "AI provider profile already exists with different configuration")
     profile = AIProviderProfile(**_provider_values(body))
     try:
@@ -306,9 +439,9 @@ async def create_provider_profile(
             raise HTTPException(
                 409, "AI provider profile already exists with different configuration"
             ) from None
-        return _profile_out(existing, secrets)
+        return _profile_out(existing, secrets, executable_resolver)
     await session.commit()
-    return _profile_out(profile, secrets)
+    return _profile_out(profile, secrets, executable_resolver)
 
 
 @router.patch("/ai-provider-profiles/{provider_profile_id}", response_model=AIProviderProfileOut)
@@ -317,6 +450,7 @@ async def patch_provider_profile(
     body: AIProviderProfilePatch,
     session: AsyncSession = SessionDependency,
     secrets: SecretResolverDependency = None,
+    executable_resolver: ExecutableResolverDependency = shutil.which,
 ):
     profile = await session.get(AIProviderProfile, provider_profile_id)
     if profile is None:
@@ -349,7 +483,7 @@ async def patch_provider_profile(
     profile.name = validated.name
     profile.default_model = validated.default_model
     profile.secret_ref = validated.secret_ref
-    profile.settings = validated.settings.model_dump(mode="json") if validated.settings else {}
+    profile.settings = _validated_settings(validated.provider_type, validated.settings)
     profile.enabled = validated.enabled
     await session.commit()
-    return _profile_out(profile, secrets)
+    return _profile_out(profile, secrets, executable_resolver)

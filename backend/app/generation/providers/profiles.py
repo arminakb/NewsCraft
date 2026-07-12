@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import shutil
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
@@ -8,6 +9,7 @@ from uuid import UUID
 import httpx
 from pydantic import ValidationError
 
+from app.core.codex_exec import CodexExecutor
 from app.core.config import Settings, settings
 from app.core.secrets import SecretResolver
 from app.generation.models import AIProviderProfile
@@ -44,11 +46,17 @@ class ProviderProfileResolver:
         http_client_factory: Callable[..., httpx.AsyncClient] = _default_http_client_factory,
         provider_registry: ProviderRegistry,
         application_settings: Settings = settings,
+        executable_resolver: Callable[[str], str | None] = shutil.which,
+        codex_executor_factory: Callable[[str], CodexExecutor] | None = None,
     ) -> None:
         self.secret_resolver = secret_resolver
         self.http_client_factory = http_client_factory
         self.provider_registry = provider_registry
         self.application_settings = application_settings
+        self.executable_resolver = executable_resolver
+        self.codex_executor_factory = codex_executor_factory or (
+            lambda executable: CodexExecutor(executable=executable)
+        )
 
     async def resolve(
         self,
@@ -65,6 +73,40 @@ class ProviderProfileResolver:
                 provider_type="fake",
                 model=model_override or profile.default_model or "fake-v1",
                 provider=self.provider_registry.get("fake"),
+            )
+        if profile.provider_type == "codex":
+            if not self.application_settings.codex_enabled:
+                raise ProviderProfileConfigurationError("Codex provider is disabled")
+            if profile.secret_ref is not None:
+                raise ProviderProfileConfigurationError(
+                    "Codex provider profile cannot have a secret reference"
+                )
+            if not profile.default_model:
+                raise ProviderProfileConfigurationError(
+                    "Selected provider profile has no model"
+                )
+            executable = self.executable_resolver(
+                self.application_settings.codex_executable
+            )
+            if executable is None:
+                raise ProviderProfileConfigurationError(
+                    "Codex executable is unavailable"
+                )
+            try:
+                provider = self.provider_registry.create(
+                    "codex",
+                    executor=self.codex_executor_factory(executable),
+                    profile=profile,
+                )
+            except (TypeError, ValueError):
+                raise ProviderProfileConfigurationError(
+                    "Selected provider profile settings are invalid"
+                ) from None
+            return ResolvedProviderProfile(
+                profile_id=profile.id,
+                provider_type="codex",
+                model=profile.default_model,
+                provider=provider,
             )
         if profile.provider_type != "openrouter":
             raise ProviderProfileConfigurationError("Selected provider type is unsupported")

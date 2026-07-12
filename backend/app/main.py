@@ -3,6 +3,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.api.generation_settings import seed_codex_provider_profile
 from app.api.routes import router
 from app.core.config import settings
 from app.core.logging import configure_logging
@@ -20,6 +21,11 @@ async def lifespan(_app: FastAPI):
     async with async_session() as session:
         await seed_default_telegram_prompt(session)
         await seed_default_telegram_configuration(session)
+        await seed_codex_provider_profile(
+            session,
+            enabled=settings.codex_enabled,
+            model="gpt-5.4",
+        )
         await session.commit()
     yield
 
