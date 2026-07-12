@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from types import SimpleNamespace
 from uuid import uuid4
@@ -24,10 +25,16 @@ from app.api.generation_settings import (
     create_prompt_template,
     create_prompt_version,
     create_provider_profile,
+    list_prompt_versions,
     patch_provider_profile,
 )
 from app.db.session import get_session
-from app.generation.models import AIProviderProfile, BrandProfile, PromptTemplate
+from app.generation.models import (
+    AIProviderProfile,
+    BrandProfile,
+    PromptTemplate,
+    PromptTemplateVersion,
+)
 from app.generation.provider_settings import OpenRouterProviderSettings
 from app.main import app
 
@@ -262,6 +269,75 @@ async def test_prompt_edits_create_immutable_versions_and_activation_selects_exa
     assert session.prompt_lock_count == 2
 
 
+async def test_prompt_version_history_returns_newest_first_with_immutable_safe_fields():
+    session = GenerationSession()
+    now = datetime.now(UTC)
+    template = PromptTemplate(
+        id=uuid4(), purpose_key="telegram_rewrite", name="Telegram rewrite"
+    )
+    older = PromptTemplateVersion(
+        id=uuid4(),
+        prompt_template_id=template.id,
+        version=1,
+        system_template="System one",
+        user_template="User one",
+        output_schema_version="telegram_rewrite.v1",
+        output_schema={"type": "object"},
+        checksum_sha256="a" * 64,
+        is_active=False,
+        created_at=now - timedelta(hours=1),
+    )
+    active = PromptTemplateVersion(
+        id=uuid4(),
+        prompt_template_id=template.id,
+        version=2,
+        system_template="System two",
+        user_template="User two",
+        output_schema_version="telegram_rewrite.v1",
+        output_schema={"type": "object", "required": ["body"]},
+        checksum_sha256="b" * 64,
+        is_active=True,
+        created_at=now,
+    )
+    session.values.extend([template, older, active])
+
+    async def override_session():
+        yield session
+
+    app.dependency_overrides[get_session] = override_session
+    try:
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            response = await client.get(f"/prompt-templates/{template.id}/versions")
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    history = response.json()
+    assert [item["version"] for item in history] == [2, 1]
+    assert history[0] == {
+        "id": str(active.id),
+        "prompt_template_id": str(template.id),
+        "version": 2,
+        "system_template": "System two",
+        "user_template": "User two",
+        "output_schema_version": "telegram_rewrite.v1",
+        "output_schema": {"type": "object", "required": ["body"]},
+        "checksum_sha256": "b" * 64,
+        "is_active": True,
+        "created_at": now.isoformat().replace("+00:00", "Z"),
+    }
+    assert "secret" not in response.text.lower()
+
+
+async def test_prompt_version_history_returns_404_for_unknown_template():
+    with pytest.raises(HTTPException) as error:
+        await list_prompt_versions(uuid4(), GenerationSession())
+
+    assert error.value.status_code == 404
+
+
 async def test_conflicting_duplicate_brand_template_and_provider_creates_return_409():
     session = GenerationSession()
     secrets = SimpleNamespace(configured=lambda reference: True)
@@ -429,7 +505,10 @@ class GenerationSession:
 
     async def scalars(self, statement):
         entity = statement.column_descriptions[0].get("entity")
-        return [value for value in self.values if isinstance(value, entity)]
+        values = [value for value in self.values if isinstance(value, entity)]
+        if entity is PromptTemplateVersion:
+            values.sort(key=lambda item: item.version, reverse=True)
+        return values
 
     def begin_nested(self):
         self.nested_count += 1

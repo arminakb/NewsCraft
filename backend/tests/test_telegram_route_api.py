@@ -17,7 +17,7 @@ from app.api.telegram_automations import (
     pause_route,
     resume_route,
 )
-from app.api.telegram_schemas import TelegramRouteBackfillIn, TelegramRouteCreate
+from app.api.telegram_schemas import TelegramRouteBackfillIn, TelegramRouteCreate, TelegramRouteOut
 from app.automations.models import AutomationRoute, TelegramSourceConfig
 from app.db.models import Source
 from app.generation.models import AIProviderProfile, BrandProfile, PromptTemplate, PromptTemplateVersion
@@ -47,6 +47,22 @@ def test_route_defaults_to_new_only_review_preserve_and_research_off():
     assert value.publishing_policy == "review_required"
     assert value.poll_interval_seconds == 300
     assert value.confirm_auto_publish is False
+
+
+def test_route_output_exposes_poll_and_resource_timestamps():
+    now = datetime.now(UTC)
+    route = saved_route()
+    route.last_polled_at = now - timedelta(minutes=5)
+    route.next_poll_at = now + timedelta(minutes=5)
+    route.created_at = now - timedelta(days=1)
+    route.updated_at = now
+
+    output = TelegramRouteOut.model_validate(route)
+
+    assert output.last_polled_at == route.last_polled_at
+    assert output.next_poll_at == route.next_poll_at
+    assert output.created_at == route.created_at
+    assert output.updated_at == route.updated_at
 
 
 def test_auto_publish_requires_explicit_confirmation():
@@ -316,6 +332,7 @@ async def test_auto_route_is_rejected_when_destination_disallows_auto_publish():
 
 
 def saved_route() -> AutomationRoute:
+    now = datetime.now(UTC)
     return AutomationRoute(
         id=uuid4(),
         name="Route",
@@ -339,6 +356,8 @@ def saved_route() -> AutomationRoute:
         paused_at=None,
         backfill_limit=None,
         backfill_since=None,
+        created_at=now,
+        updated_at=now,
     )
 
 

@@ -167,6 +167,10 @@ class TelegramRouteOut(BaseModel):
     cursor_state: dict
     enabled: bool
     paused_at: datetime | None
+    last_polled_at: datetime | None
+    next_poll_at: datetime | None
+    created_at: datetime
+    updated_at: datetime
 
 
 class TelegramDestinationAcceptedOut(BaseModel):

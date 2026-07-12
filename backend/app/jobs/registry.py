@@ -44,11 +44,15 @@ def build_default_registry(
     source_registry: Any | None = None,
     media_stager: Any | None = None,
     profile_resolver: Any | None = None,
+    telegram_client: Any | None = None,
+    destination_secret_resolver: Any | None = None,
 ) -> JobHandlerRegistry:
     from app.jobs.handlers import handle_ingest_collect
 
     if (source_registry is None) != (media_stager is None):
         raise ValueError("source_registry and media_stager must be supplied together")
+    if (telegram_client is None) != (destination_secret_resolver is None):
+        raise ValueError("telegram_client and destination_secret_resolver must be supplied together")
 
     registry = JobHandlerRegistry()
     registry.register("ingest.collect", handle_ingest_collect)
@@ -67,4 +71,10 @@ def build_default_registry(
             "telegram.route.process",
             build_telegram_process_handler(profile_resolver),
         )
+    if telegram_client is not None and destination_secret_resolver is not None:
+        from app.publishing.telegram.handlers import build_telegram_publish_handlers
+
+        handlers = build_telegram_publish_handlers(telegram_client, destination_secret_resolver)
+        registry.register("telegram.destination.check", handlers.destination_check)
+        registry.register("telegram.publish", handlers.publish)
     return registry

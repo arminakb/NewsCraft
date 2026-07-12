@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Literal
 from uuid import UUID
 
@@ -58,6 +59,21 @@ class PromptTemplateVersionCreate(BaseModel):
     user_template: str = Field(min_length=1)
 
 
+class PromptTemplateVersionOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    prompt_template_id: UUID
+    version: int
+    system_template: str
+    user_template: str
+    output_schema_version: str
+    output_schema: dict
+    checksum_sha256: str
+    is_active: bool
+    created_at: datetime
+
+
 class AIProviderProfileCreate(BaseModel):
     name: str = Field(min_length=1, max_length=120)
     provider_type: Literal["fake", "openrouter"]
@@ -107,6 +123,7 @@ __all__ = [
     "BrandProfilePatch",
     "BrandProfileOut",
     "OpenRouterProviderSettings",
+    "PromptTemplateVersionOut",
     "ProviderPricingSettings",
     "ResearchBudgetSettings",
     "ResearchBudgetsSettings",

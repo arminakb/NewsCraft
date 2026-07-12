@@ -20,6 +20,7 @@ from app.api.generation_schemas import (
     BrandProfilePatch,
     PromptTemplateCreate,
     PromptTemplateVersionCreate,
+    PromptTemplateVersionOut,
 )
 from app.api.telegram_destinations import get_secret_resolver
 from app.core.secrets import SecretResolver
@@ -233,6 +234,25 @@ async def create_prompt_version(
     await session.flush()
     await session.commit()
     return version
+
+
+@router.get(
+    "/prompt-templates/{prompt_template_id}/versions",
+    response_model=list[PromptTemplateVersionOut],
+)
+async def list_prompt_versions(
+    prompt_template_id: UUID,
+    session: AsyncSession = SessionDependency,
+):
+    if await session.get(PromptTemplate, prompt_template_id) is None:
+        raise HTTPException(404, "Prompt template not found")
+    return list(
+        await session.scalars(
+            select(PromptTemplateVersion)
+            .where(PromptTemplateVersion.prompt_template_id == prompt_template_id)
+            .order_by(PromptTemplateVersion.version.desc())
+        )
+    )
 
 
 @router.post("/prompt-template-versions/{version_id}/activate")

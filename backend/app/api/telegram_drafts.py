@@ -6,8 +6,8 @@ from datetime import UTC, datetime
 from typing import Any, Literal
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel, ConfigDict, Field
+from fastapi import APIRouter, Depends, HTTPException, Response
+from pydantic import BaseModel, ConfigDict, Field, HttpUrl, model_validator
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -26,10 +26,25 @@ from app.generation.telegram_schema import (
 )
 from app.jobs.events import redact_event_data
 from app.jobs.models import WorkflowEvent
-from app.publishing.models import Destination, PublishJob
-from app.stories.models import StoryRevision
+from app.jobs.repository import JobRepository
+from app.jobs.types import JobOrigin
+from app.publishing.models import (
+    Destination,
+    Publication,
+    PublishAttempt,
+    PublishJob,
+    PublishOperationReceipt,
+)
+from app.publishing.telegram.service import (
+    PublishValidationError,
+    derive_telegram_permalink,
+    ordered_receipt_remote_ids,
+    validate_reconciliation,
+)
+from app.stories.models import StoryEvidenceSnapshot, StoryRevision
 
-router = APIRouter(prefix="/telegram/drafts", tags=["telegram"])
+router = APIRouter(prefix="/telegram", tags=["telegram"])
+draft_router = APIRouter(prefix="/drafts")
 SessionDependency = Depends(get_session)
 
 
@@ -48,6 +63,92 @@ class TelegramContentHashIn(BaseModel):
 
 class TelegramRejectIn(TelegramContentHashIn):
     note: str | None = Field(default=None, max_length=500)
+
+
+class TelegramReconcileIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    outcome: Literal["published", "not_published"]
+    remote_message_ids: list[int] = Field(default_factory=list)
+    permalink: HttpUrl | None = None
+
+    @model_validator(mode="after")
+    def validate_outcome_fields(self):
+        if self.outcome == "not_published" and self.permalink is not None:
+            raise ValueError("Not-published outcome cannot include a permalink")
+        return self
+
+
+def _publication_out(publication: Publication) -> dict[str, Any]:
+    return {
+        "id": publication.id,
+        "publish_job_id": publication.publish_job_id,
+        "destination_id": publication.destination_id,
+        "platform_variant_revision_id": publication.platform_variant_revision_id,
+        "remote_message_ids": list(publication.remote_message_ids),
+        "permalink": publication.permalink,
+        "payload_hash": publication.payload_hash,
+        "published_at": publication.published_at,
+        "reconciliation_status": publication.reconciliation_status,
+    }
+
+
+def _receipt_out(receipt: PublishOperationReceipt) -> dict[str, Any]:
+    return {
+        "id": receipt.id,
+        "operation_index": receipt.operation_index,
+        "operation_key": receipt.operation_key,
+        "method": receipt.method,
+        "request_hash": receipt.request_hash,
+        "status": receipt.status,
+        "attempt_count": receipt.attempt_count,
+        "remote_message_ids": list(receipt.remote_message_ids),
+        "response_metadata": redact_event_data(dict(receipt.response_metadata or {})),
+        "next_attempt_at": receipt.next_attempt_at,
+        "ambiguous_at": receipt.ambiguous_at,
+        "completed_at": receipt.completed_at,
+        "created_at": receipt.created_at,
+        "updated_at": receipt.updated_at,
+    }
+
+
+def _validate_reconciled_remote_ids(
+    receipt: Any,
+    remote_message_ids: list[int],
+    *,
+    expected_count: int | None = None,
+) -> None:
+    if len(set(remote_message_ids)) != len(remote_message_ids):
+        raise HTTPException(422, "Remote message IDs must be unique")
+    if expected_count is not None:
+        if expected_count <= 0 or len(remote_message_ids) != expected_count:
+            raise HTTPException(422, "Remote message IDs do not match the publish operation")
+        return
+    if receipt.method == "sendMediaGroup":
+        if len(remote_message_ids) < 2:
+            raise HTTPException(422, "A media group requires at least two remote message IDs")
+    elif len(remote_message_ids) != 1:
+        raise HTTPException(422, "This Telegram operation requires exactly one remote message ID")
+
+
+def _publish_job_out(
+    publish_job: PublishJob,
+    receipts: Iterable[PublishOperationReceipt],
+    publication: Publication | None,
+) -> dict[str, Any]:
+    return {
+        "publish_job_id": publish_job.id,
+        "workflow_job_id": publish_job.workflow_job_id,
+        "destination_id": publish_job.destination_id,
+        "platform_variant_revision_id": publish_job.platform_variant_revision_id,
+        "status": publish_job.status,
+        "payload_hash": publish_job.payload_hash,
+        "scheduled_for": publish_job.scheduled_for,
+        "created_at": publish_job.created_at,
+        "updated_at": publish_job.updated_at,
+        "receipts": [_receipt_out(receipt) for receipt in receipts],
+        "publication": _publication_out(publication) if publication is not None else None,
+    }
 
 
 def validate_revision_evidence(
@@ -177,6 +278,62 @@ async def _draft_out(
         .order_by(PublishJob.created_at.desc())
         .limit(1)
     )
+    publication = (
+        await session.scalar(
+            select(Publication).where(Publication.publish_job_id == publish_job.id)
+        )
+        if publish_job is not None
+        else None
+    )
+    evidence_ids: list[UUID] = []
+    for raw in revision.evidence_map or []:
+        try:
+            evidence_ids.append(TelegramEvidenceCitation.model_validate(raw).evidence_snapshot_id)
+        except Exception:
+            continue
+    snapshots = (
+        list(
+            await session.scalars(
+                select(StoryEvidenceSnapshot).where(StoryEvidenceSnapshot.id.in_(evidence_ids))
+            )
+        )
+        if evidence_ids
+        else []
+    )
+    snapshots_by_id = {snapshot.id: snapshot for snapshot in snapshots}
+    evidence = [
+        {
+            "evidence_snapshot_id": snapshot.id,
+            "evidence_key": snapshot.evidence_key,
+            "source_url": snapshot.source_url,
+            "content_text": snapshot.content_text,
+            "content_sha256": snapshot.content_sha256,
+        }
+        for evidence_id in evidence_ids
+        if (snapshot := snapshots_by_id.get(evidence_id)) is not None
+    ]
+    try:
+        content = TelegramVariantContent.model_validate(revision.content)
+        requested_media_ids = list(content.media_asset_ids)
+    except Exception:
+        requested_media_ids = []
+    media_assets = (
+        list(await session.scalars(select(MediaAsset).where(MediaAsset.id.in_(requested_media_ids))))
+        if requested_media_ids
+        else []
+    )
+    media_by_id = {asset.id: asset for asset in media_assets}
+    media = [
+        {
+            "id": asset.id,
+            "kind": asset.kind,
+            "mime_type": asset.mime_type,
+            "fetch_status": asset.fetch_status,
+            "checksum_sha256": asset.checksum_sha256,
+        }
+        for media_id in requested_media_ids
+        if (asset := media_by_id.get(media_id)) is not None
+    ]
     return {
         "id": revision.id,
         "platform_variant_id": revision.platform_variant_id,
@@ -186,6 +343,8 @@ async def _draft_out(
         "content": revision.content,
         "content_hash": revision.content_hash,
         "evidence_map": revision.evidence_map,
+        "evidence": evidence,
+        "media": media,
         "validation_results": revision.validation_results,
         "approval_state": revision.approval_state,
         "approval_note": revision.approval_note,
@@ -196,6 +355,7 @@ async def _draft_out(
         "dispatch_id": dispatch.id if dispatch is not None else None,
         "publish_job_id": publish_job.id if publish_job is not None else None,
         "publish_status": publish_job.status if publish_job is not None else None,
+        "publication": _publication_out(publication) if publication is not None else None,
     }
 
 
@@ -274,7 +434,7 @@ def _append_draft_event(
     )
 
 
-@router.get("")
+@draft_router.get("")
 async def list_telegram_drafts(
     route_id: UUID | None = None,
     approval_state: Literal["draft", "pending_review", "approved", "rejected"] | None = None,
@@ -300,7 +460,7 @@ async def list_telegram_drafts(
     return results
 
 
-@router.get("/{revision_id}")
+@draft_router.get("/{revision_id}")
 async def get_telegram_draft(
     revision_id: UUID,
     session: AsyncSession = SessionDependency,
@@ -318,7 +478,7 @@ async def get_telegram_draft(
     return await _draft_out(session, revision)
 
 
-@router.post("/{revision_id}/revisions", status_code=201)
+@draft_router.post("/{revision_id}/revisions", status_code=201)
 async def edit_telegram_draft(
     revision_id: UUID,
     body: TelegramDraftEditIn,
@@ -399,7 +559,7 @@ async def edit_telegram_draft(
     return await _draft_out(session, child)
 
 
-@router.post("/{revision_id}/approve")
+@draft_router.post("/{revision_id}/approve")
 async def approve_telegram_draft(
     revision_id: UUID,
     body: TelegramContentHashIn,
@@ -424,7 +584,7 @@ async def approve_telegram_draft(
     return await _draft_out(session, revision)
 
 
-@router.post("/{revision_id}/reject")
+@draft_router.post("/{revision_id}/reject")
 async def reject_telegram_draft(
     revision_id: UUID,
     body: TelegramRejectIn,
@@ -450,7 +610,7 @@ async def reject_telegram_draft(
     return await _draft_out(session, revision)
 
 
-@router.post("/{revision_id}/publish", status_code=202)
+@draft_router.post("/{revision_id}/publish", status_code=202)
 async def publish_telegram_draft(
     revision_id: UUID,
     body: TelegramContentHashIn,
@@ -497,3 +657,214 @@ async def publish_telegram_draft(
             "status": publish_job.status,
         },
     }
+
+
+@router.get("/publish-jobs/{publish_job_id}")
+async def get_telegram_publish_job(
+    publish_job_id: UUID,
+    session: AsyncSession = SessionDependency,
+):
+    publish_job = await session.get(PublishJob, publish_job_id)
+    if publish_job is None:
+        raise HTTPException(404, "Telegram publish job not found")
+    destination = await session.get(Destination, publish_job.destination_id)
+    if destination is None or destination.platform != "telegram":
+        raise HTTPException(404, "Telegram publish job not found")
+    receipts = list(
+        await session.scalars(
+            select(PublishOperationReceipt)
+            .where(PublishOperationReceipt.publish_job_id == publish_job.id)
+            .order_by(PublishOperationReceipt.operation_index)
+        )
+    )
+    publication = await session.scalar(
+        select(Publication).where(Publication.publish_job_id == publish_job.id)
+    )
+    return _publish_job_out(publish_job, receipts, publication)
+
+
+@router.post("/publish-jobs/{publish_job_id}/reconcile")
+async def reconcile_telegram_publish_job(
+    publish_job_id: UUID,
+    body: TelegramReconcileIn,
+    response: Response,
+    session: AsyncSession = SessionDependency,
+):
+    async with session.begin():
+        publish_job = await session.scalar(
+            select(PublishJob).where(PublishJob.id == publish_job_id).with_for_update()
+        )
+        if publish_job is None:
+            raise HTTPException(404, "Telegram publish job not found")
+        destination = await session.get(Destination, publish_job.destination_id)
+        if destination is None or destination.platform != "telegram":
+            raise HTTPException(404, "Telegram publish job not found")
+        receipts = list(
+            await session.scalars(
+                select(PublishOperationReceipt)
+                .where(PublishOperationReceipt.publish_job_id == publish_job.id)
+                .order_by(PublishOperationReceipt.operation_index)
+                .with_for_update()
+            )
+        )
+        try:
+            ambiguous = validate_reconciliation(
+                receipts,
+                outcome=body.outcome,
+                remote_message_ids=body.remote_message_ids,
+            )
+        except PublishValidationError as exc:
+            raise HTTPException(409, str(exc)) from None
+
+        observed_at = datetime.now(UTC)
+        if body.outcome == "not_published":
+            ambiguous.status = "pending"
+            ambiguous.remote_message_ids = []
+            ambiguous.response_metadata = {}
+            ambiguous.next_attempt_at = None
+            ambiguous.ambiguous_at = None
+            ambiguous.completed_at = None
+            ambiguous.updated_at = observed_at
+            publish_job.status = "queued"
+            publish_job.scheduled_for = observed_at
+            publish_job.updated_at = observed_at
+            result = await JobRepository(session).enqueue_job(
+                job_type="telegram.publish",
+                payload={"publish_job_id": str(publish_job.id)},
+                idempotency_key=(
+                    f"telegram-publish-reconcile:{publish_job.id}:"
+                    f"{publish_job.updated_at.isoformat()}"
+                ),
+                origin=JobOrigin.RETRY,
+            )
+            publish_job.workflow_job_id = result.job.id
+            session.add(
+                WorkflowEvent(
+                    workflow_job_id=result.job.id,
+                    event_type="telegram.publish.reconciled_not_published",
+                    actor="operator",
+                    event_data=redact_event_data(
+                        {
+                            "publish_job_id": str(publish_job.id),
+                            "operation_key": ambiguous.operation_key,
+                            "requeued_workflow_job_id": str(result.job.id),
+                        }
+                    ),
+                )
+            )
+            await session.flush()
+            response.status_code = 202
+            return {
+                "publish_job_id": publish_job.id,
+                "reconciliation_status": "requeued",
+                "job": {
+                    "job_id": result.job.id,
+                    "status": result.job.status,
+                    "deduplicated": not result.created,
+                },
+                "receipts": [_receipt_out(receipt) for receipt in receipts],
+            }
+
+        latest_attempt = await session.scalar(
+            select(PublishAttempt)
+            .where(PublishAttempt.publish_job_id == publish_job.id)
+            .order_by(PublishAttempt.attempt_number.desc())
+            .limit(1)
+            .with_for_update()
+        )
+        expected_count: int | None = None
+        if latest_attempt is not None:
+            operations = latest_attempt.sanitized_payload.get("operations", [])
+            if isinstance(operations, list):
+                operation_summary = next(
+                    (
+                        item
+                        for item in operations
+                        if isinstance(item, dict) and item.get("index") == ambiguous.operation_index
+                    ),
+                    None,
+                )
+                if operation_summary is not None:
+                    upload_count = operation_summary.get("upload_count")
+                    if isinstance(upload_count, int) and not isinstance(upload_count, bool):
+                        expected_count = upload_count if upload_count > 0 else 1
+        if ambiguous.method == "sendMediaGroup" and expected_count is None:
+            raise HTTPException(409, "Telegram publish operation plan is unavailable")
+        _validate_reconciled_remote_ids(
+            ambiguous,
+            body.remote_message_ids,
+            expected_count=expected_count,
+        )
+        ambiguous.status = "succeeded"
+        ambiguous.remote_message_ids = list(body.remote_message_ids)
+        ambiguous.response_metadata = {
+            "operator_confirmed": True,
+            "reconciliation_outcome": "published",
+        }
+        ambiguous.next_attempt_at = None
+        ambiguous.completed_at = observed_at
+        try:
+            remote_ids = ordered_receipt_remote_ids(receipts)
+        except PublishValidationError as exc:
+            raise HTTPException(422, str(exc)) from None
+        existing = await session.scalar(
+            select(Publication).where(Publication.publish_job_id == publish_job.id).with_for_update()
+        )
+        if existing is not None:
+            raise HTTPException(409, "Telegram publish job already has a publication")
+        publication = Publication(
+            publish_job_id=publish_job.id,
+            destination_id=publish_job.destination_id,
+            platform_variant_revision_id=publish_job.platform_variant_revision_id,
+            remote_message_ids=remote_ids,
+            permalink=(
+                str(body.permalink)
+                if body.permalink is not None
+                else derive_telegram_permalink(destination.target_ref, remote_ids)
+            ),
+            payload_hash=publish_job.payload_hash,
+            published_at=observed_at,
+            reconciliation_status="confirmed",
+        )
+        session.add(publication)
+        publish_job.status = "succeeded"
+        publish_job.scheduled_for = None
+        if latest_attempt is not None:
+            latest_attempt.status = "succeeded"
+            latest_attempt.error_class = None
+            latest_attempt.error_code = None
+            latest_attempt.error_message = None
+            latest_attempt.remote_response = {
+                "operator_confirmed": True,
+                "remote_message_ids": remote_ids,
+            }
+            latest_attempt.finished_at = observed_at
+        revision = await session.get(
+            PlatformVariantRevision,
+            publish_job.platform_variant_revision_id,
+        )
+        dispatch = await _revision_dispatch(session, revision) if revision is not None else None
+        if dispatch is not None:
+            dispatch.status = "published"
+            dispatch.publish_job_id = publish_job.id
+        await session.flush()
+        session.add(
+            WorkflowEvent(
+                workflow_job_id=publish_job.workflow_job_id,
+                event_type="telegram.publish.reconciled_published",
+                actor="operator",
+                event_data=redact_event_data(
+                    {
+                        "publish_job_id": str(publish_job.id),
+                        "publication_id": str(publication.id),
+                        "operation_key": ambiguous.operation_key,
+                        "remote_message_ids": remote_ids,
+                    }
+                ),
+            )
+        )
+        await session.flush()
+        return _publication_out(publication)
+
+
+router.include_router(draft_router)
