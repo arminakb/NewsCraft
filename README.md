@@ -10,7 +10,7 @@ The active backend lives in `backend/`. The ingestion dashboard lives in `fronte
 - Stores raw payloads, source items, deduplicated content items, identities, and media assets in PostgreSQL.
 - Extracts feed media, Telegram images/previews/documents, and stores media metadata for downstream use.
 - Classifies, scores, buckets, and readiness-checks content for downstream rewriting.
-- Supports approval and draft workflows for downstream post generation.
+- Supports manual content-item approval; AI generation, editorial revisions, scheduling, and publishing are planned in the content-platform rescue.
 - Provides source health diagnostics, validation reports, and manual ingestion endpoints.
 - Provides a Next.js ingestion dashboard for source health, runs, content queue, media extraction, and source detail review.
 - Includes a minimal legacy SQLite article reader for user-provided old `news.db` files.
@@ -136,7 +136,7 @@ curl -X POST http://localhost:8000/ingest/run \
 - `GET /content-items/{content_item_id}`
 - `POST /content-items/{content_item_id}/approve`
 
-Content item responses include `score`, `content_type`, `rewrite_bucket`, rewrite readiness fields, score breakdowns, `primary_image_id`, and `primary_media` with media quality metadata when available.
+Content item responses include complete text, authors, publication time, source ID, classification metadata, `score`, `content_type`, `rewrite_bucket`, rewrite readiness fields, score breakdowns, `primary_image_id`, and `primary_media` with media quality metadata when available.
 
 Generate the content intelligence validation report:
 
@@ -168,11 +168,20 @@ Useful frontend checks:
 
 ```bash
 npm run test
+npm run typecheck
 npm run build
 npm run test:e2e
 ```
 
-If Playwright browser downloads are unavailable in your environment, set `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH` to an installed Chromium binary. The local config defaults to `/usr/bin/chromium`.
+The Compose stack is local-only by default: it binds PostgreSQL, API, and frontend host ports to `127.0.0.1`.
+
+Playwright uses its managed Chromium browser unless `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH` is set. On this host, browser verification requires the installed Chromium binary and single-process mode:
+
+```bash
+PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=/home/wingman/.cache/puppeteer/chrome-headless-shell/linux-150.0.7871.24/chrome-headless-shell-linux64/chrome-headless-shell \
+PLAYWRIGHT_CHROMIUM_SINGLE_PROCESS=1 \
+npm run test:e2e
+```
 
 ## Environment
 

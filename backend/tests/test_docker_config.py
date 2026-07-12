@@ -1,8 +1,29 @@
+import json
+import subprocess
 from pathlib import Path
 
 import yaml
 
 ROOT = Path(__file__).resolve().parents[2]
+
+
+def _compose_config() -> dict:
+    result = subprocess.run(
+        ["docker", "compose", "config", "--format", "json"],
+        cwd=ROOT,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    return json.loads(result.stdout)
+
+
+def test_local_service_ports_bind_to_loopback():
+    compose = _compose_config()
+
+    assert compose["services"]["postgres"]["ports"][0]["host_ip"] == "127.0.0.1"
+    assert compose["services"]["api"]["ports"][0]["host_ip"] == "127.0.0.1"
+    assert compose["services"]["frontend"]["ports"][0]["host_ip"] == "127.0.0.1"
 
 
 def test_dockerfile_runs_backend_api():

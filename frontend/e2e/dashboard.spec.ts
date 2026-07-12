@@ -6,11 +6,11 @@ test.describe("NewsCraft dashboard", () => {
     await page.goto("/")
 
     await expect(page.getByRole("navigation", { name: /dashboard navigation/i })).toBeVisible()
-    await expect(page.getByText("PostgreSQL")).toBeVisible()
+    await expect(page.getByText(/^(?:Backend connected|Backend unavailable|Checking backend)$/)).toBeVisible()
     await expect(page.getByText("Source health")).toBeVisible()
     await expect(page.getByRole("region", { name: /media extraction/i })).toBeVisible()
     await expect(page.getByText("No sources found")).toBeVisible()
-    await expect(page.getByText("No ingestion runs yet")).toBeVisible()
+    await expect(page.getByRole("region", { name: /ingestion runs/i }).getByText("No ingestion runs yet")).toBeVisible()
     await expect(page.getByText("No content items yet")).toBeVisible()
     await expect(page.getByText("No media assets yet")).toBeVisible()
 

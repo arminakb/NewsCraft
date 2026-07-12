@@ -42,6 +42,9 @@ data/
 graphify-out/
 validation/content-intelligence-report.md
 
+# Superpowers visual brainstorming sessions
+.superpowers/
+
 # Generated docs/articles
 today-news/
 articles/

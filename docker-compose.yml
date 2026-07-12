@@ -6,7 +6,7 @@ services:
       POSTGRES_PASSWORD: newscraft
       POSTGRES_DB: newscraft
     ports:
-      - "5432:5432"
+      - "127.0.0.1:5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql
     networks:
@@ -33,7 +33,7 @@ services:
     extra_hosts:
       - "host.docker.internal:host-gateway"
     ports:
-      - "8000:8000"
+      - "127.0.0.1:8000:8000"
     volumes:
       - media_data:/data/media
       - .:/workspace
@@ -50,7 +50,7 @@ services:
     environment:
       API_INTERNAL_BASE_URL: http://api:8000
     ports:
-      - "3000:3000"
+      - "127.0.0.1:3000:3000"
     depends_on:
       - api
 
