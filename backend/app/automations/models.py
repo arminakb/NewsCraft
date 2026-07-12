@@ -3,8 +3,19 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Index, Integer, Text, text
-from sqlalchemy.dialects.postgresql import JSONB, UUID
+from sqlalchemy import (
+    BigInteger,
+    Boolean,
+    CheckConstraint,
+    DateTime,
+    ForeignKey,
+    Index,
+    Integer,
+    Text,
+    UniqueConstraint,
+    text,
+)
+from sqlalchemy.dialects.postgresql import ARRAY, JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.sql import func
 
@@ -50,3 +61,77 @@ class AutomationRoute(Base):
     )
 
     __table_args__ = (Index("ix_automation_routes_enabled_next_poll", "enabled", "next_poll_at"),)
+
+
+class TelegramSourceConfig(Base):
+    __tablename__ = "telegram_source_configs"
+
+    source_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("sources.id", ondelete="CASCADE"), primary_key=True
+    )
+    access_mode: Mapped[str] = mapped_column(Text, nullable=False)
+    channel_ref: Mapped[str] = mapped_column(Text, nullable=False)
+    peer_id: Mapped[str | None] = mapped_column(Text, nullable=True)
+    api_id_secret_ref: Mapped[str | None] = mapped_column(Text, nullable=True)
+    api_hash_secret_ref: Mapped[str | None] = mapped_column(Text, nullable=True)
+    session_secret_ref: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = timestamp_now()
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now()
+    )
+
+    __table_args__ = (
+        CheckConstraint("access_mode IN ('public_html', 'mtproto_user')", name="ck_telegram_source_access_mode"),
+        CheckConstraint(
+            "(access_mode = 'public_html' AND api_id_secret_ref IS NULL AND api_hash_secret_ref IS NULL "
+            "AND session_secret_ref IS NULL) OR "
+            "(access_mode = 'mtproto_user' AND api_id_secret_ref IS NOT NULL AND api_hash_secret_ref IS NOT NULL "
+            "AND session_secret_ref IS NOT NULL)",
+            name="ck_telegram_source_secret_mode",
+        ),
+        UniqueConstraint("access_mode", "channel_ref", name="uq_telegram_source_mode_channel"),
+    )
+
+
+class AutomationDispatch(Base):
+    __tablename__ = "automation_dispatches"
+
+    id: Mapped[uuid.UUID] = uuid_pk()
+    route_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("automation_routes.id", ondelete="CASCADE"), nullable=False
+    )
+    source_item_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("source_items.id", ondelete="RESTRICT"), nullable=False
+    )
+    story_revision_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("story_revisions.id", ondelete="RESTRICT"), nullable=False
+    )
+    source_key: Mapped[str] = mapped_column(Text, nullable=False)
+    source_fingerprint: Mapped[str] = mapped_column(Text, nullable=False)
+    source_message_ids: Mapped[list[int]] = mapped_column(ARRAY(BigInteger), nullable=False)
+    dispatch_kind: Mapped[str] = mapped_column(Text, nullable=False)
+    status: Mapped[str] = mapped_column(Text, nullable=False, server_default="captured")
+    generation_run_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("generation_runs.id"), nullable=True
+    )
+    variant_revision_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("platform_variant_revisions.id"), nullable=True
+    )
+    publish_job_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("publish_jobs.id"), nullable=True
+    )
+    error_code: Mapped[str | None] = mapped_column(Text, nullable=True)
+    error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = timestamp_now()
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now()
+    )
+
+    __table_args__ = (
+        UniqueConstraint("route_id", "source_key", name="uq_automation_dispatch_route_source"),
+        CheckConstraint(
+            "dispatch_kind IN ('live', 'backfill', 'dry_run', 'source_edit')",
+            name="ck_automation_dispatch_kind",
+        ),
+        Index("ix_automation_dispatch_route_created", "route_id", created_at.desc()),
+    )

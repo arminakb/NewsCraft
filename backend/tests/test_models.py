@@ -435,3 +435,17 @@ def test_story_canonicalization_pointer_and_active_lookup_are_explicit():
     assert "ix_stories_active_updated" in {index.name for index in table.indexes}
     active_index = next(index for index in table.indexes if index.name == "ix_stories_active_updated")
     assert active_index.dialect_options["postgresql"]["where"] is not None
+
+
+def test_telegram_automation_tables_are_registered_with_idempotency_constraints():
+    tables = Base.metadata.tables
+
+    assert {
+        "telegram_source_configs",
+        "automation_dispatches",
+        "publish_operation_receipts",
+    }.issubset(tables)
+    dispatch_names = {constraint.name for constraint in tables["automation_dispatches"].constraints}
+    operation_names = {constraint.name for constraint in tables["publish_operation_receipts"].constraints}
+    assert "uq_automation_dispatch_route_source" in dispatch_names
+    assert "uq_publish_operation_job_key" in operation_names
