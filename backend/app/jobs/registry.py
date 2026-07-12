@@ -49,6 +49,7 @@ def build_default_registry(
     destination_secret_resolver: Any | None = None,
 ) -> JobHandlerRegistry:
     from app.jobs.handlers import handle_ingest_collect
+    from app.stories.handlers import group_pending_content
 
     if capabilities is None:
         selected = {"ingestion"}
@@ -77,6 +78,7 @@ def build_default_registry(
     registry = JobHandlerRegistry()
     if "ingestion" in selected:
         registry.register("ingest.collect", handle_ingest_collect)
+        registry.register("story.group_pending", group_pending_content)
     if "source" in selected:
         from app.automations.telegram.handlers import build_telegram_route_handlers
 

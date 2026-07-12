@@ -11,7 +11,7 @@ from app.jobs import worker as worker_module
 from app.jobs.errors import NeedsReviewJobError, PermanentJobError, RetryableJobError
 from app.jobs.handlers import handle_ingest_collect
 from app.jobs.registry import JobContext, JobHandlerRegistry
-from app.jobs.types import JobErrorClass
+from app.jobs.types import JobErrorClass, JobOrigin
 from app.jobs.worker import WorkerRunner
 
 
@@ -227,13 +227,19 @@ async def test_process_cancellation_waits_for_active_handler_boundary_then_finis
 @pytest.mark.asyncio
 async def test_ingest_handler_passes_only_locked_arguments_and_returns_success(monkeypatch):
     calls = []
+    followups = []
 
     class FakeWorkflow:
         async def run(self, **kwargs):
             calls.append(kwargs)
             return {"failed": 0, "checked": 2}
 
+    class FakeJobs:
+        async def enqueue_job(self, **kwargs):
+            followups.append(kwargs)
+
     monkeypatch.setattr("app.jobs.handlers._build_workflow", FakeWorkflow)
+    monkeypatch.setattr("app.jobs.handlers._build_job_repository", lambda session: FakeJobs())
     context = JobContext(session=object(), providers=build_default_provider_registry())
     job = _job(payload={"platforms": ["rss"], "source_ids": ["source-1"], "ignored": "value"})
 
@@ -246,6 +252,14 @@ async def test_ingest_handler_passes_only_locked_arguments_and_returns_success(m
             "platforms": ["rss"],
             "source_ids": ["source-1"],
             "trigger": "workflow_job",
+        }
+    ]
+    assert followups == [
+        {
+            "job_type": "story.group_pending",
+            "payload": {"limit": 100, "root_ingest_job_id": str(job.id)},
+            "idempotency_key": f"story-group:{job.id}",
+            "origin": JobOrigin.AUTOMATION,
         }
     ]
 
