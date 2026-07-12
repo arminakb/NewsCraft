@@ -14,7 +14,13 @@ import { getDashboardSnapshot, runIngest } from "@/lib/api-client"
 import { queryKeys } from "@/lib/query-keys"
 import type { DashboardSnapshot } from "@/lib/types"
 
-export function DashboardShell({ initialData }: { initialData: DashboardSnapshot }) {
+export function DashboardShell({
+  initialData,
+  enableQueries = process.env.NODE_ENV !== "test",
+}: {
+  initialData: DashboardSnapshot
+  enableQueries?: boolean
+}) {
   const queryClient = useQueryClient()
   const [selectedSourceId, setSelectedSourceId] = useState(initialData.sources[0]?.id ?? "")
   const [detailOpen, setDetailOpen] = useState(false)
@@ -23,7 +29,7 @@ export function DashboardShell({ initialData }: { initialData: DashboardSnapshot
     queryKey: queryKeys.dashboardSnapshot,
     queryFn: getDashboardSnapshot,
     initialData,
-    enabled: process.env.NODE_ENV !== "test",
+    enabled: enableQueries,
     refetchInterval: 30_000,
   })
 
@@ -56,6 +62,16 @@ export function DashboardShell({ initialData }: { initialData: DashboardSnapshot
         <div className="min-w-0 border-x bg-white">
           <TopStatusBar onRunIngest={() => ingestMutation.mutate()} isRunning={ingestMutation.isPending} />
           <main className="space-y-4 p-4">
+            {dashboardQuery.isError ? (
+              <div role="alert" className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+                Backend data unavailable
+              </div>
+            ) : null}
+            {dashboardQuery.isFetching && hasNoDashboardData(data) ? (
+              <div role="status" className="rounded-md border bg-muted px-3 py-2 text-sm text-muted-foreground">
+                Loading dashboard data
+              </div>
+            ) : null}
             <SourceHealthTable
               sources={data.sources}
               selectedSourceId={selectedSource?.id ?? ""}
@@ -77,4 +93,8 @@ export function DashboardShell({ initialData }: { initialData: DashboardSnapshot
       </div>
     </div>
   )
+}
+
+function hasNoDashboardData(data: DashboardSnapshot) {
+  return !data.sources.length && !data.runs.length && !data.queue.length && !data.media.length
 }

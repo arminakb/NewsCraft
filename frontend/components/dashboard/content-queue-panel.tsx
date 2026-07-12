@@ -1,9 +1,8 @@
-import { ChevronRight, ListFilter } from "lucide-react"
+import { ChevronRight } from "lucide-react"
 import { useState } from "react"
 
 import { SourceIcon } from "@/components/dashboard/source-icon"
 import { Badge } from "@/components/ui/badge"
-import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { cn } from "@/lib/utils"
 import type { ContentQueueItem } from "@/lib/types"
@@ -36,9 +35,6 @@ export function ContentQueuePanel({ items }: { items: ContentQueueItem[] }) {
               </button>
             ))}
           </div>
-          <Button variant="outline" size="icon-sm" aria-label="Filter content queue">
-            <ListFilter className="size-4" aria-hidden="true" />
-          </Button>
         </div>
       </CardHeader>
       <CardContent className="px-0">
@@ -54,43 +50,44 @@ export function ContentQueuePanel({ items }: { items: ContentQueueItem[] }) {
               <span />
             </div>
             <div className="divide-y">
-              {visibleItems.map((item) => (
-                <div key={item.id} className="grid grid-cols-[minmax(250px,1.4fr)_150px_90px_48px_54px_80px_28px] items-center gap-2 px-3 py-2 text-sm">
-                  <div className="flex min-w-0 items-center gap-3">
-                    {item.thumbnailUrl ? (
-                      <img src={item.thumbnailUrl} alt="" className="h-11 w-16 rounded-md object-cover" />
-                    ) : (
-                      <div className="h-11 w-16 rounded-md bg-muted" />
-                    )}
-                    <span className="line-clamp-2 min-w-0 text-xs leading-snug">{item.title}</span>
+              {visibleItems.length ? (
+                visibleItems.map((item) => (
+                  <div key={item.id} className="grid grid-cols-[minmax(250px,1.4fr)_150px_90px_48px_54px_80px_28px] items-center gap-2 px-3 py-2 text-sm">
+                    <div className="flex min-w-0 items-center gap-3">
+                      {item.thumbnailUrl ? (
+                        <img src={item.thumbnailUrl} alt="" className="h-11 w-16 rounded-md object-cover" />
+                      ) : (
+                        <div className="h-11 w-16 rounded-md bg-muted" />
+                      )}
+                      <span className="line-clamp-2 min-w-0 text-xs leading-snug">{item.title}</span>
+                    </div>
+                    <div className="flex min-w-0 items-center gap-2">
+                      <SourceIcon platform={item.sourcePlatform} className="size-5" />
+                      <span className="truncate text-xs">{item.sourceName}</span>
+                    </div>
+                    <span className="text-xs">{item.category}</span>
+                    <span className="text-xs">{item.language}</span>
+                    <span className="text-xs tabular-nums">{item.age}</span>
+                    <Badge
+                      variant="outline"
+                      className={cn(
+                        "h-6 rounded-md",
+                        item.status === "new" ? "border-blue-200 bg-blue-50 text-blue-700" : "border-slate-200 bg-slate-50 text-slate-700"
+                      )}
+                    >
+                      {item.status === "new" ? "New" : "Queued"}
+                    </Badge>
+                    <ChevronRight className="size-4 text-muted-foreground" aria-hidden="true" />
                   </div>
-                  <div className="flex min-w-0 items-center gap-2">
-                    <SourceIcon platform={item.sourcePlatform} className="size-5" />
-                    <span className="truncate text-xs">{item.sourceName}</span>
-                  </div>
-                  <span className="text-xs">{item.category}</span>
-                  <span className="text-xs">{item.language}</span>
-                  <span className="text-xs tabular-nums">{item.age}</span>
-                  <Badge
-                    variant="outline"
-                    className={cn(
-                      "h-6 rounded-md",
-                      item.status === "new" ? "border-blue-200 bg-blue-50 text-blue-700" : "border-slate-200 bg-slate-50 text-slate-700"
-                    )}
-                  >
-                    {item.status === "new" ? "New" : "Queued"}
-                  </Badge>
-                  <ChevronRight className="size-4 text-muted-foreground" aria-hidden="true" />
-                </div>
-              ))}
+                ))
+              ) : (
+                <div className="px-3 py-8 text-center text-sm text-muted-foreground">No content items yet</div>
+              )}
             </div>
           </div>
         </div>
-        <div className="flex h-9 items-center justify-between border-t px-3 text-sm">
-          <Button variant="link" className="h-auto p-0 text-primary">
-            View all content items
-          </Button>
-          <span className="text-muted-foreground">Showing 1-5 of 1,284</span>
+        <div className="flex h-9 items-center justify-end border-t px-3 text-sm">
+          <span className="text-muted-foreground">Showing {visibleItems.length} of {items.length}</span>
         </div>
       </CardContent>
     </Card>

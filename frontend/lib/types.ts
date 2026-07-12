@@ -1,4 +1,4 @@
-export type SourceStatus = "healthy" | "partial" | "failed"
+export type SourceStatus = "healthy" | "degraded" | "broken" | "disabled" | "unknown"
 export type SourcePlatform = "rss" | "telegram_public"
 
 export type SourceSummary = {

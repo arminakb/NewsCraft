@@ -1,4 +1,3 @@
-import { dashboardMock } from "./mock-data"
 import type {
   ContentQueueItem,
   DashboardCounts,
@@ -10,7 +9,7 @@ import type {
   SourceStatus,
   SourceSummary,
 } from "./types"
-import { formatBytes, formatPlatform, titleCase } from "./format"
+import { formatBytes, titleCase } from "./format"
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? "/api/backend"
 
@@ -216,8 +215,8 @@ export async function getDashboardSnapshot(): Promise<DashboardSnapshot> {
     getDashboardSummary(),
     getSources(),
     getContentItems(),
-    getIngestRuns().catch(() => dashboardMock.runs),
-    getMediaAssets().catch(() => dashboardMock.media),
+    getIngestRuns(),
+    getMediaAssets(),
   ])
 
   return {
@@ -345,13 +344,33 @@ function normalizePlatform(platform: string): SourcePlatform {
 }
 
 function normalizeSourceStatus(status: string | null | undefined, active = true, failureCount = 0): SourceStatus {
-  if (!active || status === "failed" || status === "unhealthy" || failureCount >= 5) {
-    return "failed"
+  if (active === false) {
+    return "disabled"
   }
-  if (status === "partial" || failureCount > 0) {
-    return "partial"
+
+  switch (status) {
+    case "healthy":
+    case "degraded":
+    case "broken":
+    case "disabled":
+    case "unknown":
+      return status
+    case "partial":
+      return "degraded"
+    case "failed":
+    case "unhealthy":
+      return "broken"
+    default:
+      break
   }
-  return "healthy"
+
+  if (failureCount >= 5) {
+    return "broken"
+  }
+  if (failureCount > 0) {
+    return "degraded"
+  }
+  return status ? "unknown" : "healthy"
 }
 
 function formatTime(value: string) {
@@ -392,4 +411,4 @@ function formatRelativeAge(value: string) {
   return `${Math.round(diffMinutes / 60)}h`
 }
 
-export { API_BASE_URL, formatPlatform }
+export { API_BASE_URL }

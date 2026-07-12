@@ -1,7 +1,7 @@
 from datetime import UTC, datetime
 from uuid import uuid4
 
-from app.content.classification import classify_content_item
+from app.content.classification import classify_content_item, classify_content_taxonomy
 from app.db.models import Source
 from app.ingestion.repository import _content_item_values
 from app.sources.base import MediaCandidate, ParsedSourceItem
@@ -138,6 +138,56 @@ def test_classifies_english_rss_article_by_default():
     assert result.content_type == "article"
 
 
+def test_content_taxonomy_prioritizes_ai_category_and_tags():
+    result = classify_content_taxonomy(
+        _source(name="Example", source_group="ai"),
+        _item(
+            title="OpenAI launches new multimodal agent platform",
+            body="The new AI system improves developer automation workflows.",
+        ),
+    )
+
+    assert result.category == "AI"
+    assert "ai" in result.tags
+    assert "agent" in result.signals["matched_keywords"]
+
+
+def test_content_taxonomy_uses_telegram_engagement_signals():
+    result = classify_content_taxonomy(
+        _source(
+            platform="telegram_public",
+            name="Telegram",
+            telegram_username="example",
+            source_group="farsi_news",
+            language_hint="fa",
+        ),
+        _item(
+            title="خبر فوری درباره اقتصاد ایران",
+            body="بازار و اقتصاد ایران امروز با تغییرات مهم روبرو شد.",
+            url="https://t.me/example/1",
+            parser_meta={"views": 2300, "reactions": {"like": 7, "fire": 2}},
+        ),
+    )
+
+    assert result.category == "Economy"
+    assert result.signals["views"] == 2300
+    assert result.signals["reactions"] == 9
+
+
+def test_content_taxonomy_preserves_source_categories_as_tags():
+    result = classify_content_taxonomy(
+        _source(name="Example", source_group="tech"),
+        _item(
+            title="Database framework adds open source security tooling",
+            body="Developers get a new API for secure cloud deployments.",
+            categories=["Security", "Open Source"],
+        ),
+    )
+
+    assert result.category == "Tech"
+    assert result.tags[:2] == ["security", "open-source"]
+
+
 def test_content_item_values_store_classification_metadata():
     values = _content_item_values(
         _source(name="Machine Learning Mastery Blog", homepage_url="https://machinelearningmastery.com"),
@@ -160,6 +210,7 @@ def _source(
     homepage_url: str | None = None,
     telegram_username: str | None = None,
     language_hint: str = "en",
+    source_group: str = "ai",
 ) -> Source:
     return Source(
         id=uuid4(),
@@ -168,7 +219,7 @@ def _source(
         feed_url=feed_url,
         homepage_url=homepage_url,
         telegram_username=telegram_username,
-        source_group="ai",
+        source_group=source_group,
         language_hint=language_hint,
         default_timezone="UTC",
         active=True,
@@ -180,6 +231,8 @@ def _item(
     body: str = "Useful technical article text with enough detail for classification.",
     url: str = "https://example.com/story",
     media: list[MediaCandidate] | None = None,
+    categories: list[str] | None = None,
+    parser_meta: dict | None = None,
 ) -> ParsedSourceItem:
     return ParsedSourceItem(
         external_id_raw="guid-1",
@@ -192,10 +245,10 @@ def _item(
         content_html=None,
         content_text=body,
         author=None,
-        categories=[],
+        categories=categories or [],
         published_raw="2026-07-05T10:00:00+00:00",
         published_at=datetime(2026, 7, 5, 10, tzinfo=UTC),
         date_parse_status="parsed",
         media_candidates=media or [],
-        parser_meta={},
+        parser_meta=parser_meta or {},
     )

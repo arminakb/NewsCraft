@@ -1,6 +1,6 @@
 import { MediaAssetsPage } from "@/components/dashboard/pages/media-assets-page"
-import { dashboardMock } from "@/lib/mock-data"
+import { emptyDashboardSnapshot } from "@/lib/empty-data"
 
 export default function Page() {
-  return <MediaAssetsPage initialMedia={dashboardMock.media} />
+  return <MediaAssetsPage initialMedia={emptyDashboardSnapshot.media} />
 }

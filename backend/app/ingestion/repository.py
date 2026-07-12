@@ -12,9 +12,9 @@ from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.content.buckets import assign_rewrite_bucket
-from app.content.classification import classify_content_item
+from app.content.classification import classify_content_item, classify_content_taxonomy
 from app.content.readiness import evaluate_rewrite_readiness
-from app.content.scoring import classify_and_score, score_content_item
+from app.content.scoring import score_content_item
 from app.db.models import (
     ContentItem,
     IngestRun,
@@ -487,7 +487,7 @@ def _content_item_values(source: Source, parsed_item: ParsedSourceItem) -> dict[
     title_normalization = _title_normalization(source, parsed_item)
     normalized_item = _parsed_item_with_title(parsed_item, title_normalization.title)
     direction = infer_direction(normalized_item.content_text)
-    classification = classify_and_score(source, normalized_item)
+    taxonomy = classify_content_taxonomy(source, normalized_item)
     content_classification = classify_content_item(source, normalized_item)
     bucket_assignment = assign_rewrite_bucket(
         content_classification.content_type,
@@ -501,7 +501,7 @@ def _content_item_values(source: Source, parsed_item: ParsedSourceItem) -> dict[
         title_quality=title_normalization.quality,
     )
     metrics = dict(normalized_item.parser_meta)
-    metrics["classification"] = classification.signals
+    metrics["classification"] = taxonomy.signals
     values = {
         "item_type": "telegram_post" if source.platform == "telegram_public" else "article",
         "canonical_url": canonical_url,
@@ -515,7 +515,7 @@ def _content_item_values(source: Source, parsed_item: ParsedSourceItem) -> dict[
         "script_code": "Arab" if direction == "rtl" else "Latn",
         "direction": direction,
         "authors": [normalized_item.author] if normalized_item.author else [],
-        "tags": classification.tags,
+        "tags": taxonomy.tags,
         "published_at": normalized_item.published_at,
         "sort_at": sort_at,
         "date_raw": normalized_item.published_raw,

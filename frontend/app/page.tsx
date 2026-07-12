@@ -1,6 +1,6 @@
 import { DashboardShell } from "@/components/dashboard/dashboard-shell"
-import { dashboardMock } from "@/lib/mock-data"
+import { emptyDashboardSnapshot } from "@/lib/empty-data"
 
 export default function Page() {
-  return <DashboardShell initialData={dashboardMock} />
+  return <DashboardShell initialData={emptyDashboardSnapshot} />
 }

@@ -1,63 +1,10 @@
 from datetime import UTC, datetime
 from uuid import uuid4
 
-from app.content.scoring import classify_and_score, score_content_item
+from app.content.scoring import score_content_item
 from app.db.models import Source
 from app.ingestion.repository import _content_item_values
 from app.sources.base import MediaCandidate, ParsedSourceItem
-
-
-def test_classify_and_score_prioritizes_ai_content():
-    source = Source(id=uuid4(), platform="rss", name="Example", source_group="ai", language_hint="en")
-    item = _parsed_item(
-        title="OpenAI launches new multimodal agent platform",
-        summary="The new AI system improves developer automation workflows.",
-    )
-
-    result = classify_and_score(source, item)
-
-    assert result.category == "AI"
-    assert result.score >= 10
-    assert "ai" in result.tags
-    assert "agent" in result.signals["matched_keywords"]
-
-
-def test_classify_and_score_uses_telegram_engagement_signals():
-    source = Source(
-        id=uuid4(),
-        platform="telegram_public",
-        name="Telegram",
-        telegram_username="example",
-        source_group="farsi_news",
-        language_hint="fa",
-    )
-    item = _parsed_item(
-        title="خبر فوری درباره اقتصاد ایران",
-        summary="بازار و اقتصاد ایران امروز با تغییرات مهم روبرو شد.",
-        parser_meta={"views": 2300, "reactions": {"like": 7, "fire": 2}},
-    )
-
-    result = classify_and_score(source, item)
-
-    assert result.category == "Economy"
-    assert result.score >= 6
-    assert result.signals["views"] == 2300
-    assert result.signals["reactions"] == 9
-
-
-def test_classify_and_score_preserves_source_categories_as_tags():
-    source = Source(id=uuid4(), platform="rss", name="Example", source_group="tech", language_hint="en")
-    item = _parsed_item(
-        title="Database framework adds open source security tooling",
-        summary="Developers get a new API for secure cloud deployments.",
-        categories=["Security", "Open Source"],
-    )
-
-    result = classify_and_score(source, item)
-
-    assert result.category == "Tech"
-    assert result.score > 0
-    assert result.tags[:2] == ["security", "open-source"]
 
 
 def test_fresh_news_outranks_stale_archive_content():

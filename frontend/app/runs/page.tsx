@@ -1,6 +1,6 @@
 import { RunsPage } from "@/components/dashboard/pages/runs-page"
-import { dashboardMock } from "@/lib/mock-data"
+import { emptyDashboardSnapshot } from "@/lib/empty-data"
 
 export default function Page() {
-  return <RunsPage initialRuns={dashboardMock.runs} />
+  return <RunsPage initialRuns={emptyDashboardSnapshot.runs} />
 }

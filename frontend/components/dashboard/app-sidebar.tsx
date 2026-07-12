@@ -5,7 +5,6 @@ import { usePathname } from "next/navigation"
 import {
   Activity,
   AlertTriangle,
-  ChevronLeft,
   Clock3,
   Database,
   FileText,
@@ -15,7 +14,7 @@ import {
   Send,
 } from "lucide-react"
 
-import { Button, buttonVariants } from "@/components/ui/button"
+import { buttonVariants } from "@/components/ui/button"
 import { Separator } from "@/components/ui/separator"
 import { formatNumber } from "@/lib/format"
 import { cn } from "@/lib/utils"
@@ -65,10 +64,6 @@ export function AppSidebar({ counts }: { counts: DashboardSnapshot["counts"] }) 
           <Metric icon={AlertTriangle} label="Warnings" value={counts.warnings} className="text-amber-500" />
         </div>
       </div>
-      <Button variant="ghost" className="m-3 h-10 justify-start gap-3">
-        <ChevronLeft className="size-5" aria-hidden="true" />
-        Collapse
-      </Button>
     </aside>
   )
 }

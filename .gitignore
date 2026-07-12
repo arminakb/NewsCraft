@@ -40,6 +40,7 @@ data/
 
 # Generated analysis artifacts
 graphify-out/
+validation/content-intelligence-report.md
 
 # Generated docs/articles
 today-news/

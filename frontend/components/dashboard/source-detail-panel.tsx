@@ -1,9 +1,9 @@
 "use client"
 
-import { Edit3, ExternalLink, X } from "lucide-react"
+import { ExternalLink, X } from "lucide-react"
 
 import { SourceIcon } from "@/components/dashboard/source-icon"
-import { StatusBadge } from "@/components/dashboard/status-badge"
+import { StatusBadge, statusLabels } from "@/components/dashboard/status-badge"
 import { Button } from "@/components/ui/button"
 import { Separator } from "@/components/ui/separator"
 import { formatNumber, formatPlatform } from "@/lib/format"
@@ -11,6 +11,14 @@ import { cn } from "@/lib/utils"
 import type { SourceSummary } from "@/lib/types"
 
 const tabs = ["Overview", "Settings", "History", "Logs"]
+
+const statusDotClass: Record<SourceSummary["status"], string> = {
+  healthy: "bg-emerald-600",
+  degraded: "bg-amber-500",
+  broken: "bg-red-600",
+  disabled: "bg-slate-500",
+  unknown: "bg-zinc-500",
+}
 
 export function SourceDetailPanel({
   source,
@@ -109,22 +117,12 @@ export function SourceDetailPanel({
             label="Status"
             value={
               <span className="inline-flex items-center gap-2">
-                <span className="size-2 rounded-full bg-emerald-600" />
-                {source.status === "healthy" ? "Healthy" : source.status === "partial" ? "Partial" : "Failed"}
+                <span className={cn("size-2 rounded-full", statusDotClass[source.status])} />
+                {statusLabels[source.status]}
               </span>
             }
           />
         </dl>
-        <div className="mt-8 space-y-4">
-          <Button variant="outline" className="h-9 gap-2">
-            <Edit3 className="size-4" aria-hidden="true" />
-            Edit source
-          </Button>
-          <Separator />
-          <Button variant="destructive" className="h-9 bg-transparent px-0 text-red-600 hover:bg-red-50">
-            Disable source
-          </Button>
-        </div>
       </div>
     </aside>
   )

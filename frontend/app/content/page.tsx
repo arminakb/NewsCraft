@@ -1,6 +1,6 @@
 import { ContentItemsPage } from "@/components/dashboard/pages/content-items-page"
-import { dashboardMock } from "@/lib/mock-data"
+import { emptyDashboardSnapshot } from "@/lib/empty-data"
 
 export default function Page() {
-  return <ContentItemsPage initialItems={dashboardMock.queue} />
+  return <ContentItemsPage initialItems={emptyDashboardSnapshot.queue} />
 }

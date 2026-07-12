@@ -30,6 +30,24 @@ describe("api-client", () => {
     ])
   })
 
+  it("maps backend source health statuses without compressing them", async () => {
+    stubFetch([
+      { id: "healthy", platform: "rss", name: "Healthy", feed_url: "https://example.com/healthy.xml", health_status: "healthy" },
+      { id: "degraded", platform: "rss", name: "Degraded", feed_url: "https://example.com/degraded.xml", health_status: "degraded" },
+      { id: "broken", platform: "rss", name: "Broken", feed_url: "https://example.com/broken.xml", health_status: "broken" },
+      { id: "disabled", platform: "rss", name: "Disabled", feed_url: "https://example.com/disabled.xml", health_status: "disabled" },
+      { id: "unknown", platform: "rss", name: "Unknown", feed_url: "https://example.com/unknown.xml", health_status: "unknown" },
+    ])
+
+    await expect(getSources()).resolves.toEqual([
+      expect.objectContaining({ id: "healthy", status: "healthy" }),
+      expect.objectContaining({ id: "degraded", status: "degraded" }),
+      expect.objectContaining({ id: "broken", status: "broken" }),
+      expect.objectContaining({ id: "disabled", status: "disabled" }),
+      expect.objectContaining({ id: "unknown", status: "unknown" }),
+    ])
+  })
+
   it("maps GET /sources/{id} to source details", async () => {
     const fetchSpy = stubFetch({ id: "source-1", platform: "telegram_public", name: "DW Persian", telegram_username: "dw_farsi" })
 
@@ -291,6 +309,43 @@ describe("api-client", () => {
       })
     )
     expect(fetchSpy).toHaveBeenCalledWith("/api/backend/dashboard/summary", undefined)
+  })
+
+  it("does not replace failed dashboard subrequests with mock data", async () => {
+    const fetchSpy = vi.fn((url: string) => {
+      if (url === "/api/backend/ingest/runs") {
+        return Promise.resolve({
+          ok: false,
+          status: 503,
+          statusText: "Service Unavailable",
+          text: async () => "offline",
+        })
+      }
+
+      const payloads: Record<string, unknown> = {
+        "/api/backend/dashboard/summary": {
+          rss_feeds: 0,
+          telegram_channels: 0,
+          content_items: 0,
+          media_assets: 0,
+          warnings: 0,
+        },
+        "/api/backend/sources": [],
+        "/api/backend/content-items?limit=50": [],
+        "/api/backend/media-assets": [],
+      }
+
+      return Promise.resolve({
+        ok: true,
+        status: 200,
+        statusText: "OK",
+        json: async () => payloads[url],
+        text: async () => JSON.stringify(payloads[url]),
+      })
+    })
+    vi.stubGlobal("fetch", fetchSpy)
+
+    await expect(getDashboardSnapshot()).rejects.toBeInstanceOf(ApiError)
   })
 
   it("throws typed ApiError on network failures", async () => {

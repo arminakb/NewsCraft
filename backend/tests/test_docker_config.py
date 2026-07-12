@@ -72,3 +72,12 @@ def test_dockerignore_excludes_local_build_noise():
     assert "**/.venv/" in dockerignore
     assert "**/.pytest_cache/" in dockerignore
     assert "data/" in dockerignore
+
+
+def test_backend_dockerignore_excludes_backend_build_noise():
+    dockerignore = (ROOT / "backend/.dockerignore").read_text(encoding="utf-8")
+
+    assert ".venv/" in dockerignore
+    assert "tests/" in dockerignore
+    assert ".pytest_cache/" in dockerignore
+    assert "*.db" in dockerignore

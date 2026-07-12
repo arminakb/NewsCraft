@@ -6,15 +6,14 @@ import {
   useReactTable,
   type ColumnDef,
 } from "@tanstack/react-table"
-import { ChevronRight, MoreHorizontal } from "lucide-react"
+import { ChevronRight } from "lucide-react"
 import { useMemo, useState } from "react"
 
 import { SourceIcon } from "@/components/dashboard/source-icon"
 import { StatusBadge } from "@/components/dashboard/status-badge"
-import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
-import { formatNumber, formatPlatform } from "@/lib/format"
+import { formatNumber } from "@/lib/format"
 import { cn } from "@/lib/utils"
 import type { SourcePlatform, SourceSummary } from "@/lib/types"
 
@@ -143,9 +142,6 @@ export function SourceHealthTable({
               )
             })}
           </div>
-          <Button variant="ghost" size="icon-sm" aria-label="Source table options">
-            <MoreHorizontal className="size-4" aria-hidden="true" />
-          </Button>
         </div>
       </CardHeader>
       <CardContent className="px-0">
@@ -163,36 +159,35 @@ export function SourceHealthTable({
               ))}
             </TableHeader>
             <TableBody>
-              {table.getRowModel().rows.map((row) => (
-                <TableRow
-                  key={row.id}
-                  data-state={row.original.id === selectedSourceId ? "selected" : undefined}
-                  onClick={() => onSelectSource(row.original.id)}
-                  className="h-12 cursor-pointer data-[state=selected]:bg-cyan-50/50"
-                >
-                  {row.getVisibleCells().map((cell) => (
-                    <TableCell key={cell.id} className="px-3 py-2 text-sm">
-                      {flexRender(cell.column.columnDef.cell, cell.getContext())}
-                    </TableCell>
-                  ))}
+              {table.getRowModel().rows.length ? (
+                table.getRowModel().rows.map((row) => (
+                  <TableRow
+                    key={row.id}
+                    data-state={row.original.id === selectedSourceId ? "selected" : undefined}
+                    onClick={() => onSelectSource(row.original.id)}
+                    className="h-12 cursor-pointer data-[state=selected]:bg-cyan-50/50"
+                  >
+                    {row.getVisibleCells().map((cell) => (
+                      <TableCell key={cell.id} className="px-3 py-2 text-sm">
+                        {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                      </TableCell>
+                    ))}
+                  </TableRow>
+                ))
+              ) : (
+                <TableRow>
+                  <TableCell colSpan={columns.length} className="h-20 px-3 text-center text-sm text-muted-foreground">
+                    No sources found
+                  </TableCell>
                 </TableRow>
-              ))}
+              )}
             </TableBody>
           </Table>
         </div>
-        <div className="flex h-9 items-center justify-between border-t px-3 text-sm">
-          <Button variant="link" className="h-auto p-0 text-primary">
-            View all sources
-          </Button>
-          <div className="flex items-center gap-3 text-muted-foreground">
-            <span>Showing 1-5 of {counts.all}</span>
-            <ChevronRight className="size-4 rotate-180 opacity-40" aria-hidden="true" />
-            <ChevronRight className="size-4" aria-hidden="true" />
-          </div>
+        <div className="flex h-9 items-center justify-end border-t px-3 text-sm text-muted-foreground">
+          <span>Showing {visibleSources.length} of {counts.all}</span>
         </div>
       </CardContent>
     </Card>
   )
 }
-
-export { formatPlatform }

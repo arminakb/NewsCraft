@@ -18,5 +18,6 @@ describe("AppSidebar", () => {
     expect(screen.getByRole("link", { name: /media/i })).toHaveAttribute("href", "/media")
     expect(screen.getByRole("link", { name: /diagnostics/i })).toHaveAttribute("href", "/diagnostics")
     expect(screen.getByRole("link", { name: /content items/i })).toHaveAttribute("aria-current", "page")
+    expect(screen.queryByRole("button", { name: /collapse/i })).not.toBeInTheDocument()
   })
 })

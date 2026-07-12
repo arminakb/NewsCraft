@@ -4,7 +4,7 @@ import { useQuery } from "@tanstack/react-query"
 
 import { AppSidebar } from "@/components/dashboard/app-sidebar"
 import { getDashboardSummary } from "@/lib/api-client"
-import { dashboardMock } from "@/lib/mock-data"
+import { emptyDashboardCounts } from "@/lib/empty-data"
 import { queryKeys } from "@/lib/query-keys"
 
 export function OperationsPageFrame({
@@ -21,7 +21,7 @@ export function OperationsPageFrame({
   const countsQuery = useQuery({
     queryKey: queryKeys.dashboardSummary,
     queryFn: getDashboardSummary,
-    initialData: dashboardMock.counts,
+    initialData: emptyDashboardCounts,
     enabled: process.env.NODE_ENV !== "test",
   })
 
