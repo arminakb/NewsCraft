@@ -3,13 +3,16 @@ from __future__ import annotations
 import hashlib
 from collections.abc import Iterable
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any, Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Response
+from fastapi.responses import FileResponse
 from pydantic import BaseModel, ConfigDict, Field, HttpUrl, model_validator
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from starlette.concurrency import run_in_threadpool
 
 from app.automations.models import AutomationDispatch, AutomationRoute
 from app.automations.telegram.handlers import (
@@ -46,6 +49,14 @@ from app.stories.models import StoryEvidenceSnapshot, StoryRevision
 router = APIRouter(prefix="/telegram", tags=["telegram"])
 draft_router = APIRouter(prefix="/drafts")
 SessionDependency = Depends(get_session)
+
+
+def _file_sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as source:
+        while chunk := source.read(1024 * 1024):
+            digest.update(chunk)
+    return digest.hexdigest()
 
 
 class TelegramDraftEditIn(BaseModel):
@@ -330,6 +341,7 @@ async def _draft_out(
             "mime_type": asset.mime_type,
             "fetch_status": asset.fetch_status,
             "checksum_sha256": asset.checksum_sha256,
+            "preview_url": f"/telegram/drafts/{revision.id}/media/{asset.id}",
         }
         for media_id in requested_media_ids
         if (asset := media_by_id.get(media_id)) is not None
@@ -476,6 +488,71 @@ async def get_telegram_draft(
     if revision is None:
         raise HTTPException(404, "Telegram draft not found")
     return await _draft_out(session, revision)
+
+
+@draft_router.get("/{revision_id}/media/{media_asset_id}")
+async def get_telegram_draft_media(
+    revision_id: UUID,
+    media_asset_id: UUID,
+    session: AsyncSession = SessionDependency,
+):
+    revision = await session.scalar(
+        select(PlatformVariantRevision)
+        .join(PlatformVariant, PlatformVariant.id == PlatformVariantRevision.platform_variant_id)
+        .where(
+            PlatformVariantRevision.id == revision_id,
+            PlatformVariant.platform == "telegram",
+        )
+    )
+    if revision is None:
+        raise HTTPException(404, "Telegram draft not found")
+    try:
+        content = TelegramVariantContent.model_validate(revision.content)
+    except Exception:
+        raise HTTPException(409, "Telegram draft content is invalid") from None
+    if media_asset_id not in content.media_asset_ids:
+        raise HTTPException(404, "Telegram draft media not found")
+    asset = await session.get(MediaAsset, media_asset_id)
+    if (
+        asset is None
+        or asset.fetch_status != "downloaded"
+        or not asset.storage_path
+        or not asset.checksum_sha256
+    ):
+        raise HTTPException(409, "Telegram draft media is unavailable")
+    path = Path(asset.storage_path)
+    if not path.is_file():
+        raise HTTPException(409, "Telegram draft media is unavailable")
+    try:
+        digest = await run_in_threadpool(_file_sha256, path)
+    except OSError:
+        raise HTTPException(409, "Telegram draft media is unavailable") from None
+    if digest != asset.checksum_sha256:
+        raise HTTPException(409, "Telegram draft media checksum changed")
+    preview_formats = {
+        ("image", "image/jpeg"): {".jpg", ".jpeg"},
+        ("photo", "image/jpeg"): {".jpg", ".jpeg"},
+        ("image", "image/png"): {".png"},
+        ("photo", "image/png"): {".png"},
+        ("image", "image/gif"): {".gif"},
+        ("photo", "image/gif"): {".gif"},
+        ("image", "image/webp"): {".webp"},
+        ("photo", "image/webp"): {".webp"},
+        ("video", "video/mp4"): {".mp4"},
+        ("video", "video/quicktime"): {".mov"},
+    }
+    media_key = (str(asset.kind).casefold(), str(asset.mime_type or "").casefold())
+    inline_extensions = preview_formats.get(media_key)
+    if inline_extensions is not None and path.suffix.casefold() not in inline_extensions:
+        raise HTTPException(409, "Telegram draft media format changed")
+    inline = inline_extensions is not None
+    return FileResponse(
+        path,
+        media_type=asset.mime_type if inline else "application/octet-stream",
+        filename=f"telegram-media-{asset.id}{path.suffix.casefold()}",
+        content_disposition_type="inline" if inline else "attachment",
+        headers={"X-Content-Type-Options": "nosniff", "Cache-Control": "private, no-store"},
+    )
 
 
 @draft_router.post("/{revision_id}/revisions", status_code=201)

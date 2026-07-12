@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 from datetime import UTC, datetime
 from types import SimpleNamespace
@@ -14,6 +15,7 @@ from app.api.telegram_drafts import (
     _publication_out,
     _publish_job_out,
     _validate_reconciled_remote_ids,
+    get_telegram_draft_media,
     router,
 )
 from app.publishing.telegram.service import PublishValidationError, validate_reconciliation
@@ -162,3 +164,54 @@ def test_publish_job_read_and_reconciliation_routes_do_not_shadow_draft_routes()
     assert "/telegram/publish-jobs/{publish_job_id}" in paths
     assert "/telegram/publish-jobs/{publish_job_id}/reconcile" in paths
     assert "/telegram/drafts/{revision_id}" in paths
+    assert "/telegram/drafts/{revision_id}/media/{media_asset_id}" in paths
+
+
+@pytest.mark.asyncio
+async def test_draft_media_preview_is_revision_scoped_checksum_verified_and_path_safe(tmp_path):
+    revision_id = uuid4()
+    media_id = uuid4()
+    payload = b"exact captured image"
+    path = tmp_path / "private-storage-name.jpg"
+    path.write_bytes(payload)
+    revision = SimpleNamespace(
+        content={
+            "body": "body",
+            "parse_mode": "HTML",
+            "buttons": [],
+            "source_item_id": str(uuid4()),
+            "source_url": "https://t.me/source/1",
+            "media_policy": "preserve",
+            "media_asset_ids": [str(media_id)],
+            "direction": "rtl",
+            "dry_run": False,
+        }
+    )
+    asset = SimpleNamespace(
+        id=media_id,
+        kind="image",
+        fetch_status="downloaded",
+        storage_path=str(path),
+        checksum_sha256=hashlib.sha256(payload).hexdigest(),
+        mime_type="image/jpeg",
+    )
+
+    class Session:
+        async def scalar(self, statement):
+            return revision
+
+        async def get(self, model, key):
+            return asset if key == media_id else None
+
+    response = await get_telegram_draft_media(revision_id, media_id, Session())
+
+    assert response.media_type == "image/jpeg"
+    assert "telegram-media-" in response.headers["content-disposition"]
+    assert response.headers["x-content-type-options"] == "nosniff"
+    assert response.headers["cache-control"] == "private, no-store"
+    assert str(tmp_path) not in response.headers["content-disposition"]
+
+    asset.checksum_sha256 = "0" * 64
+    with pytest.raises(HTTPException) as error:
+        await get_telegram_draft_media(revision_id, media_id, Session())
+    assert error.value.status_code == 409

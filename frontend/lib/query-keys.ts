@@ -1,4 +1,5 @@
 import type { JobFilters } from "@/features/jobs/types"
+import type { TelegramDraftFilters } from "@/features/automations/telegram-types"
 
 export const queryKeys = {
   dashboardSummary: ["dashboard-summary"] as const,
@@ -13,4 +14,17 @@ export const queryKeys = {
   job: (id: string) => ["jobs", id] as const,
   jobSummary: ["jobs", "summary"] as const,
   automationControl: ["automation-control"] as const,
+  telegramOptions: ["telegram", "options"] as const,
+  telegramSources: ["telegram", "sources"] as const,
+  telegramDestinations: ["telegram", "destinations"] as const,
+  telegramRoutes: ["telegram", "routes"] as const,
+  telegramRoute: (id: string) => ["telegram", "routes", id] as const,
+  telegramDispatches: (routeId: string) => ["telegram", "routes", routeId, "dispatches"] as const,
+  telegramDrafts: (filters: TelegramDraftFilters = {}) => ["telegram", "drafts", filters] as const,
+  telegramDraft: (id: string) => ["telegram", "drafts", id] as const,
+  telegramPublishJob: (id: string) => ["telegram", "publish-jobs", id] as const,
+  brandProfiles: ["settings", "brand-profiles"] as const,
+  promptTemplates: ["settings", "prompt-templates"] as const,
+  promptVersions: (templateId: string) => ["settings", "prompt-templates", templateId, "versions"] as const,
+  aiProviderProfiles: ["settings", "ai-provider-profiles"] as const,
 }

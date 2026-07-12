@@ -1,6 +1,8 @@
 import { defineConfig, devices } from "@playwright/test"
 
 const chromiumExecutablePath = process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH
+const playwrightPort = process.env.PLAYWRIGHT_PORT ?? "3000"
+const playwrightBaseUrl = `http://localhost:${playwrightPort}`
 const chromiumLaunchOptions =
   chromiumExecutablePath || process.env.PLAYWRIGHT_CHROMIUM_SINGLE_PROCESS
     ? {
@@ -13,12 +15,12 @@ export default defineConfig({
   testDir: "./e2e",
   outputDir: "./test-results",
   use: {
-    baseURL: "http://localhost:3000",
+    baseURL: playwrightBaseUrl,
     trace: "retain-on-failure",
   },
   webServer: {
-    command: "npm run dev",
-    url: "http://localhost:3000",
+    command: `npm run dev -- --port ${playwrightPort}`,
+    url: playwrightBaseUrl,
     reuseExistingServer: true,
     timeout: 120_000,
   },

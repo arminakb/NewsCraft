@@ -1,5 +1,6 @@
 "use client"
 
+import type { ReactNode } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 
 import { useNotices } from "@/components/providers/notice-provider"
@@ -12,7 +13,7 @@ import { JobStatusBadge } from "@/features/jobs/job-status-badge"
 import { getApiErrorMessage } from "@/lib/http"
 import { queryKeys } from "@/lib/query-keys"
 
-export function TodayPage() {
+export function TodayPage({ outcomes }: { outcomes?: ReactNode }) {
   const queryClient = useQueryClient()
   const { pushNotice } = useNotices()
   const summaryQuery = useQuery({ queryKey: queryKeys.jobSummary, queryFn: getJobSummary, refetchInterval: 5_000 })
@@ -70,6 +71,7 @@ export function TodayPage() {
         <p className="text-muted-foreground">Live workflow truth and the work that needs an operator.</p>
       </div>
       <GlobalControls />
+      {outcomes}
       {loading ? (
         <div role="status" aria-label="Loading Today" className="grid grid-cols-2 gap-3 md:grid-cols-4">
           {Array.from({ length: 4 }, (_, index) => (

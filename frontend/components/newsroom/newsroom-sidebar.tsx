@@ -4,12 +4,15 @@ import Link from "next/link"
 import { usePathname } from "next/navigation"
 import {
   Activity,
+  Bot,
   Clock3,
   Database,
   FileText,
   ImageIcon,
   ListTodo,
   Newspaper,
+  Settings,
+  SquarePen,
 } from "lucide-react"
 
 import { Separator } from "@/components/ui/separator"
@@ -19,11 +22,15 @@ import { cn } from "@/lib/utils"
 export const newsroomNavItems = [
   { label: "Today", href: "/", icon: Newspaper },
   { label: "Job Queue", href: "/jobs", icon: ListTodo },
+  { label: "Automations", href: "/automations", icon: Bot },
+  { label: "Drafts", href: "/drafts", icon: FileText },
+  { label: "Review & Publish", href: "/drafts?approval_state=pending_review", activeHref: "/review", icon: SquarePen },
   { label: "Sources", href: "/sources", icon: Database },
   { label: "Content", href: "/content", icon: FileText },
   { label: "Ingestion Runs", href: "/runs", icon: Clock3 },
   { label: "Media", href: "/media", icon: ImageIcon },
   { label: "Diagnostics", href: "/diagnostics", icon: Activity },
+  { label: "Content Settings", href: "/settings/content", icon: Settings },
 ] as const
 
 export function NewsroomSidebar({ summary }: { summary?: JobSummary }) {
@@ -39,8 +46,8 @@ export function NewsroomSidebar({ summary }: { summary?: JobSummary }) {
       <nav aria-label="Newsroom navigation" className="flex-1 space-y-1 p-3">
         {newsroomNavItems.map((item, index) => (
           <div key={item.href}>
-            {index === 2 ? <Separator className="my-3" /> : null}
-            <NewsroomLink item={item} active={isCurrentPath(pathname, item.href)} />
+            {index === 5 ? <Separator className="my-3" /> : null}
+            <NewsroomLink item={item} active={isCurrentPath(pathname, "activeHref" in item ? item.activeHref : item.href)} />
           </div>
         ))}
       </nav>

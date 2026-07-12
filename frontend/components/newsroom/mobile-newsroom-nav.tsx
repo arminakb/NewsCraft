@@ -63,7 +63,7 @@ export function MobileNewsroomNav() {
             <nav aria-label="Mobile navigation panel" className="space-y-1">
               {newsroomNavItems.map((item, index) => {
                 const Icon = item.icon
-                const active = isCurrentPath(pathname, item.href)
+                const active = isCurrentPath(pathname, "activeHref" in item ? item.activeHref : item.href)
                 return (
                   <Link
                     key={item.href}
