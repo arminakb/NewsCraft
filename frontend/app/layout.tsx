@@ -3,11 +3,12 @@ import type { Metadata } from "next"
 import "./globals.css"
 
 import { QueryProvider } from "@/components/providers/query-provider"
+import { NewsroomShell } from "@/components/newsroom/newsroom-shell"
 import { TooltipProvider } from "@/components/ui/tooltip"
 
 export const metadata: Metadata = {
-  title: "NewsCraft Ingestion",
-  description: "Operational ingestion dashboard for NewsCraft sources, runs, content, and media.",
+  title: "NewsCraft",
+  description: "Local content operations command center",
 }
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
@@ -15,7 +16,9 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
     <html lang="en">
       <body>
         <QueryProvider>
-          <TooltipProvider>{children}</TooltipProvider>
+          <TooltipProvider>
+            <NewsroomShell>{children}</NewsroomShell>
+          </TooltipProvider>
         </QueryProvider>
       </body>
     </html>

@@ -1,23 +1,40 @@
 import { render, screen } from "@testing-library/react"
 
-import { AppSidebar } from "@/components/dashboard/app-sidebar"
-import { dashboardMock } from "@/lib/mock-data"
+import { NewsroomSidebar } from "@/components/newsroom/newsroom-sidebar"
+
+let pathname = "/content"
 
 vi.mock("next/navigation", () => ({
-  usePathname: () => "/content",
+  usePathname: () => pathname,
 }))
 
-describe("AppSidebar", () => {
-  it("links to every operational page and marks the current page", () => {
-    render(<AppSidebar counts={dashboardMock.counts} />)
+describe("NewsroomSidebar", () => {
+  beforeEach(() => {
+    pathname = "/content"
+  })
 
-    expect(screen.getByRole("link", { name: /overview/i })).toHaveAttribute("href", "/")
-    expect(screen.getByRole("link", { name: /sources/i })).toHaveAttribute("href", "/sources")
-    expect(screen.getByRole("link", { name: /runs/i })).toHaveAttribute("href", "/runs")
-    expect(screen.getByRole("link", { name: /content items/i })).toHaveAttribute("href", "/content")
-    expect(screen.getByRole("link", { name: /media/i })).toHaveAttribute("href", "/media")
-    expect(screen.getByRole("link", { name: /diagnostics/i })).toHaveAttribute("href", "/diagnostics")
-    expect(screen.getByRole("link", { name: /content items/i })).toHaveAttribute("aria-current", "page")
-    expect(screen.queryByRole("button", { name: /collapse/i })).not.toBeInTheDocument()
+  it("links only to working Release 1 screens and marks the current page", () => {
+    render(<NewsroomSidebar />)
+
+    expect(screen.getByRole("link", { name: "Today" })).toHaveAttribute("href", "/")
+    expect(screen.getByRole("link", { name: "Job Queue" })).toHaveAttribute("href", "/jobs")
+    expect(screen.getByRole("link", { name: "Sources" })).toHaveAttribute("href", "/sources")
+    expect(screen.getByRole("link", { name: "Content" })).toHaveAttribute("href", "/content")
+    expect(screen.getByRole("link", { name: "Ingestion Runs" })).toHaveAttribute("href", "/runs")
+    expect(screen.getByRole("link", { name: "Media" })).toHaveAttribute("href", "/media")
+    expect(screen.getByRole("link", { name: "Diagnostics" })).toHaveAttribute("href", "/diagnostics")
+    expect(screen.getByRole("link", { name: "Content" })).toHaveAttribute("aria-current", "page")
+
+    for (const futureRoute of ["Automations", "Drafts", "Review & Publish", "Library"]) {
+      expect(screen.queryByRole("link", { name: futureRoute })).not.toBeInTheDocument()
+    }
+  })
+
+  it("marks Today only at the root path", () => {
+    pathname = "/"
+    render(<NewsroomSidebar />)
+
+    expect(screen.getByRole("link", { name: "Today" })).toHaveAttribute("aria-current", "page")
+    expect(screen.getByRole("link", { name: "Content" })).not.toHaveAttribute("aria-current")
   })
 })

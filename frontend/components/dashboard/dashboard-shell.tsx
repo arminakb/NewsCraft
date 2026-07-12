@@ -3,7 +3,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useMemo, useState } from "react"
 
-import { AppSidebar } from "@/components/dashboard/app-sidebar"
 import { ContentQueuePanel } from "@/components/dashboard/content-queue-panel"
 import { IngestionRunsPanel } from "@/components/dashboard/ingestion-runs-panel"
 import { MediaStrip } from "@/components/dashboard/media-strip"
@@ -13,6 +12,7 @@ import { TopStatusBar } from "@/components/dashboard/top-status-bar"
 import { getDashboardSnapshot, runIngest } from "@/lib/api-client"
 import { queryKeys } from "@/lib/query-keys"
 import type { DashboardSnapshot } from "@/lib/types"
+import { cn } from "@/lib/utils"
 
 export function DashboardShell({
   initialData,
@@ -61,17 +61,16 @@ export function DashboardShell({
   }
 
   return (
-    <div className="min-h-screen bg-slate-50 text-sm text-foreground">
-      <div className="grid min-h-screen grid-cols-1 md:grid-cols-[240px_minmax(0,1fr)] xl:grid-cols-[240px_minmax(0,1fr)_440px]">
-        <AppSidebar counts={data.counts} />
-        <div className="min-w-0 border-x bg-white">
+    <section aria-label="Ingestion dashboard" className="min-w-0 bg-slate-50 text-sm text-foreground">
+      <div className={cn("grid min-w-0", selectedSource && "xl:grid-cols-[minmax(0,1fr)_440px]")}>
+        <div className="min-w-0 bg-white">
           <TopStatusBar
             onRunIngest={() => ingestMutation.mutate()}
             isRunning={ingestMutation.isPending}
             connectionState={connectionState}
             lastRunLabel={data.runs[0]?.label ?? null}
           />
-          <main className="space-y-4 p-4">
+          <div className="min-w-0 space-y-4 p-4">
             {dashboardQuery.isError ? (
               <div role="alert" className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
                 Backend data unavailable
@@ -92,11 +91,11 @@ export function DashboardShell({
               <ContentQueuePanel items={data.queue} />
             </div>
             <MediaStrip media={data.media} />
-          </main>
+          </div>
         </div>
         {selectedSource ? <SourceDetailPanel source={selectedSource} open={detailOpen} onOpenChange={setDetailOpen} /> : null}
       </div>
-    </div>
+    </section>
   )
 }
 

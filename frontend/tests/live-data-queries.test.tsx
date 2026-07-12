@@ -11,7 +11,6 @@ import { emptyDashboardSnapshot } from "@/lib/empty-data"
 import {
   getContentItems,
   getDashboardSnapshot,
-  getDashboardSummary,
   getDiagnostics,
   getIngestRuns,
   getMediaAssets,
@@ -24,7 +23,6 @@ vi.mock("@/lib/api-client", async () => {
   return {
     ...actual,
     getDashboardSnapshot: vi.fn(async () => emptyDashboardSnapshot),
-    getDashboardSummary: vi.fn(async () => emptyDashboardSnapshot.counts),
     getContentItems: vi.fn(async () => []),
     getDiagnostics: vi.fn(async () => ({ status: "ok", checks: {}, sourceHealth: {}, problemSources: [] })),
     getIngestRuns: vi.fn(async () => []),
@@ -46,7 +44,6 @@ describe("live data queries", () => {
     renderWithClient(<ContentItemsPage initialItems={[]} />)
 
     await waitFor(() => expect(getContentItems).toHaveBeenCalledTimes(1))
-    expect(getDashboardSummary).toHaveBeenCalledTimes(1)
   })
 
   it.each([
@@ -68,15 +65,6 @@ describe("live data queries", () => {
 
     expect(screen.getByRole("alert")).toHaveTextContent("Backend data unavailable")
     expect(screen.getByText("No sources found")).toBeInTheDocument()
-  })
-
-  it("keeps the operations frame mounted when its counts placeholder query rejects", async () => {
-    vi.mocked(getDashboardSummary).mockRejectedValueOnce(new Error("offline"))
-    const { queryClient } = renderWithClient(<RunsPage initialRuns={[]} />)
-
-    await waitFor(() => expect(queryClient.getQueryState(queryKeys.dashboardSummary)?.status).toBe("error"))
-
-    expect(screen.getByRole("heading", { name: "Ingestion Runs" })).toBeInTheDocument()
   })
 
   it.each([

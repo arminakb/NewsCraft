@@ -33,20 +33,21 @@ describe("DashboardShell", () => {
   })
 
   it("renders the operational dashboard frame", () => {
-    render(
+    const { container } = render(
       <QueryProvider>
         <DashboardShell initialData={dashboardMock} />
       </QueryProvider>
     )
 
-    expect(screen.getByRole("navigation", { name: /dashboard navigation/i })).toBeInTheDocument()
+    expect(screen.queryByRole("navigation")).not.toBeInTheDocument()
+    expect(container.querySelector("main")).not.toBeInTheDocument()
     expect(screen.getByText("Backend connected")).toBeInTheDocument()
     expect(screen.getByRole("button", { name: /run ingest/i })).toBeInTheDocument()
     expect(screen.getByRole("region", { name: /source details/i })).toBeInTheDocument()
   })
 
   it("renders empty dashboard states without mock source data", () => {
-    render(
+    const { container } = render(
       <QueryProvider>
         <DashboardShell initialData={emptyDashboard} />
       </QueryProvider>
@@ -57,6 +58,7 @@ describe("DashboardShell", () => {
     expect(screen.getByText("No content items yet")).toBeInTheDocument()
     expect(screen.getByText("No media assets yet")).toBeInTheDocument()
     expect(screen.queryByText("TechCrunch")).not.toBeInTheDocument()
+    expect(container.querySelector('[class*="440px"]')).not.toBeInTheDocument()
   })
 
   it("renders an error state when the backend dashboard request fails", async () => {

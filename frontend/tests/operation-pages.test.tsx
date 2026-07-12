@@ -37,9 +37,11 @@ vi.mock("@/lib/api-client", async () => {
 
 describe("operational pages", () => {
   it("renders source operations including seeding", async () => {
-    renderWithQuery(<SourcesPage initialSources={dashboardMock.sources} enableQueries={false} />)
+    const { container } = renderWithQuery(<SourcesPage initialSources={dashboardMock.sources} enableQueries={false} />)
 
     expect(await screen.findByRole("heading", { name: /sources/i })).toBeInTheDocument()
+    expect(screen.queryByRole("navigation")).not.toBeInTheDocument()
+    expect(container.querySelector("main")).not.toBeInTheDocument()
     expect(screen.getByRole("button", { name: /seed sources/i })).toBeInTheDocument()
     expect(screen.getAllByText("TechCrunch").length).toBeGreaterThan(0)
   })

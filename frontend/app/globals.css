@@ -48,6 +48,8 @@
 html,
 body {
   min-height: 100%;
+  max-width: 100%;
+  overflow-x: clip;
 }
 
 body {
@@ -56,6 +58,13 @@ body {
   color: var(--foreground);
   font-family:
     Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+@media (max-width: 767px) {
+  button,
+  a {
+    touch-action: manipulation;
+  }
 }
 
 button,
