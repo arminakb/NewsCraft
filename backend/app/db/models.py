@@ -300,3 +300,334 @@ class ContentDraft(Base):
     )
 
     __table_args__ = (Index("ix_content_drafts_content_item", "content_item_id"),)
+
+
+class ContentProductionRequest(Base):
+    __tablename__ = "content_production_requests"
+
+    id: Mapped[uuid.UUID] = uuid_pk()
+    topic: Mapped[str | None] = mapped_column(Text)
+    platform: Mapped[str] = mapped_column(Text, nullable=False, server_default="telegram")
+    language: Mapped[str] = mapped_column(Text, nullable=False, server_default="fa")
+    tone: Mapped[str | None] = mapped_column(Text)
+    audience: Mapped[str | None] = mapped_column(Text)
+    max_candidates: Mapped[int] = mapped_column(Integer, nullable=False, server_default="10")
+    require_rewrite_ready: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="true")
+    require_media: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="false")
+    status: Mapped[str] = mapped_column(Text, nullable=False, server_default="created")
+    constraints_json: Mapped[dict] = mapped_column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
+    created_by: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = timestamp_now()
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now()
+    )
+
+    __table_args__ = (Index("ix_content_production_requests_status", "status", created_at.desc()),)
+
+
+class CandidateShortlist(Base):
+    __tablename__ = "candidate_shortlists"
+
+    id: Mapped[uuid.UUID] = uuid_pk()
+    request_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("content_production_requests.id"), nullable=False)
+    selection_execution_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    content_item_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("content_items.id"), nullable=False)
+    rank: Mapped[int] = mapped_column(Integer, nullable=False)
+    score: Mapped[Decimal] = mapped_column(Numeric, nullable=False, server_default="0")
+    selection_reason_json: Mapped[dict] = mapped_column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
+    risk_flags_json: Mapped[list] = mapped_column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
+    source_snapshot_json: Mapped[dict] = mapped_column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
+    approval_status: Mapped[str] = mapped_column(Text, nullable=False, server_default="pending")
+    approved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    rejected_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = timestamp_now()
+
+    __table_args__ = (
+        Index("ix_candidate_shortlists_request_content_item", "request_id", "content_item_id"),
+        Index("ix_candidate_shortlists_request_execution", "request_id", "selection_execution_id"),
+        Index("ix_candidate_shortlists_request_rank", "request_id", "rank"),
+        Index("ix_candidate_shortlists_approval_status", "approval_status"),
+        UniqueConstraint(
+            "selection_execution_id",
+            "content_item_id",
+            name="uq_candidate_shortlists_execution_content_item",
+        ),
+    )
+
+
+class ContentProductionRun(Base):
+    __tablename__ = "content_production_runs"
+
+    id: Mapped[uuid.UUID] = uuid_pk()
+    request_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("content_production_requests.id"), nullable=False)
+    content_item_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("content_items.id"), nullable=False)
+    platform: Mapped[str] = mapped_column(Text, nullable=False, server_default="telegram")
+    state: Mapped[str] = mapped_column(Text, nullable=False, server_default="created")
+    current_step: Mapped[str | None] = mapped_column(Text)
+    failure_reason: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = timestamp_now()
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now()
+    )
+
+    __table_args__ = (
+        Index("ix_content_production_runs_request", "request_id"),
+        Index("ix_content_production_runs_state_step", "state", "current_step"),
+    )
+
+
+class AgentStepRun(Base):
+    __tablename__ = "agent_step_runs"
+
+    id: Mapped[uuid.UUID] = uuid_pk()
+    production_run_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("content_production_runs.id"))
+    step_name: Mapped[str] = mapped_column(Text, nullable=False)
+    agent_name: Mapped[str] = mapped_column(Text, nullable=False)
+    input_snapshot_json: Mapped[dict] = mapped_column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
+    output_snapshot_json: Mapped[dict] = mapped_column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
+    status: Mapped[str] = mapped_column(Text, nullable=False, server_default="started")
+    error_message: Mapped[str | None] = mapped_column(Text)
+    started_at: Mapped[datetime] = timestamp_now()
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    model_name: Mapped[str | None] = mapped_column(Text)
+    token_usage_json: Mapped[dict] = mapped_column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
+
+    __table_args__ = (
+        Index("ix_agent_step_runs_production_run", "production_run_id"),
+        Index("ix_agent_step_runs_step_status", "step_name", "status"),
+    )
+
+
+class WorkflowEvent(Base):
+    __tablename__ = "workflow_events"
+
+    event_id: Mapped[uuid.UUID] = uuid_pk()
+    event_type: Mapped[str] = mapped_column(Text, nullable=False)
+    aggregate_type: Mapped[str] = mapped_column(Text, nullable=False)
+    aggregate_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    correlation_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    causation_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
+    payload: Mapped[dict] = mapped_column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
+    status: Mapped[str] = mapped_column(Text, nullable=False, server_default="pending")
+    attempt_count: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
+    last_error: Mapped[str | None] = mapped_column(Text)
+    occurred_at: Mapped[datetime] = timestamp_now()
+    available_at: Mapped[datetime] = timestamp_now()
+    processed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+    __table_args__ = (
+        Index("ix_workflow_events_status_available", "status", "available_at"),
+        Index("ix_workflow_events_correlation", "correlation_id", "occurred_at"),
+        Index("ix_workflow_events_aggregate", "aggregate_type", "aggregate_id", "occurred_at"),
+    )
+
+
+class ContentSufficiencyReport(Base):
+    __tablename__ = "content_sufficiency_reports"
+
+    id: Mapped[uuid.UUID] = uuid_pk()
+    production_run_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("content_production_runs.id"))
+    content_item_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("content_items.id"))
+    status: Mapped[str] = mapped_column(Text, nullable=False)
+    score: Mapped[Decimal] = mapped_column(Numeric, nullable=False, server_default="0")
+    reasons_json: Mapped[list] = mapped_column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
+    allowed_next_step: Mapped[str | None] = mapped_column(Text)
+    blocked_steps_json: Mapped[list] = mapped_column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
+    minimum_needed_json: Mapped[list] = mapped_column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
+    input_snapshot_json: Mapped[dict] = mapped_column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
+    created_at: Mapped[datetime] = timestamp_now()
+
+    __table_args__ = (
+        Index("ix_content_sufficiency_reports_run_created", "production_run_id", created_at.desc()),
+        Index("ix_content_sufficiency_reports_item_created", "content_item_id", created_at.desc()),
+        Index("ix_content_sufficiency_reports_status", "status"),
+    )
+
+
+class ArticleExtractionResult(Base):
+    __tablename__ = "article_extraction_results"
+
+    id: Mapped[uuid.UUID] = uuid_pk()
+    production_run_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("content_production_runs.id"), nullable=False)
+    content_item_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("content_items.id"), nullable=False)
+    status: Mapped[str] = mapped_column(Text, nullable=False)
+    source_url: Mapped[str | None] = mapped_column(Text)
+    final_url: Mapped[str | None] = mapped_column(Text)
+    title: Mapped[str | None] = mapped_column(Text)
+    summary: Mapped[str | None] = mapped_column(Text)
+    content_text: Mapped[str | None] = mapped_column(Text)
+    author: Mapped[str | None] = mapped_column(Text)
+    published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    image_url: Mapped[str | None] = mapped_column(Text)
+    warnings_json: Mapped[list] = mapped_column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
+    metadata_json: Mapped[dict] = mapped_column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
+    error_message: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = timestamp_now()
+
+    __table_args__ = (
+        Index("ix_article_extraction_results_run_created", "production_run_id", created_at.desc()),
+        Index("ix_article_extraction_results_status", "status"),
+    )
+
+
+class WebEnrichmentResult(Base):
+    __tablename__ = "web_enrichment_results"
+
+    id: Mapped[uuid.UUID] = uuid_pk()
+    production_run_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("content_production_runs.id"), nullable=False)
+    content_item_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("content_items.id"), nullable=False)
+    provider_name: Mapped[str] = mapped_column(Text, nullable=False)
+    status: Mapped[str] = mapped_column(Text, nullable=False)
+    query_json: Mapped[dict] = mapped_column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
+    findings_json: Mapped[list] = mapped_column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
+    source_attribution_json: Mapped[list] = mapped_column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
+    warnings_json: Mapped[list] = mapped_column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
+    error_message: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = timestamp_now()
+
+    __table_args__ = (
+        Index("ix_web_enrichment_results_run_created", "production_run_id", created_at.desc()),
+        Index("ix_web_enrichment_results_status", "status"),
+    )
+
+
+class EditorialBrief(Base):
+    __tablename__ = "editorial_briefs"
+
+    id: Mapped[uuid.UUID] = uuid_pk()
+    production_run_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("content_production_runs.id"), nullable=False)
+    angle: Mapped[str] = mapped_column(Text, nullable=False)
+    key_facts_json: Mapped[list] = mapped_column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
+    source_claims_json: Mapped[list] = mapped_column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
+    unsafe_or_unverified_claims_json: Mapped[list] = mapped_column(
+        JSONB, nullable=False, server_default=text("'[]'::jsonb")
+    )
+    audience: Mapped[str | None] = mapped_column(Text)
+    tone: Mapped[str | None] = mapped_column(Text)
+    do_not_say_json: Mapped[list] = mapped_column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
+    evidence_ids_json: Mapped[list] = mapped_column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
+    generation_metadata_json: Mapped[dict] = mapped_column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
+    created_at: Mapped[datetime] = timestamp_now()
+
+    __table_args__ = (
+        Index("ix_editorial_briefs_production_run_created", "production_run_id", created_at.desc()),
+    )
+
+
+class TelegramDraft(Base):
+    __tablename__ = "telegram_drafts"
+
+    id: Mapped[uuid.UUID] = uuid_pk()
+    production_run_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("content_production_runs.id"), nullable=False)
+    brief_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("editorial_briefs.id"), nullable=False)
+    draft_text: Mapped[str] = mapped_column(Text, nullable=False)
+    title: Mapped[str | None] = mapped_column(Text)
+    hashtags_json: Mapped[list] = mapped_column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
+    source_links_json: Mapped[list] = mapped_column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
+    warnings_json: Mapped[list] = mapped_column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
+    evidence_ids_json: Mapped[list] = mapped_column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
+    generation_metadata_json: Mapped[dict] = mapped_column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
+    status: Mapped[str] = mapped_column(Text, nullable=False, server_default="draft")
+    created_at: Mapped[datetime] = timestamp_now()
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now()
+    )
+
+    __table_args__ = (
+        Index("ix_telegram_drafts_production_run_created", "production_run_id", created_at.desc()),
+        Index("ix_telegram_drafts_status", "status"),
+    )
+
+
+class DraftQualityReport(Base):
+    __tablename__ = "draft_quality_reports"
+
+    id: Mapped[uuid.UUID] = uuid_pk()
+    production_run_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("content_production_runs.id"), nullable=False)
+    draft_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("telegram_drafts.id"), nullable=False)
+    status: Mapped[str] = mapped_column(Text, nullable=False)
+    score: Mapped[Decimal] = mapped_column(Numeric, nullable=False, server_default="0")
+    factuality_warnings_json: Mapped[list] = mapped_column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
+    unsupported_claims_json: Mapped[list] = mapped_column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
+    style_warnings_json: Mapped[list] = mapped_column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
+    required_revisions_json: Mapped[list] = mapped_column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
+    rubric_json: Mapped[dict] = mapped_column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
+    evaluation_metadata_json: Mapped[dict] = mapped_column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
+    created_at: Mapped[datetime] = timestamp_now()
+
+    __table_args__ = (
+        Index("ix_draft_quality_reports_run_created", "production_run_id", created_at.desc()),
+        Index("ix_draft_quality_reports_draft", "draft_id"),
+        Index("ix_draft_quality_reports_status", "status"),
+    )
+
+
+class VisualBrief(Base):
+    __tablename__ = "visual_briefs"
+
+    id: Mapped[uuid.UUID] = uuid_pk()
+    production_run_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("content_production_runs.id"), nullable=False)
+    status: Mapped[str] = mapped_column(Text, nullable=False, server_default="pending")
+    selected_media_asset_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("media_assets.id"))
+    needs_generation: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="false")
+    visual_prompt: Mapped[str | None] = mapped_column(Text)
+    visual_style: Mapped[str | None] = mapped_column(Text)
+    provider_name: Mapped[str | None] = mapped_column(Text)
+    provider_request_json: Mapped[dict] = mapped_column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
+    provider_result_json: Mapped[dict] = mapped_column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
+    error_message: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = timestamp_now()
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now()
+    )
+
+    __table_args__ = (
+        Index("ix_visual_briefs_production_run_created", "production_run_id", created_at.desc()),
+        Index("ix_visual_briefs_status", "status"),
+    )
+
+
+class TelegramPostPackage(Base):
+    __tablename__ = "telegram_post_packages"
+
+    id: Mapped[uuid.UUID] = uuid_pk()
+    production_run_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("content_production_runs.id"), nullable=False)
+    draft_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("telegram_drafts.id"), nullable=False)
+    media_asset_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("media_assets.id"))
+    image_request_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("visual_briefs.id"))
+    package_json: Mapped[dict] = mapped_column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
+    approval_status: Mapped[str] = mapped_column(Text, nullable=False, server_default="pending")
+    approved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    rejected_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    revision_requested_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = timestamp_now()
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now()
+    )
+
+    __table_args__ = (
+        Index("ix_telegram_post_packages_run_created", "production_run_id", created_at.desc()),
+        Index("ix_telegram_post_packages_approval_status", "approval_status"),
+    )
+
+
+class TelegramDispatchRequest(Base):
+    __tablename__ = "telegram_dispatch_requests"
+
+    id: Mapped[uuid.UUID] = uuid_pk()
+    production_run_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("content_production_runs.id"), nullable=False)
+    package_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("telegram_post_packages.id"), nullable=False)
+    status: Mapped[str] = mapped_column(Text, nullable=False, server_default="pending")
+    dispatch_payload_json: Mapped[dict] = mapped_column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
+    blocked_reason: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = timestamp_now()
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now()
+    )
+    dispatched_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+    __table_args__ = (
+        Index("ix_telegram_dispatch_requests_run_created", "production_run_id", created_at.desc()),
+        Index("ix_telegram_dispatch_requests_package", "package_id"),
+        Index("ix_telegram_dispatch_requests_status", "status"),
+    )
