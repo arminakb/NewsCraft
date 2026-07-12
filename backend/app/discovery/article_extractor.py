@@ -45,11 +45,22 @@ async def extract_article(client: httpx.AsyncClient, item: DiscoveryItem) -> Ext
     except httpx.HTTPError as exc:
         return _failed_article(item, exc.__class__.__name__)
 
-    final_url = str(response.url)
-    html = response.text
+    return extract_article_document(item, final_url=str(response.url), html=response.text, warnings=warnings)
+
+
+def extract_article_document(
+    item: DiscoveryItem,
+    *,
+    final_url: str,
+    html: str,
+    warnings: list[str] | None = None,
+) -> ExtractedArticle:
+    warnings = list(warnings or [])
     soup = BeautifulSoup(html, "lxml")
     metadata = _html_metadata(soup, final_url)
-    extracted = _extract_with_trafilatura(html, final_url) or {}
+    for unwanted in soup.select("nav, header, footer, aside, form, script, style, noscript"):
+        unwanted.decompose()
+    extracted = _extract_with_trafilatura(str(soup), final_url) or {}
     content_text = str(extracted.get("content_text") or _fallback_text(soup) or item.summary or item.title).strip()
     summary = str(extracted.get("summary") or metadata.get("summary") or item.summary or "").strip()
     title = str(extracted.get("title") or metadata.get("title") or item.title or "").strip()
