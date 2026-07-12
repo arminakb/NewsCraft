@@ -9,15 +9,7 @@ from sqlalchemy.dialects.postgresql import ARRAY, JSONB, UUID
 from sqlalchemy.orm import Mapped, foreign, mapped_column, relationship
 from sqlalchemy.sql import func
 
-from app.db.base import Base
-
-
-def uuid_pk() -> Mapped[uuid.UUID]:
-    return mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-
-
-def timestamp_now() -> Mapped[datetime]:
-    return mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+from app.db.base import Base, timestamp_now, uuid_pk
 
 
 class Source(Base):
