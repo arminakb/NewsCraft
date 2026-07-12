@@ -37,6 +37,7 @@ services:
       retries: 30
 
   api:
+    image: newscraft-backend:local
     build:
       context: ./backend
     command: sh -c "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000"
@@ -60,6 +61,12 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=2).close()"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
 
   frontend:
     build:
@@ -72,9 +79,10 @@ services:
       - api
 
   worker:
+    image: newscraft-backend:local
     build:
       context: ./backend
-    command: python -m app.worker --trigger manual --download-media
+    command: python -m app.jobs.worker
     environment:
       DATABASE_URL: postgresql+asyncpg://newscraft:newscraft@newscraft-postgres:5432/newscraft
       HTTP_PROXY: ${HTTP_PROXY:-http://xray-proxy:10808}
@@ -91,6 +99,33 @@ services:
       - xray_proxy
     depends_on:
       postgres:
+        condition: service_healthy
+      api:
+        condition: service_healthy
+
+  scheduler:
+    image: newscraft-backend:local
+    build:
+      context: ./backend
+    command: python -m app.jobs.scheduler
+    environment:
+      DATABASE_URL: postgresql+asyncpg://newscraft:newscraft@newscraft-postgres:5432/newscraft
+      HTTP_PROXY: ${HTTP_PROXY:-http://xray-proxy:10808}
+      HTTPS_PROXY: ${HTTPS_PROXY:-http://xray-proxy:10808}
+      ALL_PROXY: ${ALL_PROXY:-http://xray-proxy:10808}
+      NO_PROXY: ${NO_PROXY:-newscraft-postgres,postgres,localhost,127.0.0.1}
+      MEDIA_ROOT: /data/media
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - media_data:/data/media
+    networks:
+      - default
+      - xray_proxy
+    depends_on:
+      postgres:
+        condition: service_healthy
+      api:
         condition: service_healthy
 
 volumes:

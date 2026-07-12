@@ -69,6 +69,24 @@ docker compose up api
 
 The API service runs Alembic migrations before Uvicorn starts.
 
+## Workflow runtime
+
+`docker compose up --build` starts PostgreSQL, API, frontend, a long-running leased worker, and a scheduler. The scheduler creates source collection jobs; API mutation endpoints enqueue jobs and return immediately.
+
+- Newsroom: http://127.0.0.1:3000
+- API: http://127.0.0.1:8000
+- Global pause holds scheduled/automation work; manual Run ingest remains available.
+- Dry run is persisted for future publishing flows. Release 1 does not publish externally.
+
+Run the PostgreSQL queue contract suite:
+
+```bash
+docker compose --profile test up -d --wait postgres-test
+cd backend
+TEST_DATABASE_URL=postgresql+asyncpg://newscraft:newscraft@127.0.0.1:55432/newscraft_test \
+  PYTHONPATH=. .venv/bin/python -m pytest tests/postgres -q
+```
+
 Run the dashboard with the API and database:
 
 ```bash
@@ -87,12 +105,6 @@ Seed sources:
 
 ```bash
 curl -X POST http://localhost:8000/sources/seed
-```
-
-Run one manual worker ingestion pass:
-
-```bash
-docker compose run --rm worker
 ```
 
 Export a date-range daily news bundle for the writing agent:
@@ -114,7 +126,7 @@ Or trigger ingestion through the API:
 ```bash
 curl -X POST http://localhost:8000/ingest/run \
   -H 'content-type: application/json' \
-  -d '{"platforms":["rss"]}'
+  -d '{"request_id":"123e4567-e89b-42d3-a456-426614174000","platforms":["rss"]}'
 ```
 
 ## Useful Endpoints

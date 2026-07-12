@@ -18,6 +18,10 @@ def _compose_config() -> dict:
     return json.loads(result.stdout)
 
 
+def _compose_yaml() -> dict:
+    return yaml.safe_load((ROOT / "docker-compose.yml").read_text(encoding="utf-8"))
+
+
 def test_local_service_ports_bind_to_loopback():
     compose = _compose_config()
 
@@ -34,14 +38,64 @@ def test_dockerfile_runs_backend_api():
     assert "app.main:app" in dockerfile
 
 
-def test_compose_defines_postgres_api_and_worker():
-    compose = (ROOT / "docker-compose.yml").read_text(encoding="utf-8")
+def test_compose_defines_exact_normal_runtime_services_and_test_profile():
+    services = _compose_yaml()["services"]
+    normal_services = {name for name, service in services.items() if not service.get("profiles")}
 
-    assert "postgres:18" in compose
-    assert "DATABASE_URL: postgresql+asyncpg://newscraft:newscraft@newscraft-postgres:5432/newscraft" in compose
-    assert "API_INTERNAL_BASE_URL: http://api:8000" in compose
-    assert "python -m app.worker" in compose
-    assert "--download-media" in compose
+    assert normal_services == {"postgres", "api", "frontend", "worker", "scheduler"}
+    assert services["postgres-test"]["profiles"] == ["test"]
+
+
+def test_worker_and_scheduler_are_long_running_backend_services():
+    services = _compose_yaml()["services"]
+    api = services["api"]
+    worker = services["worker"]
+    scheduler = services["scheduler"]
+
+    assert worker["command"] == "python -m app.jobs.worker"
+    assert scheduler["command"] == "python -m app.jobs.scheduler"
+    assert "--trigger manual" not in worker["command"]
+    assert "--download-media" not in worker["command"]
+
+    for service in (worker, scheduler):
+        assert service["build"] == api["build"]
+        assert service["image"] == api["image"]
+        assert "media_data:/data/media" in service["volumes"]
+        assert service["depends_on"]["postgres"]["condition"] == "service_healthy"
+        assert service["depends_on"]["api"]["condition"] == "service_healthy"
+        assert set(service["depends_on"]) == {"postgres", "api"}
+        assert "ports" not in service
+        for setting in (
+            "DATABASE_URL",
+            "HTTP_PROXY",
+            "HTTPS_PROXY",
+            "ALL_PROXY",
+            "NO_PROXY",
+            "MEDIA_ROOT",
+        ):
+            assert service["environment"][setting] == api["environment"][setting]
+
+    secret_markers = ("PUBLISH", "TELEGRAM", "TOKEN", "SECRET")
+    assert not any(
+        marker in name.upper()
+        for name in scheduler["environment"]
+        for marker in secret_markers
+    )
+
+
+def test_api_healthcheck_waits_for_post_migration_uvicorn_without_dependency_cycle():
+    services = _compose_yaml()["services"]
+    api = services["api"]
+
+    assert api["healthcheck"]["test"] == [
+        "CMD",
+        "python",
+        "-c",
+        "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=2).close()",
+    ]
+    assert api["depends_on"] == {"postgres": {"condition": "service_healthy"}}
+    assert "worker" not in api["depends_on"]
+    assert "scheduler" not in api["depends_on"]
 
 
 def test_daily_bundle_command_is_documented_for_docker():
@@ -51,6 +105,12 @@ def test_daily_bundle_command_is_documented_for_docker():
     assert "python -m app.daily_bundle" in readme
     assert "/workspace/today-news" in readme
     assert ".:/workspace" in compose
+
+
+def test_manual_ingest_example_includes_required_request_id():
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+
+    assert '"request_id":"123e4567-e89b-42d3-a456-426614174000"' in readme
 
 
 def test_api_and_worker_default_to_dockerized_xray_proxy():
