@@ -54,11 +54,12 @@ def test_job_handler_registry_returns_sorted_job_types():
     assert registry.job_types() == ("a.run", "z.run")
 
 
-def test_default_registry_contains_ingestion_and_story_grouping_handlers():
+def test_default_registry_contains_ingestion_manual_and_story_grouping_handlers():
     registry = build_default_registry()
 
-    assert registry.job_types() == ("ingest.collect", "story.group_pending")
+    assert registry.job_types() == ("ingest.collect", "manual_intake", "story.group_pending")
     assert callable(registry.get("ingest.collect"))
+    assert callable(registry.get("manual_intake"))
     assert callable(registry.get("story.group_pending"))
 
 
@@ -69,6 +70,7 @@ def test_generation_dependency_registers_only_real_telegram_process_handler():
 
     assert registry.job_types() == (
         "ingest.collect",
+        "manual_intake",
         "story.group_pending",
         "telegram.route.process",
     )
@@ -96,6 +98,7 @@ def test_capabilities_control_the_registry_without_a_static_job_type_switch():
 
     assert source_generation.job_types() == (
         "ingest.collect",
+        "manual_intake",
         "story.group_pending",
         "telegram.route.backfill",
         "telegram.route.dry_run",

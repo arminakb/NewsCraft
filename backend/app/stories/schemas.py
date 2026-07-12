@@ -1,8 +1,33 @@
 from __future__ import annotations
 
+from typing import Annotated, Literal
 from uuid import UUID
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field, HttpUrl
+
+
+class ManualUrlInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    kind: Literal["url"]
+    url: HttpUrl
+    title: str | None = Field(default=None, max_length=300)
+
+
+class ManualTextInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    kind: Literal["text"]
+    title: str = Field(min_length=1, max_length=300)
+    text: str = Field(min_length=20, max_length=200_000)
+    source_label: str = Field(min_length=1, max_length=160)
+    source_url: HttpUrl | None = None
+
+
+ManualIntakeRequest = Annotated[
+    ManualUrlInput | ManualTextInput,
+    Field(discriminator="kind"),
+]
 
 
 class GroupPendingPayload(BaseModel):

@@ -8,6 +8,7 @@ from app.api.ingest import router as ingest_router
 from app.api.jobs import router as jobs_router
 from app.api.media import router as media_router
 from app.api.sources import router as sources_router
+from app.api.stories import router as stories_router
 from app.api.telegram_automations import router as telegram_automations_router
 from app.api.telegram_destinations import router as telegram_destinations_router
 from app.api.telegram_drafts import router as telegram_drafts_router
@@ -15,6 +16,7 @@ from app.api.telegram_sources import router as telegram_sources_router
 
 router = APIRouter()
 router.include_router(sources_router)
+router.include_router(stories_router)
 router.include_router(ingest_router)
 router.include_router(content_router)
 router.include_router(media_router)

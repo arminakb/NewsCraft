@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, timedelta
 from hashlib import sha256
 from typing import Any, NoReturn
@@ -11,9 +11,10 @@ from uuid import UUID
 from sqlalchemy import case, exists, false, func, or_, select, tuple_
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.models import ContentItem
+from app.db.models import ContentItem, RawPayload, SourceItem
+from app.normalization.fingerprints import fingerprint_text
 from app.normalization.urls import hash_value, normalize_url
-from app.stories.evidence import EvidenceRecord, build_evidence_key
+from app.stories.evidence import EvidenceInput, EvidenceRecord, build_evidence_key, capture_evidence
 from app.stories.grouping import GroupingInput, decide_group
 from app.stories.models import Story, StoryEvidenceLink, StoryEvidenceSnapshot
 
@@ -130,6 +131,14 @@ def _story_grouping_lock_statement():
     return select(func.pg_advisory_xact_lock(STORY_GROUPING_ADVISORY_LOCK_KEY))
 
 
+def _manual_intake_lock_key(job_id: UUID) -> int:
+    return int.from_bytes(job_id.bytes[:8], byteorder="big", signed=True)
+
+
+def _manual_intake_lock_statement(job_id: UUID):
+    return select(func.pg_advisory_xact_lock(_manual_intake_lock_key(job_id)))
+
+
 def _candidate_identity_statement(
     items: Sequence[ContentItem],
     *,
@@ -184,6 +193,136 @@ def _candidate_identity_statement(
 class StoryRepository:
     def __init__(self, session: AsyncSession) -> None:
         self.session = session
+
+    async def get_for_job(self, job_id: UUID) -> Story | None:
+        return await self.session.scalar(
+            select(Story)
+            .join(StoryEvidenceSnapshot, StoryEvidenceSnapshot.story_id == Story.id)
+            .where(
+                StoryEvidenceSnapshot.snapshot_metadata.contains(
+                    {"workflow_job_id": str(job_id)}
+                )
+            )
+            .limit(1)
+        )
+
+    async def create_from_manual_evidence(
+        self,
+        evidence: EvidenceInput,
+        job_id: UUID,
+    ) -> Story:
+        await self.session.execute(_manual_intake_lock_statement(job_id))
+        existing = await self.get_for_job(job_id)
+        if existing is not None:
+            return existing
+        if evidence.payload_kind not in {"manual_url_input", "manual_text_input"}:
+            raise ValueError("manual evidence must identify its intake kind")
+
+        raw_payload = RawPayload(
+            run_id=None,
+            source_id=None,
+            payload_kind=evidence.payload_kind,
+            request_url=evidence.request_url or "manual://operator",
+            final_url=evidence.final_url,
+            http_status=None,
+            headers={},
+            content_type=None,
+            body_sha256=(
+                sha256(evidence.raw_text.encode("utf-8")).hexdigest()
+                if evidence.raw_text is not None
+                else None
+            ),
+            raw_text=evidence.raw_text,
+            parser_warnings=list(evidence.extraction_warnings),
+        )
+        self.session.add(raw_payload)
+        await self.session.flush()
+
+        canonical_url = evidence.source_url
+        content_item = ContentItem(
+            item_type="article",
+            canonical_url=canonical_url,
+            canonical_url_hash=(
+                hash_value(normalize_url(canonical_url)) if canonical_url else None
+            ),
+            title=evidence.title,
+            title_fingerprint=fingerprint_text(evidence.title or ""),
+            summary=evidence.summary,
+            content_text=evidence.content_text,
+            content_html_sanitized=None,
+            language_code=None,
+            authors=list(evidence.authors),
+            published_at=evidence.published_at,
+            sort_at=evidence.published_at or evidence.captured_at,
+            date_source="source" if evidence.published_at else None,
+            date_parse_status="parsed" if evidence.published_at else "missing",
+            primary_source_id=None,
+            metrics={"manual_intake": True},
+            classification_metadata={
+                "manual_intake": True,
+                "source_label": evidence.source_label,
+            },
+        )
+        self.session.add(content_item)
+        await self.session.flush()
+
+        provenance = {
+            "manual_intake": True,
+            "workflow_job_id": str(job_id),
+            "source_label": evidence.source_label,
+            "extraction_status": evidence.extraction_status,
+            "extraction_warnings": list(evidence.extraction_warnings),
+        }
+        source_item = SourceItem(
+            source_id=None,
+            run_id=None,
+            content_item_id=content_item.id,
+            raw_payload_id=raw_payload.id,
+            external_id_raw=str(job_id),
+            external_id_norm=str(job_id),
+            source_url=canonical_url,
+            source_url_norm=normalize_url(canonical_url) if canonical_url else None,
+            canonical_url_candidate=canonical_url,
+            title_raw=evidence.title,
+            summary_raw=evidence.summary,
+            content_html_raw=evidence.content_html,
+            content_text_raw=evidence.content_text,
+            author_raw=evidence.authors[0] if evidence.authors else None,
+            categories=[],
+            published_raw=(
+                evidence.published_at.isoformat() if evidence.published_at else None
+            ),
+            parser_meta=provenance,
+        )
+        self.session.add(source_item)
+        await self.session.flush()
+
+        story = Story(
+            title=evidence.title if evidence.title is not None else "Untitled story",
+            status="inbox",
+            primary_language="und",
+        )
+        self.session.add(story)
+        await self.session.flush()
+
+        captured = capture_evidence(replace(evidence, content_item_id=content_item.id))
+        self.session.add(
+            StoryEvidenceSnapshot(
+                story_id=story.id,
+                content_item_id=content_item.id,
+                evidence_key=captured.evidence_key,
+                source_url=evidence.source_url,
+                title=evidence.title,
+                content_text=evidence.content_text,
+                authors=list(evidence.authors),
+                published_at=evidence.published_at,
+                content_sha256=captured.content_sha256,
+                snapshot_metadata=provenance,
+                captured_at=evidence.captured_at,
+            )
+        )
+        await self.session.flush()
+        return story
 
     async def list_evidence(self, story_id: UUID) -> list[EvidenceRecord]:
         rows = list(

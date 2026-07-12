@@ -1,19 +1,87 @@
 from __future__ import annotations
 
+import asyncio
 from datetime import UTC, datetime
 from typing import Any
 
-from app.jobs.models import WorkflowJob
+from pydantic import TypeAdapter
+from sqlalchemy import select
+
+from app.jobs.errors import NeedsReviewJobError, RetryableJobError
+from app.jobs.models import WorkflowEvent, WorkflowJob
 from app.jobs.registry import JobContext
 from app.jobs.repository import JobRepository
 from app.jobs.types import JobOrigin
+from app.stories import manual_intake
+from app.stories.evidence import EvidenceInput
 from app.stories.grouping import GroupingInput, decide_group
 from app.stories.repository import StoryRepository
-from app.stories.schemas import GroupPendingPayload, GroupPendingResult
+from app.stories.schemas import GroupPendingPayload, GroupPendingResult, ManualIntakeRequest
 
 
 def _build_job_repository(session):
     return JobRepository(session)
+
+
+async def handle_manual_intake(job: WorkflowJob, context: JobContext) -> dict[str, object]:
+    request = TypeAdapter(ManualIntakeRequest).validate_python(job.payload)
+    if request.kind == "url":
+        await context.session.commit()
+        try:
+            async with manual_intake.ManualIntakeHttpClient(timeout=30) as client:
+                extracted = await manual_intake.extract_article(
+                    client,
+                    manual_intake.manual_discovery_item(request),
+                )
+        except Exception as exc:
+            raise NeedsReviewJobError(
+                code="manual_extraction_failed",
+                message="Manual URL extraction failed",
+            ) from exc
+        if extracted.extraction_status == "failed" or not extracted.content_text.strip():
+            raise NeedsReviewJobError(
+                code="manual_extraction_failed",
+                message="Manual URL extraction failed",
+            )
+        evidence = EvidenceInput.from_extracted_article(
+            extracted,
+            title_override=request.title,
+        )
+    else:
+        evidence = EvidenceInput.from_operator_text(request)
+
+    try:
+        async with context.session.begin_nested():
+            story = await StoryRepository(context.session).create_from_manual_evidence(
+                evidence,
+                job.id,
+            )
+            completed_event_id = await context.session.scalar(
+                select(WorkflowEvent.id)
+                .where(
+                    WorkflowEvent.workflow_job_id == job.id,
+                    WorkflowEvent.event_type == "manual_intake.completed",
+                )
+                .limit(1)
+            )
+            if completed_event_id is None:
+                context.session.add(
+                    WorkflowEvent(
+                        workflow_job_id=job.id,
+                        event_type="manual_intake.completed",
+                        actor="worker",
+                        event_data={"story_id": str(story.id)},
+                    )
+                )
+            await context.session.flush()
+    except asyncio.CancelledError:
+        raise
+    except Exception as exc:
+        raise RetryableJobError(
+            code="manual_intake_persistence_failed",
+            message="Manual intake persistence failed",
+        ) from exc
+    return {"story_id": str(story.id)}
 
 
 def _group_components(items: list[Any]) -> list[list[Any]]:
