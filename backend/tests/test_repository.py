@@ -7,7 +7,9 @@ from sqlalchemy.dialects import postgresql
 from app.db.models import MediaAsset, Source
 from app.ingestion.repository import (
     IngestionRepository,
+    _apply_media_candidate,
     _identity_insert_statement,
+    _media_asset_values,
     build_item_identities,
     plan_item_media_rows,
 )
@@ -177,3 +179,54 @@ def test_repository_exposes_plan_methods():
     }
 
     assert expected_methods.issubset(set(dir(IngestionRepository)))
+
+
+def test_stored_media_candidate_values_are_copied_to_asset():
+    candidate = MediaCandidate(
+        "telegram-media:one",
+        "telegram-media:one",
+        "photo",
+        "telegram_capture",
+        mime_type="image/jpeg",
+        storage_path="/media/ab/checksum.jpg",
+        checksum_sha256="a" * 64,
+        byte_length=123,
+        fetch_status="downloaded",
+    )
+
+    values = _media_asset_values(candidate, "url-hash")
+
+    assert values["storage_path"] == "/media/ab/checksum.jpg"
+    assert values["checksum_sha256"] == "a" * 64
+    assert values["byte_length"] == 123
+    assert values["fetch_status"] == "downloaded"
+
+
+def test_remote_reingest_does_not_erase_downloaded_media_metadata():
+    asset = MediaAsset(
+        id=uuid4(),
+        original_url="https://example.test/photo.jpg",
+        normalized_url="https://example.test/photo.jpg",
+        url_hash="old-hash",
+        kind="photo",
+        source_field="telegram_capture",
+        storage_path="/media/ab/checksum.jpg",
+        checksum_sha256="b" * 64,
+        byte_length=456,
+        fetch_status="downloaded",
+    )
+    remote = MediaCandidate(
+        "https://example.test/photo.jpg",
+        "https://example.test/photo.jpg",
+        "photo",
+        "media_content",
+    )
+
+    _apply_media_candidate(asset, remote, "new-hash")
+
+    assert asset.storage_path == "/media/ab/checksum.jpg"
+    assert asset.checksum_sha256 == "b" * 64
+    assert asset.byte_length == 456
+    assert asset.fetch_status == "downloaded"
+    assert asset.source_field == "telegram_capture"
+    assert asset.media_source_type == "stored"

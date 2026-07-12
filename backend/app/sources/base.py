@@ -14,6 +14,10 @@ class MediaCandidate:
     alt_text: str | None = None
     title: str | None = None
     confidence: float = 1.0
+    storage_path: str | None = None
+    checksum_sha256: str | None = None
+    byte_length: int | None = None
+    fetch_status: str = "remote_only"
 
 
 @dataclass(slots=True)

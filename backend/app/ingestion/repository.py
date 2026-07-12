@@ -601,7 +601,10 @@ def _media_asset_values(candidate: MediaCandidate, url_hash: str) -> dict[str, A
         "alt_text": candidate.alt_text,
         "title": candidate.title,
         "source_field": candidate.source_field,
-        "fetch_status": "remote_only",
+        "storage_path": candidate.storage_path,
+        "checksum_sha256": candidate.checksum_sha256,
+        "byte_length": candidate.byte_length,
+        "fetch_status": candidate.fetch_status,
         "media_quality": quality["media_quality"],
         "media_confidence": quality["media_confidence"],
         "media_source_type": quality["media_source_type"],
@@ -617,9 +620,23 @@ def _media_asset_values(candidate: MediaCandidate, url_hash: str) -> dict[str, A
 
 def _apply_media_candidate(asset: MediaAsset, candidate: MediaCandidate, url_hash: str) -> None:
     values = _media_asset_values(candidate, url_hash)
-    if asset.storage_path:
+    stored_asset = bool(asset.storage_path)
+    if stored_asset:
         values["media_source_type"] = "stored"
     for key, value in values.items():
+        if stored_asset and key in {
+            "source_field",
+            "media_quality",
+            "media_confidence",
+            "media_source_type",
+            "asset_role",
+            "is_primary_candidate",
+        }:
+            if key == "media_source_type":
+                asset.media_source_type = "stored"
+            continue
+        if key in {"storage_path", "checksum_sha256", "byte_length"} and value is None:
+            continue
         if key in {"fetch_status", "raw_metadata"} and getattr(asset, key) not in (None, {}, "remote_only"):
             continue
         setattr(asset, key, value)
