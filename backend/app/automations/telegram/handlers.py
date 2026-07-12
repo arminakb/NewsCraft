@@ -10,24 +10,91 @@ from typing import Any
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
-from sqlalchemy import select
+from sqlalchemy import and_, func, or_, select
+from sqlalchemy.exc import IntegrityError
 
-from app.automations.models import AutomationRoute, TelegramSourceConfig
+from app.automations.models import AutomationDispatch, AutomationRoute, TelegramSourceConfig
 from app.automations.telegram.contracts import (
     TelegramEnvelope,
     TelegramFetchRequest,
     telegram_envelope_fingerprint,
 )
+from app.automations.telegram.policy import evaluate_auto_publish
 from app.automations.telegram.registry import TelegramSourceRegistry
-from app.automations.telegram.route_policy import evaluate_content_filter, next_allowed_at
-from app.db.models import Source
-from app.jobs.errors import PermanentJobError, RetryableJobError
-from app.jobs.models import AutomationControl, WorkflowJob
+from app.automations.telegram.route_policy import evaluate_content_filter, next_allowed_at, retry_at
+from app.db.models import ContentItem, ItemMedia, MediaAsset, Source, SourceItem
+from app.generation.models import (
+    AIProviderProfile,
+    BrandProfile,
+    ContentPack,
+    GenerationAttempt,
+    GenerationRun,
+    PlatformVariant,
+    PlatformVariantRevision,
+    PromptTemplateVersion,
+)
+from app.generation.providers.base import GenerationProviderRequest, ProviderMessage
+from app.generation.providers.openrouter import (
+    OpenRouterNeedsReviewError,
+    OpenRouterPermanentError,
+    OpenRouterRetryableError,
+)
+from app.generation.providers.profiles import ProviderProfileConfigurationError
+from app.generation.telegram_schema import (
+    TelegramEvidenceCitation,
+    TelegramRewriteInput,
+    TelegramRewriteOutput,
+    TelegramVariantContent,
+)
+from app.jobs.errors import NeedsReviewJobError, PermanentJobError, RetryableJobError
+from app.jobs.events import redact_event_data
+from app.jobs.models import AutomationControl, WorkflowEvent, WorkflowJob
 from app.jobs.registry import JobContext, JobHandler
 from app.jobs.repository import JobRepository
 from app.jobs.types import JobOrigin
+from app.publishing.models import Destination, PublishJob
+from app.stories.models import StoryEvidenceLink, StoryEvidenceSnapshot, StoryRevision
 
 logger = logging.getLogger(__name__)
+
+
+def sha256_canonical(value: Any) -> str:
+    encoded = json.dumps(
+        value,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
+
+
+def generation_input_hash(request_payload: dict[str, Any]) -> str | None:
+    semantic = request_payload.get("semantic")
+    input_payload = request_payload.get("input")
+    if not isinstance(semantic, dict) or not isinstance(input_payload, dict):
+        return None
+    return sha256_canonical({"semantic": semantic, "input": input_payload})
+
+
+def validate_evidence_snapshot(snapshot: Any) -> None:
+    text = snapshot.content_text
+    if not isinstance(text, str) or not text:
+        raise ValueError("captured evidence text is empty")
+    digest = hashlib.sha256(text.encode("utf-8")).hexdigest()
+    if digest != snapshot.content_sha256:
+        raise ValueError("captured evidence hash does not match")
+
+
+def build_evidence_map(snapshot: Any) -> list[dict[str, Any]]:
+    validate_evidence_snapshot(snapshot)
+    citation = TelegramEvidenceCitation(
+        evidence_snapshot_id=snapshot.id,
+        evidence_key=snapshot.evidence_key,
+        source_url=snapshot.source_url,
+        locator=f"chars:0-{len(snapshot.content_text)}",
+        excerpt_sha256=snapshot.content_sha256,
+    )
+    return [citation.model_dump(mode="json")]
 
 
 class RouteJobPayload(BaseModel):
@@ -36,6 +103,13 @@ class RouteJobPayload(BaseModel):
     route_id: UUID
     defer_root_job_id: UUID | None = None
     defer_sequence: int = Field(default=0, ge=0)
+
+
+class ProcessDispatchPayload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    dispatch_id: UUID
+    force_review: bool = False
 
 
 class InitializeJobPayload(RouteJobPayload):
@@ -1393,3 +1467,981 @@ def build_telegram_route_handlers(
         backfill=backfill_route,
         dry_run=dry_run_route,
     )
+
+
+async def enqueue_telegram_publish_intent(
+    session: Any,
+    *,
+    revision: PlatformVariantRevision,
+    destination: Destination,
+    dispatch: AutomationDispatch | None = None,
+) -> PublishJob:
+    """Create the durable publish intent without contacting Telegram.
+
+    Until Task 8 renders destination-specific operations, ``payload_hash`` is the
+    exact revision content/evidence hash. Task 9 replaces it with the verified
+    rendered-plan hash before any remote dispatch.
+    """
+
+    idempotency_key = (
+        f"telegram-publish:{destination.id}:{revision.id}:{revision.content_hash}"
+    )
+    publish_job = await session.scalar(
+        select(PublishJob)
+        .where(PublishJob.idempotency_key == idempotency_key)
+        .with_for_update()
+    )
+    if publish_job is None:
+        publish_job = PublishJob(
+            destination_id=destination.id,
+            platform_variant_revision_id=revision.id,
+            status="queued",
+            idempotency_key=idempotency_key,
+            payload_hash=revision.content_hash,
+        )
+        try:
+            async with session.begin_nested():
+                session.add(publish_job)
+                await session.flush()
+        except IntegrityError:
+            publish_job = await session.scalar(
+                select(PublishJob)
+                .where(PublishJob.idempotency_key == idempotency_key)
+                .with_for_update()
+            )
+            if publish_job is None:  # pragma: no cover - unique conflict guarantees it
+                raise
+    enqueue = await JobRepository(session).enqueue_job(
+        job_type="telegram.publish",
+        payload={"publish_job_id": str(publish_job.id)},
+        idempotency_key=idempotency_key,
+        origin=JobOrigin.AUTOMATION,
+        pause_sensitive=True,
+    )
+    publish_job.workflow_job_id = enqueue.job.id
+    if dispatch is not None:
+        dispatch.publish_job_id = publish_job.id
+    session.add(
+        WorkflowEvent(
+            workflow_job_id=enqueue.job.id,
+            event_type="telegram.publish.requested",
+            actor="automation",
+            event_data=redact_event_data(
+                {
+                    "publish_job_id": str(publish_job.id),
+                    "destination_id": str(destination.id),
+                    "revision_id": str(revision.id),
+                    "content_hash": revision.content_hash,
+                }
+            ),
+        )
+    )
+    await session.flush()
+    return publish_job
+
+
+async def _exact_dispatch_evidence(
+    session: Any,
+    story_revision_id: UUID,
+) -> StoryEvidenceSnapshot:
+    links = list(
+        await session.scalars(
+            select(StoryEvidenceLink).where(
+                StoryEvidenceLink.story_revision_id == story_revision_id,
+                StoryEvidenceLink.claim_key == "telegram.source",
+            )
+        )
+    )
+    if len(links) != 1:
+        raise NeedsReviewJobError(
+            code="telegram_evidence_ambiguous",
+            message="Captured Telegram evidence is missing or ambiguous",
+        )
+    snapshot = await session.get(StoryEvidenceSnapshot, links[0].evidence_snapshot_id)
+    if snapshot is None:
+        raise NeedsReviewJobError(
+            code="telegram_evidence_missing",
+            message="Captured Telegram evidence is missing",
+        )
+    try:
+        validate_evidence_snapshot(snapshot)
+    except ValueError as exc:
+        raise NeedsReviewJobError(
+            code="telegram_evidence_invalid",
+            message=str(exc),
+        ) from None
+    return snapshot
+
+
+async def _dispatch_media(
+    session: Any,
+    source_item: SourceItem,
+) -> tuple[ContentItem, tuple[MediaAsset, ...]]:
+    if source_item.content_item_id is None:
+        raise NeedsReviewJobError(
+            code="telegram_content_missing",
+            message="Captured Telegram content item is missing",
+        )
+    content_item = await session.get(ContentItem, source_item.content_item_id)
+    if content_item is None:
+        raise NeedsReviewJobError(
+            code="telegram_content_missing",
+            message="Captured Telegram content item is missing",
+        )
+    media = tuple(
+        await session.scalars(
+            select(MediaAsset)
+            .join(ItemMedia, ItemMedia.media_asset_id == MediaAsset.id)
+            .where(ItemMedia.content_item_id == content_item.id)
+            .order_by(ItemMedia.sort_order, MediaAsset.created_at, MediaAsset.id)
+        )
+    )
+    return content_item, media
+
+
+def _media_decision(route: AutomationRoute, media: tuple[MediaAsset, ...]) -> tuple[list[UUID], bool, str | None]:
+    if route.media_policy == "omit":
+        return [], True, None
+    if route.media_policy == "replace_manually":
+        return [], False, "media_replacement_required"
+    ready = all(
+        item.fetch_status == "downloaded"
+        and bool(item.storage_path)
+        and bool(item.checksum_sha256)
+        for item in media
+    )
+    return [item.id for item in media], ready, None if ready else "media_not_ready"
+
+
+async def _route_parent_revision(
+    session: Any,
+    *,
+    dispatch: AutomationDispatch,
+    story_id: UUID,
+) -> PlatformVariantRevision | None:
+    return await session.scalar(
+        select(PlatformVariantRevision)
+        .join(
+            AutomationDispatch,
+            AutomationDispatch.variant_revision_id == PlatformVariantRevision.id,
+        )
+        .join(StoryRevision, StoryRevision.id == AutomationDispatch.story_revision_id)
+        .where(
+            AutomationDispatch.route_id == dispatch.route_id,
+            AutomationDispatch.id != dispatch.id,
+            AutomationDispatch.variant_revision_id.is_not(None),
+            StoryRevision.story_id == story_id,
+            or_(
+                AutomationDispatch.created_at < dispatch.created_at,
+                and_(
+                    AutomationDispatch.created_at == dispatch.created_at,
+                    AutomationDispatch.id < dispatch.id,
+                ),
+            ),
+        )
+        .order_by(AutomationDispatch.created_at.desc(), PlatformVariantRevision.revision_number.desc())
+        .limit(1)
+    )
+
+
+async def _content_pack_and_variant(
+    session: Any,
+    *,
+    dispatch: AutomationDispatch,
+    route: AutomationRoute,
+    story_revision: StoryRevision,
+    parent: PlatformVariantRevision | None,
+) -> tuple[ContentPack, PlatformVariant]:
+    if parent is not None:
+        variant = await session.scalar(
+            select(PlatformVariant)
+            .where(PlatformVariant.id == parent.platform_variant_id)
+            .with_for_update()
+        )
+        if variant is None:
+            raise NeedsReviewJobError(
+                code="telegram_lineage_invalid",
+                message="Telegram revision lineage is invalid",
+            )
+        pack = await session.get(ContentPack, variant.content_pack_id)
+        if pack is None:
+            raise NeedsReviewJobError(
+                code="telegram_lineage_invalid",
+                message="Telegram content pack is missing",
+            )
+        return pack, variant
+
+    pack = await session.scalar(
+        select(ContentPack)
+        .where(
+            ContentPack.story_revision_id == story_revision.id,
+            ContentPack.brand_profile_id == route.brand_profile_id,
+        )
+        .with_for_update()
+    )
+    if pack is None:
+        candidate = ContentPack(
+            story_revision_id=story_revision.id,
+            brand_profile_id=route.brand_profile_id,
+            status="draft",
+        )
+        try:
+            async with session.begin_nested():
+                session.add(candidate)
+                await session.flush()
+            pack = candidate
+        except IntegrityError:
+            pack = await session.scalar(
+                select(ContentPack)
+                .where(
+                    ContentPack.story_revision_id == story_revision.id,
+                    ContentPack.brand_profile_id == route.brand_profile_id,
+                )
+                .with_for_update()
+            )
+            if pack is None:  # pragma: no cover
+                raise
+    variant = await session.scalar(
+        select(PlatformVariant)
+        .where(
+            PlatformVariant.content_pack_id == pack.id,
+            PlatformVariant.platform == "telegram",
+        )
+        .with_for_update()
+    )
+    if variant is None:
+        candidate_variant = PlatformVariant(content_pack_id=pack.id, platform="telegram")
+        try:
+            async with session.begin_nested():
+                session.add(candidate_variant)
+                await session.flush()
+            variant = candidate_variant
+        except IntegrityError:
+            variant = await session.scalar(
+                select(PlatformVariant)
+                .where(
+                    PlatformVariant.content_pack_id == pack.id,
+                    PlatformVariant.platform == "telegram",
+                )
+                .with_for_update()
+            )
+            if variant is None:  # pragma: no cover
+                raise
+    variant = await session.scalar(
+        select(PlatformVariant).where(PlatformVariant.id == variant.id).with_for_update()
+    )
+    if variant is None:  # pragma: no cover
+        raise RuntimeError("Telegram variant disappeared during allocation")
+    return pack, variant
+
+
+def _generation_error(exc: Exception, route: AutomationRoute, job: WorkflowJob) -> Exception:
+    if isinstance(exc, OpenRouterRetryableError):
+        scheduled = retry_at(
+            route.retry_policy or {},
+            attempt_number=max(1, job.attempt_count),
+            now=datetime.now(UTC),
+        )
+        if scheduled is None:
+            return NeedsReviewJobError(
+                code="telegram_generation_retries_exhausted",
+                message="Telegram generation requires operator attention",
+            )
+        return RetryableJobError(code=exc.code, message=str(exc), retry_at=scheduled)
+    if isinstance(exc, OpenRouterNeedsReviewError):
+        return NeedsReviewJobError(code=exc.code, message=str(exc))
+    if isinstance(exc, ValidationError):
+        return NeedsReviewJobError(
+            code="telegram_generation_output_invalid",
+            message="Generated Telegram output failed validation",
+        )
+    if isinstance(exc, (OpenRouterPermanentError, ProviderProfileConfigurationError)):
+        return PermanentJobError(
+            code=getattr(exc, "code", "telegram_provider_configuration_invalid"),
+            message=str(exc),
+        )
+    return exc
+
+
+def build_telegram_process_handler(profile_resolver: Any) -> JobHandler:
+    async def _process_route_dispatch(job: WorkflowJob, context: JobContext) -> dict[str, Any]:
+        payload = _parse_payload(ProcessDispatchPayload, job.payload)
+        workflow_job_id = job.id
+        workflow_attempt_count = job.attempt_count
+        session = context.session
+        provider = None
+        provider_request = None
+        active_attempt_id: UUID | None = None
+        durable_output: dict[str, Any] | None = None
+
+        async with session.begin():
+            dispatch = await session.scalar(
+                select(AutomationDispatch)
+                .where(AutomationDispatch.id == payload.dispatch_id)
+                .with_for_update()
+            )
+            if dispatch is None:
+                raise PermanentJobError(
+                    code="telegram_dispatch_missing",
+                    message="Telegram automation dispatch was not found",
+                )
+            if dispatch.variant_revision_id is not None:
+                return {
+                    "dispatch_id": str(dispatch.id),
+                    "revision_id": str(dispatch.variant_revision_id),
+                    "publish_job_id": str(dispatch.publish_job_id) if dispatch.publish_job_id else None,
+                    "idempotent": True,
+                }
+            route = await session.get(AutomationRoute, dispatch.route_id)
+            story_revision = await session.get(StoryRevision, dispatch.story_revision_id)
+            source_item = await session.get(SourceItem, dispatch.source_item_id)
+            if route is None or story_revision is None or source_item is None:
+                raise PermanentJobError(
+                    code="telegram_dispatch_context_missing",
+                    message="Telegram dispatch context is incomplete",
+                )
+            snapshot = await _exact_dispatch_evidence(session, story_revision.id)
+            content_item, media = await _dispatch_media(session, source_item)
+            prompt = await session.get(PromptTemplateVersion, route.prompt_template_version_id)
+            brand = await session.get(BrandProfile, route.brand_profile_id)
+            profile = await session.get(AIProviderProfile, route.ai_provider_profile_id)
+            destination = await session.get(Destination, route.destination_id)
+            if prompt is None or brand is None or profile is None or destination is None:
+                raise PermanentJobError(
+                    code="telegram_route_configuration_missing",
+                    message="Telegram route configuration is incomplete",
+                )
+
+            run = (
+                await session.get(GenerationRun, dispatch.generation_run_id)
+                if dispatch.generation_run_id is not None
+                else None
+            )
+            if run is not None and run.status == "completed" and run.output_payload:
+                if generation_input_hash(dict(run.request_payload or {})) != run.input_hash:
+                    raise NeedsReviewJobError(
+                        code="telegram_generation_input_drift",
+                        message="Durable generation input no longer matches its hash",
+                    )
+                durable_output = dict(run.output_payload)
+            else:
+                if run is not None and run.status == "running":
+                    active_claim = int(
+                        ((run.request_payload or {}).get("execution") or {}).get(
+                            "active_workflow_attempt", 0
+                        )
+                    )
+                    if active_claim == workflow_attempt_count:
+                        return {
+                            "dispatch_id": str(dispatch.id),
+                            "generation_run_id": str(run.id),
+                            "already_in_progress": True,
+                        }
+                    attempts = list(
+                        await session.scalars(
+                            select(GenerationAttempt)
+                            .where(GenerationAttempt.generation_run_id == run.id)
+                            .order_by(GenerationAttempt.attempt_number)
+                            .with_for_update()
+                        )
+                    )
+                    for stale in attempts:
+                        if stale.status == "running":
+                            stale.status = "failed"
+                            stale.error_class = "retryable"
+                            stale.error_code = "stale_generation_attempt"
+                            stale.error_message = "Generation attempt lease was superseded"
+                            stale.finished_at = datetime.now(UTC)
+                else:
+                    attempts = (
+                        list(
+                            await session.scalars(
+                                select(GenerationAttempt)
+                                .where(GenerationAttempt.generation_run_id == run.id)
+                                .order_by(GenerationAttempt.attempt_number)
+                                .with_for_update()
+                            )
+                        )
+                        if run is not None
+                        else []
+                    )
+
+                model_override = (route.content_filters or {}).get("model")
+                try:
+                    resolved = await profile_resolver.resolve(profile, model_override)
+                except Exception as exc:
+                    mapped = _generation_error(exc, route, job)
+                    if mapped is exc:
+                        raise
+                    raise mapped from None
+                rewrite_input = TelegramRewriteInput(
+                    source_text=snapshot.content_text,
+                    source_url=snapshot.source_url,
+                    source_channel=source_item.external_id_norm or str(route.source_id),
+                    language=brand.output_language,
+                    direction=content_item.direction or "ltr",
+                    attribution_policy=route.attribution_policy,
+                    custom_footer=route.custom_footer,
+                )
+                values = rewrite_input.model_dump(mode="json")
+                try:
+                    rendered_user = prompt.user_template.format(**values)
+                except (KeyError, ValueError):
+                    raise PermanentJobError(
+                        code="telegram_prompt_invalid",
+                        message="Telegram prompt template cannot be rendered",
+                    ) from None
+                requested_model = model_override or profile.default_model
+                semantic_request = {
+                    "dispatch_id": str(dispatch.id),
+                    "route_id": str(route.id),
+                    "story_revision_id": str(story_revision.id),
+                    "evidence_snapshot_id": str(snapshot.id),
+                    "prompt_template_version_id": str(prompt.id),
+                    "prompt_checksum": prompt.checksum_sha256,
+                    "provider_profile_id": str(profile.id),
+                    "requested_model": requested_model,
+                    "selected_model": resolved.model,
+                }
+                request_payload = {
+                    "semantic": semantic_request,
+                    "input": values,
+                    "execution": {
+                        "active_workflow_job_id": str(workflow_job_id),
+                        "active_workflow_attempt": workflow_attempt_count,
+                    },
+                }
+                computed_input_hash = generation_input_hash(request_payload)
+                if computed_input_hash is None:  # pragma: no cover - constructed above
+                    raise RuntimeError("Generation input hash could not be computed")
+                if run is None:
+                    run = GenerationRun(
+                        story_revision_id=story_revision.id,
+                        provider_profile_id=profile.id,
+                        prompt_template_version_id=prompt.id,
+                        requested_model=requested_model,
+                        status="running",
+                        input_hash=computed_input_hash,
+                        request_payload=request_payload,
+                        output_payload={},
+                        started_at=datetime.now(UTC),
+                    )
+                    session.add(run)
+                    await session.flush()
+                    dispatch.generation_run_id = run.id
+                else:
+                    existing_hash = generation_input_hash(dict(run.request_payload or {}))
+                    if existing_hash != run.input_hash or computed_input_hash != run.input_hash:
+                        raise NeedsReviewJobError(
+                            code="telegram_generation_input_drift",
+                            message="Generation retry input differs from the durable request",
+                        )
+                    run.status = "running"
+                    run.error_class = None
+                    run.error_code = None
+                    run.error_message = None
+                    run.finished_at = None
+                    run.request_payload = request_payload
+                dispatch.status = "generating"
+                dispatch.error_code = None
+                dispatch.error_message = None
+                attempt = GenerationAttempt(
+                    generation_run_id=run.id,
+                    attempt_number=max((item.attempt_number for item in attempts), default=0) + 1,
+                    provider=resolved.provider_type,
+                    requested_model=requested_model,
+                    prompt_snapshot={
+                        "system": prompt.system_template,
+                        "user": rendered_user,
+                        "schema": prompt.output_schema,
+                    },
+                    response_payload={},
+                    usage={},
+                    validation_errors=[],
+                    status="running",
+                    started_at=datetime.now(UTC),
+                )
+                session.add(attempt)
+                await session.flush()
+                run.request_payload = {
+                    **request_payload,
+                    "execution": {
+                        **request_payload["execution"],
+                        "active_generation_attempt_id": str(attempt.id),
+                    },
+                }
+                active_attempt_id = attempt.id
+                provider = resolved.provider
+                provider_request = GenerationProviderRequest(
+                    run_id=run.id,
+                    purpose="telegram_rewrite",
+                    requested_model=resolved.model,
+                    messages=(
+                        ProviderMessage(role="system", content=prompt.system_template),
+                        ProviderMessage(role="user", content=rendered_user),
+                    ),
+                    response_schema=dict(prompt.output_schema or {}),
+                    metadata={
+                        "dispatch_id": str(dispatch.id),
+                        "route_id": str(route.id),
+                        "evidence_snapshot_id": str(snapshot.id),
+                    },
+                )
+
+        if durable_output is None:
+            if provider is None or provider_request is None or active_attempt_id is None:
+                raise RuntimeError("Telegram generation attempt was not prepared")
+            try:
+                generated = await provider.generate(provider_request)
+                parsed_output = TelegramRewriteOutput.model_validate(generated.output).model_dump(mode="json")
+                durable_output = {
+                    "provider": generated.provider,
+                    "requested_model": generated.requested_model,
+                    "resolved_model": generated.resolved_model,
+                    "output": parsed_output,
+                    "raw_text": generated.raw_text,
+                    "usage": generated.usage,
+                    "finish_reason": generated.finish_reason,
+                }
+            except Exception as exc:
+                async with session.begin():
+                    current_dispatch = await session.scalar(
+                        select(AutomationDispatch)
+                        .where(AutomationDispatch.id == payload.dispatch_id)
+                        .with_for_update()
+                        .execution_options(populate_existing=True)
+                    )
+                    current_run = (
+                        await session.scalar(
+                            select(GenerationRun)
+                            .where(GenerationRun.id == current_dispatch.generation_run_id)
+                            .with_for_update()
+                            .execution_options(populate_existing=True)
+                        )
+                        if current_dispatch is not None and current_dispatch.generation_run_id
+                        else None
+                    )
+                    current_attempt = await session.scalar(
+                        select(GenerationAttempt)
+                        .where(GenerationAttempt.id == active_attempt_id)
+                        .with_for_update()
+                        .execution_options(populate_existing=True)
+                    )
+                    if current_run is not None and current_attempt is not None:
+                        if current_dispatch.variant_revision_id is not None or (
+                            (current_run.request_payload or {}).get("execution") or {}
+                        ).get("active_generation_attempt_id") != str(active_attempt_id):
+                            return {
+                                "dispatch_id": str(payload.dispatch_id),
+                                "generation_run_id": str(current_run.id),
+                                "superseded": True,
+                            }
+                        mapped = _generation_error(exc, route, job)
+                        error_class = (
+                            "retryable"
+                            if isinstance(mapped, RetryableJobError)
+                            else "needs_review"
+                            if isinstance(mapped, NeedsReviewJobError)
+                            else "permanent"
+                        )
+                        current_attempt.status = "failed"
+                        current_attempt.error_class = error_class
+                        current_attempt.error_code = getattr(mapped, "code", "generation_failed")
+                        current_attempt.error_message = str(mapped)
+                        if isinstance(exc, ValidationError):
+                            current_attempt.validation_errors = [
+                                {
+                                    "type": item["type"],
+                                    "loc": [str(part) for part in item["loc"]],
+                                    "message": item["msg"],
+                                }
+                                for item in exc.errors(include_input=False, include_url=False)
+                            ]
+                        current_attempt.finished_at = datetime.now(UTC)
+                        current_run.status = "failed"
+                        current_run.error_class = error_class
+                        current_run.error_code = getattr(mapped, "code", "generation_failed")
+                        current_run.error_message = str(mapped)
+                        current_run.finished_at = datetime.now(UTC)
+                        if current_dispatch is not None:
+                            current_dispatch.status = (
+                                "needs_review" if error_class == "needs_review" else "failed"
+                            )
+                mapped = _generation_error(exc, route, job)
+                if mapped is exc:
+                    raise
+                raise mapped from None
+
+            async with session.begin():
+                current_run = await session.scalar(
+                    select(GenerationRun)
+                    .where(GenerationRun.id == provider_request.run_id)
+                    .with_for_update()
+                    .execution_options(populate_existing=True)
+                )
+                current_attempt = await session.scalar(
+                    select(GenerationAttempt)
+                    .where(GenerationAttempt.id == active_attempt_id)
+                    .with_for_update()
+                    .execution_options(populate_existing=True)
+                )
+                if current_run is None or current_attempt is None:
+                    raise RetryableJobError(
+                        code="generation_attempt_missing",
+                        message="Generation attempt disappeared before persistence",
+                    )
+                if ((current_run.request_payload or {}).get("execution") or {}).get(
+                    "active_generation_attempt_id"
+                ) != str(active_attempt_id):
+                    return {
+                        "dispatch_id": str(payload.dispatch_id),
+                        "generation_run_id": str(current_run.id),
+                        "superseded": True,
+                    }
+                current_attempt.response_payload = durable_output
+                current_attempt.resolved_model = durable_output["resolved_model"]
+                current_attempt.usage = durable_output["usage"]
+                current_attempt.validation_errors = []
+                current_attempt.status = "completed"
+                current_attempt.finished_at = datetime.now(UTC)
+                current_run.output_payload = durable_output
+                current_run.status = "completed"
+                current_run.finished_at = datetime.now(UTC)
+                current_run.error_class = None
+                current_run.error_code = None
+                current_run.error_message = None
+                session.add(
+                    WorkflowEvent(
+                        workflow_job_id=workflow_job_id,
+                        event_type="telegram.generation.completed",
+                        actor="automation",
+                        event_data=redact_event_data(
+                            {
+                                "dispatch_id": str(payload.dispatch_id),
+                                "generation_run_id": str(current_run.id),
+                                "generation_attempt_id": str(current_attempt.id),
+                                "resolved_model": current_attempt.resolved_model,
+                                "usage": current_attempt.usage,
+                            }
+                        ),
+                    )
+                )
+
+        async with session.begin():
+            session.expire_all()
+            dispatch = await session.scalar(
+                select(AutomationDispatch)
+                .where(AutomationDispatch.id == payload.dispatch_id)
+                .with_for_update()
+                .execution_options(populate_existing=True)
+            )
+            if dispatch is None:
+                raise PermanentJobError(
+                    code="telegram_dispatch_missing",
+                    message="Telegram automation dispatch was not found",
+                )
+            if dispatch.variant_revision_id is not None:
+                return {
+                    "dispatch_id": str(dispatch.id),
+                    "revision_id": str(dispatch.variant_revision_id),
+                    "publish_job_id": str(dispatch.publish_job_id) if dispatch.publish_job_id else None,
+                    "idempotent": True,
+                }
+            run = await session.scalar(
+                select(GenerationRun)
+                .where(GenerationRun.id == dispatch.generation_run_id)
+                .execution_options(populate_existing=True)
+            )
+            if run is None or run.status != "completed" or not run.output_payload:
+                raise RetryableJobError(
+                    code="generation_output_not_durable",
+                    message="Generation output is not yet durable",
+                )
+            attempt = await session.scalar(
+                select(GenerationAttempt)
+                .where(
+                    GenerationAttempt.generation_run_id == run.id,
+                    GenerationAttempt.status == "completed",
+                )
+                .order_by(GenerationAttempt.attempt_number.desc())
+                .limit(1)
+            )
+            if attempt is None:
+                raise RetryableJobError(
+                    code="generation_attempt_not_durable",
+                    message="Generation attempt is not yet durable",
+                )
+            route = await session.scalar(
+                select(AutomationRoute)
+                .where(AutomationRoute.id == dispatch.route_id)
+                .with_for_update()
+                .execution_options(populate_existing=True)
+            )
+            story_revision = await session.get(StoryRevision, dispatch.story_revision_id)
+            source_item = await session.get(SourceItem, dispatch.source_item_id)
+            control = await session.scalar(
+                select(AutomationControl)
+                .where(AutomationControl.id == "global")
+                .with_for_update()
+            )
+            if route is None or story_revision is None or source_item is None:
+                raise PermanentJobError(
+                    code="telegram_dispatch_context_missing",
+                    message="Telegram dispatch context is incomplete",
+                )
+            destination = await session.scalar(
+                select(Destination)
+                .where(Destination.id == route.destination_id)
+                .with_for_update()
+                .execution_options(populate_existing=True)
+            )
+            if destination is None:
+                raise PermanentJobError(
+                    code="telegram_destination_missing",
+                    message="Telegram destination was not found",
+                )
+            snapshot = await _exact_dispatch_evidence(session, story_revision.id)
+            evidence_map = build_evidence_map(snapshot)
+            content_item, media = await _dispatch_media(session, source_item)
+            media_ids, media_ready, media_reason = _media_decision(route, media)
+            output = TelegramRewriteOutput.model_validate(run.output_payload["output"])
+            content = TelegramVariantContent(
+                body=output.body,
+                parse_mode=output.parse_mode,
+                buttons=output.buttons,
+                source_item_id=dispatch.source_item_id,
+                source_url=source_item.source_url,
+                media_policy=route.media_policy,
+                media_asset_ids=media_ids if route.media_policy == "preserve" else [],
+                direction=content_item.direction or "ltr",
+                dry_run=dispatch.dispatch_kind == "dry_run",
+            ).model_dump(mode="json")
+            validation_results = [
+                {"gate": "telegram_schema", "ok": True},
+                {"gate": "evidence", "ok": True},
+                {"gate": "media", "ok": media_ready, "reason": media_reason},
+            ]
+            unresolved_earlier = await session.scalar(
+                select(AutomationDispatch)
+                .join(StoryRevision, StoryRevision.id == AutomationDispatch.story_revision_id)
+                .where(
+                    AutomationDispatch.route_id == dispatch.route_id,
+                    AutomationDispatch.id != dispatch.id,
+                    or_(
+                        AutomationDispatch.created_at < dispatch.created_at,
+                        and_(
+                            AutomationDispatch.created_at == dispatch.created_at,
+                            AutomationDispatch.id < dispatch.id,
+                        ),
+                    ),
+                    AutomationDispatch.variant_revision_id.is_(None),
+                    AutomationDispatch.status.in_(("captured", "generating", "retryable")),
+                    StoryRevision.story_id == story_revision.story_id,
+                )
+                .order_by(AutomationDispatch.created_at)
+                .limit(1)
+            )
+            if unresolved_earlier is not None:
+                scheduled = retry_at(
+                    route.retry_policy or {},
+                    attempt_number=max(1, workflow_attempt_count),
+                    now=datetime.now(UTC),
+                )
+                if scheduled is None:
+                    raise NeedsReviewJobError(
+                        code="telegram_route_lineage_blocked",
+                        message="An earlier route dispatch requires operator attention",
+                    )
+                raise RetryableJobError(
+                    code="telegram_route_lineage_waiting",
+                    message="Waiting for an earlier route dispatch revision",
+                    retry_at=scheduled,
+                )
+            parent = await _route_parent_revision(
+                session,
+                dispatch=dispatch,
+                story_id=story_revision.story_id,
+            )
+            _, variant = await _content_pack_and_variant(
+                session,
+                dispatch=dispatch,
+                route=route,
+                story_revision=story_revision,
+                parent=parent,
+            )
+            revision_number = int(
+                await session.scalar(
+                    select(func.coalesce(func.max(PlatformVariantRevision.revision_number), 0)).where(
+                        PlatformVariantRevision.platform_variant_id == variant.id
+                    )
+                )
+                or 0
+            ) + 1
+            gate = evaluate_auto_publish(
+                global_pause=bool(control and control.global_pause),
+                global_dry_run=bool(control and control.dry_run),
+                route_paused=route.paused_at is not None,
+                destination_enabled=destination.enabled,
+                destination_health=destination.health_status,
+                destination_allows_auto=bool((destination.settings or {}).get("allow_auto_publish")),
+                validation_ok=True,
+                evidence_ready=True,
+                media_ready=media_ready,
+            )
+            auto_requested = route.publishing_policy == "auto_publish"
+            force_review = (
+                payload.force_review
+                or dispatch.dispatch_kind in {"source_edit", "dry_run"}
+                or route.media_policy == "replace_manually"
+            )
+            approved = auto_requested and gate.allowed and not force_review
+            revision = PlatformVariantRevision(
+                platform_variant_id=variant.id,
+                parent_revision_id=parent.id if parent is not None else None,
+                generation_attempt_id=attempt.id,
+                revision_number=revision_number,
+                content=content,
+                content_hash=sha256_canonical({"content": content, "evidence_map": evidence_map}),
+                evidence_map=evidence_map,
+                validation_results=validation_results,
+                approval_state="approved" if approved else "pending_review",
+                approval_note=None if approved else (
+                    "forced_review" if force_review else gate.reason or "review_required"
+                ),
+                approved_at=datetime.now(UTC) if approved else None,
+                created_by=f"automation:{route.id}",
+            )
+            session.add(revision)
+            await session.flush()
+            dispatch.variant_revision_id = revision.id
+            dispatch.status = "approved" if approved else "pending_review"
+            dispatch.error_code = None
+            dispatch.error_message = None
+            publish_job = None
+            if approved:
+                publish_job = await enqueue_telegram_publish_intent(
+                    session,
+                    revision=revision,
+                    destination=destination,
+                    dispatch=dispatch,
+                )
+            session.add(
+                WorkflowEvent(
+                    workflow_job_id=workflow_job_id,
+                    event_type=(
+                        "telegram.revision.auto_approved"
+                        if approved
+                        else "telegram.revision.review_required"
+                    ),
+                    actor="automation",
+                    event_data=redact_event_data(
+                        {
+                            "route_id": str(route.id),
+                            "dispatch_id": str(dispatch.id),
+                            "revision_id": str(revision.id),
+                            "content_hash": revision.content_hash,
+                            "reason": None if approved else revision.approval_note,
+                        }
+                    ),
+                )
+            )
+            if dispatch.dispatch_kind == "source_edit":
+                session.add(
+                    WorkflowEvent(
+                        workflow_job_id=workflow_job_id,
+                        event_type="telegram.source_edit.revision_created",
+                        actor="automation",
+                        event_data=redact_event_data(
+                            {
+                                "route_id": str(route.id),
+                                "dispatch_id": str(dispatch.id),
+                                "revision_id": str(revision.id),
+                                "parent_revision_id": (
+                                    str(revision.parent_revision_id)
+                                    if revision.parent_revision_id
+                                    else None
+                                ),
+                            }
+                        ),
+                    )
+                )
+            await session.flush()
+            return {
+                "dispatch_id": str(dispatch.id),
+                "generation_run_id": str(run.id),
+                "revision_id": str(revision.id),
+                "review_required": not approved,
+                "publish_job_id": str(publish_job.id) if publish_job is not None else None,
+            }
+
+    async def process_route_dispatch(job: WorkflowJob, context: JobContext) -> dict[str, Any]:
+        workflow_job_id = job.id
+        failure_payload = dict(job.payload or {})
+        try:
+            return await _process_route_dispatch(job, context)
+        except (RetryableJobError, NeedsReviewJobError, PermanentJobError) as exc:
+            session = context.session
+            if session.in_transaction():
+                await session.rollback()
+            try:
+                payload = ProcessDispatchPayload.model_validate(failure_payload)
+            except ValidationError:
+                raise exc from None
+            async with session.begin():
+                dispatch = await session.scalar(
+                    select(AutomationDispatch)
+                    .where(AutomationDispatch.id == payload.dispatch_id)
+                    .with_for_update()
+                )
+                if dispatch is not None and dispatch.variant_revision_id is None:
+                    dispatch.status = (
+                        "needs_review"
+                        if isinstance(exc, NeedsReviewJobError)
+                        else "retryable"
+                        if isinstance(exc, RetryableJobError)
+                        else "failed"
+                    )
+                    dispatch.error_code = exc.code
+                    dispatch.error_message = exc.message
+                    event_type = (
+                        "telegram.process.deferred"
+                        if exc.code == "telegram_route_lineage_waiting"
+                        else "telegram.process.blocked"
+                        if exc.code == "telegram_route_lineage_blocked"
+                        else "telegram.generation.failed"
+                    )
+                    session.add(
+                        WorkflowEvent(
+                            workflow_job_id=workflow_job_id,
+                            event_type=event_type,
+                            actor="automation",
+                            event_data=redact_event_data(
+                                {
+                                    "dispatch_id": str(dispatch.id),
+                                    "error_class": (
+                                        "needs_review"
+                                        if isinstance(exc, NeedsReviewJobError)
+                                        else "retryable"
+                                        if isinstance(exc, RetryableJobError)
+                                        else "permanent"
+                                    ),
+                                    "error_code": exc.code,
+                                    "error_message": exc.message,
+                                }
+                            ),
+                        )
+                    )
+            raise
+
+    return process_route_dispatch
+
+
+async def process_route_dispatch(
+    job: WorkflowJob,
+    context: JobContext,
+    *,
+    profile_resolver: Any,
+) -> dict[str, Any]:
+    """Direct-call facade used by tests and dependency-specific runtimes."""
+
+    return await build_telegram_process_handler(profile_resolver)(job, context)

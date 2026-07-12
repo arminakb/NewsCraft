@@ -81,7 +81,7 @@ class WorkerRunner:
 
             cancellation: asyncio.CancelledError | None = None
             result: dict[str, Any] | None = None
-            failure: tuple[JobErrorClass, str, str] | None = None
+            failure: tuple[JobErrorClass, str, str, datetime | None] | None = None
             try:
                 try:
                     handler = self.handler_registry.get(job.job_type)
@@ -100,13 +100,18 @@ class WorkerRunner:
                     cancellation = exc
                     result = await handler_task
             except RetryableJobError as exc:
-                failure = (JobErrorClass.RETRYABLE, exc.code, exc.message)
+                failure = (JobErrorClass.RETRYABLE, exc.code, exc.message, exc.retry_at)
             except NeedsReviewJobError as exc:
-                failure = (JobErrorClass.NEEDS_REVIEW, exc.code, exc.message)
+                failure = (JobErrorClass.NEEDS_REVIEW, exc.code, exc.message, None)
             except PermanentJobError as exc:
-                failure = (JobErrorClass.PERMANENT, exc.code, exc.message)
+                failure = (JobErrorClass.PERMANENT, exc.code, exc.message, None)
             except Exception:  # noqa: BLE001 - boundary maps unknown failures without leaking details
-                failure = (JobErrorClass.RETRYABLE, "unhandled_exception", "Unhandled job handler exception")
+                failure = (
+                    JobErrorClass.RETRYABLE,
+                    "unhandled_exception",
+                    "Unhandled job handler exception",
+                    None,
+                )
             finally:
                 stop_heartbeat.set()
                 await heartbeat_task
@@ -126,9 +131,9 @@ class WorkerRunner:
                     job.attempt_count,
                 )
             else:
-                error_class, error_code, error_message = failure
+                error_class, error_code, error_message, requested_retry_at = failure
                 retry_at = (
-                    completion_time + timedelta(seconds=30)
+                    requested_retry_at or completion_time + timedelta(seconds=30)
                     if error_class == JobErrorClass.RETRYABLE
                     else None
                 )

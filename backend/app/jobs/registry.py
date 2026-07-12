@@ -43,6 +43,7 @@ def build_default_registry(
     *,
     source_registry: Any | None = None,
     media_stager: Any | None = None,
+    profile_resolver: Any | None = None,
 ) -> JobHandlerRegistry:
     from app.jobs.handlers import handle_ingest_collect
 
@@ -59,4 +60,11 @@ def build_default_registry(
         registry.register("telegram.route.dry_run", handlers.dry_run)
         registry.register("telegram.route.initialize", handlers.initialize)
         registry.register("telegram.route.poll", handlers.poll)
+    if profile_resolver is not None:
+        from app.automations.telegram.handlers import build_telegram_process_handler
+
+        registry.register(
+            "telegram.route.process",
+            build_telegram_process_handler(profile_resolver),
+        )
     return registry

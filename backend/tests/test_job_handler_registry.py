@@ -59,3 +59,12 @@ def test_default_registry_contains_only_ingest_collect_without_loading_task_5_ha
 
     assert registry.job_types() == ("ingest.collect",)
     assert callable(registry.get("ingest.collect"))
+
+
+def test_generation_dependency_registers_only_real_telegram_process_handler():
+    resolver = object()
+
+    registry = build_default_registry(profile_resolver=resolver)
+
+    assert registry.job_types() == ("ingest.collect", "telegram.route.process")
+    assert callable(registry.get("telegram.route.process"))

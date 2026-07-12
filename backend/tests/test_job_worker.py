@@ -164,6 +164,30 @@ async def test_known_handler_failures_map_to_exact_error_classes(error, error_cl
 
 
 @pytest.mark.asyncio
+async def test_retryable_handler_can_supply_exact_retry_time_and_default_stays_thirty_seconds():
+    retry_at = datetime(2026, 7, 11, 8, 7, tzinfo=UTC)
+
+    async def explicit_handler(job, context):
+        raise RetryableJobError(code="rate_limited", retry_at=retry_at)
+
+    explicit_runner, explicit_state, _, _, _ = _runner(_job(), explicit_handler)
+    await explicit_runner.run_once(allowed_job_types=("ingest.collect",))
+    assert explicit_state.failed[0]["retry_at"] == retry_at
+
+    async def fallback_handler(job, context):
+        raise RetryableJobError(code="temporary")
+
+    fallback_runner, fallback_state, _, _, _ = _runner(_job(), fallback_handler)
+    await fallback_runner.run_once(allowed_job_types=("ingest.collect",))
+    assert fallback_state.failed[0]["retry_at"] == datetime(2026, 7, 11, 8, 0, 30, tzinfo=UTC)
+
+
+def test_retryable_error_rejects_naive_retry_time():
+    with pytest.raises(ValueError, match="timezone-aware"):
+        RetryableJobError(code="temporary", retry_at=datetime(2026, 7, 11, 8, 0))
+
+
+@pytest.mark.asyncio
 async def test_unknown_explicitly_allowed_type_is_permanent_and_unexpected_is_retryable():
     unknown_runner, unknown_state, _, _, _ = _runner(_job("missing"))
     await unknown_runner.run_once(allowed_job_types=("missing",))
