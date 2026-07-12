@@ -27,6 +27,7 @@ Expected: the worktree is clean, all Release 0 checks pass, and Compose validati
 
 - Product mode remains local and single operator; do not add accounts, authentication, RBAC, billing, Redis, Celery, Kafka, or Kubernetes.
 - PostgreSQL is the only durable queue. Queue claiming must use `FOR UPDATE SKIP LOCKED`, worker leases, heartbeats, and deterministic idempotency keys.
+- Queue capability filtering is part of the atomic claim. A worker supplies its allowed job types before row locking; it never claims an unsupported job and then tries to put it back.
 - Store timestamps as timezone-aware UTC values. The scheduler computes local due times with `zoneinfo.ZoneInfo`; the default timezone is exactly `Asia/Tehran` and the default daily collection time is exactly `06:00`.
 - Job status values are exactly `queued`, `running`, `succeeded`, `failed`, `needs_review`, and `cancelled`.
 - Job error classes are exactly `retryable`, `needs_review`, and `permanent`. Job origins are exactly `manual`, `scheduler`, `automation`, and `retry`.
@@ -60,12 +61,13 @@ Later plans import these names verbatim. Changing them requires updating every l
 | Research records | `app.research.models`: `ResearchRun`, `ResearchAttempt`, `ResearchSource` |
 | Destination/publication | `app.publishing.models`: `Destination`, `PublishJob`, `PublishAttempt`, `Publication` |
 | Automation records | `app.automations.models`: `AutomationRoute` |
-| Workflow engine | `app.jobs.models`: `WorkflowJob`, `WorkflowEvent`, `WorkflowSchedule`, `AutomationControl` |
+| Workflow engine | `app.jobs.models`: `WorkflowJob`, `WorkflowEvent`, `WorkflowSchedule`, `AutomationControl`, `RuntimeHeartbeat` |
 | Queue API | `app.jobs.repository`: `JobRepository`, `EnqueueJobResult` |
 | Handler extension | `app.jobs.registry`: `JobContext`, `JobHandler`, `JobHandlerRegistry`, `build_default_registry` |
 | Job schemas | `app.jobs.schemas`: `JobAcceptedOut`, `JobOut`, `JobDetailOut`, `JobListOut`, `JobSummaryOut` |
 | Provider contract | `app.generation.providers.base`: `ProviderMessage`, `GenerationProviderRequest`, `GenerationProviderResult`, `GenerationProvider` |
 | Provider registry | `app.generation.providers.registry`: `ProviderRegistry`, `build_default_provider_registry` |
+| Secret references | `app.core.secrets`: `SecretResolver`, `EnvironmentSecretResolver`, `SecretReferenceError`, `SecretNotConfiguredError` |
 
 The queue method signatures are:
 
@@ -94,6 +96,7 @@ async def claim_next_job(
     *,
     worker_id: str,
     lease_seconds: int,
+    allowed_job_types: tuple[str, ...] | None = None,
     now: datetime | None = None,
 ) -> WorkflowJob | None: ...
 
@@ -143,7 +146,24 @@ async def list_jobs(
 ) -> list[WorkflowJob]: ...
 ```
 
-`JobHandler` is `Callable[[WorkflowJob, JobContext], Awaitable[dict[str, Any]]]`. `JobContext` has exactly `session: AsyncSession` and `providers: ProviderRegistry`. `JobHandlerRegistry.register(job_type, handler)` rejects duplicate registrations; `get(job_type)` raises `UnknownJobTypeError` for an unknown type.
+`allowed_job_types=None` preserves the single-worker Release 1 behavior and may claim any registered type. A non-empty tuple filters candidates with `WorkflowJob.job_type.in_(allowed_job_types)` inside the same `FOR UPDATE SKIP LOCKED` statement that chooses and leases the row. An empty tuple returns `None` without querying for a claim. Filtering must happen before status, lease owner, attempt count, and `job.claimed` event mutation; an unsupported queued job remains byte-for-byte queued.
+
+`JobHandler` is `Callable[[WorkflowJob, JobContext], Awaitable[dict[str, Any]]]`. `JobContext` has exactly `session: AsyncSession` and `providers: ProviderRegistry`. `JobHandlerRegistry.register(job_type, handler)` rejects duplicate registrations; `get(job_type)` raises `UnknownJobTypeError` for an unknown type; `job_types()` returns registered keys as a sorted tuple. Workers derive `allowed_job_types` from `registry.job_types()` so future handlers such as `build_export` and `execute_retention` become claimable when registered without editing the queue repository or a central capability-to-type switch.
+
+The secret-reference contract is:
+
+```python
+class SecretResolver(Protocol):
+    def configured(self, reference: str) -> bool: ...
+    def resolve(self, reference: str) -> str: ...
+
+
+class EnvironmentSecretResolver:
+    def configured(self, reference: str) -> bool: ...
+    def resolve(self, reference: str) -> str: ...
+```
+
+Both methods validate `reference` against `^[A-Z][A-Z0-9_]{2,127}$`. `configured()` returns `False` for a valid missing/empty variable and never returns its value. `resolve()` returns a non-empty environment value or raises `SecretNotConfiguredError(reference)` whose string contains only the reference name. Invalid references raise `SecretReferenceError`; neither exception, representation, nor log contains resolved material.
 
 The provider value objects are:
 
@@ -187,9 +207,9 @@ All IDs are PostgreSQL UUID primary keys created with `uuid.uuid4`; all JSON col
 
 | Model / table | Exact columns beyond `id` |
 | --- | --- |
-| `Story` / `stories` | `title Text`, `status Text='open'`, `primary_language Text='en'`, `created_at`, `updated_at` |
-| `StoryEvidenceSnapshot` / `story_evidence_snapshots` | `story_id FK stories`, `content_item_id FK content_items NULL`, `source_url Text`, `title Text NULL`, `content_text Text`, `authors JSONB=[]`, `published_at timestamptz NULL`, `content_sha256 Text`, `snapshot_metadata JSONB={}`, `captured_at` |
-| `StoryRevision` / `story_revisions` | `story_id FK stories`, `revision_number Integer`, `narrative Text`, `facts JSONB=[]`, `disagreements JSONB=[]`, `angles JSONB=[]`, `citations JSONB=[]`, `created_by Text`, `created_at`; unique `(story_id, revision_number)` |
+| `Story` / `stories` | `title Text`, `status Text='open'`, `primary_language Text='en'`, `superseded_by_id self-FK stories NULL`, `created_at`, `updated_at`; partial index `ix_stories_active_updated` on `(status, updated_at DESC)` where `superseded_by_id IS NULL` |
+| `StoryEvidenceSnapshot` / `story_evidence_snapshots` | `story_id FK stories`, `content_item_id FK content_items NULL`, `evidence_key Text`, `source_url Text NULL`, `title Text NULL`, `content_text Text`, `authors JSONB=[]`, `published_at timestamptz NULL`, `content_sha256 Text`, `snapshot_metadata JSONB={}`, `captured_at`; unique `(story_id, evidence_key)` named `uq_story_evidence_key` |
+| `StoryRevision` / `story_revisions` | `story_id FK stories`, `parent_revision_id self-FK NULL`, `revision_number Integer`, `narrative Text`, `facts JSONB=[]`, `disagreements JSONB=[]`, `angles JSONB=[]`, `citations JSONB=[]`, `created_by Text`, `created_at`; unique `(story_id, revision_number)` |
 | `StoryEvidenceLink` / `story_evidence_links` | `story_revision_id FK story_revisions`, `evidence_snapshot_id FK story_evidence_snapshots`, `claim_key Text`, `relationship Text='supports'`, `created_at`; unique `(story_revision_id, evidence_snapshot_id, claim_key)` |
 | `BrandProfile` / `brand_profiles` | `name Text unique`, `output_language Text`, `tone Text`, `editorial_rules JSONB=[]`, `attribution_rules JSONB={}`, `default_hashtags JSONB=[]`, `platform_preferences JSONB={}`, `is_default Boolean=false`, `created_at`, `updated_at` |
 | `PromptTemplate` / `prompt_templates` | `purpose_key Text unique`, `name Text`, `description Text NULL`, `created_at`, `updated_at` |
@@ -202,7 +222,7 @@ All IDs are PostgreSQL UUID primary keys created with `uuid.uuid4`; all JSON col
 | `GenerationAttempt` / `generation_attempts` | `generation_run_id FK generation_runs`, `attempt_number Integer`, `provider Text`, `requested_model Text NULL`, `resolved_model Text NULL`, `prompt_snapshot JSONB={}`, `response_payload JSONB={}`, `usage JSONB={}`, `validation_errors JSONB=[]`, `status Text`, `error_class Text NULL`, `error_code Text NULL`, `error_message Text NULL`, `started_at`, `finished_at NULL`; unique `(generation_run_id, attempt_number)` |
 | `ContentPack` / `content_packs` | `story_revision_id FK story_revisions`, `brand_profile_id FK brand_profiles`, `status Text='draft'`, `created_at`, `updated_at`; unique `(story_revision_id, brand_profile_id)` |
 | `PlatformVariant` / `platform_variants` | `content_pack_id FK content_packs`, `platform Text`, `created_at`; unique `(content_pack_id, platform)` |
-| `PlatformVariantRevision` / `platform_variant_revisions` | `platform_variant_id FK platform_variants`, `revision_number Integer`, `content JSONB={}`, `content_hash Text`, `evidence_map JSONB=[]`, `validation_results JSONB=[]`, `approval_state Text='draft'`, `approved_at NULL`, `created_by Text`, `created_at`; unique `(platform_variant_id, revision_number)` |
+| `PlatformVariantRevision` / `platform_variant_revisions` | `platform_variant_id FK platform_variants`, `parent_revision_id self-FK NULL`, `generation_attempt_id FK generation_attempts NULL`, `revision_number Integer`, `content JSONB={}`, `content_hash Text`, `evidence_map JSONB=[]`, `validation_results JSONB=[]`, `approval_state Text='draft'`, `approval_note Text NULL`, `approved_at NULL`, `created_by Text`, `created_at`; approval values exactly `draft`, `pending_review`, `approved`, `rejected`; check constraint `ck_platform_variant_revision_approval_state`; unique `(platform_variant_id, revision_number)` |
 | `Destination` / `destinations` | `name Text`, `platform Text`, `target_ref Text`, `secret_ref Text`, `enabled Boolean=false`, `health_status Text='unknown'`, `last_health_check_at NULL`, `settings JSONB={}`, `created_at`, `updated_at`; unique `(platform, target_ref)` |
 | `AutomationRoute` / `automation_routes` | `name Text`, `source_id FK sources`, `destination_id FK destinations`, `brand_profile_id FK brand_profiles`, `prompt_template_version_id FK prompt_template_versions`, `ai_provider_profile_id FK ai_provider_profiles`, `access_mode Text='public_html'`, `research_mode Text='off'`, `content_filters JSONB={}`, `media_policy Text='preserve'`, `attribution_policy Text='preserve'`, `custom_footer Text NULL`, `publishing_policy Text='review_required'`, `poll_interval_seconds Integer=300`, `quiet_hours JSONB={}`, `retry_policy JSONB={}`, `cursor_state JSONB={}`, `enabled Boolean=false`, `paused_at NULL`, `last_polled_at NULL`, `next_poll_at NULL`, `backfill_limit Integer NULL`, `backfill_since NULL`, `created_at`, `updated_at` |
 | `PublishJob` / `publish_jobs` | `workflow_job_id FK workflow_jobs NULL`, `destination_id FK destinations`, `platform_variant_revision_id FK platform_variant_revisions`, `status Text`, `idempotency_key Text unique`, `payload_hash Text`, `scheduled_for NULL`, `created_at`, `updated_at` |
@@ -210,6 +230,22 @@ All IDs are PostgreSQL UUID primary keys created with `uuid.uuid4`; all JSON col
 | `Publication` / `publications` | `publish_job_id FK publish_jobs unique`, `destination_id FK destinations`, `platform_variant_revision_id FK platform_variant_revisions`, `remote_message_ids JSONB=[]`, `permalink Text NULL`, `payload_hash Text`, `published_at`, `reconciliation_status Text='confirmed'`; unique `(destination_id, platform_variant_revision_id)` |
 
 `PublishJob.workflow_job_id` is declared by migration `0005_job_engine_and_scheduling` after `workflow_jobs` exists. In model code it is nullable from the start; migration `0004_platform_spine` creates `publish_jobs` without that column, and `0005` adds the column plus foreign key.
+
+`Story.superseded_by_id` is the mutable canonicalization pointer: `NULL` means the Story is active/canonical, while a non-null value points to the surviving Story. Consolidation may set, clear, or repoint this field under a row lock and update `Story.updated_at`; it must reject self-links and cycles. Source content, evidence snapshots, and every `StoryRevision` remain immutable—canonicalization links Stories and never rewrites their historical content or revisions. The self-FK has no cascading delete behavior.
+
+`Story.status` remains an application-owned text state. Release 2 reserves `telegram_provisional` for the immutable singleton Story created by an initial Telegram route capture; later consolidation can identify that provisional record without guessing from title, timestamps, or route metadata.
+
+`StoryEvidenceSnapshot.evidence_key` is deterministic and non-null:
+
+```text
+content-item:<content_item_id>:<content_sha256>
+url:<normalized_source_url>:<content_sha256>
+operator-text:<content_sha256>
+```
+
+Use `content-item` when `content_item_id` exists, otherwise `url` when a truthful URL exists, otherwise `operator-text`. Operator-provided text keeps `source_url=NULL`; downstream citations may truthfully expose a null URL and must never invent one.
+
+`PlatformVariantRevision.revision_number` is globally monotonic within one `PlatformVariant` and allocated while its revision set is locked. `parent_revision_id` may branch but must reference a revision of that same variant. `content_hash` is SHA-256 over canonical JSON shaped exactly `{"content": content, "evidence_map": evidence_map}` so changing evidence invalidates approval as surely as changing visible content. Provider-generated and operator-edited revisions entering `pending_review` or `approved` must carry a nonempty, validated evidence map; only an unfinished `draft` scaffold may temporarily omit it.
 
 ---
 
@@ -236,7 +272,7 @@ All IDs are PostgreSQL UUID primary keys created with `uuid.uuid4`; all JSON col
 
 **Interfaces:**
 - Consumes: existing `Base`, PostgreSQL UUID/JSONB conventions, `ContentItem`, and `Source`.
-- Produces: every model in Data Contract A except the four job-engine models and the deferred `PublishJob.workflow_job_id` column.
+- Produces: every model in Data Contract A except the five job-engine models and the deferred `PublishJob.workflow_job_id` column.
 
 - [ ] **Step 1: Write failing metadata tests**
 
@@ -253,12 +289,40 @@ def test_platform_spine_keeps_editorial_and_machine_state_separate():
     assert {"approval_state", "content_hash", "revision_number"}.issubset(revision_columns)
 
 
+def test_platform_revision_approval_states_are_locked():
+    revision = Base.metadata.tables["platform_variant_revisions"]
+    names = {constraint.name for constraint in revision.constraints}
+
+    assert revision.c.approval_state.server_default.arg == "draft"
+    assert "ck_platform_variant_revision_approval_state" in names
+
+
 def test_destination_stores_a_secret_reference_not_a_secret_value():
     columns = set(Base.metadata.tables["destinations"].columns)
 
     assert "secret_ref" in columns
     assert "token" not in columns
     assert "api_key" not in columns
+
+
+def test_evidence_supports_operator_text_and_deterministic_identity():
+    table = Base.metadata.tables["story_evidence_snapshots"]
+    names = {constraint.name for constraint in table.constraints}
+
+    assert table.c.evidence_key.nullable is False
+    assert table.c.source_url.nullable is True
+    assert "uq_story_evidence_key" in names
+
+
+def test_story_canonicalization_pointer_and_active_lookup_are_explicit():
+    table = Base.metadata.tables["stories"]
+    targets = {foreign_key.target_fullname for foreign_key in table.c.superseded_by_id.foreign_keys}
+
+    assert table.c.superseded_by_id.nullable is True
+    assert targets == {"stories.id"}
+    assert "ix_stories_active_updated" in {index.name for index in table.indexes}
+    active_index = next(index for index in table.indexes if index.name == "ix_stories_active_updated")
+    assert active_index.dialect_options["postgresql"]["where"] is not None
 ```
 
 - [ ] **Step 2: Run the model tests and verify failure**
@@ -274,7 +338,7 @@ Expected: FAIL because the platform-spine tables are not registered.
 
 - [ ] **Step 3: Move shared mapped-column helpers and implement focused model modules**
 
-Move `uuid_pk()` and `timestamp_now()` from `app/db/models.py` to `app/db/base.py`, re-import them into the existing model module, and keep their behavior unchanged. Implement every mapped class and constraint exactly as Data Contract A specifies. Use `Mapped[...]`, `mapped_column`, PostgreSQL `UUID`, `JSONB`, and `ARRAY`; do not use database enum types or cascade deletion.
+Move `uuid_pk()` and `timestamp_now()` from `app/db/models.py` to `app/db/base.py`, re-import them into the existing model module, and keep their behavior unchanged. Implement every mapped class and constraint exactly as Data Contract A specifies. Use `Mapped[...]`, `mapped_column`, PostgreSQL `UUID`, `JSONB`, and `ARRAY`; do not use database enum types or cascade deletion. Map `Story.superseded_by_id` as a nullable self-FK to `stories.id` with no delete cascade, and define PostgreSQL partial index `ix_stories_active_updated` on `(status, updated_at DESC)` with `postgresql_where=superseded_by_id.is_(None)`. Add `CheckConstraint("approval_state IN ('draft', 'pending_review', 'approved', 'rejected')", name="ck_platform_variant_revision_approval_state")` to `PlatformVariantRevision` and the same named constraint to migration `0004`. Implement nullable `StoryEvidenceSnapshot.source_url`, required `evidence_key`, and `UniqueConstraint("story_id", "evidence_key", name="uq_story_evidence_key")`; do not retain the superseded `(story_id, content_item_id, content_sha256)` uniqueness.
 
 Create `app/db/model_registry.py` as the single Alembic metadata import point:
 
@@ -320,13 +384,22 @@ def test_platform_spine_migration_is_reversible():
 
     assert "def downgrade() -> None:" in migration
     assert migration.count("op.drop_table(") == 21
+
+
+def test_story_canonicalization_column_and_active_index_are_migrated():
+    migration = Path("alembic/versions/0004_platform_spine.py").read_text(encoding="utf-8")
+
+    assert 'sa.Column("superseded_by_id", postgresql.UUID(as_uuid=True), nullable=True)' in migration
+    assert 'sa.ForeignKeyConstraint(["superseded_by_id"], ["stories.id"])' in migration
+    assert '"ix_stories_active_updated"' in migration
+    assert 'postgresql_where=sa.text("superseded_by_id IS NULL")' in migration
 ```
 
 Run it and expect failure because the migration is absent.
 
 - [ ] **Step 5: Implement migration `0004_platform_spine`**
 
-Create all 21 tables in foreign-key order from Data Contract A. Create indexes on every foreign key used for chronological lookup and these named indexes: `ix_story_revisions_story_created`, `ix_generation_runs_status_created`, `ix_automation_routes_enabled_next_poll`, `ix_publish_jobs_status_scheduled`, and `ix_publications_published_at`. In `downgrade()`, drop those indexes and all tables in exact reverse dependency order. `publish_jobs` omits `workflow_job_id` until migration `0005`.
+Create all 21 tables in foreign-key order from Data Contract A, including the nullable `stories.superseded_by_id` self-FK, nullable evidence source URLs, required evidence keys, `uq_story_evidence_key`, and the locked approval-state check. Create indexes on every foreign key used for chronological lookup and these named indexes: partial `ix_stories_active_updated` on `(status, updated_at DESC)` with `postgresql_where=sa.text("superseded_by_id IS NULL")`, `ix_story_revisions_story_created`, `ix_generation_runs_status_created`, `ix_automation_routes_enabled_next_poll`, `ix_publish_jobs_status_scheduled`, and `ix_publications_published_at`. In `downgrade()`, explicitly drop the named indexes, including `ix_stories_active_updated`, then drop all tables in exact reverse dependency order. `publish_jobs` omits `workflow_job_id` until migration `0005`.
 
 - [ ] **Step 6: Verify models and migration, then commit**
 
@@ -365,7 +438,7 @@ Expected: focused tests and Ruff pass; the commit contains no workflow behavior.
 
 **Interfaces:**
 - Consumes: migration head `0004_platform_spine` and Data Contract A.
-- Produces: migration head `0005_job_engine_and_scheduling`, the status/error/origin enums, four durable job-engine models, `Source.next_fetch_at`, and `PublishJob.workflow_job_id`.
+- Produces: migration head `0005_job_engine_and_scheduling`, the status/error/origin enums, five durable job-engine models including multi-process runtime heartbeats, `Source.next_fetch_at`, and `PublishJob.workflow_job_id`.
 
 - [ ] **Step 1: Write failing workflow metadata and enum tests**
 
@@ -395,26 +468,37 @@ def test_workflow_job_columns_support_leases_retries_progress_and_attention():
 def test_source_and_publish_models_link_to_scheduler_and_queue():
     assert "next_fetch_at" in Base.metadata.tables["sources"].columns
     assert "workflow_job_id" in Base.metadata.tables["publish_jobs"].columns
+
+
+def test_runtime_heartbeat_supports_multiple_capability_workers():
+    table = Base.metadata.tables["runtime_heartbeats"]
+
+    assert set(table.columns) == {
+        "component_id", "component_type", "capabilities", "observed_at", "metadata"
+    }
+    assert table.c.component_id.primary_key is True
+    assert table.c.observed_at.nullable is False
 ```
 
 Run the file and expect import/table failures.
 
 - [ ] **Step 2: Implement exact enums and job-engine models**
 
-Use `StrEnum` in `app/jobs/types.py`. Define:
+Use `StrEnum` in `app/jobs/types.py`. Add all five ORM classes to `app/db/model_registry.py`, including `RuntimeHeartbeat`, so Alembic and PostgreSQL tests share one metadata graph. Define:
 
 - `WorkflowJob` exactly as the test above, with JSONB defaults `{}`, `priority=0`, `pause_sensitive=true`, `attempt_count=0`, `max_attempts=3`, `progress=0`, `status='queued'`, unique `idempotency_key`, and a check constraint `progress >= 0 AND progress <= 100`.
 - `WorkflowEvent`: `id`, nullable `workflow_job_id` FK, `event_type Text`, `actor Text`, `event_data JSONB={}`, and `created_at`.
 - `WorkflowSchedule`: `id`, `schedule_key Text unique`, nullable `source_id` FK, `name Text`, `job_type Text`, `payload JSONB={}`, `schedule_kind Text`, `timezone Text='Asia/Tehran'`, nullable `local_time Text`, nullable `interval_minutes Integer`, nullable `next_run_at`, `enabled Boolean=true`, `pause_sensitive Boolean=true`, nullable `last_enqueued_at`, `created_at`, `updated_at`.
 - `AutomationControl`: text primary key `id`, `global_pause Boolean=false`, `dry_run Boolean=false`, nullable `pause_reason`, nullable `paused_at`, and `updated_at`.
+- `RuntimeHeartbeat`: text primary key `component_id`, `component_type Text`, `capabilities ARRAY(Text)={}`, `observed_at timestamptz`, and database column `metadata JSONB={}` mapped to Python attribute `runtime_metadata` to avoid SQLAlchemy's reserved `metadata` name.
 
 Add `Source.next_fetch_at: datetime | None`. Add nullable `PublishJob.workflow_job_id` with an index.
 
-Create indexes exactly named `ix_workflow_jobs_claim`, `ix_workflow_jobs_lease_expiry`, `ix_workflow_jobs_attention`, `ix_workflow_events_job_created`, `ix_workflow_events_created`, `ix_workflow_schedules_due`, and `ix_sources_next_fetch_at`.
+Create indexes exactly named `ix_workflow_jobs_claim`, `ix_workflow_jobs_lease_expiry`, `ix_workflow_jobs_attention`, `ix_workflow_events_job_created`, `ix_workflow_events_created`, `ix_workflow_schedules_due`, `ix_runtime_heartbeats_type_observed`, and `ix_sources_next_fetch_at`.
 
 - [ ] **Step 3: Write the migration and Compose contract tests**
 
-Create `backend/tests/test_job_engine_migration.py` to assert revision `0005_job_engine_and_scheduling`, down revision `0004_platform_spine`, all four job tables, `next_fetch_at`, `workflow_job_id`, every named index, and a downgrade that removes the added columns before dropping tables.
+Create `backend/tests/test_job_engine_migration.py` to assert revision `0005_job_engine_and_scheduling`, down revision `0004_platform_spine`, all five job tables including `runtime_heartbeats`, `next_fetch_at`, `workflow_job_id`, every named index, and a downgrade that removes the added columns before dropping tables.
 
 Extend `backend/tests/test_docker_config.py` with:
 
@@ -434,7 +518,7 @@ Run both files and expect failure.
 
 - [ ] **Step 4: Implement migration `0005` and isolated test PostgreSQL**
 
-Create the four job tables and named indexes, add both deferred columns/FKs, and insert exactly one singleton control row with `id='global'`, `global_pause=false`, and `dry_run=false`. Downgrade removes the singleton with its table.
+Create the five job tables and named indexes, add both deferred columns/FKs, and insert exactly one singleton control row with `id='global'`, `global_pause=false`, and `dry_run=false`. Downgrade removes `runtime_heartbeats` with the other job tables and removes the singleton with its table.
 
 Add this Compose service without changing normal startup:
 
@@ -506,15 +590,48 @@ TEST_DATABASE_URL=postgresql+asyncpg://newscraft:newscraft@127.0.0.1:55432/newsc
   PYTHONPATH=. .venv/bin/python -m pytest tests/postgres/test_job_repository.py -q
 ```
 
-- [ ] **Step 2: Write failing idempotency and SKIP LOCKED tests**
+- [ ] **Step 2: Write failing idempotency, capability-filter, and SKIP LOCKED tests**
 
-Create two tests that call the locked `enqueue_job` signature. The first enqueues the same key twice and asserts `created` is `True` then `False` and both results share one job ID. The second enqueues two jobs, claims one in session A without committing, claims in session B, and asserts the IDs differ; compile the claim statement with the PostgreSQL dialect and assert `FOR UPDATE SKIP LOCKED` appears.
+Create tests that call the locked signatures. The first enqueues the same key twice and asserts `created` is `True` then `False` and both results share one job ID. The second enqueues two jobs, claims one in session A without committing, claims in session B, and asserts the IDs differ; compile the claim statement with the PostgreSQL dialect and assert `FOR UPDATE SKIP LOCKED` appears.
+
+Add this capability case:
+
+```python
+async def test_claim_filters_job_type_before_lock_or_state_change(job_repository):
+    source = await job_repository.enqueue_job(
+        job_type="telegram.route.poll",
+        payload={},
+        idempotency_key="source-job",
+        origin=JobOrigin.AUTOMATION,
+    )
+    publish = await job_repository.enqueue_job(
+        job_type="telegram.publish",
+        payload={},
+        idempotency_key="publish-job",
+        origin=JobOrigin.AUTOMATION,
+    )
+
+    claimed = await job_repository.claim_next_job(
+        worker_id="publisher-1",
+        lease_seconds=120,
+        allowed_job_types=("telegram.destination.check", "telegram.publish"),
+    )
+
+    assert claimed.id == publish.job.id
+    untouched = await job_repository.get_job(source.job.id)
+    assert untouched.status == JobStatus.QUEUED
+    assert untouched.lease_owner is None
+    assert untouched.attempt_count == 0
+```
+
+Also assert `allowed_job_types=()` returns `None` and mutates no row, while `None` keeps the Release 1 claim-any behavior.
 
 - [ ] **Step 3: Write failing transition, lease, pause, and attention tests**
 
 Add focused cases proving:
 
 - claim order is priority descending, then `scheduled_for`, then `created_at`;
+- capability filtering is applied before claim ordering and row locking;
 - a future job is not claimed;
 - global pause holds a pause-sensitive job but still allows a manual non-sensitive job;
 - claim changes `queued -> running`, increments `attempt_count`, and fills lease/heartbeat/start fields;
@@ -552,7 +669,7 @@ def test_redact_event_data_masks_nested_secret_like_keys_without_mutating_input(
 
 - [ ] **Step 5: Implement repository transitions and sanitized event creation**
 
-Use `sqlalchemy.dialects.postgresql.insert(...).on_conflict_do_nothing(index_elements=["idempotency_key"]).returning(WorkflowJob.id)` for enqueue. Use one transaction for every state transition and its event. `claim_next_job` must read the singleton pause state in the claim query and call `.with_for_update(skip_locked=True)`. Never commit inside the repository; flush and let API/worker boundaries commit.
+Use `sqlalchemy.dialects.postgresql.insert(...).on_conflict_do_nothing(index_elements=["idempotency_key"]).returning(WorkflowJob.id)` for enqueue. Use one transaction for every state transition and its event. `claim_next_job` must return immediately for an empty tuple; otherwise it reads the singleton pause state, adds the `job_type IN allowed_job_types` predicate when the value is not `None`, and calls `.with_for_update(skip_locked=True)` in that same claim query. Never commit inside the repository; flush and let API/worker boundaries commit. Do not implement claim-then-reject or claim-then-requeue capability handling.
 
 Use the exact event names `job.enqueued`, `job.claimed`, `job.heartbeat`, `job.succeeded`, `job.retry_scheduled`, `job.failed`, `job.needs_review`, `job.retried`, `job.cancelled`, and `job.lease_expired`. Persist only `redact_event_data(event_data)`.
 
@@ -583,13 +700,15 @@ Expected: concurrency, transition, pause, recovery, and redaction tests pass.
 - Create: `backend/app/generation/providers/base.py`
 - Create: `backend/app/generation/providers/fake.py`
 - Create: `backend/app/generation/providers/registry.py`
+- Create: `backend/app/core/secrets.py`
 - Create: `backend/app/jobs/registry.py`
 - Create: `backend/tests/test_generation_provider_contract.py`
+- Create: `backend/tests/test_secret_resolver.py`
 - Create: `backend/tests/test_job_handler_registry.py`
 
 **Interfaces:**
 - Consumes: locked provider and handler types.
-- Produces: a deterministic fake provider, provider lookup, duplicate-safe handler registration, and stable extension points for Releases 2–4.
+- Produces: a deterministic fake provider, provider lookup, safe environment secret-reference resolution, duplicate-safe handler registration, and stable extension points for Releases 2–5.
 
 - [ ] **Step 1: Write failing provider contract tests**
 
@@ -623,23 +742,50 @@ Implement the locked dataclasses and protocol exactly. `DeterministicFakeProvide
 
 - [ ] **Step 3: Write failing job-handler registry tests**
 
-Assert exact registration and lookup, duplicate rejection, and unknown-type rejection. Assert `build_default_registry()` contains only `ingest.collect` in Release 1.
+Assert exact registration and lookup, duplicate rejection, and unknown-type rejection. Assert `build_default_registry()` contains only `ingest.collect` in Release 1 and `registry.job_types() == ("ingest.collect",)`.
 
 - [ ] **Step 4: Implement handler registry contracts**
 
-Define the exact `JobContext`, `JobHandler`, and `JobHandlerRegistry` contracts from the locked section. Define `UnknownJobTypeError` and `DuplicateJobHandlerError` in `app/jobs/errors.py`. Defer the body of `build_default_registry()` to import `handle_ingest_collect` locally, avoiding import cycles.
+Define the exact `JobContext`, `JobHandler`, and `JobHandlerRegistry` contracts from the locked section. Define `UnknownJobTypeError` and `DuplicateJobHandlerError` in `app/jobs/errors.py`. `job_types()` returns `tuple(sorted(self._handlers))`. Defer the body of `build_default_registry()` to import `handle_ingest_collect` locally, avoiding import cycles.
 
-- [ ] **Step 5: Verify and commit**
+- [ ] **Step 5: Write and implement the public secret resolver contract**
+
+Create `backend/tests/test_secret_resolver.py`:
+
+```python
+def test_environment_secret_resolver_returns_only_explicit_reference(monkeypatch):
+    monkeypatch.setenv("OPENROUTER_EDITOR_KEY", "real-secret")
+    resolver = EnvironmentSecretResolver()
+
+    assert resolver.configured("OPENROUTER_EDITOR_KEY") is True
+    assert resolver.resolve("OPENROUTER_EDITOR_KEY") == "real-secret"
+
+
+def test_missing_and_invalid_references_never_leak_environment(monkeypatch):
+    monkeypatch.setenv("OPENROUTER_EDITOR_KEY", "real-secret")
+    resolver = EnvironmentSecretResolver()
+
+    assert resolver.configured("MISSING_KEY") is False
+    with pytest.raises(SecretNotConfiguredError, match="MISSING_KEY") as missing:
+        resolver.resolve("MISSING_KEY")
+    with pytest.raises(SecretReferenceError):
+        resolver.resolve("not-valid")
+    assert "real-secret" not in str(missing.value)
+```
+
+Implement the locked `SecretResolver` protocol and `EnvironmentSecretResolver` in `app/core/secrets.py`. Read exactly one validated key from the injected environment mapping; do not search, prefix-match, serialize, or log the environment. Strip only for the empty-value check and return the original non-empty value.
+
+- [ ] **Step 6: Verify and commit**
 
 Run:
 
 ```bash
 cd backend
-PYTHONPATH=. .venv/bin/python -m pytest tests/test_generation_provider_contract.py tests/test_job_handler_registry.py -q
-.venv/bin/ruff check app/generation/providers app/jobs/registry.py tests/test_generation_provider_contract.py tests/test_job_handler_registry.py
+PYTHONPATH=. .venv/bin/python -m pytest tests/test_generation_provider_contract.py tests/test_secret_resolver.py tests/test_job_handler_registry.py -q
+.venv/bin/ruff check app/generation/providers app/core/secrets.py app/jobs/registry.py tests/test_generation_provider_contract.py tests/test_secret_resolver.py tests/test_job_handler_registry.py
 cd ..
-git add backend/app/generation/providers backend/app/jobs/registry.py backend/app/jobs/errors.py \
-  backend/tests/test_generation_provider_contract.py backend/tests/test_job_handler_registry.py
+git add backend/app/generation/providers backend/app/core/secrets.py backend/app/jobs/registry.py backend/app/jobs/errors.py \
+  backend/tests/test_generation_provider_contract.py backend/tests/test_secret_resolver.py backend/tests/test_job_handler_registry.py
 git commit -m "feat: define deterministic generation provider contracts"
 ```
 
@@ -652,16 +798,21 @@ git commit -m "feat: define deterministic generation provider contracts"
 - Create: `backend/app/jobs/control.py`
 - Create: `backend/app/jobs/scheduler.py`
 - Create: `backend/app/jobs/handlers.py`
+- Create: `backend/app/jobs/runtime.py`
 - Create: `backend/app/jobs/worker.py`
+- Create: `backend/app/ingestion/workflow.py`
+- Modify: `backend/app/ingestion/service.py`
 - Modify: `backend/app/jobs/registry.py`
 - Replace: `backend/app/worker.py`
 - Create: `backend/tests/test_automation_control.py`
 - Create: `backend/tests/test_scheduler.py`
+- Create: `backend/tests/test_runtime_heartbeat.py`
 - Create: `backend/tests/test_job_worker.py`
+- Create: `backend/tests/test_ingestion_job_transactions.py`
 
 **Interfaces:**
 - Consumes: `JobRepository`, `IngestionService.run_once(platforms, source_ids, trigger)`, provider/handler registries, source intervals, and global control.
-- Produces: `AutomationControlService`, `SchedulerService.tick()`, registered `ingest.collect`, `WorkerRunner.run_once()`, and long-running scheduler/worker entry points.
+- Produces: `AutomationControlService`, `RuntimeHeartbeatService.record()`, `SchedulerService.tick()`, registered `ingest.collect`, `WorkerRunner.run_once(allowed_job_types=None)`, and long-running scheduler/worker entry points.
 
 - [ ] **Step 1: Write failing control tests**
 
@@ -695,29 +846,119 @@ worker_heartbeat_seconds: int = Field(default=30, ge=5)
 
 Parse `daily_collection_time` once as `%H:%M`; validate the timezone through `ZoneInfo`. `SchedulerService.tick(now)` first requeues expired leases, then reconciles source schedules, then returns without materialization when paused, otherwise locks due schedules with `SKIP LOCKED`, enqueues, and advances them. The scheduler module's `main()` loops until SIGINT/SIGTERM and logs counts without payload bodies.
 
-- [ ] **Step 4: Write failing worker and ingestion-handler tests**
+- [ ] **Step 4: Write failing truthful multi-process heartbeat tests**
 
-Prove `handle_ingest_collect()` passes only `platforms`, `source_ids`, and trigger `workflow_job` to `IngestionService.run_once`. Prove it raises `RetryableJobError(code="ingest_partial")` when the returned stats contain failures, and returns stats on success.
+Create `backend/tests/test_runtime_heartbeat.py`:
 
-For `WorkerRunner.run_once()` assert: no job returns `False`; one job returns `True`; claim is committed before handler execution; heartbeat uses an independent session; success calls `finish_job`; known `RetryableJobError`, `NeedsReviewJobError`, and `PermanentJobError` map to exact error classes; an unknown handler becomes permanent `unknown_job_type`; an unexpected exception becomes retryable `unhandled_exception`; cancellation of the process stops after the active handler boundary.
+```python
+async def test_runtime_heartbeats_preserve_each_component_and_supplied_observation_time(db_session):
+    service = RuntimeHeartbeatService(db_session)
+    source_time = datetime(2026, 7, 11, 8, 0, tzinfo=UTC)
+    publish_time = datetime(2026, 7, 11, 8, 0, 5, tzinfo=UTC)
 
-- [ ] **Step 5: Implement typed handler failures and worker lifecycle**
+    await service.record(
+        component_id="worker-source-1",
+        component_type="worker",
+        capabilities=("ingestion", "source", "generation"),
+        observed_at=source_time,
+        metadata={"pid": 101},
+    )
+    await service.record(
+        component_id="worker-publish-1",
+        component_type="worker",
+        capabilities=("publishing",),
+        observed_at=publish_time,
+        metadata={"pid": 202},
+    )
 
-Add exception classes with exact `code` and sanitized `message` properties. Build a default provider registry containing `DeterministicFakeProvider`; build the default handler registry containing only `ingest.collect`. Replace `app/worker.py` with a compatibility entry point that calls `app.jobs.worker.main`, so old local commands become long-running rather than one-shot.
+    rows = await service.list_recent()
+    assert {row.component_id for row in rows} == {"worker-source-1", "worker-publish-1"}
+    assert next(row for row in rows if row.component_id == "worker-source-1").observed_at == source_time
+
+
+async def test_repeated_component_heartbeat_updates_in_place(db_session):
+    service = RuntimeHeartbeatService(db_session)
+    await service.record("scheduler-1", "scheduler", ("scheduling",), FIRST, {})
+    await service.record("scheduler-1", "scheduler", ("scheduling",), SECOND, {"tick": 2})
+
+    rows = await service.list_recent()
+    assert len(rows) == 1
+    assert rows[0].observed_at == SECOND
+    assert rows[0].runtime_metadata == {"tick": 2}
+```
+
+Implement `RuntimeHeartbeatService.record()` as a PostgreSQL upsert on `component_id`; it stores the caller-supplied timezone-aware `observed_at`, sorted unique capabilities, and recursively redacted metadata. `list_recent()` orders by `observed_at DESC`. The worker records its heartbeat at startup and once per loop before claiming; the scheduler records at startup and once per tick. Component IDs come from optional `NEWSCRAFT_COMPONENT_ID`; otherwise generate `<component_type>:<hostname>:<pid>` once at process startup. Never collapse multiple worker rows into a singleton `worker` record.
+
+- [ ] **Step 5: Write failing worker and ingestion-handler tests**
+
+Prove `handle_ingest_collect()` passes only `platforms`, `source_ids`, and trigger `workflow_job` to the ingestion workflow. Prove it raises `RetryableJobError(code="ingest_partial")` when the returned stats contain failures, and returns stats on success.
+
+Create `backend/tests/test_ingestion_job_transactions.py` with an instrumented async session and fetcher:
+
+```python
+async def test_ingestion_handler_has_no_database_transaction_during_source_network_fetch():
+    session = TransactionTrackingSession(active=False)
+    fetcher = RecordingSourceFetcher(on_fetch=lambda: assert_no_transaction(session))
+    workflow = IngestionWorkflow(fetcher=fetcher)
+
+    result = await workflow.run(
+        session=session,
+        platforms=["rss"],
+        source_ids=None,
+        trigger="workflow_job",
+    )
+
+    assert result["failed"] == 0
+    assert fetcher.calls == ["source-1"]
+    assert session.events == [
+        "begin:prepare", "commit:prepare",
+        "begin:persist:source-1", "commit:persist:source-1",
+        "begin:finish", "commit:finish",
+    ]
+```
+
+Add failure coverage proving a fetch exception occurs with no transaction, then a separate short transaction records source/run failure. A worker cancellation between fetch and persistence leaves the run recoverable and no half-written source payload.
+
+For `WorkerRunner.run_once()` assert: no job returns `False`; one job returns `True`; `allowed_job_types` is passed unchanged into `claim_next_job`; a worker restricted to `("ingest.collect",)` never claims a queued different type; claim is committed before handler execution; job lease heartbeat uses an independent session; runtime heartbeat writes the fake clock's real `observed_at`; success calls `finish_job`; known `RetryableJobError`, `NeedsReviewJobError`, and `PermanentJobError` map to exact error classes; an unknown handler that was explicitly allowed becomes permanent `unknown_job_type`; an unexpected exception becomes retryable `unhandled_exception`; cancellation of the process stops after the active handler boundary.
+
+- [ ] **Step 6: Implement typed handler failures and worker lifecycle**
+
+Add exception classes with exact `code` and sanitized `message` properties. Build a default provider registry containing `DeterministicFakeProvider`; build the default handler registry containing only `ingest.collect`. `WorkerRunner` accepts `allowed_job_types: tuple[str, ...] | None = None` and passes it into the atomic repository claim; it never claims and rejects an unsupported job. The runtime heartbeat capabilities are semantic process capabilities, while `allowed_job_types` always comes from `handler_registry.job_types()`. Replace `app/worker.py` with a compatibility entry point that calls `app.jobs.worker.main`, so old local commands become long-running rather than one-shot.
+
+Create `app/ingestion/workflow.py` with immutable `PreparedSource` and `FetchedSourceBatch` DTOs and these boundaries:
+
+```python
+class IngestionWorkflow:
+    async def prepare_run(
+        self, session: AsyncSession, *, platforms: list[str] | None, source_ids: list[str] | None, trigger: str
+    ) -> PreparedIngestionRun: ...
+
+    async def fetch_source(self, source: PreparedSource) -> FetchedSourceBatch: ...
+
+    async def persist_source(
+        self, session: AsyncSession, *, run_id: UUID, batch: FetchedSourceBatch
+    ) -> SourcePersistResult: ...
+
+    async def finish_run(self, session: AsyncSession, *, run_id: UUID, stats: dict[str, Any]) -> None: ...
+```
+
+`prepare_run()` snapshots every network-relevant source field into DTOs and returns before its transaction commits. `fetch_source()` accepts no session/repository/ORM object and performs HTTP/parser/media discovery only. The orchestration `run()` commits preparation, asserts `not session.in_transaction()` before every `fetch_source()`, opens one short transaction to persist each successful batch or classified failure, and opens one final short transaction to finish the run. Refactor current `IngestionService` parsing/fetch code behind this boundary without changing ingestion output semantics. `handle_ingest_collect()` calls this workflow; it must not wrap `run()` in `session.begin()`.
 
 Use a background heartbeat task while the handler runs. The heartbeat task opens its own `async_session`, commits each successful heartbeat, and stops before finish/fail is recorded. Worker logs may include job ID, job type, state, attempt, and error code; never log payload or result dictionaries.
 
-- [ ] **Step 6: Verify and commit**
+- [ ] **Step 7: Verify and commit**
 
 Run:
 
 ```bash
 cd backend
-PYTHONPATH=. .venv/bin/python -m pytest tests/test_automation_control.py tests/test_scheduler.py tests/test_job_worker.py tests/test_ingestion_service.py -q
+PYTHONPATH=. .venv/bin/python -m pytest tests/test_automation_control.py tests/test_scheduler.py tests/test_runtime_heartbeat.py tests/test_job_worker.py tests/test_ingestion_job_transactions.py tests/test_ingestion_service.py -q
 .venv/bin/ruff check app/core/config.py app/jobs app/worker.py tests/test_automation_control.py tests/test_scheduler.py tests/test_job_worker.py
 cd ..
 git add backend/app/core/config.py backend/app/jobs backend/app/worker.py \
-  backend/tests/test_automation_control.py backend/tests/test_scheduler.py backend/tests/test_job_worker.py
+  backend/app/ingestion/workflow.py backend/app/ingestion/service.py \
+  backend/tests/test_automation_control.py backend/tests/test_scheduler.py backend/tests/test_runtime_heartbeat.py \
+  backend/tests/test_job_worker.py backend/tests/test_ingestion_job_transactions.py
 git commit -m "feat: run scheduled work with pause-safe workers"
 ```
 
@@ -1063,7 +1304,7 @@ git commit -m "feat: add truthful Today and job attention views"
 
 **Interfaces:**
 - Consumes: durable scheduler, worker, API, Newsroom UI, and test PostgreSQL.
-- Produces: four normal runtime processes, crash-recovery proof, documented operations, and full Release 1 verification evidence.
+- Produces: five normal runtime processes, crash-recovery proof, documented operations, and full Release 1 verification evidence.
 
 - [ ] **Step 1: Write failing Compose runtime tests**
 
@@ -1162,6 +1403,7 @@ Release 1 is complete only when all statements below are demonstrated by the com
 - Global pause prevents schedule materialization and pause-sensitive claims while preserving lease recovery and manual work.
 - The scheduler computes `06:00 Asia/Tehran` daily work and configurable per-source intervals without relying on process-local memory.
 - Fake generation is deterministic and later providers/handlers have one stable application-owned interface.
+- Platform revision numbers are monotonic per variant; reviewable revisions carry validated evidence and hash canonical `{content, evidence_map}` together.
 - Job failures are classified, events are append-only and redacted, and failed/needs-review work is recoverable from the API.
 - Today is the default route; live job counts, pause state, running work, attention, and outcomes are visible without invented data.
 - Desktop and mobile navigation reach every working Release 1 screen, with no dead future-feature links.
