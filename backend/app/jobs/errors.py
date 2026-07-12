@@ -11,3 +11,11 @@ class InvalidJobTransition(RuntimeError):
         self.action = action
         self.status = status
         super().__init__(f"Job {job_id} cannot {action} from status {status}")
+
+
+class UnknownJobTypeError(LookupError):
+    """Raised when no handler is registered for a workflow job type."""
+
+
+class DuplicateJobHandlerError(ValueError):
+    """Raised when a workflow job type already has a registered handler."""
