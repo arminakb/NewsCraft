@@ -10,8 +10,10 @@ import type {
   SourceSummary,
 } from "./types"
 import { formatBytes, titleCase } from "./format"
+import { enqueueIngest } from "@/features/jobs/api"
+import { apiRequest } from "./http"
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? "/api/backend"
+export { API_BASE_URL, ApiError } from "./http"
 
 type BackendSource = {
   id: string
@@ -123,29 +125,18 @@ type ContentItemFilters = {
   limit?: number
 }
 
-export class ApiError extends Error {
-  constructor(
-    message: string,
-    public readonly status: number,
-    public readonly body?: string
-  ) {
-    super(message)
-    this.name = "ApiError"
-  }
-}
-
 export async function getSources(): Promise<SourceSummary[]> {
-  const rows = await request<BackendSource[]>("/sources")
+  const rows = await apiRequest<BackendSource[]>("/sources")
   return rows.map(mapSource)
 }
 
 export async function getSource(id: string): Promise<SourceSummary> {
-  const row = await request<BackendSource>(`/sources/${id}`)
+  const row = await apiRequest<BackendSource>(`/sources/${id}`)
   return mapSource(row)
 }
 
 export async function getDashboardSummary(): Promise<DashboardCounts> {
-  const row = await request<BackendDashboardSummary>("/dashboard/summary")
+  const row = await apiRequest<BackendDashboardSummary>("/dashboard/summary")
   return {
     rssFeeds: row.rss_feeds,
     telegramChannels: row.telegram_channels,
@@ -156,11 +147,11 @@ export async function getDashboardSummary(): Promise<DashboardCounts> {
 }
 
 export async function seedSources(): Promise<{ upserted: number }> {
-  return request("/sources/seed", { method: "POST" })
+  return apiRequest("/sources/seed", { method: "POST" })
 }
 
 export async function getDiagnostics(): Promise<DiagnosticsSnapshot> {
-  const row = await request<BackendDiagnostics>("/diagnostics")
+  const row = await apiRequest<BackendDiagnostics>("/diagnostics")
   return {
     status: row.status,
     checks: row.checks,
@@ -169,16 +160,16 @@ export async function getDiagnostics(): Promise<DiagnosticsSnapshot> {
   }
 }
 
-export async function runIngest(input: { platforms?: string[]; source_ids?: string[] }) {
-  return request("/ingest/run", {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify(input),
+export async function runIngest(input: { platforms?: string[]; source_ids?: string[] }): Promise<unknown> {
+  return enqueueIngest({
+    requestId: crypto.randomUUID(),
+    platforms: input.platforms,
+    sourceIds: input.source_ids,
   })
 }
 
 export async function approveContentItem(id: string, input: { notes?: string | null }) {
-  return request(`/content-items/${id}/approve`, {
+  return apiRequest(`/content-items/${id}/approve`, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify(input),
@@ -196,22 +187,22 @@ export async function getContentItems(filters: ContentItemFilters = {}): Promise
   if (filters.qualityStatus) params.set("quality_status", filters.qualityStatus)
   if (filters.sort) params.set("sort", filters.sort)
 
-  const rows = await request<BackendContentItem[]>(`/content-items?${params.toString()}`)
+  const rows = await apiRequest<BackendContentItem[]>(`/content-items?${params.toString()}`)
   return rows.map(mapContentItem)
 }
 
 export async function getContentItem(id: string): Promise<ContentQueueItem> {
-  const row = await request<BackendContentItem>(`/content-items/${id}`)
+  const row = await apiRequest<BackendContentItem>(`/content-items/${id}`)
   return mapContentItem(row)
 }
 
 export async function getIngestRuns(): Promise<IngestionRunSummary[]> {
-  const rows = await request<BackendRun[]>("/ingest/runs")
+  const rows = await apiRequest<BackendRun[]>("/ingest/runs")
   return rows.map(mapRun)
 }
 
 export async function getMediaAssets(): Promise<MediaTile[]> {
-  const rows = await request<BackendMediaAsset[]>("/media-assets")
+  const rows = await apiRequest<BackendMediaAsset[]>("/media-assets")
   return rows.slice(0, 12).map(mapMedia)
 }
 
@@ -231,14 +222,6 @@ export async function getDashboardSnapshot(): Promise<DashboardSnapshot> {
     queue,
     media,
   }
-}
-
-async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(`${API_BASE_URL}${path}`, init)
-  if (!response.ok) {
-    throw new ApiError(response.statusText || "Request failed", response.status, await response.text())
-  }
-  return response.json() as Promise<T>
 }
 
 function mapSource(row: BackendSource): SourceSummary {
@@ -432,5 +415,3 @@ function formatRelativeAge(value: string) {
   }
   return `${Math.round(diffMinutes / 60)}h`
 }
-
-export { API_BASE_URL }

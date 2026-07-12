@@ -15,6 +15,7 @@ import {
 
 describe("api-client", () => {
   afterEach(() => {
+    vi.restoreAllMocks()
     vi.unstubAllGlobals()
   })
 
@@ -163,8 +164,11 @@ describe("api-client", () => {
     )
   })
 
-  it("sends run ingest payload", async () => {
-    const fetchSpy = stubFetch({ status: "succeeded", items: 12 })
+  it("uses the typed ingest client with a generated request UUID", async () => {
+    vi.stubGlobal("crypto", {
+      randomUUID: vi.fn(() => "44444444-4444-4444-8444-444444444444"),
+    })
+    const fetchSpy = stubFetch({ job_id: "job-1", status: "queued", deduplicated: false })
 
     await runIngest({ platforms: ["rss"], source_ids: ["source-1"] })
 
@@ -172,7 +176,11 @@ describe("api-client", () => {
       "/api/backend/ingest/run",
       expect.objectContaining({
         method: "POST",
-        body: JSON.stringify({ platforms: ["rss"], source_ids: ["source-1"] }),
+        body: JSON.stringify({
+          request_id: "44444444-4444-4444-8444-444444444444",
+          platforms: ["rss"],
+          source_ids: ["source-1"],
+        }),
       })
     )
   })
