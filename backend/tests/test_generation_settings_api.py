@@ -1,0 +1,476 @@
+from __future__ import annotations
+
+from decimal import Decimal
+from types import SimpleNamespace
+from uuid import uuid4
+
+import httpx
+import pytest
+from fastapi import HTTPException
+from pydantic import ValidationError
+from sqlalchemy.exc import IntegrityError
+
+from app.api.generation_schemas import (
+    AIProviderProfileCreate,
+    AIProviderProfilePatch,
+    BrandProfileCreate,
+    BrandProfilePatch,
+    PromptTemplateCreate,
+    PromptTemplateVersionCreate,
+)
+from app.api.generation_settings import (
+    activate_prompt_version,
+    create_brand_profile,
+    create_prompt_template,
+    create_prompt_version,
+    create_provider_profile,
+    patch_provider_profile,
+)
+from app.db.session import get_session
+from app.generation.models import AIProviderProfile, BrandProfile, PromptTemplate
+from app.generation.provider_settings import OpenRouterProviderSettings
+from app.main import app
+
+
+def _research_budget(max_model_calls: int) -> dict:
+    return {
+        "max_model_calls": max_model_calls,
+        "max_input_tokens": 60_000,
+        "max_output_tokens": 12_000,
+        "max_cost_usd": "2.00",
+        "max_queries": 4,
+        "max_results_per_query": 5,
+        "max_pages": 8,
+        "max_elapsed_seconds": 120,
+        "max_total_chars": 120_000,
+    }
+
+
+def test_openrouter_settings_round_trip_pricing_and_distinct_research_budgets():
+    settings = OpenRouterProviderSettings.model_validate(
+        {
+            "base_url": "https://openrouter.example/api/v1",
+            "pricing": {
+                "input_usd_per_million": "1.25",
+                "output_usd_per_million": "5.00",
+            },
+            "research_budgets": {
+                "standard": _research_budget(3),
+                "deep": _research_budget(6),
+            },
+        }
+    )
+
+    assert settings.pricing.input_usd_per_million == Decimal("1.25")
+    assert settings.pricing.output_usd_per_million == Decimal("5.00")
+    assert settings.research_budgets.standard.max_model_calls == 3
+    assert settings.research_budgets.deep.max_model_calls == 6
+
+
+def test_provider_contract_rejects_fake_settings_and_requires_openrouter_model_and_reference():
+    with pytest.raises(ValidationError, match="fake provider"):
+        AIProviderProfileCreate.model_validate(
+            {"name": "Fake", "provider_type": "fake", "settings": {}}
+        )
+    with pytest.raises(ValidationError, match="openrouter requires"):
+        AIProviderProfileCreate.model_validate(
+            {"name": "Live", "provider_type": "openrouter", "secret_ref": "OPENROUTER_KEY"}
+        )
+
+
+def test_provider_contract_forbids_unknown_settings_keys():
+    with pytest.raises(ValidationError):
+        OpenRouterProviderSettings.model_validate({"api_key": "must-never-be-stored"})
+
+
+@pytest.mark.parametrize(
+    "field",
+    [
+        "name",
+        "output_language",
+        "tone",
+        "editorial_rules",
+        "attribution_rules",
+        "default_hashtags",
+        "platform_preferences",
+        "is_default",
+    ],
+)
+async def test_brand_patch_rejects_explicit_null_with_422_and_no_mutation(field):
+    session = GenerationSession()
+    brand = BrandProfile(
+        id=uuid4(),
+        name="Newsroom",
+        output_language="fa",
+        tone="neutral",
+        editorial_rules=["verify"],
+        attribution_rules={"mode": "preserve"},
+        default_hashtags=["news"],
+        platform_preferences={"telegram": True},
+        is_default=False,
+    )
+    session.values.append(brand)
+    before = {name: getattr(brand, name) for name in BrandProfilePatch.model_fields}
+
+    async def override_session():
+        yield session
+
+    app.dependency_overrides[get_session] = override_session
+    try:
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            response = await client.patch(f"/brand-profiles/{brand.id}", json={field: None})
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 422
+    assert {name: getattr(brand, name) for name in BrandProfilePatch.model_fields} == before
+
+
+async def test_provider_patch_recursively_preserves_pricing_and_both_research_budgets():
+    session = GenerationSession()
+    secrets = SimpleNamespace(configured=lambda reference: reference == "OPENROUTER_EDITOR_KEY")
+    created = await create_provider_profile(
+        AIProviderProfileCreate.model_validate(
+            {
+                "name": "Editor",
+                "provider_type": "openrouter",
+                "default_model": "openai/gpt-5-mini",
+                "secret_ref": "OPENROUTER_EDITOR_KEY",
+                "settings": {
+                    "pricing": {
+                        "input_usd_per_million": "1.25",
+                        "output_usd_per_million": "5.00",
+                    },
+                    "research_budgets": {
+                        "standard": _research_budget(3),
+                        "deep": _research_budget(6),
+                    },
+                },
+            }
+        ),
+        session,
+        secrets,
+    )
+
+    patched = await patch_provider_profile(
+        created.id,
+        AIProviderProfilePatch.model_validate(
+            {"settings": {"pricing": {"input_usd_per_million": "2.50"}}}
+        ),
+        session,
+        secrets,
+    )
+
+    assert patched.settings["pricing"] == {
+        "input_usd_per_million": "2.50",
+        "output_usd_per_million": "5.00",
+    }
+    assert patched.settings["research_budgets"]["standard"]["max_model_calls"] == 3
+    assert patched.settings["research_budgets"]["deep"]["max_model_calls"] == 6
+    assert patched.configured is True
+    assert not hasattr(patched, "secret_ref")
+
+
+async def test_provider_patch_distinguishes_omitted_settings_from_null_and_maps_validation_to_422():
+    session = GenerationSession()
+    secrets = SimpleNamespace(configured=lambda reference: True)
+    created = await create_provider_profile(
+        AIProviderProfileCreate.model_validate(
+            {
+                "name": "Editor",
+                "provider_type": "openrouter",
+                "default_model": "model-one",
+                "secret_ref": "OPENROUTER_EDITOR_KEY",
+                "settings": {"timeout_seconds": 45},
+            }
+        ),
+        session,
+        secrets,
+    )
+
+    renamed = await patch_provider_profile(
+        created.id,
+        AIProviderProfilePatch.model_validate({"name": "Renamed editor"}),
+        session,
+        secrets,
+    )
+    assert renamed.settings["timeout_seconds"] == 45
+
+    cleared = await patch_provider_profile(
+        created.id,
+        AIProviderProfilePatch.model_validate({"settings": None}),
+        session,
+        secrets,
+    )
+    assert cleared.settings == {}
+
+    with pytest.raises(HTTPException) as error:
+        await patch_provider_profile(
+            created.id,
+            AIProviderProfilePatch.model_validate({"default_model": None}),
+            session,
+            secrets,
+        )
+    assert error.value.status_code == 422
+    assert "OPENROUTER_EDITOR_KEY" not in str(error.value.detail)
+    assert session.one(AIProviderProfile).default_model == "model-one"
+
+
+async def test_prompt_edits_create_immutable_versions_and_activation_selects_exactly_one():
+    session = GenerationSession()
+    template = await create_prompt_template(
+        PromptTemplateCreate(
+            purpose_key="telegram_rewrite",
+            name="Telegram rewrite",
+            description=None,
+        ),
+        session,
+    )
+    user_template = " ".join(
+        f"{{{name}}}"
+        for name in (
+            "source_text",
+            "source_url",
+            "source_channel",
+            "language",
+            "direction",
+            "attribution_policy",
+            "custom_footer",
+        )
+    )
+    first = await create_prompt_version(
+        template.id,
+        PromptTemplateVersionCreate(system_template="System one", user_template=user_template),
+        session,
+    )
+    second = await create_prompt_version(
+        template.id,
+        PromptTemplateVersionCreate(system_template="System two", user_template=user_template),
+        session,
+    )
+
+    await activate_prompt_version(first.id, session)
+
+    assert first.version == 1
+    assert first.system_template == "System one"
+    assert second.version == 2
+    assert first.is_active is True
+    assert second.is_active is False
+    assert first.output_schema_version == "telegram_rewrite.v1"
+    assert session.prompt_lock_count == 2
+
+
+async def test_conflicting_duplicate_brand_template_and_provider_creates_return_409():
+    session = GenerationSession()
+    secrets = SimpleNamespace(configured=lambda reference: True)
+    await create_brand_profile(
+        BrandProfileCreate(
+            name="Newsroom",
+            output_language="fa",
+            tone="neutral",
+        ),
+        session,
+    )
+    with pytest.raises(HTTPException) as brand_conflict:
+        await create_brand_profile(
+            BrandProfileCreate(
+                name="Newsroom",
+                output_language="fa",
+                tone="urgent",
+            ),
+            session,
+        )
+    assert brand_conflict.value.status_code == 409
+
+    await create_prompt_template(
+        PromptTemplateCreate(purpose_key="telegram_rewrite", name="Rewrite", description=None),
+        session,
+    )
+    with pytest.raises(HTTPException) as prompt_conflict:
+        await create_prompt_template(
+            PromptTemplateCreate(
+                purpose_key="telegram_rewrite", name="Different name", description=None
+            ),
+            session,
+        )
+    assert prompt_conflict.value.status_code == 409
+
+    await create_provider_profile(
+        AIProviderProfileCreate(
+            name="Fake",
+            provider_type="fake",
+            default_model="fake-v1",
+        ),
+        session,
+        secrets,
+    )
+    with pytest.raises(HTTPException) as provider_conflict:
+        await create_provider_profile(
+            AIProviderProfileCreate(
+                name="Fake",
+                provider_type="fake",
+                default_model="fake-v2",
+            ),
+            session,
+            secrets,
+        )
+    assert provider_conflict.value.status_code == 409
+    assert session.nested_count == 3
+
+
+async def test_generation_create_savepoints_recover_matching_winners_and_reject_conflicts():
+    secrets = SimpleNamespace(configured=lambda reference: True)
+    brand = BrandProfile(
+        id=uuid4(),
+        name="Newsroom",
+        output_language="fa",
+        tone="neutral",
+        editorial_rules=[],
+        attribution_rules={},
+        default_hashtags=[],
+        platform_preferences={},
+        is_default=False,
+    )
+    brand_body = BrandProfileCreate(name="Newsroom", output_language="fa", tone="neutral")
+    brand_match = GenerationSavepointRaceSession(brand)
+    assert await create_brand_profile(brand_body, brand_match) is brand
+    brand_conflict = GenerationSavepointRaceSession(brand)
+    with pytest.raises(HTTPException) as error:
+        await create_brand_profile(
+            BrandProfileCreate(name="Newsroom", output_language="fa", tone="urgent"),
+            brand_conflict,
+        )
+    assert error.value.status_code == 409
+
+    template = PromptTemplate(
+        id=uuid4(), purpose_key="telegram_rewrite", name="Rewrite", description=None
+    )
+    template_body = PromptTemplateCreate(
+        purpose_key="telegram_rewrite", name="Rewrite", description=None
+    )
+    template_match = GenerationSavepointRaceSession(template)
+    assert await create_prompt_template(template_body, template_match) is template
+    template_conflict = GenerationSavepointRaceSession(template)
+    with pytest.raises(HTTPException) as error:
+        await create_prompt_template(
+            PromptTemplateCreate(
+                purpose_key="telegram_rewrite", name="Different", description=None
+            ),
+            template_conflict,
+        )
+    assert error.value.status_code == 409
+
+    provider = AIProviderProfile(
+        id=uuid4(),
+        name="Fake",
+        provider_type="fake",
+        default_model="fake-v1",
+        secret_ref=None,
+        settings={},
+        enabled=True,
+    )
+    provider_body = AIProviderProfileCreate(
+        name="Fake", provider_type="fake", default_model="fake-v1"
+    )
+    provider_match = GenerationSavepointRaceSession(provider)
+    assert (await create_provider_profile(provider_body, provider_match, secrets)).id == provider.id
+    provider_conflict = GenerationSavepointRaceSession(provider)
+    with pytest.raises(HTTPException) as error:
+        await create_provider_profile(
+            AIProviderProfileCreate(
+                name="Fake", provider_type="fake", default_model="fake-v2"
+            ),
+            provider_conflict,
+            secrets,
+        )
+    assert error.value.status_code == 409
+
+    sessions = (
+        brand_match,
+        brand_conflict,
+        template_match,
+        template_conflict,
+        provider_match,
+        provider_conflict,
+    )
+    assert all(session.integrity_errors == 1 for session in sessions)
+
+
+class GenerationSession:
+    def __init__(self):
+        self.values = []
+        self.prompt_lock_count = 0
+        self.nested_count = 0
+
+    def add(self, value):
+        if getattr(value, "id", None) is None:
+            value.id = uuid4()
+        self.values.append(value)
+
+    async def flush(self):
+        return None
+
+    async def commit(self):
+        return None
+
+    async def get(self, model, identifier):
+        return next(
+            (value for value in self.values if isinstance(value, model) and value.id == identifier),
+            None,
+        )
+
+    async def scalar(self, statement):
+        entity = statement.column_descriptions[0].get("entity")
+        if entity is PromptTemplate and statement._for_update_arg is not None:
+            self.prompt_lock_count += 1
+        return next((value for value in self.values if isinstance(value, entity)), None)
+
+    async def scalars(self, statement):
+        entity = statement.column_descriptions[0].get("entity")
+        return [value for value in self.values if isinstance(value, entity)]
+
+    def begin_nested(self):
+        self.nested_count += 1
+        return AsyncNullContext()
+
+    def one(self, model):
+        return next(value for value in self.values if isinstance(value, model))
+
+
+class AsyncNullContext:
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, exc_type, exc, traceback):
+        return False
+
+
+class GenerationSavepointRaceSession:
+    def __init__(self, winner):
+        self.winner = winner
+        self.race_exposed = False
+        self.integrity_errors = 0
+
+    async def scalar(self, statement):
+        entity = statement.column_descriptions[0].get("entity")
+        if not self.race_exposed:
+            return None
+        return self.winner if isinstance(self.winner, entity) else None
+
+    def begin_nested(self):
+        return AsyncNullContext()
+
+    def add(self, value):
+        if getattr(value, "id", None) is None:
+            value.id = uuid4()
+
+    async def flush(self):
+        if not self.race_exposed:
+            self.race_exposed = True
+            self.integrity_errors += 1
+            raise IntegrityError("forced nested race", {}, RuntimeError("winner committed"))
+
+    async def commit(self):
+        return None

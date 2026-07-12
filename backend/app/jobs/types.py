@@ -21,3 +21,13 @@ class JobOrigin(StrEnum):
     SCHEDULER = "scheduler"
     AUTOMATION = "automation"
     RETRY = "retry"
+
+
+class JobType(StrEnum):
+    TELEGRAM_ROUTE_INITIALIZE = "telegram.route.initialize"
+    TELEGRAM_ROUTE_POLL = "telegram.route.poll"
+    TELEGRAM_ROUTE_BACKFILL = "telegram.route.backfill"
+    TELEGRAM_ROUTE_DRY_RUN = "telegram.route.dry_run"
+    TELEGRAM_ROUTE_PROCESS = "telegram.route.process"
+    TELEGRAM_DESTINATION_CHECK = "telegram.destination.check"
+    TELEGRAM_PUBLISH = "telegram.publish"
