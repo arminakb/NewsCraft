@@ -17,6 +17,7 @@ import {
 } from "@/features/automations/telegram-api"
 import { TelegramReviewWorkspace } from "@/features/review/telegram-review-workspace"
 import { getResearchRuns, getStory } from "@/lib/editorial-api"
+import { queryKeys } from "@/lib/query-keys"
 
 const push = vi.fn()
 
@@ -185,6 +186,22 @@ describe("TelegramReviewWorkspace", () => {
     expect(await screen.findByText(/Queued.*a1111111/i)).toBeInTheDocument()
     expect(await screen.findByText("Durable status: dispatching")).toBeInTheDocument()
     expect(getTelegramPublishJob).toHaveBeenCalledWith("a1111111-1111-4111-8111-111111111111")
+  })
+
+  it("refreshes the composed package caches after a Telegram review decision", async () => {
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    const invalidate = vi.spyOn(client, "invalidateQueries")
+    render(
+      <QueryClientProvider client={client}>
+        <NoticeProvider><TelegramReviewWorkspace revisionId={revision.id} contentPackId="pack-1" platformVariantId={revision.platformVariantId} /></NoticeProvider>
+      </QueryClientProvider>,
+    )
+    fireEvent.click(await screen.findByRole("button", { name: "Approve exact revision" }))
+
+    await waitFor(() => expect(approveTelegramDraft).toHaveBeenCalledOnce())
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: queryKeys.variantRevision(revision.id) })
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: queryKeys.variantRevisions(revision.platformVariantId) })
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: queryKeys.contentPack("pack-1") })
   })
 
   it.each([

@@ -1,4 +1,5 @@
 import { apiRequest } from "./http"
+import type { Platform } from "@/features/packages/types"
 import type { AIProviderOption, BrandOption, ContentPackDetail, ContentPackRequestSummary, ContentPackSummary, EditorialState, EvidenceDetail, JobAccepted, PromptVersionOption, ResearchDisposition, ResearchRunDetail, StoryDetail, StoryFilters, StoryPage, StorySummary, TelegramButton, VariantRevision } from "./editorial-types"
 
 type BackendSummary = { id: string; title: string; status: string; primary_language: string; evidence_count: number; latest_evidence_at: string | null; completeness: { complete: boolean; score: number; reasons: string[] }; evidence_set_hash: string; created_at: string; updated_at: string }
@@ -55,19 +56,29 @@ export async function getBrandOptions(): Promise<BrandOption[]> {
 }
 export async function getPromptVersionOptions(): Promise<PromptVersionOption[]> {
   const templates = await apiRequest<Array<{ id: string; purpose_key: string }>>("/prompt-templates")
-  const supported = templates.filter((item) => item.purpose_key === "canonical_story" || item.purpose_key === "telegram_pack")
+  const purposes: PromptVersionOption["purpose"][] = ["canonical_story", "telegram_pack", "instagram_pack", "x_pack", "blog_pack"]
+  const supported = templates.filter((item): item is { id: string; purpose_key: PromptVersionOption["purpose"] } => purposes.includes(item.purpose_key as PromptVersionOption["purpose"]))
   const versions = await Promise.all(supported.map(async (template) => ({
     purpose: template.purpose_key as PromptVersionOption["purpose"],
     rows: await apiRequest<Array<{ id: string; version: number; checksum_sha256: string; is_active: boolean }>>(`/prompt-templates/${template.id}/versions`),
   })))
   return versions.flatMap(({ purpose, rows }) => rows.map((row) => ({ id: row.id, purpose, version: row.version, checksumSha256: row.checksum_sha256, active: row.is_active })))
 }
-export async function requestContentPack(storyId: string, input: { brandProfileId: string; generationProviderProfileId: string; canonicalPromptTemplateVersionId: string; platformPromptTemplateVersionId: string; researchMode?: "off" | "manual" | "auto_if_incomplete"; researchProviderProfileId?: string | null; researchRunId?: string | null }): Promise<JobAccepted> {
-  const row = await jsonPost<{ job_id: string; status: string; deduplicated: boolean }>(`/stories/${storyId}/content-packs`, { brand_profile_id: input.brandProfileId, platform: "telegram", generation_provider_profile_id: input.generationProviderProfileId, canonical_prompt_template_version_id: input.canonicalPromptTemplateVersionId, platform_prompt_template_version_id: input.platformPromptTemplateVersionId, research_mode: input.researchMode ?? "off", research_provider_profile_id: input.researchProviderProfileId ?? null, research_run_id: input.researchRunId ?? null })
+type ContentPackRequestBase = { brandProfileId: string; generationProviderProfileId: string; researchMode?: "off" | "manual" | "auto_if_incomplete"; researchProviderProfileId?: string | null; researchRunId?: string | null }
+export type RequestContentPackInput = ContentPackRequestBase & (
+  | { platforms: Platform[]; canonicalPromptTemplateVersionId?: never; platformPromptTemplateVersionId?: never }
+  | { platforms?: never; canonicalPromptTemplateVersionId: string; platformPromptTemplateVersionId: string }
+)
+export async function requestContentPack(storyId: string, input: RequestContentPackInput): Promise<JobAccepted> {
+  const research = { research_mode: input.researchMode ?? "off", research_provider_profile_id: input.researchProviderProfileId ?? null, research_run_id: input.researchRunId ?? null }
+  const body = "platforms" in input && input.platforms
+    ? { brand_profile_id: input.brandProfileId, platforms: input.platforms, generation_provider_profile_id: input.generationProviderProfileId, ...research }
+    : { brand_profile_id: input.brandProfileId, platform: "telegram", generation_provider_profile_id: input.generationProviderProfileId, canonical_prompt_template_version_id: input.canonicalPromptTemplateVersionId, platform_prompt_template_version_id: input.platformPromptTemplateVersionId, ...research }
+  const row = await jsonPost<{ job_id: string; status: string; deduplicated: boolean }>(`/stories/${storyId}/content-packs`, body)
   return mapJob(row)
 }
 
-type BackendPack = { id: string; story_id: string; story_revision_id: string; brand_profile_id: string; status: string; created_at: string; updated_at: string; last_failure?: string | null; job_id?: string | null; variants: Array<{ id: string; platform: "telegram" }> }
+type BackendPack = { id: string; story_id: string; story_revision_id: string; brand_profile_id: string; status: string; created_at: string; updated_at: string; last_failure?: string | null; job_id?: string | null; variants: Array<{ id: string; platform: Platform }> }
 type BackendRevision = { id: string; platform_variant_id: string; content_pack_id: string; story_id: string; parent_revision_id: string | null; generation_attempt_id: string | null; revision_number: number; content: Record<string, unknown>; content_hash: string; evidence_map: Array<Record<string, unknown>>; validation_results: unknown; approval_state: VariantRevision["approvalState"]; approval_note: string | null; approved_at: string | null; created_by: string; origin: VariantRevision["origin"]; created_at: string; provider_profile: { id: string; name: string; provider_type: string } | null; resolved_model: string | null }
 
 export async function getContentPacks(): Promise<ContentPackSummary[]> { return (await apiRequest<BackendPack[]>("/content-packs")).map(mapPack) }

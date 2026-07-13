@@ -1,3 +1,5 @@
+import type { Platform } from "@/features/packages/types"
+
 export type ResearchMode = "off" | "manual" | "auto_if_incomplete"
 export type EditorialState = "inbox" | "shortlisted" | "rejected" | "drafted"
 
@@ -12,7 +14,7 @@ export type AIProviderOption = {
 }
 export type PromptVersionOption = {
   id: string
-  purpose: "canonical_story" | "telegram_pack"
+  purpose: "canonical_story" | "telegram_pack" | "instagram_pack" | "x_pack" | "blog_pack"
   version: number
   checksumSha256: string
   active: boolean
@@ -105,6 +107,6 @@ export type VariantRevision = {
   providerProfile: { id: string; name: string; providerType: string } | null
   resolvedModel: string | null
 }
-export type ContentPackSummary = { id: string; storyId: string; storyRevisionId: string; brandProfileId: string; status: string; createdAt: string; updatedAt: string; lastFailure: string | null; jobId: string | null; variants: Array<{ id: string; platform: "telegram" }> }
+export type ContentPackSummary = { id: string; storyId: string; storyRevisionId: string; brandProfileId: string; status: string; createdAt: string; updatedAt: string; lastFailure: string | null; jobId: string | null; variants: Array<{ id: string; platform: Platform }> }
 export type ContentPackDetail = ContentPackSummary & { variantRevisions: Record<string, VariantRevision[]> }
 export type ContentPackRequestSummary = { id: string; jobId: string | null; storyId: string; status: string; lastFailure: string | null; createdAt: string; updatedAt: string; pack: ContentPackSummary | null }

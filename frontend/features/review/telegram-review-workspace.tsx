@@ -24,7 +24,7 @@ import { getApiErrorMessage } from "@/lib/http"
 import { queryKeys } from "@/lib/query-keys"
 import { ReviewResearchOutcome } from "@/features/automations/research-outcome"
 
-export function TelegramReviewWorkspace({ revisionId }: { revisionId: string }) {
+export function TelegramReviewWorkspace({ revisionId, contentPackId, platformVariantId }: { revisionId: string; contentPackId?: string; platformVariantId?: string }) {
   const router = useRouter()
   const queryClient = useQueryClient()
   const { pushNotice } = useNotices()
@@ -71,8 +71,14 @@ export function TelegramReviewWorkspace({ revisionId }: { revisionId: string }) 
   })
 
   const invalidateDraft = async (id = revisionId) => {
-    await queryClient.invalidateQueries({ queryKey: queryKeys.telegramDraft(id) })
-    await queryClient.invalidateQueries({ queryKey: queryKeys.telegramDrafts() })
+    const variantId = platformVariantId ?? draft?.platformVariantId
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: queryKeys.telegramDraft(id) }),
+      queryClient.invalidateQueries({ queryKey: queryKeys.telegramDrafts() }),
+      queryClient.invalidateQueries({ queryKey: queryKeys.variantRevision(id) }),
+      ...(variantId ? [queryClient.invalidateQueries({ queryKey: queryKeys.variantRevisions(variantId) })] : []),
+      ...(contentPackId ? [queryClient.invalidateQueries({ queryKey: queryKeys.contentPack(contentPackId) })] : []),
+    ])
   }
   const editMutation = useMutation({
     mutationFn: () => editTelegramDraft(revisionId, {

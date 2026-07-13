@@ -2,6 +2,7 @@ import {
   bulkSetStoryEditorialState,
   createManualStory,
   getBrandOptions,
+  getContentPacks,
   getStories,
   getPromptVersionOptions,
   groupPendingStories,
@@ -48,6 +49,47 @@ describe("editorial API", () => {
     const fetchSpy = stubFetch({ job_id: "job-pack", status: "queued", deduplicated: false }, 202)
     await requestContentPack("story-1", { brandProfileId: "brand-1", generationProviderProfileId: "provider-1", canonicalPromptTemplateVersionId: "canonical-1", platformPromptTemplateVersionId: "platform-1" })
     expect(fetchSpy).toHaveBeenCalledWith("/api/backend/stories/story-1/content-packs", expect.objectContaining({ body: JSON.stringify({ brand_profile_id: "brand-1", platform: "telegram", generation_provider_profile_id: "provider-1", canonical_prompt_template_version_id: "canonical-1", platform_prompt_template_version_id: "platform-1", research_mode: "off", research_provider_profile_id: null, research_run_id: null }) }))
+  })
+
+  it("submits ordered multi-platform generation for server-side prompt resolution", async () => {
+    const fetchSpy = stubFetch({ job_id: "job-pack", status: "queued", deduplicated: false }, 202)
+    await requestContentPack("story-1", {
+      brandProfileId: "brand-1",
+      generationProviderProfileId: "provider-1",
+      platforms: ["telegram", "instagram", "x", "blog"],
+    })
+    expect(fetchSpy).toHaveBeenCalledWith("/api/backend/stories/story-1/content-packs", expect.objectContaining({
+      body: JSON.stringify({
+        brand_profile_id: "brand-1",
+        platforms: ["telegram", "instagram", "x", "blog"],
+        generation_provider_profile_id: "provider-1",
+        research_mode: "off",
+        research_provider_profile_id: null,
+        research_run_id: null,
+      }),
+    }))
+  })
+
+  it("maps content-pack variants for all supported platforms", async () => {
+    stubFetch([{
+      id: "pack-1",
+      story_id: "story-1",
+      story_revision_id: "story-revision-1",
+      brand_profile_id: "brand-1",
+      status: "draft",
+      created_at: "2026-07-12T07:00:00Z",
+      updated_at: "2026-07-12T08:00:00Z",
+      variants: ["telegram", "instagram", "x", "blog"].map((platform) => ({ id: `variant-${platform}`, platform })),
+    }])
+
+    await expect(getContentPacks()).resolves.toEqual([
+      expect.objectContaining({ variants: [
+        { id: "variant-telegram", platform: "telegram" },
+        { id: "variant-instagram", platform: "instagram" },
+        { id: "variant-x", platform: "x" },
+        { id: "variant-blog", platform: "blog" },
+      ] }),
+    ])
   })
 
   it("submits a selected succeeded research run identity without a result revision ID", async () => {
@@ -116,6 +158,24 @@ describe("editorial API", () => {
     await expect(getPromptVersionOptions()).resolves.toEqual([
       { id: "canonical-1", purpose: "canonical_story", version: 2, checksumSha256: "a".repeat(64), active: true },
       { id: "telegram-1", purpose: "telegram_pack", version: 3, checksumSha256: "b".repeat(64), active: true },
+    ])
+  })
+
+  it("includes immutable prompt options for every Release 4 platform", async () => {
+    vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(new Response(JSON.stringify([
+        { id: "template-i", purpose_key: "instagram_pack" },
+        { id: "template-x", purpose_key: "x_pack" },
+        { id: "template-b", purpose_key: "blog_pack" },
+      ]), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify([{ id: "instagram-1", version: 1, checksum_sha256: "a".repeat(64), is_active: true }]), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify([{ id: "x-1", version: 1, checksum_sha256: "b".repeat(64), is_active: true }]), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify([{ id: "blog-1", version: 1, checksum_sha256: "c".repeat(64), is_active: true }]), { status: 200 }))
+
+    await expect(getPromptVersionOptions()).resolves.toEqual([
+      { id: "instagram-1", purpose: "instagram_pack", version: 1, checksumSha256: "a".repeat(64), active: true },
+      { id: "x-1", purpose: "x_pack", version: 1, checksumSha256: "b".repeat(64), active: true },
+      { id: "blog-1", purpose: "blog_pack", version: 1, checksumSha256: "c".repeat(64), active: true },
     ])
   })
 
