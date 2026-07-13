@@ -72,7 +72,21 @@ export function RouteDetail({ routeId }: { routeId: string }) {
 
   return (
     <section className="min-w-0 space-y-4 p-4 md:p-6" aria-labelledby="route-heading">
-      <div className="flex flex-wrap items-start justify-between gap-3"><div><h1 id="route-heading" className="text-2xl font-semibold">{route.name}</h1><p className="text-muted-foreground">Live route state and bounded operator actions.</p></div><Button variant="outline" disabled={actionPending} onClick={() => route.pausedAt ? resumeMutation.mutate() : pauseMutation.mutate()}>{route.pausedAt ? "Resume route" : "Pause route"}</Button></div>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h1 id="route-heading" className="text-2xl font-semibold">{route.name}</h1>
+          <p className="text-muted-foreground">Live route state and bounded operator actions.</p>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <Link
+            className="inline-flex min-h-11 items-center rounded-lg border bg-background px-3 text-sm font-medium hover:bg-muted min-[900px]:min-h-0"
+            href={`/automations/${routeId}/history`}
+          >
+            Open durable route history
+          </Link>
+          <Button variant="outline" disabled={actionPending} onClick={() => route.pausedAt ? resumeMutation.mutate() : pauseMutation.mutate()}>{route.pausedAt ? "Resume route" : "Pause route"}</Button>
+        </div>
+      </div>
       <div className="grid gap-4 lg:grid-cols-3">
         <Card><CardHeader><CardTitle>Cursor and schedule</CardTitle></CardHeader><CardContent className="space-y-2"><Badge>{labelValue(cursorStatus)}</Badge><p>{route.cursorState.lastMessageId == null ? "Last message not available" : `Last message ${route.cursorState.lastMessageId}`}</p><KeyValue label="Next poll" value={route.nextPollAt ? formatDate(route.nextPollAt) : "Not scheduled"} /><KeyValue label="Last poll" value={route.lastPolledAt ? formatDate(route.lastPolledAt) : "Not polled"} /></CardContent></Card>
         <Card><CardHeader><CardTitle>Policy</CardTitle></CardHeader><CardContent className="space-y-2"><KeyValue label="Publishing" value={labelValue(route.publishingPolicy)} /><KeyValue label="Research" value={labelValue(route.researchMode)} /><KeyValue label="Research provider" value={route.contentFilters.researchProviderProfileId ? optionsQuery.data?.aiProviderProfiles.find((item) => item.id === route.contentFilters.researchProviderProfileId)?.name ?? "Configured profile" : "Not selected"} />{route.researchMode === "manual" ? <Link href="/inbox" className="inline-flex text-primary underline">Research more</Link> : null}<KeyValue label="Access" value={labelValue(route.accessMode)} /><KeyValue label="Media" value={labelValue(route.mediaPolicy)} /><KeyValue label="Polling" value={`${route.pollIntervalSeconds} seconds`} /><KeyValue label="Retry limit" value={`${route.retryPolicy.maxAttempts} attempts`} /><KeyValue label="Quiet hours" value={route.quietHours ? `${route.quietHours.start}–${route.quietHours.end} (${route.quietHours.timezone})` : "Not configured"} /></CardContent></Card>

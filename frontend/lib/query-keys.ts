@@ -1,4 +1,5 @@
 import type { JobFilters } from "@/features/jobs/types"
+import type { HistoryFilters } from "@/features/operations/types"
 import type { TelegramDraftFilters } from "@/features/automations/telegram-types"
 import type { StoryFilters } from "@/lib/editorial-types"
 
@@ -47,6 +48,14 @@ export const packageQueryKeys = {
   manualPlan: (id: string) => ["manual-publication-plans", id] as const,
   manualPlanForRevision: (revisionId: string) => ["manual-publication-plans", "revision", revisionId] as const,
   calendar: (start: string, end: string, timezone: string) => ["calendar", start, end, timezone] as const,
+}
+
+export const operationsQueryKeys = {
+  diagnostics: ["operations", "diagnostics"] as const,
+  history: (filters: HistoryFilters) => ["operations", "history", filters] as const,
+  reconciliations: ["publications", "reconciliation"] as const,
+  retentionPolicy: ["operations", "retention-policy"] as const,
+  retentionPreview: (policyHash: string) => ["operations", "retention-preview", policyHash] as const,
 }
 
 export const editorialQueryKeys = {

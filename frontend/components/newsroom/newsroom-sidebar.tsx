@@ -16,6 +16,7 @@ import {
   Newspaper,
   Settings,
   SquarePen,
+  Trash2,
 } from "lucide-react"
 
 import { Separator } from "@/components/ui/separator"
@@ -37,6 +38,7 @@ export const newsroomNavItems = [
   { label: "Media", href: "/media", icon: ImageIcon },
   { label: "Diagnostics", href: "/diagnostics", icon: Activity },
   { label: "Content Settings", href: "/settings/content", icon: Settings },
+  { label: "Retention", href: "/settings/retention", icon: Trash2 },
 ] as const
 
 export function NewsroomSidebar({ summary }: { summary?: JobSummary }) {

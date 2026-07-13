@@ -1,24 +1,27 @@
 "use client"
 
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import { useQuery, useQueryClient } from "@tanstack/react-query"
 import Link from "next/link"
-import { useState } from "react"
 
-import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import {
-  getTelegramDrafts,
-  getTelegramPublishJob,
-  reconcileTelegramPublishJob,
-} from "@/features/automations/telegram-api"
-import type { TelegramDraft, TelegramReconcileInput } from "@/features/automations/telegram-types"
+import { getTelegramDrafts } from "@/features/automations/telegram-api"
+import type { TelegramDraft } from "@/features/automations/telegram-types"
+import { fetchReconciliationCases } from "@/features/operations/api"
+import { ReconciliationPanel } from "@/features/operations/reconciliation-panel"
+import type { ReconciliationCase } from "@/features/operations/types"
 import { getApiErrorMessage } from "@/lib/http"
-import { queryKeys } from "@/lib/query-keys"
+import { operationsQueryKeys, queryKeys } from "@/lib/query-keys"
 
 export function TelegramOutcomes() {
+  const queryClient = useQueryClient()
   const query = useQuery({
     queryKey: queryKeys.telegramDrafts({}),
     queryFn: () => getTelegramDrafts({}),
+    refetchInterval: 5_000,
+  })
+  const reconciliationsQuery = useQuery({
+    queryKey: operationsQueryKeys.reconciliations,
+    queryFn: fetchReconciliationCases,
     refetchInterval: 5_000,
   })
   const latestDrafts = Array.from(
@@ -29,6 +32,14 @@ export function TelegramOutcomes() {
     }, new Map<string, TelegramDraft>()).values()
   )
   const outcomes = latestDrafts.filter((draft) => draft.publishJobId || draft.publication || draft.approvalState === "pending_review")
+  const reconciliationCases = reconciliationsQuery.data ?? []
+
+  async function refreshResolvedCase() {
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: operationsQueryKeys.reconciliations }),
+      queryClient.invalidateQueries({ queryKey: queryKeys.telegramDrafts() }),
+    ])
+  }
 
   return (
     <Card size="sm" role="region" aria-label="Telegram publication outcomes">
@@ -36,21 +47,46 @@ export function TelegramOutcomes() {
       <CardContent className="space-y-3 p-3">
         {query.isPending ? <div role="status">Loading Telegram outcomes…</div> : null}
         {query.isError ? <div role="alert" dir="auto" className="text-red-700">{getApiErrorMessage(query.error, "Telegram outcomes could not be loaded")}</div> : null}
-        {!query.isPending && !query.isError && !outcomes.length ? <p className="p-4 text-center text-muted-foreground">No Telegram outcomes yet.</p> : null}
+        {reconciliationsQuery.isPending ? <div role="status">Loading reconciliation cases…</div> : null}
+        {reconciliationsQuery.isError ? (
+          <div className="text-red-700" dir="auto" role="alert">
+            {getApiErrorMessage(reconciliationsQuery.error, "Reconciliation cases could not be loaded")}
+          </div>
+        ) : null}
+        {reconciliationCases.map((reconciliationCase) => (
+          <ReconciliationPanel
+            key={reconciliationGenerationKey(reconciliationCase)}
+            onResolved={refreshResolvedCase}
+            value={reconciliationCase}
+          />
+        ))}
+        {!query.isPending
+          && !query.isError
+          && !reconciliationsQuery.isPending
+          && !reconciliationsQuery.isError
+          && !outcomes.length
+          && !reconciliationCases.length ? (
+            <p className="p-4 text-center text-muted-foreground">No Telegram outcomes yet.</p>
+          ) : null}
         {outcomes.map((draft) => <TelegramOutcomeCard key={draft.id} draft={draft} />)}
       </CardContent>
     </Card>
   )
 }
 
-function TelegramOutcomeCard({ draft }: { draft: TelegramDraft }) {
-  const needsReconciliation = draft.publishStatus === "reconciliation_required" && Boolean(draft.publishJobId)
-  const publishJobQuery = useQuery({
-    queryKey: queryKeys.telegramPublishJob(draft.publishJobId ?? "unresolved"),
-    queryFn: () => getTelegramPublishJob(draft.publishJobId!),
-    enabled: needsReconciliation,
-  })
+function reconciliationGenerationKey(value: ReconciliationCase): string {
+  const ambiguousOperation = value.operations.find(
+    (operation) => operation.operationKey === value.ambiguousOperationKey,
+  )
+  return JSON.stringify([
+    value.publishJobId,
+    value.ambiguousOperationKey,
+    ambiguousOperation?.attemptCount ?? null,
+    value.ambiguousAt,
+  ])
+}
 
+function TelegramOutcomeCard({ draft }: { draft: TelegramDraft }) {
   return (
     <article className="min-w-0 space-y-2 rounded-md border p-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
@@ -64,51 +100,7 @@ function TelegramOutcomeCard({ draft }: { draft: TelegramDraft }) {
           {draft.publication.permalink ? <a href={draft.publication.permalink} target="_blank" rel="noreferrer" className="break-all text-primary underline">Open published Telegram post</a> : null}
         </div>
       ) : null}
-      {needsReconciliation ? (
-        publishJobQuery.isPending ? <div role="status">Loading reconciliation receipts…</div>
-          : publishJobQuery.isError ? <div role="alert" dir="auto" className="text-red-700">{getApiErrorMessage(publishJobQuery.error)}</div>
-            : publishJobQuery.data ? <TelegramReconciliation jobId={draft.publishJobId!} receiptCount={publishJobQuery.data.receipts.find((receipt) => receipt.status === "ambiguous")?.method === "sendMediaGroup" ? null : 1} /> : null
-      ) : null}
     </article>
-  )
-}
-
-function TelegramReconciliation({ jobId, receiptCount }: { jobId: string; receiptCount: number | null }) {
-  const queryClient = useQueryClient()
-  const [remoteIds, setRemoteIds] = useState("")
-  const [outcome, setOutcome] = useState<string | null>(null)
-  const mutation = useMutation({
-    mutationFn: (input: TelegramReconcileInput) => reconcileTelegramPublishJob(jobId, input),
-    onSuccess: async (result) => {
-      setOutcome(result.reconciliationStatus)
-      await queryClient.invalidateQueries({ queryKey: queryKeys.telegramPublishJob(jobId) })
-      await queryClient.invalidateQueries({ queryKey: queryKeys.telegramDrafts() })
-    },
-  })
-  const tokens = remoteIds.split(",").map((value) => value.trim())
-  const parsed = tokens.map(Number)
-  const idsValid = remoteIds.trim().length > 0
-    && tokens.every((value) => /^\d+$/.test(value))
-    && parsed.every((value) => Number.isSafeInteger(value) && value > 0)
-    && new Set(parsed).size === parsed.length
-  const countOkay = idsValid && (receiptCount === null || parsed.length === receiptCount)
-
-  return (
-    <div className="space-y-2 rounded-md border border-amber-300 bg-amber-50 p-3">
-      <strong>Reconciliation required</strong>
-      <p>Verify the ambiguous operation in Telegram. Automatic retry is disabled.</p>
-      <label className="block space-y-1">
-        <span>Verified remote message IDs</span>
-        <input value={remoteIds} onChange={(event) => setRemoteIds(event.target.value)} placeholder="501, 502" className="min-h-11 w-full rounded-md border bg-white px-3" inputMode="numeric" aria-invalid={remoteIds.length > 0 && !countOkay} />
-      </label>
-      {remoteIds.length > 0 && !countOkay ? <div role="alert" className="text-red-700">Enter only the exact positive, unique message IDs separated by commas.</div> : null}
-      <div className="flex flex-wrap gap-2">
-        <Button disabled={mutation.isPending || !countOkay} onClick={() => mutation.mutate({ outcome: "published", remoteMessageIds: parsed })}>Confirm published IDs</Button>
-        <Button variant="outline" disabled={mutation.isPending} onClick={() => mutation.mutate({ outcome: "not_published" })}>Confirm not published</Button>
-      </div>
-      {mutation.isError ? <div role="alert" dir="auto" className="text-red-700">{getApiErrorMessage(mutation.error)}</div> : null}
-      {outcome ? <div role="status">Reconciliation: {outcome.replaceAll("_", " ")}</div> : null}
-    </div>
   )
 }
 

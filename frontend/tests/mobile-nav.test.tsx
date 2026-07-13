@@ -39,7 +39,7 @@ describe("mobile newsroom navigation", () => {
 
     const dialog = screen.getByRole("dialog", { name: "Newsroom navigation" })
     const closeButton = within(dialog).getByRole("button", { name: "Close navigation" })
-    const lastLink = within(dialog).getByRole("link", { name: "Content Settings" })
+    const lastLink = within(dialog).getByRole("link", { name: "Retention" })
     await waitFor(() => expect(within(dialog).getByRole("link", { name: "Today" })).toHaveFocus())
 
     lastLink.focus()

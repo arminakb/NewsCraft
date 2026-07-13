@@ -1,0 +1,106 @@
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
+import { render, screen } from "@testing-library/react"
+
+import DiagnosticsPage from "@/app/diagnostics/page"
+import { fetchOperationsDiagnostics } from "@/features/operations/api"
+import { DiagnosticsDashboard } from "@/features/operations/diagnostics-dashboard"
+
+vi.mock("@/features/operations/api", () => ({ fetchOperationsDiagnostics: vi.fn() }))
+
+describe("DiagnosticsDashboard", () => {
+  it("renders every persisted component with exact Tehran observations and never invents health", () => {
+    render(
+      <DiagnosticsDashboard
+        snapshot={{
+          generatedAt: "2026-07-11T08:05:00Z",
+          globalPaused: false,
+          dryRun: true,
+          components: {
+            "worker-source-generation": {
+              status: "unknown",
+              observedAt: null,
+              lastSuccessAt: null,
+              message: "No heartbeat has been recorded.",
+              actionUrl: "/diagnostics",
+            },
+            "worker-publishing": {
+              status: "degraded",
+              observedAt: "2026-07-11T08:00:00Z",
+              lastSuccessAt: null,
+              message: "Heartbeat is older than the healthy threshold.",
+              actionUrl: "/jobs?status=running",
+            },
+            "worker-preview-eu": {
+              status: "down",
+              observedAt: "2026-07-11T07:45:00Z",
+              lastSuccessAt: "2026-07-11T07:30:00Z",
+              message: "Preview worker has stopped reporting.",
+              actionUrl: null,
+            },
+          },
+          queueCounts: { queued: 4, running: 1, failed: 2 },
+          attention: [],
+        }}
+      />,
+    )
+
+    expect(screen.getByText("Source/generation worker status unknown")).toBeInTheDocument()
+    expect(screen.getByText("Publishing worker last observed Jul 11, 2026, 11:30 AM")).toBeInTheDocument()
+    expect(screen.getByText("worker-preview-eu")).toBeInTheDocument()
+    expect(screen.getByText("Last successful Jul 11, 2026, 11:00 AM")).toBeInTheDocument()
+    expect(screen.getByRole("link", { name: "Open Publishing worker action" })).toHaveAttribute(
+      "href",
+      "/jobs?status=running",
+    )
+    expect(screen.getByText("Dry run enabled")).toBeInTheDocument()
+    expect(screen.queryByText("Healthy")).not.toBeInTheDocument()
+  })
+
+  it("shows persisted attention with exact time, action URL, and RTL-safe prose", () => {
+    render(
+      <DiagnosticsDashboard
+        snapshot={{
+          generatedAt: "2026-07-11T08:05:00Z",
+          globalPaused: true,
+          dryRun: false,
+          components: {},
+          queueCounts: {},
+          attention: [
+            {
+              id: "job:11111111-1111-4111-8111-111111111111",
+              severity: "error",
+              kind: "generation",
+              title: "تولید محتوا نیاز به بررسی دارد",
+              occurredAt: "2026-07-11T08:02:00Z",
+              actionUrl: "/jobs?status=needs_review",
+            },
+          ],
+        }}
+      />,
+    )
+
+    const title = screen.getByText("تولید محتوا نیاز به بررسی دارد")
+    expect(title.closest("[dir]")).toHaveAttribute("dir", "auto")
+    expect(screen.getByText("Jul 11, 2026, 11:32 AM")).toBeInTheDocument()
+    expect(screen.getByText("Operations paused")).toBeInTheDocument()
+    expect(screen.getByRole("link", { name: "Review تولید محتوا نیاز به بررسی دارد" })).toHaveAttribute(
+      "href",
+      "/jobs?status=needs_review",
+    )
+  })
+
+  it("preserves API error direction on the diagnostics route", async () => {
+    vi.mocked(fetchOperationsDiagnostics).mockRejectedValueOnce(new Error("سامانه در دسترس نیست"))
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <DiagnosticsPage />
+      </QueryClientProvider>,
+    )
+
+    const alert = await screen.findByRole("alert")
+    expect(alert).toHaveTextContent("سامانه در دسترس نیست")
+    expect(alert).toHaveAttribute("dir", "auto")
+  })
+})

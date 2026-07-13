@@ -38,6 +38,10 @@ describe("NewsroomSidebar", () => {
       "href",
       "/settings/content"
     )
+    expect(screen.getByRole("link", { name: "Retention" })).toHaveAttribute(
+      "href",
+      "/settings/retention"
+    )
     expect(screen.getByRole("link", { name: "Content" })).toHaveAttribute("aria-current", "page")
 
   })
@@ -69,6 +73,7 @@ describe("NewsroomSidebar", () => {
     expect(within(dialog).getByRole("link", { name: "Calendar" })).toHaveAttribute("href", "/calendar")
     expect(within(dialog).getByRole("link", { name: "Library" })).toHaveAttribute("href", "/library")
     expect(within(dialog).getByRole("link", { name: "Content Settings" })).toHaveAttribute("href", "/settings/content")
+    expect(within(dialog).getByRole("link", { name: "Retention" })).toHaveAttribute("href", "/settings/retention")
     expect(within(dialog).getByRole("link", { name: "Inbox" })).toHaveAttribute("href", "/inbox")
   })
 

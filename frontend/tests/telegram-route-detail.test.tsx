@@ -78,6 +78,10 @@ describe("RouteDetail", () => {
     expect(screen.getByText("Healthy")).toBeInTheDocument()
     expect(await screen.findByText("Global pause")).toHaveAttribute("dir", "auto")
     expect(screen.getByRole("link", { name: "Review revision revision-9" })).toHaveAttribute("href", "/review/revision-9")
+    expect(screen.getByRole("link", { name: "Open durable route history" })).toHaveAttribute(
+      "href",
+      "/automations/route-1/history",
+    )
   })
 
   it("pauses and resumes using server truth", async () => {
