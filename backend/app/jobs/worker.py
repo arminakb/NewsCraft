@@ -15,6 +15,7 @@ import httpx
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.core.config import settings
+from app.core.logging import configure_logging
 from app.db.session import async_session
 from app.generation.providers.registry import ProviderRegistry, build_default_provider_registry
 from app.jobs.errors import (
@@ -427,6 +428,7 @@ async def run_worker(capabilities: tuple[str, ...]) -> None:
 
 
 def main() -> None:
+    configure_logging()
     asyncio.run(run_worker(parse_capabilities()))
 
 

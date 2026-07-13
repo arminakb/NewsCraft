@@ -306,7 +306,10 @@ async def test_ingest_runs_endpoint_returns_latest_runs():
         trigger="api",
         parser_version="test",
         status="succeeded",
-        stats={"items": 12},
+        stats={
+            "items": 12,
+            "errors": [{"authorization": "Bearer ingest-legacy-canary"}],
+        },
         started_at=datetime(2026, 7, 6, 8, 0, tzinfo=UTC),
         finished_at=datetime(2026, 7, 6, 8, 2, tzinfo=UTC),
     )
@@ -318,6 +321,8 @@ async def test_ingest_runs_endpoint_returns_latest_runs():
     assert response.status_code == 200
     assert response.json()[0]["status"] == "succeeded"
     assert response.json()[0]["stats"]["items"] == 12
+    assert "ingest-legacy-canary" not in response.text
+    assert response.json()[0]["stats"]["errors"] == [{"authorization": "[REDACTED]"}]
 
 
 async def test_media_assets_endpoint_returns_latest_media():

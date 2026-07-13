@@ -12,6 +12,7 @@ from pydantic import ValidationError
 from app.api.telegram_drafts import (
     ScheduleTelegramIn,
     TelegramDraftEditIn,
+    _draft_out,
     _locked_revision,
     build_manual_revision,
     require_revision_transition,
@@ -91,6 +92,46 @@ def test_manual_edit_creates_immutable_pending_child_and_preserves_provenance():
     assert child.content_hash != parent.content_hash
 
 
+async def test_draft_projection_redacts_legacy_validation_results():
+    variant_id = uuid4()
+    revision = SimpleNamespace(
+        id=uuid4(),
+        platform_variant_id=variant_id,
+        parent_revision_id=None,
+        generation_attempt_id=None,
+        revision_number=1,
+        content={"body": "draft", "media_asset_ids": []},
+        content_hash="a" * 64,
+        evidence_map=[],
+        validation_results=[
+            {
+                "gate": "provider_failed",
+                "ok": False,
+                "reason": "authorization: Bearer telegram-validation-canary",
+            }
+        ],
+        approval_state="pending_review",
+        approval_note=None,
+        approved_at=None,
+        created_by="generation",
+        created_at=datetime.now(UTC),
+    )
+
+    class Session:
+        async def get(self, model, identifier):
+            if model is PlatformVariant and identifier == variant_id:
+                return SimpleNamespace(platform="telegram")
+            return None
+
+        async def scalar(self, _statement):
+            return None
+
+    output = await _draft_out(Session(), revision)
+
+    assert "telegram-validation-canary" not in str(output)
+    assert output["validation_results"][0]["reason"] == "authorization:[REDACTED]"
+
+
 @pytest.mark.parametrize(
     ("field", "value"),
     [
@@ -155,11 +196,7 @@ def test_revision_transition_requires_exact_hash_and_dry_run_cannot_publish():
 
 
 def test_reviewed_schedule_route_and_strict_request_contract_are_public():
-    operations = {
-        (path, method.upper())
-        for path, row in app.openapi()["paths"].items()
-        for method in row
-    }
+    operations = {(path, method.upper()) for path, row in app.openapi()["paths"].items() for method in row}
     assert ("/telegram/drafts/{revision_id}/schedule", "POST") in operations
 
     parsed = ScheduleTelegramIn.model_validate(

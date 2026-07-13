@@ -25,6 +25,7 @@ from app.jobs.models import AutomationControl, WorkflowEvent, WorkflowJob
 from app.jobs.types import JobOrigin
 from app.publishing.models import (
     Publication,
+    PublishAttempt,
     PublishJob,
     PublishOperationReceipt,
 )
@@ -169,9 +170,7 @@ async def _seed_publish_fixtures(session_factory) -> PublishFixture:
                     platform_variant_id=variant.id,
                     revision_number=1,
                     content=content,
-                    content_hash=sha256_canonical(
-                        {"content": content, "evidence_map": evidence_map}
-                    ),
+                    content_hash=sha256_canonical({"content": content, "evidence_map": evidence_map}),
                     evidence_map=evidence_map,
                     validation_results=[{"gate": "telegram_schema", "ok": True}],
                     approval_state="approved",
@@ -341,6 +340,40 @@ async def test_pre_dispatch_revalidation_refreshes_control_changed_between_trans
 
 
 @pytest.mark.asyncio
+async def test_publish_claim_error_redacts_attempt_columns_without_changing_raised_error(
+    session_factory,
+    monkeypatch,
+):
+    fixture = await _seed_publish_fixtures(session_factory)
+    code = "telegram_claim_api_key=publish-code-canary"
+    message = 'claim {"authorization":"Bearer publish-message-canary"}'
+
+    async def reject_claim(_session, _context):
+        raise NeedsReviewJobError(code=code, message=message)
+
+    monkeypatch.setattr(telegram_service, "_revalidate_claim", reject_claim)
+    async with session_factory() as session:
+        with pytest.raises(NeedsReviewJobError) as caught:
+            await publish_telegram(
+                session,
+                publish_job_id=fixture.concurrent_job_id,
+                client=CountingTelegramClient(),
+                secret_resolver=resolve_destination_secret,
+            )
+
+    assert caught.value.code == code
+    assert caught.value.message == message
+    async with session_factory() as session:
+        attempt = await session.scalar(
+            select(PublishAttempt).where(PublishAttempt.publish_job_id == fixture.concurrent_job_id)
+        )
+        assert "publish-code-canary" not in attempt.error_code
+        assert "publish-message-canary" not in attempt.error_message
+        assert "[REDACTED]" in attempt.error_code
+        assert "[REDACTED]" in attempt.error_message
+
+
+@pytest.mark.asyncio
 async def test_concurrent_publish_claim_sends_once_and_creates_one_publication(
     session_factory,
 ):
@@ -361,9 +394,7 @@ async def test_concurrent_publish_claim_sends_once_and_creates_one_publication(
 
     async with session_factory() as inspection_session:
         committed_receipt = await inspection_session.scalar(
-            select(PublishOperationReceipt).where(
-                PublishOperationReceipt.publish_job_id == fixture.concurrent_job_id
-            )
+            select(PublishOperationReceipt).where(PublishOperationReceipt.publish_job_id == fixture.concurrent_job_id)
         )
         assert committed_receipt.status == "dispatching"
         assert committed_receipt.attempt_count == 1
@@ -393,11 +424,7 @@ async def test_concurrent_publish_claim_sends_once_and_creates_one_publication(
             )
         )
         publications = list(
-            await session.scalars(
-                select(Publication).where(
-                    Publication.publish_job_id == fixture.concurrent_job_id
-                )
-            )
+            await session.scalars(select(Publication).where(Publication.publish_job_id == fixture.concurrent_job_id))
         )
         assert len(receipts) == 1
         assert receipts[0].status == "succeeded"
@@ -460,9 +487,7 @@ async def test_publish_failure_classes_persist_safe_retry_and_attention_states(s
         assert client.calls == 1
         async with session_factory() as session:
             receipt = await session.scalar(
-                select(PublishOperationReceipt).where(
-                    PublishOperationReceipt.publish_job_id == publish_job_id
-                )
+                select(PublishOperationReceipt).where(PublishOperationReceipt.publish_job_id == publish_job_id)
             )
             publish_job = await session.get(PublishJob, publish_job_id)
             assert receipt.status == receipt_status
@@ -614,8 +639,7 @@ async def _reconciliation_events(session, publish_job_id: UUID) -> list[Workflow
                         "telegram.publish.reconciled_published",
                     )
                 ),
-                WorkflowEvent.event_data["publish_job_id"].as_string()
-                == str(publish_job_id),
+                WorkflowEvent.event_data["publish_job_id"].as_string() == str(publish_job_id),
             )
             .order_by(WorkflowEvent.created_at, WorkflowEvent.id)
         )
@@ -649,9 +673,7 @@ async def test_reconciliation_case_projection_executes_against_postgres(session_
             fixture.reconcile_published_job_id,
         )
 
-    assert [case.publish_job_id for case in cases] == [
-        fixture.reconcile_published_job_id
-    ]
+    assert [case.publish_job_id for case in cases] == [fixture.reconcile_published_job_id]
     assert detail == cases[0]
     assert detail.status == "pending"
     assert [operation.status for operation in detail.operations] == ["ambiguous"]
@@ -673,20 +695,14 @@ async def test_reconciliation_published_and_not_published_are_durable_and_determ
         published_receipts = list(
             await session.scalars(
                 select(PublishOperationReceipt)
-                .where(
-                    PublishOperationReceipt.publish_job_id
-                    == fixture.reconcile_published_job_id
-                )
+                .where(PublishOperationReceipt.publish_job_id == fixture.reconcile_published_job_id)
                 .order_by(PublishOperationReceipt.operation_index)
             )
         )
         not_published_receipts = list(
             await session.scalars(
                 select(PublishOperationReceipt)
-                .where(
-                    PublishOperationReceipt.publish_job_id
-                    == fixture.reconcile_not_published_job_id
-                )
+                .where(PublishOperationReceipt.publish_job_id == fixture.reconcile_not_published_job_id)
                 .order_by(PublishOperationReceipt.operation_index)
             )
         )
@@ -694,16 +710,10 @@ async def test_reconciliation_published_and_not_published_are_durable_and_determ
         next(receipt for receipt in published_receipts if receipt.status == "ambiguous")
     )
     not_published_generation = _reconciliation_generation(
-        next(
-            receipt
-            for receipt in not_published_receipts
-            if receipt.status == "ambiguous"
-        )
+        next(receipt for receipt in not_published_receipts if receipt.status == "ambiguous")
     )
     published_operation_keys = [receipt.operation_key for receipt in published_receipts]
-    not_published_operation_keys = [
-        receipt.operation_key for receipt in not_published_receipts
-    ]
+    not_published_operation_keys = [receipt.operation_key for receipt in not_published_receipts]
     published_body = TelegramReconcileIn(
         outcome="published",
         remote_message_ids=[7201],
@@ -752,14 +762,11 @@ async def test_reconciliation_published_and_not_published_are_durable_and_determ
             )
         )
         confirmed_publication = await session.scalar(
-            select(Publication).where(
-                Publication.publish_job_id == fixture.reconcile_published_job_id
-            )
+            select(Publication).where(Publication.publish_job_id == fixture.reconcile_published_job_id)
         )
         not_published_receipt = await session.scalar(
             select(PublishOperationReceipt).where(
-                PublishOperationReceipt.publish_job_id
-                == fixture.reconcile_not_published_job_id
+                PublishOperationReceipt.publish_job_id == fixture.reconcile_not_published_job_id
             )
         )
         not_published_job = await session.get(
@@ -796,26 +803,30 @@ async def test_reconciliation_published_and_not_published_are_durable_and_determ
         assert not_published_job.status == "queued"
         assert not_published_job.workflow_job_id == retry_job.id
         assert retry_job.job_type == "telegram.publish"
-        assert retry_job.payload == {
-            "publish_job_id": str(fixture.reconcile_not_published_job_id)
-        }
+        assert retry_job.payload == {"publish_job_id": str(fixture.reconcile_not_published_job_id)}
         assert retry_job.idempotency_key == (
             f"telegram-publish-reconcile:{fixture.reconcile_not_published_job_id}:"
             f"{not_published_generation['operation_key']}:"
             f"{not_published_generation['attempt_count']}"
         )
         assert retry_job_count == 1
-        assert await session.scalar(
-            select(func.count())
-            .select_from(Publication)
-            .where(Publication.publish_job_id == fixture.reconcile_not_published_job_id)
-        ) == 0
+        assert (
+            await session.scalar(
+                select(func.count())
+                .select_from(Publication)
+                .where(Publication.publish_job_id == fixture.reconcile_not_published_job_id)
+            )
+            == 0
+        )
 
-        assert await session.scalar(
-            select(func.count())
-            .select_from(Publication)
-            .where(Publication.publish_job_id == fixture.reconcile_published_job_id)
-        ) == 1
+        assert (
+            await session.scalar(
+                select(func.count())
+                .select_from(Publication)
+                .where(Publication.publish_job_id == fixture.reconcile_published_job_id)
+            )
+            == 1
+        )
         assert len(published_events) == 1
         assert len(not_published_events) == 1
 
@@ -824,9 +835,7 @@ async def test_reconciliation_published_and_not_published_are_durable_and_determ
         assert published_audit["operation_keys"] == published_operation_keys
         assert published_audit["remote_message_ids"] == [7201]
         assert published_audit["permalink"] == "https://t.me/destination/7201"
-        assert published_audit["operator_note"] == (
-            "Verified token=[REDACTED] in the destination channel"
-        )
+        assert published_audit["operator_note"] == ("Verified token=[REDACTED] in the destination channel")
         assert published_audit["reconciliation_generation"] == published_generation
         assert published_audit["publication_id"] == str(confirmed_publication.id)
         _assert_decision_hash(published_audit["decision_hash"])
@@ -836,19 +845,11 @@ async def test_reconciliation_published_and_not_published_are_durable_and_determ
         assert not_published_audit["operation_keys"] == not_published_operation_keys
         assert not_published_audit["remote_message_ids"] == []
         assert not_published_audit["permalink"] is None
-        assert not_published_audit["operator_note"] == (
-            "Checked token=[REDACTED] in the destination channel"
-        )
-        assert (
-            not_published_audit["reconciliation_generation"]
-            == not_published_generation
-        )
+        assert not_published_audit["operator_note"] == ("Checked token=[REDACTED] in the destination channel")
+        assert not_published_audit["reconciliation_generation"] == not_published_generation
         assert not_published_audit["requeued_workflow_job_id"] == str(workflow_job_id)
         assert not_published_audit["requeued_job_status"] == requeued["job"]["status"]
-        assert (
-            not_published_audit["requeued_job_deduplicated"]
-            == requeued["job"]["deduplicated"]
-        )
+        assert not_published_audit["requeued_job_deduplicated"] == requeued["job"]["deduplicated"]
         _assert_decision_hash(not_published_audit["decision_hash"])
 
     with pytest.raises(HTTPException) as conflicting:
@@ -870,8 +871,7 @@ async def test_reconciliation_published_and_not_published_are_durable_and_determ
     async with session_factory() as session:
         later_receipt = await session.scalar(
             select(PublishOperationReceipt).where(
-                PublishOperationReceipt.publish_job_id
-                == fixture.reconcile_not_published_job_id,
+                PublishOperationReceipt.publish_job_id == fixture.reconcile_not_published_job_id,
                 PublishOperationReceipt.status == "ambiguous",
             )
         )
@@ -889,8 +889,7 @@ async def test_reconciliation_published_and_not_published_are_durable_and_determ
     async with session_factory() as session:
         unchanged_receipt = await session.scalar(
             select(PublishOperationReceipt).where(
-                PublishOperationReceipt.publish_job_id
-                == fixture.reconcile_not_published_job_id,
+                PublishOperationReceipt.publish_job_id == fixture.reconcile_not_published_job_id,
                 PublishOperationReceipt.status == "ambiguous",
             )
         )
@@ -947,9 +946,12 @@ async def test_concurrent_exact_reconciliation_replay_creates_one_publication_an
     assert first[0] == second[0] == 200
     assert first[1] == second[1]
     async with session_factory() as session:
-        assert await session.scalar(
-            select(func.count())
-            .select_from(Publication)
-            .where(Publication.publish_job_id == fixture.concurrent_job_id)
-        ) == 1
+        assert (
+            await session.scalar(
+                select(func.count())
+                .select_from(Publication)
+                .where(Publication.publish_job_id == fixture.concurrent_job_id)
+            )
+            == 1
+        )
         assert len(await _reconciliation_events(session, fixture.concurrent_job_id)) == 1

@@ -33,6 +33,25 @@ async def test_job_list_applies_repeated_status_type_error_and_limit_filters():
     }
 
 
+async def test_job_list_redacts_legacy_progress_and_error_fields_at_emission():
+    job = _job(status=JobStatus.FAILED, error_class=JobErrorClass.PERMANENT)
+    job.progress_message = 'progress {"authorization":"Bearer job-progress-canary"}'
+    job.error_code = "failure_api_key=job-code-canary"
+    job.error_message = 'failure {"password":"job-message-canary"}'
+
+    response = await _request("GET", "/jobs", FakeJobApiSession(jobs=[job]))
+
+    assert response.status_code == 200
+    emitted = response.json()["items"][0]
+    serialized = str(emitted)
+    assert "job-progress-canary" not in serialized
+    assert "job-code-canary" not in serialized
+    assert "job-message-canary" not in serialized
+    assert "[REDACTED]" in emitted["progress_message"]
+    assert emitted["error_code"] == "failure_api_key=[REDACTED]"
+    assert "[REDACTED]" in emitted["error_message"]
+
+
 async def test_job_summary_returns_operational_counts():
     session = FakeJobApiSession(summary_counts=[7, 2, 3, 11])
 
@@ -157,11 +176,7 @@ class FakeJobApiSession:
             return self.events
 
         self.list_filters = {
-            "statuses": {
-                status.value
-                for status in JobStatus
-                if f"'{status.value}'" in sql
-            },
+            "statuses": {status.value for status in JobStatus if f"'{status.value}'" in sql},
             "job_type": "ingest.collect" if "'ingest.collect'" in sql else None,
             "error_class": "permanent" if "'permanent'" in sql else None,
             "limit": 17 if "LIMIT 17" in sql else None,
@@ -198,9 +213,7 @@ class TransitionResponseSession(FakeJobApiSession):
     async def flush(self):
         self.flushed = True
         self.trace.append("flush")
-        attributes.instance_state(self.item)._expire_attributes(
-            self.item.__dict__, ["updated_at"]
-        )
+        attributes.instance_state(self.item)._expire_attributes(self.item.__dict__, ["updated_at"])
 
     async def refresh(self, instance):
         assert instance is self.item
@@ -208,9 +221,7 @@ class TransitionResponseSession(FakeJobApiSession):
         self.trace.append("refresh")
 
     async def commit(self):
-        assert self.trace == ["flush", "refresh"], (
-            "transition response fields must be refreshed before commit"
-        )
+        assert self.trace == ["flush", "refresh"], "transition response fields must be refreshed before commit"
         self.committed = True
         self.trace.append("commit")
 

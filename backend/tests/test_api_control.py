@@ -73,6 +73,36 @@ async def test_patch_automation_control_updates_only_supplied_fields():
     assert response.json()["paused_at"] == original_paused_at.isoformat().replace("+00:00", "Z")
 
 
+async def test_patch_automation_control_redacts_pause_reason_before_persistence_and_output():
+    control = _control()
+    session = FakeControlSession(control)
+
+    response = await _request(
+        "PATCH",
+        "/automation-control",
+        session,
+        json={"global_pause": True, "pause_reason": "api_key=pause-canary"},
+    )
+
+    assert response.status_code == 200
+    assert "pause-canary" not in response.text
+    assert response.json()["pause_reason"] == "api_key=[REDACTED]"
+    assert control.pause_reason == "api_key=[REDACTED]"
+
+
+async def test_get_automation_control_redacts_legacy_pause_reason():
+    control = _control(
+        global_pause=True,
+        pause_reason="authorization: Bearer legacy-pause-canary",
+    )
+
+    response = await _request("GET", "/automation-control", FakeControlSession(control))
+
+    assert response.status_code == 200
+    assert "legacy-pause-canary" not in response.text
+    assert response.json()["pause_reason"] == "authorization:[REDACTED]"
+
+
 async def test_patch_automation_control_rejects_empty_body():
     response = await _request("PATCH", "/automation-control", FakeControlSession(_control()), json={})
 

@@ -14,6 +14,7 @@ class FakeRepository:
         self.events = []
         self.finished = None
         self.media_candidate_count = 0
+        self.raw_payload = None
 
     async def create_run(self, trigger: str, parser_version: str):
         self.events.append(("create_run", trigger, parser_version))
@@ -30,7 +31,11 @@ class FakeRepository:
 
     async def save_raw_payload(self, **kwargs):
         self.events.append(("raw_payload", kwargs["request_url"]))
-        return SimpleNamespace(id=uuid4(), parser_warnings=kwargs["parser_warnings"])
+        self.raw_payload = SimpleNamespace(
+            id=uuid4(),
+            parser_warnings=kwargs["parser_warnings"],
+        )
+        return self.raw_payload
 
     async def upsert_source_item(self, **kwargs):
         self.events.append(("source_item", kwargs["parsed_item"].external_id_norm))
@@ -120,6 +125,51 @@ def test_source_fetch_error_produces_partial_run_status():
 
     assert stats["failed"] == 1
     assert repository.finished["status"] == "partial"
+
+
+def test_source_failure_stats_are_sanitized_for_repository_and_return_without_mutating_source():
+    source = _rss_source()
+    source.name = "Source api_key=ingestion-source-name-canary"
+    repository = FakeRepository([source])
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectError(
+            'network {"authorization":"Bearer ingestion-return-canary"}',
+            request=request,
+        )
+
+    stats = _run_service(
+        repository,
+        httpx.AsyncClient(transport=httpx.MockTransport(handler)),
+    )
+
+    assert "ingestion-source-name-canary" in source.name
+    assert "ingestion-source-name-canary" not in str(stats)
+    assert "ingestion-return-canary" not in str(stats)
+    assert "[REDACTED]" in str(stats)
+    assert repository.finished["stats"] == stats
+    assert "ingestion-source-name-canary" not in str(repository.finished)
+    assert "ingestion-return-canary" not in str(repository.finished)
+
+
+def test_post_parse_warning_assignment_is_sanitized(monkeypatch):
+    source = _rss_source()
+    repository = FakeRepository([source])
+
+    monkeypatch.setattr(
+        "app.ingestion.service._parse_source_payload",
+        lambda *_args, **_kwargs: SimpleNamespace(
+            warnings=['bozo_feed: {"api_key":"service-warning-canary"}'],
+            items=[],
+        ),
+    )
+    _run_service(
+        repository,
+        httpx.AsyncClient(transport=httpx.MockTransport(lambda _request: httpx.Response(200, text="malformed"))),
+    )
+
+    assert "service-warning-canary" not in str(repository.raw_payload.parser_warnings)
+    assert "[REDACTED]" in str(repository.raw_payload.parser_warnings)
 
 
 def test_media_candidates_are_sent_to_repository():

@@ -582,6 +582,54 @@ def test_retention_runs_list_and_detail_return_safe_audit_fields_without_preview
     assert session.commits == 0
 
 
+def test_retention_run_detail_redacts_legacy_snapshots_without_changing_numeric_counts(
+    api_client,
+    monkeypatch,
+):
+    client, session = api_client
+    run = _run_row(
+        count_snapshot={
+            "execution": {"deleted": 7, "byte_length": 120},
+            "access_token": "retention-count-canary",
+        },
+        error_snapshot=[
+            {
+                "code": "provider_failed",
+                "message": "authorization: Bearer retention-error-canary",
+                "attempt": 2,
+            }
+        ],
+    )
+
+    class Service:
+        def __init__(self, _received_session):
+            pass
+
+        async def get_run(self, _run_id):
+            return run
+
+    monkeypatch.setattr(operations_api, "RetentionService", Service, raising=False)
+
+    response = client.get(f"/operations/retention-runs/{RUN_ID}")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert "retention-count-canary" not in response.text
+    assert "retention-error-canary" not in response.text
+    assert payload["counts"] == {
+        "execution": {"deleted": 7, "byte_length": 120},
+        "access_token": "[REDACTED]",
+    }
+    assert payload["errors"] == [
+        {
+            "code": "provider_failed",
+            "message": "authorization:[REDACTED]",
+            "attempt": 2,
+        }
+    ]
+    assert session.commits == 0
+
+
 def test_retention_run_detail_returns_404_when_service_has_no_run(api_client, monkeypatch):
     client, session = api_client
 

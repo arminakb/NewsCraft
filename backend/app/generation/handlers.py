@@ -14,6 +14,7 @@ from pydantic_core import to_jsonable_python
 from sqlalchemy import func, select
 
 from app.automations.telegram.handlers import sha256_canonical
+from app.core.redaction import redact_secrets, redact_string
 from app.generation.canonical import CanonicalStoryOutput, validate_canonical_output
 from app.generation.default_prompts import manual_generation_provider_schema, prompt_checksum
 from app.generation.models import (
@@ -136,11 +137,9 @@ def _platform_stage_input(
 ) -> tuple[dict[str, Any], str]:
     limits = platform_limits_for(platform)
     preferences = dict(brand_profile.get("platform_preferences") or {}).get(platform, {})
-    direction = (
-        preferences.get("direction")
-        if isinstance(preferences, dict)
-        else None
-    ) or ("rtl" if brand_profile.get("output_language") == "fa" else "ltr")
+    direction = (preferences.get("direction") if isinstance(preferences, dict) else None) or (
+        "rtl" if brand_profile.get("output_language") == "fa" else "ltr"
+    )
     input_payload = {
         "canonical_story_json": json.dumps(canonical_story, ensure_ascii=False, sort_keys=True),
         "brand_profile_json": json.dumps(brand_profile, ensure_ascii=False, sort_keys=True),
@@ -197,11 +196,7 @@ async def _require_exact_active_prompt(
             .execution_options(populate_existing=True)
         )
     )
-    if (
-        len(active) != 1
-        or active[0].id != prompt_id
-        or active[0].checksum_sha256 != prompt_checksum
-    ):
+    if len(active) != 1 or active[0].id != prompt_id or active[0].checksum_sha256 != prompt_checksum:
         raise PermanentJobError(
             code="generation_platform_prompt_configuration_invalid",
             message="Platform prompt configuration is invalid",
@@ -233,11 +228,7 @@ async def _require_exact_active_canonical_prompt(
             .execution_options(populate_existing=True)
         )
     )
-    if (
-        len(active) != 1
-        or active[0].id != prompt_id
-        or active[0].checksum_sha256 != prompt_checksum
-    ):
+    if len(active) != 1 or active[0].id != prompt_id or active[0].checksum_sha256 != prompt_checksum:
         raise PermanentJobError(
             code="generation_canonical_prompt_configuration_invalid",
             message="Canonical prompt configuration is invalid",
@@ -296,11 +287,7 @@ async def _require_exact_regeneration_dispatch(
         .with_for_update()
         .execution_options(populate_existing=True)
     )
-    if (
-        current is None
-        or current.id != base_revision_id
-        or current.content_hash != base_content_hash
-    ):
+    if current is None or current.id != base_revision_id or current.content_hash != base_content_hash:
         raise NeedsReviewJobError(
             code="generation_regeneration_base_stale",
             message="Regeneration base revision is no longer current",
@@ -347,15 +334,13 @@ async def _artifact_requires_review(
         pack_id = UUID(str(artifact["content_pack_id"]))
         variant_id = UUID(str(artifact["variant_id"]))
         revision_id = UUID(str(artifact["revision_id"]))
-    except (KeyError, TypeError, ValueError):
+    except KeyError, TypeError, ValueError:
         raise NeedsReviewJobError(
             code="generation_checkpoint_invalid",
             message="Generation checkpoint is invalid",
         ) from None
     pack = await session.scalar(
-        select(ContentPack)
-        .where(ContentPack.id == pack_id)
-        .execution_options(populate_existing=True)
+        select(ContentPack).where(ContentPack.id == pack_id).execution_options(populate_existing=True)
     )
     variant = await session.scalar(
         select(PlatformVariant)
@@ -370,9 +355,7 @@ async def _artifact_requires_review(
         .execution_options(populate_existing=True)
     )
     locked_parent = None
-    if revision is not None and (
-        expected_platform == "telegram" or expected_regeneration_base is not None
-    ):
+    if revision is not None and (expected_platform == "telegram" or expected_regeneration_base is not None):
         if revision.parent_revision_id is not None:
             locked_parent = await session.scalar(
                 select(PlatformVariantRevision)
@@ -380,10 +363,7 @@ async def _artifact_requires_review(
                 .with_for_update()
                 .execution_options(populate_existing=True)
             )
-            if (
-                locked_parent is None
-                or locked_parent.platform_variant_id != revision.platform_variant_id
-            ):
+            if locked_parent is None or locked_parent.platform_variant_id != revision.platform_variant_id:
                 raise NeedsReviewJobError(
                     code="generation_checkpoint_invalid",
                     message="Generation checkpoint parent linkage is invalid",
@@ -411,7 +391,7 @@ async def _artifact_requires_review(
             expected_validation_results = revision_gates_from_issues(
                 validate_platform_payload("telegram", telegram_payload)
             )
-        except (TypeError, ValueError):
+        except TypeError, ValueError:
             raise NeedsReviewJobError(
                 code="generation_checkpoint_invalid",
                 message="Generation checkpoint Telegram context is invalid",
@@ -434,20 +414,20 @@ async def _artifact_requires_review(
         or revision.evidence_map != expected_evidence_map
         or revision.validation_results != expected_validation_results
         or revision.content_hash
-        != sha256_canonical(
-            {"content": revision.content, "evidence_map": revision.evidence_map}
-        )
+        != sha256_canonical({"content": revision.content, "evidence_map": revision.evidence_map})
     ):
         raise NeedsReviewJobError(
             code="generation_checkpoint_invalid",
             message="Generation checkpoint linkage is invalid",
         )
     gates = revision.validation_results
-    if not isinstance(gates, list) or not gates or any(
-        not isinstance(gate, dict)
-        or not isinstance(gate.get("gate"), str)
-        or not isinstance(gate.get("ok"), bool)
-        for gate in gates
+    if (
+        not isinstance(gates, list)
+        or not gates
+        or any(
+            not isinstance(gate, dict) or not isinstance(gate.get("gate"), str) or not isinstance(gate.get("ok"), bool)
+            for gate in gates
+        )
     ):
         raise NeedsReviewJobError(
             code="generation_checkpoint_invalid",
@@ -459,7 +439,7 @@ async def _artifact_requires_review(
             validate_citations([Claim(text="Telegram package", citations=citations)], evidence)
         else:
             validate_citations(payload_claims(expected_platform, authored), evidence)
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         raise NeedsReviewJobError(
             code="citation_integrity",
             message="Generation checkpoint citations failed integrity validation",
@@ -513,8 +493,21 @@ def stage_input_hash(value: object) -> str:
 
 
 def _safe_error_code(value: object, fallback: str) -> str:
-    normalized = re.sub(r"[^a-z0-9_.-]+", "_", str(value).strip().lower()).strip("_.-")
+    raw = str(value).strip().lower()
+    if redact_string(raw) != raw:
+        return fallback
+    normalized = re.sub(r"[^a-z0-9_.-]+", "_", raw).strip("_.-")
     return normalized[:120] or fallback
+
+
+def _redacted_dict(value: object) -> dict[str, Any]:
+    redacted = redact_secrets(value)
+    return redacted if isinstance(redacted, dict) else {}
+
+
+def _redacted_list(value: object) -> list[Any]:
+    redacted = redact_secrets(value)
+    return redacted if isinstance(redacted, list) else []
 
 
 def _required_uuid(payload: dict[str, Any], key: str) -> UUID:
@@ -648,7 +641,7 @@ async def _invoke(
                 code="citation_integrity",
                 message="Generation citations failed integrity validation",
             ) from None
-        except (ValidationError, ValueError):
+        except ValidationError, ValueError:
             raise NeedsReviewJobError(
                 code="generation_output_invalid",
                 message="Generation output failed validation",
@@ -668,7 +661,7 @@ async def _invoke(
             story_revision_id=story_revision_id,
             provider_profile_id=profile.id,
             prompt_template_version_id=prompt.id,
-            requested_model=resolved.model,
+            requested_model=redact_string(resolved.model),
             status="running",
             input_hash=input_hash,
             request_payload={},
@@ -680,6 +673,8 @@ async def _invoke(
         await context.session.flush()
     else:
         run = existing
+        if run.requested_model is not None:
+            run.requested_model = redact_string(run.requested_model)
         execution = (run.request_payload or {}).get("execution") or {}
         if run.status == "running" and execution.get("workflow_attempt") == workflow_attempt:
             raise RetryableJobError(
@@ -706,9 +701,9 @@ async def _invoke(
         generation_run_id=run.id,
         attempt_number=max((item.attempt_number for item in attempts), default=0) + 1,
         provider=resolved.provider_type,
-        requested_model=resolved.model,
-        resolved_model=resolved.model,
-        prompt_snapshot=_prompt_snapshot(prompt, messages),
+        requested_model=redact_string(resolved.model),
+        resolved_model=redact_string(resolved.model),
+        prompt_snapshot=_redacted_dict(_prompt_snapshot(prompt, messages)),
         response_payload={},
         usage={},
         validation_errors=[],
@@ -716,16 +711,18 @@ async def _invoke(
         started_at=now,
     )
     context.session.add(attempt)
-    run.request_payload = {
-        "stage_key": stage_key,
-        "input": input_payload,
-        "prompt": _prompt_snapshot(prompt, messages),
-        "execution": {
-            "workflow_job_id": str(workflow_job_id),
-            "workflow_attempt": workflow_attempt,
-            "active_attempt_id": str(attempt.id),
-        },
-    }
+    run.request_payload = _redacted_dict(
+        {
+            "stage_key": stage_key,
+            "input": input_payload,
+            "prompt": _prompt_snapshot(prompt, messages),
+            "execution": {
+                "workflow_job_id": str(workflow_job_id),
+                "workflow_attempt": workflow_attempt,
+                "active_attempt_id": str(attempt.id),
+            },
+        }
+    )
     await context.session.flush()
     await context.session.commit()
 
@@ -814,31 +811,40 @@ async def _invoke(
             if current_run is not None and current_attempt is not None:
                 active = ((current_run.request_payload or {}).get("execution") or {}).get("active_attempt_id")
                 if active == str(attempt.id):
+                    durable_error_code = redact_string(mapped.code)
+                    durable_error_message = redact_string(mapped.message)
                     current_attempt.status = "failed"
                     current_attempt.error_class = error_class
-                    current_attempt.error_code = mapped.code
-                    current_attempt.error_message = mapped.message
+                    current_attempt.error_code = durable_error_code
+                    current_attempt.error_message = durable_error_message
                     current_attempt.finished_at = datetime.now(UTC)
                     if isinstance(exc, ValidationError):
-                        current_attempt.validation_errors = [
-                            {
-                                "type": item["type"],
-                                "loc": [str(part) for part in item["loc"]],
-                                "message": item["msg"],
-                            }
-                            for item in exc.errors(include_input=False, include_url=False)
-                        ]
+                        current_attempt.validation_errors = _redacted_list(
+                            [
+                                {
+                                    "type": item["type"],
+                                    "loc": [str(part) for part in item["loc"]],
+                                    "message": item["msg"],
+                                }
+                                for item in exc.errors(
+                                    include_input=False,
+                                    include_url=False,
+                                )
+                            ]
+                        )
                     elif isinstance(exc, CitationIntegrityError):
-                        current_attempt.validation_errors = [
-                            {
-                                "code": "citation_integrity",
-                                "message": "Generation citations failed integrity validation",
-                            }
-                        ]
+                        current_attempt.validation_errors = _redacted_list(
+                            [
+                                {
+                                    "code": "citation_integrity",
+                                    "message": "Generation citations failed integrity validation",
+                                }
+                            ]
+                        )
                     current_run.status = "failed"
                     current_run.error_class = error_class
-                    current_run.error_code = mapped.code
-                    current_run.error_message = mapped.message
+                    current_run.error_code = durable_error_code
+                    current_run.error_message = durable_error_message
                     current_run.finished_at = datetime.now(UTC)
         raise mapped from None
 
@@ -866,12 +872,13 @@ async def _invoke(
                 code="generation_stage_superseded",
                 message="Generation stage was superseded by another lease",
             )
-        current_attempt.response_payload = result.output
-        current_attempt.resolved_model = result.resolved_model
-        current_attempt.usage = result.usage
+        durable_output = _redacted_dict(result.output)
+        current_attempt.response_payload = durable_output
+        current_attempt.resolved_model = redact_string(result.resolved_model)
+        current_attempt.usage = _redacted_dict(result.usage)
         current_attempt.status = "succeeded"
         current_attempt.finished_at = datetime.now(UTC)
-        current_run.output_payload = result.output
+        current_run.output_payload = durable_output
         current_run.status = "succeeded"
         current_run.finished_at = datetime.now(UTC)
         current_run.error_class = current_run.error_code = current_run.error_message = None
@@ -903,10 +910,7 @@ def build_canonical_generation_handler(profile_resolver: Any):
                 code="generation_canonical_prompt_purpose_invalid", message="Canonical prompt purpose is invalid"
             )
         canonical_prompt_checksum = payload.get("canonical_prompt_checksum")
-        if (
-            not isinstance(canonical_prompt_checksum, str)
-            or canonical_prompt_checksum != prompt.checksum_sha256
-        ):
+        if not isinstance(canonical_prompt_checksum, str) or canonical_prompt_checksum != prompt.checksum_sha256:
             raise PermanentJobError(
                 code="generation_canonical_prompt_configuration_invalid",
                 message="Canonical prompt configuration is invalid",
@@ -1093,13 +1097,15 @@ def build_canonical_generation_handler(profile_resolver: Any):
             origin=JobOrigin.AUTOMATION,
         )
         assert durable_run is not None
-        durable_run.output_payload = {
-            **durable_run.output_payload,
-            "_artifact": {
-                "story_revision_id": str(revision.id),
-                "continuation_job_id": str(queued.job.id),
-            },
-        }
+        durable_run.output_payload = _redacted_dict(
+            {
+                **durable_run.output_payload,
+                "_artifact": {
+                    "story_revision_id": str(revision.id),
+                    "continuation_job_id": str(queued.job.id),
+                },
+            }
+        )
         return {"story_revision_id": str(revision.id), "continuation_job_id": str(queued.job.id)}
 
     return handle
@@ -1111,7 +1117,7 @@ async def _locked_story_evidence(
 ) -> tuple[list[CitationRef], dict[UUID, EvidenceRecord]]:
     try:
         citations = [CitationRef.model_validate(item) for item in story_revision.citations]
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         raise NeedsReviewJobError(
             code="generation_citations_invalid",
             message="Canonical story citations are invalid",
@@ -1155,11 +1161,7 @@ def _manual_output_with_ordinary_issues(
         payload = payload_type.model_validate(raw)
     except ValidationError:
         schema = manual_generation_provider_schema(payload_type)
-        errors = list(
-            Draft202012Validator(schema, format_checker=FormatChecker()).iter_errors(
-                to_jsonable_python(raw)
-            )
-        )
+        errors = list(Draft202012Validator(schema, format_checker=FormatChecker()).iter_errors(to_jsonable_python(raw)))
         if errors:
             raise ValueError("manual platform output failed structural validation") from None
         payload = _construct_manual_payload(payload_type, raw)
@@ -1203,8 +1205,7 @@ def _construct_manual_value(annotation: Any, value: Any) -> Any:
 
 def _construct_manual_payload(model_type: type[BaseModel], raw: dict[str, Any]) -> BaseModel:
     values = {
-        name: _construct_manual_value(model_type.model_fields[name].annotation, value)
-        for name, value in raw.items()
+        name: _construct_manual_value(model_type.model_fields[name].annotation, value) for name, value in raw.items()
     }
     return model_type.model_construct(**values)
 
@@ -1225,8 +1226,10 @@ def build_pack_generation_handler(profile_resolver: Any):
         raw_platforms = payload.get("platforms")
         if raw_platforms is None and payload.get("platform") == "telegram":
             raw_platforms = ["telegram"]
-        if not isinstance(raw_platforms, list) or not raw_platforms or any(
-            item not in PLATFORM_PROMPT_PURPOSE for item in raw_platforms
+        if (
+            not isinstance(raw_platforms, list)
+            or not raw_platforms
+            or any(item not in PLATFORM_PROMPT_PURPOSE for item in raw_platforms)
         ):
             raise PermanentJobError(
                 code="generation_job_platforms_invalid",
@@ -1255,9 +1258,7 @@ def build_pack_generation_handler(profile_resolver: Any):
                 message="Generation prompt mapping is invalid",
             )
         story = await context.session.scalar(
-            select(Story)
-            .where(Story.id == story_revision.story_id, Story.superseded_by_id.is_(None))
-            .with_for_update()
+            select(Story).where(Story.id == story_revision.story_id, Story.superseded_by_id.is_(None)).with_for_update()
         )
         if story is None:
             raise PermanentJobError(code="generation_story_inactive", message="Active generation story was not found")
@@ -1268,7 +1269,7 @@ def build_pack_generation_handler(profile_resolver: Any):
         for platform in (item for item in PLATFORM_ORDER if item in platforms):
             try:
                 prompt_id = UUID(str(prompt_ids[platform]))
-            except (TypeError, ValueError):
+            except TypeError, ValueError:
                 raise PermanentJobError(
                     code="generation_prompt_mapping_invalid",
                     message="Generation prompt mapping is invalid",
@@ -1340,7 +1341,7 @@ def build_pack_generation_handler(profile_resolver: Any):
                     UUID(str(payload["base_revision_id"])),
                     str(payload["base_content_hash"]),
                 )
-            except (KeyError, TypeError, ValueError):
+            except KeyError, TypeError, ValueError:
                 raise PermanentJobError(
                     code="generation_regeneration_base_invalid",
                     message="Regeneration base revision is invalid",
@@ -1370,9 +1371,11 @@ def build_pack_generation_handler(profile_resolver: Any):
             )
 
             if platform == "telegram":
+
                 def validate_output(raw: dict[str, Any]) -> TelegramRewriteOutput:
                     return TelegramRewriteOutput.model_validate(raw)
             else:
+
                 def validate_output(raw: dict[str, Any], selected=platform):
                     authored, _issues = _manual_output_with_ordinary_issues(selected, raw)
                     validate_citations(payload_claims(selected, authored), evidence)
@@ -1501,9 +1504,7 @@ def build_pack_generation_handler(profile_resolver: Any):
                     evidence=evidence,
                     telegram_default_direction=telegram_default_direction,
                     expected_regeneration_base=(
-                        (regeneration_context[1], regeneration_context[2])
-                        if regeneration_context is not None
-                        else None
+                        (regeneration_context[1], regeneration_context[2]) if regeneration_context is not None else None
                     ),
                 )
                 pack = await context.session.get(ContentPack, UUID(str(artifact["content_pack_id"])))
@@ -1618,7 +1619,7 @@ def build_pack_generation_handler(profile_resolver: Any):
                     issues = validate_platform_payload("telegram", telegram_payload)
                     validation_results = revision_gates_from_issues(issues)
                     platform_has_errors = any(item.severity == "error" for item in issues)
-                except (TypeError, ValueError):
+                except TypeError, ValueError:
                     raise NeedsReviewJobError(
                         code="generation_telegram_parent_invalid",
                         message="Trusted Telegram parent context is invalid",
@@ -1654,15 +1655,17 @@ def build_pack_generation_handler(profile_resolver: Any):
             await context.session.flush()
             has_errors = has_errors or platform_has_errors
             assert durable_run is not None
-            durable_run.output_payload = {
-                **durable_run.output_payload,
-                "_artifact": {
-                    "content_pack_id": str(pack.id),
-                    "variant_id": str(variant.id),
-                    "revision_id": str(existing_revision.id),
-                    "platform": platform,
-                },
-            }
+            durable_run.output_payload = _redacted_dict(
+                {
+                    **durable_run.output_payload,
+                    "_artifact": {
+                        "content_pack_id": str(pack.id),
+                        "variant_id": str(variant.id),
+                        "revision_id": str(existing_revision.id),
+                        "platform": platform,
+                    },
+                }
+            )
             results.append({"variant_id": str(variant.id), "revision_id": str(existing_revision.id)})
             completed_platforms.append(platform)
             job.result = _pack_job_result(pack.id, completed_platforms, results)
@@ -1686,9 +1689,7 @@ def build_regenerate_handler(profile_resolver: Any):
         payload = _job_payload(job)
         variant_id = _required_uuid(payload, "variant_id")
         variant = await context.session.scalar(
-            select(PlatformVariant)
-            .where(PlatformVariant.id == variant_id)
-            .execution_options(populate_existing=True)
+            select(PlatformVariant).where(PlatformVariant.id == variant_id).execution_options(populate_existing=True)
         )
         pack = await context.session.get(ContentPack, variant.content_pack_id) if variant else None
         if pack is None:
@@ -1749,11 +1750,7 @@ def build_regenerate_handler(profile_resolver: Any):
                     code="generation_regeneration_base_stale",
                     message="Regeneration variant has no current revision",
                 )
-            payload = {
-                key: value
-                for key, value in payload.items()
-                if key != "platform_prompt_template_version_id"
-            } | {
+            payload = {key: value for key, value in payload.items() if key != "platform_prompt_template_version_id"} | {
                 "base_revision_id": str(current.id),
                 "base_content_hash": current.content_hash,
                 "platforms": ["telegram"],
@@ -1768,10 +1765,7 @@ def build_regenerate_handler(profile_resolver: Any):
                 )
             _required_uuid(payload, "base_revision_id")
             base_content_hash = payload.get("base_content_hash")
-            if (
-                not isinstance(base_content_hash, str)
-                or re.fullmatch(r"[0-9a-f]{64}", base_content_hash) is None
-            ):
+            if not isinstance(base_content_hash, str) or re.fullmatch(r"[0-9a-f]{64}", base_content_hash) is None:
                 raise PermanentJobError(
                     code="generation_regeneration_base_invalid",
                     message="Regeneration base revision is invalid",

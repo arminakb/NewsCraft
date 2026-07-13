@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -16,6 +17,8 @@ from app.jobs.models import AutomationControl, WorkflowEvent, WorkflowJob
 from app.jobs.types import JobErrorClass, JobOrigin, JobStatus
 from app.retention.models import RetentionRun
 
+_RETENTION_PREVIEW_TOKEN_PATTERN = re.compile(r"^[0-9a-f]{64}$")
+
 
 @dataclass(frozen=True, slots=True)
 class EnqueueJobResult:
@@ -29,6 +32,21 @@ def _now(value: datetime | None) -> datetime:
 
 def _enum_value(value: str | JobStatus | JobErrorClass | JobOrigin) -> str:
     return value.value if hasattr(value, "value") else str(value)
+
+
+def _redact_job_payload(job_type: str, payload: dict[str, Any]) -> dict[str, Any]:
+    sanitized = redact_secrets(payload)
+    if not isinstance(sanitized, dict):  # pragma: no cover - dict input contract
+        return {}
+
+    if job_type == "execute_retention":
+        preview_token = payload.get("preview_token")
+        if isinstance(preview_token, str) and _RETENTION_PREVIEW_TOKEN_PATTERN.fullmatch(preview_token):
+            # This opaque, server-generated capability is required by the retention
+            # handler. Keep the exemption local to its validated job contract so the
+            # same key remains secret everywhere else.
+            sanitized["preview_token"] = preview_token
+    return sanitized
 
 
 class JobRepository:
@@ -56,9 +74,10 @@ class JobRepository:
         return await self.session.scalar(select(WorkflowJob).where(WorkflowJob.id == job_id).with_for_update())
 
     async def _locked_retention_run(self, job_id: UUID) -> RetentionRun | None:
-        return await self.session.scalar(
+        run = await self.session.scalar(
             select(RetentionRun).where(RetentionRun.workflow_job_id == job_id).with_for_update()
         )
+        return run if isinstance(run, RetentionRun) else None
 
     @staticmethod
     def _sync_retention_terminal(
@@ -119,11 +138,12 @@ class JobRepository:
         pause_sensitive: bool = True,
     ) -> EnqueueJobResult:
         effective_scheduled_for = _now(scheduled_for)
+        safe_payload = _redact_job_payload(job_type, payload)
         statement = (
             insert(WorkflowJob)
             .values(
                 job_type=job_type,
-                payload=payload,
+                payload=safe_payload,
                 idempotency_key=idempotency_key,
                 origin=_enum_value(origin),
                 priority=priority,
@@ -258,7 +278,7 @@ class JobRepository:
         if progress is not None:
             job.progress = progress
         if progress_message is not None:
-            job.progress_message = progress_message
+            job.progress_message = str(redact_secrets(progress_message))
         await self._append_event(
             job_id=job.id,
             event_type="job.heartbeat",

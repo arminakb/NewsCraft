@@ -8,6 +8,7 @@ from fastapi import APIRouter, Body, Depends, HTTPException, Query
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.redaction import redact_secrets
 from app.db.session import get_session
 from app.jobs.schemas import JobAcceptedOut
 from app.operations.diagnostics import OperationsDiagnostics
@@ -342,8 +343,8 @@ def _retention_run_out(run: object) -> RetentionRunOut:
         status=run.status,
         schema_revision=run.schema_revision,
         policy=RetentionPolicyInput.model_validate(run.policy_snapshot),
-        counts=run.count_snapshot,
-        errors=run.error_snapshot,
+        counts=redact_secrets(run.count_snapshot),
+        errors=redact_secrets(run.error_snapshot),
         previewed_at=run.previewed_at,
         preview_expires_at=run.preview_expires_at,
         queued_at=run.queued_at,

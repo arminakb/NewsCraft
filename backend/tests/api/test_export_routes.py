@@ -257,7 +257,7 @@ async def test_export_list_uses_stable_tie_cursor_and_keeps_failed_rows_safe():
         status="failed",
         finished_at=finished_at,
         result={"storage_path": "/data/exports/secret"},
-        error_code="export_failed",
+        error_code="export_api_key=export-code-canary",
         error_message="token=do-not-leak",
     )
     overflow = SimpleNamespace(
@@ -285,6 +285,8 @@ async def test_export_list_uses_stable_tie_cursor_and_keeps_failed_rows_safe():
     assert [item.export_id for item in output.items] == ids[:2]
     assert output.items[1].artifact is None
     assert "/data/exports" not in output.model_dump_json()
+    assert "export-code-canary" not in output.items[1].error_code
+    assert output.items[1].error_code == "export_api_key=[REDACTED]"
     assert "do-not-leak" not in output.items[1].error_message
     assert decode_export_cursor(output.next_cursor) == (finished_at, ids[1])
     assert "workflow_jobs.finished_at DESC" in str(session.statement)

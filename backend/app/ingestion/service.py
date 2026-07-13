@@ -6,6 +6,7 @@ from typing import Any
 import httpx
 
 from app.core.config import settings
+from app.core.redaction import redact_secrets, redact_string
 from app.db.models import Source
 from app.ingestion.repository import IngestionRepository, build_item_identities
 from app.sources.registry import parser_for_source
@@ -60,19 +61,32 @@ class IngestionService:
                 try:
                     await self._ingest_source(client, run.id, source, stats)
                 except Exception as exc:  # noqa: BLE001 - source-level failures should not abort the whole run
-                    if source.last_error_message != str(exc):
+                    safe_error = redact_string(str(exc))
+                    if source.last_error_message != safe_error:
                         _record_source_failure(source, exc)
                     stats["failed"] += 1
-                    stats["errors"].append({"source": source.name, "error": str(exc)})
+                    stats["errors"].append(
+                        {
+                            "source": redact_string(source.name),
+                            "error": safe_error,
+                        }
+                    )
 
             status = "partial" if stats["failed"] else "succeeded"
-            await self.repository.finish_run(run.id, status=status, stats=stats)
-            return stats
+            safe_stats = _sanitized_stats(stats)
+            await self.repository.finish_run(run.id, status=status, stats=safe_stats)
+            return safe_stats
         except Exception as exc:
             stats["failed"] += 1
-            stats["errors"].append({"run": str(exc)})
-            await self.repository.finish_run(run.id, status="failed", stats=stats, error=str(exc))
-            return stats
+            stats["errors"].append({"run": redact_string(str(exc))})
+            safe_stats = _sanitized_stats(stats)
+            await self.repository.finish_run(
+                run.id,
+                status="failed",
+                stats=safe_stats,
+                error=redact_string(str(exc)),
+            )
+            return safe_stats
         finally:
             if owns_client:
                 await client.aclose()
@@ -117,7 +131,8 @@ class IngestionService:
 
         stats["fetched"] += 1
         parsed_payload = _parse_source_payload(source, response.text, request_url)
-        payload.parser_warnings = parsed_payload.warnings
+        durable_warnings = redact_secrets(parsed_payload.warnings)
+        payload.parser_warnings = durable_warnings if isinstance(durable_warnings, list) else []
         parse_count = len(parsed_payload.items)
         suitable_count = sum(1 for item in parsed_payload.items if _is_suitable_item(item))
         media_count = sum(len(item.media_candidates) for item in parsed_payload.items)
@@ -251,8 +266,8 @@ def _record_source_success(
         source.health_status = "degraded"
         source.last_failure_at = now
         source.failure_count = int(source.failure_count or 0) + 1
-        source.last_error_type = error_type
-        source.last_error_message = error_message
+        source.last_error_type = redact_string(error_type)
+        source.last_error_message = redact_string(error_message) if error_message is not None else None
         return
 
     source.health_status = "healthy"
@@ -282,8 +297,8 @@ def _record_source_failure(
     source.last_failure_at = now
     source.failure_count = int(source.failure_count or 0) + 1
     source.last_http_status = http_status
-    source.last_error_type = error_type or error.__class__.__name__
-    source.last_error_message = str(error)
+    source.last_error_type = redact_string(error_type or error.__class__.__name__)
+    source.last_error_message = redact_string(str(error))
     source.health_status = "disabled" if _source_is_disabled(source) else "broken"
 
 
@@ -313,3 +328,8 @@ def _source_is_disabled(source: Source) -> bool:
 async def _flush(session) -> None:
     if session is not None:
         await session.flush()
+
+
+def _sanitized_stats(stats: dict[str, Any]) -> dict[str, Any]:
+    sanitized = redact_secrets(stats)
+    return sanitized if isinstance(sanitized, dict) else {}

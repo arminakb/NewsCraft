@@ -27,6 +27,7 @@ from app.api.telegram_schemas import (
     TelegramRouteOut,
 )
 from app.automations.models import AutomationDispatch, AutomationRoute, TelegramSourceConfig
+from app.core.redaction import redact_string
 from app.core.secrets import SecretResolver
 from app.db.models import Source
 from app.db.session import get_session
@@ -56,9 +57,7 @@ def _provider_is_configured(
     secrets: SecretResolver,
     executable_resolver: ExecutableResolver,
 ) -> bool:
-    capabilities, _codes = provider_capabilities(
-        profile, secrets, executable_resolver
-    )
+    capabilities, _codes = provider_capabilities(profile, secrets, executable_resolver)
     return capabilities["generation"]
 
 
@@ -111,13 +110,9 @@ async def automation_options(
     )
     template_ids = {item.id for item in templates}
     versions = list(
-        await session.scalars(
-            select(PromptTemplateVersion).where(PromptTemplateVersion.is_active.is_(True))
-        )
+        await session.scalars(select(PromptTemplateVersion).where(PromptTemplateVersion.is_active.is_(True)))
     )
-    profiles = list(
-        await session.scalars(select(AIProviderProfile).where(AIProviderProfile.enabled.is_(True)))
-    )
+    profiles = list(await session.scalars(select(AIProviderProfile).where(AIProviderProfile.enabled.is_(True))))
     safe_profiles = []
     for profile in profiles:
         capabilities, _codes = provider_capabilities(profile, secrets, executable_resolver)
@@ -153,9 +148,7 @@ async def automation_options(
         ],
         brand_profiles=[{"id": item.id, "name": item.name} for item in brands],
         prompt_template_versions=[
-            {"id": item.id, "version": item.version}
-            for item in versions
-            if item.prompt_template_id in template_ids
+            {"id": item.id, "version": item.version} for item in versions if item.prompt_template_id in template_ids
         ],
         ai_provider_profiles=safe_profiles,
     )
@@ -168,9 +161,7 @@ async def create_route(
     secrets: SecretResolverDependency = None,
     executable_resolver: ExecutableResolverDependency = shutil.which,
 ):
-    source = await session.scalar(
-        select(Source).where(Source.id == body.source_id).with_for_update()
-    )
+    source = await session.scalar(select(Source).where(Source.id == body.source_id).with_for_update())
     source_config = await session.get(TelegramSourceConfig, body.source_id)
     destination = await session.get(Destination, body.destination_id)
     brand = await session.get(BrandProfile, body.brand_profile_id)
@@ -192,13 +183,9 @@ async def create_route(
     research_profile_id = body.content_filters.research_provider_profile_id
     if research_profile_id is not None:
         research_profile = await session.get(AIProviderProfile, research_profile_id)
-        if research_profile is None or not _provider_supports_research(
-            research_profile, secrets, executable_resolver
-        ):
+        if research_profile is None or not _provider_supports_research(research_profile, secrets, executable_resolver):
             raise HTTPException(422, "Research provider profile is not configured")
-    if body.publishing_policy == "auto_publish" and not bool(
-        (destination.settings or {}).get("allow_auto_publish")
-    ):
+    if body.publishing_policy == "auto_publish" and not bool((destination.settings or {}).get("allow_auto_publish")):
         raise HTTPException(422, "Destination does not allow auto publishing")
     existing = await session.scalar(
         select(AutomationRoute).where(
@@ -268,16 +255,12 @@ async def update_research_policy(
     secrets: SecretResolverDependency = None,
     executable_resolver: ExecutableResolverDependency = shutil.which,
 ):
-    route = await session.scalar(
-        select(AutomationRoute).where(AutomationRoute.id == route_id).with_for_update()
-    )
+    route = await session.scalar(select(AutomationRoute).where(AutomationRoute.id == route_id).with_for_update())
     if route is None:
         raise HTTPException(404, "Telegram automation route not found")
     if body.research_provider_profile_id is not None:
         profile = await session.get(AIProviderProfile, body.research_provider_profile_id)
-        if profile is None or not _provider_supports_research(
-            profile, secrets, executable_resolver
-        ):
+        if profile is None or not _provider_supports_research(profile, secrets, executable_resolver):
             raise HTTPException(422, "Research provider profile is not configured")
     filters = dict(route.content_filters or {})
     filters.pop("research_backend", None)
@@ -297,16 +280,12 @@ async def activate_route(
     session: AsyncSession = SessionDependency,
     jobs: JobRepositoryDependency = None,
 ):
-    route = await session.scalar(
-        select(AutomationRoute).where(AutomationRoute.id == route_id).with_for_update()
-    )
+    route = await session.scalar(select(AutomationRoute).where(AutomationRoute.id == route_id).with_for_update())
     if route is None:
         raise HTTPException(404, "Telegram automation route not found")
     state = route.cursor_state or {}
     replaying_initialization = (
-        route.enabled
-        and state.get("status") == "initializing"
-        and bool(state.get("activation_requested_at"))
+        route.enabled and state.get("status") == "initializing" and bool(state.get("activation_requested_at"))
     )
     if replaying_initialization:
         requested_at = str(state["activation_requested_at"])
@@ -362,9 +341,7 @@ async def dry_run_route(
         "source_message_id": body.source_message_id,
         "force_review": True,
     }
-    request_hash = hashlib.sha256(
-        json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
-    ).hexdigest()
+    request_hash = hashlib.sha256(json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
     result = await jobs.enqueue_job(
         job_type="telegram.route.dry_run",
         payload=payload,
@@ -384,9 +361,7 @@ async def backfill_route(
 ):
     route = await _route_or_404(session, route_id)
     bounds = body.model_dump(mode="json", exclude_none=True)
-    bounds_hash = hashlib.sha256(
-        json.dumps(bounds, sort_keys=True, separators=(",", ":")).encode()
-    ).hexdigest()
+    bounds_hash = hashlib.sha256(json.dumps(bounds, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
     result = await jobs.enqueue_job(
         job_type="telegram.route.backfill",
         payload={"route_id": str(route.id), **bounds},
@@ -425,8 +400,8 @@ async def list_route_dispatches(route_id: UUID, session: AsyncSession = SessionD
                 "generation_run_id": row.generation_run_id,
                 "variant_revision_id": row.variant_revision_id,
                 "publish_job_id": row.publish_job_id,
-                "error_code": row.error_code,
-                "error_message": row.error_message,
+                "error_code": redact_string(row.error_code) if row.error_code is not None else None,
+                "error_message": redact_string(row.error_message) if row.error_message is not None else None,
                 "created_at": row.created_at,
                 "updated_at": row.updated_at,
             }

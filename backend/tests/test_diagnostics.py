@@ -87,6 +87,54 @@ async def test_diagnostics_marks_active_never_checked_sources_unknown():
     assert payload["problem_sources"][0]["health_status"] == "unknown"
 
 
+async def test_diagnostics_service_redacts_legacy_problem_source_fields():
+    source = _source(
+        "Legacy api_key=diagnostic-name-canary",
+        "broken",
+        failure_count=1,
+        error_type="auth_token=diagnostic-type-canary",
+    )
+    source.last_error_message = 'failure {"authorization":"Bearer diagnostic-message-canary"}'
+    source.disabled_reason = "password=diagnostic-disabled-canary"
+
+    payload = await DiagnosticsService(FakeSession([source])).check()
+
+    rendered = str(payload["problem_sources"])
+    assert "diagnostic-name-canary" not in rendered
+    assert "diagnostic-type-canary" not in rendered
+    assert "diagnostic-message-canary" not in rendered
+    assert "diagnostic-disabled-canary" not in rendered
+    assert "[REDACTED]" in rendered
+
+
+async def test_diagnostics_route_redacts_legacy_problem_source_fields():
+    source = _source(
+        "Route api_key=diagnostic-route-name-canary",
+        "broken",
+        failure_count=1,
+        error_type="auth_token=diagnostic-route-type-canary",
+    )
+    source.last_error_message = 'failure {"authorization":"Bearer diagnostic-route-message-canary"}'
+
+    async def override():
+        yield FakeSession([source])
+
+    app.dependency_overrides[get_session] = override
+    try:
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            response = await client.get("/diagnostics")
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    rendered = str(response.json()["problem_sources"])
+    assert "diagnostic-route-name-canary" not in rendered
+    assert "diagnostic-route-type-canary" not in rendered
+    assert "diagnostic-route-message-canary" not in rendered
+    assert "[REDACTED]" in rendered
+
+
 async def test_diagnostics_reports_failed_source_health_query():
     payload = await DiagnosticsService(BrokenSession()).check()
 

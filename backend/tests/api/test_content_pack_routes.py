@@ -67,10 +67,7 @@ def test_blog_rendered_html_is_read_only_sanitized_and_bound_to_revision_identit
         "excerpt_sha256": "a" * 64,
     }
     body = (
-        "# Grounded report\n\n"
-        "[Source](https://example.com/report)\n\n"
-        "<script>alert(1)</script>\n\n"
-        + "grounded " * 30
+        "# Grounded report\n\n[Source](https://example.com/report)\n\n<script>alert(1)</script>\n\n" + "grounded " * 30
     )
     content = {
         "title": "Grounded report",
@@ -191,9 +188,7 @@ async def test_release_four_revision_projection_keeps_gate_rows_and_adds_typed_v
         },
         content_hash="b" * 64,
         evidence_map=[],
-        validation_results=[
-            {"gate": "x_platform_recheck_required", "ok": True, "reason": "Recheck in X"}
-        ],
+        validation_results=[{"gate": "x_platform_recheck_required", "ok": True, "reason": "Recheck in X"}],
         approval_state="pending_review",
         created_by="generation",
         created_at=datetime.now(UTC),
@@ -218,13 +213,68 @@ async def test_release_four_revision_projection_keeps_gate_rows_and_adds_typed_v
 
 
 @pytest.mark.asyncio
-async def test_telegram_revision_projection_keeps_checklist_adjacent_to_exact_nine_key_content():
+async def test_revision_projection_redacts_legacy_validation_results_and_derived_issues():
     from app.generation.models import ContentPack, PlatformVariant, PlatformVariantRevision
+    from app.stories.models import StoryRevision
+
+    pack = SimpleNamespace(id=uuid4(), story_revision_id=uuid4())
+    variant = SimpleNamespace(id=uuid4(), content_pack_id=pack.id, platform="x")
+    story_revision = SimpleNamespace(id=pack.story_revision_id, story_id=uuid4(), citations=[])
+    revision = PlatformVariantRevision(
+        id=uuid4(),
+        platform_variant_id=variant.id,
+        parent_revision_id=None,
+        generation_attempt_id=None,
+        revision_number=1,
+        content={"mode": "invalid"},
+        content_hash="b" * 64,
+        evidence_map=[],
+        validation_results=[
+            {
+                "gate": "provider_failed",
+                "ok": False,
+                "reason": "authorization: Bearer revision-validation-canary",
+            }
+        ],
+        approval_state="pending_review",
+        created_by="generation",
+        created_at=datetime.now(UTC),
+    )
+
+    class Session:
+        async def get(self, model, identifier):
+            return {
+                (PlatformVariant, variant.id): variant,
+                (ContentPack, pack.id): pack,
+                (StoryRevision, story_revision.id): story_revision,
+            }.get((model, identifier))
+
+    output = await _revision_out(Session(), revision)
+
+    assert "revision-validation-canary" not in str(output)
+    assert output["validation_results"][0]["reason"] == "authorization:[REDACTED]"
+    assert output["validation_issues"][0]["message"] == "authorization:[REDACTED]"
+
+
+@pytest.mark.asyncio
+async def test_telegram_revision_projection_keeps_checklist_adjacent_to_exact_nine_key_content():
+    from app.generation.models import (
+        ContentPack,
+        GenerationAttempt,
+        GenerationRun,
+        PlatformVariant,
+        PlatformVariantRevision,
+    )
     from app.stories.models import StoryRevision
 
     pack = SimpleNamespace(id=uuid4(), story_revision_id=uuid4())
     variant = SimpleNamespace(id=uuid4(), content_pack_id=pack.id, platform="telegram")
     story_revision = SimpleNamespace(id=pack.story_revision_id, story_id=uuid4())
+    attempt = SimpleNamespace(
+        id=uuid4(),
+        generation_run_id=uuid4(),
+        resolved_model="api_key=model-output-canary",
+    )
     content = {
         "body": "Grounded",
         "parse_mode": "HTML",
@@ -240,7 +290,7 @@ async def test_telegram_revision_projection_keeps_checklist_adjacent_to_exact_ni
         id=uuid4(),
         platform_variant_id=variant.id,
         parent_revision_id=None,
-        generation_attempt_id=None,
+        generation_attempt_id=attempt.id,
         revision_number=1,
         content=content,
         content_hash="b" * 64,
@@ -257,6 +307,8 @@ async def test_telegram_revision_projection_keeps_checklist_adjacent_to_exact_ni
                 (PlatformVariant, variant.id): variant,
                 (ContentPack, pack.id): pack,
                 (StoryRevision, story_revision.id): story_revision,
+                (GenerationAttempt, attempt.id): attempt,
+                (GenerationRun, attempt.generation_run_id): None,
             }.get((model, identifier))
 
     output = await _revision_out(Session(), revision)
@@ -265,6 +317,8 @@ async def test_telegram_revision_projection_keeps_checklist_adjacent_to_exact_ni
     assert output["manual_checklist"] == []
     assert output["content"] == content
     assert len(output["content"]) == 9
+    assert output["resolved_model"] == "api_key=[REDACTED]"
+    assert "model-output-canary" not in str(output)
 
 
 @pytest.mark.asyncio
@@ -370,10 +424,7 @@ async def test_revision_projection_exposes_safe_deduplicated_evidence_source_med
             "order": 1,
         }
     ]
-    assert all(
-        "original_url" not in item and "storage_path" not in item
-        for item in output["source_media"]
-    )
+    assert all("original_url" not in item and "storage_path" not in item for item in output["source_media"])
 
 
 def _manual_route_request():

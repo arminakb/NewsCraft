@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.stories import _story_summary
 from app.api.telegram_destinations import get_secret_resolver
-from app.core.redaction import redact_secrets
+from app.core.redaction import redact_secrets, redact_string
 from app.db.session import get_session
 from app.exports.service import (
     ExportContractError,
@@ -82,11 +82,7 @@ ProfileResolverDependency = Depends(get_editorial_profile_resolver)
 
 
 def _platform_values(rows: Any) -> set[str]:
-    return {
-        value
-        for row in rows
-        if isinstance((value := getattr(row, "platform", row)), str)
-    }
+    return {value for row in rows if isinstance((value := getattr(row, "platform", row)), str)}
 
 
 async def _pack_has_exact_current_platforms(
@@ -94,11 +90,7 @@ async def _pack_has_exact_current_platforms(
     pack_id: UUID,
     expected_platforms: list[str],
 ) -> bool:
-    variants = list(
-        await session.scalars(
-            select(PlatformVariant).where(PlatformVariant.content_pack_id == pack_id)
-        )
-    )
+    variants = list(await session.scalars(select(PlatformVariant).where(PlatformVariant.content_pack_id == pack_id)))
     if _platform_values(variants) != set(expected_platforms) or len(variants) != len(expected_platforms):
         return False
     for variant in variants:
@@ -140,12 +132,7 @@ def _media_plan(platform: str | None, content: dict[str, Any]) -> list[Any]:
     if platform == "instagram":
         return [slide.get("media") for slide in content.get("carousel", []) if isinstance(slide, dict)]
     if platform == "x":
-        return [
-            media
-            for post in content.get("posts", [])
-            if isinstance(post, dict)
-            for media in post.get("media", [])
-        ]
+        return [media for post in content.get("posts", []) if isinstance(post, dict) for media in post.get("media", [])]
     if platform == "blog" and content.get("hero_media") is not None:
         return [content["hero_media"]]
     return []
@@ -160,7 +147,7 @@ async def _source_media_out(
         return []
     try:
         citations = [CitationRef.model_validate(item) for item in raw_citations]
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         return []
     snapshot_ids = {item.evidence_snapshot_id for item in citations}
     if not snapshot_ids:
@@ -203,6 +190,12 @@ async def _revision_out(session: AsyncSession, row: PlatformVariantRevision) -> 
         if row.created_by in {"operator", "automation", "generation"}
         else "operator"
     )
+    redacted_validation_results = redact_secrets(row.validation_results)
+    validation_results = (
+        [item for item in redacted_validation_results if isinstance(item, dict)]
+        if isinstance(redacted_validation_results, list)
+        else []
+    )
     validation_issues: list[dict[str, Any]] = []
     payload_types = {
         "telegram": TelegramVariantPayload,
@@ -214,8 +207,7 @@ async def _revision_out(session: AsyncSession, row: PlatformVariantRevision) -> 
         try:
             platform_payload = payload_types[variant.platform].model_validate(row.content)
             validation_issues = [
-                issue.model_dump(mode="json")
-                for issue in validate_platform_payload(variant.platform, platform_payload)
+                issue.model_dump(mode="json") for issue in validate_platform_payload(variant.platform, platform_payload)
             ]
         except ValueError:
             validation_issues = [
@@ -225,7 +217,7 @@ async def _revision_out(session: AsyncSession, row: PlatformVariantRevision) -> 
                     "message": str(gate.get("reason") or "Stored platform content is invalid"),
                     "severity": "warning" if gate.get("ok") else "error",
                 }
-                for gate in row.validation_results
+                for gate in validation_results
             ] or [
                 {
                     "code": "platform_schema_invalid",
@@ -235,11 +227,7 @@ async def _revision_out(session: AsyncSession, row: PlatformVariantRevision) -> 
                 }
             ]
     platform = variant.platform if variant is not None else None
-    manual_checklist = (
-        list(row.content.get("manual_checklist") or [])
-        if platform in {"instagram", "x", "blog"}
-        else []
-    )
+    manual_checklist = list(row.content.get("manual_checklist") or []) if platform in {"instagram", "x", "blog"} else []
     source_media = await _source_media_out(session, story_revision)
     return {
         "id": row.id,
@@ -254,7 +242,7 @@ async def _revision_out(session: AsyncSession, row: PlatformVariantRevision) -> 
         "content_hash": row.content_hash,
         "evidence_map": row.evidence_map,
         "manual_checklist": manual_checklist,
-        "validation_results": row.validation_results,
+        "validation_results": validation_results,
         "validation_issues": validation_issues,
         "media_plan": _media_plan(variant.platform if variant is not None else None, row.content),
         "source_media": source_media,
@@ -268,7 +256,11 @@ async def _revision_out(session: AsyncSession, row: PlatformVariantRevision) -> 
             if profile is not None
             else None
         ),
-        "resolved_model": attempt.resolved_model if attempt is not None else None,
+        "resolved_model": (
+            redact_string(str(attempt.resolved_model))
+            if attempt is not None and attempt.resolved_model is not None
+            else None
+        ),
         "prompt_version": (
             {
                 "id": prompt.id,
@@ -285,11 +277,7 @@ async def _revision_out(session: AsyncSession, row: PlatformVariantRevision) -> 
 
 async def _pack_out(session: AsyncSession, pack: ContentPack) -> dict[str, Any]:
     story_revision = await session.get(StoryRevision, pack.story_revision_id)
-    variants = list(
-        await session.scalars(
-            select(PlatformVariant).where(PlatformVariant.content_pack_id == pack.id)
-        )
-    )
+    variants = list(await session.scalars(select(PlatformVariant).where(PlatformVariant.content_pack_id == pack.id)))
     order = {platform: index for index, platform in enumerate(PLATFORM_ORDER)}
     variants.sort(key=lambda item: (order.get(item.platform, len(order)), str(item.id)))
     projected = []
@@ -309,9 +297,7 @@ async def _pack_out(session: AsyncSession, pack: ContentPack) -> dict[str, Any]:
                 "id": item.id,
                 "platform": item.platform,
                 "current_revision": (
-                    await _revision_out(session, current)
-                    if isinstance(current, PlatformVariantRevision)
-                    else None
+                    await _revision_out(session, current) if isinstance(current, PlatformVariantRevision) else None
                 ),
             }
         )
@@ -369,10 +355,7 @@ async def _request_out(session: AsyncSession, job: WorkflowJob) -> dict[str, Any
                 and candidate_payload.get("brand_profile_id") == str(expected_brand_id)
                 and (
                     candidate_payload.get("platforms") == expected_platforms
-                    or (
-                        expected_platforms == ["telegram"]
-                        and candidate_payload.get("platform") == "telegram"
-                    )
+                    or (expected_platforms == ["telegram"] and candidate_payload.get("platform") == "telegram")
                 )
                 and (candidate.idempotency_key or "").startswith(f"content-pack-telegram:{job.id}:")
             ):

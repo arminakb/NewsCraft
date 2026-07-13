@@ -1,5 +1,6 @@
 import asyncio
 from contextlib import AbstractAsyncContextManager
+from dataclasses import replace
 from types import SimpleNamespace
 from uuid import uuid4
 
@@ -142,6 +143,84 @@ async def test_fetch_failure_happens_outside_transaction_then_records_short_fail
         "begin:finish",
         "commit:finish",
     ]
+
+
+@pytest.mark.asyncio
+async def test_workflow_failure_stats_are_sanitized_before_finish_and_return():
+    class SecretBoundaryWorkflow(BoundaryWorkflow):
+        async def fetch_source(self, source):
+            raise RuntimeError('fetch {"authorization":"Bearer workflow-message-canary"}')
+
+    session = TransactionTrackingSession()
+    workflow = SecretBoundaryWorkflow()
+    workflow.source = replace(
+        workflow.source,
+        name="api_key=workflow-source-canary",
+    )
+
+    result = await workflow.run(
+        session=session,
+        platforms=None,
+        source_ids=None,
+        trigger="workflow_job",
+    )
+
+    rendered = str({"returned": result, "finished": workflow.finished})
+    assert "workflow-message-canary" not in rendered
+    assert "workflow-source-canary" not in rendered
+    assert "[REDACTED]" in rendered
+
+
+@pytest.mark.asyncio
+async def test_workflow_does_not_overwrite_repository_sanitized_parser_warnings(
+    monkeypatch,
+):
+    source = _production_source()
+    prepared = _prepared_source()
+
+    class Session:
+        async def get(self, model, identifier):
+            return source if model is Source and identifier == source.id else None
+
+    class SanitizingRepository:
+        payload = None
+
+        def __init__(self, _session):
+            pass
+
+        async def save_raw_payload(self, **_kwargs):
+            self.__class__.payload = SimpleNamespace(
+                id=uuid4(),
+                parser_warnings=["bozo_feed: api_key=[REDACTED]"],
+            )
+            return self.__class__.payload
+
+    prepared = replace(prepared, id=source.id)
+    batch = FetchedSourceBatch(
+        source=prepared,
+        request_url=prepared.feed_url or "",
+        final_url=prepared.feed_url or "",
+        http_status=304,
+        headers={},
+        content_type="application/rss+xml",
+        raw_text="",
+        parser_warnings=("bozo_feed: api_key=workflow-warning-canary",),
+        parsed_items=(),
+    )
+    monkeypatch.setattr(
+        "app.ingestion.workflow.IngestionRepository",
+        SanitizingRepository,
+    )
+
+    result = await IngestionWorkflow().persist_source(
+        Session(),
+        run_id=uuid4(),
+        batch=batch,
+    )
+
+    assert result.skipped == 1
+    assert "workflow-warning-canary" not in str(SanitizingRepository.payload.parser_warnings)
+    assert "[REDACTED]" in str(SanitizingRepository.payload.parser_warnings)
 
 
 @pytest.mark.asyncio

@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.automations.models import AutomationRoute
 from app.core.config import Settings, settings
+from app.core.logging import configure_logging
 from app.db.models import Source
 from app.db.session import async_session
 from app.jobs.events import redact_event_data
@@ -298,9 +299,7 @@ class SchedulerService:
         return list(await self.session.scalars(select(Source).order_by(Source.name)))
 
     async def _get_schedule(self, schedule_key: str) -> WorkflowSchedule | None:
-        return await self.session.scalar(
-            select(WorkflowSchedule).where(WorkflowSchedule.schedule_key == schedule_key)
-        )
+        return await self.session.scalar(select(WorkflowSchedule).where(WorkflowSchedule.schedule_key == schedule_key))
 
     async def _persist_schedule(self, schedule: WorkflowSchedule) -> None:
         self.session.add(schedule)
@@ -308,9 +307,7 @@ class SchedulerService:
 
     async def _is_paused(self) -> bool:
         return bool(
-            await self.session.scalar(
-                select(AutomationControl.global_pause).where(AutomationControl.id == "global")
-            )
+            await self.session.scalar(select(AutomationControl.global_pause).where(AutomationControl.id == "global"))
         )
 
     async def _lock_due_schedules(self, now: datetime) -> list[WorkflowSchedule]:
@@ -365,6 +362,7 @@ async def run_scheduler() -> None:
 
 
 def main() -> None:
+    configure_logging()
     asyncio.run(run_scheduler())
 
 

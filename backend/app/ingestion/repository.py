@@ -15,6 +15,7 @@ from app.content.buckets import assign_rewrite_bucket
 from app.content.classification import classify_content_item, classify_content_taxonomy
 from app.content.readiness import evaluate_rewrite_readiness
 from app.content.scoring import score_content_item
+from app.core.redaction import redact_secrets, redact_string
 from app.db.models import (
     ContentItem,
     IngestRun,
@@ -146,10 +147,16 @@ class IngestionRepository:
         return run
 
     async def finish_run(self, run_id: UUID, status: str, stats: dict, error: str | None = None) -> None:
+        durable_stats = redact_secrets(stats)
         await self.session.execute(
             update(IngestRun)
             .where(IngestRun.id == run_id)
-            .values(finished_at=func.now(), status=status, stats=stats, error=error)
+            .values(
+                finished_at=func.now(),
+                status=status,
+                stats=durable_stats if isinstance(durable_stats, dict) else {},
+                error=redact_string(error) if error is not None else None,
+            )
         )
 
     async def get_active_sources(self, platforms: list[str] | None = None) -> list[Source]:
@@ -195,18 +202,21 @@ class IngestionRepository:
         raw_text: str,
         parser_warnings: list[str],
     ) -> RawPayload:
+        durable_headers = redact_secrets(headers)
+        durable_warnings = redact_secrets(parser_warnings)
+        durable_raw_text = redact_string(raw_text) if http_status is not None and http_status >= 400 else raw_text
         payload = RawPayload(
             run_id=run_id,
             source_id=source_id,
             payload_kind=payload_kind,
-            request_url=request_url,
-            final_url=final_url,
+            request_url=redact_string(request_url),
+            final_url=redact_string(final_url) if final_url is not None else None,
             http_status=http_status,
-            headers=headers,
-            content_type=content_type,
-            body_sha256=sha256(raw_text.encode("utf-8")).hexdigest(),
-            raw_text=raw_text,
-            parser_warnings=parser_warnings,
+            headers=durable_headers if isinstance(durable_headers, dict) else {},
+            content_type=(redact_string(content_type) if content_type is not None else None),
+            body_sha256=sha256(durable_raw_text.encode("utf-8")).hexdigest(),
+            raw_text=durable_raw_text,
+            parser_warnings=(durable_warnings if isinstance(durable_warnings, list) else []),
         )
         self.session.add(payload)
         await self.session.flush()

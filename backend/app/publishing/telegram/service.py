@@ -13,7 +13,7 @@ from sqlalchemy import exists, func, select
 from sqlalchemy.exc import IntegrityError
 
 from app.automations.models import AutomationDispatch, AutomationRoute
-from app.core.redaction import redact_secrets
+from app.core.redaction import redact_secrets, redact_string
 from app.db.models import ItemMedia, MediaAsset, SourceItem
 from app.generation.models import ContentPack, PlatformVariant, PlatformVariantRevision
 from app.generation.revision_validation import RevisionValidationError, validate_approvable_revision
@@ -1305,8 +1305,8 @@ async def _record_failure(
             publish_job.scheduled_for = retry_at
             attempt.status = "failed"
             attempt.error_class = "retryable"
-            attempt.error_code = "telegram_rate_limited"
-            attempt.error_message = "Telegram rate limit exceeded"
+            attempt.error_code = redact_string("telegram_rate_limited")
+            attempt.error_message = redact_string("Telegram rate limit exceeded")
             return RetryableJobError(
                 code="telegram_rate_limited",
                 message="Telegram rate limit exceeded",
@@ -1320,8 +1320,8 @@ async def _record_failure(
             publish_job.scheduled_for = retry_at
             attempt.status = "failed"
             attempt.error_class = "retryable"
-            attempt.error_code = "telegram_connect_failed"
-            attempt.error_message = "Telegram connection failed before dispatch"
+            attempt.error_code = redact_string("telegram_connect_failed")
+            attempt.error_message = redact_string("Telegram connection failed before dispatch")
             return RetryableJobError(
                 code="telegram_connect_failed",
                 message="Telegram connection failed before dispatch",
@@ -1335,8 +1335,8 @@ async def _record_failure(
             publish_job.status = "reconciliation_required"
             attempt.status = "needs_review"
             attempt.error_class = "needs_review"
-            attempt.error_code = "telegram_publish_ambiguous"
-            attempt.error_message = "Telegram publish outcome is ambiguous"
+            attempt.error_code = redact_string("telegram_publish_ambiguous")
+            attempt.error_message = redact_string("Telegram publish outcome is ambiguous")
             return NeedsReviewJobError(
                 code="telegram_publish_ambiguous",
                 message="Telegram publish outcome is ambiguous",
@@ -1345,8 +1345,8 @@ async def _record_failure(
         publish_job.status = "attention"
         attempt.status = "failed"
         attempt.error_class = "permanent"
-        attempt.error_code = "telegram_publish_permanent"
-        attempt.error_message = "Telegram publish operation failed permanently"
+        attempt.error_code = redact_string("telegram_publish_permanent")
+        attempt.error_message = redact_string("Telegram publish operation failed permanently")
         return PermanentJobError(
             code="telegram_publish_permanent",
             message="Telegram publish operation failed permanently",
@@ -1452,8 +1452,8 @@ async def publish_telegram(
                 if attempt is not None and attempt.status == "running":
                     attempt.status = "needs_review"
                     attempt.error_class = "needs_review"
-                    attempt.error_code = claim_error.code
-                    attempt.error_message = claim_error.message
+                    attempt.error_code = redact_string(claim_error.code)
+                    attempt.error_message = redact_string(claim_error.message)
                     attempt.finished_at = claim_time
             elif receipt.status == "succeeded":
                 continue
@@ -1468,8 +1468,8 @@ async def publish_telegram(
                 if attempt is not None and attempt.status == "running":
                     attempt.status = "failed"
                     attempt.error_class = "retryable"
-                    attempt.error_code = "telegram_publish_in_progress"
-                    attempt.error_message = "Another Telegram publish claim is in progress"
+                    attempt.error_code = redact_string("telegram_publish_in_progress")
+                    attempt.error_message = redact_string("Another Telegram publish claim is in progress")
                     attempt.finished_at = claim_time
             elif receipt.status != "pending":
                 claim_error = NeedsReviewJobError(
@@ -1488,8 +1488,8 @@ async def publish_telegram(
                 if attempt is not None and attempt.status == "running":
                     attempt.status = "needs_review"
                     attempt.error_class = "needs_review"
-                    attempt.error_code = claim_error.code
-                    attempt.error_message = claim_error.message
+                    attempt.error_code = redact_string(claim_error.code)
+                    attempt.error_message = redact_string(claim_error.message)
                     attempt.finished_at = claim_time
             elif receipt.next_attempt_at and receipt.next_attempt_at > claim_time:
                 retry_at = receipt.next_attempt_at
@@ -1509,8 +1509,8 @@ async def publish_telegram(
                 if attempt is not None and attempt.status == "running":
                     attempt.status = "failed"
                     attempt.error_class = "retryable"
-                    attempt.error_code = "telegram_publish_not_due"
-                    attempt.error_message = "Telegram publish retry is not due"
+                    attempt.error_code = redact_string("telegram_publish_not_due")
+                    attempt.error_message = redact_string("Telegram publish retry is not due")
                     attempt.finished_at = clock()
                 if publish_job is not None and not competing_claim:
                     publish_job.status = "queued"

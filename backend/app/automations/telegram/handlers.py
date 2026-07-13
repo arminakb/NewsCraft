@@ -22,6 +22,7 @@ from app.automations.telegram.contracts import (
 from app.automations.telegram.policy import evaluate_auto_publish
 from app.automations.telegram.registry import TelegramSourceRegistry
 from app.automations.telegram.route_policy import evaluate_content_filter, next_allowed_at, retry_at
+from app.core.redaction import redact_secrets, redact_string
 from app.db.models import ContentItem, ItemMedia, MediaAsset, Source, SourceItem
 from app.generation.models import (
     AIProviderProfile,
@@ -59,6 +60,16 @@ from app.publishing.models import Destination, PublishJob
 from app.stories.models import StoryEvidenceLink, StoryEvidenceSnapshot, StoryRevision
 
 logger = logging.getLogger(__name__)
+
+
+def _redacted_dict(value: object) -> dict[str, Any]:
+    redacted = redact_secrets(value)
+    return redacted if isinstance(redacted, dict) else {}
+
+
+def _redacted_list(value: object) -> list[Any]:
+    redacted = redact_secrets(value)
+    return redacted if isinstance(redacted, list) else []
 
 
 def sha256_canonical(value: Any) -> str:
@@ -1981,14 +1992,16 @@ def build_telegram_process_handler(profile_resolver: Any) -> JobHandler:
                     "requested_model": requested_model,
                     "selected_model": resolved.model,
                 }
-                request_payload = {
-                    "semantic": semantic_request,
-                    "input": values,
-                    "execution": {
-                        "active_workflow_job_id": str(workflow_job_id),
-                        "active_workflow_attempt": workflow_attempt_count,
-                    },
-                }
+                request_payload = _redacted_dict(
+                    {
+                        "semantic": semantic_request,
+                        "input": values,
+                        "execution": {
+                            "active_workflow_job_id": str(workflow_job_id),
+                            "active_workflow_attempt": workflow_attempt_count,
+                        },
+                    }
+                )
                 computed_input_hash = generation_input_hash(request_payload)
                 if computed_input_hash is None:  # pragma: no cover - constructed above
                     raise RuntimeError("Generation input hash could not be computed")
@@ -1997,7 +2010,7 @@ def build_telegram_process_handler(profile_resolver: Any) -> JobHandler:
                         story_revision_id=story_revision.id,
                         provider_profile_id=profile.id,
                         prompt_template_version_id=prompt.id,
-                        requested_model=requested_model,
+                        requested_model=(redact_string(requested_model) if requested_model is not None else None),
                         status="running",
                         input_hash=computed_input_hash,
                         request_payload=request_payload,
@@ -2019,6 +2032,8 @@ def build_telegram_process_handler(profile_resolver: Any) -> JobHandler:
                     run.error_code = None
                     run.error_message = None
                     run.finished_at = None
+                    if run.requested_model is not None:
+                        run.requested_model = redact_string(run.requested_model)
                     run.request_payload = request_payload
                 dispatch.status = "generating"
                 dispatch.error_code = None
@@ -2027,12 +2042,14 @@ def build_telegram_process_handler(profile_resolver: Any) -> JobHandler:
                     generation_run_id=run.id,
                     attempt_number=max((item.attempt_number for item in attempts), default=0) + 1,
                     provider=resolved.provider_type,
-                    requested_model=requested_model,
-                    prompt_snapshot={
-                        "system": prompt.system_template,
-                        "user": rendered_user,
-                        "schema": prompt.output_schema,
-                    },
+                    requested_model=(redact_string(requested_model) if requested_model is not None else None),
+                    prompt_snapshot=_redacted_dict(
+                        {
+                            "system": prompt.system_template,
+                            "user": rendered_user,
+                            "schema": prompt.output_schema,
+                        }
+                    ),
                     response_payload={},
                     usage={},
                     validation_errors=[],
@@ -2041,13 +2058,15 @@ def build_telegram_process_handler(profile_resolver: Any) -> JobHandler:
                 )
                 session.add(attempt)
                 await session.flush()
-                run.request_payload = {
-                    **request_payload,
-                    "execution": {
-                        **request_payload["execution"],
-                        "active_generation_attempt_id": str(attempt.id),
-                    },
-                }
+                run.request_payload = _redacted_dict(
+                    {
+                        **request_payload,
+                        "execution": {
+                            **request_payload["execution"],
+                            "active_generation_attempt_id": str(attempt.id),
+                        },
+                    }
+                )
                 active_attempt_id = attempt.id
                 provider = resolved.provider
                 provider_request = GenerationProviderRequest(
@@ -2073,15 +2092,17 @@ def build_telegram_process_handler(profile_resolver: Any) -> JobHandler:
             try:
                 generated = await provider.generate(provider_request)
                 parsed_output = TelegramRewriteOutput.model_validate(generated.output).model_dump(mode="json")
-                durable_output = {
-                    "provider": generated.provider,
-                    "requested_model": generated.requested_model,
-                    "resolved_model": generated.resolved_model,
-                    "output": parsed_output,
-                    "raw_text": generated.raw_text,
-                    "usage": generated.usage,
-                    "finish_reason": generated.finish_reason,
-                }
+                durable_output = _redacted_dict(
+                    {
+                        "provider": generated.provider,
+                        "requested_model": generated.requested_model,
+                        "resolved_model": generated.resolved_model,
+                        "output": parsed_output,
+                        "raw_text": generated.raw_text,
+                        "usage": generated.usage,
+                        "finish_reason": generated.finish_reason,
+                    }
+                )
             except Exception as exc:
                 async with session.begin():
                     current_dispatch = await session.scalar(
@@ -2123,24 +2144,31 @@ def build_telegram_process_handler(profile_resolver: Any) -> JobHandler:
                             if isinstance(mapped, NeedsReviewJobError)
                             else "permanent"
                         )
+                        durable_error_code = redact_string(str(getattr(mapped, "code", "generation_failed")))
+                        durable_error_message = redact_string(str(mapped))
                         current_attempt.status = "failed"
                         current_attempt.error_class = error_class
-                        current_attempt.error_code = getattr(mapped, "code", "generation_failed")
-                        current_attempt.error_message = str(mapped)
+                        current_attempt.error_code = durable_error_code
+                        current_attempt.error_message = durable_error_message
                         if isinstance(exc, ValidationError):
-                            current_attempt.validation_errors = [
-                                {
-                                    "type": item["type"],
-                                    "loc": [str(part) for part in item["loc"]],
-                                    "message": item["msg"],
-                                }
-                                for item in exc.errors(include_input=False, include_url=False)
-                            ]
+                            current_attempt.validation_errors = _redacted_list(
+                                [
+                                    {
+                                        "type": item["type"],
+                                        "loc": [str(part) for part in item["loc"]],
+                                        "message": item["msg"],
+                                    }
+                                    for item in exc.errors(
+                                        include_input=False,
+                                        include_url=False,
+                                    )
+                                ]
+                            )
                         current_attempt.finished_at = datetime.now(UTC)
                         current_run.status = "failed"
                         current_run.error_class = error_class
-                        current_run.error_code = getattr(mapped, "code", "generation_failed")
-                        current_run.error_message = str(mapped)
+                        current_run.error_code = durable_error_code
+                        current_run.error_message = durable_error_message
                         current_run.finished_at = datetime.now(UTC)
                         if current_dispatch is not None:
                             current_dispatch.status = "needs_review" if error_class == "needs_review" else "failed"
@@ -2175,13 +2203,13 @@ def build_telegram_process_handler(profile_resolver: Any) -> JobHandler:
                         "generation_run_id": str(current_run.id),
                         "superseded": True,
                     }
-                current_attempt.response_payload = durable_output
+                current_attempt.response_payload = _redacted_dict(durable_output)
                 current_attempt.resolved_model = durable_output["resolved_model"]
-                current_attempt.usage = durable_output["usage"]
+                current_attempt.usage = _redacted_dict(durable_output["usage"])
                 current_attempt.validation_errors = []
                 current_attempt.status = "completed"
                 current_attempt.finished_at = datetime.now(UTC)
-                current_run.output_payload = durable_output
+                current_run.output_payload = _redacted_dict(durable_output)
                 current_run.status = "completed"
                 current_run.finished_at = datetime.now(UTC)
                 current_run.error_class = None
@@ -2540,8 +2568,8 @@ def build_telegram_process_handler(profile_resolver: Any) -> JobHandler:
                         if isinstance(exc, RetryableJobError)
                         else "failed"
                     )
-                    dispatch.error_code = exc.code
-                    dispatch.error_message = exc.message
+                    dispatch.error_code = redact_string(exc.code)
+                    dispatch.error_message = redact_string(exc.message)
                     event_type = (
                         "telegram.process.deferred"
                         if exc.code == "telegram_route_lineage_waiting"

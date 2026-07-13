@@ -37,9 +37,7 @@ def test_redact_url_removes_userinfo_and_secret_query_values():
     assert redact_url("https://user:pass@example.com/a?api_key=one&q=ok") == (
         "https://example.com/a?api_key=%5BREDACTED%5D&q=ok"
     )
-    assert "user:pass" not in redact_secrets(
-        "failure https://user:pass@example.com/a?token=x"
-    )
+    assert "user:pass" not in redact_secrets("failure https://user:pass@example.com/a?token=x")
     assert redact_url("https://example.com:bad/a?token=x") == "[REDACTED]"
 
 
@@ -56,14 +54,18 @@ def test_redaction_is_cycle_safe_preserves_shared_refs_and_usage_metric_keys():
 
     redacted = redact_secrets(source)
 
-    assert redacted["left"] == redacted["right"] == {
-        "access_token": "[REDACTED]",
-        "input_tokens": 10,
-    }
+    assert (
+        redacted["left"]
+        == redacted["right"]
+        == {
+            "access_token": "[REDACTED]",
+            "input_tokens": 10,
+        }
+    )
     assert redacted["output_tokens"] == 4
-    assert redacted["tokenizer_name"] == "safe-tokenizer"
+    assert redacted["tokenizer_name"] == "[REDACTED]"
     assert redacted["session_count"] == 2
-    assert redacted["cycle"] == "[REDACTED]"
+    assert redacted["cycle"] == "[CYCLE]"
 
 
 def test_secret_key_boundaries_redact_value_suffixes_but_keep_metrics():
@@ -82,7 +84,7 @@ def test_secret_key_boundaries_redact_value_suffixes_but_keep_metrics():
         "input_tokens": 10,
         "output_tokens": 4,
         "token_usage": {"total": 14},
-        "tokenizer_name": "safe",
+        "tokenizer_name": "[REDACTED]",
         "session_count": 2,
     }
 
@@ -131,13 +133,9 @@ async def test_job_repository_redacts_result_and_failure_before_persistence():
         result={"nested": {"access_token": "raw-token", "safe": "visible"}},
         now=now,
     )
-    assert succeeded.result == {
-        "nested": {"access_token": "[REDACTED]", "safe": "visible"}
-    }
+    assert succeeded.result == {"nested": {"access_token": "[REDACTED]", "safe": "visible"}}
     assert all(
-        "raw-token" not in str(item.event_data)
-        for item in success_session.added
-        if isinstance(item, WorkflowEvent)
+        "raw-token" not in str(item.event_data) for item in success_session.added if isinstance(item, WorkflowEvent)
     )
 
     failed = running_job(now)

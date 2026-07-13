@@ -2,9 +2,10 @@ from datetime import datetime
 from typing import Self
 
 from fastapi import APIRouter, Depends
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.redaction import redact_string
 from app.db.session import get_session
 from app.jobs.control import AutomationControlService
 
@@ -20,6 +21,11 @@ class AutomationControlOut(BaseModel):
     pause_reason: str | None
     paused_at: datetime | None
     updated_at: datetime
+
+    @field_validator("pause_reason", mode="before")
+    @classmethod
+    def redact_pause_reason(cls, value: object) -> str | None:
+        return None if value is None else redact_string(str(value))
 
 
 class AutomationControlPatch(BaseModel):
@@ -48,8 +54,6 @@ async def patch_automation_control(
     patch: AutomationControlPatch,
     session: AsyncSession = SessionDependency,
 ):
-    control = await AutomationControlService(session).update_control(
-        **patch.model_dump(exclude_unset=True)
-    )
+    control = await AutomationControlService(session).update_control(**patch.model_dump(exclude_unset=True))
     await session.commit()
     return control

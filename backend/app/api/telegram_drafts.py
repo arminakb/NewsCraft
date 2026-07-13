@@ -19,6 +19,7 @@ from app.automations.telegram.handlers import (
     enqueue_telegram_publish_intent,
     sha256_canonical,
 )
+from app.core.redaction import redact_secrets
 from app.db.models import ItemMedia, MediaAsset, SourceItem
 from app.db.session import get_session
 from app.generation.editorial_service import (
@@ -522,6 +523,12 @@ async def _draft_out(
         for media_id in requested_media_ids
         if (asset := media_by_id.get(media_id)) is not None
     ]
+    redacted_validation_results = redact_secrets(revision.validation_results)
+    validation_results = (
+        [item for item in redacted_validation_results if isinstance(item, dict)]
+        if isinstance(redacted_validation_results, list)
+        else []
+    )
     return {
         "id": revision.id,
         "platform_variant_id": revision.platform_variant_id,
@@ -533,7 +540,7 @@ async def _draft_out(
         "evidence_map": revision.evidence_map,
         "evidence": evidence,
         "media": media,
-        "validation_results": revision.validation_results,
+        "validation_results": validation_results,
         "approval_state": revision.approval_state,
         "approval_note": revision.approval_note,
         "approved_at": revision.approved_at,

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from sqlalchemy import select, text
 
+from app.core.redaction import redact_string
 from app.db.models import Source
 
 SOURCE_HEALTH_STATUSES = ("healthy", "degraded", "broken", "disabled", "unknown")
@@ -53,14 +54,14 @@ class DiagnosticsService:
                 problem_sources.append(
                     {
                         "id": str(source.id),
-                        "name": source.name,
+                        "name": redact_string(source.name),
                         "platform": source.platform,
                         "health_status": status,
                         "failure_count": source.failure_count,
                         "last_http_status": source.last_http_status,
-                        "last_error_type": source.last_error_type,
-                        "last_error_message": source.last_error_message,
-                        "disabled_reason": source.disabled_reason,
+                        "last_error_type": _safe_optional_text(source.last_error_type),
+                        "last_error_message": _safe_optional_text(source.last_error_message),
+                        "disabled_reason": _safe_optional_text(source.disabled_reason),
                     }
                 )
 
@@ -98,3 +99,7 @@ def _has_health_history(source: Source) -> bool:
 
 def _health_sort_key(status: str, name: str) -> tuple[int, str]:
     return {"broken": 0, "degraded": 1, "unknown": 2, "disabled": 3}.get(status, 4), name
+
+
+def _safe_optional_text(value: object | None) -> str | None:
+    return redact_string(str(value)) if value is not None else None

@@ -69,9 +69,7 @@ def test_continuation_is_constrained_to_telegram_process():
 
 async def test_default_fake_backend_resolution_is_db_and_network_free():
     resolver = DefaultResearchBackendResolver(SimpleNamespace())
-    backend = await resolver(
-        SimpleNamespace(id=uuid4(), provider_type="fake", settings={}, secret_ref=None)
-    )
+    backend = await resolver(SimpleNamespace(id=uuid4(), provider_type="fake", settings={}, secret_ref=None))
     assert isinstance(backend, FakeResearchBackend)
 
 
@@ -79,20 +77,33 @@ def _binding_values():
     story_id = uuid4()
     profile_id = uuid4()
     snapshot = StoryEvidenceSnapshot(
-        id=uuid4(), story_id=story_id, content_item_id=None,
-        evidence_key="operator-text:" + "1" * 64, source_url=None,
-        title="Evidence", content_text="evidence", authors=[], published_at=None,
-        content_sha256="1" * 64, snapshot_metadata={},
+        id=uuid4(),
+        story_id=story_id,
+        content_item_id=None,
+        evidence_key="operator-text:" + "1" * 64,
+        source_url=None,
+        title="Evidence",
+        content_text="evidence",
+        authors=[],
+        published_at=None,
+        content_sha256="1" * 64,
+        snapshot_metadata={},
         captured_at=datetime.now(UTC),
     )
     run = ResearchRun(
-        id=uuid4(), story_id=story_id, requested_mode="manual",
-        provider_profile_id=profile_id, status="queued", query_budget=4,
-        page_budget=8, time_budget_seconds=120,
+        id=uuid4(),
+        story_id=story_id,
+        requested_mode="manual",
+        provider_profile_id=profile_id,
+        status="queued",
+        query_budget=4,
+        page_budget=8,
+        time_budget_seconds=120,
     )
     budget = ResearchBudget()
     payload = {
-        "mode": "manual", "requested_model": "fake-v1",
+        "mode": "manual",
+        "requested_model": "fake-v1",
         "evidence_set_hash": evidence_set_hash([snapshot]),
     }
     return run, snapshot, profile_id, budget, payload
@@ -123,9 +134,14 @@ def test_locked_run_and_evidence_reject_mutable_job_payload_drift(drift):
         budget = budget.model_copy(update={"max_output_tokens": budget.max_output_tokens + 1})
     with pytest.raises(ResearchRequestError, match="drifted"):
         _validate_job_binding(
-            run=run, story_id=run.story_id, profile_id=profile_id,
-            payload=payload, snapshots=[snapshot], resolved_model="fake-v1",
-            resolved_budget=resolved_budget, payload_budget=budget,
+            run=run,
+            story_id=run.story_id,
+            profile_id=profile_id,
+            payload=payload,
+            snapshots=[snapshot],
+            resolved_model="fake-v1",
+            resolved_budget=resolved_budget,
+            payload_budget=budget,
         )
 
 
@@ -165,9 +181,7 @@ class TransactionalSession:
             for criterion in getattr(statement, "_where_criteria", ())
             if getattr(getattr(criterion, "left", None), "name", None) == "id"
         ]
-        identifier = next(
-            (value for value in identifiers if isinstance(value, UUID)), None
-        )
+        identifier = next((value for value in identifiers if isinstance(value, UUID)), None)
         if identifier is not None:
             matched = [value for value in values if getattr(value, "id", None) == identifier]
             values = matched
@@ -210,8 +224,7 @@ class ObservingBackend:
         self.calls += 1
         assert self.session.in_transaction() is False
         self.saw_running_attempt = any(
-            isinstance(value, ResearchAttempt) and value.status == "running"
-            for value in self.session.values
+            isinstance(value, ResearchAttempt) and value.status == "running" for value in self.session.values
         )
         return ResearchResult(
             provider_profile_id=request.provider_profile_id,
@@ -242,48 +255,72 @@ class InvalidResultBackend(ObservingBackend):
         result = await super().research(request)
         field, value = self.mutation
         if field in ResearchUsage.model_fields:
-            return result.model_copy(
-                update={"usage": result.usage.model_copy(update={field: value})}
-            )
+            return result.model_copy(update={"usage": result.usage.model_copy(update={field: value})})
         return result.model_copy(update={field: value})
 
 
 def _lifecycle_fixture(*, unknown_key=False):
     now = datetime.now(UTC)
     story = Story(
-        id=uuid4(), title="Story", status="inbox", primary_language="en",
-        superseded_by_id=None, created_at=now, updated_at=now,
+        id=uuid4(),
+        title="Story",
+        status="inbox",
+        primary_language="en",
+        superseded_by_id=None,
+        created_at=now,
+        updated_at=now,
     )
     original_text = "Original persisted evidence."
     original_digest = sha256(original_text.encode()).hexdigest()
     original = StoryEvidenceSnapshot(
-        id=uuid4(), story_id=story.id, content_item_id=None,
-        evidence_key=f"operator-text:{original_digest}", source_url=None,
-        title="Original", content_text=original_text, authors=[], published_at=None,
-        content_sha256=original_digest, snapshot_metadata={}, captured_at=now,
+        id=uuid4(),
+        story_id=story.id,
+        content_item_id=None,
+        evidence_key=f"operator-text:{original_digest}",
+        source_url=None,
+        title="Original",
+        content_text=original_text,
+        authors=[],
+        published_at=None,
+        content_sha256=original_digest,
+        snapshot_metadata={},
+        captured_at=now,
     )
     profile = AIProviderProfile(
-        id=uuid4(), name="Fake", provider_type="fake", default_model="fake-v1",
-        secret_ref=None, settings={}, enabled=True,
+        id=uuid4(),
+        name="Fake",
+        provider_type="fake",
+        default_model="fake-v1",
+        secret_ref=None,
+        settings={},
+        enabled=True,
     )
-    budget = ResearchBudget.model_validate(
-        default_research_budgets().standard.model_dump(mode="python")
-    )
+    budget = ResearchBudget.model_validate(default_research_budgets().standard.model_dump(mode="python"))
     run = ResearchRun(
-        id=uuid4(), story_id=story.id, requested_mode="manual",
-        provider_profile_id=profile.id, status="queued",
-        query_budget=budget.max_queries, page_budget=budget.max_pages,
-        time_budget_seconds=budget.max_elapsed_seconds, created_at=now,
+        id=uuid4(),
+        story_id=story.id,
+        requested_mode="manual",
+        provider_profile_id=profile.id,
+        status="queued",
+        query_budget=budget.max_queries,
+        page_budget=budget.max_pages,
+        time_budget_seconds=budget.max_elapsed_seconds,
+        created_at=now,
     )
     source_text = "Fetched evidence with exact cited phrase."
     source_digest = sha256(source_text.encode()).hexdigest()
     source_key = f"url:https://news.example/report:{source_digest}"
     source = DiscoveredSourcePayload.model_validate(
         {
-            "evidence_key": source_key, "url": "https://news.example/report",
-            "title": "Report", "publisher": "News", "published_at": None,
-            "retrieved_at": now, "content_text": source_text,
-            "content_sha256": source_digest, "extraction_status": "ok",
+            "evidence_key": source_key,
+            "url": "https://news.example/report",
+            "title": "Report",
+            "publisher": "News",
+            "published_at": None,
+            "retrieved_at": now,
+            "content_text": source_text,
+            "content_sha256": source_digest,
+            "extraction_status": "ok",
         }
     )
     cited_key = "unknown:key" if unknown_key else source_key
@@ -301,20 +338,31 @@ def _lifecycle_fixture(*, unknown_key=False):
                 ],
             )
         ],
-        disagreements=[], missing_information=[], suggested_angles=[],
+        disagreements=[],
+        missing_information=[],
+        suggested_angles=[],
         discovered_evidence_keys=[source_key],
     )
     output = ResearchBackendOutput(sources=[source], brief=brief)
     payload = {
-        "run_id": str(run.id), "story_id": str(story.id),
-        "provider_profile_id": str(profile.id), "requested_model": "fake-v1",
-        "mode": "manual", "depth": "standard", "query_hint": None,
+        "run_id": str(run.id),
+        "story_id": str(story.id),
+        "provider_profile_id": str(profile.id),
+        "requested_model": "fake-v1",
+        "mode": "manual",
+        "depth": "standard",
+        "query_hint": None,
         "evidence_set_hash": evidence_set_hash([original]),
-        "budget": budget.model_dump(mode="json"), "continuations": [],
+        "budget": budget.model_dump(mode="json"),
+        "continuations": [],
     }
     job = WorkflowJob(
-        id=uuid4(), job_type="research_story", payload=payload,
-        idempotency_key=str(uuid4()), origin="manual", attempt_count=1,
+        id=uuid4(),
+        job_type="research_story",
+        payload=payload,
+        idempotency_key=str(uuid4()),
+        origin="manual",
+        attempt_count=1,
     )
     session = TransactionalSession([story, original, profile, run, job])
     return session, job, run, output
@@ -323,31 +371,42 @@ def _lifecycle_fixture(*, unknown_key=False):
 def _subscribe_dispatch(session, job, run):
     story = next(value for value in session.values if isinstance(value, Story))
     current_revision = next(
-        (
-            value
-            for value in session.values
-            if isinstance(value, StoryRevision) and value.story_id == story.id
-        ),
+        (value for value in session.values if isinstance(value, StoryRevision) and value.story_id == story.id),
         None,
     )
     if current_revision is None:
         current_revision = StoryRevision(
-            id=uuid4(), story_id=story.id, revision_number=1,
-            narrative="Current", facts=[], disagreements=[], angles=[], citations=[],
+            id=uuid4(),
+            story_id=story.id,
+            revision_number=1,
+            narrative="Current",
+            facts=[],
+            disagreements=[],
+            angles=[],
+            citations=[],
             created_by="telegram",
         )
         session.values.append(current_revision)
     route = AutomationRoute(
-        id=uuid4(), source_id=uuid4(), destination_id=uuid4(), brand_profile_id=uuid4(),
-        prompt_template_version_id=uuid4(), ai_provider_profile_id=uuid4(),
+        id=uuid4(),
+        source_id=uuid4(),
+        destination_id=uuid4(),
+        brand_profile_id=uuid4(),
+        prompt_template_version_id=uuid4(),
+        ai_provider_profile_id=uuid4(),
         research_mode="auto_if_incomplete",
         content_filters={"research_provider_profile_id": str(run.provider_profile_id)},
     )
     dispatch = AutomationDispatch(
-        id=uuid4(), route_id=route.id, source_item_id=uuid4(),
-        story_revision_id=current_revision.id, source_key="source:1",
-        source_fingerprint="f" * 64, source_message_ids=[1],
-        dispatch_kind="live", status="researching",
+        id=uuid4(),
+        route_id=route.id,
+        source_item_id=uuid4(),
+        story_revision_id=current_revision.id,
+        source_key="source:1",
+        source_fingerprint="f" * 64,
+        source_message_ids=[1],
+        dispatch_kind="live",
+        status="researching",
     )
     descriptor = {
         "job_type": "telegram.route.process",
@@ -380,8 +439,7 @@ async def test_production_handler_persists_atomic_research_lifecycle_outside_tra
     assert len([value for value in session.values if isinstance(value, StoryRevision)]) == 1
     assert len([value for value in session.values if isinstance(value, StoryEvidenceLink)]) == 1
     assert any(
-        isinstance(value, WorkflowEvent) and value.event_type == "research.succeeded"
-        for value in session.values
+        isinstance(value, WorkflowEvent) and value.event_type == "research.succeeded" for value in session.values
     )
 
 
@@ -400,12 +458,41 @@ async def test_unknown_candidate_key_rolls_back_materialization_and_records_revi
     attempts = [value for value in session.values if isinstance(value, ResearchAttempt)]
     assert len(attempts) == 1
     assert attempts[0].status == "needs_review"
-    persisted_dispatch = next(
-        value for value in session.values if isinstance(value, AutomationDispatch)
-    )
+    persisted_dispatch = next(value for value in session.values if isinstance(value, AutomationDispatch))
     assert persisted_dispatch.status == "needs_review"
     assert persisted_dispatch.variant_revision_id is None
     assert persisted_dispatch.publish_job_id is None
+
+
+async def test_research_attempt_and_subscriber_dispatch_redact_backend_error_code_canary():
+    session, job, run, output = _lifecycle_fixture()
+    dispatch = _subscribe_dispatch(session, job, run)
+
+    class SecretResearchError(RuntimeError):
+        classification = "needs_review"
+        code = 'research_failure={"authorization":"Bearer research-code-canary"}'
+
+    class SecretBackend(ObservingBackend):
+        async def research(self, request):
+            self.calls += 1
+            raise SecretResearchError from None
+
+    backend = SecretBackend(session, output)
+    with pytest.raises(NeedsReviewJobError) as caught:
+        await build_research_story_handler(lambda _profile: backend)(
+            job, JobContext(session=session, providers=SimpleNamespace())
+        )
+
+    assert "research-code-canary" in caught.value.code
+    attempt = next(value for value in session.values if isinstance(value, ResearchAttempt))
+    assert "research-code-canary" not in attempt.error_code
+    assert "[REDACTED]" in attempt.error_code
+    assert "research-code-canary" not in dispatch.error_code
+    assert "[REDACTED]" in dispatch.error_code
+    failure_event = next(
+        value for value in session.values if isinstance(value, WorkflowEvent) and value.event_type == "research.failed"
+    )
+    assert "research-code-canary" not in str(failure_event.event_data)
 
 
 @pytest.mark.parametrize(
@@ -495,18 +582,14 @@ async def test_successful_research_enqueues_exactly_one_deterministic_continuati
     assert second["idempotent"] is True
     assert backend.calls == 1
     assert len(calls) == 1
-    assert calls[0]["idempotency_key"].startswith(
-        f"telegram-route-process-after-research:{dispatch.id}:"
-    )
+    assert calls[0]["idempotency_key"].startswith(f"telegram-route-process-after-research:{dispatch.id}:")
 
 
 async def test_two_subscribers_arriving_before_finalization_each_continue_once(monkeypatch):
     session, job, run, output = _lifecycle_fixture()
     first = _subscribe_dispatch(session, job, run)
     second = _subscribe_dispatch(session, job, run)
-    payload, created = append_unique_continuation(
-        job.payload, job.payload["continuations"][0]
-    )
+    payload, created = append_unique_continuation(job.payload, job.payload["continuations"][0])
     job.payload = payload
     assert created is False
     calls = []
@@ -525,9 +608,7 @@ async def test_two_subscribers_arriving_before_finalization_each_continue_once(m
     )
     assert len(result["continuation_job_ids"]) == 2
     assert len(calls) == 2
-    assert {call["payload"]["dispatch_id"] for call in calls} == {
-        str(first.id), str(second.id)
-    }
+    assert {call["payload"]["dispatch_id"] for call in calls} == {str(first.id), str(second.id)}
     assert len({call["idempotency_key"] for call in calls}) == 2
 
 
@@ -570,8 +651,14 @@ async def test_stale_attempt_cannot_persist_or_downgrade_newer_success():
 @pytest.mark.parametrize(
     "attack",
     [
-        "route", "story", "profile", "subscriber", "mode", "current_revision",
-        "dispatch", "result_lineage",
+        "route",
+        "story",
+        "profile",
+        "subscriber",
+        "mode",
+        "current_revision",
+        "dispatch",
+        "result_lineage",
     ],
 )
 async def test_continuation_binding_rejects_cross_context_substitution(monkeypatch, attack):
@@ -580,9 +667,15 @@ async def test_continuation_binding_rejects_cross_context_substitution(monkeypat
     descriptor = deepcopy(job.payload["continuations"][0])
     story = next(value for value in session.values if isinstance(value, Story))
     result_revision = StoryRevision(
-        id=uuid4(), story_id=story.id, revision_number=2,
+        id=uuid4(),
+        story_id=story.id,
+        revision_number=2,
         parent_revision_id=UUID(descriptor["expected_story_revision_id"]),
-        narrative="Result", facts=[], disagreements=[], angles=[], citations=[],
+        narrative="Result",
+        facts=[],
+        disagreements=[],
+        angles=[],
+        citations=[],
         created_by="research",
     )
     session.values.append(result_revision)
@@ -623,8 +716,6 @@ async def test_continuation_binding_rejects_cross_context_substitution(monkeypat
     monkeypatch.setattr("app.research.continuations.JobRepository", FakeJobs)
     original_revision_id = dispatch.story_revision_id
     with pytest.raises(ValueError, match="continuation"):
-        await enqueue_bound_continuation(
-            session, descriptor=descriptor, run=run, result_revision=result_revision
-        )
+        await enqueue_bound_continuation(session, descriptor=descriptor, run=run, result_revision=result_revision)
     assert dispatch.story_revision_id == original_revision_id
     assert calls == []

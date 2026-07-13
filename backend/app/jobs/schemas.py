@@ -2,8 +2,9 @@ from datetime import datetime
 from typing import Any
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, field_validator
 
+from app.core.redaction import redact_string
 from app.jobs.types import JobErrorClass, JobOrigin, JobStatus
 
 
@@ -34,6 +35,13 @@ class JobOut(BaseModel):
     finished_at: datetime | None
     created_at: datetime
     updated_at: datetime
+
+    @field_validator("progress_message", "error_code", "error_message", mode="before")
+    @classmethod
+    def redact_legacy_operational_text(cls, value: Any) -> str | None:
+        if value is None:
+            return None
+        return redact_string(str(value))
 
 
 class JobEventOut(BaseModel):

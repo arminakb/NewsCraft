@@ -3,7 +3,9 @@ from decimal import Decimal
 from typing import Any
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
+
+from app.core.redaction import redact_secrets
 
 
 class SourceOut(BaseModel):
@@ -122,6 +124,12 @@ class IngestRunSummaryOut(BaseModel):
     trigger: str
     status: str
     stats: dict[str, Any] = Field(default_factory=dict)
+
+    @field_validator("stats", mode="before")
+    @classmethod
+    def redact_legacy_stats(cls, value: object) -> dict[str, Any]:
+        redacted = redact_secrets(value)
+        return redacted if isinstance(redacted, dict) else {}
 
 
 class MediaAssetListOut(MediaAssetOut):

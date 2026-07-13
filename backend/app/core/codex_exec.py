@@ -159,13 +159,8 @@ async def _default_process_runner(
                 )
             chunks.append(chunk)
             if check_usage:
-                usage = _extract_usage(
-                    b"".join(chunks).decode("utf-8", errors="replace")
-                )
-                if usage and (
-                    usage["input_tokens"] > max_input_tokens
-                    or usage["output_tokens"] > max_output_tokens
-                ):
+                usage = _extract_usage(b"".join(chunks).decode("utf-8", errors="replace"))
+                if usage and (usage["input_tokens"] > max_input_tokens or usage["output_tokens"] > max_output_tokens):
                     raise CodexExecutionError(
                         "codex token budget exceeded",
                         classification="needs_review",
@@ -185,10 +180,7 @@ async def _default_process_runner(
             )
         )
         version_stdout, _ = await before_deadline(version_process.communicate())
-        cli_version = (
-            version_stdout[:4096].decode("utf-8", errors="replace").strip()
-            or "unknown"
-        )
+        cli_version = version_stdout[:4096].decode("utf-8", errors="replace").strip() or "unknown"
         process = await before_deadline(
             asyncio.create_subprocess_exec(
                 *argv,
@@ -219,12 +211,14 @@ async def _default_process_runner(
             "codex timed out",
             classification="retryable",
             code="codex_timeout",
-            metadata=safe_metadata({
-                "codex_cli_version": cli_version,
-                "elapsed_ms": max(0, int((time.monotonic() - started) * 1000)),
-                "exit_code": getattr(current, "returncode", None),
-                "status": "timeout",
-            }),
+            metadata=safe_metadata(
+                {
+                    "codex_cli_version": cli_version,
+                    "elapsed_ms": max(0, int((time.monotonic() - started) * 1000)),
+                    "exit_code": getattr(current, "returncode", None),
+                    "status": "timeout",
+                }
+            ),
         ) from None
     except asyncio.CancelledError:
         await stop_child(process or version_process)
@@ -321,16 +315,8 @@ class CodexExecutor:
                 "browser_use_external",
                 "browser_use_full_cdp_access",
             ]
-            feature_args = [
-                item
-                for feature in disabled_features
-                for item in ("--disable", feature)
-            ]
-            feature_args += (
-                ["--enable", "browser_use"]
-                if allow_web
-                else ["--disable", "browser_use"]
-            )
+            feature_args = [item for feature in disabled_features for item in ("--disable", feature)]
+            feature_args += ["--enable", "browser_use"] if allow_web else ["--disable", "browser_use"]
             argv = [
                 self.executable,
                 "exec",
@@ -355,9 +341,7 @@ class CodexExecutor:
                 "-",
             ]
             timeout_seconds = self.timeout_seconds or budget.max_elapsed_seconds
-            codex_environment = build_codex_environment(
-                self.environment, work_dir=work_dir
-            )
+            codex_environment = build_codex_environment(self.environment, work_dir=work_dir)
             event_secrets = tuple(
                 codex_environment[key]
                 for key in (
@@ -416,12 +400,8 @@ class CodexExecutor:
                 },
                 secrets=event_secrets,
             )
-            process_metadata = (
-                safe_process_metadata if isinstance(safe_process_metadata, dict) else {}
-            )
-            safe_cli_version = str(
-                process_metadata.get("codex_cli_version", "unknown")
-            )
+            process_metadata = safe_process_metadata if isinstance(safe_process_metadata, dict) else {}
+            safe_cli_version = str(process_metadata.get("codex_cli_version", "unknown"))
             if len(result.stdout.encode()) + len(result.stderr.encode()) > MAX_CAPTURE_BYTES:
                 raise CodexExecutionError(
                     "codex output exceeded capture limit",
@@ -458,13 +438,38 @@ class CodexExecutor:
             try:
                 structured_output = result.structured_output or json.loads(raw_text)
                 Draft202012Validator(response_schema).validate(structured_output)
-            except (json.JSONDecodeError, ValidationError):
+                safe_structured_output = redact_secrets(
+                    structured_output,
+                    secrets=event_secrets,
+                )
+                Draft202012Validator(response_schema).validate(safe_structured_output)
+            except json.JSONDecodeError, ValidationError:
                 raise CodexExecutionError(
                     "codex structured output is invalid",
                     classification="needs_review",
                     code="codex_output_invalid",
                     metadata={**process_metadata, "status": "invalid_output"},
                 ) from None
+            if not isinstance(safe_structured_output, dict):
+                raise CodexExecutionError(
+                    "codex structured output is invalid",
+                    classification="needs_review",
+                    code="codex_output_invalid",
+                    metadata={**process_metadata, "status": "invalid_output"},
+                )
+            safe_raw_text = json.dumps(
+                safe_structured_output,
+                ensure_ascii=False,
+                sort_keys=True,
+                separators=(",", ":"),
+            )
+            if len(safe_raw_text.encode("utf-8")) > MAX_CAPTURE_BYTES:
+                raise CodexExecutionError(
+                    "codex result exceeded capture limit",
+                    classification="needs_review",
+                    code="codex_result_too_large",
+                    metadata={**process_metadata, "status": "result_too_large"},
+                )
             usage = result.token_usage or _extract_usage(result.stdout)
             if not usage or not {"input_tokens", "output_tokens"} <= usage.keys():
                 raise CodexExecutionError(
@@ -473,10 +478,7 @@ class CodexExecutor:
                     code="codex_usage_missing",
                     metadata={**process_metadata, "status": "usage_missing", "usage": None},
                 )
-            if (
-                usage["input_tokens"] > budget.max_input_tokens
-                or usage["output_tokens"] > budget.max_output_tokens
-            ):
+            if usage["input_tokens"] > budget.max_input_tokens or usage["output_tokens"] > budget.max_output_tokens:
                 raise CodexExecutionError(
                     "codex token budget exceeded",
                     classification="needs_review",
@@ -496,10 +498,14 @@ class CodexExecutor:
                     },
                 }
             )
+            safe_resolved_model = redact_secrets(
+                resolved_model,
+                secrets=event_secrets,
+            )
             return CodexExecutionResult(
-                structured_output=structured_output,
-                raw_text=raw_text,
-                resolved_model=resolved_model,
+                structured_output=safe_structured_output,
+                raw_text=safe_raw_text,
+                resolved_model=(safe_resolved_model if isinstance(safe_resolved_model, str) else "[REDACTED]"),
                 usage={
                     "input_tokens": usage["input_tokens"],
                     "output_tokens": usage["output_tokens"],
@@ -511,9 +517,7 @@ class CodexExecutor:
             )
 
 
-def _safe_events(
-    stdout: str, *, secrets: tuple[str, ...] = ()
-) -> list[dict[str, object]]:
+def _safe_events(stdout: str, *, secrets: tuple[str, ...] = ()) -> list[dict[str, object]]:
     events: list[dict[str, object]] = []
     for line in stdout.splitlines():
         try:
@@ -523,11 +527,7 @@ def _safe_events(
         if isinstance(item, dict):
             redacted = redact_secrets(item, secrets=secrets)
             if isinstance(redacted, dict):
-                safe = {
-                    key: redacted[key]
-                    for key in ("type", "event", "status", "code", "usage")
-                    if key in redacted
-                }
+                safe = {key: redacted[key] for key in ("type", "event", "status", "code", "usage") if key in redacted}
                 if safe:
                     events.append(safe)
     return events
@@ -547,11 +547,7 @@ def _extract_usage(stdout: str) -> dict[str, int] | None:
             total_input += input_tokens
             total_output += output_tokens
             found = True
-    return (
-        {"input_tokens": total_input, "output_tokens": total_output}
-        if found
-        else None
-    )
+    return {"input_tokens": total_input, "output_tokens": total_output} if found else None
 
 
 __all__ = [

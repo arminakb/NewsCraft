@@ -12,6 +12,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
+from app.core.redaction import redact_secrets, redact_string
 from app.core.secrets import EnvironmentSecretResolver
 from app.generation.models import AIProviderProfile
 from app.generation.provider_settings import (
@@ -40,6 +41,23 @@ class ResearchRequestError(ValueError):
     pass
 
 
+def _redacted_dict(value: object) -> dict:
+    redacted = redact_secrets(value)
+    return redacted if isinstance(redacted, dict) else {}
+
+
+def _redacted_optional_text(value: object | None) -> str | None:
+    return redact_string(str(value)) if value is not None else None
+
+
+def _redacted_citation_key(value: object, content_sha256: str | None) -> str:
+    text = str(value)
+    suffix = f":{content_sha256}" if content_sha256 else ""
+    if suffix and text.startswith("url:") and text.endswith(suffix):
+        return f"url:{redact_string(text[4 : -len(suffix)])}{suffix}"
+    return redact_string(text)
+
+
 class ResearchDisposition(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -61,15 +79,11 @@ def _budget(value: ResearchBudgetSettings) -> ResearchBudget:
 
 
 def _canonical_hash(value: object) -> str:
-    return hashlib.sha256(
-        json.dumps(value, sort_keys=True, separators=(",", ":"), default=str).encode()
-    ).hexdigest()
+    return hashlib.sha256(json.dumps(value, sort_keys=True, separators=(",", ":"), default=str).encode()).hexdigest()
 
 
 def evidence_set_hash(snapshots: list[StoryEvidenceSnapshot]) -> str:
-    return _canonical_hash(
-        [(item.evidence_key, item.content_sha256) for item in snapshots]
-    )
+    return _canonical_hash([(item.evidence_key, item.content_sha256) for item in snapshots])
 
 
 class ResearchService:
@@ -100,9 +114,7 @@ class ResearchService:
             ]
         )
 
-    async def resolve_profile(
-        self, profile_id: UUID, depth: Literal["standard", "deep"]
-    ) -> ResolvedResearchProfile:
+    async def resolve_profile(self, profile_id: UUID, depth: Literal["standard", "deep"]) -> ResolvedResearchProfile:
         profile = await self.session.get(AIProviderProfile, profile_id)
         if profile is None or not profile.enabled:
             raise ResearchRequestError("Selected research provider profile is unavailable")
@@ -155,9 +167,7 @@ class ResearchService:
         query_hint: str | None,
         continuation: dict | None = None,
     ) -> ResearchDisposition:
-        story = await self.session.scalar(
-            select(Story).where(Story.id == story_id).with_for_update()
-        )
+        story = await self.session.scalar(select(Story).where(Story.id == story_id).with_for_update())
         if story is None or story.superseded_by_id is not None:
             raise ResearchRequestError("Active story was not found")
         snapshots = await self._story_evidence(story_id)
@@ -165,9 +175,7 @@ class ResearchService:
         if mode == "off":
             if provider_profile_id is not None:
                 raise ResearchRequestError("Off research mode cannot select a provider profile")
-            return ResearchDisposition(
-                disposition="skipped", run_id=None, job_id=None, completeness=completeness
-            )
+            return ResearchDisposition(disposition="skipped", run_id=None, job_id=None, completeness=completeness)
         if provider_profile_id is None:
             raise ResearchRequestError("Research provider profile is required")
         resolved = await self.resolve_profile(provider_profile_id, depth)
@@ -189,10 +197,7 @@ class ResearchService:
                 if succeeded_run is not None:
                     canonical_job = await self.session.scalar(
                         select(WorkflowJob)
-                        .where(
-                            WorkflowJob.payload["run_id"].as_string()
-                            == str(succeeded_run.id)
-                        )
+                        .where(WorkflowJob.payload["run_id"].as_string() == str(succeeded_run.id))
                         .with_for_update()
                     )
                     canonical_payload = dict(canonical_job.payload or {}) if canonical_job else {}
@@ -201,13 +206,9 @@ class ResearchService:
                         and canonical_payload.get("requested_model") == resolved.model
                         and canonical_payload.get("depth") == depth
                     ):
-                        result_revision = await self.session.get(
-                            StoryRevision, succeeded_run.result_story_revision_id
-                        )
+                        result_revision = await self.session.get(StoryRevision, succeeded_run.result_story_revision_id)
                         if result_revision is None:
-                            raise ResearchRequestError(
-                                "Research result revision is unavailable"
-                            )
+                            raise ResearchRequestError("Research result revision is unavailable")
                         normalized_continuation = normalize_continuation(continuation)
                         if not await continuation_can_reuse_result(
                             self.session,
@@ -226,9 +227,7 @@ class ResearchService:
                         )
                         canonical_job.payload = updated_payload
                         if subscriber_added:
-                            descriptor_identity = normalized_continuation[
-                                "subscriber_id"
-                            ]
+                            descriptor_identity = normalized_continuation["subscriber_id"]
                             descriptor = next(
                                 item
                                 for item in updated_payload["continuations"]
@@ -266,22 +265,22 @@ class ResearchService:
         )
         self.session.add(run)
         await self.session.flush()
-        payload, _subscriber_added = append_unique_continuation({
-            "run_id": str(run.id),
-            "story_id": str(story.id),
-            "provider_profile_id": str(resolved.profile.id),
-            "requested_model": resolved.model,
-            "mode": mode,
-            "depth": depth,
-            "query_hint": query_hint,
-            "evidence_set_hash": evidence_hash,
-            "completeness": completeness.model_dump(mode="json"),
-            "budget": resolved.budget.model_dump(mode="json"),
-        }, continuation)
-        key = (
-            f"research_story:{story.id}:{evidence_hash}:{resolved.profile.id}:"
-            f"{resolved.model}:{mode}:{depth}"
+        payload, _subscriber_added = append_unique_continuation(
+            {
+                "run_id": str(run.id),
+                "story_id": str(story.id),
+                "provider_profile_id": str(resolved.profile.id),
+                "requested_model": resolved.model,
+                "mode": mode,
+                "depth": depth,
+                "query_hint": query_hint,
+                "evidence_set_hash": evidence_hash,
+                "completeness": completeness.model_dump(mode="json"),
+                "budget": resolved.budget.model_dump(mode="json"),
+            },
+            continuation,
         )
+        key = f"research_story:{story.id}:{evidence_hash}:{resolved.profile.id}:{resolved.model}:{mode}:{depth}"
         accepted = await JobRepository(self.session).enqueue_job(
             job_type="research_story",
             payload=payload,
@@ -290,9 +289,7 @@ class ResearchService:
         )
         if not accepted.created:
             canonical_job = await self.session.scalar(
-                select(WorkflowJob)
-                .where(WorkflowJob.id == accepted.job.id)
-                .with_for_update()
+                select(WorkflowJob).where(WorkflowJob.id == accepted.job.id).with_for_update()
             )
             if canonical_job is None:
                 raise ResearchRequestError("Canonical research job is unavailable")
@@ -310,16 +307,13 @@ class ResearchService:
                 and existing_run.status == "succeeded"
                 and existing_run.result_story_revision_id is not None
             ):
-                result_revision = await self.session.get(
-                    StoryRevision, existing_run.result_story_revision_id
-                )
+                result_revision = await self.session.get(StoryRevision, existing_run.result_story_revision_id)
                 if result_revision is None:
                     raise ResearchRequestError("Research result revision is unavailable")
                 descriptor = next(
                     item
                     for item in updated_payload["continuations"]
-                    if item["subscriber_id"]
-                    == normalize_continuation(continuation)["subscriber_id"]
+                    if item["subscriber_id"] == normalize_continuation(continuation)["subscriber_id"]
                 )
                 await enqueue_bound_continuation(
                     self.session,
@@ -373,6 +367,7 @@ class ResearchService:
             (item for item in reversed(events) if item.event_type == "research.succeeded"),
             None,
         )
+        job_payload = _redacted_dict(job.payload) if job else {}
         return {
             "id": run.id,
             "story_id": run.story_id,
@@ -380,54 +375,59 @@ class ResearchService:
             "status": run.status,
             "provider": {
                 "id": profile.id,
-                "name": profile.name,
-                "provider_type": profile.provider_type,
-            } if profile else None,
+                "name": redact_string(str(profile.name)),
+                "provider_type": redact_string(str(profile.provider_type)),
+            }
+            if profile
+            else None,
             "budget": {
                 "max_queries": run.query_budget,
                 "max_pages": run.page_budget,
                 "max_elapsed_seconds": run.time_budget_seconds,
-                **((job.payload or {}).get("budget", {}) if job else {}),
+                **(job_payload.get("budget", {}) if isinstance(job_payload.get("budget"), dict) else {}),
             },
-            "requested_model": (job.payload or {}).get("requested_model") if job else None,
+            "requested_model": _redacted_optional_text(job_payload.get("requested_model") if job else None),
             "resolved_model": (
-                (succeeded_event.event_data or {}).get("resolved_model")
+                _redacted_optional_text((succeeded_event.event_data or {}).get("resolved_model"))
                 if succeeded_event
                 else None
             ),
-            "evidence_set_hash": (job.payload or {}).get("evidence_set_hash") if job else None,
-            "completeness": (job.payload or {}).get("completeness") if job else None,
+            "evidence_set_hash": job_payload.get("evidence_set_hash") if job else None,
+            "completeness": job_payload.get("completeness") if job else None,
             "attempts": [
                 {
                     "id": item.id,
                     "attempt_number": item.attempt_number,
                     "status": item.status,
-                    "usage": item.usage,
-                    "error_class": item.error_class,
-                    "error_code": item.error_code,
-                    "error_message": item.error_message,
+                    "usage": _redacted_dict(item.usage),
+                    "error_class": _redacted_optional_text(item.error_class),
+                    "error_code": _redacted_optional_text(item.error_code),
+                    "error_message": _redacted_optional_text(item.error_message),
                 }
                 for item in attempts
             ],
             "sources": [
                 {
                     "id": item.id,
-                    "url": item.url,
-                    "title": item.title,
-                    "publisher": item.publisher,
+                    "url": redact_string(str(item.url)),
+                    "title": _redacted_optional_text(item.title),
+                    "publisher": _redacted_optional_text(item.publisher),
                     "published_at": item.published_at,
                     "content_sha256": item.content_sha256,
-                    "citation_key": item.citation_key,
-                    "extraction_status": item.extraction_status,
+                    "citation_key": _redacted_citation_key(
+                        item.citation_key,
+                        item.content_sha256,
+                    ),
+                    "extraction_status": redact_string(str(item.extraction_status)),
                 }
                 for item in sources
             ],
             "events": [
                 {
                     "id": item.id,
-                    "event_type": item.event_type,
-                    "actor": item.actor,
-                    "event_data": item.event_data,
+                    "event_type": redact_string(str(item.event_type)),
+                    "actor": redact_string(str(item.actor)),
+                    "event_data": _redacted_dict(item.event_data),
                     "created_at": item.created_at,
                 }
                 for item in events

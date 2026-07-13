@@ -13,6 +13,7 @@ import httpx
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
+from app.core.redaction import redact_string
 from app.db.models import Source
 from app.ingestion.repository import IngestionRepository, build_item_identities
 from app.ingestion.service import (
@@ -24,6 +25,7 @@ from app.ingestion.service import (
     _record_source_not_modified,
     _record_source_success,
     _request_headers,
+    _sanitized_stats,
     _source_request_url,
 )
 
@@ -158,8 +160,8 @@ class IngestionWorkflow:
                     raise
                 except Exception as exc:  # noqa: BLE001 - retain fetched evidence for classified failure
                     processing_failure = SourceProcessingFailure(
-                        error_type=exc.__class__.__name__,
-                        message=str(exc),
+                        error_type=redact_string(exc.__class__.__name__),
+                        message=redact_string(str(exc)),
                     )
                 else:
                     warnings = tuple(parsed.warnings)
@@ -203,7 +205,6 @@ class IngestionWorkflow:
             raw_text=batch.raw_text,
             parser_warnings=list(batch.parser_warnings),
         )
-        payload.parser_warnings = list(batch.parser_warnings)
         source.etag = batch.headers.get("etag") or source.etag
         source.last_modified = batch.headers.get("last-modified") or source.last_modified
         source.last_fetch_at = datetime.now(UTC)
@@ -223,7 +224,12 @@ class IngestionWorkflow:
             )
             return SourcePersistResult(
                 failed=1,
-                errors=({"source": source.name, "error": str(error)},),
+                errors=(
+                    {
+                        "source": redact_string(source.name),
+                        "error": redact_string(str(error)),
+                    },
+                ),
             )
         if batch.processing_failure is not None:
             return SourcePersistResult(fetched=1, processing_failure=batch.processing_failure)
@@ -266,8 +272,8 @@ class IngestionWorkflow:
             return SourcePersistResult(
                 fetched=1,
                 processing_failure=SourceProcessingFailure(
-                    error_type=exc.__class__.__name__,
-                    message=str(exc),
+                    error_type=redact_string(exc.__class__.__name__),
+                    message=redact_string(str(exc)),
                 ),
             )
 
@@ -297,7 +303,12 @@ class IngestionWorkflow:
             _record_source_failure(stored, error)
         return SourcePersistResult(
             failed=1,
-            errors=({"source": source.name, "error": str(error)},),
+            errors=(
+                {
+                    "source": redact_string(source.name),
+                    "error": redact_string(str(error)),
+                },
+            ),
         )
 
     async def finish_run(
@@ -379,8 +390,13 @@ class IngestionWorkflow:
                 self._merge_result(stats, classified)
 
         async with _transaction(session, "finish"):
-            await self.finish_run(session, run_id=prepared.run_id, stats=stats)
-        return stats
+            safe_stats = _sanitized_stats(stats)
+            await self.finish_run(
+                session,
+                run_id=prepared.run_id,
+                stats=safe_stats,
+            )
+        return safe_stats
 
     async def _after_fetch(self, source: PreparedSource, batch: FetchedSourceBatch) -> None:
         del source, batch

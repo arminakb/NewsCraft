@@ -84,7 +84,7 @@ def decode_export_cursor(cursor: str) -> tuple[datetime, UUID]:
     return finished_at, job_id
 
 
-def _safe_error_message(value: Any) -> str | None:
+def _safe_error_text(value: Any) -> str | None:
     if value is None:
         return None
     redacted = redact_secrets(str(value))
@@ -109,11 +109,11 @@ def export_artifact_out(
         finished_at=getattr(job, "finished_at", None),
         artifact=artifact,
         downloads=downloads,
-        error_code="export_expired" if expired else getattr(job, "error_code", None),
+        error_code=("export_expired" if expired else _safe_error_text(getattr(job, "error_code", None))),
         error_message=(
             "Export artifact expired under retention policy"
             if expired
-            else _safe_error_message(getattr(job, "error_message", None))
+            else _safe_error_text(getattr(job, "error_message", None))
         ),
     )
 

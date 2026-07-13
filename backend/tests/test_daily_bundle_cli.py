@@ -1,3 +1,4 @@
+import json
 from datetime import UTC, datetime
 from pathlib import Path
 from types import SimpleNamespace
@@ -126,9 +127,7 @@ async def test_run_daily_bundle_records_discovery_errors_without_aborting(tmp_pa
         google_news_discoverer=lambda client, start, end, topics: fake_discoverer(events, "google_news", topics),
         hackernews_discoverer=lambda client, start, end: fake_discoverer(events, "hackernews", []),
         article_extractor=fake_extract_article,
-        exporter=lambda session, start, end, output, limit=250: fake_exporter(
-            events, {}, start, end, output, limit
-        ),
+        exporter=lambda session, start, end, output, limit=250: fake_exporter(events, {}, start, end, output, limit),
         printer=lambda message: events.append(("print", message)),
     )
 
@@ -138,6 +137,39 @@ async def test_run_daily_bundle_records_discovery_errors_without_aborting(tmp_pa
     assert result["discovery_errors"] == [{"platform": "gdelt", "error": "ConnectTimeout: gdelt timeout"}]
     assert ("persist", "google_news", 1, 2) in events
     assert ("persist", "hackernews", 1, 2) in events
+
+
+async def test_run_daily_bundle_redacts_discovery_errors_before_persisting_or_printing(tmp_path):
+    events: list[tuple] = []
+    args = parse_args(["--start", "2026-07-05", "--end", "2026-07-06", "--output", str(tmp_path)])
+
+    async def leaking_discoverer(client, start, end, topics):
+        raise RuntimeError("authorization: Bearer daily-bundle-canary")
+
+    deps = DailyBundleDependencies(
+        session_factory=lambda: FakeSessionContext(events),
+        http_client_factory=lambda: FakeClientContext(events),
+        ingestion_service_factory=lambda session, client: FakeIngestionService(events),
+        repository_factory=lambda session: FakeRepository(events, uuid4()),
+        discovery_service_factory=lambda session, repository: FakeDiscoveryService(events),
+        media_downloader_factory=lambda session, client: FakeMediaDownloader(events),
+        gdelt_discoverer=leaking_discoverer,
+        google_news_discoverer=lambda client, start, end, topics: fake_discoverer(events, "google_news", topics),
+        hackernews_discoverer=lambda client, start, end: fake_discoverer(events, "hackernews", []),
+        article_extractor=fake_extract_article,
+        exporter=lambda session, start, end, output, limit=250: fake_exporter(events, {}, start, end, output, limit),
+        printer=lambda message: events.append(("print", message)),
+    )
+
+    result = await run_daily_bundle(args, deps)
+
+    serialized_result = json.dumps(result)
+    printed = next(event[1] for event in events if event[0] == "print")
+    persisted_stats = next(event[3] for event in events if event[0] == "finish_run")
+    assert "daily-bundle-canary" not in serialized_result
+    assert "daily-bundle-canary" not in printed
+    assert "daily-bundle-canary" not in json.dumps(persisted_stats)
+    assert result["discovery_errors"] == [{"platform": "gdelt", "error": "RuntimeError: authorization:[REDACTED]"}]
 
 
 class FakeSessionContext:

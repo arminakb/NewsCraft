@@ -11,7 +11,7 @@ from sqlalchemy.orm import aliased
 
 from app.automations.models import AutomationDispatch, AutomationRoute
 from app.core.config import settings
-from app.core.redaction import redact_secrets
+from app.core.redaction import redact_secrets, redact_string
 from app.db.models import Source
 from app.generation.models import GenerationRun
 from app.jobs.models import AutomationControl, WorkflowJob
@@ -364,7 +364,7 @@ def _job_attention(job: WorkflowJob) -> AttentionItem:
         id=str(job.id),
         severity="error" if _status_text(job.status) == JobStatus.FAILED else "warning",
         kind=kind,
-        title=_safe_text(f"{job.job_type}: {detail}"),
+        title=_safe_text(job.job_type, ": ", detail),
         occurred_at=job.updated_at,
         action_url="/jobs",
     )
@@ -376,7 +376,7 @@ def _source_attention(source: Source) -> AttentionItem:
         id=f"source:{source.id}",
         severity="error" if source.health_status in {"broken", "unhealthy", "failed"} else "warning",
         kind="source",
-        title=_safe_text(f"Source {source.name}: {detail}"),
+        title=_safe_text("Source ", source.name, ": ", detail),
         occurred_at=source.last_failure_at or source.updated_at,
         action_url="/sources",
     )
@@ -387,7 +387,7 @@ def _destination_attention(destination: Destination) -> AttentionItem:
         id=f"destination:{destination.id}",
         severity="error" if destination.health_status in {"broken", "unhealthy", "failed"} else "warning",
         kind="destination",
-        title=_safe_text(f"Destination {destination.name}: {destination.health_status}"),
+        title=_safe_text("Destination ", destination.name, ": ", destination.health_status),
         occurred_at=destination.last_health_check_at or destination.updated_at,
         action_url="/automations",
     )
@@ -398,7 +398,7 @@ def _paused_route_attention(route: AutomationRoute) -> AttentionItem:
         id=f"route:{route.id}",
         severity="warning",
         kind="route",
-        title=_safe_text(f"Automation {route.name} is paused"),
+        title=_safe_text("Automation ", route.name, " is paused"),
         occurred_at=route.paused_at,
         action_url=f"/automations/{route.id}",
     )
@@ -410,7 +410,7 @@ def _dispatch_attention(dispatch: AutomationDispatch) -> AttentionItem:
         id=f"route:{dispatch.route_id}",
         severity="error" if dispatch.status == "failed" else "warning",
         kind="route",
-        title=_safe_text(f"Automation dispatch: {detail}"),
+        title=_safe_text("Automation dispatch: ", detail),
         occurred_at=dispatch.updated_at,
         action_url=f"/automations/{dispatch.route_id}",
     )
@@ -430,7 +430,7 @@ def _research_attention(run: ResearchRun, attempt: ResearchAttempt | None) -> At
         id=f"research:{run.id}",
         severity="error" if run.status == "failed" else "warning",
         kind="research",
-        title=_safe_text(f"Research run: {detail}"),
+        title=_safe_text("Research run: ", detail),
         occurred_at=occurred_at,
         action_url="/inbox",
     )
@@ -442,7 +442,7 @@ def _generation_attention(run: GenerationRun) -> AttentionItem:
         id=f"generation:{run.id}",
         severity="error" if run.status == "failed" else "warning",
         kind="generation",
-        title=_safe_text(f"Generation run: {detail}"),
+        title=_safe_text("Generation run: ", detail),
         occurred_at=run.finished_at or run.started_at or run.created_at,
         action_url="/drafts",
     )
@@ -453,7 +453,7 @@ def _publish_job_attention(job: PublishJob) -> AttentionItem:
         id=f"publication:{job.id}",
         severity="error" if job.status == "attention" else "warning",
         kind="publication",
-        title=_safe_text(f"Publish job requires attention: {job.status}"),
+        title=_safe_text("Publish job requires attention: ", job.status),
         occurred_at=job.updated_at,
         action_url="/jobs",
     )
@@ -464,7 +464,7 @@ def _publication_attention(publication: Publication) -> AttentionItem:
         id=f"publication:{publication.publish_job_id}",
         severity="warning",
         kind="publication",
-        title=_safe_text(f"Publication requires reconciliation: {publication.reconciliation_status}"),
+        title=_safe_text("Publication requires reconciliation: ", publication.reconciliation_status),
         occurred_at=publication.published_at,
         action_url="/jobs",
     )
@@ -615,9 +615,12 @@ def _job_kind(job_type: str) -> AttentionKind:
     return "job"
 
 
-def _safe_text(value: object) -> str:
-    sanitized = redact_secrets(str(value))
-    return str(sanitized)
+def _safe_text(*values: object) -> str:
+    parts: list[str] = []
+    for value in values:
+        sanitized = redact_secrets(value)
+        parts.append(sanitized if isinstance(sanitized, str) else str(sanitized))
+    return redact_string("".join(parts))
 
 
 def _status_text(value: object) -> str:

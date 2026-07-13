@@ -88,6 +88,16 @@ class RetryableProvider:
         raise OpenRouterRetryableError(code="openrouter_http_429", message="rate limited")
 
 
+class SecretRetryableProvider:
+    provider_name = "openrouter"
+
+    async def generate(self, request):
+        raise OpenRouterRetryableError(
+            code="openrouter_api_key=telegram-code-canary",
+            message='upstream {"authorization":"Bearer telegram-message-canary"}',
+        )
+
+
 class BlockingProvider(DeterministicFakeProvider):
     def __init__(self) -> None:
         super().__init__(output={"body": "ordered", "parse_mode": "HTML", "buttons": []})
@@ -404,6 +414,53 @@ async def test_process_dispatch_persists_exact_review_revision_and_resumes_idemp
 
 
 @pytest.mark.asyncio
+async def test_secret_shaped_model_is_redacted_without_generation_input_drift(
+    session_factory,
+):
+    async with session_factory() as session:
+        async with session.begin():
+            dispatch, job, _ = await seed_dispatch(session)
+            route = await session.get(AutomationRoute, dispatch.route_id)
+            route.content_filters = {
+                **(route.content_filters or {}),
+                "model": "api_key=telegram-model-canary",
+            }
+        dispatch_id = dispatch.id
+        job_id = job.id
+
+    resolver = FakeProfileResolver()
+    handler = build_telegram_process_handler(resolver)
+    async with session_factory() as session:
+        job = await session.get(WorkflowJob, job_id)
+        await session.commit()
+        first = await handler(
+            job,
+            JobContext(session=session, providers=build_default_provider_registry()),
+        )
+        await session.commit()
+        job = await session.get(WorkflowJob, job_id)
+        await session.commit()
+        replay = await handler(
+            job,
+            JobContext(session=session, providers=build_default_provider_registry()),
+        )
+
+    assert replay["revision_id"] == first["revision_id"]
+    assert replay["idempotent"] is True
+    assert len(resolver.calls) == 1
+    async with session_factory() as session:
+        dispatch = await session.get(AutomationDispatch, dispatch_id)
+        run = await session.get(GenerationRun, dispatch.generation_run_id)
+        attempt = await session.scalar(select(GenerationAttempt).where(GenerationAttempt.generation_run_id == run.id))
+        assert generation_input_hash(run.request_payload) == run.input_hash
+        assert "telegram-model-canary" not in str(run.request_payload)
+        assert "telegram-model-canary" not in str(run.requested_model)
+        assert "telegram-model-canary" not in str(attempt.requested_model)
+        assert "telegram-model-canary" not in str(attempt.resolved_model)
+        assert "[REDACTED]" in str(run.request_payload)
+
+
+@pytest.mark.asyncio
 async def test_auto_publish_creates_one_durable_intent_without_remote_call(session_factory):
     async with session_factory() as session:
         async with session.begin():
@@ -497,6 +554,39 @@ async def test_retryable_provider_failure_persists_attempt_and_route_retry_time(
         assert "telegram.generation.failed" in set(
             await session.scalars(select(WorkflowEvent.event_type).where(WorkflowEvent.workflow_job_id == job_id))
         )
+
+
+@pytest.mark.asyncio
+async def test_provider_failure_redacts_generation_and_dispatch_error_columns(session_factory):
+    async with session_factory() as session:
+        async with session.begin():
+            dispatch, job, _ = await seed_dispatch(session)
+        dispatch_id = dispatch.id
+        job_id = job.id
+
+    async with session_factory() as session:
+        job = await session.get(WorkflowJob, job_id)
+        await session.commit()
+        with pytest.raises(RetryableJobError) as caught:
+            await build_telegram_process_handler(FakeProfileResolver(SecretRetryableProvider()))(
+                job,
+                JobContext(session=session, providers=build_default_provider_registry()),
+            )
+
+    assert "telegram-code-canary" in caught.value.code
+    assert "telegram-message-canary" in caught.value.message
+    async with session_factory() as session:
+        dispatch = await session.get(AutomationDispatch, dispatch_id)
+        run = await session.get(GenerationRun, dispatch.generation_run_id)
+        attempt = await session.scalar(select(GenerationAttempt).where(GenerationAttempt.generation_run_id == run.id))
+        for durable in (attempt, run, dispatch):
+            assert "telegram-code-canary" not in durable.error_code
+            assert "telegram-message-canary" not in durable.error_message
+            assert "[REDACTED]" in durable.error_code
+            assert "[REDACTED]" in durable.error_message
+        events = list(await session.scalars(select(WorkflowEvent).where(WorkflowEvent.workflow_job_id == job_id)))
+        assert "telegram-code-canary" not in str([event.event_data for event in events])
+        assert "telegram-message-canary" not in str([event.event_data for event in events])
 
 
 @pytest.mark.asyncio

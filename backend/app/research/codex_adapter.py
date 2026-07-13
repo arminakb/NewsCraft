@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import re
 import time
 from collections.abc import Callable
 from datetime import datetime
@@ -10,6 +11,7 @@ from hashlib import sha256
 from pydantic import BaseModel, ConfigDict, Field, HttpUrl, model_validator
 
 from app.core.codex_exec import CodexExecutionError, CodexExecutor
+from app.core.redaction import redact_secrets
 from app.normalization.urls import normalize_url
 from app.research.base import (
     ResearchBackendOutput,
@@ -25,6 +27,9 @@ from app.research.schemas import (
     CandidateResearchBrief,
     DiscoveredSourcePayload,
 )
+
+_SAFE_EXECUTION_ERROR_CODE = re.compile(r"codex_[a-z0-9_]{1,100}\Z")
+_SAFE_EXECUTION_CLASSIFICATIONS = {"retryable", "needs_review", "permanent"}
 
 
 class ResearchBackendError(CodexExecutionError):
@@ -50,9 +55,7 @@ class CodexCandidateCitation(BaseModel):
     @model_validator(mode="after")
     def references_exactly_one_evidence_input(self) -> CodexCandidateCitation:
         if (self.evidence_key is None) == (self.source_url is None):
-            raise ValueError(
-                "citation must reference one existing evidence key or one discovered source URL"
-            )
+            raise ValueError("citation must reference one existing evidence key or one discovered source URL")
         return self
 
 
@@ -113,14 +116,30 @@ class CodexResearchBackend:
             exc.add_metadata(elapsed_ms=self._elapsed_ms(started))
             raise
         except CodexExecutionError as exc:
+            safe_metadata = redact_secrets(exc.metadata)
+            safe_code = redact_secrets(exc.code)
+            normalized_code = (
+                safe_code
+                if isinstance(safe_code, str) and _SAFE_EXECUTION_ERROR_CODE.fullmatch(safe_code)
+                else "codex_execution_failed"
+            )
+            classification = (
+                exc.classification
+                if isinstance(exc.classification, str) and exc.classification in _SAFE_EXECUTION_CLASSIFICATIONS
+                else "needs_review"
+            )
             raise ResearchBackendError(
-                str(exc),
-                classification=exc.classification,
-                code=exc.code,
-                metadata={**exc.metadata, "elapsed_ms": self._elapsed_ms(started)},
-            ) from exc
+                "codex research execution failed",
+                classification=classification,
+                code=normalized_code,
+                metadata={
+                    **(safe_metadata if isinstance(safe_metadata, dict) else {}),
+                    "elapsed_ms": self._elapsed_ms(started),
+                },
+            ) from None
         try:
-            raw = CodexResearchOutput.model_validate(execution.structured_output)
+            safe_structured_output = redact_secrets(execution.structured_output)
+            raw = CodexResearchOutput.model_validate(safe_structured_output)
             sources, source_keys = await self._materialize_sources(
                 raw.sources,
                 request,
@@ -171,11 +190,13 @@ class CodexResearchBackend:
                 discovered_evidence_keys=[source.evidence_key for source in sources],
             ),
         )
+        safe_resolved_model = redact_secrets(execution.resolved_model)
+        safe_events = redact_secrets(execution.sanitized_events)
         provisional_result = ResearchResult(
             provider_profile_id=request.provider_profile_id,
             provider_type="codex",
             requested_model=request.requested_model,
-            resolved_model=execution.resolved_model,
+            resolved_model=(safe_resolved_model if isinstance(safe_resolved_model, str) else "[REDACTED]"),
             output=output,
             usage=ResearchUsage(
                 model_calls=1,
@@ -187,11 +208,9 @@ class CodexResearchBackend:
                 fetched_characters=sum(len(source.content_text) for source in sources),
             ),
             elapsed_ms=0,
-            sanitized_events=list(execution.sanitized_events),
+            sanitized_events=safe_events if isinstance(safe_events, list) else [],
         )
-        total_elapsed_ms = self._elapsed_within_deadline(
-            deadline=deadline, started=started
-        )
+        total_elapsed_ms = self._elapsed_within_deadline(deadline=deadline, started=started)
         return provisional_result.model_copy(
             update={
                 "elapsed_ms": total_elapsed_ms,
@@ -274,8 +293,7 @@ class CodexResearchBackend:
             )
             fetched_url = normalize_url(str(fetched.url))
             if any(
-                normalize_url(str(source.url)) == fetched_url
-                or source.evidence_key == fetched.evidence_key
+                normalize_url(str(source.url)) == fetched_url or source.evidence_key == fetched.evidence_key
                 for source in sources
             ):
                 raise ResearchBackendError(

@@ -12,6 +12,7 @@ from typing import Any
 import httpx
 
 from app.core.config import settings
+from app.core.redaction import redact_string
 from app.daily_bundle.date_range import default_yesterday, parse_date_range
 from app.daily_bundle.exporter import export_daily_bundle
 from app.db.session import async_session
@@ -34,20 +35,18 @@ DEFAULT_EXTRACTION_CONCURRENCY = 8
 class DailyBundleDependencies:
     session_factory: Callable[[], Any] = async_session
     http_client_factory: Callable[[], Any] = lambda: _build_http_client()
-    ingestion_service_factory: Callable[[Any, httpx.AsyncClient], IngestionService] = (
-        lambda session, client: IngestionService(session, http_client=client)
+    ingestion_service_factory: Callable[[Any, httpx.AsyncClient], IngestionService] = lambda session, client: (
+        IngestionService(session, http_client=client)
     )
     repository_factory: Callable[[Any], IngestionRepository] = lambda session: IngestionRepository(session)
     discovery_service_factory: Callable[[Any, IngestionRepository], DiscoveryIngestionService] = (
         lambda session, repository: DiscoveryIngestionService(session=session, repository=repository)
     )
-    media_downloader_factory: Callable[[Any, httpx.AsyncClient], MediaDownloader] = (
-        lambda session, client: MediaDownloader(session, http_client=client)
+    media_downloader_factory: Callable[[Any, httpx.AsyncClient], MediaDownloader] = lambda session, client: (
+        MediaDownloader(session, http_client=client)
     )
     gdelt_discoverer: Callable[[httpx.AsyncClient, datetime, datetime, list[str]], Any] = discover_gdelt
-    google_news_discoverer: Callable[[httpx.AsyncClient, datetime, datetime, list[str]], Any] = (
-        discover_google_news_rss
-    )
+    google_news_discoverer: Callable[[httpx.AsyncClient, datetime, datetime, list[str]], Any] = discover_google_news_rss
     hackernews_discoverer: Callable[[httpx.AsyncClient, datetime, datetime], Any] = discover_hackernews
     article_extractor: Callable[[httpx.AsyncClient, DiscoveryItem], Any] = extract_article
     exporter: Callable[[Any, datetime, datetime, Path], Any] = export_daily_bundle
@@ -184,7 +183,12 @@ async def _discover_items(
             discovered[platform] = await discover()
         except Exception as exc:  # noqa: BLE001 - one source should not abort the daily bundle
             discovered[platform] = []
-            errors.append({"platform": platform, "error": f"{exc.__class__.__name__}: {exc}"})
+            errors.append(
+                {
+                    "platform": platform,
+                    "error": redact_string(f"{exc.__class__.__name__}: {exc}"),
+                }
+            )
     return discovered, errors
 
 

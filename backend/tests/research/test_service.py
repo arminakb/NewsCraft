@@ -48,8 +48,12 @@ class FakeSession:
 
 def _fake_profile(*, enabled=True):
     return SimpleNamespace(
-        id=uuid4(), enabled=enabled, provider_type="fake", secret_ref=None,
-        settings={}, default_model="fake-v1",
+        id=uuid4(),
+        enabled=enabled,
+        provider_type="fake",
+        secret_ref=None,
+        settings={},
+        default_model="fake-v1",
     )
 
 
@@ -67,20 +71,37 @@ def _story_and_evidence(*, complete: bool):
     text = "x" * 500 if complete else "short"
     snapshots = [
         StoryEvidenceSnapshot(
-            id=uuid4(), story_id=story.id, content_item_id=None,
-            evidence_key=f"operator-text:{index:064x}", source_url=f"https://source{index}.example/item",
-            title="Evidence", content_text=text, authors=[], published_at=None,
-            content_sha256=f"{index:064x}", snapshot_metadata={"is_primary": index == 1}, captured_at=now,
+            id=uuid4(),
+            story_id=story.id,
+            content_item_id=None,
+            evidence_key=f"operator-text:{index:064x}",
+            source_url=f"https://source{index}.example/item",
+            title="Evidence",
+            content_text=text,
+            authors=[],
+            published_at=None,
+            content_sha256=f"{index:064x}",
+            snapshot_metadata={"is_primary": index == 1},
+            captured_at=now,
         )
-        for index in (1, 2) if complete
+        for index in (1, 2)
+        if complete
     ]
     if not complete:
         snapshots = [
             StoryEvidenceSnapshot(
-                id=uuid4(), story_id=story.id, content_item_id=None,
-                evidence_key="operator-text:" + "0" * 64, source_url=None,
-                title="Evidence", content_text=text, authors=[], published_at=None,
-                content_sha256="0" * 64, snapshot_metadata={}, captured_at=now,
+                id=uuid4(),
+                story_id=story.id,
+                content_item_id=None,
+                evidence_key="operator-text:" + "0" * 64,
+                source_url=None,
+                title="Evidence",
+                content_text=text,
+                authors=[],
+                published_at=None,
+                content_sha256="0" * 64,
+                snapshot_metadata={},
+                captured_at=now,
             )
         ]
     return story, snapshots
@@ -89,8 +110,11 @@ def _story_and_evidence(*, complete: bool):
 async def test_off_mode_never_enqueues_research():
     story, snapshots = _story_and_evidence(complete=False)
     result = await ResearchService(FakeSession(story, snapshots)).request(
-        story_id=story.id, mode="off", depth="standard",
-        provider_profile_id=None, query_hint=None,
+        story_id=story.id,
+        mode="off",
+        depth="standard",
+        provider_profile_id=None,
+        query_hint=None,
     )
     assert result.disposition == "skipped"
     assert result.job_id is None
@@ -100,8 +124,11 @@ async def test_auto_mode_returns_complete_without_loading_a_profile():
     story, snapshots = _story_and_evidence(complete=True)
     profile = _fake_profile()
     result = await ResearchService(FakeSession(story, snapshots, profile)).request(
-        story_id=story.id, mode="auto_if_incomplete", depth="standard",
-        provider_profile_id=profile.id, query_hint=None,
+        story_id=story.id,
+        mode="auto_if_incomplete",
+        depth="standard",
+        provider_profile_id=profile.id,
+        query_hint=None,
     )
     assert result.disposition == "complete_without_research"
     assert result.completeness.complete is True
@@ -113,8 +140,11 @@ async def test_auto_complete_still_rejects_missing_or_disabled_profile(profile):
     profile_id = uuid4() if profile is None else profile.id
     with pytest.raises(ResearchRequestError, match="unavailable"):
         await ResearchService(FakeSession(story, snapshots, profile)).request(
-            story_id=story.id, mode="auto_if_incomplete", depth="standard",
-            provider_profile_id=profile_id, query_hint=None,
+            story_id=story.id,
+            mode="auto_if_incomplete",
+            depth="standard",
+            provider_profile_id=profile_id,
+            query_hint=None,
         )
 
 
@@ -124,8 +154,11 @@ async def test_auto_complete_still_rejects_unavailable_fake_profile():
     profile.settings = {"not_allowed": True}
     with pytest.raises(ResearchRequestError, match="invalid"):
         await ResearchService(FakeSession(story, snapshots, profile)).request(
-            story_id=story.id, mode="auto_if_incomplete", depth="standard",
-            provider_profile_id=profile.id, query_hint=None,
+            story_id=story.id,
+            mode="auto_if_incomplete",
+            depth="standard",
+            provider_profile_id=profile.id,
+            query_hint=None,
         )
 
 
@@ -133,8 +166,11 @@ async def test_off_mode_rejects_a_profile_id():
     story, snapshots = _story_and_evidence(complete=False)
     with pytest.raises(ResearchRequestError, match="cannot select"):
         await ResearchService(FakeSession(story, snapshots)).request(
-            story_id=story.id, mode="off", depth="standard",
-            provider_profile_id=uuid4(), query_hint=None,
+            story_id=story.id,
+            mode="off",
+            depth="standard",
+            provider_profile_id=uuid4(),
+            query_hint=None,
         )
 
 
@@ -142,60 +178,116 @@ async def test_actual_run_projection_is_complete_and_never_exposes_provider_secr
     now = datetime.now(UTC)
     story_id, run_id, profile_id, revision_id = uuid4(), uuid4(), uuid4(), uuid4()
     run = ResearchRun(
-        id=run_id, story_id=story_id, requested_mode="manual",
-        provider_profile_id=profile_id, status="succeeded", query_budget=4,
-        page_budget=8, time_budget_seconds=120, result_story_revision_id=revision_id,
-        created_at=now, started_at=now, finished_at=now,
+        id=run_id,
+        story_id=story_id,
+        requested_mode="manual",
+        provider_profile_id=profile_id,
+        status="succeeded",
+        query_budget=4,
+        page_budget=8,
+        time_budget_seconds=120,
+        result_story_revision_id=revision_id,
+        created_at=now,
+        started_at=now,
+        finished_at=now,
     )
     profile = AIProviderProfile(
-        id=profile_id, name="Sensitive profile", provider_type="openrouter",
-        default_model="model", secret_ref="OPENROUTER_API_KEY",
+        id=profile_id,
+        name="Sensitive profile",
+        provider_type="openrouter",
+        default_model="model",
+        secret_ref="OPENROUTER_API_KEY",
         settings={"authorization": "Bearer forbidden", "http_proxy": "http://secret"},
         enabled=True,
     )
     attempt = ResearchAttempt(
-        id=uuid4(), research_run_id=run_id, attempt_number=1, queries=[],
-        status="succeeded", usage={"pages": 1}, started_at=now, finished_at=now,
+        id=uuid4(),
+        research_run_id=run_id,
+        attempt_number=1,
+        queries=[],
+        status="succeeded",
+        usage={"pages": 1, "metadata": {"access_token": "usage-canary"}},
+        error_code="failure_api_key=code-canary",
+        error_message='failure {"password":"message-canary"}',
+        started_at=now,
+        finished_at=now,
     )
     source = ResearchSource(
-        id=uuid4(), research_run_id=run_id, url="https://example.com/report",
-        title="Report", publisher="Publisher", published_at=None,
-        content_sha256="a" * 64, extraction_status="ok", relevance=0,
-        citation_key="url:https://example.com/report:" + "a" * 64,
-        snapshot_metadata={"retrieved_at": now.isoformat()}, created_at=now,
+        id=uuid4(),
+        research_run_id=run_id,
+        url="https://user:pass@example.com/report?api_key=url-canary",
+        title="Report",
+        publisher="Publisher",
+        published_at=None,
+        content_sha256="a" * 64,
+        extraction_status="ok",
+        relevance=0,
+        citation_key=("url:https://user:pass@example.com/report?api_key=url-canary:" + "a" * 64),
+        snapshot_metadata={"retrieved_at": now.isoformat()},
+        created_at=now,
     )
     job = WorkflowJob(
-        id=uuid4(), job_type="research_story", status="succeeded",
+        id=uuid4(),
+        job_type="research_story",
+        status="succeeded",
         payload={
-            "run_id": str(run_id), "requested_model": "model",
+            "run_id": str(run_id),
+            "requested_model": "api_key=model-canary",
             "evidence_set_hash": "b" * 64,
             "completeness": {"complete": False},
             "budget": {"max_queries": 4, "max_pages": 8, "max_elapsed_seconds": 120},
         },
-        idempotency_key=str(uuid4()), origin="manual",
+        idempotency_key=str(uuid4()),
+        origin="manual",
     )
     event = WorkflowEvent(
-        id=uuid4(), workflow_job_id=job.id, event_type="research.succeeded",
-        actor="automation", event_data={"resolved_model": "resolved-model"}, created_at=now,
+        id=uuid4(),
+        workflow_job_id=job.id,
+        event_type="research.succeeded",
+        actor="automation",
+        event_data={
+            "resolved_model": "api_key=resolved-model-canary",
+            "metadata": {"token": "event-canary"},
+        },
+        created_at=now,
     )
-    detail = await ResearchService(
-        TransactionalSession([run, profile, attempt, source, job, event])
-    ).get_run(run_id)
+    detail = await ResearchService(TransactionalSession([run, profile, attempt, source, job, event])).get_run(run_id)
     assert detail["provider"] == {
-        "id": profile_id, "name": "Sensitive profile", "provider_type": "openrouter",
+        "id": profile_id,
+        "name": "Sensitive profile",
+        "provider_type": "openrouter",
     }
-    assert detail["requested_model"] == "model"
-    assert detail["resolved_model"] == "resolved-model"
+    assert detail["requested_model"] == "api_key=[REDACTED]"
+    assert detail["resolved_model"] == "api_key=[REDACTED]"
     assert detail["budget"]["max_pages"] == 8
-    assert detail["attempts"][0]["usage"] == {"pages": 1}
+    assert detail["attempts"][0]["usage"] == {
+        "pages": 1,
+        "metadata": {"access_token": "[REDACTED]"},
+    }
+    assert detail["attempts"][0]["error_code"] == "failure_api_key=[REDACTED]"
+    assert "message-canary" not in detail["attempts"][0]["error_message"]
     assert detail["events"][0]["event_type"] == "research.succeeded"
+    assert detail["events"][0]["event_data"]["metadata"] == {"token": "[REDACTED]"}
+    assert detail["sources"][0]["url"] == ("https://example.com/report?api_key=%5BREDACTED%5D")
     assert detail["sources"][0]["citation_key"].endswith("a" * 64)
     assert detail["result_revision_id"] == revision_id
     assert detail["job_status"] == "succeeded"
+    assert detail["id"] == run_id
+    assert detail["created_at"] is now
     rendered = str(detail).lower()
     assert "openrouter_api_key" not in rendered
     assert "bearer forbidden" not in rendered
     assert "http://secret" not in rendered
+    for canary in (
+        "usage-canary",
+        "code-canary",
+        "message-canary",
+        "url-canary",
+        "model-canary",
+        "resolved-model-canary",
+        "event-canary",
+    ):
+        assert canary not in rendered
 
 
 async def test_late_unique_subscriber_on_succeeded_canonical_run_continues_immediately(monkeypatch):
@@ -212,17 +304,27 @@ async def test_late_unique_subscriber_on_succeeded_canonical_run_continues_immed
         digest = hashlib.sha256(text.encode()).hexdigest()
         session.values.append(
             StoryEvidenceSnapshot(
-                id=uuid4(), story_id=story.id,
+                id=uuid4(),
+                story_id=story.id,
                 evidence_key=f"url:https://{host}/item:{digest}",
-                source_url=f"https://{host}/item", content_text=text,
-                content_sha256=digest, authors=[],
-                snapshot_metadata={"is_primary": index == 1}, captured_at=now,
+                source_url=f"https://{host}/item",
+                content_text=text,
+                content_sha256=digest,
+                authors=[],
+                snapshot_metadata={"is_primary": index == 1},
+                captured_at=now,
             )
         )
     result_revision = StoryRevision(
-        id=uuid4(), story_id=story.id, revision_number=2,
+        id=uuid4(),
+        story_id=story.id,
+        revision_number=2,
         parent_revision_id=UUID(descriptor["expected_story_revision_id"]),
-        narrative="Research result", facts=[], disagreements=[], angles=[], citations=[],
+        narrative="Research result",
+        facts=[],
+        disagreements=[],
+        angles=[],
+        citations=[],
         created_by="research",
     )
     session.values.append(result_revision)
@@ -251,13 +353,19 @@ async def test_late_unique_subscriber_on_succeeded_canonical_run_continues_immed
     monkeypatch.setattr("app.research.continuations.JobRepository", ContinuationJobs)
     service = ResearchService(session)
     first = await service.request(
-        story_id=story.id, mode="auto_if_incomplete", depth="standard",
-        provider_profile_id=run.provider_profile_id, query_hint=None,
+        story_id=story.id,
+        mode="auto_if_incomplete",
+        depth="standard",
+        provider_profile_id=run.provider_profile_id,
+        query_hint=None,
         continuation=descriptor,
     )
     second = await service.request(
-        story_id=story.id, mode="auto_if_incomplete", depth="standard",
-        provider_profile_id=run.provider_profile_id, query_hint=None,
+        story_id=story.id,
+        mode="auto_if_incomplete",
+        depth="standard",
+        provider_profile_id=run.provider_profile_id,
+        query_hint=None,
         continuation=descriptor,
     )
     assert first.job_id == canonical_job.id
@@ -266,19 +374,29 @@ async def test_late_unique_subscriber_on_succeeded_canonical_run_continues_immed
     assert len(continuation_calls) == 1
     assert continuation_calls[0]["payload"]["completed_research_run_id"] == str(run.id)
 
-    original_dispatch = next(
-        value for value in session.values if isinstance(value, AutomationDispatch)
-    )
+    original_dispatch = next(value for value in session.values if isinstance(value, AutomationDispatch))
     operator_revision = StoryRevision(
-        id=uuid4(), story_id=story.id, revision_number=3,
-        parent_revision_id=result_revision.id, narrative="Operator revision",
-        facts=[], disagreements=[], angles=[], citations=[], created_by="manual",
+        id=uuid4(),
+        story_id=story.id,
+        revision_number=3,
+        parent_revision_id=result_revision.id,
+        narrative="Operator revision",
+        facts=[],
+        disagreements=[],
+        angles=[],
+        citations=[],
+        created_by="manual",
     )
     newer_dispatch = AutomationDispatch(
-        id=uuid4(), route_id=original_dispatch.route_id, source_item_id=uuid4(),
-        story_revision_id=operator_revision.id, source_key="source:new",
-        source_fingerprint="e" * 64, source_message_ids=[2],
-        dispatch_kind="live", status="captured",
+        id=uuid4(),
+        route_id=original_dispatch.route_id,
+        source_item_id=uuid4(),
+        story_revision_id=operator_revision.id,
+        source_key="source:new",
+        source_fingerprint="e" * 64,
+        source_message_ids=[2],
+        dispatch_kind="live",
+        status="captured",
     )
     session.values.extend([operator_revision, newer_dispatch])
     newer_descriptor = {
@@ -289,8 +407,11 @@ async def test_late_unique_subscriber_on_succeeded_canonical_run_continues_immed
         "expected_story_revision_id": str(operator_revision.id),
     }
     newer = await service.request(
-        story_id=story.id, mode="auto_if_incomplete", depth="standard",
-        provider_profile_id=run.provider_profile_id, query_hint=None,
+        story_id=story.id,
+        mode="auto_if_incomplete",
+        depth="standard",
+        provider_profile_id=run.provider_profile_id,
+        query_hint=None,
         continuation=newer_descriptor,
     )
     assert newer.disposition == "complete_without_research"

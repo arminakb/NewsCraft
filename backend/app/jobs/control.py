@@ -5,6 +5,7 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.redaction import redact_string
 from app.jobs.events import redact_event_data
 from app.jobs.models import AutomationControl, WorkflowEvent
 
@@ -55,9 +56,11 @@ class AutomationControlService:
             control.dry_run = bool(dry_run)
             changes["dry_run"] = control.dry_run
 
-        if pause_reason is not _UNSET and control.global_pause and pause_reason != control.pause_reason:
-            control.pause_reason = None if pause_reason is None else str(pause_reason)
-            changes["pause_reason"] = control.pause_reason
+        if pause_reason is not _UNSET and control.global_pause:
+            safe_pause_reason = None if pause_reason is None else redact_string(str(pause_reason))
+            if safe_pause_reason != control.pause_reason:
+                control.pause_reason = safe_pause_reason
+                changes["pause_reason"] = control.pause_reason
 
         if changes:
             control.updated_at = observed_at
