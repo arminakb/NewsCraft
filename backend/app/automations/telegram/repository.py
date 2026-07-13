@@ -5,7 +5,7 @@ from hashlib import sha256
 from typing import Literal
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.automations.models import AutomationDispatch, AutomationRoute
@@ -112,6 +112,10 @@ class TelegramCaptureRepository:
             if parent_revision is None:
                 raise ValueError("source edit capture could not resolve its prior story revision")
 
+        # Retention holds matching SHARE locks while it rechecks references and
+        # removes files. Fence the filesystem write before it becomes visible so
+        # cleanup either observes the committed claim or completes before write.
+        await self.session.execute(text("LOCK TABLE content_items, item_media, media_assets IN ROW EXCLUSIVE MODE"))
         stored_media = self._persist_materialized_media(materialized_media)
         parsed_item = _parsed_item(envelope, source_fingerprint, stored_media, dispatch_kind)
         run = await self.ingestion.create_run("telegram_capture", "telegram.v1")
@@ -119,8 +123,7 @@ class TelegramCaptureRepository:
             run_id=run.id,
             source_id=source.id,
             payload_kind="telegram_envelope",
-            request_url=envelope.source_url
-            or f"telegram://{envelope.channel_ref}/{envelope.anchor_message_id}",
+            request_url=envelope.source_url or f"telegram://{envelope.channel_ref}/{envelope.anchor_message_id}",
             final_url=envelope.source_url,
             http_status=None,
             headers={},

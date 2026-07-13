@@ -22,19 +22,21 @@ from app.core.redaction import redact_secrets
 from app.db.session import get_session
 from app.exports.models import (
     BuildExportPayload,
+    ExpiredExportArtifact,
     ExportArtifact,
     ExportArtifactListOut,
     ExportArtifactOut,
     ExportRequest,
 )
 from app.exports.service import ExportContractError, ExportService
-from app.jobs.models import WorkflowJob
+from app.jobs.models import WorkflowEvent, WorkflowJob
 from app.jobs.repository import JobRepository
 from app.jobs.schemas import JobAcceptedOut
 from app.jobs.types import JobOrigin, JobStatus
 
 router = APIRouter()
 SessionDependency = Depends(get_session)
+MAX_EXPORT_REBUILD_GENERATIONS = 32
 
 
 def _export_root() -> Path:
@@ -62,9 +64,7 @@ def export_idempotency_key(payload: BuildExportPayload) -> str:
 def encode_export_cursor(finished_at: datetime, job_id: UUID) -> str:
     if finished_at.tzinfo is None or finished_at.utcoffset() is None:
         raise ValueError("export cursor timestamp must be timezone-aware")
-    encoded = base64.urlsafe_b64encode(
-        _canonical_json({"finished_at": finished_at.isoformat(), "job_id": str(job_id)})
-    )
+    encoded = base64.urlsafe_b64encode(_canonical_json({"finished_at": finished_at.isoformat(), "job_id": str(job_id)}))
     return encoded.rstrip(b"=").decode("ascii")
 
 
@@ -79,7 +79,7 @@ def decode_export_cursor(cursor: str) -> tuple[datetime, UUID]:
         job_id = UUID(value["job_id"])
         if finished_at.tzinfo is None or finished_at.utcoffset() is None:
             raise ValueError
-    except (binascii.Error, json.JSONDecodeError, KeyError, TypeError, ValueError):
+    except binascii.Error, json.JSONDecodeError, KeyError, TypeError, ValueError:
         raise ValueError("invalid export cursor") from None
     return finished_at, job_id
 
@@ -91,35 +91,49 @@ def _safe_error_message(value: Any) -> str | None:
     return str(redacted)
 
 
-def export_artifact_out(job: Any, artifact: ExportArtifact | None) -> ExportArtifactOut:
+def export_artifact_out(
+    job: Any,
+    artifact: ExportArtifact | ExpiredExportArtifact | None,
+) -> ExportArtifactOut:
     downloads: list[str] = []
-    if artifact is not None:
+    if isinstance(artifact, ExportArtifact):
         names = [artifact.manifest_file]
         if artifact.archive_file is not None:
             names.append(artifact.archive_file)
         names.extend(item.file_name for item in artifact.manifest.files)
-        downloads = [
-            f"/exports/{job.id}/download/{quote(name, safe='/')}"
-            for name in dict.fromkeys(names)
-        ]
+        downloads = [f"/exports/{job.id}/download/{quote(name, safe='/')}" for name in dict.fromkeys(names)]
+    expired = isinstance(artifact, ExpiredExportArtifact)
     return ExportArtifactOut(
         export_id=job.id,
         status=str(job.status),
         finished_at=getattr(job, "finished_at", None),
         artifact=artifact,
         downloads=downloads,
-        error_code=getattr(job, "error_code", None),
-        error_message=_safe_error_message(getattr(job, "error_message", None)),
+        error_code="export_expired" if expired else getattr(job, "error_code", None),
+        error_message=(
+            "Export artifact expired under retention policy"
+            if expired
+            else _safe_error_message(getattr(job, "error_message", None))
+        ),
     )
 
 
-def _typed_artifact(job: Any) -> ExportArtifact | None:
+def _typed_artifact(job: Any) -> ExportArtifact | ExpiredExportArtifact | None:
     if str(job.status) != JobStatus.SUCCEEDED:
         return None
+    if isinstance(job.result, dict) and job.result.get("state") == "expired":
+        try:
+            expired = ExpiredExportArtifact.model_validate(job.result)
+            payload = BuildExportPayload.model_validate(job.payload)
+        except ValidationError:
+            raise HTTPException(status_code=409, detail="Expired export result is invalid") from None
+        if expired.export_id != job.id or expired.content_pack_id != payload.content_pack_id:
+            raise HTTPException(status_code=409, detail="Expired export identity does not match its job")
+        return expired
     try:
         artifact = ExportArtifact.model_validate(job.result)
         payload = BuildExportPayload.model_validate(job.payload)
-    except (AttributeError, ValidationError):
+    except AttributeError, ValidationError:
         raise HTTPException(status_code=409, detail="Export artifact result is incomplete") from None
     artifact_identities = [
         (
@@ -147,13 +161,88 @@ def _typed_artifact(job: Any) -> ExportArtifact | None:
         or artifact_identities != payload_identities
     ):
         raise HTTPException(status_code=409, detail="Export artifact identity does not match its job")
-    expected_manifest_sha256 = hashlib.sha256(
-        _canonical_json(artifact.manifest.model_dump(mode="json"))
-    ).hexdigest()
+    expected_manifest_sha256 = hashlib.sha256(_canonical_json(artifact.manifest.model_dump(mode="json"))).hexdigest()
     if artifact.manifest_sha256 != expected_manifest_sha256:
         raise HTTPException(status_code=409, detail="Export manifest checksum does not match its result")
     _validate_public_file_matrix(artifact, payload)
     return artifact
+
+
+def _export_rebuild_idempotency_key(
+    base_key: str,
+    job: WorkflowJob,
+    expired: ExpiredExportArtifact,
+) -> str:
+    identity_hash = hashlib.sha256(
+        _canonical_json(
+            {
+                "previous_export_id": str(job.id),
+                "expired_at": expired.expired_at.isoformat(),
+            }
+        )
+    ).hexdigest()
+    return f"{base_key}:rebuild:{identity_hash}"
+
+
+async def _enqueue_export_job(
+    session: AsyncSession,
+    payload: BuildExportPayload,
+):
+    repository = JobRepository(session)
+    payload_data = payload.model_dump(mode="json")
+    base_key = export_idempotency_key(payload)
+    idempotency_key = base_key
+    previous: tuple[WorkflowJob, ExpiredExportArtifact] | None = None
+
+    for generation in range(MAX_EXPORT_REBUILD_GENERATIONS + 1):
+        result = await repository.enqueue_job(
+            job_type="build_export",
+            payload=payload_data,
+            idempotency_key=idempotency_key,
+            origin=JobOrigin.MANUAL,
+            pause_sensitive=False,
+        )
+        if result.created:
+            if previous is not None:
+                expired_job, expired = previous
+                session.add(
+                    WorkflowEvent(
+                        workflow_job_id=result.job.id,
+                        event_type="export.rebuild_enqueued",
+                        actor=JobOrigin.MANUAL,
+                        event_data={
+                            "previous_export_id": str(expired_job.id),
+                            "expired_at": expired.expired_at.isoformat(),
+                            "rebuild_generation": generation,
+                        },
+                    )
+                )
+                await session.flush()
+            return result
+
+        job = result.job
+        if job.job_type != "build_export":
+            raise HTTPException(status_code=409, detail="Export idempotency identity is invalid")
+        try:
+            persisted_payload = BuildExportPayload.model_validate(job.payload)
+        except ValidationError:
+            raise HTTPException(status_code=409, detail="Export idempotency payload is invalid") from None
+        if persisted_payload != payload:
+            raise HTTPException(status_code=409, detail="Export idempotency payload does not match request")
+        if str(job.status) != JobStatus.SUCCEEDED or not (
+            isinstance(job.result, dict) and job.result.get("state") == "expired"
+        ):
+            return result
+
+        expired = _typed_artifact(job)
+        if not isinstance(expired, ExpiredExportArtifact):  # pragma: no cover - guarded above
+            return result
+        if generation >= MAX_EXPORT_REBUILD_GENERATIONS:
+            raise HTTPException(status_code=409, detail="Export rebuild history exceeds the supported depth")
+        previous = (job, expired)
+        idempotency_key = _export_rebuild_idempotency_key(base_key, job, expired)
+
+    raise HTTPException(status_code=409, detail="Export rebuild history is invalid")  # pragma: no cover
 
 
 def _validate_public_file_matrix(artifact: ExportArtifact, payload: BuildExportPayload) -> None:
@@ -183,9 +272,7 @@ def _validate_public_file_matrix(artifact: ExportArtifact, payload: BuildExportP
         raise HTTPException(status_code=409, detail="Export contains media that was not requested")
     variant_order = {
         (platform, revision_id): index
-        for index, (platform, revision_id) in enumerate(
-            zip(payload.platforms, payload.revision_ids, strict=True)
-        )
+        for index, (platform, revision_id) in enumerate(zip(payload.platforms, payload.revision_ids, strict=True))
     }
     order = []
     kind_order = {"json": 0, "markdown": 1, "html": 2, "media": 3}
@@ -240,13 +327,7 @@ async def create_export(
         ).prepare_payload(body)
     except ExportContractError as exc:
         raise _contract_http_error(exc) from None
-    result = await JobRepository(session).enqueue_job(
-        job_type="build_export",
-        payload=payload.model_dump(mode="json"),
-        idempotency_key=export_idempotency_key(payload),
-        origin=JobOrigin.MANUAL,
-        pause_sensitive=False,
-    )
+    result = await _enqueue_export_job(session, payload)
     await session.commit()
     return JobAcceptedOut(
         job_id=result.job.id,
@@ -339,13 +420,7 @@ def _download_identity(artifact: ExportArtifact, file_name: str) -> tuple[str, i
 
 def resolve_export_download(export_root: Path, artifact: ExportArtifact, file_name: str) -> Path:
     relative = PurePosixPath(file_name)
-    if (
-        not file_name
-        or relative.is_absolute()
-        or ".." in relative.parts
-        or "." in relative.parts
-        or "\\" in file_name
-    ):
+    if not file_name or relative.is_absolute() or ".." in relative.parts or "." in relative.parts or "\\" in file_name:
         raise HTTPException(status_code=404, detail="Export file not found")
     expected_sha256, expected_length = _download_identity(artifact, relative.as_posix())
     root = Path(export_root).absolute()
@@ -395,6 +470,8 @@ async def download_export(
     artifact = _typed_artifact(job)
     if artifact is None:  # pragma: no cover - succeeded jobs either parse or raise
         raise HTTPException(status_code=409, detail="Export artifact is unavailable")
+    if isinstance(artifact, ExpiredExportArtifact):
+        raise HTTPException(status_code=410, detail="Export artifact has expired")
     path = resolve_export_download(Path(export_root), artifact, file_name)
     return FileResponse(
         path,

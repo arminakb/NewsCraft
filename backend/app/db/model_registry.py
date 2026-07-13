@@ -27,6 +27,7 @@ from app.jobs.models import AutomationControl, RuntimeHeartbeat, WorkflowEvent, 
 from app.manual_publication.models import ManualPublicationPlan
 from app.publishing.models import Destination, Publication, PublishAttempt, PublishJob
 from app.research.models import ResearchAttempt, ResearchRun, ResearchSource
+from app.retention.models import RetentionPolicy, RetentionRun
 from app.stories.models import Story, StoryEvidenceLink, StoryEvidenceSnapshot, StoryRevision
 
 _MAPPED_CLASSES = (
@@ -60,6 +61,8 @@ _MAPPED_CLASSES = (
     Publication,
     PublishAttempt,
     PublishJob,
+    RetentionPolicy,
+    RetentionRun,
     ResearchAttempt,
     ResearchRun,
     ResearchSource,

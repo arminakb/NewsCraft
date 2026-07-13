@@ -330,10 +330,24 @@ class IngestionRepository:
         await self.session.flush()
 
     async def upsert_media_assets(self, parsed_item: ParsedSourceItem) -> list[MediaAsset]:
+        # Retention takes SHARE locks in this order before row revalidation.
+        # Take the writer fence before any MediaAsset row lock so neither side
+        # can hold a row while waiting for the other's table lock.
+        await self.session.execute(text("LOCK TABLE content_items, item_media, media_assets IN ROW EXCLUSIVE MODE"))
         assets: list[MediaAsset] = []
         for candidate in parsed_item.media_candidates:
             url_hash = hash_value(candidate.normalized_url)
-            existing = await self.session.scalar(select(MediaAsset).where(MediaAsset.url_hash == url_hash))
+            existing = await self.session.scalar(
+                select(MediaAsset)
+                .where(
+                    MediaAsset.url_hash == url_hash,
+                    MediaAsset.fetch_status != "expired",
+                )
+                .order_by(MediaAsset.updated_at.desc(), MediaAsset.id.desc())
+                .limit(1)
+                .with_for_update()
+                .execution_options(populate_existing=True)
+            )
             if existing:
                 _apply_media_candidate(existing, candidate, url_hash)
                 assets.append(existing)
@@ -350,7 +364,26 @@ class IngestionRepository:
         media_assets: list[MediaAsset],
         parsed_item: ParsedSourceItem,
     ) -> None:
-        rows = plan_item_media_rows(content_item_id, media_assets, parsed_item)
+        # Retention takes SHARE locks in this order before it marks or removes
+        # media. Acquire the matching writer locks before refreshing asset rows
+        # so a stale ORM instance can never create a reference to a tombstone.
+        await self.session.execute(text("LOCK TABLE content_items, item_media, media_assets IN ROW EXCLUSIVE MODE"))
+        asset_ids = [asset.id for asset in media_assets]
+        live_assets_by_id = {
+            asset.id: asset
+            for asset in await self.session.scalars(
+                select(MediaAsset)
+                .where(
+                    MediaAsset.id.in_(asset_ids),
+                    MediaAsset.fetch_status != "expired",
+                )
+                .order_by(MediaAsset.id)
+                .with_for_update()
+                .execution_options(populate_existing=True)
+            )
+        }
+        live_assets = [live_assets_by_id[asset.id] for asset in media_assets if asset.id in live_assets_by_id]
+        rows = plan_item_media_rows(content_item_id, live_assets, parsed_item)
         primary_image_id = next((row["media_asset_id"] for row in rows if row["role"] == "primary_image"), None)
         for row in rows:
             stmt = (
@@ -457,7 +490,9 @@ def plan_rewrite_candidate(content_item: ContentItem) -> dict[str, Any]:
         "content_item_id": content_item.id,
         "bucket_type": content_item.rewrite_bucket,
         "priority_score": int(content_item.score or 0),
-        "status": assignment.status if assignment.status == "excluded" else "blocked"
+        "status": assignment.status
+        if assignment.status == "excluded"
+        else "blocked"
         if content_item.is_rewrite_ready is False
         else "pending",
         "reason": assignment.reason,
@@ -731,8 +766,11 @@ def _media_source_type(url: str) -> str:
 def _is_tracking_pixel(candidate: MediaCandidate) -> bool:
     if _is_medium_stat_url(candidate.normalized_url):
         return True
-    return candidate.kind == "image" and candidate.width is not None and candidate.height is not None and (
-        candidate.width <= 2 or candidate.height <= 2
+    return (
+        candidate.kind == "image"
+        and candidate.width is not None
+        and candidate.height is not None
+        and (candidate.width <= 2 or candidate.height <= 2)
     )
 
 

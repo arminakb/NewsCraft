@@ -98,11 +98,14 @@ export function CopyExportActions({
         transientPollFailuresRef.current = 0
         setExportError(null)
         if (next.status === "succeeded") {
-          if (next.artifact?.contentPackId !== binding.contentPackId) {
+          const artifact = next.artifact
+          if (artifact === null || artifact.contentPackId !== binding.contentPackId) {
             throw new Error("Export content package identity mismatch")
           }
-          const returnedIds = next.artifact.manifest.variants.map((item) => item.revisionId)
-          if (canonicalStringSet(returnedIds) !== binding.expectedRevisionIdsKey) throw new Error("Export revision identity mismatch")
+          if (artifact.state === "complete") {
+            const returnedIds = artifact.manifest.variants.map((item) => item.revisionId)
+            if (canonicalStringSet(returnedIds) !== binding.expectedRevisionIdsKey) throw new Error("Export revision identity mismatch")
+          }
         }
         setOutcome(next)
         if (next.status === "failed" || next.status === "needs_review" || next.status === "cancelled") {
@@ -194,7 +197,12 @@ export function CopyExportActions({
 
   const visibleStatus = outcome?.status ?? acceptedStatus
   const visibleExportId = outcome?.exportId ?? exportId
-  const exportSucceeded = outcome?.status === "succeeded"
+  const completeArtifact = outcome?.status === "succeeded" && outcome.artifact?.state === "complete"
+    ? outcome.artifact
+    : null
+  const expiredArtifact = outcome?.status === "succeeded" && outcome.artifact?.state === "expired"
+    ? outcome.artifact
+    : null
 
   return (
     <section aria-labelledby="copy-export-heading" className="space-y-5">
@@ -272,14 +280,21 @@ export function CopyExportActions({
 
       {visibleStatus && visibleExportId ? (
         <div role="status" aria-label="Export status" className="break-all rounded-lg border p-3 text-sm">
-          {exportSucceeded ? <div className="font-medium text-green-700">Export ready</div> : null}
+          {completeArtifact ? <div className="font-medium text-green-700">Export ready</div> : null}
+          {expiredArtifact ? (
+            <>
+              <div className="font-medium text-amber-800">Export expired</div>
+              <div>{outcome?.errorMessage ?? "The downloadable export files are no longer available."}</div>
+              <div>Expired <time dateTime={expiredArtifact.expiredAt}>{new Date(expiredArtifact.expiredAt).toLocaleString()}</time></div>
+            </>
+          ) : null}
           <div>{visibleStatus} · {visibleExportId}</div>
         </div>
       ) : null}
       {exportError ? <div role="alert" className="text-sm text-red-700">{exportError}</div> : null}
-      {exportSucceeded ? (
+      {completeArtifact ? (
         <div className="flex flex-wrap gap-3" aria-label="Export downloads">
-          {outcome.downloads.map((download) => (
+          {outcome?.downloads.map((download) => (
             <a
               key={download}
               className="text-primary underline"

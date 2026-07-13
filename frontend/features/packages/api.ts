@@ -2,6 +2,7 @@ import { ApiError, apiRequest } from "@/lib/http"
 import type {
   BlogPayload,
   CitationRef,
+  CompleteExportArtifact,
   ContentPackage,
   ExportArtifact,
   ExportFileIdentity,
@@ -11,6 +12,7 @@ import type {
   ExportOutcome,
   ExportRequest,
   ExportVariantIdentity,
+  ExpiredExportArtifact,
   InstagramPayload,
   ManualPublicationPlan,
   ManualPlatformEditPayload,
@@ -295,9 +297,18 @@ export function decodeExportOutcome(value: unknown): ExportOutcome {
   }
   downloads.forEach((download) => safeRelativePath(download.slice(expectedPrefix.length), message))
   const finishedAt = nullableTimestamp(row.finished_at, message)
+  const errorCode = nullableString(row.error_code, message)
+  const errorMessage = nullableString(row.error_message, message, true)
   if (status === "succeeded") {
-    if (artifact === null || finishedAt === null || downloads.length === 0) throw new Error(message)
+    if (artifact === null || finishedAt === null) throw new Error(message)
+    if (artifact.state === "expired") {
+      if (downloads.length !== 0 || errorCode !== "export_expired") throw new Error(message)
+    } else if (downloads.length === 0 || errorCode === "export_expired") {
+      throw new Error(message)
+    }
   } else if (artifact !== null || downloads.length !== 0) {
+    throw new Error(message)
+  } else if (errorCode === "export_expired") {
     throw new Error(message)
   }
   return {
@@ -306,12 +317,21 @@ export function decodeExportOutcome(value: unknown): ExportOutcome {
     finishedAt,
     artifact,
     downloads,
-    errorCode: nullableString(row.error_code, message),
-    errorMessage: nullableString(row.error_message, message, true),
+    errorCode,
+    errorMessage,
   }
 }
 
 function decodeExportArtifact(value: unknown): ExportArtifact {
+  const message = "Invalid export artifact"
+  if (value === null || typeof value !== "object" || Array.isArray(value)) throw new Error(message)
+  const state = (value as Record<string, unknown>).state
+  if (state === "expired") return decodeExpiredExportArtifact(value)
+  if (state !== "complete") throw new Error(message)
+  return decodeCompleteExportArtifact(value)
+}
+
+function decodeCompleteExportArtifact(value: unknown): CompleteExportArtifact {
   const message = "Invalid export artifact"
   const row = exactObject(value, [
     "export_id",
@@ -323,7 +343,7 @@ function decodeExportArtifact(value: unknown): ExportArtifact {
     "archive_sha256",
     "manifest",
   ], message)
-  const artifact: ExportArtifact = {
+  const artifact: CompleteExportArtifact = {
     exportId: uuid(row.export_id, message),
     contentPackId: uuid(row.content_pack_id, message),
     state: oneOf(row.state, ["complete"] as const, message),
@@ -338,6 +358,22 @@ function decodeExportArtifact(value: unknown): ExportArtifact {
     || (artifact.archiveFile === null) !== (artifact.archiveSha256 === null)
   ) throw new Error(message)
   return artifact
+}
+
+function decodeExpiredExportArtifact(value: unknown): ExpiredExportArtifact {
+  const message = "Invalid export artifact"
+  const row = exactObject(value, [
+    "export_id",
+    "content_pack_id",
+    "state",
+    "expired_at",
+  ], message)
+  return {
+    exportId: uuid(row.export_id, message),
+    contentPackId: uuid(row.content_pack_id, message),
+    state: oneOf(row.state, ["expired"] as const, message),
+    expiredAt: timestamp(row.expired_at, message),
+  }
 }
 
 function decodeExportManifest(value: unknown): ExportManifest {

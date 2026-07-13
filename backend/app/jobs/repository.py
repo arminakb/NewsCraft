@@ -14,6 +14,7 @@ from app.jobs.errors import InvalidJobTransition
 from app.jobs.events import redact_event_data
 from app.jobs.models import AutomationControl, WorkflowEvent, WorkflowJob
 from app.jobs.types import JobErrorClass, JobOrigin, JobStatus
+from app.retention.models import RetentionRun
 
 
 @dataclass(frozen=True, slots=True)
@@ -52,9 +53,53 @@ class JobRepository:
         )
 
     async def _locked_job(self, job_id: UUID) -> WorkflowJob | None:
+        return await self.session.scalar(select(WorkflowJob).where(WorkflowJob.id == job_id).with_for_update())
+
+    async def _locked_retention_run(self, job_id: UUID) -> RetentionRun | None:
         return await self.session.scalar(
-            select(WorkflowJob).where(WorkflowJob.id == job_id).with_for_update()
+            select(RetentionRun).where(RetentionRun.workflow_job_id == job_id).with_for_update()
         )
+
+    @staticmethod
+    def _sync_retention_terminal(
+        run: RetentionRun | None,
+        *,
+        job_status: JobStatus,
+        observed_at: datetime,
+    ) -> None:
+        if run is None or run.status in {"succeeded", "expired"}:
+            return
+        if job_status == JobStatus.CANCELLED:
+            code = "retention_job_cancelled"
+            message = "Retention workflow job was cancelled before completion"
+        elif job_status == JobStatus.NEEDS_REVIEW:
+            code = "retention_job_needs_review"
+            message = "Retention workflow job requires operator review"
+        else:
+            code = "retention_job_failed"
+            message = "Retention workflow job failed before completion"
+        if run.status == "running":
+            run.status = "partial"
+        elif run.status in {"previewed", "queued"}:
+            run.status = "failed"
+        run.finished_at = observed_at
+        run.error_snapshot = [error for error in run.error_snapshot if error.get("phase") != "workflow"] + [
+            {"phase": "workflow", "code": code, "message": message}
+        ]
+
+    @staticmethod
+    def _sync_retention_retry(
+        run: RetentionRun | None,
+        *,
+        observed_at: datetime,
+    ) -> None:
+        if run is None:
+            return
+        run.error_snapshot = [error for error in run.error_snapshot if error.get("phase") != "workflow"]
+        if run.status == "failed" and run.started_at is None:
+            run.status = "queued"
+            run.finished_at = None
+            run.queued_at = observed_at
 
     @staticmethod
     def _invalid(job_id: UUID, *, action: str, job: WorkflowJob | None) -> InvalidJobTransition:
@@ -104,9 +149,7 @@ class JobRepository:
             await self.session.flush()
             return EnqueueJobResult(job=job, created=True)
 
-        job = await self.session.scalar(
-            select(WorkflowJob).where(WorkflowJob.idempotency_key == idempotency_key)
-        )
+        job = await self.session.scalar(select(WorkflowJob).where(WorkflowJob.idempotency_key == idempotency_key))
         if job is None:  # pragma: no cover - conflict target guarantees a matching row
             raise RuntimeError("Idempotent workflow job could not be loaded")
         if job.scheduled_for is None:
@@ -159,9 +202,7 @@ class JobRepository:
 
         observed_at = _now(now)
         global_pause = bool(
-            await self.session.scalar(
-                select(AutomationControl.global_pause).where(AutomationControl.id == "global")
-            )
+            await self.session.scalar(select(AutomationControl.global_pause).where(AutomationControl.id == "global"))
         )
         statement = self._claim_statement(
             allowed_job_types=allowed_job_types,
@@ -271,6 +312,7 @@ class JobRepository:
         now: datetime | None = None,
     ) -> WorkflowJob:
         observed_at = _now(now)
+        retention_run = await self._locked_retention_run(job_id)
         job = await self._locked_job(job_id)
         if job is None or not self._has_active_lease(job, worker_id=worker_id, now=observed_at):
             raise self._invalid(job_id, action="fail", job=job)
@@ -304,6 +346,13 @@ class JobRepository:
             job.finished_at = observed_at
             event_type = "job.failed"
 
+        if job.status in {JobStatus.FAILED, JobStatus.NEEDS_REVIEW}:
+            self._sync_retention_terminal(
+                retention_run,
+                job_status=JobStatus(job.status),
+                observed_at=observed_at,
+            )
+
         await self._append_event(
             job_id=job.id,
             event_type=event_type,
@@ -314,6 +363,7 @@ class JobRepository:
         return job
 
     async def retry_job(self, *, job_id: UUID, now: datetime | None = None) -> WorkflowJob:
+        retention_run = await self._locked_retention_run(job_id)
         job = await self._locked_job(job_id)
         if job is None or job.status not in (JobStatus.FAILED, JobStatus.NEEDS_REVIEW):
             raise self._invalid(job_id, action="retry", job=job)
@@ -331,6 +381,7 @@ class JobRepository:
         job.error_code = None
         job.error_message = None
         self._clear_lease(job)
+        self._sync_retention_retry(retention_run, observed_at=observed_at)
         await self._append_event(
             job_id=job.id,
             event_type="job.retried",
@@ -341,12 +392,19 @@ class JobRepository:
         return job
 
     async def cancel_job(self, *, job_id: UUID, now: datetime | None = None) -> WorkflowJob:
+        retention_run = await self._locked_retention_run(job_id)
         job = await self._locked_job(job_id)
         if job is None or job.status != JobStatus.QUEUED:
             raise self._invalid(job_id, action="cancel", job=job)
 
         job.status = JobStatus.CANCELLED
-        job.finished_at = _now(now)
+        observed_at = _now(now)
+        job.finished_at = observed_at
+        self._sync_retention_terminal(
+            retention_run,
+            job_status=JobStatus.CANCELLED,
+            observed_at=observed_at,
+        )
         await self._append_event(
             job_id=job.id,
             event_type="job.cancelled",

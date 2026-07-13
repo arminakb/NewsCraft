@@ -437,7 +437,7 @@ Expected: existing Release 2 publication/reconciliation tests plus new receipt p
 ### Task 4: Add retention preview, protected-reference pruning, and audit records
 
 **Files:**
-- Create: `backend/alembic/versions/0008_operational_retention.py`
+- Create: `backend/alembic/versions/0009_operational_retention.py`
 - Modify: `backend/app/db/model_registry.py`
 - Create: `backend/app/retention/__init__.py`
 - Create: `backend/app/retention/models.py`
@@ -445,13 +445,38 @@ Expected: existing Release 2 publication/reconciliation tests plus new receipt p
 - Create: `backend/app/retention/handlers.py`
 - Modify: `backend/app/api/operations.py`
 - Modify: `backend/app/jobs/registry.py`
+- Modify: `backend/app/jobs/repository.py`
+- Modify: `backend/app/exports/models.py`
+- Modify: `backend/app/api/exports.py`
+- Modify: `backend/app/api/telegram_drafts.py`
+- Modify: `backend/app/automations/telegram/handlers.py`
+- Modify: `backend/app/automations/telegram/repository.py`
+- Modify: `backend/app/generation/editorial_service.py`
+- Modify: `backend/app/ingestion/repository.py`
+- Create: `backend/app/media/reference_fence.py`
+- Modify: `backend/app/media/downloader.py`
+- Modify: `frontend/features/packages/types.ts`
+- Modify: `frontend/features/packages/api.ts`
+- Modify: `frontend/features/packages/components/copy-export-actions.tsx`
+- Modify: `frontend/features/library/api.ts`
+- Modify: `frontend/tests/copy-export-actions.test.tsx`
+- Modify: `frontend/tests/library-page.test.tsx`
 - Create: `backend/tests/retention/test_service.py`
 - Create: `backend/tests/retention/test_handlers.py`
+- Create: `backend/tests/postgres/test_retention_service.py`
+- Create: `backend/tests/postgres/test_retention_job_sync.py`
+- Modify: `backend/tests/postgres/test_multiplatform_media_locking.py`
+- Create: `backend/tests/postgres/test_media_reference_writer_fences.py`
+- Create: `backend/tests/postgres/test_export_rebuild_retention.py`
+- Create: `backend/tests/test_media_reference_writer_fences.py`
+- Modify: `backend/tests/test_media_downloader.py`
+- Modify: `backend/tests/test_telegram_capture_repository.py`
+- Create: `backend/tests/api/test_export_rebuild.py`
 - Create: `backend/tests/test_retention_migration.py`
 
 **Interfaces:**
 - Consumes: raw payloads, workflow jobs/events, attempt metadata, exports, media, evidence/revision/publication references, and job queue.
-- Produces: Alembic head `0008_operational_retention`, `RetentionPolicy`, `RetentionPreview`, `RetentionRun`, job type `execute_retention`, generation-capability/source-worker registration, and retention APIs.
+- Produces: Alembic head `0009_operational_retention`, `RetentionPolicy`, `RetentionPreview`, `RetentionRun`, job type `execute_retention`, generation-capability/source-worker registration, and retention APIs.
 
 - [ ] **Step 1: Write failing safety tests**
 
@@ -482,9 +507,9 @@ def test_retention_job_is_claimable_only_by_source_generation_registry():
 
 
 def test_retention_migration_follows_manual_publication_head():
-    migration = Path("alembic/versions/0008_operational_retention.py").read_text(encoding="utf-8")
-    assert 'revision = "0008_operational_retention"' in migration
-    assert 'down_revision = "0007_manual_publication_plans"' in migration
+    migration = Path("alembic/versions/0009_operational_retention.py").read_text(encoding="utf-8")
+    assert 'revision = "0009_operational_retention"' in migration
+    assert 'down_revision = "0008_manual_publication_plans"' in migration
 ```
 
 - [ ] **Step 2: Run tests and verify failure**
@@ -498,7 +523,7 @@ Expected: missing migration/module failures.
 
 - [ ] **Step 3: Create exact policy and preview contracts**
 
-Migration `0008_operational_retention` revises `0007_manual_publication_plans` and creates `retention_policies` and `retention_runs`. Default policy:
+Migration `0009_operational_retention` revises `0008_manual_publication_plans` and creates `retention_policies` and `retention_runs`. Default policy:
 
 ```python
 class RetentionPolicyInput(BaseModel):
@@ -509,7 +534,7 @@ class RetentionPolicyInput(BaseModel):
     unreferenced_media_days: int = Field(default=30, ge=7, le=3650)
 ```
 
-Preview returns category counts, bytes when known, oldest/newest timestamps, stable candidate IDs, and `preview_token = sha256(policy_json + sorted_candidate_ids + database_revision)`. It never selects failed/needs-review/running jobs, events linked to retained publications, any evidence, any revision/prompt/approval/publication, or referenced media. Execution requires the exact string `DELETE PREVIEWED DATA`, revalidates candidates in one transaction, skips newly referenced records, deletes filesystem artifacts only after database marking, and records counts/errors in `RetentionRun`.
+Preview persists a server-side candidate snapshot in a `previewed` `RetentionRun` and returns category counts, bytes when known, oldest/newest timestamps, and stable candidate IDs. Its token is `sha256(canonical_policy_json + schema_revision + sorted_candidate_identities_and_state_hashes)`. It never selects failed/needs-review/running jobs, events linked to retained publications, any evidence, any revision/prompt/approval/publication, or referenced media. Execution requires the exact string `DELETE PREVIEWED DATA`, locks and revalidates the persisted candidates in one transaction, skips newly referenced or changed records, marks/scrubs database state before deleting filesystem artifacts, and records counts/errors in `RetentionRun`. Media-reference writers fresh-lock assets before persisting revisions, and both durable media-file writers take the matching table fence before filesystem visibility so cleanup cannot race a still-uncommitted claim. Reingestion creates a new live MediaAsset instead of mutating an expired tombstone. A rebuilt expired export receives a new deterministic job/directory generation so an older cleanup intent cannot delete rebuilt files. Exact reconfirmation can reset an all-database-skipped run only when it has no cleanup intents or mutations and every candidate still matches its persisted state hash.
 
 - [ ] **Step 4: Add retention APIs and job registration**
 
@@ -530,18 +555,22 @@ Register `execute_retention` only in the source-generation handler bundle under 
 
 ```bash
 cd backend
-PYTHONPATH=. .venv/bin/python -m pytest tests/retention tests/test_retention_migration.py tests/test_job_handler_registry.py tests/test_job_worker.py tests/postgres/test_job_repository.py -q
-.venv/bin/ruff check app/retention app/api/operations.py tests/retention
+PYTHONPATH=. .venv/bin/python -m pytest tests/retention tests/test_retention_migration.py tests/api/test_operations_routes.py tests/api/test_export_routes.py tests/api/test_export_rebuild.py tests/test_job_handler_registry.py tests/test_job_worker.py tests/test_media_reference_writer_fences.py tests/test_media_downloader.py tests/test_telegram_capture_repository.py tests/postgres/test_job_repository.py tests/postgres/test_retention_service.py tests/postgres/test_retention_job_sync.py tests/postgres/test_multiplatform_media_locking.py tests/postgres/test_media_reference_writer_fences.py tests/postgres/test_export_rebuild_retention.py -q
+.venv/bin/ruff check app/retention app/api/operations.py app/api/telegram_drafts.py app/automations/telegram/handlers.py app/automations/telegram/repository.py app/generation/editorial_service.py app/ingestion/repository.py app/media tests/retention tests/test_media_reference_writer_fences.py tests/test_media_downloader.py tests/test_telegram_capture_repository.py
 git diff --check
+cd ..
+cd frontend
+npx vitest run tests/copy-export-actions.test.tsx tests/library-page.test.tsx
+npm run typecheck
 cd ..
 docker compose --profile test rm -sf postgres-test
 docker compose --profile test up -d --wait postgres-test
 cd backend
 DATABASE_URL=postgresql+asyncpg://newscraft:newscraft@127.0.0.1:55432/newscraft_test PYTHONPATH=. .venv/bin/alembic upgrade head
-DATABASE_URL=postgresql+asyncpg://newscraft:newscraft@127.0.0.1:55432/newscraft_test PYTHONPATH=. .venv/bin/alembic downgrade 0007_manual_publication_plans
+DATABASE_URL=postgresql+asyncpg://newscraft:newscraft@127.0.0.1:55432/newscraft_test PYTHONPATH=. .venv/bin/alembic downgrade 0008_manual_publication_plans
 DATABASE_URL=postgresql+asyncpg://newscraft:newscraft@127.0.0.1:55432/newscraft_test PYTHONPATH=. .venv/bin/alembic upgrade head
 cd ..
-git add backend/alembic/versions/0008_operational_retention.py backend/app/db/model_registry.py backend/app/retention backend/app/api/operations.py backend/app/jobs/registry.py backend/tests/retention backend/tests/test_retention_migration.py
+git add backend/alembic/versions/0009_operational_retention.py backend/app/db/model_registry.py backend/app/retention backend/app/api/operations.py backend/app/api/telegram_drafts.py backend/app/automations/telegram/handlers.py backend/app/automations/telegram/repository.py backend/app/generation/editorial_service.py backend/app/ingestion/repository.py backend/app/jobs/registry.py backend/app/jobs/repository.py backend/app/media/reference_fence.py backend/app/media/downloader.py backend/app/exports/models.py backend/app/api/exports.py backend/tests/retention backend/tests/postgres/test_retention_service.py backend/tests/postgres/test_retention_job_sync.py backend/tests/postgres/test_multiplatform_media_locking.py backend/tests/postgres/test_media_reference_writer_fences.py backend/tests/postgres/test_export_rebuild_retention.py backend/tests/test_media_reference_writer_fences.py backend/tests/test_media_downloader.py backend/tests/test_telegram_capture_repository.py backend/tests/test_retention_migration.py backend/tests/api/test_operations_routes.py backend/tests/api/test_export_routes.py backend/tests/api/test_export_rebuild.py backend/tests/test_job_handler_registry.py frontend/features/packages/types.ts frontend/features/packages/api.ts frontend/features/packages/components/copy-export-actions.tsx frontend/features/library/api.ts frontend/tests/copy-export-actions.test.tsx frontend/tests/library-page.test.tsx docs/superpowers/plans/2026-07-11-release-5-operational-hardening.md
 git commit -m "feat: add safe retention controls"
 ```
 
@@ -1024,7 +1053,7 @@ docker compose --profile test rm -sf postgres-test
 docker compose --profile test up -d --wait postgres-test
 cd backend
 DATABASE_URL=postgresql+asyncpg://newscraft:newscraft@127.0.0.1:55432/newscraft_test PYTHONPATH=. .venv/bin/alembic upgrade head
-DATABASE_URL=postgresql+asyncpg://newscraft:newscraft@127.0.0.1:55432/newscraft_test PYTHONPATH=. .venv/bin/alembic downgrade 0007_manual_publication_plans
+DATABASE_URL=postgresql+asyncpg://newscraft:newscraft@127.0.0.1:55432/newscraft_test PYTHONPATH=. .venv/bin/alembic downgrade 0008_manual_publication_plans
 DATABASE_URL=postgresql+asyncpg://newscraft:newscraft@127.0.0.1:55432/newscraft_test PYTHONPATH=. .venv/bin/alembic upgrade head
 cd ../frontend
 npm run test
@@ -1043,7 +1072,7 @@ Expected: all tests/build/browser/migration/Compose/smoke gates pass; Compose re
 
 - [ ] **Step 5: Document evidence and commit**
 
-Document exact command results, migration head `0008_operational_retention`, desktop/mobile viewports, fake provider/dry-run qualification, backup verification test, secret canary test, lease recovery test, duplicate prevention test, and any optional credentialed smoke run separately.
+Document exact command results, migration head `0009_operational_retention`, desktop/mobile viewports, fake provider/dry-run qualification, backup verification test, secret canary test, lease recovery test, duplicate prevention test, and any optional credentialed smoke run separately.
 
 ```bash
 git add scripts/smoke.py backend/tests/operations/test_smoke_script.py frontend/e2e/full-platform-acceptance.spec.ts docs/operations/release-acceptance.md README.md

@@ -10,12 +10,21 @@ JPEG_BYTES = b"\xff\xd8\xff\xe0test-image\xff\xd9"
 
 
 class FakeSession:
-    def __init__(self, assets):
+    def __init__(self, assets, *, fresh_asset=...):
         self.assets = assets
+        self.fresh_asset = assets[0] if fresh_asset is ... and assets else fresh_asset
         self.flushed = False
+        self.media_write_fenced = False
 
     async def scalars(self, stmt):
         return self.assets
+
+    async def execute(self, stmt):
+        if str(stmt).startswith("LOCK TABLE media_assets"):
+            self.media_write_fenced = True
+
+    async def scalar(self, stmt):
+        return self.fresh_asset
 
     async def flush(self):
         self.flushed = True
@@ -98,6 +107,22 @@ def test_download_missing_respects_limit(tmp_path: Path):
     counts = _run(downloader, limit=1)
 
     assert counts["checked"] == 1
+
+
+def test_download_revalidates_under_retention_fence_before_writing(tmp_path: Path):
+    asset = _image_asset("https://cdn.example/raced.jpg")
+    session = FakeSession([asset], fresh_asset=None)
+    downloader = MediaDownloader(
+        session,
+        http_client=_client_for_bytes(JPEG_BYTES, "image/jpeg"),
+        media_root=tmp_path,
+    )
+
+    counts = _run(downloader)
+
+    assert session.media_write_fenced is True
+    assert counts == {"checked": 1, "downloaded": 0, "skipped": 1, "failed": 0}
+    assert list(tmp_path.rglob("*.jpg")) == []
 
 
 def _image_asset(url: str) -> MediaAsset:

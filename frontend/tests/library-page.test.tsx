@@ -397,6 +397,49 @@ describe("LibraryPage", () => {
     })).toThrow("Invalid Library original")
   })
 
+  it("decodes and renders an expired export record without advertising a download", async () => {
+    const actual = await vi.importActual<typeof import("@/features/library/api")>("@/features/library/api")
+    const exportId = "11111111-1111-4111-8111-111111111111"
+    const packId = "22222222-2222-4222-8222-222222222222"
+    const payload = {
+      items: [{
+        export_id: exportId,
+        status: "succeeded",
+        finished_at: "2026-07-13T08:00:00Z",
+        artifact: {
+          export_id: exportId,
+          content_pack_id: packId,
+          state: "expired",
+          expired_at: "2026-07-13T09:00:00Z",
+        },
+        downloads: [] as string[],
+        error_code: "export_expired",
+        error_message: "Export artifact expired under retention policy",
+      }],
+      next_cursor: null,
+    }
+
+    const decoded = actual.decodeLibraryExportPage(payload)
+    expect(decoded.items[0]).toMatchObject({
+      id: exportId,
+      status: "succeeded",
+      contentPackId: packId,
+      downloads: [],
+      errorSummary: "Export artifact expired under retention policy",
+    })
+
+    vi.mocked(getLibraryExports).mockResolvedValue(decoded)
+    renderLibrary()
+    fireEvent.click(screen.getByRole("tab", { name: "Exports" }))
+
+    expect(await screen.findByText("Export artifact expired under retention policy")).toBeInTheDocument()
+    expect(screen.getByText(new RegExp(`Pack ${packId} · finished`))).toBeInTheDocument()
+    expect(screen.queryByRole("link", { name: "Download export" })).not.toBeInTheDocument()
+
+    payload.items[0].downloads = [`/exports/${exportId}/download/bundle.zip`]
+    expect(() => actual.decodeLibraryExportPage(payload)).toThrow("Invalid Library export")
+  })
+
   it("accepts canonical evidence excerpts and rejects clamp-boundary whitespace", async () => {
     const actual = await vi.importActual<typeof import("@/features/library/api")>("@/features/library/api")
     const canonicalExcerpt = "x".repeat(499)

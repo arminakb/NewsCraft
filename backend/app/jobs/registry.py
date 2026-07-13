@@ -100,6 +100,7 @@ def build_default_registry(
             build_pack_generation_handler,
             build_regenerate_handler,
         )
+        from app.retention.handlers import build_retention_handler
 
         registry.register(
             "telegram.route.process",
@@ -111,6 +112,13 @@ def build_default_registry(
         registry.register(
             "build_export",
             build_export_handler(export_root=Path(export_root), media_root=Path(media_root)),
+        )
+        registry.register(
+            "execute_retention",
+            build_retention_handler(
+                export_root=Path(export_root),
+                media_root=Path(media_root),
+            ),
         )
     if research_backend_resolver is not None:
         from app.research.handlers import build_research_story_handler

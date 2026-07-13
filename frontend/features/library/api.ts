@@ -304,25 +304,48 @@ function decodeLibraryExport(value: unknown): LibraryExport {
     "export_id", "status", "finished_at", "artifact", "downloads", "error_code", "error_message",
   ], message)
   const exportId = uuid(row.export_id, message)
-  const contentPackId = decodeExportArtifact(row.artifact, exportId)
+  const artifact = decodeExportArtifact(row.artifact, exportId)
   const downloads = stringArray(row.downloads, message).map((path) =>
     safeExportDownload(path, exportId)
   )
-  if (downloads.length && contentPackId === null) throw new Error(message)
-  nullableString(row.error_code, message)
+  const status = string(row.status, message)
+  const finishedAt = nullableTimestamp(row.finished_at, message)
+  const errorCode = nullableString(row.error_code, message)
+  if (downloads.length && artifact?.state !== "complete") throw new Error(message)
+  if (artifact?.state === "expired") {
+    if (status !== "succeeded" || finishedAt === null || downloads.length !== 0 || errorCode !== "export_expired") {
+      throw new Error(message)
+    }
+  } else if (errorCode === "export_expired") {
+    throw new Error(message)
+  }
   return {
     id: exportId,
-    status: string(row.status, message),
-    finishedAt: nullableTimestamp(row.finished_at, message),
-    contentPackId,
+    status,
+    finishedAt,
+    contentPackId: artifact?.contentPackId ?? null,
     downloads,
     errorSummary: nullableString(row.error_message, message, true),
   }
 }
 
-function decodeExportArtifact(value: unknown, exportId: string): string | null {
+type DecodedLibraryExportArtifact = {
+  contentPackId: string
+  state: "complete" | "expired"
+}
+
+function decodeExportArtifact(value: unknown, exportId: string): DecodedLibraryExportArtifact | null {
   if (value === null) return null
   const message = "Invalid Library export artifact"
+  if (typeof value !== "object" || Array.isArray(value)) throw new Error(message)
+  if ((value as Record<string, unknown>).state === "expired") {
+    const row = exactObject(value, [
+      "export_id", "content_pack_id", "state", "expired_at",
+    ], message)
+    if (uuid(row.export_id, message) !== exportId || row.state !== "expired") throw new Error(message)
+    timestamp(row.expired_at, message)
+    return { contentPackId: uuid(row.content_pack_id, message), state: "expired" }
+  }
   const row = exactObject(value, [
     "export_id", "content_pack_id", "state", "manifest_file", "manifest_sha256",
     "archive_file", "archive_sha256", "manifest",
@@ -339,7 +362,7 @@ function decodeExportArtifact(value: unknown, exportId: string): string | null {
   if (row.manifest === null || typeof row.manifest !== "object" || Array.isArray(row.manifest)) {
     throw new Error(message)
   }
-  return uuid(row.content_pack_id, message)
+  return { contentPackId: uuid(row.content_pack_id, message), state: "complete" }
 }
 
 function decodeLibraryPublication(value: unknown): LibraryPublication {

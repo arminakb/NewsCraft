@@ -49,6 +49,7 @@ from app.jobs.models import WorkflowEvent, WorkflowJob
 from app.jobs.repository import JobRepository
 from app.jobs.schemas import JobAcceptedOut
 from app.jobs.types import JobOrigin
+from app.media.reference_fence import fence_platform_revision_media_write
 from app.research.citations import CitationIntegrityError, validate_citations
 from app.research.models import ResearchRun
 from app.research.schemas import CitationRef, Claim
@@ -387,8 +388,15 @@ class EditorialService:
         if parent_content.media_policy == "omit" and requested_media_ids:
             raise InvalidGenerationRequest("omit-media revisions cannot attach media")
         if requested_media_ids:
+            await fence_platform_revision_media_write(self.session)
             media_assets = list(
-                await self.session.scalars(select(MediaAsset).where(MediaAsset.id.in_(requested_media_ids)))
+                await self.session.scalars(
+                    select(MediaAsset)
+                    .where(MediaAsset.id.in_(requested_media_ids))
+                    .order_by(MediaAsset.id)
+                    .with_for_update()
+                    .execution_options(populate_existing=True)
+                )
             )
             if {item.id for item in media_assets} != requested_media_ids:
                 raise InvalidGenerationRequest("one or more media assets do not exist")
@@ -571,7 +579,7 @@ class EditorialService:
     async def _evidence_records(self, story_revision: StoryRevision) -> dict[UUID, EvidenceRecord]:
         try:
             citations = [CitationRef.model_validate(item) for item in story_revision.citations]
-        except (TypeError, ValueError):
+        except TypeError, ValueError:
             raise InvalidGenerationRequest("story revision citations are invalid", code="citation_integrity") from None
         snapshot_ids = {item.evidence_snapshot_id for item in citations}
         if not snapshot_ids:
@@ -617,10 +625,7 @@ class EditorialService:
         story_revision = await self._pack_story_revision(variant)
         records = await self._evidence_records(story_revision)
         try:
-            expected = [
-                CitationRef.model_validate(item).model_dump(mode="json")
-                for item in story_revision.citations
-            ]
+            expected = [CitationRef.model_validate(item).model_dump(mode="json") for item in story_revision.citations]
             citations = [CitationRef.model_validate(item) for item in revision.evidence_map]
             actual = [item.model_dump(mode="json") for item in citations]
             if actual != expected:
@@ -631,7 +636,7 @@ class EditorialService:
             validate_citations([Claim(text="Telegram package", citations=citations)], records)
         except InvalidGenerationRequest:
             raise
-        except (TypeError, ValueError):
+        except TypeError, ValueError:
             raise InvalidGenerationRequest("citation integrity failed", code="citation_integrity") from None
 
     async def _revalidate_manual_revision(
@@ -710,9 +715,7 @@ class EditorialService:
         failed = next((item for item in issues if item.severity == "error"), None)
         if failed is not None:
             raise InvalidGenerationRequest(failed.message, code=failed.code)
-        expected_evidence = [
-            item.model_dump(mode="json") for item in ordered_distinct_citations(payload)
-        ]
+        expected_evidence = [item.model_dump(mode="json") for item in ordered_distinct_citations(payload)]
         supplied_evidence = [item.model_dump(mode="json") for item in request.evidence_map]
         if supplied_evidence != expected_evidence:
             raise InvalidGenerationRequest("citation integrity failed", code="citation_integrity")

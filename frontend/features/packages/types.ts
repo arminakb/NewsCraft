@@ -251,7 +251,7 @@ export type ExportManifest = {
   files: ExportFileIdentity[]
 }
 
-export type ExportArtifact = {
+export type CompleteExportArtifact = {
   exportId: string
   contentPackId: string
   state: "complete"
@@ -261,6 +261,15 @@ export type ExportArtifact = {
   archiveSha256: string | null
   manifest: ExportManifest
 }
+
+export type ExpiredExportArtifact = {
+  exportId: string
+  contentPackId: string
+  state: "expired"
+  expiredAt: string
+}
+
+export type ExportArtifact = CompleteExportArtifact | ExpiredExportArtifact
 
 export type ExportOutcome = {
   exportId: string

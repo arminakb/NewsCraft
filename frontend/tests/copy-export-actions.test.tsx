@@ -240,6 +240,50 @@ it("submits export choices, polls the durable job, and exposes downloads only af
   expect(screen.getByRole("status", { name: "Export status" })).toHaveTextContent(`succeeded · ${ids.export}`)
 })
 
+it("decodes an exact expired export tombstone without inventing downloads", () => {
+  const outcome = decodeExportOutcome(expiredExportWire())
+
+  expect(outcome).toMatchObject({
+    exportId: ids.export,
+    status: "succeeded",
+    finishedAt: "2026-07-13T09:00:00Z",
+    downloads: [],
+    errorCode: "export_expired",
+    errorMessage: "Export artifact expired under retention policy",
+  })
+  expect(outcome.artifact).toEqual({
+    exportId: ids.export,
+    contentPackId: ids.pack,
+    state: "expired",
+    expiredAt: "2026-07-13T10:00:00Z",
+  })
+})
+
+it("rejects an expired export tombstone with extra fields or advertised downloads", () => {
+  const withExtraArtifactField = expiredExportWire()
+  Object.assign(withExtraArtifactField.artifact, { manifest: null })
+  const withDownload = expiredExportWire()
+  withDownload.downloads = [`/exports/${ids.export}/download/bundle.zip`]
+
+  expect(() => decodeExportOutcome(withExtraArtifactField)).toThrow("Invalid export artifact")
+  expect(() => decodeExportOutcome(withDownload)).toThrow("Invalid export outcome")
+})
+
+it("surfaces an expired polled export without a ready state or download link", async () => {
+  vi.spyOn(globalThis, "fetch")
+    .mockResolvedValueOnce(jsonResponse({ job_id: ids.export, status: "queued", deduplicated: false }, 202))
+    .mockResolvedValueOnce(jsonResponse(expiredExportWire()))
+  render(<CopyExportActions revision={xRevision} intendedRevisions={intendedRevisionsFor(xRevision)} pollIntervalMs={1} />)
+
+  fireEvent.click(screen.getByRole("button", { name: "Export package" }))
+
+  expect(await screen.findByText("Export expired")).toBeInTheDocument()
+  expect(screen.getByText("Export artifact expired under retention policy")).toBeInTheDocument()
+  expect(screen.getByRole("status", { name: "Export status" })).toHaveTextContent(`succeeded · ${ids.export}`)
+  expect(screen.queryByText("Export ready")).not.toBeInTheDocument()
+  expect(screen.queryByRole("link", { name: /Download/ })).not.toBeInTheDocument()
+})
+
 it("retries a transient poll failure against the same export ID until queued then succeeded", async () => {
   let resolveQueued!: (response: Response) => void
   let resolveSucceeded!: (response: Response) => void
@@ -396,6 +440,23 @@ function succeededExportWire() {
     downloads: [`/exports/${ids.export}/download/bundle.zip`],
     error_code: null,
     error_message: null,
+  }
+}
+
+function expiredExportWire() {
+  return {
+    export_id: ids.export,
+    status: "succeeded",
+    finished_at: "2026-07-13T09:00:00Z",
+    artifact: {
+      export_id: ids.export,
+      content_pack_id: ids.pack,
+      state: "expired",
+      expired_at: "2026-07-13T10:00:00Z",
+    },
+    downloads: [] as string[],
+    error_code: "export_expired",
+    error_message: "Export artifact expired under retention policy",
   }
 }
 

@@ -148,6 +148,22 @@ class ExportArtifact(BaseModel):
         return self
 
 
+class ExpiredExportArtifact(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    export_id: UUID
+    content_pack_id: UUID
+    state: Literal["expired"] = "expired"
+    expired_at: datetime
+
+    @field_validator("expired_at")
+    @classmethod
+    def require_aware_expired_at(cls, value: datetime) -> datetime:
+        if value.tzinfo is None or value.utcoffset() is None:
+            raise ValueError("export expiration time must be timezone-aware")
+        return value
+
+
 class BuildExportPayload(BaseModel):
     """Immutable exact revision identities persisted in WorkflowJob.payload."""
 
@@ -198,7 +214,7 @@ class ExportArtifactOut(BaseModel):
     export_id: UUID
     status: str
     finished_at: datetime | None
-    artifact: ExportArtifact | None
+    artifact: ExportArtifact | ExpiredExportArtifact | None
     downloads: list[str]
     error_code: str | None = None
     error_message: str | None = None

@@ -43,6 +43,8 @@ async def test_capture_records_evidence_and_process_job_before_cursor_advance(tm
 
     assert dispatch.source_message_ids == [101, 102, 103]
     assert events.index("route_locked") < events.index("source_item_flushed")
+    assert events.index("route_locked") < events.index("media_write_fenced")
+    assert events.index("media_write_fenced") < events.index("source_item_flushed")
     assert events.index("source_item_flushed") < events.index("dispatch_flushed")
     assert events.index("dispatch_flushed") < events.index("process_job_enqueued")
     assert events.index("process_job_enqueued") < events.index("cursor_advanced:103")
@@ -97,9 +99,7 @@ async def test_duplicate_route_source_returns_existing_before_mutation_or_cursor
         dispatch_kind="backfill",
         status="captured",
     )
-    capture, _, jobs, ingestion, route = _build_capture_repository(
-        tmp_path, events, existing_dispatch=existing
-    )
+    capture, _, jobs, ingestion, route = _build_capture_repository(tmp_path, events, existing_dispatch=existing)
     original_cursor = dict(route.cursor_state)
 
     replay = await capture.capture_and_enqueue(
@@ -254,9 +254,7 @@ async def test_replayed_source_edit_fingerprint_returns_existing_without_new_rev
         dispatch_kind="source_edit",
         status="captured",
     )
-    capture, session, jobs, ingestion, route = _build_capture_repository(
-        tmp_path, [], dispatch_results=[existing]
-    )
+    capture, session, jobs, ingestion, route = _build_capture_repository(tmp_path, [], dispatch_results=[existing])
 
     replay = await capture.capture_and_enqueue(
         route_id=ROUTE_ID,
@@ -553,6 +551,11 @@ class RecordingSession:
             return self.revision_results.pop(0) if self.revision_results else None
         return None
 
+    async def execute(self, statement):
+        if str(statement).startswith("LOCK TABLE content_items, item_media, media_assets"):
+            self.events.append("media_write_fenced")
+        return None
+
     def add(self, value):
         if getattr(value, "id", None) is None:
             value.id = uuid4()
@@ -596,9 +599,7 @@ class RecordingIngestionRepository:
 
     async def upsert_source_item(self, run_id, source_id, raw_payload_id, parsed_item):
         self.captured_item = parsed_item
-        item = SourceItem(
-            id=uuid4(), source_id=source_id, run_id=run_id, raw_payload_id=raw_payload_id
-        )
+        item = SourceItem(id=uuid4(), source_id=source_id, run_id=run_id, raw_payload_id=raw_payload_id)
         self.events.append("source_item_flushed")
         return item
 

@@ -39,6 +39,7 @@ from app.jobs.models import WorkflowEvent, WorkflowJob
 from app.jobs.repository import JobRepository
 from app.jobs.schemas import JobAcceptedOut
 from app.jobs.types import JobOrigin
+from app.media.reference_fence import fence_platform_revision_media_write
 from app.publishing.models import (
     Destination,
     Publication,
@@ -190,9 +191,7 @@ def _reconciliation_generation(receipt: PublishOperationReceipt) -> dict[str, ob
     return {
         "operation_key": receipt.operation_key,
         "attempt_count": receipt.attempt_count,
-        "ambiguous_at": (
-            receipt.ambiguous_at.isoformat() if receipt.ambiguous_at is not None else None
-        ),
+        "ambiguous_at": (receipt.ambiguous_at.isoformat() if receipt.ambiguous_at is not None else None),
     }
 
 
@@ -210,8 +209,7 @@ async def _reconciliation_events(
                         "telegram.publish.reconciled_published",
                     )
                 ),
-                WorkflowEvent.event_data["publish_job_id"].as_string()
-                == str(publish_job_id),
+                WorkflowEvent.event_data["publish_job_id"].as_string() == str(publish_job_id),
             )
             .order_by(WorkflowEvent.created_at.desc(), WorkflowEvent.id.desc())
         )
@@ -267,11 +265,7 @@ async def _replay_reconciliation_decision(
         workflow_job_id = _uuid_or_none(event_data.get("requeued_workflow_job_id"))
         requeued_job_status = event_data.get("requeued_job_status")
         requeued_job_deduplicated = event_data.get("requeued_job_deduplicated")
-        workflow_job = (
-            await session.get(WorkflowJob, workflow_job_id)
-            if workflow_job_id is not None
-            else None
-        )
+        workflow_job = await session.get(WorkflowJob, workflow_job_id) if workflow_job_id is not None else None
         if (
             workflow_job is None
             or not isinstance(requeued_job_status, str)
@@ -296,7 +290,7 @@ async def _replay_reconciliation_decision(
 def _uuid_or_none(value: object) -> UUID | None:
     try:
         return UUID(str(value))
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         return None
 
 
@@ -788,7 +782,16 @@ async def edit_telegram_draft(
         requested_ids = set(body.media_asset_ids)
         requested_assets: list[MediaAsset] = []
         if requested_ids:
-            requested_assets = list(await session.scalars(select(MediaAsset).where(MediaAsset.id.in_(requested_ids))))
+            await fence_platform_revision_media_write(session)
+            requested_assets = list(
+                await session.scalars(
+                    select(MediaAsset)
+                    .where(MediaAsset.id.in_(requested_ids))
+                    .order_by(MediaAsset.id)
+                    .with_for_update()
+                    .execution_options(populate_existing=True)
+                )
+            )
             found = {asset.id for asset in requested_assets}
             if found != requested_ids:
                 raise HTTPException(422, "One or more media assets do not exist")
@@ -1017,9 +1020,7 @@ async def reconcile_telegram_publish_job(
     session: AsyncSession = SessionDependency,
 ):
     async with session.begin():
-        publish_job = await session.scalar(
-            select(PublishJob).where(PublishJob.id == publish_job_id).with_for_update()
-        )
+        publish_job = await session.scalar(select(PublishJob).where(PublishJob.id == publish_job_id).with_for_update())
         if publish_job is None:
             raise HTTPException(404, "Telegram publish job not found")
         destination = await session.get(Destination, publish_job.destination_id)
@@ -1036,19 +1037,11 @@ async def reconcile_telegram_publish_job(
         decision_hash = _reconciliation_decision_hash(body)
         prior_events = await _reconciliation_events(session, publish_job.id)
         prior_event = next(
-            (
-                event
-                for event in prior_events
-                if _event_matches_reconciliation_generation(event, receipts)
-            ),
+            (event for event in prior_events if _event_matches_reconciliation_generation(event, receipts)),
             None,
         )
         if prior_event is not None:
-            event_data = (
-                prior_event.event_data
-                if isinstance(prior_event.event_data, dict)
-                else {}
-            )
+            event_data = prior_event.event_data if isinstance(prior_event.event_data, dict) else {}
             if event_data.get("decision_hash") != decision_hash:
                 raise HTTPException(409, "Conflicting reconciliation decision")
             return await _replay_reconciliation_decision(
@@ -1059,8 +1052,7 @@ async def reconcile_telegram_publish_job(
                 response,
             )
         if any(
-            isinstance(event.event_data, dict)
-            and event.event_data.get("decision_hash") == decision_hash
+            isinstance(event.event_data, dict) and event.event_data.get("decision_hash") == decision_hash
             for event in prior_events
         ):
             raise HTTPException(409, "Stale reconciliation decision")
@@ -1091,8 +1083,7 @@ async def reconcile_telegram_publish_job(
                 job_type="telegram.publish",
                 payload={"publish_job_id": str(publish_job.id)},
                 idempotency_key=(
-                    f"telegram-publish-reconcile:{publish_job.id}:"
-                    f"{ambiguous.operation_key}:{ambiguous.attempt_count}"
+                    f"telegram-publish-reconcile:{publish_job.id}:{ambiguous.operation_key}:{ambiguous.attempt_count}"
                 ),
                 origin=JobOrigin.RETRY,
             )

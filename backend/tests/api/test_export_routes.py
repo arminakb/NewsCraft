@@ -160,9 +160,7 @@ async def test_post_freezes_exact_revision_payload_and_semantic_idempotency(monk
             separators=(",", ":"),
         ).encode("utf-8")
     ).hexdigest()
-    assert observed["enqueue"]["idempotency_key"] == (
-        f"build_export:{pack_id}:{'a' * 64}:{request_hash}"
-    )
+    assert observed["enqueue"]["idempotency_key"] == (f"build_export:{pack_id}:{'a' * 64}:{request_hash}")
     assert str(tmp_path) not in str(observed["enqueue"]["payload"])
     assert observed["committed"] is True
 
@@ -252,9 +250,7 @@ async def test_export_list_uses_stable_tie_cursor_and_keeps_failed_rows_safe():
         error_message=None,
     )
     succeeded.created_at = finished_at
-    succeeded.payload = _payload_for_artifact(
-        ExportArtifact.model_validate(succeeded.result)
-    ).model_dump(mode="json")
+    succeeded.payload = _payload_for_artifact(ExportArtifact.model_validate(succeeded.result)).model_dump(mode="json")
     failed = SimpleNamespace(
         id=ids[1],
         job_type="build_export",
@@ -326,6 +322,144 @@ async def test_export_detail_authorizes_only_build_export_jobs():
         error_message=None,
     )
     assert (await get_export(export_id, session=Session(job))).artifact == artifact
+
+
+@pytest.mark.asyncio
+async def test_expired_export_detail_is_truthful_and_never_advertises_downloads():
+    from app.api.exports import get_export
+    from app.exports.models import BuildExportPayload
+
+    export_id = uuid4()
+    pack_id = uuid4()
+    expired_at = datetime(2026, 7, 13, 9, tzinfo=UTC)
+    job = SimpleNamespace(
+        id=export_id,
+        job_type="build_export",
+        status="succeeded",
+        finished_at=datetime(2026, 7, 1, tzinfo=UTC),
+        result={
+            "export_id": str(export_id),
+            "content_pack_id": str(pack_id),
+            "state": "expired",
+            "expired_at": expired_at.isoformat(),
+        },
+        payload=BuildExportPayload(
+            content_pack_id=pack_id,
+            revision_ids=[uuid4()],
+            revision_hashes=["a" * 64],
+            platforms=["blog"],
+            platform_variant_ids=[uuid4()],
+            formats=["json"],
+        ).model_dump(mode="json"),
+        created_at=datetime(2026, 7, 1, tzinfo=UTC),
+        error_code=None,
+        error_message=None,
+    )
+
+    class Session:
+        async def get(self, _model, identifier):
+            assert identifier == export_id
+            return job
+
+    output = await get_export(export_id, session=Session())
+
+    assert output.status == "succeeded"
+    assert output.downloads == []
+    assert output.error_code == "export_expired"
+    assert output.error_message == "Export artifact expired under retention policy"
+    assert output.artifact is not None
+    assert output.artifact.model_dump(mode="json") == {
+        "export_id": str(export_id),
+        "content_pack_id": str(pack_id),
+        "state": "expired",
+        "expired_at": expired_at.isoformat().replace("+00:00", "Z"),
+    }
+
+
+@pytest.mark.asyncio
+async def test_expired_export_download_returns_gone_before_touching_storage(tmp_path):
+    from app.api.exports import download_export
+    from app.exports.models import BuildExportPayload
+
+    export_id = uuid4()
+    pack_id = uuid4()
+    job = SimpleNamespace(
+        id=export_id,
+        job_type="build_export",
+        status="succeeded",
+        result={
+            "export_id": str(export_id),
+            "content_pack_id": str(pack_id),
+            "state": "expired",
+            "expired_at": datetime(2026, 7, 13, 9, tzinfo=UTC).isoformat(),
+        },
+        payload=BuildExportPayload(
+            content_pack_id=pack_id,
+            revision_ids=[uuid4()],
+            revision_hashes=["a" * 64],
+            platforms=["blog"],
+            platform_variant_ids=[uuid4()],
+            formats=["json"],
+        ).model_dump(mode="json"),
+        created_at=datetime(2026, 7, 1, tzinfo=UTC),
+    )
+
+    class Session:
+        async def get(self, _model, identifier):
+            assert identifier == export_id
+            return job
+
+    with pytest.raises(HTTPException) as caught:
+        await download_export(
+            export_id,
+            "manifest.json",
+            export_root=tmp_path / "missing-export-root",
+            session=Session(),
+        )
+
+    assert caught.value.status_code == 410
+    assert caught.value.detail == "Export artifact has expired"
+
+
+@pytest.mark.asyncio
+async def test_expired_export_tombstone_must_match_retained_job_payload_identity():
+    from app.api.exports import get_export
+    from app.exports.models import BuildExportPayload
+
+    export_id = uuid4()
+    job = SimpleNamespace(
+        id=export_id,
+        job_type="build_export",
+        status="succeeded",
+        finished_at=datetime(2026, 7, 1, tzinfo=UTC),
+        result={
+            "export_id": str(export_id),
+            "content_pack_id": str(uuid4()),
+            "state": "expired",
+            "expired_at": datetime(2026, 7, 13, 9, tzinfo=UTC).isoformat(),
+        },
+        payload=BuildExportPayload(
+            content_pack_id=uuid4(),
+            revision_ids=[uuid4()],
+            revision_hashes=["a" * 64],
+            platforms=["blog"],
+            platform_variant_ids=[uuid4()],
+            formats=["json"],
+        ).model_dump(mode="json"),
+        created_at=datetime(2026, 7, 1, tzinfo=UTC),
+        error_code=None,
+        error_message=None,
+    )
+
+    class Session:
+        async def get(self, _model, _identifier):
+            return job
+
+    with pytest.raises(HTTPException) as caught:
+        await get_export(export_id, session=Session())
+
+    assert caught.value.status_code == 409
+    assert caught.value.detail == "Expired export identity does not match its job"
 
 
 def test_download_rejects_unlisted_nested_absolute_symlink_and_bad_checksum(tmp_path):

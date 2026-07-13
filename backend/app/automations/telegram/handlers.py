@@ -54,6 +54,7 @@ from app.jobs.models import AutomationControl, WorkflowEvent, WorkflowJob
 from app.jobs.registry import JobContext, JobHandler
 from app.jobs.repository import JobRepository
 from app.jobs.types import JobOrigin
+from app.media.reference_fence import fence_platform_revision_media_write
 from app.publishing.models import Destination, PublishJob
 from app.stories.models import StoryEvidenceLink, StoryEvidenceSnapshot, StoryRevision
 
@@ -1525,6 +1526,8 @@ async def _exact_dispatch_evidence(
 async def _dispatch_media(
     session: Any,
     source_item: SourceItem,
+    *,
+    lock_for_revision: bool = True,
 ) -> tuple[ContentItem, tuple[MediaAsset, ...]]:
     if source_item.content_item_id is None:
         raise NeedsReviewJobError(
@@ -1537,14 +1540,16 @@ async def _dispatch_media(
             code="telegram_content_missing",
             message="Captured Telegram content item is missing",
         )
-    media = tuple(
-        await session.scalars(
-            select(MediaAsset)
-            .join(ItemMedia, ItemMedia.media_asset_id == MediaAsset.id)
-            .where(ItemMedia.content_item_id == content_item.id)
-            .order_by(ItemMedia.sort_order, MediaAsset.created_at, MediaAsset.id)
-        )
+    media_statement = (
+        select(MediaAsset)
+        .join(ItemMedia, ItemMedia.media_asset_id == MediaAsset.id)
+        .where(ItemMedia.content_item_id == content_item.id)
+        .order_by(ItemMedia.sort_order, MediaAsset.created_at, MediaAsset.id)
     )
+    if lock_for_revision:
+        await fence_platform_revision_media_write(session)
+        media_statement = media_statement.with_for_update(of=MediaAsset).execution_options(populate_existing=True)
+    media = tuple(await session.scalars(media_statement))
     return content_item, media
 
 
@@ -1553,6 +1558,11 @@ def _media_decision(route: AutomationRoute, media: tuple[MediaAsset, ...]) -> tu
         return [], True, None
     if route.media_policy == "replace_manually":
         return [], False, "media_replacement_required"
+    if any(item.fetch_status == "expired" for item in media):
+        raise NeedsReviewJobError(
+            code="telegram_media_expired",
+            message="Captured Telegram media expired before revision persistence",
+        )
     ready = all(
         item.fetch_status == "downloaded" and bool(item.storage_path) and bool(item.checksum_sha256) for item in media
     )
@@ -1867,7 +1877,11 @@ def build_telegram_process_handler(profile_resolver: Any) -> JobHandler:
                         "research_job_id": str(research.job_id),
                     }
             snapshot = await _exact_dispatch_evidence(session, story_revision.id)
-            content_item, media = await _dispatch_media(session, source_item)
+            content_item, media = await _dispatch_media(
+                session,
+                source_item,
+                lock_for_revision=False,
+            )
             prompt = await session.get(PromptTemplateVersion, route.prompt_template_version_id)
             brand = await session.get(BrandProfile, route.brand_profile_id)
             profile = await session.get(AIProviderProfile, route.ai_provider_profile_id)
@@ -2258,16 +2272,14 @@ def build_telegram_process_handler(profile_resolver: Any) -> JobHandler:
                 select(AutomationDispatch)
                 .join(StoryRevision, StoryRevision.id == AutomationDispatch.story_revision_id)
                 .where(
-                AutomationDispatch.route_id == dispatch.route_id,
-                AutomationDispatch.id != dispatch.id,
-                AutomationDispatch.creation_sequence < dispatch.creation_sequence,
-                AutomationDispatch.variant_revision_id.is_(None),
-                AutomationDispatch.status.in_(
-                    ("captured", "researching", "generating", "retryable")
-                ),
-                StoryRevision.story_id == story_revision.story_id,
-            )
-            .order_by(AutomationDispatch.creation_sequence)
+                    AutomationDispatch.route_id == dispatch.route_id,
+                    AutomationDispatch.id != dispatch.id,
+                    AutomationDispatch.creation_sequence < dispatch.creation_sequence,
+                    AutomationDispatch.variant_revision_id.is_(None),
+                    AutomationDispatch.status.in_(("captured", "researching", "generating", "retryable")),
+                    StoryRevision.story_id == story_revision.story_id,
+                )
+                .order_by(AutomationDispatch.creation_sequence)
                 .limit(1)
             )
             if unresolved_earlier is not None:
@@ -2313,11 +2325,7 @@ def build_telegram_process_handler(profile_resolver: Any) -> JobHandler:
                 return {
                     "dispatch_id": str(locked_dispatch.id),
                     "revision_id": str(locked_dispatch.variant_revision_id),
-                    "publish_job_id": (
-                        str(locked_dispatch.publish_job_id)
-                        if locked_dispatch.publish_job_id
-                        else None
-                    ),
+                    "publish_job_id": (str(locked_dispatch.publish_job_id) if locked_dispatch.publish_job_id else None),
                     "idempotent": True,
                 }
             if (

@@ -5,7 +5,7 @@ from hashlib import sha256
 from pathlib import Path
 
 import httpx
-from sqlalchemy import select
+from sqlalchemy import select, text
 
 from app.core.config import settings
 from app.db.models import MediaAsset
@@ -99,6 +99,19 @@ class MediaDownloader:
         checksum = sha256(content).hexdigest()
         extension = _extension_for_image(content_type, asset.normalized_url)
         storage_path = self.media_root / checksum[:2] / f"{checksum}{extension}"
+        await self.session.execute(text("LOCK TABLE media_assets IN ROW EXCLUSIVE MODE"))
+        asset = await self.session.scalar(
+            select(MediaAsset)
+            .where(
+                MediaAsset.id == asset.id,
+                MediaAsset.fetch_status == "remote_only",
+                MediaAsset.storage_path.is_(None),
+            )
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )
+        if asset is None:
+            return "skipped"
         _atomic_write(storage_path, content)
 
         asset.checksum_sha256 = checksum
