@@ -113,6 +113,7 @@ export function ContentSettingsPage() {
     onSuccess: async () => {
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: queryKeys.promptVersions(telegramTemplate!.id) }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.editorialPromptOptions }),
         queryClient.invalidateQueries({ queryKey: queryKeys.telegramOptions }),
       ])
       pushNotice({ tone: "success", title: "Prompt version created", message: "The immutable version is inactive until confirmed." })
@@ -125,6 +126,7 @@ export function ContentSettingsPage() {
       setActivationConfirmed(false)
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: queryKeys.promptVersions(telegramTemplate!.id) }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.editorialPromptOptions }),
         queryClient.invalidateQueries({ queryKey: queryKeys.telegramOptions }),
       ])
       pushNotice({ tone: "success", title: "Prompt activated", message: "New jobs will use the selected exact version." })

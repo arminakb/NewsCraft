@@ -106,7 +106,8 @@ describe("ContentSettingsPage", () => {
     const version2 = { ...activeVersion, id: "77777777-7777-4777-8777-777777777777", version: 2, isActive: false }
     vi.mocked(createPromptVersion).mockResolvedValue(version2)
     vi.mocked(activatePromptVersion).mockResolvedValue({ ...version2, isActive: true })
-    renderSettings()
+    const { queryClient } = renderSettings()
+    const invalidateSpy = vi.spyOn(queryClient, "invalidateQueries")
 
     fireEvent.change(await screen.findByLabelText("New brand name"), { target: { value: "Breaking desk" } })
     fireEvent.click(screen.getByRole("button", { name: "Create brand" }))
@@ -154,6 +155,7 @@ describe("ContentSettingsPage", () => {
     fireEvent.click(screen.getByRole("checkbox", { name: "Confirm prompt activation" }))
     fireEvent.click(activate)
     await waitFor(() => expect(activatePromptVersion).toHaveBeenCalledWith(activeVersion.id))
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ["settings", "prompt-templates", "editorial-options"] })
   })
 
   it("uses only environment-variable names for providers, clears them, and renders safe configuration truth", async () => {
@@ -235,11 +237,11 @@ describe("ContentSettingsPage", () => {
 
 function renderSettings() {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
-  return render(
+  return { queryClient, ...render(
     <QueryClientProvider client={queryClient}>
       <NoticeProvider>
         <ContentSettingsPage />
       </NoticeProvider>
     </QueryClientProvider>
-  )
+  ) }
 }

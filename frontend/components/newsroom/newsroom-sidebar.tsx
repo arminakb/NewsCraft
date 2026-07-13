@@ -10,6 +10,7 @@ import {
   FileText,
   ImageIcon,
   ListTodo,
+  Inbox,
   Newspaper,
   Settings,
   SquarePen,
@@ -21,6 +22,7 @@ import { cn } from "@/lib/utils"
 
 export const newsroomNavItems = [
   { label: "Today", href: "/", icon: Newspaper },
+  { label: "Inbox", href: "/inbox", icon: Inbox },
   { label: "Job Queue", href: "/jobs", icon: ListTodo },
   { label: "Automations", href: "/automations", icon: Bot },
   { label: "Drafts", href: "/drafts", icon: FileText },
@@ -46,7 +48,7 @@ export function NewsroomSidebar({ summary }: { summary?: JobSummary }) {
       <nav aria-label="Newsroom navigation" className="flex-1 space-y-1 p-3">
         {newsroomNavItems.map((item, index) => (
           <div key={item.href}>
-            {index === 5 ? <Separator className="my-3" /> : null}
+            {index === 6 ? <Separator className="my-3" /> : null}
             <NewsroomLink item={item} active={isCurrentPath(pathname, "activeHref" in item ? item.activeHref : item.href)} />
           </div>
         ))}
