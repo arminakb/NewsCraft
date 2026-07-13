@@ -7,6 +7,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.session import get_session
+from app.generation.revision_fence import public_job_result
 from app.jobs.errors import InvalidJobTransition
 from app.jobs.events import redact_event_data
 from app.jobs.models import WorkflowEvent, WorkflowJob
@@ -74,7 +75,7 @@ async def get_job(job_id: UUID, session: AsyncSession = SessionDependency):
     return JobDetailOut(
         **public_job,
         payload=redact_event_data(job.payload),
-        result=redact_event_data(job.result),
+        result=redact_event_data(public_job_result(job.result)),
         events=[
             JobEventOut(
                 id=event.id,

@@ -6,7 +6,7 @@ from datetime import UTC, datetime
 from typing import Any, Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -15,11 +15,29 @@ from app.db.models import ItemMedia, MediaAsset, SourceItem
 from app.generation.models import (
     AIProviderProfile,
     BrandProfile,
+    ContentPack,
     PlatformVariant,
     PlatformVariantRevision,
     PromptTemplate,
     PromptTemplateVersion,
 )
+from app.generation.multiplatform import (
+    PLATFORM_PROMPT_PURPOSE,
+    deduplicate_preserving_order,
+    ordered_distinct_citations,
+    payload_claims,
+)
+from app.generation.platform_media import trusted_story_media, validate_payload_media_assignments
+from app.generation.platform_schemas import (
+    BlogVariantPayload,
+    InstagramVariantPayload,
+    ManualPlatformEditRequest,
+    Platform,
+    TelegramVariantPayload,
+    XVariantPayload,
+)
+from app.generation.platform_validation import revision_gates_from_issues, validate_platform_payload
+from app.generation.revision_fence import RegenerationFenceConflict, require_revision_write_allowed
 from app.generation.revision_validation import RevisionValidationError, validate_approvable_revision
 from app.generation.telegram_schema import (
     TelegramEvidenceCitation,
@@ -31,7 +49,7 @@ from app.jobs.models import WorkflowEvent, WorkflowJob
 from app.jobs.repository import JobRepository
 from app.jobs.schemas import JobAcceptedOut
 from app.jobs.types import JobOrigin
-from app.research.citations import validate_citations
+from app.research.citations import CitationIntegrityError, validate_citations
 from app.research.models import ResearchRun
 from app.research.schemas import CitationRef, Claim
 from app.research.service import ResearchRequestError, ResearchService
@@ -40,7 +58,9 @@ from app.stories.models import Story, StoryEvidenceSnapshot, StoryRevision
 
 
 class InvalidGenerationRequest(ValueError):
-    pass
+    def __init__(self, message: str, *, code: str | None = None) -> None:
+        super().__init__(message)
+        self.code = code
 
 
 class RevisionConflict(ValueError):
@@ -50,13 +70,26 @@ class RevisionConflict(ValueError):
 class GeneratePackRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     brand_profile_id: UUID
-    platform: Literal["telegram"]
+    platforms: list[Platform] = Field(min_length=1)
     generation_provider_profile_id: UUID
-    canonical_prompt_template_version_id: UUID
-    platform_prompt_template_version_id: UUID
     research_mode: Literal["off", "manual", "auto_if_incomplete"] = "off"
     research_provider_profile_id: UUID | None = None
     research_run_id: UUID | None = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def translate_release_three_telegram_request(cls, value: Any):
+        if not isinstance(value, dict) or "platform" not in value:
+            return value
+        if "platforms" in value or value.get("platform") != "telegram":
+            return value
+        translated = dict(value)
+        translated["platforms"] = [translated.pop("platform")]
+        # Release 4 resolves active immutable prompts server-side. Legacy IDs
+        # are accepted only as a transition shim and are never trusted.
+        translated.pop("canonical_prompt_template_version_id", None)
+        translated.pop("platform_prompt_template_version_id", None)
+        return translated
 
 
 class EditVariantRequest(BaseModel):
@@ -71,8 +104,15 @@ class EditVariantRequest(BaseModel):
 class RegenerateVariantRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     generation_provider_profile_id: UUID
-    platform_prompt_template_version_id: UUID
     instruction: str | None = Field(default=None, max_length=1_000)
+
+    @model_validator(mode="before")
+    @classmethod
+    def discard_release_three_prompt_choice(cls, value: Any):
+        if isinstance(value, dict) and "platform_prompt_template_version_id" in value:
+            value = dict(value)
+            value.pop("platform_prompt_template_version_id")
+        return value
 
 
 class ApprovalRequest(BaseModel):
@@ -122,6 +162,24 @@ class EditorialService:
 
         return await require(canonical_id, canonical_purpose), await require(platform_id, platform_purpose)
 
+    async def require_active_prompt_version(self, purpose: str) -> PromptTemplateVersion:
+        # Enqueue-time prompt selection is a snapshot only. Workers lock and
+        # exact-revalidate the selected ID/checksum immediately before use, so
+        # holding this row behind Story/Variant locks only creates inversions.
+        rows = list(
+            await self.session.scalars(
+                select(PromptTemplateVersion)
+                .join(PromptTemplate, PromptTemplate.id == PromptTemplateVersion.prompt_template_id)
+                .where(
+                    PromptTemplateVersion.is_active.is_(True),
+                    PromptTemplate.purpose_key == purpose,
+                )
+            )
+        )
+        if len(rows) != 1:
+            raise InvalidGenerationRequest(f"requires exactly one active {purpose} prompt version")
+        return rows[0]
+
     async def _require_profile(self, profile_id: UUID) -> AIProviderProfile:
         profile = await self.session.scalar(
             select(AIProviderProfile).where(AIProviderProfile.id == profile_id).with_for_update()
@@ -139,10 +197,12 @@ class EditorialService:
         return profile
 
     async def request_content_pack(self, story_id: UUID, request: GeneratePackRequest) -> JobAcceptedOut:
-        canonical, platform = await self.require_active_prompt_versions(
-            canonical_id=request.canonical_prompt_template_version_id,
-            platform_id=request.platform_prompt_template_version_id,
-        )
+        platforms = deduplicate_preserving_order(request.platforms)
+        canonical = await self.require_active_prompt_version("canonical_story")
+        platform_prompts = {
+            platform: await self.require_active_prompt_version(PLATFORM_PROMPT_PURPOSE[platform])
+            for platform in platforms
+        }
         await self._require_profile(request.generation_provider_profile_id)
         story = await self.session.scalar(
             select(Story).where(Story.id == story_id, Story.superseded_by_id.is_(None)).with_for_update()
@@ -182,8 +242,15 @@ class EditorialService:
             | bound_payload
             | {
                 "story_id": str(story_id),
+                "platforms": platforms,
+                "canonical_prompt_template_version_id": str(canonical.id),
+                "platform_prompt_template_version_ids": {
+                    platform: str(prompt.id) for platform, prompt in platform_prompts.items()
+                },
                 "canonical_prompt_checksum": canonical.checksum_sha256,
-                "platform_prompt_checksum": platform.checksum_sha256,
+                "platform_prompt_checksums": {
+                    platform: prompt.checksum_sha256 for platform, prompt in platform_prompts.items()
+                },
             }
         )
         digest = hashlib.sha256(json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
@@ -252,6 +319,14 @@ class EditorialService:
         variant = await self.session.scalar(
             select(PlatformVariant).where(PlatformVariant.id == variant_id).with_for_update()
         )
+        if variant is None:
+            raise RevisionConflict("base revision not found")
+        if variant.platform != "telegram":
+            raise RevisionConflict("platform conflicts with Telegram edit")
+        try:
+            await require_revision_write_allowed(self.session, variant_id=variant.id)
+        except RegenerationFenceConflict:
+            raise RevisionConflict("variant regeneration is in progress") from None
         parent = await self.session.scalar(
             select(PlatformVariantRevision)
             .where(
@@ -260,7 +335,7 @@ class EditorialService:
             )
             .with_for_update()
         )
-        if variant is None or parent is None:
+        if parent is None:
             raise RevisionConflict("base revision not found")
         if parent.content_hash != request.base_content_hash:
             raise RevisionConflict("content hash changed")
@@ -387,12 +462,33 @@ class EditorialService:
             raise RevisionConflict("revision not found")
         if revision.content_hash != request.expected_content_hash:
             raise RevisionConflict("content hash changed")
+        if revision.content_hash != sha256_canonical(
+            {"content": revision.content, "evidence_map": revision.evidence_map}
+        ):
+            raise InvalidGenerationRequest(
+                "stored revision content hash is invalid",
+                code="content_integrity",
+            )
         if revision.approval_state != "pending_review":
             raise RevisionConflict("revision is not pending review")
-        try:
-            validate_approvable_revision(revision)
-        except RevisionValidationError as exc:
-            raise InvalidGenerationRequest(str(exc)) from None
+        if not revision.evidence_map:
+            raise InvalidGenerationRequest("Revision evidence map is empty")
+        variant = await self.session.get(PlatformVariant, revision.platform_variant_id)
+        if variant is None:
+            raise RevisionConflict("variant not found")
+        if variant.platform == "telegram":
+            try:
+                validate_approvable_revision(revision)
+                telegram_payload = TelegramVariantPayload.model_validate(revision.content)
+                issues = validate_platform_payload("telegram", telegram_payload)
+                failed = next((item for item in issues if item.severity == "error"), None)
+                if failed is not None:
+                    raise InvalidGenerationRequest(failed.message, code=failed.code)
+                await self._validate_telegram_revision_evidence(revision)
+            except (RevisionValidationError, InvalidGenerationRequest) as exc:
+                raise InvalidGenerationRequest(str(exc), code=getattr(exc, "code", None)) from None
+        else:
+            await self._revalidate_manual_revision(variant, revision)
         latest_id = await self.session.scalar(
             select(PlatformVariantRevision.id)
             .where(PlatformVariantRevision.platform_variant_id == revision.platform_variant_id)
@@ -429,19 +525,33 @@ class EditorialService:
 
     async def regenerate_variant(self, variant_id: UUID, request: RegenerateVariantRequest) -> JobAcceptedOut:
         await self._require_profile(request.generation_provider_profile_id)
-        prompt = await self.session.scalar(
-            select(PromptTemplateVersion)
-            .join(PromptTemplate)
-            .where(
-                PromptTemplateVersion.id == request.platform_prompt_template_version_id,
-                PromptTemplateVersion.is_active.is_(True),
-                PromptTemplate.purpose_key == "telegram_pack",
+        variant = await self.session.scalar(
+            select(PlatformVariant).where(PlatformVariant.id == variant_id).with_for_update()
+        )
+        if variant is None or variant.platform not in PLATFORM_PROMPT_PURPOSE:
+            raise RevisionConflict("variant not found")
+        prompt = await self.require_active_prompt_version(PLATFORM_PROMPT_PURPOSE[variant.platform])
+        current = await self.session.scalar(
+            select(PlatformVariantRevision)
+            .where(PlatformVariantRevision.platform_variant_id == variant.id)
+            .order_by(
+                PlatformVariantRevision.revision_number.desc(),
+                PlatformVariantRevision.created_at.desc(),
+                PlatformVariantRevision.id.desc(),
             )
+            .limit(1)
             .with_for_update()
         )
-        if prompt is None:
-            raise InvalidGenerationRequest("requires active telegram_pack prompt version")
-        payload = request.model_dump(mode="json") | {"variant_id": str(variant_id)}
+        if current is None:
+            raise RevisionConflict("variant has no current revision")
+        payload = request.model_dump(mode="json") | {
+            "variant_id": str(variant_id),
+            "base_revision_id": str(current.id),
+            "base_content_hash": current.content_hash,
+            "platforms": [variant.platform],
+            "platform_prompt_template_version_ids": {variant.platform: str(prompt.id)},
+            "platform_prompt_checksums": {variant.platform: prompt.checksum_sha256},
+        }
         digest = hashlib.sha256(json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
         result = await self.jobs.enqueue_job(
             job_type="content_pack.regenerate",
@@ -450,6 +560,193 @@ class EditorialService:
             origin=JobOrigin.MANUAL,
         )
         return _job_out(result)
+
+    async def _pack_story_revision(self, variant: PlatformVariant) -> StoryRevision:
+        pack = await self.session.get(ContentPack, variant.content_pack_id)
+        revision = await self.session.get(StoryRevision, pack.story_revision_id) if pack is not None else None
+        if revision is None:
+            raise InvalidGenerationRequest("content pack story revision is missing")
+        return revision
+
+    async def _evidence_records(self, story_revision: StoryRevision) -> dict[UUID, EvidenceRecord]:
+        try:
+            citations = [CitationRef.model_validate(item) for item in story_revision.citations]
+        except (TypeError, ValueError):
+            raise InvalidGenerationRequest("story revision citations are invalid", code="citation_integrity") from None
+        snapshot_ids = {item.evidence_snapshot_id for item in citations}
+        if not snapshot_ids:
+            raise InvalidGenerationRequest("story revision citations are empty", code="citation_integrity")
+        rows = list(
+            await self.session.scalars(
+                select(StoryEvidenceSnapshot).where(
+                    StoryEvidenceSnapshot.id.in_(snapshot_ids),
+                    StoryEvidenceSnapshot.story_id == story_revision.story_id,
+                )
+            )
+        )
+        records = {
+            row.id: EvidenceRecord(
+                evidence_key=row.evidence_key,
+                evidence_snapshot_id=row.id,
+                content_item_id=row.content_item_id,
+                title=row.title,
+                content_text=row.content_text,
+                content_sha256=row.content_sha256,
+                source_url=row.source_url,
+                authors=tuple(row.authors or []),
+                published_at=row.published_at,
+                captured_at=row.captured_at,
+            )
+            for row in rows
+        }
+        if set(records) != snapshot_ids:
+            raise InvalidGenerationRequest("story revision evidence is missing", code="citation_integrity")
+        try:
+            validate_citations([Claim(text="Locked story evidence", citations=citations)], records)
+        except ValueError:
+            raise InvalidGenerationRequest(
+                "story revision evidence no longer matches",
+                code="citation_integrity",
+            ) from None
+        return records
+
+    async def _validate_telegram_revision_evidence(self, revision: PlatformVariantRevision) -> None:
+        variant = await self.session.get(PlatformVariant, revision.platform_variant_id)
+        if variant is None:
+            raise InvalidGenerationRequest("variant is missing")
+        story_revision = await self._pack_story_revision(variant)
+        records = await self._evidence_records(story_revision)
+        try:
+            expected = [
+                CitationRef.model_validate(item).model_dump(mode="json")
+                for item in story_revision.citations
+            ]
+            citations = [CitationRef.model_validate(item) for item in revision.evidence_map]
+            actual = [item.model_dump(mode="json") for item in citations]
+            if actual != expected:
+                raise InvalidGenerationRequest(
+                    "citation integrity failed",
+                    code="citation_integrity",
+                )
+            validate_citations([Claim(text="Telegram package", citations=citations)], records)
+        except InvalidGenerationRequest:
+            raise
+        except (TypeError, ValueError):
+            raise InvalidGenerationRequest("citation integrity failed", code="citation_integrity") from None
+
+    async def _revalidate_manual_revision(
+        self,
+        variant: PlatformVariant,
+        revision: PlatformVariantRevision,
+    ) -> None:
+        payload_types = {
+            "instagram": InstagramVariantPayload,
+            "x": XVariantPayload,
+            "blog": BlogVariantPayload,
+        }
+        payload_type = payload_types.get(variant.platform)
+        if payload_type is None:
+            raise InvalidGenerationRequest("manual platform is unsupported")
+        try:
+            payload = payload_type.model_validate(revision.content)
+        except ValueError:
+            raise InvalidGenerationRequest("stored platform content is invalid") from None
+        issues = validate_platform_payload(variant.platform, payload)
+        if any(issue.severity == "error" for issue in issues):
+            raise InvalidGenerationRequest("revision has a failed validation gate")
+        expected = [item.model_dump(mode="json") for item in ordered_distinct_citations(payload)]
+        if revision.evidence_map != expected:
+            raise InvalidGenerationRequest("citation integrity failed", code="citation_integrity")
+        records = await self._evidence_records(await self._pack_story_revision(variant))
+        try:
+            validate_citations(payload_claims(variant.platform, payload), records)
+        except ValueError:
+            raise InvalidGenerationRequest("citation integrity failed", code="citation_integrity") from None
+        authorized_media, _projection = await trusted_story_media(
+            self.session,
+            records,
+            lock_rows=True,
+        )
+        try:
+            validate_payload_media_assignments(payload, authorized_media)
+        except CitationIntegrityError:
+            raise InvalidGenerationRequest("media integrity failed", code="media_integrity") from None
+
+    async def edit_manual_platform_variant(
+        self,
+        variant_id: UUID,
+        request: ManualPlatformEditRequest,
+    ) -> PlatformVariantRevision:
+        variant = await self.session.scalar(
+            select(PlatformVariant).where(PlatformVariant.id == variant_id).with_for_update()
+        )
+        if variant is None:
+            raise RevisionConflict("variant not found")
+        if request.payload.platform != variant.platform:
+            raise RevisionConflict("platform conflicts with target variant")
+        try:
+            await require_revision_write_allowed(self.session, variant_id=variant.id)
+        except RegenerationFenceConflict:
+            raise RevisionConflict("variant regeneration is in progress") from None
+        current = await self.session.scalar(
+            select(PlatformVariantRevision)
+            .where(PlatformVariantRevision.platform_variant_id == variant_id)
+            .order_by(
+                PlatformVariantRevision.revision_number.desc(),
+                PlatformVariantRevision.created_at.desc(),
+                PlatformVariantRevision.id.desc(),
+            )
+            .limit(1)
+            .with_for_update()
+        )
+        if (
+            current is None
+            or current.id != request.base_revision_id
+            or current.content_hash != request.base_content_hash
+        ):
+            raise RevisionConflict("base revision is stale")
+        payload = request.payload.content
+        issues = validate_platform_payload(variant.platform, payload)
+        failed = next((item for item in issues if item.severity == "error"), None)
+        if failed is not None:
+            raise InvalidGenerationRequest(failed.message, code=failed.code)
+        expected_evidence = [
+            item.model_dump(mode="json") for item in ordered_distinct_citations(payload)
+        ]
+        supplied_evidence = [item.model_dump(mode="json") for item in request.evidence_map]
+        if supplied_evidence != expected_evidence:
+            raise InvalidGenerationRequest("citation integrity failed", code="citation_integrity")
+        records = await self._evidence_records(await self._pack_story_revision(variant))
+        try:
+            validate_citations(payload_claims(variant.platform, payload), records)
+        except ValueError:
+            raise InvalidGenerationRequest("citation integrity failed", code="citation_integrity") from None
+        authorized_media, _projection = await trusted_story_media(
+            self.session,
+            records,
+            lock_rows=True,
+        )
+        try:
+            validate_payload_media_assignments(payload, authorized_media)
+        except CitationIntegrityError:
+            raise InvalidGenerationRequest("media integrity failed", code="media_integrity") from None
+        content = payload.model_dump(mode="json")
+        child = PlatformVariantRevision(
+            platform_variant_id=variant.id,
+            parent_revision_id=current.id,
+            generation_attempt_id=None,
+            revision_number=current.revision_number + 1,
+            content=content,
+            content_hash=sha256_canonical({"content": content, "evidence_map": supplied_evidence}),
+            evidence_map=supplied_evidence,
+            validation_results=revision_gates_from_issues(issues),
+            approval_state="pending_review",
+            approval_note=request.edit_note,
+            created_by="operator",
+        )
+        self.session.add(child)
+        await self.session.flush()
+        return child
 
     def _event(self, event_type: str, revision: PlatformVariantRevision) -> None:
         self.session.add(

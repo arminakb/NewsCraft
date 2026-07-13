@@ -4,6 +4,8 @@ from uuid import uuid4
 import httpx
 import pytest
 
+from app.generation.default_prompts import manual_generation_provider_schema
+from app.generation.platform_schemas import InstagramVariantPayload
 from app.generation.providers.base import GenerationProviderRequest, ProviderMessage
 from app.generation.providers.openrouter import (
     OpenRouterNeedsReviewError,
@@ -186,6 +188,53 @@ async def test_openrouter_honors_nontelegram_schema_and_classifies_malformed_usa
             await malformed.generate(provider_request())
     finally:
         await malformed_client.aclose()
+
+
+async def test_openrouter_provider_boundary_accepts_reviewable_manual_platform_overage():
+    output = {
+        "hook": "x" * 181,
+        "caption": "Grounded",
+        "cta": "Read",
+        "hashtags": [],
+        "alt_text": "Grounded",
+        "carousel": [],
+        "citations": [
+            {
+                "evidence_key": "evidence:one",
+                "evidence_snapshot_id": str(uuid4()),
+                "source_url": "https://example.com/report",
+                "locator": "chars:0-8",
+                "excerpt_sha256": "a" * 64,
+            }
+        ],
+        "manual_checklist": ["Verify"],
+    }
+    provider, requests, client = provider_with_response(
+        {
+            "choices": [
+                {"message": {"content": json.dumps(output)}, "finish_reason": "stop"}
+            ],
+            "model": "model",
+        }
+    )
+    base = provider_request()
+    schema = manual_generation_provider_schema(InstagramVariantPayload)
+    request = GenerationProviderRequest(
+        run_id=base.run_id,
+        purpose="instagram_pack",
+        requested_model=base.requested_model,
+        messages=base.messages,
+        response_schema=schema,
+        metadata={},
+    )
+    try:
+        result = await provider.generate(request)
+    finally:
+        await client.aclose()
+
+    sent = json.loads(requests[0].content)
+    assert sent["response_format"]["json_schema"]["schema"] == schema
+    assert result.output["hook"] == "x" * 181
 
 
 async def test_openrouter_uses_draft_202012_formats_and_redacts_success_fields():

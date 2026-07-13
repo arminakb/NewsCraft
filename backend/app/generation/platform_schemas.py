@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Literal
+from typing import Annotated, Literal
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, HttpUrl, model_validator
@@ -129,3 +129,40 @@ class BlogVariantPayload(BaseModel):
 type PlatformPayload = (
     TelegramVariantPayload | InstagramVariantPayload | XVariantPayload | BlogVariantPayload
 )
+
+
+class InstagramEditPayload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    platform: Literal["instagram"]
+    content: InstagramVariantPayload
+
+
+class XEditPayload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    platform: Literal["x"]
+    content: XVariantPayload
+
+
+class BlogEditPayload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    platform: Literal["blog"]
+    content: BlogVariantPayload
+
+
+type ManualPlatformEditPayload = Annotated[
+    InstagramEditPayload | XEditPayload | BlogEditPayload,
+    Field(discriminator="platform"),
+]
+
+
+class ManualPlatformEditRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    base_revision_id: UUID
+    base_content_hash: str = Field(pattern=r"^[0-9a-f]{64}$")
+    payload: ManualPlatformEditPayload
+    evidence_map: list[CitationRef] = Field(min_length=1)
+    edit_note: str = Field(min_length=1, max_length=500)

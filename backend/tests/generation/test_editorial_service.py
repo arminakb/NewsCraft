@@ -81,15 +81,13 @@ def _lifecycle_prompt():
     )
 
 
-def test_editorial_requests_require_profile_and_prompt_ids_and_forbid_provider_literals():
+def test_editorial_requests_require_profile_and_platforms_and_forbid_prompt_or_provider_literals():
     from app.generation.editorial_service import GeneratePackRequest
 
     request = GeneratePackRequest(
         brand_profile_id=uuid4(),
-        platform="telegram",
+        platforms=["telegram"],
         generation_provider_profile_id=uuid4(),
-        canonical_prompt_template_version_id=uuid4(),
-        platform_prompt_template_version_id=uuid4(),
     )
     assert request.research_mode == "off"
     with pytest.raises(ValidationError):
@@ -105,14 +103,14 @@ def test_auto_research_content_pack_continuation_is_strictly_bound():
     request = {
         "story_id": str(story_id),
         "brand_profile_id": str(uuid4()),
-        "platform": "telegram",
+        "platforms": ["telegram"],
         "generation_provider_profile_id": str(uuid4()),
         "canonical_prompt_template_version_id": str(uuid4()),
-        "platform_prompt_template_version_id": str(uuid4()),
+        "platform_prompt_template_version_ids": {"telegram": str(uuid4())},
         "research_mode": "auto_if_incomplete",
         "research_provider_profile_id": str(research_profile_id),
         "canonical_prompt_checksum": "b" * 64,
-        "platform_prompt_checksum": "c" * 64,
+        "platform_prompt_checksums": {"telegram": "c" * 64},
     }
     normalized = normalize_continuation(
         {
@@ -136,6 +134,115 @@ def test_auto_research_content_pack_continuation_is_strictly_bound():
                 "expected_provider_profile_id": str(uuid4()),
             }
         )
+
+
+@pytest.mark.asyncio
+async def test_release_three_telegram_continuation_normalizes_and_completes_after_upgrade(monkeypatch):
+    from app.research.continuations import enqueue_bound_continuation, normalize_continuation
+
+    story_id = uuid4()
+    research_profile_id = uuid4()
+    subscriber = "d" * 64
+    prompt_id = uuid4()
+    descriptor = {
+        "job_type": "content_pack.generate",
+        "payload": {
+            "story_id": str(story_id),
+            "brand_profile_id": str(uuid4()),
+            "platform": "telegram",
+            "generation_provider_profile_id": str(uuid4()),
+            "canonical_prompt_template_version_id": str(uuid4()),
+            "platform_prompt_template_version_id": str(prompt_id),
+            "research_mode": "auto_if_incomplete",
+            "research_provider_profile_id": str(research_profile_id),
+            "canonical_prompt_checksum": "b" * 64,
+            "platform_prompt_checksum": "c" * 64,
+        },
+        "idempotency_prefix": f"content-pack:{story_id}:{subscriber}",
+        "subscriber_id": subscriber,
+        "expected_story_id": str(story_id),
+        "expected_provider_profile_id": str(research_profile_id),
+    }
+
+    normalized = normalize_continuation(descriptor)
+    assert normalized["payload"]["platforms"] == ["telegram"]
+    assert normalized["payload"]["platform_prompt_template_version_ids"] == {
+        "telegram": str(prompt_id)
+    }
+    assert normalized["payload"]["platform_prompt_checksums"] == {"telegram": "c" * 64}
+    assert "platform" not in normalized["payload"]
+    assert "platform_prompt_template_version_id" not in normalized["payload"]
+    assert "platform_prompt_checksum" not in normalized["payload"]
+
+    calls = []
+
+    class Jobs:
+        def __init__(self, session):
+            pass
+
+        async def enqueue_job(self, **kwargs):
+            calls.append(kwargs)
+            return SimpleNamespace(job=SimpleNamespace(id=uuid4()), created=True)
+
+    monkeypatch.setattr("app.research.continuations.JobRepository", Jobs)
+    run = SimpleNamespace(
+        id=uuid4(),
+        story_id=story_id,
+        provider_profile_id=research_profile_id,
+    )
+    result_revision = SimpleNamespace(id=uuid4(), story_id=story_id)
+    await enqueue_bound_continuation(
+        SimpleNamespace(),
+        descriptor=descriptor,
+        run=run,
+        result_revision=result_revision,
+    )
+
+    assert calls[0]["payload"]["platforms"] == ["telegram"]
+    assert calls[0]["payload"]["platform_prompt_template_version_ids"] == {
+        "telegram": str(prompt_id)
+    }
+    assert calls[0]["payload"]["platform_prompt_checksums"] == {"telegram": "c" * 64}
+    assert calls[0]["payload"]["completed_research_run_id"] == str(run.id)
+    assert calls[0]["payload"]["research_result_story_revision_id"] == str(result_revision.id)
+
+
+@pytest.mark.parametrize("mutation", ["non_telegram", "ambiguous", "extra"])
+def test_release_three_continuation_translation_rejects_unsafe_legacy_shapes(mutation):
+    from app.research.continuations import normalize_continuation
+
+    story_id = uuid4()
+    research_profile_id = uuid4()
+    subscriber = "e" * 64
+    payload = {
+        "story_id": str(story_id),
+        "brand_profile_id": str(uuid4()),
+        "platform": "telegram",
+        "generation_provider_profile_id": str(uuid4()),
+        "canonical_prompt_template_version_id": str(uuid4()),
+        "platform_prompt_template_version_id": str(uuid4()),
+        "research_mode": "auto_if_incomplete",
+        "research_provider_profile_id": str(research_profile_id),
+        "canonical_prompt_checksum": "b" * 64,
+        "platform_prompt_checksum": "c" * 64,
+    }
+    if mutation == "non_telegram":
+        payload["platform"] = "instagram"
+    elif mutation == "ambiguous":
+        payload["platforms"] = ["telegram"]
+    else:
+        payload["provider_type"] = "fake"
+    descriptor = {
+        "job_type": "content_pack.generate",
+        "payload": payload,
+        "idempotency_prefix": f"content-pack:{story_id}:{subscriber}",
+        "subscriber_id": subscriber,
+        "expected_story_id": str(story_id),
+        "expected_provider_profile_id": str(research_profile_id),
+    }
+
+    with pytest.raises(ValueError):
+        normalize_continuation(descriptor)
 
 
 def test_rendered_prompt_executes_the_immutable_operator_user_template():
@@ -228,6 +335,66 @@ async def test_generation_lifecycle_commits_running_attempt_before_provider_and_
     )
     assert validated == {"ok": True, "validated": True}
     assert run.status == attempt.status == "succeeded"
+
+
+@pytest.mark.asyncio
+async def test_generation_lifecycle_rechecks_prompt_after_durable_attempt_and_closes_read_transaction():
+    from app.generation.handlers import _invoke
+    from app.generation.models import AIProviderProfile
+    from app.generation.providers.base import GenerationProviderResult
+    from app.jobs.registry import JobContext
+
+    session = _LifecycleSession()
+    profile = AIProviderProfile(
+        id=uuid4(),
+        name="Fake",
+        provider_type="fake",
+        default_model="fake-v1",
+        secret_ref=None,
+        settings={},
+        enabled=True,
+    )
+    session.profile = profile
+    rechecked = False
+
+    async def before_provider_call():
+        nonlocal rechecked
+        assert session.commits == 1
+        rechecked = True
+
+    class Provider:
+        async def generate(self, request):
+            assert rechecked is True
+            assert session.commits == 2
+            return GenerationProviderResult(
+                provider="fake",
+                requested_model="fake-v1",
+                resolved_model="fake-v1",
+                output={"ok": True},
+                raw_text='{"ok":true}',
+                usage={},
+                finish_reason="stop",
+            )
+
+    resolver = SimpleNamespace(
+        resolve=lambda profile_value, model: _async_value(
+            SimpleNamespace(provider=Provider(), provider_type="fake", model="fake-v1")
+        )
+    )
+    await _invoke(
+        JobContext(session=session, providers=SimpleNamespace()),
+        profile_resolver=resolver,
+        profile_id=profile.id,
+        prompt=_lifecycle_prompt(),
+        purpose="test",
+        story_revision_id=None,
+        input_payload={"value": "executed"},
+        input_hash="a" * 64,
+        workflow_job_id=uuid4(),
+        workflow_attempt=1,
+        validate_output=lambda output: output,
+        before_provider_call=before_provider_call,
+    )
 
 
 @pytest.mark.asyncio
@@ -586,6 +753,9 @@ async def test_request_enqueue_does_not_mark_story_drafted_before_pack_artifact(
         def __init__(self):
             self.values = [*prompts, profile, story]
 
+        async def scalars(self, statement):
+            return [self.values.pop(0)]
+
         async def scalar(self, statement):
             return self.values.pop(0)
 
@@ -601,10 +771,8 @@ async def test_request_enqueue_does_not_mark_story_drafted_before_pack_artifact(
 
     request = GeneratePackRequest(
         brand_profile_id=brand.id,
-        platform="telegram",
+        platforms=["telegram"],
         generation_provider_profile_id=profile.id,
-        canonical_prompt_template_version_id=prompts[0].id,
-        platform_prompt_template_version_id=prompts[1].id,
     )
     await EditorialService(Session(), jobs=Jobs()).request_content_pack(story.id, request)
     assert story.status == "inbox"
@@ -656,6 +824,9 @@ async def test_request_content_pack_binds_only_a_succeeded_same_story_research_r
         def __init__(self):
             self.values = [*prompts, profile, story]
 
+        async def scalars(self, statement):
+            return [self.values.pop(0)]
+
         async def scalar(self, statement):
             return self.values.pop(0)
 
@@ -677,10 +848,8 @@ async def test_request_content_pack_binds_only_a_succeeded_same_story_research_r
         story.id,
         GeneratePackRequest(
             brand_profile_id=brand.id,
-            platform="telegram",
+            platforms=["telegram"],
             generation_provider_profile_id=profile.id,
-            canonical_prompt_template_version_id=prompts[0].id,
-            platform_prompt_template_version_id=prompts[1].id,
             research_run_id=run.id,
         ),
     )
@@ -736,6 +905,9 @@ async def test_request_content_pack_rejects_failed_or_cross_story_research_run(f
         def __init__(self):
             self.values = [*prompts, profile, story]
 
+        async def scalars(self, statement):
+            return [self.values.pop(0)]
+
         async def scalar(self, statement):
             return self.values.pop(0)
 
@@ -750,10 +922,8 @@ async def test_request_content_pack_rejects_failed_or_cross_story_research_run(f
             story.id,
             GeneratePackRequest(
                 brand_profile_id=brand.id,
-                platform="telegram",
+                platforms=["telegram"],
                 generation_provider_profile_id=profile.id,
-                canonical_prompt_template_version_id=prompts[0].id,
-                platform_prompt_template_version_id=prompts[1].id,
                 research_run_id=run.id,
             ),
         )
@@ -804,3 +974,93 @@ async def test_superseded_after_enqueue_is_locked_and_rejected_before_provider_o
     assert caught.value.code == "generation_story_inactive"
     assert resolver.call_count == 0
     assert session.added == []
+
+
+@pytest.mark.asyncio
+async def test_canonical_handler_rechecks_exact_active_prompt_immediately_before_provider(monkeypatch):
+    import hashlib
+    from datetime import UTC, datetime
+
+    from app.generation.handlers import build_canonical_generation_handler
+    from app.generation.models import PromptTemplate, PromptTemplateVersion
+    from app.jobs.errors import PermanentJobError
+    from app.jobs.registry import JobContext
+
+    story_id, prompt_id, template_id, snapshot_id = uuid4(), uuid4(), uuid4(), uuid4()
+    story = SimpleNamespace(id=story_id, title="Grounded", superseded_by_id=None)
+    prompt = SimpleNamespace(
+        id=prompt_id,
+        prompt_template_id=template_id,
+        checksum_sha256="a" * 64,
+        system_template="System",
+        user_template="Story={story_title}; evidence={evidence_json}",
+        output_schema={},
+    )
+    template = SimpleNamespace(id=template_id, purpose_key="canonical_story")
+    snapshot = SimpleNamespace(
+        id=snapshot_id,
+        story_id=story_id,
+        evidence_key="evidence:one",
+        content_item_id=None,
+        title="Evidence",
+        content_text="Evidence",
+        content_sha256=hashlib.sha256(b"Evidence").hexdigest(),
+        source_url="https://example.com/report",
+        authors=[],
+        published_at=None,
+        captured_at=datetime.now(UTC),
+    )
+
+    class Session:
+        async def scalar(self, statement):
+            return story
+
+        async def get(self, model, identifier):
+            return {
+                (PromptTemplateVersion, prompt_id): prompt,
+                (PromptTemplate, template_id): template,
+            }.get((model, identifier))
+
+        async def scalars(self, statement):
+            return [snapshot]
+
+    provider_calls = 0
+
+    async def recheck(session, expected_prompt_id, expected_checksum):
+        assert expected_prompt_id == prompt_id
+        assert expected_checksum == "a" * 64
+        raise PermanentJobError(
+            code="generation_canonical_prompt_configuration_invalid",
+            message="Canonical prompt drifted",
+        )
+
+    async def invoke(context, **kwargs):
+        nonlocal provider_calls
+        await kwargs["before_provider_call"]()
+        provider_calls += 1
+        raise AssertionError("drifted canonical prompt reached provider")
+
+    monkeypatch.setattr(
+        "app.generation.handlers._require_exact_active_canonical_prompt",
+        recheck,
+        raising=False,
+    )
+    monkeypatch.setattr("app.generation.handlers._invoke", invoke)
+
+    with pytest.raises(PermanentJobError) as caught:
+        await build_canonical_generation_handler(SimpleNamespace())(
+            SimpleNamespace(
+                id=uuid4(),
+                attempt_count=1,
+                payload={
+                    "story_id": str(story_id),
+                    "canonical_prompt_template_version_id": str(prompt_id),
+                    "canonical_prompt_checksum": "a" * 64,
+                    "generation_provider_profile_id": str(uuid4()),
+                },
+            ),
+            JobContext(session=Session(), providers=SimpleNamespace()),
+        )
+
+    assert caught.value.code == "generation_canonical_prompt_configuration_invalid"
+    assert provider_calls == 0

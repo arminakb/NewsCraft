@@ -53,7 +53,14 @@ async def test_job_summary_returns_operational_counts():
 async def test_job_detail_sanitizes_payload_result_and_newest_first_events():
     job = _job(
         payload={"platforms": ["rss"], "nested": {"api-key": "payload-secret"}},
-        result={"items": 4, "Authorization": "result-secret"},
+        result={
+            "items": 4,
+            "Authorization": "result-secret",
+            "_regeneration_fence": {
+                "variant_id": str(uuid4()),
+                "lease_owner": "worker-private",
+            },
+        },
         lease_owner="worker-private",
     )
     older = _event(job.id, "job.enqueued", NOW - timedelta(minutes=2), {"token": "older-secret"})
@@ -69,6 +76,7 @@ async def test_job_detail_sanitizes_payload_result_and_newest_first_events():
     assert "heartbeat_at" not in payload
     assert payload["payload"]["nested"]["api-key"] == "[REDACTED]"
     assert payload["result"]["Authorization"] == "[REDACTED]"
+    assert "_regeneration_fence" not in payload["result"]
     assert [event["event_type"] for event in payload["events"]] == ["job.failed", "job.enqueued"]
     assert payload["events"][0]["event_data"]["error"]["password"] == "[REDACTED]"
     assert payload["events"][1]["event_data"]["token"] == "[REDACTED]"

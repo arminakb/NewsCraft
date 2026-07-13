@@ -3,11 +3,12 @@ from __future__ import annotations
 from typing import Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.automations.models import AutomationDispatch, AutomationRoute
+from app.generation.platform_schemas import Platform
 from app.jobs.repository import EnqueueJobResult, JobRepository
 from app.jobs.types import JobOrigin
 from app.research.models import ResearchRun
@@ -48,14 +49,59 @@ class ContentPackContinuationPayload(BaseModel):
 
     story_id: UUID
     brand_profile_id: UUID
-    platform: Literal["telegram"]
+    platforms: list[Platform] = Field(min_length=1)
     generation_provider_profile_id: UUID
     canonical_prompt_template_version_id: UUID
-    platform_prompt_template_version_id: UUID
+    platform_prompt_template_version_ids: dict[Platform, UUID]
     research_mode: Literal["auto_if_incomplete"]
     research_provider_profile_id: UUID
     canonical_prompt_checksum: str
-    platform_prompt_checksum: str
+    platform_prompt_checksums: dict[Platform, str]
+
+    @model_validator(mode="before")
+    @classmethod
+    def translate_release_three_telegram_payload(cls, value: object):
+        if not isinstance(value, dict):
+            return value
+        legacy_keys = {
+            "platform",
+            "platform_prompt_template_version_id",
+            "platform_prompt_checksum",
+        }
+        present_legacy = legacy_keys.intersection(value)
+        if not present_legacy:
+            return value
+        plural_keys = {
+            "platforms",
+            "platform_prompt_template_version_ids",
+            "platform_prompt_checksums",
+        }
+        if (
+            present_legacy != legacy_keys
+            or plural_keys.intersection(value)
+            or value.get("platform") != "telegram"
+        ):
+            raise ValueError("legacy content pack continuation payload is ambiguous or unsupported")
+        translated = dict(value)
+        translated["platforms"] = [translated.pop("platform")]
+        translated["platform_prompt_template_version_ids"] = {
+            "telegram": translated.pop("platform_prompt_template_version_id")
+        }
+        translated["platform_prompt_checksums"] = {
+            "telegram": translated.pop("platform_prompt_checksum")
+        }
+        return translated
+
+    @model_validator(mode="after")
+    def prompt_maps_match_requested_platforms(self):
+        requested = set(self.platforms)
+        if (
+            len(requested) != len(self.platforms)
+            or set(self.platform_prompt_template_version_ids) != requested
+            or set(self.platform_prompt_checksums) != requested
+        ):
+            raise ValueError("content pack continuation prompt mapping is invalid")
+        return self
 
 
 class ContentPackResearchContinuation(BaseModel):

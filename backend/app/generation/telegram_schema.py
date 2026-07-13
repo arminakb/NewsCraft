@@ -135,6 +135,32 @@ class TelegramVariantContent(BaseModel):
     _validate_body = field_validator("body")(_validated_html)
 
 
+def assemble_telegram_variant(
+    authored: TelegramRewriteOutput,
+    *,
+    trusted_parent: TelegramVariantContent | dict | None,
+    default_direction: Literal["ltr", "rtl"],
+) -> TelegramVariantContent:
+    """Combine provider-authored copy with server-trusted Release 2 context."""
+
+    parent = (
+        TelegramVariantContent.model_validate(trusted_parent)
+        if trusted_parent is not None
+        else None
+    )
+    return TelegramVariantContent(
+        body=authored.body,
+        parse_mode=authored.parse_mode,
+        buttons=authored.buttons,
+        source_item_id=parent.source_item_id if parent is not None else None,
+        source_url=parent.source_url if parent is not None else None,
+        media_policy=parent.media_policy if parent is not None else "omit",
+        media_asset_ids=list(parent.media_asset_ids) if parent is not None else [],
+        direction=parent.direction if parent is not None else default_direction,
+        dry_run=parent.dry_run if parent is not None else False,
+    )
+
+
 class TelegramEvidenceCitation(BaseModel):
     model_config = ConfigDict(extra="forbid")
 

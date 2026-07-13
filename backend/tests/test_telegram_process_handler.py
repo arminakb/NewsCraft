@@ -102,6 +102,28 @@ def test_invalid_snapshot_fails_before_generation(text, digest):
         validate_evidence_snapshot(snapshot)
 
 
+@pytest.mark.asyncio
+async def test_automation_revision_writer_waits_for_live_regeneration_fence(monkeypatch):
+    from app.automations.telegram.handlers import _require_automation_variant_write_allowed
+    from app.generation.revision_fence import RegenerationFenceConflict
+    from app.jobs.errors import RetryableJobError
+
+    variant_id = uuid4()
+
+    async def reject(session, **kwargs):
+        assert kwargs == {"variant_id": variant_id}
+        raise RegenerationFenceConflict("Variant regeneration is in progress")
+
+    monkeypatch.setattr(
+        "app.automations.telegram.handlers.require_revision_write_allowed",
+        reject,
+    )
+    with pytest.raises(RetryableJobError) as caught:
+        await _require_automation_variant_write_allowed(SimpleNamespace(), variant_id)
+
+    assert caught.value.code == "telegram_variant_regeneration_in_progress"
+
+
 class ProbeStop(BaseException):
     pass
 

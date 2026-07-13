@@ -40,6 +40,7 @@ from app.generation.providers.openrouter import (
     OpenRouterRetryableError,
 )
 from app.generation.providers.profiles import ProviderProfileConfigurationError
+from app.generation.revision_fence import RegenerationFenceConflict, require_revision_write_allowed
 from app.generation.revision_validation import RevisionValidationError, validate_approvable_revision
 from app.generation.telegram_schema import (
     TelegramEvidenceCitation,
@@ -1673,6 +1674,16 @@ async def _content_pack_and_variant(
     return pack, variant
 
 
+async def _require_automation_variant_write_allowed(session: Any, variant_id: UUID) -> None:
+    try:
+        await require_revision_write_allowed(session, variant_id=variant_id)
+    except RegenerationFenceConflict:
+        raise RetryableJobError(
+            code="telegram_variant_regeneration_in_progress",
+            message="Telegram variant regeneration is in progress",
+        ) from None
+
+
 def _generation_error(exc: Exception, route: AutomationRoute, job: WorkflowJob) -> Exception:
     if isinstance(exc, OpenRouterRetryableError):
         scheduled = retry_at(
@@ -2314,6 +2325,7 @@ def build_telegram_process_handler(profile_resolver: Any) -> JobHandler:
                 story_revision=story_revision,
                 parent=parent,
             )
+            await _require_automation_variant_write_allowed(session, variant.id)
             revision_number = (
                 int(
                     await session.scalar(

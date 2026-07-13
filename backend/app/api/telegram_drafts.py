@@ -21,7 +21,13 @@ from app.automations.telegram.handlers import (
 )
 from app.db.models import ItemMedia, MediaAsset, SourceItem
 from app.db.session import get_session
+from app.generation.editorial_service import (
+    EditorialService,
+    InvalidGenerationRequest,
+    RevisionConflict,
+)
 from app.generation.models import ContentPack, PlatformVariant, PlatformVariantRevision
+from app.generation.revision_fence import RegenerationFenceConflict, require_revision_write_allowed
 from app.generation.revision_validation import RevisionValidationError, validate_approvable_revision
 from app.generation.telegram_schema import (
     TelegramEvidenceCitation,
@@ -237,15 +243,20 @@ def build_manual_revision(
 def require_revision_transition(
     revision: Any,
     *,
-    action: Literal["approve", "reject", "publish"],
+    action: Literal["reject", "publish"],
     content_hash: str,
 ) -> None:
     if revision.content_hash != content_hash:
         raise HTTPException(409, "Draft content changed")
-    required = "approved" if action == "publish" else "pending_review"
+    if action == "reject":
+        required = "pending_review"
+    elif action == "publish":
+        required = "approved"
+    else:
+        raise HTTPException(409, "Draft transition is unsupported")
     if revision.approval_state != required:
         raise HTTPException(409, f"Draft cannot {action} from its current state")
-    if action in {"approve", "publish"}:
+    if action == "publish":
         try:
             validate_approvable_revision(revision)
         except RevisionValidationError as exc:
@@ -565,12 +576,26 @@ async def edit_telegram_draft(
     session: AsyncSession = SessionDependency,
 ):
     async with session.begin():
-        parent = await _locked_revision(session, revision_id)
+        lineage = await session.get(PlatformVariantRevision, revision_id)
+        if lineage is None:
+            raise HTTPException(404, "Telegram draft not found")
         variant = await session.scalar(
-            select(PlatformVariant).where(PlatformVariant.id == parent.platform_variant_id).with_for_update()
+            select(PlatformVariant)
+            .where(
+                PlatformVariant.id == lineage.platform_variant_id,
+                PlatformVariant.platform == "telegram",
+            )
+            .with_for_update()
         )
         if variant is None:
             raise HTTPException(409, "Telegram draft lineage is invalid")
+        try:
+            await require_revision_write_allowed(session, variant_id=variant.id)
+        except RegenerationFenceConflict:
+            raise HTTPException(409, "Telegram draft regeneration is in progress") from None
+        parent = await _locked_revision(session, revision_id)
+        if parent.platform_variant_id != variant.id:
+            raise HTTPException(409, "Telegram draft lineage changed")
         snapshots = await _revision_snapshots(session, parent, parent.evidence_map)
         requested_ids = set(body.media_asset_ids)
         requested_assets: list[MediaAsset] = []
@@ -639,15 +664,14 @@ async def approve_telegram_draft(
     session: AsyncSession = SessionDependency,
 ):
     async with session.begin():
-        revision = await _locked_revision(session, revision_id)
-        require_revision_transition(
-            revision,
-            action="approve",
-            content_hash=body.content_hash,
-        )
-        revision.approval_state = "approved"
-        revision.approved_at = datetime.now(UTC)
-        revision.approval_note = None
+        try:
+            revision = await EditorialService(session).approve_revision(
+                revision_id,
+                expected_content_hash=body.content_hash,
+                note=None,
+            )
+        except (InvalidGenerationRequest, RevisionConflict) as exc:
+            raise HTTPException(409, str(exc)) from None
         _append_draft_event(
             session,
             event_type="telegram.revision.approved",

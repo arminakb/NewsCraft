@@ -3,8 +3,25 @@ from types import SimpleNamespace
 from uuid import uuid4
 
 import pytest
+from fastapi import HTTPException
 
-from app.api.content_packs import _request_out, _research_request_out
+from app.api.content_packs import (
+    _request_out,
+    _research_request_out,
+    _revision_out,
+)
+from app.api.content_packs import (
+    edit_variant as edit_variant_route,
+)
+from app.generation.editorial_service import (
+    EditVariantRequest,
+    GeneratePackRequest,
+    InvalidGenerationRequest,
+    RegenerateVariantRequest,
+    RevisionConflict,
+)
+from app.generation.platform_schemas import ManualPlatformEditRequest
+from app.generation.telegram_schema import TelegramRewriteOutput
 from app.main import app
 
 
@@ -26,6 +43,520 @@ def test_content_pack_resource_routes_are_registered_with_exact_methods():
         ("/platform-variant-revisions/{revision_id}/reject", "POST"),
     }
     assert expected <= routes
+    edit_operation = app.openapi()["paths"]["/platform-variants/{variant_id}/revisions"]["post"]
+    assert "201" in edit_operation["responses"]
+
+
+def test_content_pack_request_uses_plural_platforms_and_safe_prompt_resolution():
+    assert "platforms" in GeneratePackRequest.model_fields
+    assert "platform" not in GeneratePackRequest.model_fields
+    assert "canonical_prompt_template_version_id" not in GeneratePackRequest.model_fields
+    assert "platform_prompt_template_version_id" not in GeneratePackRequest.model_fields
+    assert "platform_prompt_template_version_id" not in RegenerateVariantRequest.model_fields
+    legacy = GeneratePackRequest.model_validate(
+        {
+            "brand_profile_id": str(uuid4()),
+            "platform": "telegram",
+            "generation_provider_profile_id": str(uuid4()),
+            "canonical_prompt_template_version_id": str(uuid4()),
+            "platform_prompt_template_version_id": str(uuid4()),
+        }
+    )
+    assert legacy.platforms == ["telegram"]
+    assert "platform_prompt_template_version_id" not in legacy.model_dump()
+
+
+@pytest.mark.asyncio
+async def test_release_four_revision_projection_keeps_gate_rows_and_adds_typed_validation_issues():
+    from app.generation.models import ContentPack, PlatformVariant, PlatformVariantRevision
+    from app.stories.models import StoryRevision
+
+    pack = SimpleNamespace(id=uuid4(), story_revision_id=uuid4())
+    variant = SimpleNamespace(id=uuid4(), content_pack_id=pack.id, platform="x")
+    story_revision = SimpleNamespace(id=pack.story_revision_id, story_id=uuid4())
+    revision = PlatformVariantRevision(
+        id=uuid4(),
+        platform_variant_id=variant.id,
+        parent_revision_id=None,
+        generation_attempt_id=None,
+        revision_number=1,
+        content={
+            "mode": "single",
+            "posts": [
+                {
+                    "order": 1,
+                    "text": "Grounded post",
+                    "media": [],
+                    "citations": [
+                        {
+                            "evidence_key": "evidence:one",
+                            "evidence_snapshot_id": str(uuid4()),
+                            "source_url": "https://example.com/report",
+                            "locator": "chars:0-8",
+                            "excerpt_sha256": "a" * 64,
+                        }
+                    ],
+                }
+            ],
+            "link_strategy": "last_post",
+            "manual_checklist": ["Verify copy"],
+        },
+        content_hash="b" * 64,
+        evidence_map=[],
+        validation_results=[
+            {"gate": "x_platform_recheck_required", "ok": True, "reason": "Recheck in X"}
+        ],
+        approval_state="pending_review",
+        created_by="generation",
+        created_at=datetime.now(UTC),
+    )
+
+    class Session:
+        async def get(self, model, identifier):
+            return {
+                (PlatformVariant, variant.id): variant,
+                (ContentPack, pack.id): pack,
+                (StoryRevision, story_revision.id): story_revision,
+            }.get((model, identifier))
+
+    output = await _revision_out(Session(), revision)
+
+    assert output["platform"] == "x"
+    assert output["manual_checklist"] == ["Verify copy"]
+    assert output["validation_results"] == revision.validation_results
+    assert output["validation_issues"][0]["code"] == "x_platform_recheck_required"
+    assert output["validation_issues"][0]["severity"] == "warning"
+    assert output["prompt_version"] is None
+
+
+@pytest.mark.asyncio
+async def test_telegram_revision_projection_keeps_checklist_adjacent_to_exact_nine_key_content():
+    from app.generation.models import ContentPack, PlatformVariant, PlatformVariantRevision
+    from app.stories.models import StoryRevision
+
+    pack = SimpleNamespace(id=uuid4(), story_revision_id=uuid4())
+    variant = SimpleNamespace(id=uuid4(), content_pack_id=pack.id, platform="telegram")
+    story_revision = SimpleNamespace(id=pack.story_revision_id, story_id=uuid4())
+    content = {
+        "body": "Grounded",
+        "parse_mode": "HTML",
+        "buttons": [],
+        "source_item_id": None,
+        "source_url": None,
+        "media_policy": "omit",
+        "media_asset_ids": [],
+        "direction": "rtl",
+        "dry_run": False,
+    }
+    revision = PlatformVariantRevision(
+        id=uuid4(),
+        platform_variant_id=variant.id,
+        parent_revision_id=None,
+        generation_attempt_id=None,
+        revision_number=1,
+        content=content,
+        content_hash="b" * 64,
+        evidence_map=[],
+        validation_results=[{"gate": "telegram_schema", "ok": True, "reason": None}],
+        approval_state="pending_review",
+        created_by="generation",
+        created_at=datetime.now(UTC),
+    )
+
+    class Session:
+        async def get(self, model, identifier):
+            return {
+                (PlatformVariant, variant.id): variant,
+                (ContentPack, pack.id): pack,
+                (StoryRevision, story_revision.id): story_revision,
+            }.get((model, identifier))
+
+    output = await _revision_out(Session(), revision)
+
+    assert output["platform"] == "telegram"
+    assert output["manual_checklist"] == []
+    assert output["content"] == content
+    assert len(output["content"]) == 9
+
+
+@pytest.mark.asyncio
+async def test_revision_projection_exposes_safe_deduplicated_evidence_source_media():
+    from app.generation.models import ContentPack, PlatformVariant, PlatformVariantRevision
+    from app.stories.models import StoryRevision
+
+    story_id, snapshot_id, content_item_id, asset_id = uuid4(), uuid4(), uuid4(), uuid4()
+    citation = {
+        "evidence_key": "evidence:one",
+        "evidence_snapshot_id": str(snapshot_id),
+        "source_url": "https://example.com/report",
+        "locator": "chars:0-8",
+        "excerpt_sha256": "a" * 64,
+    }
+    pack = SimpleNamespace(id=uuid4(), story_revision_id=uuid4())
+    variant = SimpleNamespace(id=uuid4(), content_pack_id=pack.id, platform="x")
+    story_revision = SimpleNamespace(
+        id=pack.story_revision_id,
+        story_id=story_id,
+        citations=[citation],
+    )
+    snapshot = SimpleNamespace(
+        id=snapshot_id,
+        story_id=story_id,
+        content_item_id=content_item_id,
+    )
+    link = SimpleNamespace(
+        content_item_id=content_item_id,
+        media_asset_id=asset_id,
+        role="hero",
+        sort_order=1,
+    )
+    duplicate = SimpleNamespace(
+        content_item_id=content_item_id,
+        media_asset_id=asset_id,
+        role="inline",
+        sort_order=2,
+    )
+    asset = SimpleNamespace(
+        id=asset_id,
+        original_url="https://secret.example/media.jpg",
+        storage_path="/data/media/grounded.jpg",
+        kind="image",
+        mime_type="image/jpeg",
+        width=1200,
+        height=800,
+        duration_seconds=None,
+        byte_length=1234,
+        checksum_sha256="b" * 64,
+        fetch_status="downloaded",
+    )
+    revision = PlatformVariantRevision(
+        id=uuid4(),
+        platform_variant_id=variant.id,
+        parent_revision_id=None,
+        generation_attempt_id=None,
+        revision_number=1,
+        content={
+            "mode": "single",
+            "posts": [{"order": 1, "text": "Grounded", "media": [], "citations": [citation]}],
+            "link_strategy": "last_post",
+            "manual_checklist": ["Verify copy"],
+        },
+        content_hash="b" * 64,
+        evidence_map=[citation],
+        validation_results=[],
+        approval_state="pending_review",
+        created_by="generation",
+        created_at=datetime.now(UTC),
+    )
+
+    class Session:
+        def __init__(self):
+            self.scalar_calls = 0
+
+        async def get(self, model, identifier):
+            return {
+                (PlatformVariant, variant.id): variant,
+                (ContentPack, pack.id): pack,
+                (StoryRevision, story_revision.id): story_revision,
+            }.get((model, identifier))
+
+        async def scalars(self, statement):
+            self.scalar_calls += 1
+            return {1: [snapshot], 2: [link, duplicate], 3: [asset]}[self.scalar_calls]
+
+    output = await _revision_out(Session(), revision)
+
+    assert output["source_media"] == [
+        {
+            "id": str(asset_id),
+            "kind": "image",
+            "mime_type": "image/jpeg",
+            "width": 1200,
+            "height": 800,
+            "duration_seconds": None,
+            "byte_length": 1234,
+            "checksum_sha256": "b" * 64,
+            "fetch_status": "downloaded",
+            "available": True,
+            "role": "hero",
+            "order": 1,
+        }
+    ]
+    assert all(
+        "original_url" not in item and "storage_path" not in item
+        for item in output["source_media"]
+    )
+
+
+def _manual_route_request():
+    citation = {
+        "evidence_key": "evidence:one",
+        "evidence_snapshot_id": str(uuid4()),
+        "source_url": "https://example.com/report",
+        "locator": "chars:0-8",
+        "excerpt_sha256": "a" * 64,
+    }
+    return ManualPlatformEditRequest.model_validate(
+        {
+            "base_revision_id": str(uuid4()),
+            "base_content_hash": "b" * 64,
+            "payload": {
+                "platform": "instagram",
+                "content": {
+                    "hook": "Grounded",
+                    "caption": "Grounded caption",
+                    "cta": "Read more",
+                    "hashtags": [],
+                    "alt_text": "Summary card",
+                    "carousel": [],
+                    "citations": [citation],
+                    "manual_checklist": ["Verify copy"],
+                },
+            },
+            "evidence_map": [citation],
+            "edit_note": "Operator edit",
+        }
+    )
+
+
+@pytest.mark.parametrize("message", ["base revision is stale", "platform conflicts with target variant"])
+@pytest.mark.asyncio
+async def test_edit_route_maps_stale_and_platform_conflicts_to_http_409(monkeypatch, message):
+    class Service:
+        def __init__(self, session):
+            pass
+
+        async def edit_manual_platform_variant(self, variant_id, body):
+            raise RevisionConflict(message)
+
+    monkeypatch.setattr("app.api.content_packs.EditorialService", Service)
+
+    with pytest.raises(HTTPException) as caught:
+        await edit_variant_route(uuid4(), _manual_route_request(), SimpleNamespace())
+
+    assert caught.value.status_code == 409
+    assert caught.value.detail == message
+
+
+@pytest.mark.asyncio
+async def test_edit_route_maps_fabricated_evidence_to_typed_http_422(monkeypatch):
+    class Service:
+        def __init__(self, session):
+            pass
+
+        async def edit_manual_platform_variant(self, variant_id, body):
+            raise InvalidGenerationRequest("citation integrity failed", code="citation_integrity")
+
+    monkeypatch.setattr("app.api.content_packs.EditorialService", Service)
+
+    with pytest.raises(HTTPException) as caught:
+        await edit_variant_route(uuid4(), _manual_route_request(), SimpleNamespace())
+
+    assert caught.value.status_code == 422
+    assert caught.value.detail == {
+        "code": "citation_integrity",
+        "message": "citation integrity failed",
+    }
+
+
+@pytest.mark.asyncio
+async def test_telegram_edit_route_maps_reverse_platform_conflict_to_http_409(monkeypatch):
+    class Service:
+        def __init__(self, session):
+            pass
+
+        async def edit_variant(self, variant_id, body):
+            raise RevisionConflict("platform conflicts with Telegram edit")
+
+    monkeypatch.setattr("app.api.content_packs.EditorialService", Service)
+    request = EditVariantRequest(
+        base_revision_id=uuid4(),
+        base_content_hash="b" * 64,
+        content=TelegramRewriteOutput(body="Grounded", parse_mode="HTML", buttons=[]),
+        media_asset_ids=[],
+        edit_note="Operator edit",
+    )
+
+    with pytest.raises(HTTPException) as caught:
+        await edit_variant_route(uuid4(), request, SimpleNamespace())
+
+    assert caught.value.status_code == 409
+    assert caught.value.detail == "platform conflicts with Telegram edit"
+
+
+@pytest.mark.asyncio
+async def test_edit_route_dispatches_union_and_commits_only_successful_201_children(monkeypatch):
+    calls = []
+    created = SimpleNamespace(id=uuid4())
+
+    class Service:
+        def __init__(self, session):
+            pass
+
+        async def edit_manual_platform_variant(self, variant_id, body):
+            calls.append(("manual", variant_id, body.payload.platform))
+            return created
+
+        async def edit_variant(self, variant_id, body):
+            calls.append(("telegram", variant_id, body.content.body))
+            return created
+
+    class Session:
+        def __init__(self):
+            self.commits = 0
+
+        async def commit(self):
+            self.commits += 1
+
+    async def revision_out(session, row):
+        return {"id": row.id}
+
+    monkeypatch.setattr("app.api.content_packs.EditorialService", Service)
+    monkeypatch.setattr("app.api.content_packs._revision_out", revision_out)
+    session = Session()
+    manual_variant_id, telegram_variant_id = uuid4(), uuid4()
+    manual = await edit_variant_route(manual_variant_id, _manual_route_request(), session)
+    telegram = await edit_variant_route(
+        telegram_variant_id,
+        EditVariantRequest(
+            base_revision_id=uuid4(),
+            base_content_hash="b" * 64,
+            content=TelegramRewriteOutput(body="Grounded", parse_mode="HTML", buttons=[]),
+            media_asset_ids=[],
+            edit_note="Operator edit",
+        ),
+        session,
+    )
+
+    assert manual == telegram == {"id": created.id}
+    assert calls == [
+        ("manual", manual_variant_id, "instagram"),
+        ("telegram", telegram_variant_id, "Grounded"),
+    ]
+    assert session.commits == 2
+
+
+@pytest.mark.asyncio
+async def test_plural_request_projection_requires_every_requested_variant_before_ready():
+    from app.generation.models import ContentPack
+    from app.jobs.models import WorkflowJob
+
+    story_id, revision_id, child_id, pack_id, brand_id = uuid4(), uuid4(), uuid4(), uuid4(), uuid4()
+    parent = request_job(story_id, revision_id, child_id, brand_id=brand_id)
+    parent.payload.pop("platform")
+    parent.payload["platforms"] = ["telegram", "instagram"]
+    child = child_job(parent, child_id, revision_id, status="succeeded", error=None)
+    child.payload.pop("platform")
+    child.payload["platforms"] = ["telegram", "instagram"]
+    child.result = {"content_pack_id": str(pack_id)}
+    pack = SimpleNamespace(
+        id=pack_id,
+        story_revision_id=revision_id,
+        brand_profile_id=brand_id,
+        status="draft",
+        created_at=datetime.now(UTC),
+        updated_at=datetime.now(UTC),
+    )
+
+    class Session:
+        async def get(self, model, identifier):
+            if model is WorkflowJob:
+                return child
+            if model is ContentPack:
+                return pack
+            return None
+
+        async def scalars(self, statement):
+            return [SimpleNamespace(platform="telegram")]
+
+        async def scalar(self, statement):
+            return None
+
+    row = await _request_out(Session(), parent)
+
+    assert row["status"] == "needs_review"
+    assert row["pack"] is None
+
+
+@pytest.mark.asyncio
+async def test_needs_review_child_projects_exact_partial_pack_instead_of_hiding_it():
+    from app.generation.models import ContentPack
+    from app.jobs.models import WorkflowJob
+    from app.stories.models import StoryRevision
+
+    story_id, revision_id, child_id, pack_id, brand_id = uuid4(), uuid4(), uuid4(), uuid4(), uuid4()
+    parent = request_job(story_id, revision_id, child_id, brand_id=brand_id)
+    child = child_job(parent, child_id, revision_id, status="needs_review", error="Instagram needs review")
+    child.result = {"content_pack_id": str(pack_id)}
+    pack = SimpleNamespace(
+        id=pack_id,
+        story_revision_id=revision_id,
+        brand_profile_id=brand_id,
+        status="draft",
+        created_at=datetime.now(UTC),
+        updated_at=datetime.now(UTC),
+    )
+
+    class Session:
+        async def get(self, model, identifier):
+            if model is WorkflowJob:
+                return child
+            if model is ContentPack:
+                return pack
+            if model is StoryRevision:
+                return SimpleNamespace(story_id=story_id)
+            return None
+
+        async def scalar(self, statement):
+            return None
+
+        async def scalars(self, statement):
+            return []
+
+    row = await _request_out(Session(), parent)
+
+    assert row["status"] == "needs_review"
+    assert row["last_failure"] == "Instagram needs review"
+    assert row["pack"]["id"] == pack_id
+    assert row["pack"]["variants"] == []
+
+
+@pytest.mark.asyncio
+async def test_succeeded_child_with_variant_but_no_current_revision_is_not_ready():
+    from app.generation.models import ContentPack
+    from app.jobs.models import WorkflowJob
+
+    story_id, revision_id, child_id, pack_id, brand_id = uuid4(), uuid4(), uuid4(), uuid4(), uuid4()
+    parent = request_job(story_id, revision_id, child_id, brand_id=brand_id)
+    child = child_job(parent, child_id, revision_id, status="succeeded", error=None)
+    child.result = {"content_pack_id": str(pack_id)}
+    pack = SimpleNamespace(
+        id=pack_id,
+        story_revision_id=revision_id,
+        brand_profile_id=brand_id,
+        status="draft",
+        created_at=datetime.now(UTC),
+        updated_at=datetime.now(UTC),
+    )
+
+    class Session:
+        async def get(self, model, identifier):
+            if model is WorkflowJob:
+                return child
+            if model is ContentPack:
+                return pack
+            return None
+
+        async def scalars(self, statement):
+            return [SimpleNamespace(id=uuid4(), platform="telegram")]
+
+        async def scalar(self, statement):
+            return None
+
+    row = await _request_out(Session(), parent)
+
+    assert row["status"] == "needs_review"
+    assert row["pack"] is None
 
 
 @pytest.mark.asyncio

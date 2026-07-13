@@ -7,12 +7,25 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict
 
 from app.generation.platform_limits import (
+    BLOG_BODY_MIN,
+    BLOG_EXCERPT_MAX,
     BLOG_SEO_DESCRIPTION_MAX,
+    BLOG_SLUG_MAX,
+    BLOG_TAG_MAX,
+    BLOG_TITLE_MAX,
     INSTAGRAM_CAPTION_MAX,
     INSTAGRAM_CAROUSEL_MAX,
+    INSTAGRAM_CTA_MAX,
     INSTAGRAM_HASHTAG_MAX,
+    INSTAGRAM_HOOK_MAX,
+    INSTAGRAM_SLIDE_BODY_MAX,
+    INSTAGRAM_SLIDE_HEADLINE_MAX,
+    MEDIA_ALT_TEXT_MAX,
+    MEDIA_BRIEF_MAX,
+    MEDIA_PROMPT_MAX,
     X_MEDIA_PER_POST_MAX,
     X_POST_WEIGHT_MAX,
+    X_POSTS_MAX,
     x_weighted_length,
 )
 from app.generation.platform_schemas import (
@@ -57,7 +70,7 @@ def _duplicate_media_ids(assignments: Iterable[object]) -> bool:
 
 
 def _empty_checklist_issues(platform: str, checklist: list[str]) -> list[ValidationIssue]:
-    return [
+    issues = [
         _issue(
             f"{platform}_empty_checklist_item",
             f"manual_checklist.{index}",
@@ -66,6 +79,47 @@ def _empty_checklist_issues(platform: str, checklist: list[str]) -> list[Validat
         for index, item in enumerate(checklist)
         if not item.strip()
     ]
+    if not checklist:
+        issues.append(
+            _issue(
+                f"{platform}_missing_manual_checklist",
+                "manual_checklist",
+                "Manual publishing checklist must not be empty",
+            )
+        )
+    return issues
+
+
+def _media_length_issues(platform: str, path: str, assignment: object) -> list[ValidationIssue]:
+    issues: list[ValidationIssue] = []
+    alt_text = assignment.alt_text
+    if len(alt_text) > MEDIA_ALT_TEXT_MAX:
+        issues.append(
+            _issue(
+                f"{platform}_media_alt_text_too_long",
+                f"{path}.alt_text",
+                f"Media alt text is {len(alt_text)}/{MEDIA_ALT_TEXT_MAX} characters",
+            )
+        )
+    manual_brief = assignment.manual_brief
+    if manual_brief is not None and len(manual_brief) > MEDIA_BRIEF_MAX:
+        issues.append(
+            _issue(
+                f"{platform}_media_manual_brief_too_long",
+                f"{path}.manual_brief",
+                f"Media manual brief is {len(manual_brief)}/{MEDIA_BRIEF_MAX} characters",
+            )
+        )
+    image_prompt = assignment.image_prompt
+    if image_prompt is not None and len(image_prompt) > MEDIA_PROMPT_MAX:
+        issues.append(
+            _issue(
+                f"{platform}_media_image_prompt_too_long",
+                f"{path}.image_prompt",
+                f"Media image prompt is {len(image_prompt)}/{MEDIA_PROMPT_MAX} characters",
+            )
+        )
+    return issues
 
 
 def _validate_telegram(payload: TelegramVariantPayload) -> list[ValidationIssue]:
@@ -88,9 +142,39 @@ def _validate_telegram(payload: TelegramVariantPayload) -> list[ValidationIssue]
 
 def _validate_instagram(payload: InstagramVariantPayload) -> list[ValidationIssue]:
     issues: list[ValidationIssue] = []
+    if not payload.hook:
+        issues.append(_issue("instagram_hook_empty", "hook", "Instagram hook must not be empty"))
+    if len(payload.hook) > INSTAGRAM_HOOK_MAX:
+        issues.append(
+            _issue(
+                "instagram_hook_too_long",
+                "hook",
+                f"Hook is {len(payload.hook)}/{INSTAGRAM_HOOK_MAX} characters",
+            )
+        )
+    if not payload.caption:
+        issues.append(_issue("instagram_caption_empty", "caption", "Instagram caption must not be empty"))
+    if not payload.cta:
+        issues.append(_issue("instagram_cta_empty", "cta", "Instagram call to action must not be empty"))
+    if len(payload.cta) > INSTAGRAM_CTA_MAX:
+        issues.append(
+            _issue(
+                "instagram_cta_too_long",
+                "cta",
+                f"Call to action is {len(payload.cta)}/{INSTAGRAM_CTA_MAX} characters",
+            )
+        )
     if not payload.alt_text.strip():
         issues.append(
             _issue("instagram_missing_alt_text", "alt_text", "Instagram package requires alt text")
+        )
+    if len(payload.alt_text) > MEDIA_ALT_TEXT_MAX:
+        issues.append(
+            _issue(
+                "instagram_alt_text_too_long",
+                "alt_text",
+                f"Alt text is {len(payload.alt_text)}/{MEDIA_ALT_TEXT_MAX} characters",
+            )
         )
     if len(payload.caption) > INSTAGRAM_CAPTION_MAX:
         issues.append(
@@ -147,6 +231,39 @@ def _validate_instagram(payload: InstagramVariantPayload) -> list[ValidationIssu
             )
         )
     for index, assignment in enumerate(assignments):
+        slide = payload.carousel[index]
+        if not slide.headline:
+            issues.append(
+                _issue(
+                    "instagram_slide_headline_empty",
+                    f"carousel.{index}.headline",
+                    "Carousel slide headline must not be empty",
+                )
+            )
+        if len(slide.headline) > INSTAGRAM_SLIDE_HEADLINE_MAX:
+            issues.append(
+                _issue(
+                    "instagram_slide_headline_too_long",
+                    f"carousel.{index}.headline",
+                    f"Slide headline is {len(slide.headline)}/{INSTAGRAM_SLIDE_HEADLINE_MAX} characters",
+                )
+            )
+        if not slide.body:
+            issues.append(
+                _issue(
+                    "instagram_slide_body_empty",
+                    f"carousel.{index}.body",
+                    "Carousel slide body must not be empty",
+                )
+            )
+        if len(slide.body) > INSTAGRAM_SLIDE_BODY_MAX:
+            issues.append(
+                _issue(
+                    "instagram_slide_body_too_long",
+                    f"carousel.{index}.body",
+                    f"Slide body is {len(slide.body)}/{INSTAGRAM_SLIDE_BODY_MAX} characters",
+                )
+            )
         if not assignment.alt_text.strip():
             issues.append(
                 _issue(
@@ -155,6 +272,7 @@ def _validate_instagram(payload: InstagramVariantPayload) -> list[ValidationIssu
                     "Assigned media requires alt text",
                 )
             )
+        issues.extend(_media_length_issues("instagram", f"carousel.{index}.media", assignment))
         if assignment.role != "slide":
             issues.append(
                 _issue(
@@ -171,6 +289,16 @@ def _validate_instagram(payload: InstagramVariantPayload) -> list[ValidationIssu
 
 def _validate_x(payload: XVariantPayload) -> list[ValidationIssue]:
     issues: list[ValidationIssue] = []
+    if not payload.posts:
+        issues.append(_issue("x_posts_missing", "posts", "X package requires at least one post"))
+    if len(payload.posts) > X_POSTS_MAX:
+        issues.append(
+            _issue(
+                "x_too_many_posts",
+                "posts",
+                f"Package has {len(payload.posts)}/{X_POSTS_MAX} posts",
+            )
+        )
     if payload.mode == "single" and len(payload.posts) != 1:
         issues.append(
             _issue("x_single_requires_one_post", "posts", "Single-post mode requires exactly one post")
@@ -188,6 +316,10 @@ def _validate_x(payload: XVariantPayload) -> list[ValidationIssue]:
             )
         )
     for post_index, post in enumerate(payload.posts):
+        if not post.text:
+            issues.append(
+                _issue("x_post_empty", f"posts.{post_index}.text", f"Post {post.order} must not be empty")
+            )
         weighted = x_weighted_length(post.text)
         if weighted > X_POST_WEIGHT_MAX:
             issues.append(
@@ -230,6 +362,13 @@ def _validate_x(payload: XVariantPayload) -> list[ValidationIssue]:
                         "X media must use the post role",
                     )
                 )
+            issues.extend(
+                _media_length_issues(
+                    "x",
+                    f"posts.{post_index}.media.{media_index}",
+                    assignment,
+                )
+            )
         if not post.citations:
             issues.append(
                 _issue(
@@ -252,6 +391,52 @@ def _validate_x(payload: XVariantPayload) -> list[ValidationIssue]:
 
 def _validate_blog(payload: BlogVariantPayload) -> list[ValidationIssue]:
     issues: list[ValidationIssue] = []
+    if not payload.title:
+        issues.append(_issue("blog_title_empty", "title", "Blog title must not be empty"))
+    if len(payload.title) > BLOG_TITLE_MAX:
+        issues.append(
+            _issue(
+                "blog_title_too_long",
+                "title",
+                f"Title is {len(payload.title)}/{BLOG_TITLE_MAX} characters",
+            )
+        )
+    if len(payload.slug) > BLOG_SLUG_MAX:
+        issues.append(
+            _issue(
+                "blog_slug_too_long",
+                "slug",
+                f"Slug is {len(payload.slug)}/{BLOG_SLUG_MAX} characters",
+            )
+        )
+    if not payload.excerpt:
+        issues.append(_issue("blog_excerpt_empty", "excerpt", "Blog excerpt must not be empty"))
+    if len(payload.excerpt) > BLOG_EXCERPT_MAX:
+        issues.append(
+            _issue(
+                "blog_excerpt_too_long",
+                "excerpt",
+                f"Excerpt is {len(payload.excerpt)}/{BLOG_EXCERPT_MAX} characters",
+            )
+        )
+    if len(payload.body_markdown) < BLOG_BODY_MIN:
+        issues.append(
+            _issue(
+                "blog_body_too_short",
+                "body_markdown",
+                f"Body is {len(payload.body_markdown)}/{BLOG_BODY_MIN} characters",
+            )
+        )
+    if not payload.headings:
+        issues.append(_issue("blog_headings_missing", "headings", "Blog requires at least one heading"))
+    if len(payload.tags) > BLOG_TAG_MAX:
+        issues.append(
+            _issue(
+                "blog_too_many_tags",
+                "tags",
+                f"Blog has {len(payload.tags)}/{BLOG_TAG_MAX} tags",
+            )
+        )
     if not payload.citations:
         issues.append(_issue("blog_missing_citations", "citations", "Blog content requires a citation"))
 
@@ -279,6 +464,14 @@ def _validate_blog(payload: BlogVariantPayload) -> list[ValidationIssue]:
                 f"SEO description is {len(payload.seo_description)}/{BLOG_SEO_DESCRIPTION_MAX} characters",
             )
         )
+    if len(payload.seo_description) < 50:
+        issues.append(
+            _issue(
+                "blog_seo_description_too_short",
+                "seo_description",
+                f"SEO description is {len(payload.seo_description)}/50 characters",
+            )
+        )
     if payload.hero_media is not None:
         if payload.hero_media.order != 1:
             issues.append(
@@ -300,6 +493,7 @@ def _validate_blog(payload: BlogVariantPayload) -> list[ValidationIssue]:
             issues.append(
                 _issue("blog_hero_role_invalid", "hero_media.role", "Hero media must use the hero role")
             )
+        issues.extend(_media_length_issues("blog", "hero_media", payload.hero_media))
     issues.extend(_empty_checklist_issues("blog", payload.manual_checklist))
     return issues
 
@@ -333,3 +527,18 @@ def validate_platform_payload(platform: Platform, payload: PlatformPayload) -> l
             )
         ]
     return validator(payload)
+
+
+def revision_gates_from_issues(issues: list[ValidationIssue]) -> list[dict[str, object]]:
+    """Persist Release 4 validation through the Release 3 gate-shaped contract."""
+
+    if not issues:
+        return [{"gate": "platform_schema", "ok": True, "reason": None}]
+    return [
+        {
+            "gate": issue.code,
+            "ok": issue.severity != "error",
+            "reason": issue.message,
+        }
+        for issue in issues
+    ]

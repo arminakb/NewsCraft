@@ -290,15 +290,9 @@ async def test_http_manual_story_research_generation_edit_and_exact_approval(app
         f"/stories/{story.id}/content-packs",
         {
             "brand_profile_id": str(app_harness.brand_id),
-            "platform": "telegram",
+            "platforms": ["telegram"],
             "generation_provider_profile_id": str(
                 app_harness.fake_provider_profile_id
-            ),
-            "canonical_prompt_template_version_id": str(
-                app_harness.canonical_prompt_version_id
-            ),
-            "platform_prompt_template_version_id": str(
-                app_harness.telegram_prompt_version_id
             ),
             "research_mode": "off",
             "research_provider_profile_id": None,
@@ -432,10 +426,8 @@ async def test_supplemental_direct_service_flow(release3_factory):
             story_id,
             GeneratePackRequest(
                 brand_profile_id=brand_id,
-                platform="telegram",
+                platforms=["telegram"],
                 generation_provider_profile_id=fake_profile_id,
-                canonical_prompt_template_version_id=canonical_prompt_id,
-                platform_prompt_template_version_id=telegram_prompt_id,
                 research_mode="off",
                 research_run_id=research_run.id,
             ),
