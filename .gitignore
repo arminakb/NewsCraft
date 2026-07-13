@@ -24,6 +24,8 @@ env/
 *.session
 *.session-journal
 data/
+backups/
+*.newscraft-backup.tar.gz
 
 # Secrets and local config
 .env

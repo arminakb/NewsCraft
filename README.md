@@ -105,6 +105,20 @@ for exact environment settings and generation safety boundaries. See the
 the exact review, immutable edit, approval, copy/export, manual-plan, checklist, and completion
 flow plus offline acceptance limitations.
 
+### Backup and restore
+
+Create and verify a local database, media, and export backup from the repository root:
+
+```bash
+python scripts/backup_restore.py backup --output-dir ./backups
+python scripts/backup_restore.py verify ./backups/newscraft-*.newscraft-backup.tar.gz
+```
+
+Restore is destructive and requires an explicit `--confirm-replace` flag. Read the
+[backup and restore runbook](docs/operations/backup-and-restore.md) before using it; the
+runbook covers service interruption, free-space checks, failure recovery, and the quarterly
+disposable restore drill.
+
 Run the PostgreSQL queue contract suite:
 
 ```bash
