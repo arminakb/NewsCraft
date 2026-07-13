@@ -11,6 +11,7 @@ from sqlalchemy import (
     ForeignKey,
     Index,
     Integer,
+    Sequence,
     Text,
     UniqueConstraint,
     text,
@@ -93,10 +94,20 @@ class TelegramSourceConfig(Base):
     )
 
 
+dispatch_creation_sequence = Sequence("automation_dispatch_creation_sequence_seq")
+
+
 class AutomationDispatch(Base):
     __tablename__ = "automation_dispatches"
 
     id: Mapped[uuid.UUID] = uuid_pk()
+    creation_sequence: Mapped[int] = mapped_column(
+        BigInteger,
+        dispatch_creation_sequence,
+        server_default=dispatch_creation_sequence.next_value(),
+        nullable=False,
+        unique=True,
+    )
     route_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("automation_routes.id", ondelete="CASCADE"), nullable=False
     )
@@ -134,4 +145,5 @@ class AutomationDispatch(Base):
             name="ck_automation_dispatch_kind",
         ),
         Index("ix_automation_dispatch_route_created", "route_id", created_at.desc()),
+        Index("ix_automation_dispatch_route_sequence", "route_id", creation_sequence.desc()),
     )

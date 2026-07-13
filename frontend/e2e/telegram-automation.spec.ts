@@ -14,6 +14,9 @@ const ids = {
   draft2: "88888888-8888-4888-8888-888888888882",
   publishJob: "99999999-9999-4999-8999-999999999991",
   workflowJob: "99999999-9999-4999-8999-999999999992",
+  contentPack: "abababab-abab-4bab-8bab-abababababab",
+  story: "acacacac-acac-4cac-8cac-acacacacacac",
+  storyRevision: "adadadad-adad-4dad-8dad-adadadadadad",
 }
 
 for (const viewport of [
@@ -227,6 +230,17 @@ async function installTelegramBackend(page: Page, options: { reconciliation?: bo
     }
     if (path === "/jobs/summary") return json(route, { queued: 0, running: 0, attention: 0, succeeded_today: 1 })
     if (path === "/jobs") return json(route, { items: [] })
+    if (path === "/content-pack-requests") return json(route, [])
+
+    if (path.startsWith("/platform-variant-revisions/") && method === "GET") {
+      const revisionId = path.split("/").at(-1)!
+      return json(route, editorialRevision(draftForId(revisionId, state)))
+    }
+    if (path === `/content-packs/${ids.contentPack}`) return json(route, editorialPack())
+    if (path === `/platform-variants/${draft(1, state).platform_variant_id}/revisions`) {
+      return json(route, [editorialRevision(draft(1, state)), editorialRevision(draft(2, state))])
+    }
+    if (path === `/stories/${ids.story}/evidence`) return json(route, editorialEvidence())
 
     if (path === "/brand-profiles") return json(route, [brand()])
     if (path === "/prompt-templates") return json(route, [promptTemplate()])
@@ -411,6 +425,7 @@ function provider() {
   return {
     id: ids.provider, name: "OpenRouter newsroom", provider_type: "openrouter", default_model: "openai/gpt-5-mini",
     settings: {}, enabled: true, configured: true,
+    capabilities: { generation: true, research: true }, unavailability_codes: [],
   }
 }
 
@@ -434,7 +449,11 @@ function automationOptions(state: BackendState) {
     destinations: [{ id: ids.destination, name: "Main newsroom", health_status: "healthy", allow_auto_publish: true }],
     brand_profiles: [{ id: ids.brand, name: "Persian newsroom" }],
     prompt_template_versions: [{ id: state.prompt2Active ? ids.prompt2 : ids.prompt1, version: state.prompt2Active ? 2 : 1 }],
-    ai_provider_profiles: [{ id: ids.provider, name: "OpenRouter newsroom", provider_type: "openrouter", default_model: "openai/gpt-5-mini", configured: true }],
+    ai_provider_profiles: [{
+      id: ids.provider, name: "OpenRouter newsroom", provider_type: "openrouter",
+      default_model: "openai/gpt-5-mini", configured: true,
+      capabilities: { generation: true, research: true }, unavailability_codes: [],
+    }],
   }
 }
 
@@ -487,7 +506,7 @@ function dispatches(state: BackendState) {
 
 function dispatch(messageId: number, status: string, kind: string) {
   return {
-    id: `${ids.route.slice(0, -3)}${messageId}`,
+    id: dispatchId(messageId),
     route_id: ids.route,
     source_item_id: ids.source,
     story_revision_id: ids.draft1,
@@ -504,6 +523,10 @@ function dispatch(messageId: number, status: string, kind: string) {
     created_at: "2026-07-12T09:00:00Z",
     updated_at: "2026-07-12T09:00:00Z",
   }
+}
+
+function dispatchId(messageId: number) {
+  return `${ids.route.slice(0, -3)}${messageId}`
 }
 
 function draft(version: 1 | 2, state: BackendState) {
@@ -545,7 +568,7 @@ function draft(version: 1 | 2, state: BackendState) {
     created_by: version === 1 ? "automation" : "operator",
     created_at: "2026-07-12T09:00:00Z",
     route_id: ids.route,
-    dispatch_id: "dddddddd-dddd-4ddd-8ddd-dddddddddddd",
+    dispatch_id: dispatchId(91),
     publish_job_id: state.published || reconciles ? ids.publishJob : null,
     publish_status: reconciles ? "reconciliation_required" : state.published ? "succeeded" : null,
     publication: state.published && !reconciles ? publication() : null,
@@ -562,6 +585,51 @@ function dryRunDraft(state: BackendState) {
     publish_status: null,
     publication: null,
   }
+}
+
+function draftForId(id: string, state: BackendState) {
+  if (id === ids.dryDraft) return dryRunDraft(state)
+  if (id === ids.draft2) return draft(2, state)
+  return draft(1, state)
+}
+
+function editorialRevision(row: ReturnType<typeof draft>) {
+  return {
+    ...row,
+    content_pack_id: ids.contentPack,
+    story_id: ids.story,
+    validation_results: [{ gate: "telegram_schema", ok: true, reason: null }],
+    origin: row.created_by === "operator" ? "operator" : "automation",
+    provider_profile: { id: ids.provider, name: "OpenRouter newsroom", provider_type: "openrouter" },
+    resolved_model: "openai/gpt-5-mini",
+  }
+}
+
+function editorialPack() {
+  return {
+    id: ids.contentPack,
+    story_id: ids.story,
+    story_revision_id: ids.storyRevision,
+    brand_profile_id: ids.brand,
+    status: "pending_review",
+    created_at: "2026-07-12T09:00:00Z",
+    updated_at: "2026-07-12T09:00:00Z",
+    variants: [{ id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", platform: "telegram" }],
+  }
+}
+
+function editorialEvidence() {
+  return [{
+    id: "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+    evidence_key: "telegram.source",
+    title: "Captured Telegram source",
+    content_text: "متن منبع تأییدشده",
+    content_sha256: "c".repeat(64),
+    source_url: "https://t.me/source_newsroom/91",
+    authors: [],
+    published_at: null,
+    captured_at: "2026-07-12T09:00:00Z",
+  }]
 }
 
 function publication() {

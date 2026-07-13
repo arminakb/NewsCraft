@@ -968,6 +968,41 @@ async def test_interleaved_routes_keep_global_numbers_and_route_specific_parent(
 
 
 @pytest.mark.asyncio
+async def test_older_researching_dispatch_blocks_later_after_story_revision_rebind(
+    session_factory,
+):
+    async with session_factory() as session:
+        async with session.begin():
+            older, _older_job, shared = await seed_dispatch(session, route_name="older")
+            later, later_job, _ = await seed_dispatch(
+                session,
+                route_name="later",
+                shared=shared,
+            )
+            later.route_id = older.route_id
+            older.status = "researching"
+            older.story_revision_id = later.story_revision_id
+        older_sequence = older.creation_sequence
+        later_sequence = later.creation_sequence
+        later_job_id = later_job.id
+        later_dispatch_id = later.id
+
+    assert older_sequence < later_sequence
+    async with session_factory() as session:
+        job = await session.get(WorkflowJob, later_job_id)
+        await session.commit()
+        with pytest.raises(RetryableJobError, match="earlier route dispatch"):
+            await build_telegram_process_handler(FakeProfileResolver())(
+                job,
+                JobContext(session=session, providers=build_default_provider_registry()),
+            )
+
+    async with session_factory() as session:
+        later = await session.get(AutomationDispatch, later_dispatch_id)
+        assert later.variant_revision_id is None
+
+
+@pytest.mark.asyncio
 async def test_manual_child_approval_and_publish_bind_exact_hash_and_route_ancestry(
     session_factory,
 ):
@@ -1156,7 +1191,7 @@ async def test_draft_http_contract_enforces_states_filters_and_telegram_platform
             assert published.status_code == 202
 
             rejected_child = await client.post(
-                f"/telegram/drafts/{generated_id}/revisions",
+                f"/telegram/drafts/{child['id']}/revisions",
                 json={
                     "content": {
                         "body": "Reject me",

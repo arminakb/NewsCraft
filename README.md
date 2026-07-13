@@ -89,6 +89,15 @@ The API service runs Alembic migrations before Uvicorn starts.
 
 Source access uses `TELEGRAM_SOURCE_EDITOR_API_ID`, `TELEGRAM_SOURCE_EDITOR_API_HASH`, and `TELEGRAM_SOURCE_EDITOR_SESSION`. Generation uses `OPENROUTER_API_KEY` only when an enabled OpenRouter profile references it. Publishing alone receives `TELEGRAM_DESTINATION_NEWS_TOKEN`. The scheduler receives none of these values.
 
+### Research and generation
+
+Manual source intake, evidence-backed research, canonical story generation, Telegram draft
+generation, immutable editorial revisions, and exact approval are operated from Inbox,
+Drafts, Review, and Content settings. Fake mode is credential-free; OpenRouter and local
+Codex execution are explicit opt-ins with bounded, validated provider-profile settings.
+See the [research and generation operator runbook](docs/operations/research-and-generation.md)
+for exact environment settings, safety boundaries, UI steps, and the offline acceptance gate.
+
 Run the PostgreSQL queue contract suite:
 
 ```bash

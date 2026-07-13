@@ -173,6 +173,7 @@ def _validate_result_contract(
 def build_research_story_handler(backend_resolver: ResearchBackendResolver) -> JobHandler:
     async def handle(job: WorkflowJob, context: JobContext) -> dict[str, Any]:
         session = context.session
+        workflow_job_id = job.id
         payload = dict(job.payload or {})
         try:
             run_id = UUID(str(payload["run_id"]))
@@ -435,7 +436,7 @@ def build_research_story_handler(backend_resolver: ResearchBackendResolver) -> J
                 run.finished_at = now
                 session.add(
                     WorkflowEvent(
-                        workflow_job_id=job.id,
+                        workflow_job_id=workflow_job_id,
                         event_type="research.succeeded",
                         actor="automation",
                         event_data=redact_event_data(
@@ -451,7 +452,7 @@ def build_research_story_handler(backend_resolver: ResearchBackendResolver) -> J
                     )
                 )
                 canonical_job = await session.scalar(
-                    select(WorkflowJob).where(WorkflowJob.id == job.id).with_for_update()
+                    select(WorkflowJob).where(WorkflowJob.id == workflow_job_id).with_for_update()
                 )
                 if canonical_job is None:
                     raise CitationIntegrityError("canonical research job is unavailable")
@@ -519,7 +520,7 @@ def build_research_story_handler(backend_resolver: ResearchBackendResolver) -> J
                     attempt.error_message = message
                     attempt.finished_at = now
                 canonical_job = await session.scalar(
-                    select(WorkflowJob).where(WorkflowJob.id == job.id).with_for_update()
+                    select(WorkflowJob).where(WorkflowJob.id == workflow_job_id).with_for_update()
                 )
                 if owns_current and canonical_job is not None:
                     for descriptor in (canonical_job.payload or {}).get("continuations", []):
@@ -540,7 +541,7 @@ def build_research_story_handler(backend_resolver: ResearchBackendResolver) -> J
                 if owns_current:
                     session.add(
                         WorkflowEvent(
-                            workflow_job_id=job.id,
+                            workflow_job_id=workflow_job_id,
                             event_type="research.failed",
                             actor="automation",
                             event_data=redact_event_data(
@@ -555,7 +556,7 @@ def build_research_story_handler(backend_resolver: ResearchBackendResolver) -> J
                 else:
                     existing_stale_event = await session.scalar(
                         select(WorkflowEvent).where(
-                            WorkflowEvent.workflow_job_id == job.id,
+                            WorkflowEvent.workflow_job_id == workflow_job_id,
                             WorkflowEvent.event_type == "research.stale_attempt_ignored",
                             WorkflowEvent.event_data["attempt_id"].as_string()
                             == str(active_attempt_id),
@@ -564,7 +565,7 @@ def build_research_story_handler(backend_resolver: ResearchBackendResolver) -> J
                     if existing_stale_event is None:
                         session.add(
                             WorkflowEvent(
-                                workflow_job_id=job.id,
+                                workflow_job_id=workflow_job_id,
                                 event_type="research.stale_attempt_ignored",
                                 actor="automation",
                                 event_data=redact_event_data(

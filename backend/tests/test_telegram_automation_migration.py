@@ -34,3 +34,20 @@ def test_telegram_vertical_migration_supports_the_locked_long_revision_id():
     assert len("0006_telegram_automation_vertical") > 32
     widen = 'op.alter_column("alembic_version", "version_num", type_=sa.String(length=64))'
     assert migration.index(widen) < migration.index('op.create_table(\n        "telegram_source_configs"')
+
+
+def test_dispatch_sequence_migration_adds_immutable_chronology_after_release_two():
+    migration = Path("alembic/versions/0007_dispatch_creation_sequence.py").read_text(
+        encoding="utf-8"
+    )
+
+    assert 'revision: str = "0007_dispatch_creation_sequence"' in migration
+    assert 'down_revision: str | None = "0006_telegram_automation_vertical"' in migration
+    assert '"creation_sequence"' in migration
+    assert 'sa.Sequence("automation_dispatch_creation_sequence_seq")' in migration
+    assert "sa.Identity" not in migration
+    assert "row_number() OVER (ORDER BY created_at, id)" in migration
+    assert "setval" in migration
+    assert "OWNED BY automation_dispatches.creation_sequence" in migration
+    assert '"uq_automation_dispatch_creation_sequence"' in migration
+    assert '"ix_automation_dispatch_route_sequence"' in migration

@@ -9,8 +9,8 @@ from app.core.config import settings
 from app.core.logging import configure_logging
 from app.db.session import async_session
 from app.generation.default_prompts import (
-    seed_default_telegram_configuration,
     seed_default_editorial_prompts,
+    seed_default_telegram_configuration,
     seed_default_telegram_prompt,
 )
 

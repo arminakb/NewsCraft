@@ -10,7 +10,7 @@ from typing import Any
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
-from sqlalchemy import and_, func, or_, select
+from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 
 from app.automations.models import AutomationDispatch, AutomationRoute, TelegramSourceConfig
@@ -1576,15 +1576,12 @@ async def _route_parent_revision(
             AutomationDispatch.id != dispatch.id,
             AutomationDispatch.variant_revision_id.is_not(None),
             StoryRevision.story_id == story_id,
-            or_(
-                AutomationDispatch.created_at < dispatch.created_at,
-                and_(
-                    AutomationDispatch.created_at == dispatch.created_at,
-                    AutomationDispatch.id < dispatch.id,
-                ),
-            ),
+            AutomationDispatch.creation_sequence < dispatch.creation_sequence,
         )
-        .order_by(AutomationDispatch.created_at.desc(), PlatformVariantRevision.revision_number.desc())
+        .order_by(
+            AutomationDispatch.creation_sequence.desc(),
+            PlatformVariantRevision.revision_number.desc(),
+        )
         .limit(1)
     )
 
@@ -2277,20 +2274,16 @@ def build_telegram_process_handler(profile_resolver: Any) -> JobHandler:
                 select(AutomationDispatch)
                 .join(StoryRevision, StoryRevision.id == AutomationDispatch.story_revision_id)
                 .where(
-                    AutomationDispatch.route_id == dispatch.route_id,
-                    AutomationDispatch.id != dispatch.id,
-                    or_(
-                        AutomationDispatch.created_at < dispatch.created_at,
-                        and_(
-                            AutomationDispatch.created_at == dispatch.created_at,
-                            AutomationDispatch.id < dispatch.id,
-                        ),
-                    ),
-                    AutomationDispatch.variant_revision_id.is_(None),
-                    AutomationDispatch.status.in_(("captured", "generating", "retryable")),
-                    StoryRevision.story_id == story_revision.story_id,
-                )
-                .order_by(AutomationDispatch.created_at)
+                AutomationDispatch.route_id == dispatch.route_id,
+                AutomationDispatch.id != dispatch.id,
+                AutomationDispatch.creation_sequence < dispatch.creation_sequence,
+                AutomationDispatch.variant_revision_id.is_(None),
+                AutomationDispatch.status.in_(
+                    ("captured", "researching", "generating", "retryable")
+                ),
+                StoryRevision.story_id == story_revision.story_id,
+            )
+            .order_by(AutomationDispatch.creation_sequence)
                 .limit(1)
             )
             if unresolved_earlier is not None:
