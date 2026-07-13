@@ -8,7 +8,12 @@ from uuid import uuid4
 import pytest
 from pydantic import ValidationError
 
-from app.publishing.telegram.renderer import TelegramPublishNeedsReview, build_publish_plan
+from app.generation.telegram_schema import TelegramVariantContent
+from app.publishing.telegram.renderer import (
+    TelegramPublishNeedsReview,
+    build_publish_plan,
+    validate_renderability_policy,
+)
 
 
 def _revision(**content_overrides):
@@ -126,6 +131,18 @@ def test_media_policies_fail_closed(tmp_path: Path):
     with pytest.raises(TelegramPublishNeedsReview, match="replace_manually"):
         build_publish_plan(
             _revision(media_policy="replace_manually", media_asset_ids=[media.id]), [media], _destination()
+        )
+
+
+def test_pure_renderability_policy_matches_build_plan_without_media_rows():
+    for media_policy in ("omit", "preserve"):
+        validate_renderability_policy(
+            TelegramVariantContent.model_validate(_revision(media_policy=media_policy).content)
+        )
+
+    with pytest.raises(TelegramPublishNeedsReview, match="replace_manually"):
+        validate_renderability_policy(
+            TelegramVariantContent.model_validate(_revision(media_policy="replace_manually").content)
         )
 
 

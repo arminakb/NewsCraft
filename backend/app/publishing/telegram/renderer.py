@@ -44,6 +44,13 @@ class TelegramPublishNeedsReview(ValueError):
     """Raised when a revision cannot be rendered without an operator decision."""
 
 
+def validate_renderability_policy(content: TelegramVariantContent) -> None:
+    """Validate policy-only renderability without requiring media database rows."""
+
+    if content.media_policy == "replace_manually":
+        raise TelegramPublishNeedsReview("replace_manually revisions cannot be rendered")
+
+
 def _canonical_hash(value: Any) -> str:
     payload = json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode()
     return hashlib.sha256(payload).hexdigest()
@@ -240,8 +247,7 @@ def build_publish_plan(revision: Any, media: Iterable[Any], destination: Any) ->
     """Build an idempotent, secret-free operation plan for one approved revision."""
 
     content = TelegramVariantContent.model_validate(revision.content)
-    if content.media_policy == "replace_manually":
-        raise TelegramPublishNeedsReview("replace_manually revisions cannot be rendered")
+    validate_renderability_policy(content)
 
     rendered: list[tuple[TelegramMethod, dict[str, Any], list[tuple[dict[str, str], Path]]]]
     if content.media_policy == "omit" or not content.media_asset_ids:
