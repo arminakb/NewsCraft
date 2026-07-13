@@ -23,6 +23,7 @@ class Settings(BaseSettings):
     worker_poll_seconds: float = Field(default=1.0, gt=0)
     worker_lease_seconds: int = Field(default=120, ge=30)
     worker_heartbeat_seconds: int = Field(default=30, ge=5)
+    expected_runtime_component_ids: str = "worker-source-generation,worker-publishing,scheduler"
     openrouter_base_url: str = "https://openrouter.ai/api/v1"
     openrouter_default_model: str = "openai/gpt-5-mini"
     codex_enabled: bool = False

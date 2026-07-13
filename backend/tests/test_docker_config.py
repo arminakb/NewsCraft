@@ -4,6 +4,8 @@ from pathlib import Path
 
 import yaml
 
+from app.core.config import Settings
+
 ROOT = Path(__file__).resolve().parents[2]
 
 
@@ -99,6 +101,20 @@ def test_worker_and_scheduler_are_long_running_backend_services():
         for name in scheduler["environment"]
         for marker in secret_markers
     )
+
+
+def test_expected_runtime_components_match_release_two_compose_identities():
+    expected = Settings().expected_runtime_component_ids
+    services = _compose_yaml()["services"]
+
+    assert expected == "worker-source-generation,worker-publishing,scheduler"
+    assert services["worker-source-generation"]["environment"]["NEWSCRAFT_COMPONENT_ID"] == (
+        "worker-source-generation"
+    )
+    assert services["worker-publishing"]["environment"]["NEWSCRAFT_COMPONENT_ID"] == (
+        "worker-publishing"
+    )
+    assert services["scheduler"]["environment"]["NEWSCRAFT_COMPONENT_ID"] == "scheduler"
 
 
 def test_compose_contains_no_literal_runtime_secret_values():

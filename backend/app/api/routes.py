@@ -11,6 +11,7 @@ from app.api.ingest import router as ingest_router
 from app.api.jobs import router as jobs_router
 from app.api.library import router as library_router
 from app.api.media import router as media_router
+from app.api.operations import router as operations_router
 from app.api.sources import router as sources_router
 from app.api.stories import router as stories_router
 from app.api.telegram_automations import router as telegram_automations_router
@@ -25,6 +26,7 @@ router.include_router(ingest_router)
 router.include_router(content_router)
 router.include_router(content_packs_router)
 router.include_router(media_router)
+router.include_router(operations_router)
 router.include_router(diagnostics_router)
 router.include_router(exports_router)
 router.include_router(calendar_router)
