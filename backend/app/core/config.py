@@ -1,14 +1,17 @@
 from datetime import datetime
+from typing import Any
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from pydantic import Field, field_validator
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic_settings import BaseSettings, SettingsConfigDict, SettingsError
 
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
     app_name: str = "NewsCraft Backend"
+    app_env: str = "development"
+    failure_injection_profile: str | None = None
     database_url: str = Field(default="postgresql+asyncpg://newscraft:newscraft@postgres:5432/newscraft")
     http_proxy: str | None = None
     https_proxy: str | None = None
@@ -31,6 +34,11 @@ class Settings(BaseSettings):
     telegram_media_staging_root: str = "/data/telegram-staging"
     telegram_max_photo_bytes: int = Field(default=10_000_000, gt=0)
     telegram_max_file_bytes: int = Field(default=49_000_000, gt=0)
+
+    def __init__(self, **values: Any) -> None:
+        super().__init__(**values)
+        if self.failure_injection_profile and self.app_env != "test":
+            raise SettingsError("failure injection requires APP_ENV=test")
 
     @field_validator("scheduler_timezone")
     @classmethod

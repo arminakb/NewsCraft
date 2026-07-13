@@ -28,13 +28,9 @@ async def test_default_telegram_seed_is_concurrency_safe_across_two_sessions(
     async def seed_once():
         async with session_factory() as session:
             prompt = await seed_default_telegram_prompt(session)
-            configuration = await seed_default_telegram_configuration(
-                session, openrouter_available=True
-            )
+            configuration = await seed_default_telegram_configuration(session, openrouter_available=True)
             await session.commit()
-            return prompt.id, configuration.brand.id, tuple(
-                sorted(item.id for item in configuration.providers)
-            )
+            return prompt.id, configuration.brand.id, tuple(sorted(item.id for item in configuration.providers))
 
     first, second = await asyncio.gather(seed_once(), seed_once())
     assert first == second
@@ -69,9 +65,7 @@ async def enqueue_claimed_job(
 
 
 async def event_types(session: AsyncSession, job_id) -> Counter[str]:
-    result = await session.scalars(
-        select(WorkflowEvent.event_type).where(WorkflowEvent.workflow_job_id == job_id)
-    )
+    result = await session.scalars(select(WorkflowEvent.event_type).where(WorkflowEvent.workflow_job_id == job_id))
     return Counter(result)
 
 
@@ -276,9 +270,7 @@ async def test_empty_allowed_job_types_returns_without_a_query_or_mutation(
     event.listen(postgres_engine.sync_engine, "before_execute", record_statement)
     try:
         assert (
-            await job_repository.claim_next_job(
-                worker_id="worker-1", lease_seconds=120, allowed_job_types=(), now=NOW
-            )
+            await job_repository.claim_next_job(worker_id="worker-1", lease_seconds=120, allowed_job_types=(), now=NOW)
             is None
         )
     finally:
@@ -346,9 +338,7 @@ async def test_claim_orders_by_priority_then_schedule_then_creation(job_reposito
 
     claimed_ids = []
     for worker_number in range(4):
-        claimed = await job_repository.claim_next_job(
-            worker_id=f"worker-{worker_number}", lease_seconds=120, now=NOW
-        )
+        claimed = await job_repository.claim_next_job(worker_id=f"worker-{worker_number}", lease_seconds=120, now=NOW)
         assert claimed is not None
         claimed_ids.append(claimed.id)
 
@@ -487,9 +477,7 @@ async def test_heartbeat_only_current_owner_updates_progress_and_event(
     assert claimed.progress_message == "Fetched 4/10"
     assert claimed.heartbeat_at == NOW + timedelta(seconds=20)
     assert claimed.lease_expires_at == NOW + timedelta(seconds=80)
-    assert await event_types(db_session, claimed.id) == Counter(
-        ["job.enqueued", "job.claimed", "job.heartbeat"]
-    )
+    assert await event_types(db_session, claimed.id) == Counter(["job.enqueued", "job.claimed", "job.heartbeat"])
 
 
 async def test_expired_lease_owner_cannot_heartbeat(job_repository: JobRepository):
@@ -620,9 +608,7 @@ async def test_retryable_failure_with_attempts_remaining_requeues_at_explicit_ti
     assert failed.scheduled_for == retry_at
     assert failed.error_class == JobErrorClass.RETRYABLE
     assert failed.lease_owner is None
-    assert await event_types(db_session, claimed.id) == Counter(
-        ["job.enqueued", "job.claimed", "job.retry_scheduled"]
-    )
+    assert await event_types(db_session, claimed.id) == Counter(["job.enqueued", "job.claimed", "job.retry_scheduled"])
 
 
 async def test_retryable_failure_without_retry_time_requeues_at_observed_time(
@@ -648,9 +634,7 @@ async def test_retryable_failure_without_retry_time_requeues_at_observed_time(
     assert failed.status == JobStatus.QUEUED
     assert failed.scheduled_for == observed_at
     assert failed.error_class == JobErrorClass.RETRYABLE
-    assert await event_types(db_session, claimed.id) == Counter(
-        ["job.enqueued", "job.claimed", "job.retry_scheduled"]
-    )
+    assert await event_types(db_session, claimed.id) == Counter(["job.enqueued", "job.claimed", "job.retry_scheduled"])
 
 
 async def test_exhausted_retryable_failure_becomes_failed(
@@ -671,9 +655,7 @@ async def test_exhausted_retryable_failure_becomes_failed(
 
     assert failed.status == JobStatus.FAILED
     assert failed.finished_at == NOW + timedelta(minutes=1)
-    assert await event_types(db_session, claimed.id) == Counter(
-        ["job.enqueued", "job.claimed", "job.failed"]
-    )
+    assert await event_types(db_session, claimed.id) == Counter(["job.enqueued", "job.claimed", "job.failed"])
 
 
 async def test_permanent_failure_becomes_failed_even_with_attempts_remaining(
@@ -693,9 +675,7 @@ async def test_permanent_failure_becomes_failed_even_with_attempts_remaining(
 
     assert failed.status == JobStatus.FAILED
     assert failed.error_class == JobErrorClass.PERMANENT
-    assert await event_types(db_session, claimed.id) == Counter(
-        ["job.enqueued", "job.claimed", "job.failed"]
-    )
+    assert await event_types(db_session, claimed.id) == Counter(["job.enqueued", "job.claimed", "job.failed"])
 
 
 async def test_needs_review_failure_becomes_needs_review(
@@ -714,9 +694,7 @@ async def test_needs_review_failure_becomes_needs_review(
     )
 
     assert failed.status == JobStatus.NEEDS_REVIEW
-    assert await event_types(db_session, claimed.id) == Counter(
-        ["job.enqueued", "job.claimed", "job.needs_review"]
-    )
+    assert await event_types(db_session, claimed.id) == Counter(["job.enqueued", "job.claimed", "job.needs_review"])
 
 
 @pytest.mark.parametrize("terminal_status", [JobStatus.FAILED, JobStatus.NEEDS_REVIEW])
@@ -788,9 +766,84 @@ async def test_expired_running_leases_requeue_clear_owner_and_emit_event(
     assert expired.lease_expires_at is None
     assert expired.heartbeat_at is None
     assert live.status == JobStatus.RUNNING
-    assert await event_types(db_session, expired.id) == Counter(
-        ["job.enqueued", "job.claimed", "job.lease_expired"]
+    assert await event_types(db_session, expired.id) == Counter(["job.enqueued", "job.claimed", "job.lease_expired"])
+
+
+async def test_expired_running_lease_at_attempt_limit_becomes_truthful_terminal_failure(
+    job_repository: JobRepository,
+    db_session: AsyncSession,
+):
+    exhausted = await enqueue_claimed_job(
+        job_repository,
+        key="expired-attempt-limit",
+        max_attempts=1,
+        now=NOW,
     )
+    observed_at = NOW + timedelta(seconds=121)
+
+    recovered = await job_repository.requeue_expired_leases(now=observed_at)
+
+    assert recovered == 1
+    assert exhausted.status == JobStatus.FAILED
+    assert exhausted.finished_at == observed_at
+    assert exhausted.scheduled_for == NOW
+    assert exhausted.attempt_count == exhausted.max_attempts == 1
+    assert exhausted.error_class == JobErrorClass.RETRYABLE
+    assert exhausted.error_code == "worker_lease_expired"
+    assert exhausted.error_message == "Worker lease expired after the final configured attempt"
+    assert exhausted.lease_owner is None
+    assert exhausted.lease_expires_at is None
+    assert exhausted.heartbeat_at is None
+    assert await event_types(db_session, exhausted.id) == Counter(
+        ["job.enqueued", "job.claimed", "job.lease_expired", "job.failed"]
+    )
+    failed_event = await db_session.scalar(
+        select(WorkflowEvent).where(
+            WorkflowEvent.workflow_job_id == exhausted.id,
+            WorkflowEvent.event_type == "job.failed",
+        )
+    )
+    assert failed_event is not None
+    assert failed_event.event_data == {
+        "error_class": "retryable",
+        "error_code": "worker_lease_expired",
+        "error_message": "Worker lease expired after the final configured attempt",
+        "attempt_count": 1,
+        "max_attempts": 1,
+    }
+    lease_event = await db_session.scalar(
+        select(WorkflowEvent).where(
+            WorkflowEvent.workflow_job_id == exhausted.id,
+            WorkflowEvent.event_type == "job.lease_expired",
+        )
+    )
+    assert lease_event is not None
+    assert lease_event.event_data == {
+        "lease_owner": "worker-1",
+        "lease_expired_at": (NOW + timedelta(seconds=120)).isoformat(),
+    }
+    assert (
+        await job_repository.claim_next_job(
+            worker_id="automatic-worker",
+            lease_seconds=120,
+            now=observed_at,
+        )
+        is None
+    )
+
+    retried = await job_repository.retry_job(
+        job_id=exhausted.id,
+        now=observed_at + timedelta(seconds=1),
+    )
+    manually_claimed = await job_repository.claim_next_job(
+        worker_id="operator-retry-worker",
+        lease_seconds=120,
+        now=observed_at + timedelta(seconds=1),
+    )
+
+    assert retried.origin == JobOrigin.RETRY
+    assert manually_claimed is not None and manually_claimed.id == exhausted.id
+    assert manually_claimed.attempt_count == 2
 
 
 async def test_list_jobs_attention_filter_returns_only_attention_newest_first(

@@ -10,6 +10,7 @@ from uuid import UUID, uuid4
 import pytest
 
 from app.automations.models import AutomationDispatch, AutomationRoute
+from app.core.faults import InjectedFault, ScriptedFaultInjector
 from app.generation.models import AIProviderProfile
 from app.generation.provider_settings import default_research_budgets
 from app.jobs.errors import NeedsReviewJobError
@@ -646,6 +647,43 @@ async def test_stale_attempt_cannot_persist_or_downgrade_newer_success():
     assert any(value.event_type == "research.succeeded" for value in events)
     assert not any(value.event_type == "research.failed" for value in events)
     assert sum(value.event_type == "research.stale_attempt_ignored" for value in events) <= 1
+
+
+async def test_crash_after_research_provider_retries_without_duplicate_materialization():
+    session, job, _run, output = _lifecycle_fixture()
+    backend = ObservingBackend(session, output)
+
+    injector = ScriptedFaultInjector({"research.after_provider_before_persist": 1})
+    crashing = build_research_story_handler(
+        lambda _profile: backend,
+        fault_injector=injector,
+    )
+
+    with pytest.raises(InjectedFault):
+        await crashing(job, JobContext(session=session, providers=SimpleNamespace()))
+
+    assert [hit.point for hit in injector.hits] == ["research.after_provider_before_persist"]
+    assert backend.calls == 1
+    assert not any(isinstance(value, ResearchSource) for value in session.values)
+    assert not any(isinstance(value, StoryRevision) for value in session.values)
+    attempts = [value for value in session.values if isinstance(value, ResearchAttempt)]
+    assert len(attempts) == 1 and attempts[0].status == "running"
+
+    job.attempt_count = 2
+    result = await build_research_story_handler(lambda _profile: backend)(
+        job,
+        JobContext(session=session, providers=SimpleNamespace()),
+    )
+
+    assert result["story_revision_id"]
+    assert backend.calls == 2
+    attempts = sorted(
+        (value for value in session.values if isinstance(value, ResearchAttempt)),
+        key=lambda value: value.attempt_number,
+    )
+    assert [value.status for value in attempts] == ["failed", "succeeded"]
+    assert len([value for value in session.values if isinstance(value, ResearchSource)]) == 1
+    assert len([value for value in session.values if isinstance(value, StoryRevision)]) == 1
 
 
 @pytest.mark.parametrize(

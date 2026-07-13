@@ -4,13 +4,21 @@ from pathlib import Path
 
 from pydantic import ValidationError
 
+from app.core.faults import FaultInjector, NoopFaultInjector
 from app.exports.models import BuildExportPayload
 from app.exports.service import ExportContractError, ExportService
 from app.jobs.errors import PermanentJobError
 from app.jobs.registry import JobContext, JobHandler
 
 
-def build_export_handler(*, export_root: Path, media_root: Path) -> JobHandler:
+def build_export_handler(
+    *,
+    export_root: Path,
+    media_root: Path,
+    fault_injector: FaultInjector | None = None,
+) -> JobHandler:
+    injector = fault_injector if fault_injector is not None else NoopFaultInjector()
+
     async def handle(job, context: JobContext) -> dict:
         try:
             payload = BuildExportPayload.model_validate(job.payload)
@@ -31,6 +39,13 @@ def build_export_handler(*, export_root: Path, media_root: Path) -> JobHandler:
             )
         except ExportContractError as exc:
             raise PermanentJobError(code=exc.code, message=str(exc)) from exc
+        await injector.hit(
+            "export.after_manifest_before_commit",
+            {
+                "export_id": str(artifact.export_id),
+                "content_pack_id": str(artifact.content_pack_id),
+            },
+        )
         return artifact.model_dump(mode="json")
 
     return handle

@@ -14,6 +14,7 @@ from pydantic_core import to_jsonable_python
 from sqlalchemy import func, select
 
 from app.automations.telegram.handlers import sha256_canonical
+from app.core.faults import FaultInjector, NoopFaultInjector
 from app.core.redaction import redact_secrets, redact_string
 from app.generation.canonical import CanonicalStoryOutput, validate_canonical_output
 from app.generation.default_prompts import manual_generation_provider_schema, prompt_checksum
@@ -572,7 +573,9 @@ async def _invoke(
     workflow_attempt: int,
     validate_output: Callable[[dict[str, Any]], Any],
     before_provider_call: Callable[[], Awaitable[None]] | None = None,
+    fault_injector: FaultInjector | None = None,
 ) -> tuple[GenerationRun, GenerationAttempt, Any]:
+    injector = fault_injector if fault_injector is not None else NoopFaultInjector()
     profile = await context.session.get(AIProviderProfile, profile_id)
     if profile is None:
         raise PermanentJobError(
@@ -746,6 +749,15 @@ async def _invoke(
             await context.session.commit()
         result = await resolved.provider.generate(request)
         provider_completed = True
+        await injector.hit(
+            "generation.after_provider_before_persist",
+            {
+                "workflow_job_id": str(workflow_job_id),
+                "generation_run_id": str(run.id),
+                "generation_attempt_id": str(attempt.id),
+                "purpose": purpose,
+            },
+        )
         validated = validate_output(result.output)
     except Exception as exc:
         await context.session.rollback()
@@ -885,7 +897,13 @@ async def _invoke(
     return current_run, current_attempt, validated
 
 
-def build_canonical_generation_handler(profile_resolver: Any):
+def build_canonical_generation_handler(
+    profile_resolver: Any,
+    *,
+    fault_injector: FaultInjector | None = None,
+):
+    injector = fault_injector if fault_injector is not None else NoopFaultInjector()
+
     async def handle(job, context: JobContext) -> dict[str, Any]:
         payload = _job_payload(job)
         story_id = _required_uuid(payload, "story_id")
@@ -1018,6 +1036,7 @@ def build_canonical_generation_handler(profile_resolver: Any):
             workflow_attempt=job.attempt_count,
             validate_output=validate_canonical,
             before_provider_call=before_provider_call,
+            fault_injector=injector,
         )
         locked_story = await context.session.scalar(
             select(Story)
@@ -1210,7 +1229,13 @@ def _construct_manual_payload(model_type: type[BaseModel], raw: dict[str, Any]) 
     return model_type.model_construct(**values)
 
 
-def build_pack_generation_handler(profile_resolver: Any):
+def build_pack_generation_handler(
+    profile_resolver: Any,
+    *,
+    fault_injector: FaultInjector | None = None,
+):
+    injector = fault_injector if fault_injector is not None else NoopFaultInjector()
+
     async def handle(job, context: JobContext) -> dict[str, Any]:
         payload = _job_payload(job)
         revision_id = _required_uuid(payload, "story_revision_id")
@@ -1422,6 +1447,7 @@ def build_pack_generation_handler(profile_resolver: Any):
                 workflow_attempt=job.attempt_count,
                 validate_output=validate_output,
                 before_provider_call=before_provider_call,
+                fault_injector=injector,
             )
             if (
                 regeneration_context is not None
@@ -1684,7 +1710,11 @@ def build_pack_generation_handler(profile_resolver: Any):
     return handle
 
 
-def build_regenerate_handler(profile_resolver: Any):
+def build_regenerate_handler(
+    profile_resolver: Any,
+    *,
+    fault_injector: FaultInjector | None = None,
+):
     async def handle(job, context: JobContext) -> dict[str, Any]:
         payload = _job_payload(job)
         variant_id = _required_uuid(payload, "variant_id")
@@ -1797,7 +1827,15 @@ def build_regenerate_handler(profile_resolver: Any):
                 lease_owner=job.lease_owner,
             )
         try:
-            return await build_pack_generation_handler(profile_resolver)(job, context)
+            pack_handler = (
+                build_pack_generation_handler(profile_resolver)
+                if fault_injector is None
+                else build_pack_generation_handler(
+                    profile_resolver,
+                    fault_injector=fault_injector,
+                )
+            )
+            return await pack_handler(job, context)
         except Exception:
             if fence_owner is not None:
                 await context.session.rollback()

@@ -26,6 +26,19 @@ class EnqueueJobResult:
     created: bool
 
 
+@dataclass(frozen=True, slots=True)
+class _ExpiredLeaseDependents:
+    retention_run: RetentionRun | None
+    research_runs: tuple[Any, ...]
+    research_attempts: tuple[Any, ...]
+    automation_dispatches: tuple[Any, ...]
+    generation_runs: tuple[Any, ...]
+    generation_attempts: tuple[Any, ...]
+    publish_jobs: tuple[Any, ...]
+    publish_receipts: tuple[Any, ...]
+    publish_attempts: tuple[Any, ...]
+
+
 def _now(value: datetime | None) -> datetime:
     return value if value is not None else datetime.now(UTC)
 
@@ -73,11 +86,256 @@ class JobRepository:
     async def _locked_job(self, job_id: UUID) -> WorkflowJob | None:
         return await self.session.scalar(select(WorkflowJob).where(WorkflowJob.id == job_id).with_for_update())
 
+    async def _locked_expired_job(self, job_id: UUID) -> WorkflowJob | None:
+        return await self.session.scalar(
+            select(WorkflowJob)
+            .where(WorkflowJob.id == job_id)
+            .with_for_update(skip_locked=True)
+            .execution_options(populate_existing=True)
+        )
+
     async def _locked_retention_run(self, job_id: UUID) -> RetentionRun | None:
         run = await self.session.scalar(
             select(RetentionRun).where(RetentionRun.workflow_job_id == job_id).with_for_update()
         )
         return run if isinstance(run, RetentionRun) else None
+
+    async def _lock_expired_lease_dependents(
+        self,
+        *,
+        job_id: UUID,
+        payload: dict[str, Any],
+    ) -> _ExpiredLeaseDependents:
+        # Handlers lock their domain run before the workflow job. Preserve that
+        # order here so lease recovery cannot deadlock an in-flight final commit.
+        from app.automations.models import AutomationDispatch
+        from app.generation.models import GenerationAttempt, GenerationRun
+        from app.publishing.models import PublishAttempt, PublishJob, PublishOperationReceipt
+        from app.research.continuations import TelegramResearchContinuation
+        from app.research.models import ResearchAttempt, ResearchRun
+
+        retention_run = await self._locked_retention_run(job_id)
+
+        research_runs: list[ResearchRun] = []
+        raw_run_id = payload.get("run_id")
+        try:
+            research_run_id = UUID(str(raw_run_id)) if raw_run_id is not None else None
+        except ValueError:
+            research_run_id = None
+        if research_run_id is not None:
+            research_runs = list(
+                await self.session.scalars(
+                    select(ResearchRun)
+                    .where(ResearchRun.id == research_run_id)
+                    .order_by(ResearchRun.id)
+                    .with_for_update()
+                    .execution_options(populate_existing=True)
+                )
+            )
+        research_attempts = (
+            list(
+                await self.session.scalars(
+                    select(ResearchAttempt)
+                    .where(ResearchAttempt.research_run_id.in_([run.id for run in research_runs]))
+                    .order_by(ResearchAttempt.research_run_id, ResearchAttempt.attempt_number)
+                    .with_for_update()
+                    .execution_options(populate_existing=True)
+                )
+            )
+            if research_runs
+            else []
+        )
+
+        dispatch_ids: set[UUID] = set()
+        raw_dispatch_id = payload.get("dispatch_id")
+        try:
+            dispatch_id = UUID(str(raw_dispatch_id)) if raw_dispatch_id is not None else None
+        except ValueError:
+            dispatch_id = None
+        if dispatch_id is not None:
+            dispatch_ids.add(dispatch_id)
+        descriptors: list[Any] = []
+        plural_descriptors = payload.get("continuations")
+        if isinstance(plural_descriptors, list):
+            descriptors.extend(plural_descriptors)
+        legacy_descriptor = payload.get("continuation")
+        if legacy_descriptor is not None:
+            descriptors.append(legacy_descriptor)
+        for descriptor in descriptors:
+            try:
+                continuation = TelegramResearchContinuation.model_validate(descriptor).validate_identity()
+            except TypeError, ValueError:
+                continue
+            dispatch_ids.add(continuation.payload.dispatch_id)
+        automation_dispatches: list[AutomationDispatch] = []
+        if dispatch_ids:
+            automation_dispatches = list(
+                await self.session.scalars(
+                    select(AutomationDispatch)
+                    .where(AutomationDispatch.id.in_(dispatch_ids))
+                    .order_by(AutomationDispatch.id)
+                    .with_for_update()
+                    .execution_options(populate_existing=True)
+                )
+            )
+
+        generation_runs = list(
+            await self.session.scalars(
+                select(GenerationRun)
+                .where(
+                    or_(
+                        GenerationRun.request_payload["execution"]["workflow_job_id"].as_string() == str(job_id),
+                        GenerationRun.request_payload["execution"]["active_workflow_job_id"].as_string() == str(job_id),
+                    )
+                )
+                .order_by(GenerationRun.id)
+                .with_for_update()
+                .execution_options(populate_existing=True)
+            )
+        )
+        generation_attempts = (
+            list(
+                await self.session.scalars(
+                    select(GenerationAttempt)
+                    .where(GenerationAttempt.generation_run_id.in_([run.id for run in generation_runs]))
+                    .order_by(GenerationAttempt.generation_run_id, GenerationAttempt.attempt_number)
+                    .with_for_update()
+                    .execution_options(populate_existing=True)
+                )
+            )
+            if generation_runs
+            else []
+        )
+
+        publish_jobs = list(
+            await self.session.scalars(
+                select(PublishJob)
+                .where(PublishJob.workflow_job_id == job_id)
+                .with_for_update()
+                .execution_options(populate_existing=True)
+            )
+        )
+        publish_receipts = (
+            list(
+                await self.session.scalars(
+                    select(PublishOperationReceipt)
+                    .where(PublishOperationReceipt.publish_job_id.in_([job.id for job in publish_jobs]))
+                    .order_by(
+                        PublishOperationReceipt.publish_job_id,
+                        PublishOperationReceipt.operation_index,
+                    )
+                    .with_for_update()
+                    .execution_options(populate_existing=True)
+                )
+            )
+            if publish_jobs
+            else []
+        )
+        publish_attempts = (
+            list(
+                await self.session.scalars(
+                    select(PublishAttempt)
+                    .where(PublishAttempt.publish_job_id.in_([job.id for job in publish_jobs]))
+                    .order_by(PublishAttempt.publish_job_id, PublishAttempt.attempt_number)
+                    .with_for_update()
+                    .execution_options(populate_existing=True)
+                )
+            )
+            if publish_jobs
+            else []
+        )
+        return _ExpiredLeaseDependents(
+            retention_run=retention_run,
+            research_runs=tuple(research_runs),
+            research_attempts=tuple(research_attempts),
+            automation_dispatches=tuple(automation_dispatches),
+            generation_runs=tuple(generation_runs),
+            generation_attempts=tuple(generation_attempts),
+            publish_jobs=tuple(publish_jobs),
+            publish_receipts=tuple(publish_receipts),
+            publish_attempts=tuple(publish_attempts),
+        )
+
+    @staticmethod
+    def _sync_expired_publish_ambiguity(
+        dependents: _ExpiredLeaseDependents,
+        *,
+        observed_at: datetime,
+    ) -> bool:
+        requires_review = False
+        for publish_job in dependents.publish_jobs:
+            receipts = [receipt for receipt in dependents.publish_receipts if receipt.publish_job_id == publish_job.id]
+            attempts = [attempt for attempt in dependents.publish_attempts if attempt.publish_job_id == publish_job.id]
+            dispatching = [receipt for receipt in receipts if receipt.status == "dispatching"]
+            if not dispatching:
+                continue
+            requires_review = True
+            for receipt in dispatching:
+                receipt.status = "ambiguous"
+                receipt.ambiguous_at = observed_at
+            publish_job.status = "reconciliation_required"
+            for attempt in attempts:
+                if attempt.status == "running":
+                    attempt.status = "needs_review"
+                    attempt.error_class = "needs_review"
+                    attempt.error_code = "telegram_publish_ambiguous"
+                    attempt.error_message = "Telegram publish outcome is ambiguous after worker interruption"
+                    attempt.finished_at = observed_at
+        return requires_review
+
+    @staticmethod
+    def _sync_terminal_expired_lease_dependents(
+        dependents: _ExpiredLeaseDependents,
+        *,
+        observed_at: datetime,
+    ) -> None:
+        code = "worker_lease_expired"
+        message = "Worker lease expired after the final configured attempt"
+        for run in dependents.research_runs:
+            if run.status in {"queued", "running"}:
+                run.status = "failed"
+                run.finished_at = observed_at
+        for attempt in dependents.research_attempts:
+            if attempt.status == "running":
+                attempt.status = "failed"
+                attempt.error_class = "retryable"
+                attempt.error_code = code
+                attempt.error_message = message
+                attempt.finished_at = observed_at
+        for run in dependents.generation_runs:
+            if run.status == "running":
+                run.status = "failed"
+                run.error_class = "retryable"
+                run.error_code = code
+                run.error_message = message
+                run.finished_at = observed_at
+        for attempt in dependents.generation_attempts:
+            if attempt.status == "running":
+                attempt.status = "failed"
+                attempt.error_class = "retryable"
+                attempt.error_code = code
+                attempt.error_message = message
+                attempt.finished_at = observed_at
+        for dispatch in dependents.automation_dispatches:
+            if dispatch.status in {"captured", "retryable", "generating"}:
+                dispatch.status = "failed"
+                dispatch.error_code = code
+                dispatch.error_message = message
+            elif dispatch.status == "researching":
+                dispatch.status = "needs_review"
+                dispatch.error_code = code
+                dispatch.error_message = message
+        for publish_job in dependents.publish_jobs:
+            attempts = [attempt for attempt in dependents.publish_attempts if attempt.publish_job_id == publish_job.id]
+            for attempt in attempts:
+                if attempt.status == "running":
+                    attempt.status = "failed"
+                    attempt.error_class = "retryable"
+                    attempt.error_code = "telegram_publish_attempt_interrupted"
+                    attempt.error_message = "Telegram publish attempt ended when its worker lease expired"
+                    attempt.finished_at = observed_at
+            if publish_job.status in {"queued", "scheduled", "dispatching"}:
+                publish_job.status = "attention"
 
     @staticmethod
     def _sync_retention_terminal(
@@ -436,23 +694,72 @@ class JobRepository:
 
     async def requeue_expired_leases(self, *, now: datetime | None = None) -> int:
         observed_at = _now(now)
-        jobs = list(
-            await self.session.scalars(
-                select(WorkflowJob)
-                .where(
-                    WorkflowJob.status == JobStatus.RUNNING,
-                    WorkflowJob.lease_expires_at.is_not(None),
-                    WorkflowJob.lease_expires_at <= observed_at,
-                )
-                .order_by(WorkflowJob.lease_expires_at, WorkflowJob.created_at)
-                .with_for_update(skip_locked=True)
+        candidates = await self.session.execute(
+            select(
+                WorkflowJob.id,
+                WorkflowJob.payload,
+                WorkflowJob.attempt_count,
+                WorkflowJob.max_attempts,
             )
+            .where(
+                WorkflowJob.status == JobStatus.RUNNING,
+                WorkflowJob.lease_expires_at.is_not(None),
+                WorkflowJob.lease_expires_at <= observed_at,
+            )
+            .order_by(WorkflowJob.lease_expires_at, WorkflowJob.created_at)
         )
-        for job in jobs:
+        processed = 0
+        for candidate in candidates:
+            dependents = await self._lock_expired_lease_dependents(
+                job_id=candidate.id,
+                payload=dict(candidate.payload or {}),
+            )
+            job = await self._locked_expired_job(candidate.id)
+            if (
+                job is None
+                or job.status != JobStatus.RUNNING
+                or job.lease_expires_at is None
+                or job.lease_expires_at > observed_at
+            ):
+                continue
             previous_owner = job.lease_owner
             expired_at = job.lease_expires_at
-            job.status = JobStatus.QUEUED
-            job.scheduled_for = observed_at
+            exhausted = job.attempt_count >= job.max_attempts
+            requires_review = self._sync_expired_publish_ambiguity(
+                dependents,
+                observed_at=observed_at,
+            )
+            terminal_event_type = "job.failed"
+            if requires_review:
+                job.finished_at = observed_at
+                job.status = JobStatus.NEEDS_REVIEW
+                job.error_class = JobErrorClass.NEEDS_REVIEW
+                job.error_code = "telegram_publish_ambiguous"
+                job.error_message = "Telegram publish outcome is ambiguous after worker interruption"
+                terminal_event_type = "job.needs_review"
+                self._sync_retention_terminal(
+                    dependents.retention_run,
+                    job_status=JobStatus(job.status),
+                    observed_at=observed_at,
+                )
+            elif exhausted:
+                self._sync_terminal_expired_lease_dependents(
+                    dependents,
+                    observed_at=observed_at,
+                )
+                job.finished_at = observed_at
+                job.status = JobStatus.FAILED
+                job.error_class = JobErrorClass.RETRYABLE
+                job.error_code = "worker_lease_expired"
+                job.error_message = "Worker lease expired after the final configured attempt"
+                self._sync_retention_terminal(
+                    dependents.retention_run,
+                    job_status=JobStatus.FAILED,
+                    observed_at=observed_at,
+                )
+            else:
+                job.status = JobStatus.QUEUED
+                job.scheduled_for = observed_at
             self._clear_lease(job)
             await self._append_event(
                 job_id=job.id,
@@ -463,8 +770,22 @@ class JobRepository:
                     "lease_expired_at": expired_at.isoformat() if expired_at is not None else None,
                 },
             )
+            if exhausted or requires_review:
+                await self._append_event(
+                    job_id=job.id,
+                    event_type=terminal_event_type,
+                    actor="system",
+                    event_data={
+                        "error_class": job.error_class,
+                        "error_code": job.error_code,
+                        "error_message": job.error_message,
+                        "attempt_count": job.attempt_count,
+                        "max_attempts": job.max_attempts,
+                    },
+                )
+            processed += 1
         await self.session.flush()
-        return len(jobs)
+        return processed
 
     async def get_job(self, job_id: UUID) -> WorkflowJob | None:
         return await self.session.get(WorkflowJob, job_id)

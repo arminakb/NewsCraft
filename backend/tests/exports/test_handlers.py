@@ -77,6 +77,130 @@ async def test_build_export_handler_revalidates_immutable_revision_identity(monk
 
 
 @pytest.mark.asyncio
+async def test_build_export_handler_hits_fault_after_complete_manifest_before_job_commit(
+    monkeypatch,
+    tmp_path,
+):
+    from app.core.faults import InjectedFault, ScriptedFaultInjector
+    from app.exports.handlers import build_export_handler
+    from app.exports.models import ExportArtifact, ExportManifest
+
+    export_id = uuid4()
+    pack_id = uuid4()
+    artifact = ExportArtifact(
+        export_id=export_id,
+        content_pack_id=pack_id,
+        state="complete",
+        manifest_file="manifest.json",
+        manifest_sha256="b" * 64,
+        archive_file=None,
+        archive_sha256=None,
+        manifest=ExportManifest(
+            content_pack_id=pack_id,
+            story_revision_id=uuid4(),
+            created_at=datetime(2026, 7, 13, tzinfo=UTC),
+            variants=[],
+            files=[],
+        ),
+    )
+
+    class Service:
+        def __init__(self, session, *, export_root, media_root):
+            pass
+
+        async def build_from_payload(self, payload, *, export_id, created_at):
+            return artifact
+
+    monkeypatch.setattr("app.exports.handlers.ExportService", Service)
+    injector = ScriptedFaultInjector({"export.after_manifest_before_commit": 1})
+    handler = build_export_handler(
+        export_root=tmp_path / "exports",
+        media_root=tmp_path / "media",
+        fault_injector=injector,
+    )
+    job = SimpleNamespace(
+        id=export_id,
+        created_at=datetime(2026, 7, 13, tzinfo=UTC),
+        payload={
+            "content_pack_id": str(pack_id),
+            "revision_ids": [str(uuid4())],
+            "revision_hashes": ["a" * 64],
+            "platforms": ["blog"],
+            "platform_variant_ids": [str(uuid4())],
+            "formats": ["json"],
+            "include_media": False,
+        },
+    )
+
+    with pytest.raises(InjectedFault):
+        await handler(job, SimpleNamespace(session=object()))
+
+    assert injector.hits[0].point == "export.after_manifest_before_commit"
+    assert dict(injector.hits[0].context) == {
+        "export_id": str(export_id),
+        "content_pack_id": str(pack_id),
+    }
+
+
+@pytest.mark.asyncio
+async def test_export_crash_after_real_manifest_retries_without_duplicate_artifact(tmp_path):
+    from app.core.faults import InjectedFault, ScriptedFaultInjector
+    from app.exports.handlers import build_export_handler
+    from app.exports.models import ExportRequest
+    from app.exports.service import ExportService
+    from tests.exports.test_service import FIXED_NOW, _ExportSession, _pack_fixture
+
+    pack, variants, revisions = _pack_fixture()
+    session = _ExportSession(pack=pack, variants=variants, revisions=revisions)
+    export_root = tmp_path / "exports"
+    media_root = tmp_path / "media"
+    payload = await ExportService(
+        session,
+        export_root=export_root,
+        media_root=media_root,
+    ).prepare_payload(
+        ExportRequest(
+            content_pack_id=pack.id,
+            formats=["json", "zip"],
+        )
+    )
+    export_id = uuid4()
+    job = SimpleNamespace(
+        id=export_id,
+        created_at=FIXED_NOW,
+        payload=payload.model_dump(mode="json"),
+    )
+    injector = ScriptedFaultInjector({"export.after_manifest_before_commit": 1})
+
+    with pytest.raises(InjectedFault):
+        await build_export_handler(
+            export_root=export_root,
+            media_root=media_root,
+            fault_injector=injector,
+        )(job, SimpleNamespace(session=session))
+
+    target = export_root / str(export_id)
+    assert target.is_dir()
+    assert (target / "manifest.json").is_file()
+    package_before = {
+        path.relative_to(target).as_posix(): path.read_bytes() for path in target.rglob("*") if path.is_file()
+    }
+
+    healthy = build_export_handler(export_root=export_root, media_root=media_root)
+    first_replay = await healthy(job, SimpleNamespace(session=session))
+    second_replay = await healthy(job, SimpleNamespace(session=session))
+
+    package_after = {
+        path.relative_to(target).as_posix(): path.read_bytes() for path in target.rglob("*") if path.is_file()
+    }
+    assert first_replay == second_replay
+    assert package_after == package_before
+    assert first_replay["manifest_sha256"]
+    assert len([path for path in export_root.iterdir() if path.is_dir()]) == 1
+    assert not list(export_root.glob(f".{export_id}.*.tmp"))
+
+
+@pytest.mark.asyncio
 async def test_build_export_handler_rejects_malformed_payload_before_storage(tmp_path):
     from app.exports.handlers import build_export_handler
     from app.jobs.errors import PermanentJobError

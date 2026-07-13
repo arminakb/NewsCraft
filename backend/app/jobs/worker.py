@@ -15,6 +15,7 @@ import httpx
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.core.config import settings
+from app.core.faults import FaultInjector, NoopFaultInjector
 from app.core.logging import configure_logging
 from app.db.session import async_session
 from app.generation.providers.registry import ProviderRegistry, build_default_provider_registry
@@ -227,6 +228,7 @@ class WorkerRunner:
         clock: Callable[[], datetime] | None = None,
         lease_seconds: int = settings.worker_lease_seconds,
         heartbeat_seconds: float = settings.worker_heartbeat_seconds,
+        fault_injector: FaultInjector | None = None,
     ) -> None:
         self.session_factory = session_factory
         self.handler_registry = handler_registry or build_default_registry()
@@ -239,6 +241,7 @@ class WorkerRunner:
         self.clock = clock or (lambda: datetime.now(UTC))
         self.lease_seconds = lease_seconds
         self.heartbeat_seconds = heartbeat_seconds
+        self.fault_injector = fault_injector if fault_injector is not None else NoopFaultInjector()
 
     async def run_once(self) -> bool:
         observed_at = self._now()
@@ -256,6 +259,16 @@ class WorkerRunner:
             if job is None:
                 return False
 
+            await self.fault_injector.hit(
+                "worker.after_claim",
+                {
+                    "job_id": job.id,
+                    "job_type": job.job_type,
+                    "worker_id": self.worker_id,
+                    "attempt_count": job.attempt_count,
+                },
+            )
+
             stop_heartbeat = asyncio.Event()
             heartbeat_started = asyncio.Event()
             heartbeat_task = asyncio.create_task(
@@ -263,6 +276,8 @@ class WorkerRunner:
                 name=f"job-heartbeat:{job.id}",
             )
             await heartbeat_started.wait()
+            if heartbeat_task.done():
+                await heartbeat_task
 
             cancellation: asyncio.CancelledError | None = None
             result: dict[str, Any] | None = None
@@ -369,11 +384,21 @@ class WorkerRunner:
             while not stop.is_set():
                 try:
                     async with self.session_factory() as session:
+                        observed_at = self._now()
+                        await self.fault_injector.hit(
+                            "worker.before_heartbeat",
+                            {
+                                "job_id": job_id,
+                                "worker_id": self.worker_id,
+                                "lease_seconds": self.lease_seconds,
+                                "observed_at": observed_at,
+                            },
+                        )
                         await self.repository_factory(session).heartbeat_job(
                             job_id=job_id,
                             worker_id=self.worker_id,
                             lease_seconds=self.lease_seconds,
-                            now=self._now(),
+                            now=observed_at,
                         )
                         await session.commit()
                 except Exception:  # noqa: BLE001 - transient heartbeat failures are retried

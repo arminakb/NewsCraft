@@ -13,6 +13,7 @@ from sqlalchemy import select
 from app.automations.models import AutomationDispatch
 from app.core.codex_exec import CodexExecutor
 from app.core.config import settings
+from app.core.faults import FaultInjector, NoopFaultInjector
 from app.core.redaction import redact_secrets, redact_string
 from app.generation.models import AIProviderProfile
 from app.jobs.errors import NeedsReviewJobError, PermanentJobError, RetryableJobError
@@ -171,7 +172,13 @@ def _validate_result_contract(
         raise CitationIntegrityError("research result source usage is inconsistent")
 
 
-def build_research_story_handler(backend_resolver: ResearchBackendResolver) -> JobHandler:
+def build_research_story_handler(
+    backend_resolver: ResearchBackendResolver,
+    *,
+    fault_injector: FaultInjector | None = None,
+) -> JobHandler:
+    injector = fault_injector if fault_injector is not None else NoopFaultInjector()
+
     async def handle(job: WorkflowJob, context: JobContext) -> dict[str, Any]:
         session = context.session
         workflow_job_id = job.id
@@ -278,6 +285,14 @@ def build_research_story_handler(backend_resolver: ResearchBackendResolver) -> J
             resolved = backend_resolver(profile)
             backend = await resolved if inspect.isawaitable(resolved) else resolved
             result = await backend.research(request)
+            await injector.hit(
+                "research.after_provider_before_persist",
+                {
+                    "workflow_job_id": str(workflow_job_id),
+                    "research_run_id": str(run_id),
+                    "research_attempt_id": str(active_attempt_id),
+                },
+            )
             now = datetime.now(UTC)
             if session.in_transaction():
                 await session.rollback()

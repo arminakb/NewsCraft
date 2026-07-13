@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 
+import pytest
+
 from app.jobs.repository import JobRepository
 from app.jobs.types import JobErrorClass, JobOrigin, JobStatus
 from app.retention.models import RETENTION_SCHEMA_REVISION, RetentionRun
@@ -127,6 +129,40 @@ async def test_terminal_failure_preserves_committed_db_phase_as_partial(
     assert run.status == "partial"
     assert run.finished_at == NOW
     assert run.error_snapshot[0]["code"] == "retention_job_failed"
+
+
+@pytest.mark.parametrize(
+    ("run_status", "expected_status"),
+    [("queued", "failed"), ("running", "partial")],
+)
+async def test_exhausted_retention_lease_terminalizes_linked_audit_run(
+    job_repository,
+    db_session,
+    run_status: str,
+    expected_status: str,
+):
+    job, run = await _linked_run(job_repository, db_session, run_status=run_status)
+    await job_repository.claim_next_job(
+        worker_id="worker-retention-crashed",
+        lease_seconds=60,
+        allowed_job_types=("execute_retention",),
+        now=NOW - timedelta(seconds=1),
+    )
+    recovered_at = NOW + timedelta(seconds=60)
+
+    assert await job_repository.requeue_expired_leases(now=recovered_at) == 1
+
+    assert job.status == JobStatus.FAILED
+    assert job.error_code == "worker_lease_expired"
+    assert run.status == expected_status
+    assert run.finished_at == recovered_at
+    assert run.error_snapshot == [
+        {
+            "phase": "workflow",
+            "code": "retention_job_failed",
+            "message": "Retention workflow job failed before completion",
+        }
+    ]
 
 
 async def test_exact_reconfirmation_revives_the_same_cancelled_retention_job(

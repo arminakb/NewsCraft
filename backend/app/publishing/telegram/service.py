@@ -13,6 +13,7 @@ from sqlalchemy import exists, func, select
 from sqlalchemy.exc import IntegrityError
 
 from app.automations.models import AutomationDispatch, AutomationRoute
+from app.core.faults import FaultInjector, NoopFaultInjector
 from app.core.redaction import redact_secrets, redact_string
 from app.db.models import ItemMedia, MediaAsset, SourceItem
 from app.generation.models import ContentPack, PlatformVariant, PlatformVariantRevision
@@ -751,6 +752,36 @@ class _PublishContext:
     attempt_id: UUID
 
 
+async def _close_running_publish_attempts(
+    session: Any,
+    *,
+    publish_job_id: UUID,
+    status: Literal["failed", "needs_review"],
+    error_class: Literal["retryable", "needs_review"],
+    error_code: str,
+    error_message: str,
+    finished_at: datetime,
+) -> None:
+    attempts = list(
+        await session.scalars(
+            select(PublishAttempt)
+            .where(
+                PublishAttempt.publish_job_id == publish_job_id,
+                PublishAttempt.status == "running",
+            )
+            .order_by(PublishAttempt.attempt_number)
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )
+    )
+    for attempt in attempts:
+        attempt.status = status
+        attempt.error_class = error_class
+        attempt.error_code = redact_string(error_code)
+        attempt.error_message = redact_string(error_message)
+        attempt.finished_at = finished_at
+
+
 async def _load_context(session: Any, publish_job_id: UUID, observed_at: datetime) -> _PublishContext | dict:
     revision_id = await session.scalar(
         select(PublishJob.platform_variant_revision_id).where(PublishJob.id == publish_job_id)
@@ -990,6 +1021,15 @@ async def _load_context(session: Any, publish_job_id: UUID, observed_at: datetim
             dispatching.status = "ambiguous"
             dispatching.ambiguous_at = observed_at
             publish_job.status = "reconciliation_required"
+            await _close_running_publish_attempts(
+                session,
+                publish_job_id=publish_job.id,
+                status="needs_review",
+                error_class="needs_review",
+                error_code="telegram_publish_ambiguous",
+                error_message="Telegram publish outcome is ambiguous after worker interruption",
+                finished_at=observed_at,
+            )
             return {
                 "publish_job_id": str(publish_job.id),
                 "reconciliation_required": True,
@@ -1007,6 +1047,17 @@ async def _load_context(session: Any, publish_job_id: UUID, observed_at: datetim
             "publish_job_id": str(publish_job.id),
             "retry_at": retry_at,
         }
+
+    if receipts and all(item.status == "succeeded" for item in receipts):
+        await _close_running_publish_attempts(
+            session,
+            publish_job_id=publish_job.id,
+            status="failed",
+            error_class="retryable",
+            error_code="telegram_publish_attempt_interrupted",
+            error_message="Prior Telegram publish attempt was interrupted after durable receipt",
+            finished_at=observed_at,
+        )
 
     attempt_number = (
         int(
@@ -1257,7 +1308,7 @@ async def _record_failure(
     context: _PublishContext,
     operation: Any,
     claimed_attempt_count: int,
-    error: Exception,
+    error: BaseException,
     observed_at: datetime,
 ) -> Exception:
     async with session.begin():
@@ -1360,7 +1411,9 @@ async def publish_telegram(
     client: Any,
     secret_resolver: Any,
     now: Any | None = None,
+    fault_injector: FaultInjector | None = None,
 ) -> dict[str, Any]:
+    injector = fault_injector if fault_injector is not None else NoopFaultInjector()
     clock = now or (lambda: datetime.now(UTC))
     observed_at = clock()
     try:
@@ -1533,6 +1586,26 @@ async def publish_telegram(
                     observed_at=clock(),
                 )
                 raise mapped from None
+        fault_context = {
+            "publish_job_id": str(prepared.publish_job_id),
+            "publish_attempt_id": str(prepared.attempt_id),
+            "operation_index": operation.index,
+            "operation_key": operation.key,
+            "method": operation.method,
+            "attempt_count": claimed_attempt_count,
+        }
+        try:
+            await injector.hit("telegram.before_send", fault_context)
+        except BaseException:
+            await _record_failure(
+                session,
+                context=prepared,
+                operation=operation,
+                claimed_attempt_count=claimed_attempt_count,
+                error=TelegramRetryableBeforeDispatch("Fault injected before Telegram dispatch"),
+                observed_at=clock(),
+            )
+            raise
         try:
             result = await client.execute(operation, token)
         except Exception as exc:
@@ -1545,6 +1618,24 @@ async def publish_telegram(
                 observed_at=clock(),
             )
             raise mapped from None
+        try:
+            await injector.hit(
+                "telegram.after_send_before_receipt",
+                {
+                    **fault_context,
+                    "remote_message_count": len(result.remote_message_ids),
+                },
+            )
+        except BaseException as exc:
+            await _record_failure(
+                session,
+                context=prepared,
+                operation=operation,
+                claimed_attempt_count=claimed_attempt_count,
+                error=exc,
+                observed_at=clock(),
+            )
+            raise
         async with session.begin():
             receipt = await session.scalar(
                 select(PublishOperationReceipt)
@@ -1566,6 +1657,14 @@ async def publish_telegram(
             receipt.response_metadata = metadata if isinstance(metadata, dict) else {}
             receipt.completed_at = clock()
 
+    await injector.hit(
+        "publication.after_receipt_before_commit",
+        {
+            "publish_job_id": str(prepared.publish_job_id),
+            "publish_attempt_id": str(prepared.attempt_id),
+            "operation_count": len(prepared.plan.operations),
+        },
+    )
     async with session.begin():
         publish_job = await session.scalar(
             select(PublishJob).where(PublishJob.id == prepared.publish_job_id).with_for_update()

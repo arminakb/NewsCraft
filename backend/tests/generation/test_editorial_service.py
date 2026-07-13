@@ -166,9 +166,7 @@ async def test_release_three_telegram_continuation_normalizes_and_completes_afte
 
     normalized = normalize_continuation(descriptor)
     assert normalized["payload"]["platforms"] == ["telegram"]
-    assert normalized["payload"]["platform_prompt_template_version_ids"] == {
-        "telegram": str(prompt_id)
-    }
+    assert normalized["payload"]["platform_prompt_template_version_ids"] == {"telegram": str(prompt_id)}
     assert normalized["payload"]["platform_prompt_checksums"] == {"telegram": "c" * 64}
     assert "platform" not in normalized["payload"]
     assert "platform_prompt_template_version_id" not in normalized["payload"]
@@ -199,9 +197,7 @@ async def test_release_three_telegram_continuation_normalizes_and_completes_afte
     )
 
     assert calls[0]["payload"]["platforms"] == ["telegram"]
-    assert calls[0]["payload"]["platform_prompt_template_version_ids"] == {
-        "telegram": str(prompt_id)
-    }
+    assert calls[0]["payload"]["platform_prompt_template_version_ids"] == {"telegram": str(prompt_id)}
     assert calls[0]["payload"]["platform_prompt_checksums"] == {"telegram": "c" * 64}
     assert calls[0]["payload"]["completed_research_run_id"] == str(run.id)
     assert calls[0]["payload"]["research_result_story_revision_id"] == str(result_revision.id)
@@ -335,6 +331,70 @@ async def test_generation_lifecycle_commits_running_attempt_before_provider_and_
     )
     assert validated == {"ok": True, "validated": True}
     assert run.status == attempt.status == "succeeded"
+
+
+@pytest.mark.asyncio
+async def test_generation_crash_after_provider_leaves_durable_running_attempt_before_persistence():
+    from app.core.faults import InjectedFault, ScriptedFaultInjector
+    from app.generation.handlers import _invoke
+    from app.generation.models import AIProviderProfile
+    from app.generation.providers.base import GenerationProviderResult
+    from app.jobs.registry import JobContext
+
+    session = _LifecycleSession()
+    profile = AIProviderProfile(
+        id=uuid4(),
+        name="Fake",
+        provider_type="fake",
+        default_model="fake-v1",
+        secret_ref=None,
+        settings={},
+        enabled=True,
+    )
+    session.profile = profile
+
+    class Provider:
+        async def generate(self, request):
+            return GenerationProviderResult(
+                provider="fake",
+                requested_model="fake-v1",
+                resolved_model="fake-v1",
+                output={"ok": True},
+                raw_text='{"ok":true}',
+                usage={"output_tokens": 1},
+                finish_reason="stop",
+            )
+
+    resolver = SimpleNamespace(
+        resolve=lambda profile, model: _async_value(
+            SimpleNamespace(provider=Provider(), provider_type="fake", model="fake-v1")
+        )
+    )
+
+    injector = ScriptedFaultInjector({"generation.after_provider_before_persist": 1})
+    with pytest.raises(InjectedFault):
+        await _invoke(
+            JobContext(session=session, providers=SimpleNamespace()),
+            profile_resolver=resolver,
+            profile_id=profile.id,
+            prompt=_lifecycle_prompt(),
+            purpose="test",
+            story_revision_id=None,
+            input_payload={"value": "executed"},
+            input_hash="a" * 64,
+            workflow_job_id=uuid4(),
+            workflow_attempt=1,
+            validate_output=lambda output: output,
+            fault_injector=injector,
+        )
+
+    assert injector.hits[0].point == "generation.after_provider_before_persist"
+    assert injector.hits[0].context["generation_run_id"] == str(session.run.id)
+    assert injector.hits[0].context["generation_attempt_id"] == str(session.attempt.id)
+    assert session.commits == 1
+    assert session.run.status == session.attempt.status == "running"
+    assert session.run.output_payload == {}
+    assert session.attempt.response_payload == {}
 
 
 @pytest.mark.asyncio
