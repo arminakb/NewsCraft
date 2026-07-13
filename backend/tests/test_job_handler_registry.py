@@ -63,12 +63,15 @@ def test_default_registry_contains_ingestion_manual_and_story_grouping_handlers(
     assert callable(registry.get("story.group_pending"))
 
 
-def test_generation_dependency_registers_only_real_telegram_process_handler():
+def test_generation_dependency_registers_real_generation_handlers():
     resolver = object()
 
     registry = build_default_registry(profile_resolver=resolver)
 
     assert registry.job_types() == (
+        "content_pack.generate",
+        "content_pack.generate_telegram",
+        "content_pack.regenerate",
         "ingest.collect",
         "manual_intake",
         "story.group_pending",
@@ -97,6 +100,9 @@ def test_capabilities_control_the_registry_without_a_static_job_type_switch():
     )
 
     assert source_generation.job_types() == (
+        "content_pack.generate",
+        "content_pack.generate_telegram",
+        "content_pack.regenerate",
         "ingest.collect",
         "manual_intake",
         "story.group_pending",

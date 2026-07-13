@@ -1,6 +1,7 @@
 from fastapi import APIRouter
 
 from app.api.content import router as content_router
+from app.api.content_packs import router as content_packs_router
 from app.api.control import router as control_router
 from app.api.diagnostics import router as diagnostics_router
 from app.api.generation_settings import router as generation_settings_router
@@ -19,6 +20,7 @@ router.include_router(sources_router)
 router.include_router(stories_router)
 router.include_router(ingest_router)
 router.include_router(content_router)
+router.include_router(content_packs_router)
 router.include_router(media_router)
 router.include_router(diagnostics_router)
 router.include_router(jobs_router)

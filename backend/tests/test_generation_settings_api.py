@@ -31,6 +31,7 @@ from app.api.generation_settings import (
 )
 from app.core.config import Settings
 from app.db.session import get_session
+from app.generation.canonical import CanonicalStoryOutput
 from app.generation.models import (
     AIProviderProfile,
     BrandProfile,
@@ -83,9 +84,7 @@ def test_openrouter_settings_round_trip_pricing_and_distinct_research_budgets():
 
 def test_provider_contract_rejects_fake_settings_and_requires_openrouter_model_and_reference():
     with pytest.raises(ValidationError, match="fake provider"):
-        AIProviderProfileCreate.model_validate(
-            {"name": "Fake", "provider_type": "fake", "settings": {}}
-        )
+        AIProviderProfileCreate.model_validate({"name": "Fake", "provider_type": "fake", "settings": {}})
     with pytest.raises(ValidationError, match="openrouter requires"):
         AIProviderProfileCreate.model_validate(
             {"name": "Live", "provider_type": "openrouter", "secret_ref": "OPENROUTER_KEY"}
@@ -127,9 +126,60 @@ def test_codex_runtime_settings_have_safe_disabled_defaults():
     assert runtime.codex_enabled is False
     assert runtime.codex_executable == "codex"
     with pytest.raises(ValidationError, match="codex"):
-        AIProviderProfileCreate.model_validate(
-            {"name": "Codex CLI", "provider_type": "codex"}
+        AIProviderProfileCreate.model_validate({"name": "Codex CLI", "provider_type": "codex"})
+
+
+async def test_editorial_prompt_versions_keep_the_stage_schema():
+    session = GenerationSession()
+    template = PromptTemplate(id=uuid4(), purpose_key="canonical_story", name="Canonical", description=None)
+    session.values.append(template)
+    created = await create_prompt_version(
+        template.id,
+        PromptTemplateVersionCreate(
+            system_template="Use persisted evidence only",
+            user_template="Story {story_title}; evidence {evidence_json}",
+        ),
+        session,
+    )
+    assert created.output_schema_version == "canonical_story.v1"
+    assert created.output_schema == CanonicalStoryOutput.model_json_schema()
+
+
+@pytest.mark.parametrize(
+    "user_template",
+    [
+        "Story {{story_title}}; evidence {evidence_json}",
+        "Story {story_title}; evidence {evidence_json}; extra {unknown}",
+        "Story {story_title.upper}; evidence {evidence_json}",
+        "Story {story_title[0]}; evidence {evidence_json}",
+    ],
+)
+async def test_editorial_prompt_rejects_escaped_missing_unknown_or_complex_fields(user_template):
+    session = GenerationSession()
+    template = PromptTemplate(id=uuid4(), purpose_key="canonical_story", name="Canonical", description=None)
+    session.values.append(template)
+    with pytest.raises(HTTPException) as error:
+        await create_prompt_version(
+            template.id,
+            PromptTemplateVersionCreate(system_template="Use evidence", user_template=user_template),
+            session,
         )
+    assert error.value.status_code == 422
+
+
+async def test_prompt_checksum_is_identical_for_non_ascii_content_across_api_and_seed_runtime():
+    from app.generation.default_prompts import prompt_checksum
+
+    session = GenerationSession()
+    template = PromptTemplate(id=uuid4(), purpose_key="canonical_story", name="Canonical", description=None)
+    session.values.append(template)
+    user = "داستان {story_title}؛ شواهد {evidence_json}"
+    created = await create_prompt_version(
+        template.id,
+        PromptTemplateVersionCreate(system_template="سامانه", user_template=user),
+        session,
+    )
+    assert created.checksum_sha256 == prompt_checksum("سامانه", user, CanonicalStoryOutput.model_json_schema())
 
 
 async def test_codex_profile_create_applies_defaults_and_exposes_only_safe_capabilities(
@@ -138,8 +188,10 @@ async def test_codex_profile_create_applies_defaults_and_exposes_only_safe_capab
     monkeypatch.setattr("app.api.generation_settings.application_settings.codex_enabled", True)
     session = GenerationSession()
     secrets = SimpleNamespace(configured=lambda reference: False)
+
     def executable(name):
         return "/private/operator/bin/codex" if name == "codex" else None
+
     created = await create_provider_profile(
         AIProviderProfileCreate.model_validate(
             {
@@ -164,12 +216,8 @@ async def test_codex_profile_create_applies_defaults_and_exposes_only_safe_capab
 
 async def test_codex_profile_seed_is_idempotent_and_has_no_secret():
     session = GenerationSession()
-    first = await seed_codex_provider_profile(
-        session, enabled=True, model="gpt-5.4"
-    )
-    second = await seed_codex_provider_profile(
-        session, enabled=True, model="gpt-5.4"
-    )
+    first = await seed_codex_provider_profile(session, enabled=True, model="gpt-5.4")
+    second = await seed_codex_provider_profile(session, enabled=True, model="gpt-5.4")
     assert first.id == second.id
     assert first.secret_ref is None
     assert first.provider_type == "codex"
@@ -190,9 +238,7 @@ async def test_codex_profile_seed_repairs_drift_to_canonical_safe_configuration(
     )
     session.values.append(drifted)
 
-    repaired = await seed_codex_provider_profile(
-        session, enabled=True, model="gpt-5.4"
-    )
+    repaired = await seed_codex_provider_profile(session, enabled=True, model="gpt-5.4")
 
     assert repaired is drifted
     assert repaired.provider_type == "codex"
@@ -236,9 +282,7 @@ async def test_brand_patch_rejects_explicit_null_with_422_and_no_mutation(field)
 
     app.dependency_overrides[get_session] = override_session
     try:
-        async with httpx.AsyncClient(
-            transport=httpx.ASGITransport(app=app), base_url="http://test"
-        ) as client:
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
             response = await client.patch(f"/brand-profiles/{brand.id}", json={field: None})
     finally:
         app.dependency_overrides.clear()
@@ -275,9 +319,7 @@ async def test_provider_patch_recursively_preserves_pricing_and_both_research_bu
 
     patched = await patch_provider_profile(
         created.id,
-        AIProviderProfilePatch.model_validate(
-            {"settings": {"pricing": {"input_usd_per_million": "2.50"}}}
-        ),
+        AIProviderProfilePatch.model_validate({"settings": {"pricing": {"input_usd_per_million": "2.50"}}}),
         session,
         secrets,
     )
@@ -384,9 +426,7 @@ async def test_prompt_edits_create_immutable_versions_and_activation_selects_exa
 async def test_prompt_version_history_returns_newest_first_with_immutable_safe_fields():
     session = GenerationSession()
     now = datetime.now(UTC)
-    template = PromptTemplate(
-        id=uuid4(), purpose_key="telegram_rewrite", name="Telegram rewrite"
-    )
+    template = PromptTemplate(id=uuid4(), purpose_key="telegram_rewrite", name="Telegram rewrite")
     older = PromptTemplateVersion(
         id=uuid4(),
         prompt_template_id=template.id,
@@ -418,9 +458,7 @@ async def test_prompt_version_history_returns_newest_first_with_immutable_safe_f
 
     app.dependency_overrides[get_session] = override_session
     try:
-        async with httpx.AsyncClient(
-            transport=httpx.ASGITransport(app=app), base_url="http://test"
-        ) as client:
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
             response = await client.get(f"/prompt-templates/{template.id}/versions")
     finally:
         app.dependency_overrides.clear()
@@ -478,9 +516,7 @@ async def test_conflicting_duplicate_brand_template_and_provider_creates_return_
     )
     with pytest.raises(HTTPException) as prompt_conflict:
         await create_prompt_template(
-            PromptTemplateCreate(
-                purpose_key="telegram_rewrite", name="Different name", description=None
-            ),
+            PromptTemplateCreate(purpose_key="telegram_rewrite", name="Different name", description=None),
             session,
         )
     assert prompt_conflict.value.status_code == 409
@@ -532,20 +568,14 @@ async def test_generation_create_savepoints_recover_matching_winners_and_reject_
         )
     assert error.value.status_code == 409
 
-    template = PromptTemplate(
-        id=uuid4(), purpose_key="telegram_rewrite", name="Rewrite", description=None
-    )
-    template_body = PromptTemplateCreate(
-        purpose_key="telegram_rewrite", name="Rewrite", description=None
-    )
+    template = PromptTemplate(id=uuid4(), purpose_key="telegram_rewrite", name="Rewrite", description=None)
+    template_body = PromptTemplateCreate(purpose_key="telegram_rewrite", name="Rewrite", description=None)
     template_match = GenerationSavepointRaceSession(template)
     assert await create_prompt_template(template_body, template_match) is template
     template_conflict = GenerationSavepointRaceSession(template)
     with pytest.raises(HTTPException) as error:
         await create_prompt_template(
-            PromptTemplateCreate(
-                purpose_key="telegram_rewrite", name="Different", description=None
-            ),
+            PromptTemplateCreate(purpose_key="telegram_rewrite", name="Different", description=None),
             template_conflict,
         )
     assert error.value.status_code == 409
@@ -559,17 +589,13 @@ async def test_generation_create_savepoints_recover_matching_winners_and_reject_
         settings={},
         enabled=True,
     )
-    provider_body = AIProviderProfileCreate(
-        name="Fake", provider_type="fake", default_model="fake-v1"
-    )
+    provider_body = AIProviderProfileCreate(name="Fake", provider_type="fake", default_model="fake-v1")
     provider_match = GenerationSavepointRaceSession(provider)
     assert (await create_provider_profile(provider_body, provider_match, secrets)).id == provider.id
     provider_conflict = GenerationSavepointRaceSession(provider)
     with pytest.raises(HTTPException) as error:
         await create_provider_profile(
-            AIProviderProfileCreate(
-                name="Fake", provider_type="fake", default_model="fake-v2"
-            ),
+            AIProviderProfileCreate(name="Fake", provider_type="fake", default_model="fake-v2"),
             provider_conflict,
             secrets,
         )

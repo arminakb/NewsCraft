@@ -10,6 +10,7 @@ from app.core.logging import configure_logging
 from app.db.session import async_session
 from app.generation.default_prompts import (
     seed_default_telegram_configuration,
+    seed_default_editorial_prompts,
     seed_default_telegram_prompt,
 )
 
@@ -20,6 +21,7 @@ configure_logging()
 async def lifespan(_app: FastAPI):
     async with async_session() as session:
         await seed_default_telegram_prompt(session)
+        await seed_default_editorial_prompts(session)
         await seed_default_telegram_configuration(session)
         await seed_codex_provider_profile(
             session,

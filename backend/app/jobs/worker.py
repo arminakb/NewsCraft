@@ -145,13 +145,13 @@ def _build_generation_dependencies(owner: HttpClientOwner) -> dict[str, Any]:
     from app.generation.providers.registry import build_provider_profile_resolver
 
     profile_resolver = build_provider_profile_resolver(
-            secret_resolver=EnvironmentSecretResolver(),
-            http_client_factory=lambda **kwargs: owner.get(
-                "openrouter",
-                base_url=kwargs["base_url"],
-                timeout=kwargs["timeout_seconds"],
-            ),
-        )
+        secret_resolver=EnvironmentSecretResolver(),
+        http_client_factory=lambda **kwargs: owner.get(
+            "openrouter",
+            base_url=kwargs["base_url"],
+            timeout=kwargs["timeout_seconds"],
+        ),
+    )
     from app.research.handlers import DefaultResearchBackendResolver
 
     return {
@@ -299,6 +299,11 @@ class WorkerRunner:
                 await heartbeat_task
 
             completion_time = self._now()
+            if failure is not None:
+                # A handler may leave the SQLAlchemy transaction failed after a
+                # constraint/database error. Roll back handler-local work before
+                # persisting the durable job failure transition.
+                await session.rollback()
             if failure is None:
                 await repository.finish_job(
                     job_id=job.id,

@@ -194,11 +194,12 @@ async def test_unexpected_handler_failure_is_retryable_without_leaking_details()
     async def broken(job, context):
         raise RuntimeError("secret payload must not escape")
 
-    broken_runner, broken_state, _, _, _ = _runner(_job(), broken)
+    broken_runner, broken_state, _, events, _ = _runner(_job(), broken)
     await broken_runner.run_once()
     assert broken_state.failed[0]["error_class"] == JobErrorClass.RETRYABLE
     assert broken_state.failed[0]["error_code"] == "unhandled_exception"
     assert "secret payload" not in broken_state.failed[0]["error_message"]
+    assert any(event[0] == "rollback" for event in events)
 
 
 @pytest.mark.asyncio

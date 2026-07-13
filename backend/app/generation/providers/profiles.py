@@ -78,30 +78,20 @@ class ProviderProfileResolver:
             if not self.application_settings.codex_enabled:
                 raise ProviderProfileConfigurationError("Codex provider is disabled")
             if profile.secret_ref is not None:
-                raise ProviderProfileConfigurationError(
-                    "Codex provider profile cannot have a secret reference"
-                )
+                raise ProviderProfileConfigurationError("Codex provider profile cannot have a secret reference")
             if not profile.default_model:
-                raise ProviderProfileConfigurationError(
-                    "Selected provider profile has no model"
-                )
-            executable = self.executable_resolver(
-                self.application_settings.codex_executable
-            )
+                raise ProviderProfileConfigurationError("Selected provider profile has no model")
+            executable = self.executable_resolver(self.application_settings.codex_executable)
             if executable is None:
-                raise ProviderProfileConfigurationError(
-                    "Codex executable is unavailable"
-                )
+                raise ProviderProfileConfigurationError("Codex executable is unavailable")
             try:
                 provider = self.provider_registry.create(
                     "codex",
                     executor=self.codex_executor_factory(executable),
                     profile=profile,
                 )
-            except (TypeError, ValueError):
-                raise ProviderProfileConfigurationError(
-                    "Selected provider profile settings are invalid"
-                ) from None
+            except TypeError, ValueError:
+                raise ProviderProfileConfigurationError("Selected provider profile settings are invalid") from None
             return ResolvedProviderProfile(
                 profile_id=profile.id,
                 provider_type="codex",
@@ -122,9 +112,7 @@ class ProviderProfileResolver:
         try:
             validated = OpenRouterProviderSettings.model_validate(raw_settings)
         except ValidationError:
-            raise ProviderProfileConfigurationError(
-                "Selected provider profile settings are invalid"
-            ) from None
+            raise ProviderProfileConfigurationError("Selected provider profile settings are invalid") from None
         if (
             validated.base_url.scheme != "https"
             or validated.base_url.username is not None
@@ -132,21 +120,15 @@ class ProviderProfileResolver:
             or validated.base_url.query is not None
             or validated.base_url.fragment is not None
         ):
-            raise ProviderProfileConfigurationError(
-                "Selected provider profile base URL is invalid"
-            )
+            raise ProviderProfileConfigurationError("Selected provider profile base URL is invalid")
         try:
             if not self.secret_resolver.configured(profile.secret_ref):
-                raise ProviderProfileConfigurationError(
-                    "Selected provider profile secret is not configured"
-                )
+                raise ProviderProfileConfigurationError("Selected provider profile secret is not configured")
             api_key = self.secret_resolver.resolve(profile.secret_ref)
         except ProviderProfileConfigurationError:
             raise
         except Exception:
-            raise ProviderProfileConfigurationError(
-                "Selected provider profile secret is unavailable"
-            ) from None
+            raise ProviderProfileConfigurationError("Selected provider profile secret is unavailable") from None
         http_kwargs = {
             "base_url": str(validated.base_url).rstrip("/"),
             "timeout_seconds": validated.timeout_seconds,
@@ -165,3 +147,15 @@ class ProviderProfileResolver:
             model=model,
             provider=provider,
         )
+
+    async def validate_availability(
+        self,
+        profile: AIProviderProfile,
+        model_override: str | None = None,
+    ) -> ResolvedProviderProfile:
+        """Resolve the canonical profile contract without retaining request resources."""
+        resolved = await self.resolve(profile, model_override)
+        client = getattr(resolved.provider, "http_client", None)
+        if client is not None and hasattr(client, "aclose"):
+            await client.aclose()
+        return resolved

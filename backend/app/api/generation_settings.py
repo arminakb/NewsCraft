@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import hashlib
-import json
 import shutil
 from collections.abc import Callable
 from typing import Annotated
@@ -28,6 +26,8 @@ from app.api.telegram_destinations import get_secret_resolver
 from app.core.config import settings as application_settings
 from app.core.secrets import SecretResolver
 from app.db.session import get_session
+from app.generation.canonical import CanonicalStoryOutput
+from app.generation.default_prompts import prompt_checksum, validate_prompt_template_fields
 from app.generation.models import AIProviderProfile, BrandProfile, PromptTemplate, PromptTemplateVersion
 from app.generation.provider_settings import (
     CodexProviderSettings,
@@ -35,6 +35,7 @@ from app.generation.provider_settings import (
     default_codex_provider_settings,
     merge_provider_settings,
 )
+from app.generation.telegram_schema import TelegramRewriteOutput
 
 router = APIRouter(tags=["generation-settings"])
 SessionDependency = Depends(get_session)
@@ -79,6 +80,18 @@ _TELEGRAM_REWRITE_SCHEMA = {
         },
     },
 }
+_EDITORIAL_PROMPT_CONTRACTS = {
+    "canonical_story": (
+        ("story_title", "evidence_json"),
+        "canonical_story.v1",
+        CanonicalStoryOutput.model_json_schema(),
+    ),
+    "telegram_pack": (
+        ("canonical_story_json", "brand_profile_json", "direction", "instruction"),
+        "telegram_pack.v1",
+        TelegramRewriteOutput.model_json_schema(),
+    ),
+}
 
 
 def _profile_out(
@@ -86,9 +99,7 @@ def _profile_out(
     secrets: SecretResolver,
     executable_resolver: ExecutableResolver = shutil.which,
 ) -> AIProviderProfileOut:
-    capabilities, codes = provider_capabilities(
-        profile, secrets, executable_resolver
-    )
+    capabilities, codes = provider_capabilities(profile, secrets, executable_resolver)
     generation = capabilities["generation"]
     research = capabilities["research"]
     configured = generation or research
@@ -130,10 +141,7 @@ def provider_capabilities(
             and executable_resolver(application_settings.codex_executable) is not None
         )
         generation = research = bool(
-            profile.default_model
-            and profile.secret_ref is None
-            and valid_settings
-            and executable_available
+            profile.default_model and profile.secret_ref is None and valid_settings and executable_available
         )
         if not profile.default_model:
             codes.append("model_missing")
@@ -148,9 +156,7 @@ def provider_capabilities(
         except ValidationError:
             validated = None
             valid_settings = False
-        secret_available = bool(
-            profile.secret_ref and secrets.configured(profile.secret_ref)
-        )
+        secret_available = bool(profile.secret_ref and secrets.configured(profile.secret_ref))
         generation = bool(profile.default_model and secret_available and valid_settings)
         research = bool(
             generation
@@ -287,9 +293,7 @@ async def create_prompt_template(
     body: PromptTemplateCreate,
     session: AsyncSession = SessionDependency,
 ):
-    existing = await session.scalar(
-        select(PromptTemplate).where(PromptTemplate.purpose_key == body.purpose_key)
-    )
+    existing = await session.scalar(select(PromptTemplate).where(PromptTemplate.purpose_key == body.purpose_key))
     if existing is not None:
         if _template_matches(existing, body):
             return existing
@@ -300,13 +304,9 @@ async def create_prompt_template(
             session.add(template)
             await session.flush()
     except IntegrityError:
-        existing = await session.scalar(
-            select(PromptTemplate).where(PromptTemplate.purpose_key == body.purpose_key)
-        )
+        existing = await session.scalar(select(PromptTemplate).where(PromptTemplate.purpose_key == body.purpose_key))
         if existing is None or not _template_matches(existing, body):
-            raise HTTPException(
-                409, "Prompt template purpose already exists with different configuration"
-            ) from None
+            raise HTTPException(409, "Prompt template purpose already exists with different configuration") from None
         return existing
     await session.commit()
     return template
@@ -319,18 +319,26 @@ async def create_prompt_version(
     session: AsyncSession = SessionDependency,
 ):
     template = await session.scalar(
-        select(PromptTemplate)
-        .where(PromptTemplate.id == prompt_template_id)
-        .with_for_update()
+        select(PromptTemplate).where(PromptTemplate.id == prompt_template_id).with_for_update()
     )
     if template is None:
         raise HTTPException(404, "Prompt template not found")
     if template.purpose_key == "telegram_rewrite":
-        missing = [name for name in _TELEGRAM_REWRITE_VARIABLES if f"{{{name}}}" not in body.user_template]
-        if missing:
-            raise HTTPException(422, f"Telegram prompt is missing variables: {', '.join(missing)}")
+        try:
+            validate_prompt_template_fields(
+                body.user_template,
+                required=_TELEGRAM_REWRITE_VARIABLES,
+            )
+        except ValueError as exc:
+            raise HTTPException(422, str(exc)) from None
         output_schema = _TELEGRAM_REWRITE_SCHEMA
         output_schema_version = "telegram_rewrite.v1"
+    elif template.purpose_key in _EDITORIAL_PROMPT_CONTRACTS:
+        variables, output_schema_version, output_schema = _EDITORIAL_PROMPT_CONTRACTS[template.purpose_key]
+        try:
+            validate_prompt_template_fields(body.user_template, required=variables)
+        except ValueError as exc:
+            raise HTTPException(422, str(exc)) from None
     else:
         output_schema = {}
         output_schema_version = f"{template.purpose_key}.v1"
@@ -343,14 +351,7 @@ async def create_prompt_version(
         )
     )
     version_number = max((item.version for item in versions), default=0) + 1
-    checksum_payload = {
-        "system_template": body.system_template,
-        "user_template": body.user_template,
-        "output_schema": output_schema,
-    }
-    checksum = hashlib.sha256(
-        json.dumps(checksum_payload, sort_keys=True, separators=(",", ":")).encode()
-    ).hexdigest()
+    checksum = prompt_checksum(body.system_template, body.user_template, output_schema)
     version = PromptTemplateVersion(
         prompt_template_id=prompt_template_id,
         version=version_number,
@@ -432,13 +433,9 @@ async def create_provider_profile(
             session.add(profile)
             await session.flush()
     except IntegrityError:
-        existing = await session.scalar(
-            select(AIProviderProfile).where(AIProviderProfile.name == body.name)
-        )
+        existing = await session.scalar(select(AIProviderProfile).where(AIProviderProfile.name == body.name))
         if existing is None or not _provider_matches(existing, body):
-            raise HTTPException(
-                409, "AI provider profile already exists with different configuration"
-            ) from None
+            raise HTTPException(409, "AI provider profile already exists with different configuration") from None
         return _profile_out(existing, secrets, executable_resolver)
     await session.commit()
     return _profile_out(profile, secrets, executable_resolver)

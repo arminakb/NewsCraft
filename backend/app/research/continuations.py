@@ -43,12 +43,48 @@ class TelegramResearchContinuation(BaseModel):
         return self
 
 
+class ContentPackContinuationPayload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    story_id: UUID
+    brand_profile_id: UUID
+    platform: Literal["telegram"]
+    generation_provider_profile_id: UUID
+    canonical_prompt_template_version_id: UUID
+    platform_prompt_template_version_id: UUID
+    research_mode: Literal["auto_if_incomplete"]
+    research_provider_profile_id: UUID
+    canonical_prompt_checksum: str
+    platform_prompt_checksum: str
+
+
+class ContentPackResearchContinuation(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    job_type: Literal["content_pack.generate"]
+    payload: ContentPackContinuationPayload
+    idempotency_prefix: str
+    subscriber_id: str
+    expected_story_id: UUID
+    expected_provider_profile_id: UUID
+
+    def validate_identity(self) -> ContentPackResearchContinuation:
+        if self.payload.story_id != self.expected_story_id:
+            raise ValueError("content pack continuation story identity is invalid")
+        if self.payload.research_provider_profile_id != self.expected_provider_profile_id:
+            raise ValueError("content pack continuation provider identity is invalid")
+        expected = f"content-pack:{self.expected_story_id}:{self.subscriber_id}"
+        if self.idempotency_prefix != expected:
+            raise ValueError("content pack continuation key is invalid")
+        return self
+
+
 def normalize_continuation(value: object) -> dict:
-    return (
-        TelegramResearchContinuation.model_validate(value)
-        .validate_identity()
-        .model_dump(mode="json")
-    )
+    if isinstance(value, dict) and value.get("job_type") == "content_pack.generate":
+        parsed = ContentPackResearchContinuation.model_validate(value).validate_identity()
+    else:
+        parsed = TelegramResearchContinuation.model_validate(value).validate_identity()
+    return parsed.model_dump(mode="json")
 
 
 def append_unique_continuation(payload: dict, continuation: dict | None) -> tuple[dict, bool]:
@@ -87,14 +123,18 @@ async def enqueue_bound_continuation(
         run=run,
         result_revision=result_revision,
     )
-    dispatch.story_revision_id = result_revision.id
-    dispatch.status = "captured"
-    dispatch.error_code = None
-    dispatch.error_message = None
+    if isinstance(value, TelegramResearchContinuation):
+        assert dispatch is not None
+        dispatch.story_revision_id = result_revision.id
+        dispatch.status = "captured"
+        dispatch.error_code = None
+        dispatch.error_message = None
     continuation_payload = {
         **value.payload.model_dump(mode="json"),
         "completed_research_run_id": str(run.id),
     }
+    if isinstance(value, ContentPackResearchContinuation):
+        continuation_payload["research_result_story_revision_id"] = str(result_revision.id)
     return await JobRepository(session).enqueue_job(
         job_type=value.job_type,
         payload=continuation_payload,
@@ -128,12 +168,19 @@ async def _validate_bound_context(
     descriptor: dict,
     run: ResearchRun,
     result_revision: StoryRevision,
-) -> tuple[TelegramResearchContinuation, AutomationDispatch]:
+) -> tuple[TelegramResearchContinuation | ContentPackResearchContinuation, AutomationDispatch | None]:
+    if descriptor.get("job_type") == "content_pack.generate":
+        value = ContentPackResearchContinuation.model_validate(descriptor).validate_identity()
+        if (
+            value.expected_story_id != run.story_id
+            or value.expected_provider_profile_id != run.provider_profile_id
+            or result_revision.story_id != run.story_id
+        ):
+            raise ValueError("content pack research continuation binding is invalid")
+        return value, None
     value = TelegramResearchContinuation.model_validate(descriptor).validate_identity()
     dispatch = await session.scalar(
-        select(AutomationDispatch)
-        .where(AutomationDispatch.id == value.payload.dispatch_id)
-        .with_for_update()
+        select(AutomationDispatch).where(AutomationDispatch.id == value.payload.dispatch_id).with_for_update()
     )
     if dispatch is None:
         raise ValueError("research continuation dispatch is missing")
@@ -146,7 +193,7 @@ async def _validate_bound_context(
     configured_profile = (route.content_filters or {}).get("research_provider_profile_id")
     try:
         configured_profile_id = UUID(str(configured_profile))
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         raise ValueError("research continuation profile is invalid") from None
     if (
         value.expected_route_id != route.id
@@ -175,6 +222,7 @@ async def _validate_bound_context(
 
 
 __all__ = [
+    "ContentPackResearchContinuation",
     "TelegramResearchContinuation",
     "append_unique_continuation",
     "continuation_can_reuse_result",

@@ -91,11 +91,19 @@ def build_default_registry(
         registry.register("telegram.route.poll", handlers.poll)
     if "generation" in selected:
         from app.automations.telegram.handlers import build_telegram_process_handler
+        from app.generation.handlers import (
+            build_canonical_generation_handler,
+            build_pack_generation_handler,
+            build_regenerate_handler,
+        )
 
         registry.register(
             "telegram.route.process",
             build_telegram_process_handler(profile_resolver),
         )
+        registry.register("content_pack.generate", build_canonical_generation_handler(profile_resolver))
+        registry.register("content_pack.generate_telegram", build_pack_generation_handler(profile_resolver))
+        registry.register("content_pack.regenerate", build_regenerate_handler(profile_resolver))
     if research_backend_resolver is not None:
         from app.research.handlers import build_research_story_handler
 
