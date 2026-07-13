@@ -48,6 +48,7 @@ services:
       ALL_PROXY: ${ALL_PROXY:-http://xray-proxy:10808}
       NO_PROXY: ${NO_PROXY:-newscraft-postgres,postgres,localhost,127.0.0.1}
       MEDIA_ROOT: /data/media
+      EXPORT_ROOT: /data/exports
       OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
       OPENROUTER_BASE_URL: ${OPENROUTER_BASE_URL:-https://openrouter.ai/api/v1}
       TELEGRAM_SOURCE_EDITOR_API_ID: ${TELEGRAM_SOURCE_EDITOR_API_ID:-}
@@ -60,6 +61,7 @@ services:
       - "127.0.0.1:8000:8000"
     volumes:
       - media_data:/data/media
+      - export_data:/data/exports
       - .:/workspace
     networks:
       - default
@@ -97,6 +99,7 @@ services:
       ALL_PROXY: ${ALL_PROXY:-http://xray-proxy:10808}
       NO_PROXY: ${NO_PROXY:-newscraft-postgres,postgres,localhost,127.0.0.1}
       MEDIA_ROOT: /data/media
+      EXPORT_ROOT: /data/exports
       TELEGRAM_MEDIA_STAGING_ROOT: /data/media-staging
       OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
       OPENROUTER_BASE_URL: ${OPENROUTER_BASE_URL:-https://openrouter.ai/api/v1}
@@ -107,6 +110,7 @@ services:
       - "host.docker.internal:host-gateway"
     volumes:
       - media_data:/data/media
+      - export_data:/data/exports
       - media_staging:/data/media-staging
     networks:
       - default
@@ -176,6 +180,7 @@ services:
 volumes:
   postgres_data:
   media_data:
+  export_data:
   media_staging:
 
 networks:

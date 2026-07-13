@@ -4,6 +4,7 @@ from app.api.content import router as content_router
 from app.api.content_packs import router as content_packs_router
 from app.api.control import router as control_router
 from app.api.diagnostics import router as diagnostics_router
+from app.api.exports import router as exports_router
 from app.api.generation_settings import router as generation_settings_router
 from app.api.ingest import router as ingest_router
 from app.api.jobs import router as jobs_router
@@ -23,6 +24,7 @@ router.include_router(content_router)
 router.include_router(content_packs_router)
 router.include_router(media_router)
 router.include_router(diagnostics_router)
+router.include_router(exports_router)
 router.include_router(jobs_router)
 router.include_router(control_router)
 router.include_router(telegram_sources_router)

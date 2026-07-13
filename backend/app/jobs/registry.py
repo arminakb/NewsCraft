@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -48,6 +49,8 @@ def build_default_registry(
     telegram_client: Any | None = None,
     destination_secret_resolver: Any | None = None,
     research_backend_resolver: Any | None = None,
+    export_root: str | Path = "/data/exports",
+    media_root: str | Path = "/data/media",
 ) -> JobHandlerRegistry:
     from app.jobs.handlers import handle_ingest_collect
     from app.stories.handlers import group_pending_content, handle_manual_intake
@@ -91,6 +94,7 @@ def build_default_registry(
         registry.register("telegram.route.poll", handlers.poll)
     if "generation" in selected:
         from app.automations.telegram.handlers import build_telegram_process_handler
+        from app.exports.handlers import build_export_handler
         from app.generation.handlers import (
             build_canonical_generation_handler,
             build_pack_generation_handler,
@@ -104,6 +108,10 @@ def build_default_registry(
         registry.register("content_pack.generate", build_canonical_generation_handler(profile_resolver))
         registry.register("content_pack.generate_telegram", build_pack_generation_handler(profile_resolver))
         registry.register("content_pack.regenerate", build_regenerate_handler(profile_resolver))
+        registry.register(
+            "build_export",
+            build_export_handler(export_root=Path(export_root), media_root=Path(media_root)),
+        )
     if research_backend_resolver is not None:
         from app.research.handlers import build_research_story_handler
 

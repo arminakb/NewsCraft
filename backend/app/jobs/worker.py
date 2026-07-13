@@ -157,6 +157,8 @@ def _build_generation_dependencies(owner: HttpClientOwner) -> dict[str, Any]:
     return {
         "profile_resolver": profile_resolver,
         "research_backend_resolver": DefaultResearchBackendResolver(profile_resolver),
+        "export_root": Path(settings.export_root),
+        "media_root": Path(settings.media_root),
     }
 
 

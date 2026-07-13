@@ -69,6 +69,7 @@ def test_generation_dependency_registers_real_generation_handlers():
     registry = build_default_registry(profile_resolver=resolver)
 
     assert registry.job_types() == (
+        "build_export",
         "content_pack.generate",
         "content_pack.generate_telegram",
         "content_pack.regenerate",
@@ -100,6 +101,7 @@ def test_capabilities_control_the_registry_without_a_static_job_type_switch():
     )
 
     assert source_generation.job_types() == (
+        "build_export",
         "content_pack.generate",
         "content_pack.generate_telegram",
         "content_pack.regenerate",

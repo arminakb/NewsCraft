@@ -134,6 +134,19 @@ def test_api_can_authoritatively_check_all_configured_secret_references():
     assert not reference_names & set(scheduler_environment)
 
 
+def test_export_storage_is_persistent_and_shared_only_with_the_builder_and_api():
+    compose = _compose_yaml()
+    services = compose["services"]
+
+    assert "export_data:/data/exports" in services["api"]["volumes"]
+    assert "export_data:/data/exports" in services["worker-source-generation"]["volumes"]
+    assert services["api"]["environment"]["EXPORT_ROOT"] == "/data/exports"
+    assert services["worker-source-generation"]["environment"]["EXPORT_ROOT"] == "/data/exports"
+    assert "export_data:/data/exports" not in services["worker-publishing"].get("volumes", [])
+    assert "EXPORT_ROOT" not in services["worker-publishing"]["environment"]
+    assert "export_data" in compose["volumes"]
+
+
 def test_runtime_environment_names_and_review_first_dry_run_are_documented():
     env_example = (ROOT / ".env.example").read_text(encoding="utf-8")
     readme = (ROOT / "README.md").read_text(encoding="utf-8")

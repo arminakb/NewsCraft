@@ -354,6 +354,22 @@ def test_publishing_never_constructs_source_or_openrouter_dependencies(monkeypat
     worker_module.build_worker_runner(("publishing",))
 
 
+def test_publishing_never_resolves_export_root(monkeypatch):
+    class PublishingSettings:
+        @property
+        def export_root(self):
+            pytest.fail("publishing must not resolve EXPORT_ROOT")
+
+    monkeypatch.setattr(worker_module, "settings", PublishingSettings())
+    monkeypatch.setattr(
+        "app.jobs.worker._build_publishing_dependencies",
+        lambda owner: {"telegram_client": object(), "destination_secret_resolver": object()},
+    )
+    monkeypatch.setattr("app.jobs.worker.build_default_registry", lambda **kwargs: JobHandlerRegistry())
+
+    worker_module.build_worker_runner(("publishing",))
+
+
 def test_source_generation_never_constructs_bot_api_or_resolves_destination_token(monkeypatch):
     monkeypatch.setenv("TELEGRAM_DESTINATION_NEWS_TOKEN", "must-not-be-read")
     monkeypatch.setattr(
