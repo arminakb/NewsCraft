@@ -233,6 +233,57 @@ async def test_history_projects_truthful_route_and_publish_entries_from_durable_
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "event_type",
+    [
+        "telegram.publish.reconciled_not_published",
+        "telegram.publish.reconciled_published",
+    ],
+)
+async def test_reconciliation_history_preserves_redacted_audit_metadata_and_targets_current_operator_ui(
+    event_type: str,
+):
+    occurred_at = datetime(2026, 7, 11, 10, tzinfo=UTC)
+    publish_job_id = UUID("51111111-1111-4111-8111-111111111111")
+    operation_keys = ["telegram:publish:0", "telegram:publish:1"]
+    event = _event(
+        1,
+        occurred_at=occurred_at,
+        event_type=event_type,
+        event_data={
+            "publish_job_id": str(publish_job_id),
+            "operation_keys": operation_keys,
+            "operator_note": ("Verified token=operator-secret at https://t.me/target/701?token=url-secret&mode=full"),
+            "audit": {"authorization": "Bearer audit-secret", "attempt": 2},
+        },
+    )
+    session = TimelineSession([(event, _job(job_type="telegram.publish"))])
+
+    entry = (await HistoryService(session).list(limit=10)).items[0]
+
+    assert entry.category == "reconcile"
+    assert "Verified token=[REDACTED]" in entry.summary
+    assert "operator-secret" not in entry.summary
+    assert "url-secret" not in entry.summary
+    assert set(entry.sanitized_metadata) == {
+        "audit",
+        "operation_keys",
+        "operator_note",
+        "publish_job_id",
+    }
+    assert entry.sanitized_metadata["publish_job_id"] == str(publish_job_id)
+    assert entry.sanitized_metadata["operation_keys"] == operation_keys
+    assert "operator-secret" not in entry.sanitized_metadata["operator_note"]
+    assert "url-secret" not in entry.sanitized_metadata["operator_note"]
+    assert entry.sanitized_metadata["audit"] == {
+        "authorization": "[REDACTED]",
+        "attempt": 2,
+    }
+    # Telegram reconciliation controls currently live in TelegramOutcomes on `/`.
+    assert entry.subject_url == "/"
+
+
+@pytest.mark.asyncio
 async def test_history_subject_urls_target_real_story_and_job_frontend_routes():
     occurred_at = datetime(2026, 7, 11, 10, tzinfo=UTC)
     story_id = UUID("61111111-1111-4111-8111-111111111111")

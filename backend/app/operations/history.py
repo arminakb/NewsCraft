@@ -426,7 +426,14 @@ def _title_for(event_type: str) -> str:
 
 
 def _summary_for(title: str, actor: object, metadata: dict[str, object]) -> str:
-    for key in ("error_message", "reason", "note", "pause_reason", "error_code"):
+    for key in (
+        "operator_note",
+        "error_message",
+        "reason",
+        "note",
+        "pause_reason",
+        "error_code",
+    ):
         value = metadata.get(key)
         if isinstance(value, str) and value.strip():
             return " ".join(value.split())[:500]
@@ -451,6 +458,8 @@ def _subject_url(metadata: dict[str, object], job_id: UUID | None, category: His
     revision_id = _uuid_text(metadata.get("revision_id") or metadata.get("result_revision_id"))
     if revision_id is not None:
         return f"/review/{revision_id}"
+    if category == "reconcile":
+        return "/"
     if job_id is not None:
         return "/jobs"
     if category in {"schedule", "publish", "reconcile"}:

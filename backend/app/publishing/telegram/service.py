@@ -8,7 +8,8 @@ from datetime import UTC, datetime, timedelta
 from typing import Any, Literal, Protocol
 from uuid import UUID
 
-from sqlalchemy import func, select
+from pydantic import BaseModel, ConfigDict
+from sqlalchemy import exists, func, select
 from sqlalchemy.exc import IntegrityError
 
 from app.automations.models import AutomationDispatch, AutomationRoute
@@ -69,6 +70,166 @@ class ReviewedTelegramScheduleResult:
     created: bool
 
 
+class ReconciliationDestination(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: UUID
+    name: str
+    target_ref: str
+
+
+class ReconciliationOperationSummary(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    operation_index: int
+    operation_key: str
+    method: str
+    request_hash: str
+    status: str
+    attempt_count: int
+    remote_message_ids: list[int]
+    sent_at: datetime | None
+
+
+class ReconciliationCase(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    publish_job_id: UUID
+    status: Literal["pending"] = "pending"
+    publish_status: str
+    workflow_job_id: UUID | None
+    platform_variant_revision_id: UUID
+    destination: ReconciliationDestination
+    operations: list[ReconciliationOperationSummary]
+    ambiguous_operation_key: str
+    ambiguous_at: datetime | None
+    ambiguity_reason: str
+
+
+_RECONCILIATION_AMBIGUITY_REASON = "Telegram send outcome is ambiguous and requires operator verification"
+
+
+def _open_reconciliation_criterion():
+    return exists(
+        select(1)
+        .select_from(PublishOperationReceipt)
+        .where(
+            PublishOperationReceipt.publish_job_id == PublishJob.id,
+            PublishOperationReceipt.status == "ambiguous",
+        )
+    )
+
+
+def _reconciliation_jobs_statement(*, publish_job_id: UUID | None = None):
+    statement = (
+        select(PublishJob, Destination)
+        .join(Destination, Destination.id == PublishJob.destination_id)
+        .where(
+            Destination.platform == "telegram",
+            _open_reconciliation_criterion(),
+        )
+    )
+    if publish_job_id is not None:
+        statement = statement.where(PublishJob.id == publish_job_id)
+    return statement.order_by(PublishJob.updated_at.desc(), PublishJob.id.desc())
+
+
+async def _reconciliation_receipts(
+    session: Any,
+    publish_job_ids: Sequence[UUID],
+) -> dict[UUID, list[PublishOperationReceipt]]:
+    if not publish_job_ids:
+        return {}
+    receipts = list(
+        await session.scalars(
+            select(PublishOperationReceipt)
+            .where(PublishOperationReceipt.publish_job_id.in_(publish_job_ids))
+            .order_by(
+                PublishOperationReceipt.publish_job_id,
+                PublishOperationReceipt.operation_index,
+            )
+        )
+    )
+    grouped: dict[UUID, list[PublishOperationReceipt]] = {}
+    for receipt in receipts:
+        grouped.setdefault(receipt.publish_job_id, []).append(receipt)
+    for rows in grouped.values():
+        rows.sort(key=lambda receipt: receipt.operation_index)
+    return grouped
+
+
+def _reconciliation_case(
+    publish_job: PublishJob,
+    destination: Destination,
+    receipts: Sequence[PublishOperationReceipt],
+) -> ReconciliationCase | None:
+    ordered = sorted(receipts, key=lambda receipt: receipt.operation_index)
+    ambiguous = next((receipt for receipt in ordered if receipt.status == "ambiguous"), None)
+    if ambiguous is None:
+        return None
+    return ReconciliationCase(
+        publish_job_id=publish_job.id,
+        publish_status=publish_job.status,
+        workflow_job_id=publish_job.workflow_job_id,
+        platform_variant_revision_id=publish_job.platform_variant_revision_id,
+        destination=ReconciliationDestination(
+            id=destination.id,
+            name=destination.name,
+            target_ref=destination.target_ref,
+        ),
+        operations=[
+            ReconciliationOperationSummary(
+                operation_index=receipt.operation_index,
+                operation_key=receipt.operation_key,
+                method=receipt.method,
+                request_hash=receipt.request_hash,
+                status=receipt.status,
+                attempt_count=receipt.attempt_count,
+                remote_message_ids=list(receipt.remote_message_ids),
+                sent_at=receipt.completed_at or receipt.ambiguous_at,
+            )
+            for receipt in ordered
+        ],
+        ambiguous_operation_key=ambiguous.operation_key,
+        ambiguous_at=ambiguous.ambiguous_at,
+        ambiguity_reason=_RECONCILIATION_AMBIGUITY_REASON,
+    )
+
+
+async def list_reconciliation_cases(session: Any) -> list[ReconciliationCase]:
+    rows = (await session.execute(_reconciliation_jobs_statement())).all()
+    receipt_rows = await _reconciliation_receipts(
+        session,
+        [publish_job.id for publish_job, _destination in rows],
+    )
+    cases: list[ReconciliationCase] = []
+    for publish_job, destination in rows:
+        case = _reconciliation_case(
+            publish_job,
+            destination,
+            receipt_rows.get(publish_job.id, ()),
+        )
+        if case is not None:
+            cases.append(case)
+    return cases
+
+
+async def get_reconciliation_case(
+    session: Any,
+    publish_job_id: UUID,
+) -> ReconciliationCase | None:
+    row = (await session.execute(_reconciliation_jobs_statement(publish_job_id=publish_job_id))).first()
+    if row is None:
+        return None
+    publish_job, destination = row
+    receipt_rows = await _reconciliation_receipts(session, (publish_job.id,))
+    return _reconciliation_case(
+        publish_job,
+        destination,
+        receipt_rows.get(publish_job.id, ()),
+    )
+
+
 def validate_publish_evidence(
     evidence_map: list[dict[str, Any]],
     snapshots: Iterable[Any],
@@ -106,10 +267,7 @@ def validate_publish_evidence(
 
 
 def validate_receipt_plan(receipts: Sequence[Any], operations: Sequence[Any]) -> None:
-    expected = [
-        (operation.index, operation.key, operation.method, operation.request_hash)
-        for operation in operations
-    ]
+    expected = [(operation.index, operation.key, operation.method, operation.request_hash) for operation in operations]
     actual = [
         (receipt.operation_index, receipt.operation_key, receipt.method, receipt.request_hash)
         for receipt in sorted(receipts, key=lambda item: item.operation_index)
@@ -362,7 +520,7 @@ async def schedule_reviewed_telegram(
     try:
         content = TelegramVariantContent.model_validate(revision.content)
         validate_approvable_revision(revision)
-    except (RevisionValidationError, TypeError, ValueError):
+    except RevisionValidationError, TypeError, ValueError:
         raise ReviewedTelegramScheduleError(
             "telegram_revision_schema_invalid",
             "Telegram revision schema or validation gates are invalid",
@@ -378,9 +536,7 @@ async def schedule_reviewed_telegram(
             "Telegram revision hash no longer matches its content",
         )
 
-    idempotency_key = (
-        f"telegram-publish:{request.destination_id}:{revision.id}:{revision.content_hash}"
-    )
+    idempotency_key = f"telegram-publish:{request.destination_id}:{revision.id}:{revision.content_hash}"
     publish_job = await session.scalar(
         select(PublishJob)
         .where(PublishJob.idempotency_key == idempotency_key)
@@ -616,11 +772,7 @@ async def _load_context(session: Any, publish_job_id: UUID, observed_at: datetim
         .with_for_update()
         .execution_options(populate_existing=True)
     )
-    if (
-        revision is None
-        or publish_job is None
-        or publish_job.platform_variant_revision_id != revision.id
-    ):
+    if revision is None or publish_job is None or publish_job.platform_variant_revision_id != revision.id:
         raise PermanentJobError(
             code="telegram_publish_context_missing",
             message="Telegram publish context is incomplete",
@@ -634,8 +786,7 @@ async def _load_context(session: Any, publish_job_id: UUID, observed_at: datetim
         if (
             existing_publication.reconciliation_status != "confirmed"
             or existing_publication.destination_id != publish_job.destination_id
-            or existing_publication.platform_variant_revision_id
-            != publish_job.platform_variant_revision_id
+            or existing_publication.platform_variant_revision_id != publish_job.platform_variant_revision_id
             or existing_publication.payload_hash != publish_job.payload_hash
         ):
             raise NeedsReviewJobError(
@@ -672,9 +823,7 @@ async def _load_context(session: Any, publish_job_id: UUID, observed_at: datetim
             code="telegram_revision_not_publishable",
             message="Telegram revision is not approved for publication",
         )
-    exact_hash = _canonical_hash(
-        {"content": revision.content, "evidence_map": revision.evidence_map}
-    )
+    exact_hash = _canonical_hash({"content": revision.content, "evidence_map": revision.evidence_map})
     if exact_hash != revision.content_hash:
         raise NeedsReviewJobError(
             code="telegram_revision_hash_drift",
@@ -765,18 +914,20 @@ async def _load_context(session: Any, publish_job_id: UUID, observed_at: datetim
         ) from None
     snapshots = list(
         await session.scalars(
-            select(StoryEvidenceSnapshot).where(
-                StoryEvidenceSnapshot.id.in_([item.evidence_snapshot_id for item in citations])
-            ).execution_options(populate_existing=True)
+            select(StoryEvidenceSnapshot)
+            .where(StoryEvidenceSnapshot.id.in_([item.evidence_snapshot_id for item in citations]))
+            .execution_options(populate_existing=True)
         )
     )
     try:
         validate_publish_evidence(revision.evidence_map, snapshots)
     except PublishValidationError as exc:
         raise NeedsReviewJobError(code=exc.code, message=str(exc)) from None
-    if story_revision is None or any(
-        snapshot.story_id != story_revision.story_id for snapshot in snapshots
-    ) or dispatch.story_revision_id != story_revision.id:
+    if (
+        story_revision is None
+        or any(snapshot.story_id != story_revision.story_id for snapshot in snapshots)
+        or dispatch.story_revision_id != story_revision.id
+    ):
         raise NeedsReviewJobError(
             code="telegram_publish_evidence_story_drift",
             message="Telegram evidence no longer belongs to the revision story",
@@ -857,14 +1008,17 @@ async def _load_context(session: Any, publish_job_id: UUID, observed_at: datetim
             "retry_at": retry_at,
         }
 
-    attempt_number = int(
-        await session.scalar(
-            select(func.coalesce(func.max(PublishAttempt.attempt_number), 0)).where(
-                PublishAttempt.publish_job_id == publish_job.id
+    attempt_number = (
+        int(
+            await session.scalar(
+                select(func.coalesce(func.max(PublishAttempt.attempt_number), 0)).where(
+                    PublishAttempt.publish_job_id == publish_job.id
+                )
             )
+            or 0
         )
-        or 0
-    ) + 1
+        + 1
+    )
     attempt = PublishAttempt(
         publish_job_id=publish_job.id,
         attempt_number=attempt_number,
@@ -1024,9 +1178,9 @@ async def _revalidate_claim(session: Any, context: _PublishContext) -> PublishJo
         ) from None
     snapshots = list(
         await session.scalars(
-            select(StoryEvidenceSnapshot).where(
-                StoryEvidenceSnapshot.id.in_([item.evidence_snapshot_id for item in citations])
-            ).execution_options(populate_existing=True)
+            select(StoryEvidenceSnapshot)
+            .where(StoryEvidenceSnapshot.id.in_([item.evidence_snapshot_id for item in citations]))
+            .execution_options(populate_existing=True)
         )
     )
     try:
@@ -1051,9 +1205,7 @@ async def _revalidate_claim(session: Any, context: _PublishContext) -> PublishJo
         linked_ids = (
             set(
                 await session.scalars(
-                    select(ItemMedia.media_asset_id).where(
-                        ItemMedia.content_item_id == source_item.content_item_id
-                    )
+                    select(ItemMedia.media_asset_id).where(ItemMedia.content_item_id == source_item.content_item_id)
                 )
             )
             if source_item is not None
@@ -1403,11 +1555,7 @@ async def publish_telegram(
                 .with_for_update()
                 .execution_options(populate_existing=True)
             )
-            if (
-                receipt is None
-                or receipt.status != "dispatching"
-                or receipt.attempt_count != claimed_attempt_count
-            ):
+            if receipt is None or receipt.status != "dispatching" or receipt.attempt_count != claimed_attempt_count:
                 raise NeedsReviewJobError(
                     code="telegram_publish_claim_superseded",
                     message="Telegram publish claim was superseded",
@@ -1431,17 +1579,13 @@ async def publish_telegram(
                 .with_for_update()
             )
         )
-        if publish_job is None or attempt is None or any(
-            receipt.status != "succeeded" for receipt in receipts
-        ):
+        if publish_job is None or attempt is None or any(receipt.status != "succeeded" for receipt in receipts):
             raise NeedsReviewJobError(
                 code="telegram_publish_incomplete",
                 message="Telegram publish operation set is incomplete",
             )
         remote_ids = ordered_receipt_remote_ids(receipts)
-        publication = await session.scalar(
-            select(Publication).where(Publication.publish_job_id == publish_job.id)
-        )
+        publication = await session.scalar(select(Publication).where(Publication.publish_job_id == publish_job.id))
         if publication is None:
             publication = Publication(
                 publish_job_id=publish_job.id,

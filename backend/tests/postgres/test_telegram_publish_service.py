@@ -8,7 +8,7 @@ from types import SimpleNamespace
 from uuid import UUID
 
 import pytest
-from fastapi import Response
+from fastapi import HTTPException, Response
 from sqlalchemy import func, select
 
 from app.api.telegram_drafts import (
@@ -21,7 +21,7 @@ from app.db.models import ItemMedia, MediaAsset, SourceItem
 from app.generation.models import ContentPack, PlatformVariant, PlatformVariantRevision
 from app.generation.telegram_schema import TelegramEvidenceCitation, TelegramVariantContent
 from app.jobs.errors import NeedsReviewJobError, PermanentJobError, RetryableJobError
-from app.jobs.models import AutomationControl, WorkflowJob
+from app.jobs.models import AutomationControl, WorkflowEvent, WorkflowJob
 from app.jobs.types import JobOrigin
 from app.publishing.models import (
     Publication,
@@ -587,6 +587,80 @@ async def _make_publish_ambiguous(session_factory, publish_job_id: UUID) -> None
     assert caught.value.code == "telegram_publish_ambiguous"
 
 
+async def _reconcile(
+    session_factory,
+    publish_job_id: UUID,
+    body: TelegramReconcileIn,
+) -> tuple[int, dict]:
+    async with session_factory() as session:
+        response = Response()
+        result = await reconcile_telegram_publish_job(
+            publish_job_id,
+            body,
+            response,
+            session,
+        )
+    return response.status_code, result
+
+
+async def _reconciliation_events(session, publish_job_id: UUID) -> list[WorkflowEvent]:
+    return list(
+        await session.scalars(
+            select(WorkflowEvent)
+            .where(
+                WorkflowEvent.event_type.in_(
+                    (
+                        "telegram.publish.reconciled_not_published",
+                        "telegram.publish.reconciled_published",
+                    )
+                ),
+                WorkflowEvent.event_data["publish_job_id"].as_string()
+                == str(publish_job_id),
+            )
+            .order_by(WorkflowEvent.created_at, WorkflowEvent.id)
+        )
+    )
+
+
+def _reconciliation_generation(receipt: PublishOperationReceipt) -> dict[str, object]:
+    assert receipt.ambiguous_at is not None
+    return {
+        "operation_key": receipt.operation_key,
+        "attempt_count": receipt.attempt_count,
+        "ambiguous_at": receipt.ambiguous_at.isoformat(),
+    }
+
+
+def _assert_decision_hash(value: object) -> None:
+    assert isinstance(value, str)
+    assert len(value) == 64
+    int(value, 16)
+
+
+@pytest.mark.asyncio
+async def test_reconciliation_case_projection_executes_against_postgres(session_factory):
+    fixture = await _seed_publish_fixtures(session_factory)
+    await _make_publish_ambiguous(session_factory, fixture.reconcile_published_job_id)
+
+    async with session_factory() as session:
+        cases = await telegram_service.list_reconciliation_cases(session)
+        detail = await telegram_service.get_reconciliation_case(
+            session,
+            fixture.reconcile_published_job_id,
+        )
+
+    assert [case.publish_job_id for case in cases] == [
+        fixture.reconcile_published_job_id
+    ]
+    assert detail == cases[0]
+    assert detail.status == "pending"
+    assert [operation.status for operation in detail.operations] == ["ambiguous"]
+    encoded = detail.model_dump_json()
+    assert "response_metadata" not in encoded
+    assert "sanitized_payload" not in encoded
+    assert "secret_ref" not in encoded
+
+
 @pytest.mark.asyncio
 async def test_reconciliation_published_and_not_published_are_durable_and_deterministic(
     session_factory,
@@ -596,27 +670,79 @@ async def test_reconciliation_published_and_not_published_are_durable_and_determ
     await _make_publish_ambiguous(session_factory, fixture.reconcile_not_published_job_id)
 
     async with session_factory() as session:
-        response = Response()
-        published = await reconcile_telegram_publish_job(
-            fixture.reconcile_published_job_id,
-            TelegramReconcileIn(outcome="published", remote_message_ids=[7201]),
-            response,
-            session,
+        published_receipts = list(
+            await session.scalars(
+                select(PublishOperationReceipt)
+                .where(
+                    PublishOperationReceipt.publish_job_id
+                    == fixture.reconcile_published_job_id
+                )
+                .order_by(PublishOperationReceipt.operation_index)
+            )
         )
-    assert response.status_code == 200
+        not_published_receipts = list(
+            await session.scalars(
+                select(PublishOperationReceipt)
+                .where(
+                    PublishOperationReceipt.publish_job_id
+                    == fixture.reconcile_not_published_job_id
+                )
+                .order_by(PublishOperationReceipt.operation_index)
+            )
+        )
+    published_generation = _reconciliation_generation(
+        next(receipt for receipt in published_receipts if receipt.status == "ambiguous")
+    )
+    not_published_generation = _reconciliation_generation(
+        next(
+            receipt
+            for receipt in not_published_receipts
+            if receipt.status == "ambiguous"
+        )
+    )
+    published_operation_keys = [receipt.operation_key for receipt in published_receipts]
+    not_published_operation_keys = [
+        receipt.operation_key for receipt in not_published_receipts
+    ]
+    published_body = TelegramReconcileIn(
+        outcome="published",
+        remote_message_ids=[7201],
+        permalink="https://t.me/destination/7201",
+        operator_note="Verified token=published-secret in the destination channel",
+    )
+    not_published_body = TelegramReconcileIn(
+        outcome="not_published",
+        operator_note="Checked token=absent-secret in the destination channel",
+    )
+
+    published_status, published = await _reconcile(
+        session_factory,
+        fixture.reconcile_published_job_id,
+        published_body,
+    )
+    published_replay_status, published_replay = await _reconcile(
+        session_factory,
+        fixture.reconcile_published_job_id,
+        published_body,
+    )
+    assert published_status == published_replay_status == 200
     assert published["remote_message_ids"] == [7201]
     assert published["reconciliation_status"] == "confirmed"
+    assert published_replay == published
 
-    async with session_factory() as session:
-        response = Response()
-        requeued = await reconcile_telegram_publish_job(
-            fixture.reconcile_not_published_job_id,
-            TelegramReconcileIn(outcome="not_published"),
-            response,
-            session,
-        )
-    assert response.status_code == 202
+    requeued_status, requeued = await _reconcile(
+        session_factory,
+        fixture.reconcile_not_published_job_id,
+        not_published_body,
+    )
+    requeued_replay_status, requeued_replay = await _reconcile(
+        session_factory,
+        fixture.reconcile_not_published_job_id,
+        not_published_body,
+    )
+    assert requeued_status == requeued_replay_status == 202
     assert requeued["reconciliation_status"] == "requeued"
+    assert requeued_replay == requeued
     workflow_job_id = UUID(str(requeued["job"]["job_id"]))
 
     async with session_factory() as session:
@@ -650,6 +776,14 @@ async def test_reconciliation_published_and_not_published_are_durable_and_determ
                 )
             )
         )
+        published_events = await _reconciliation_events(
+            session,
+            fixture.reconcile_published_job_id,
+        )
+        not_published_events = await _reconciliation_events(
+            session,
+            fixture.reconcile_not_published_job_id,
+        )
 
         assert published_receipt.status == "succeeded"
         assert published_receipt.remote_message_ids == [7201]
@@ -667,7 +801,8 @@ async def test_reconciliation_published_and_not_published_are_durable_and_determ
         }
         assert retry_job.idempotency_key == (
             f"telegram-publish-reconcile:{fixture.reconcile_not_published_job_id}:"
-            f"{not_published_job.scheduled_for.isoformat()}"
+            f"{not_published_generation['operation_key']}:"
+            f"{not_published_generation['attempt_count']}"
         )
         assert retry_job_count == 1
         assert await session.scalar(
@@ -675,3 +810,146 @@ async def test_reconciliation_published_and_not_published_are_durable_and_determ
             .select_from(Publication)
             .where(Publication.publish_job_id == fixture.reconcile_not_published_job_id)
         ) == 0
+
+        assert await session.scalar(
+            select(func.count())
+            .select_from(Publication)
+            .where(Publication.publish_job_id == fixture.reconcile_published_job_id)
+        ) == 1
+        assert len(published_events) == 1
+        assert len(not_published_events) == 1
+
+        published_audit = published_events[0].event_data
+        assert published_audit["outcome"] == "published"
+        assert published_audit["operation_keys"] == published_operation_keys
+        assert published_audit["remote_message_ids"] == [7201]
+        assert published_audit["permalink"] == "https://t.me/destination/7201"
+        assert published_audit["operator_note"] == (
+            "Verified token=[REDACTED] in the destination channel"
+        )
+        assert published_audit["reconciliation_generation"] == published_generation
+        assert published_audit["publication_id"] == str(confirmed_publication.id)
+        _assert_decision_hash(published_audit["decision_hash"])
+
+        not_published_audit = not_published_events[0].event_data
+        assert not_published_audit["outcome"] == "not_published"
+        assert not_published_audit["operation_keys"] == not_published_operation_keys
+        assert not_published_audit["remote_message_ids"] == []
+        assert not_published_audit["permalink"] is None
+        assert not_published_audit["operator_note"] == (
+            "Checked token=[REDACTED] in the destination channel"
+        )
+        assert (
+            not_published_audit["reconciliation_generation"]
+            == not_published_generation
+        )
+        assert not_published_audit["requeued_workflow_job_id"] == str(workflow_job_id)
+        assert not_published_audit["requeued_job_status"] == requeued["job"]["status"]
+        assert (
+            not_published_audit["requeued_job_deduplicated"]
+            == requeued["job"]["deduplicated"]
+        )
+        _assert_decision_hash(not_published_audit["decision_hash"])
+
+    with pytest.raises(HTTPException) as conflicting:
+        await _reconcile(
+            session_factory,
+            fixture.reconcile_not_published_job_id,
+            TelegramReconcileIn(
+                outcome="published",
+                remote_message_ids=[7301],
+                operator_note="Conflicting same generation decision",
+            ),
+        )
+    assert conflicting.value.status_code == 409
+
+    await _make_publish_ambiguous(
+        session_factory,
+        fixture.reconcile_not_published_job_id,
+    )
+    async with session_factory() as session:
+        later_receipt = await session.scalar(
+            select(PublishOperationReceipt).where(
+                PublishOperationReceipt.publish_job_id
+                == fixture.reconcile_not_published_job_id,
+                PublishOperationReceipt.status == "ambiguous",
+            )
+        )
+        later_generation = _reconciliation_generation(later_receipt)
+    assert later_generation["attempt_count"] > not_published_generation["attempt_count"]
+
+    with pytest.raises(HTTPException) as stale:
+        await _reconcile(
+            session_factory,
+            fixture.reconcile_not_published_job_id,
+            not_published_body,
+        )
+    assert stale.value.status_code == 409
+    assert stale.value.detail == "Stale reconciliation decision"
+    async with session_factory() as session:
+        unchanged_receipt = await session.scalar(
+            select(PublishOperationReceipt).where(
+                PublishOperationReceipt.publish_job_id
+                == fixture.reconcile_not_published_job_id,
+                PublishOperationReceipt.status == "ambiguous",
+            )
+        )
+        unchanged_events = await _reconciliation_events(
+            session,
+            fixture.reconcile_not_published_job_id,
+        )
+    assert _reconciliation_generation(unchanged_receipt) == later_generation
+    assert len(unchanged_events) == 1
+
+    later_status, later_published = await _reconcile(
+        session_factory,
+        fixture.reconcile_not_published_job_id,
+        TelegramReconcileIn(
+            outcome="published",
+            remote_message_ids=[7301],
+            operator_note="Verified the later ambiguous send",
+        ),
+    )
+    assert later_status == 200
+    assert later_published["remote_message_ids"] == [7301]
+    async with session_factory() as session:
+        later_events = await _reconciliation_events(
+            session,
+            fixture.reconcile_not_published_job_id,
+        )
+    assert [event.event_data["outcome"] for event in later_events] == [
+        "not_published",
+        "published",
+    ]
+    assert later_events[1].event_data["reconciliation_generation"] == later_generation
+
+
+@pytest.mark.asyncio
+async def test_concurrent_exact_reconciliation_replay_creates_one_publication_and_event(
+    session_factory,
+):
+    fixture = await _seed_publish_fixtures(session_factory)
+    await _make_publish_ambiguous(session_factory, fixture.concurrent_job_id)
+    body = TelegramReconcileIn(
+        outcome="published",
+        remote_message_ids=[7401],
+        operator_note="Verified the concurrently replayed decision",
+    )
+
+    first, second = await asyncio.wait_for(
+        asyncio.gather(
+            _reconcile(session_factory, fixture.concurrent_job_id, body),
+            _reconcile(session_factory, fixture.concurrent_job_id, body),
+        ),
+        timeout=10,
+    )
+
+    assert first[0] == second[0] == 200
+    assert first[1] == second[1]
+    async with session_factory() as session:
+        assert await session.scalar(
+            select(func.count())
+            .select_from(Publication)
+            .where(Publication.publish_job_id == fixture.concurrent_job_id)
+        ) == 1
+        assert len(await _reconciliation_events(session, fixture.concurrent_job_id)) == 1

@@ -6,8 +6,11 @@ from types import SimpleNamespace
 from uuid import uuid4
 
 import pytest
+from pydantic import ValidationError
+from sqlalchemy.dialects import postgresql
 from sqlalchemy.exc import IntegrityError
 
+import app.publishing.telegram.service as telegram_service
 from app.automations.models import AutomationDispatch, AutomationRoute
 from app.automations.telegram.handlers import sha256_canonical
 from app.generation.models import PlatformVariant, PlatformVariantRevision
@@ -96,11 +99,202 @@ def test_ordered_remote_ids_require_positive_unique_values():
         )
 
 
+class _ProjectionRows:
+    def __init__(self, values):
+        self.values = list(values)
+
+    def __iter__(self):
+        return iter(self.values)
+
+    def all(self):
+        return list(self.values)
+
+    def first(self):
+        return self.values[0] if self.values else None
+
+
+class _ReconciliationProjectionSession:
+    def __init__(self, *, job_rows=(), receipts=()):
+        self.job_rows = list(job_rows)
+        self.receipts = list(receipts)
+        self.execute_statements = []
+        self.scalar_statements = []
+
+    async def execute(self, statement):
+        self.execute_statements.append(statement)
+        return _ProjectionRows(self.job_rows)
+
+    async def scalars(self, statement):
+        self.scalar_statements.append(statement)
+        return _ProjectionRows(self.receipts)
+
+    def add(self, _value):
+        raise AssertionError("Reconciliation projections must remain read-only")
+
+    def add_all(self, _values):
+        raise AssertionError("Reconciliation projections must remain read-only")
+
+    async def flush(self):
+        raise AssertionError("Reconciliation projections must remain read-only")
+
+    async def commit(self):
+        raise AssertionError("Reconciliation projections must remain read-only")
+
+
+def _reconciliation_projection_fixture():
+    publish_job_id = uuid4()
+    destination_id = uuid4()
+    revision_id = uuid4()
+    now = datetime(2026, 7, 13, 9, tzinfo=UTC)
+    publish_job = SimpleNamespace(
+        id=publish_job_id,
+        workflow_job_id=uuid4(),
+        destination_id=destination_id,
+        platform_variant_revision_id=revision_id,
+        status="reconciliation_required",
+        updated_at=now,
+    )
+    destination = SimpleNamespace(
+        id=destination_id,
+        name="Editorial destination",
+        target_ref="@editorial",
+        secret_ref="TELEGRAM_BOT_TOKEN",
+    )
+    succeeded = SimpleNamespace(
+        publish_job_id=publish_job_id,
+        operation_index=0,
+        operation_key="telegram:0:send-photo",
+        method="sendPhoto",
+        request_hash="a" * 64,
+        status="succeeded",
+        attempt_count=1,
+        remote_message_ids=[701],
+        response_metadata={
+            "authorization": "Bearer receipt-secret",
+            "headers": {"x-token": "header-secret"},
+            "body": "upstream response body",
+        },
+        completed_at=now - timedelta(seconds=3),
+        ambiguous_at=None,
+        sanitized_payload={"token_ref": "TELEGRAM_BOT_TOKEN"},
+    )
+    ambiguous = SimpleNamespace(
+        publish_job_id=publish_job_id,
+        operation_index=1,
+        operation_key="telegram:1:send-message",
+        method="sendMessage",
+        request_hash="b" * 64,
+        status="ambiguous",
+        attempt_count=1,
+        remote_message_ids=[],
+        response_metadata={"description": "timeout token=receipt-secret"},
+        completed_at=None,
+        ambiguous_at=now,
+        sanitized_payload={"secret_ref": "TELEGRAM_BOT_TOKEN"},
+    )
+    return publish_job, destination, succeeded, ambiguous
+
+
+@pytest.mark.asyncio
+async def test_reconciliation_case_projection_is_strict_ordered_and_secret_free():
+    publish_job, destination, succeeded, ambiguous = _reconciliation_projection_fixture()
+    session = _ReconciliationProjectionSession(
+        job_rows=[(publish_job, destination)],
+        receipts=[ambiguous, succeeded],
+    )
+
+    cases = await telegram_service.list_reconciliation_cases(session)
+
+    assert len(cases) == 1
+    case = cases[0]
+    assert case.publish_job_id == publish_job.id
+    assert case.status == "pending"
+    assert case.publish_status == "reconciliation_required"
+    assert case.destination.model_dump() == {
+        "id": destination.id,
+        "name": "Editorial destination",
+        "target_ref": "@editorial",
+    }
+    assert [operation.operation_index for operation in case.operations] == [0, 1]
+    assert [operation.operation_key for operation in case.operations] == [
+        "telegram:0:send-photo",
+        "telegram:1:send-message",
+    ]
+    assert [operation.request_hash for operation in case.operations] == ["a" * 64, "b" * 64]
+    assert [operation.status for operation in case.operations] == ["succeeded", "ambiguous"]
+    assert [operation.sent_at for operation in case.operations] == [
+        succeeded.completed_at,
+        ambiguous.ambiguous_at,
+    ]
+    assert case.ambiguous_operation_key == ambiguous.operation_key
+    assert case.ambiguous_at == ambiguous.ambiguous_at
+    assert case.ambiguity_reason == "Telegram send outcome is ambiguous and requires operator verification"
+
+    encoded = case.model_dump_json()
+    for forbidden in (
+        "sanitized_payload",
+        "response_metadata",
+        "authorization",
+        "headers",
+        "body",
+        "secret_ref",
+        "token_ref",
+        "receipt-secret",
+        "header-secret",
+        "TELEGRAM_BOT_TOKEN",
+    ):
+        assert forbidden not in encoded
+
+    invalid = case.model_dump(mode="json")
+    invalid["destination"]["secret_ref"] = "TELEGRAM_BOT_TOKEN"
+    with pytest.raises(ValidationError):
+        type(case).model_validate(invalid)
+
+
+@pytest.mark.asyncio
+async def test_reconciliation_list_and_detail_are_open_case_read_models_keyed_by_publish_job():
+    publish_job, destination, succeeded, ambiguous = _reconciliation_projection_fixture()
+    list_session = _ReconciliationProjectionSession(
+        job_rows=[(publish_job, destination)],
+        receipts=[succeeded, ambiguous],
+    )
+
+    listed = await telegram_service.list_reconciliation_cases(list_session)
+
+    assert [item.publish_job_id for item in listed] == [publish_job.id]
+    list_sql = "\n".join(
+        str(statement.compile(dialect=postgresql.dialect(), compile_kwargs={"literal_binds": True}))
+        for statement in [*list_session.execute_statements, *list_session.scalar_statements]
+    )
+    assert "JOIN destinations" in list_sql
+    assert "publish_operation_receipts.status = 'ambiguous'" in list_sql
+    assert "ORDER BY publish_jobs.updated_at DESC, publish_jobs.id DESC" in list_sql
+    assert "ORDER BY publish_operation_receipts.publish_job_id, publish_operation_receipts.operation_index" in list_sql
+    assert all(keyword not in list_sql for keyword in ("UPDATE ", "DELETE ", "INSERT "))
+
+    detail_session = _ReconciliationProjectionSession(
+        job_rows=[(publish_job, destination)],
+        receipts=[succeeded, ambiguous],
+    )
+    detail = await telegram_service.get_reconciliation_case(detail_session, publish_job.id)
+
+    assert detail is not None
+    assert detail.publish_job_id == publish_job.id
+    detail_compiled = detail_session.execute_statements[0].compile(dialect=postgresql.dialect())
+    assert publish_job.id in detail_compiled.params.values()
+    assert "publish_operation_receipts.status" in str(detail_compiled)
+
+    resolved_session = _ReconciliationProjectionSession(job_rows=[])
+    assert await telegram_service.get_reconciliation_case(resolved_session, publish_job.id) is None
+    assert resolved_session.scalar_statements == []
+
+
 def test_registry_registers_publish_capability_only_with_complete_dependency_bundle():
     client = object()
 
     def resolver(ref):
         return "token"
+
     registry = build_default_registry(telegram_client=client, destination_secret_resolver=resolver)
     assert registry.job_types() == (
         "ingest.collect",
@@ -330,10 +524,7 @@ async def test_reviewed_schedule_creates_identical_durable_due_times_and_one_red
         clock=lambda: now,
     )
 
-    key = (
-        f"telegram-publish:{fixture.destination.id}:"
-        f"{fixture.revision.id}:{fixture.revision.content_hash}"
-    )
+    key = f"telegram-publish:{fixture.destination.id}:{fixture.revision.id}:{fixture.revision.content_hash}"
     assert result.created is True
     assert result.publish_job.status == "scheduled"
     assert result.publish_job.scheduled_for == normalized_due
@@ -378,10 +569,7 @@ async def test_reviewed_schedule_exact_replay_reuses_both_rows_without_event_or_
     fixture = _schedule_fixture()
     now = datetime(2026, 7, 13, 4, 0, tzinfo=UTC)
     due = now + timedelta(hours=2)
-    key = (
-        f"telegram-publish:{fixture.destination.id}:"
-        f"{fixture.revision.id}:{fixture.revision.content_hash}"
-    )
+    key = f"telegram-publish:{fixture.destination.id}:{fixture.revision.id}:{fixture.revision.content_hash}"
     workflow = WorkflowJob(
         id=uuid4(),
         job_type="telegram.publish",
@@ -433,10 +621,7 @@ async def test_reviewed_schedule_exact_replay_survives_a_lost_response_after_due
     fixture = _schedule_fixture()
     due = datetime(2026, 7, 13, 6, 0, tzinfo=UTC)
     now = due + timedelta(minutes=5)
-    key = (
-        f"telegram-publish:{fixture.destination.id}:"
-        f"{fixture.revision.id}:{fixture.revision.content_hash}"
-    )
+    key = f"telegram-publish:{fixture.destination.id}:{fixture.revision.id}:{fixture.revision.content_hash}"
     workflow = WorkflowJob(
         id=uuid4(),
         job_type="telegram.publish",
@@ -488,10 +673,7 @@ async def test_reviewed_schedule_recovers_insert_race_as_exact_replay(monkeypatc
     fixture = _schedule_fixture()
     now = datetime(2026, 7, 13, 4, 0, tzinfo=UTC)
     due = now + timedelta(hours=2)
-    key = (
-        f"telegram-publish:{fixture.destination.id}:"
-        f"{fixture.revision.id}:{fixture.revision.content_hash}"
-    )
+    key = f"telegram-publish:{fixture.destination.id}:{fixture.revision.id}:{fixture.revision.content_hash}"
     workflow = WorkflowJob(
         id=uuid4(),
         job_type="telegram.publish",
@@ -548,10 +730,7 @@ async def test_reviewed_schedule_maps_concurrent_immediate_intent_to_stable_conf
     fixture = _schedule_fixture()
     now = datetime(2026, 7, 13, 4, 0, tzinfo=UTC)
     due = now + timedelta(hours=2)
-    key = (
-        f"telegram-publish:{fixture.destination.id}:"
-        f"{fixture.revision.id}:{fixture.revision.content_hash}"
-    )
+    key = f"telegram-publish:{fixture.destination.id}:{fixture.revision.id}:{fixture.revision.content_hash}"
     workflow = WorkflowJob(
         id=uuid4(),
         job_type="telegram.publish",
@@ -780,10 +959,7 @@ async def test_reviewed_schedule_rejects_existing_intent_or_workflow_drift(
     fixture = _schedule_fixture()
     now = datetime(2026, 7, 13, 5, 0, tzinfo=UTC)
     due = now + timedelta(hours=1)
-    key = (
-        f"telegram-publish:{fixture.destination.id}:"
-        f"{fixture.revision.id}:{fixture.revision.content_hash}"
-    )
+    key = f"telegram-publish:{fixture.destination.id}:{fixture.revision.id}:{fixture.revision.content_hash}"
     workflow = WorkflowJob(
         id=uuid4(),
         job_type="telegram.publish",
@@ -915,19 +1091,12 @@ async def test_publish_prepare_locks_fresh_revision_before_fresh_publish_job():
             datetime(2026, 7, 13, tzinfo=UTC),
         )
 
-    locked = [
-        statement
-        for statement in session.statements
-        if "FOR UPDATE" in str(statement)
-    ]
+    locked = [statement for statement in session.statements if "FOR UPDATE" in str(statement)]
     assert [statement.column_descriptions[0].get("entity") for statement in locked[:2]] == [
         PlatformVariantRevision,
         PublishJob,
     ]
-    assert all(
-        statement.get_execution_options().get("populate_existing") is True
-        for statement in locked[:2]
-    )
+    assert all(statement.get_execution_options().get("populate_existing") is True for statement in locked[:2])
 
 
 @pytest.mark.asyncio
@@ -958,11 +1127,7 @@ async def test_publish_claim_revalidation_locks_fresh_revision_before_fresh_publ
     with pytest.raises(NeedsReviewJobError, match="context changed"):
         await _revalidate_claim(session, context)
 
-    locked = [
-        statement
-        for statement in session.statements
-        if "FOR UPDATE" in str(statement)
-    ]
+    locked = [statement for statement in session.statements if "FOR UPDATE" in str(statement)]
     assert [statement.column_descriptions[0].get("entity") for statement in locked[:6]] == [
         PlatformVariantRevision,
         PublishJob,
@@ -971,7 +1136,4 @@ async def test_publish_claim_revalidation_locks_fresh_revision_before_fresh_publ
         AutomationControl,
         Destination,
     ]
-    assert all(
-        statement.get_execution_options().get("populate_existing") is True
-        for statement in locked[:6]
-    )
+    assert all(statement.get_execution_options().get("populate_existing") is True for statement in locked[:6])
