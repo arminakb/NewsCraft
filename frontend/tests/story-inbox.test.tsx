@@ -1,10 +1,12 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react"
 import { StoryInbox } from "@/components/editorial/story-inbox"
+import * as libraryApi from "@/features/library/api"
 import * as api from "@/lib/editorial-api"
 import type { StorySummary } from "@/lib/editorial-types"
 
 vi.mock("@/lib/editorial-api", async () => ({ getStories: vi.fn(), getStory: vi.fn(), getStoryEvidence: vi.fn(), getAIProviderOptions: vi.fn(), getBrandOptions: vi.fn(), getPromptVersionOptions: vi.fn(), getResearchRuns: vi.fn(), groupPendingStories: vi.fn(), setStoryEditorialState: vi.fn(), bulkSetStoryEditorialState: vi.fn(), requestContentPack: vi.fn() }))
+vi.mock("@/features/library/api", () => ({ getLibraryResearchRun: vi.fn() }))
 
 const incomplete: StorySummary = { id: "story-1", title: "Election timeline", evidenceCount: 2, latestEvidenceAt: "2026-07-12T08:00:00Z", completeness: { complete: false, score: 40, reasons: ["More sources needed"] }, editorialState: "inbox", status: "inbox", primaryLanguage: "en", evidenceSetHash: "a".repeat(64), createdAt: "2026-07-12T07:00:00Z", updatedAt: "2026-07-12T08:00:00Z" }
 
@@ -19,6 +21,63 @@ beforeEach(() => {
   vi.mocked(api.getBrandOptions).mockResolvedValue([])
   vi.mocked(api.getPromptVersionOptions).mockResolvedValue([])
   vi.mocked(api.getResearchRuns).mockResolvedValue([])
+  vi.mocked(libraryApi.getLibraryResearchRun).mockResolvedValue({
+    id: "run-1",
+    storyId: "story-1",
+    requestedMode: "manual",
+    backend: "openrouter",
+    status: "succeeded",
+    budget: { maxQueries: 4, maxPages: 8, maxElapsedSeconds: 120 },
+    createdAt: "2026-07-12T08:00:00Z",
+    startedAt: "2026-07-12T08:00:01Z",
+    finishedAt: "2026-07-12T08:01:00Z",
+    attemptCount: 1,
+    sourceCount: 2,
+    resultRevisionId: "story-revision-1",
+    errorSummary: null,
+  })
+})
+
+it("loads and opens an exact deep-linked story even when it is outside the current page", async () => {
+  const linked = { ...incomplete, id: "story-2", title: "Deep linked story" }
+  window.history.replaceState({}, "", "/inbox?story_id=story-2")
+  vi.mocked(api.getStory).mockImplementation(async (id) => ({
+    ...(id === linked.id ? linked : incomplete),
+    evidence: [{
+      id: "e-2", evidenceKey: "key-2", title: "Linked evidence", contentText: "Exact evidence",
+      contentSha256: "c".repeat(64), sourceUrl: null, authors: [], publishedAt: null,
+      capturedAt: "2026-07-12T08:00:00Z",
+    }],
+  }))
+
+  renderInbox()
+
+  expect(await screen.findByText("Deep linked story")).toBeInTheDocument()
+  expect(await screen.findByText("Linked evidence")).toBeInTheDocument()
+  expect(api.getStory).toHaveBeenCalledWith("story-2")
+})
+
+it("focuses the exact evidence snapshot requested by a Library deep link", async () => {
+  window.history.replaceState({}, "", "/inbox?story_id=story-1&evidence_id=e-1")
+
+  renderInbox()
+
+  const snapshot = await screen.findByRole("article", { name: "Evidence snapshot e-1" })
+  await waitFor(() => expect(snapshot).toHaveFocus())
+  expect(snapshot).toHaveAttribute("aria-current", "true")
+})
+
+it("opens a safe exact research projection without treating its StoryRevision as a review revision", async () => {
+  window.history.replaceState({}, "", "/inbox?story_id=story-1&research_run_id=run-1")
+
+  renderInbox()
+
+  const linkedRun = await screen.findByRole("region", { name: "Linked research run" })
+  expect(linkedRun).toHaveTextContent("run-1")
+  expect(linkedRun).toHaveTextContent("2 sources")
+  expect(linkedRun).toHaveTextContent("Story revision story-revision-1")
+  expect(within(linkedRun).queryByRole("link", { name: /revision/i })).not.toBeInTheDocument()
+  expect(libraryApi.getLibraryResearchRun).toHaveBeenCalledWith("run-1")
 })
 
 it("submits the succeeded research run binding from the regeneration link query", async () => {

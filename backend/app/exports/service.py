@@ -66,7 +66,7 @@ def _sha256_path(path: Path) -> str:
     return digest.hexdigest()
 
 
-def _content_hash(revision: PlatformVariantRevision) -> str:
+def export_revision_content_hash(revision: PlatformVariantRevision) -> str:
     return _sha256_bytes(
         _canonical_json_bytes(
             {
@@ -121,6 +121,32 @@ def _payload_model(platform: Platform, content: dict[str, Any]) -> PlatformPaylo
     return payload
 
 
+def render_export_markdown(platform: Platform, content: dict[str, Any]) -> str:
+    payload = _payload_model(platform, content)
+    rendered = render_platform_markdown(platform, payload).rstrip()
+    if platform == "blog":
+        rendered = f"# {payload.title}\n\n{payload.body_markdown}"  # type: ignore[union-attr]
+    structured = json.dumps(
+        payload.model_dump(mode="json"),
+        ensure_ascii=False,
+        sort_keys=True,
+        indent=2,
+    )
+    structured_block = "\n".join(f"    {line}" for line in structured.splitlines())
+    return f"{rendered}\n\n## Complete package data\n\n{structured_block}\n"
+
+
+def render_export_html(platform: Platform, content: dict[str, Any]) -> str:
+    payload = _payload_model(platform, content)
+    source = (
+        payload.body_markdown  # type: ignore[union-attr]
+        if platform == "blog"
+        else render_export_markdown(platform, content)
+    )
+    rendered = markdown.markdown(source)
+    return nh3.clean(rendered, url_schemes={"http", "https", "mailto"})
+
+
 def _identity(
     variant: PlatformVariant,
     revision: PlatformVariantRevision,
@@ -130,7 +156,7 @@ def _identity(
             "all exported revisions must be approved",
             code="export_revision_not_approved",
         )
-    if revision.content_hash != _content_hash(revision):
+    if revision.content_hash != export_revision_content_hash(revision):
         raise ExportContractError(
             "revision content hash does not match its immutable content",
             code="export_revision_hash_mismatch",
@@ -531,28 +557,10 @@ class ExportService:
         return identity
 
     def render_html(self, platform: Platform, content: dict[str, Any]) -> str:
-        payload = _payload_model(platform, content)
-        source = (
-            payload.body_markdown  # type: ignore[union-attr]
-            if platform == "blog"
-            else self.render_markdown(platform, content)
-        )
-        rendered = markdown.markdown(source)
-        return nh3.clean(rendered, url_schemes={"http", "https", "mailto"})
+        return render_export_html(platform, content)
 
     def render_markdown(self, platform: Platform, content: dict[str, Any]) -> str:
-        payload = _payload_model(platform, content)
-        rendered = render_platform_markdown(platform, payload).rstrip()
-        if platform == "blog":
-            rendered = f"# {payload.title}\n\n{payload.body_markdown}"  # type: ignore[union-attr]
-        structured = json.dumps(
-            payload.model_dump(mode="json"),
-            ensure_ascii=False,
-            sort_keys=True,
-            indent=2,
-        )
-        structured_block = "\n".join(f"    {line}" for line in structured.splitlines())
-        return f"{rendered}\n\n## Complete package data\n\n{structured_block}\n"
+        return render_export_markdown(platform, content)
 
     async def _copy_revision_media(
         self,

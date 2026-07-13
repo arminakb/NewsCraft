@@ -463,12 +463,7 @@ async def list_publications(
         for plan, _revision in manual_rows:
             if plan.status != "manual_published" or plan.completed_at is None:
                 continue
-            try:
-                external_url = validate_external_url(plan.external_url)
-            except ValueError:
-                external_url = None
-            if external_url is None:
-                raise ValueError("manual publication evidence URL is missing or invalid")
+            external_url = validate_external_url(plan.external_url)
             records.append(
                 PublicationRecord(
                     id=plan.id,

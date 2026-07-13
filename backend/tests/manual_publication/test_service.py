@@ -154,6 +154,40 @@ def test_manual_checklist_ids_are_stable_platform_contracts_not_generated_prose(
 
 
 @pytest.mark.asyncio
+async def test_latest_plan_for_revision_is_read_only_and_uses_stable_newest_order():
+    from app.manual_publication.models import ManualPublicationPlan
+    from app.manual_publication.service import ManualPublicationService, manual_checklist_for
+
+    _variant, revision = _revision_fixture()
+    latest = ManualPublicationPlan(
+        id=uuid4(),
+        platform_variant_revision_id=revision.id,
+        platform="instagram",
+        scheduled_for=NOW + timedelta(hours=1),
+        display_timezone="Asia/Tehran",
+        status="planned",
+        checklist_state={item.id: False for item in manual_checklist_for("instagram")},
+    )
+
+    class ReadSession:
+        statement = None
+
+        async def scalar(self, statement):
+            self.statement = statement
+            return latest
+
+    session = ReadSession()
+    result = await ManualPublicationService(session).latest_plan_for_revision(revision.id)
+
+    assert result is latest
+    sql = str(session.statement)
+    assert "manual_publication_plans.platform_variant_revision_id =" in sql
+    assert "manual_publication_plans.created_at DESC" in sql
+    assert "manual_publication_plans.id DESC" in sql
+    assert "FOR UPDATE" not in sql
+
+
+@pytest.mark.asyncio
 async def test_create_plan_locks_variant_revision_plan_and_persists_exact_approved_revision():
     from app.manual_publication.models import ManualPublicationPlan
 
@@ -309,6 +343,38 @@ async def test_create_plan_exact_replay_reuses_without_event_but_conflicting_act
         )
     assert error.value.status_code == 409
     assert error.value.code == "active_plan_conflict"
+
+
+@pytest.mark.asyncio
+async def test_cancelled_plan_is_preserved_while_new_active_plan_is_created_for_exact_revision():
+    from app.manual_publication.models import ManualPublicationPlan
+    from app.manual_publication.service import manual_checklist_for
+
+    variant, revision = _revision_fixture()
+    cancelled = ManualPublicationPlan(
+        id=uuid4(),
+        platform_variant_revision_id=revision.id,
+        platform="instagram",
+        scheduled_for=NOW + timedelta(hours=1),
+        display_timezone="Asia/Tehran",
+        status="cancelled",
+        checklist_state={item.id: False for item in manual_checklist_for("instagram")},
+    )
+    session = _Session(variant=variant, revisions=[revision], plans=[cancelled])
+
+    replacement = await _service(session).create_plan(
+        revision.id,
+        NOW + timedelta(hours=3),
+        "Asia/Tehran",
+    )
+
+    assert cancelled in session.plans
+    assert cancelled.status == "cancelled"
+    assert replacement is not cancelled
+    assert replacement.platform_variant_revision_id == revision.id
+    assert replacement.status == "planned"
+    assert [plan for plan in session.plans if plan.status in {"planned", "ready"}] == [replacement]
+    assert [event.event_type for event in _events(session)] == ["manual_publication.plan.created"]
 
 
 @pytest.mark.asyncio
@@ -488,9 +554,9 @@ async def test_mark_published_requires_ready_and_revalidates_current_approval_ha
 
 
 @pytest.mark.asyncio
-async def test_mark_published_requires_operator_evidence_url():
+async def test_mark_published_allows_missing_external_url_and_replays_exactly():
     from app.manual_publication.models import ManualPublicationPlan
-    from app.manual_publication.service import ManualPublicationError, manual_checklist_for
+    from app.manual_publication.service import manual_checklist_for
 
     variant, revision = _revision_fixture()
     plan = ManualPublicationPlan(
@@ -503,10 +569,18 @@ async def test_mark_published_requires_operator_evidence_url():
         checklist_state={item.id: True for item in manual_checklist_for("instagram")},
     )
 
-    with pytest.raises(ManualPublicationError, match="external URL"):
-        await _service(_Session(variant=variant, revisions=[revision], plans=[plan])).mark_published(
-            plan.id
-        )
+    session = _Session(variant=variant, revisions=[revision], plans=[plan])
+    service = _service(session)
+
+    completed = await service.mark_published(plan.id)
+
+    assert completed.status == "manual_published"
+    assert completed.external_url is None
+    assert completed.operator_note is None
+    assert completed.completed_at == NOW
+    assert _events(session)[0].event_data["has_external_url"] is False
+    assert await service.mark_published(plan.id) is plan
+    assert len(_events(session)) == 1
 
 
 @pytest.mark.asyncio

@@ -42,6 +42,13 @@ export const queryKeys = {
   variantRevision: (revisionId: string) => ["platform-variant-revisions", revisionId] as const,
 }
 
+export const packageQueryKeys = {
+  export: (id: string) => ["exports", id] as const,
+  manualPlan: (id: string) => ["manual-publication-plans", id] as const,
+  manualPlanForRevision: (revisionId: string) => ["manual-publication-plans", "revision", revisionId] as const,
+  calendar: (start: string, end: string, timezone: string) => ["calendar", start, end, timezone] as const,
+}
+
 export const editorialQueryKeys = {
   editorialProviderOptions: queryKeys.editorialProviderOptions,
   editorialBrandOptions: queryKeys.editorialBrandOptions,

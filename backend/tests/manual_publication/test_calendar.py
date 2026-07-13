@@ -320,7 +320,7 @@ async def test_publications_use_kind_and_id_as_tie_breakers_and_apply_platform_f
 
 
 @pytest.mark.asyncio
-async def test_manual_publication_projection_rejects_missing_operator_evidence():
+async def test_manual_publication_projection_keeps_completed_record_without_external_url():
     completed_without_evidence = SimpleNamespace(
         id=PLAN_ID,
         platform_variant_revision_id=MANUAL_REVISION_ID,
@@ -339,5 +339,9 @@ async def test_manual_publication_projection_rejects_missing_operator_evidence()
         ],
     )
 
-    with pytest.raises(ValueError, match="publication evidence URL is missing"):
-        await list_publications(session, cursor=None, platform=None, limit=50)
+    page = await list_publications(session, cursor=None, platform=None, limit=50)
+
+    assert len(page.items) == 1
+    assert page.items[0].id == PLAN_ID
+    assert page.items[0].status == "manual_published"
+    assert page.items[0].external_url is None

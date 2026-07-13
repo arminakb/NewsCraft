@@ -1,10 +1,11 @@
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Literal
 from uuid import UUID
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -12,6 +13,11 @@ from app.api.stories import _story_summary
 from app.api.telegram_destinations import get_secret_resolver
 from app.core.redaction import redact_secrets
 from app.db.session import get_session
+from app.exports.service import (
+    ExportContractError,
+    export_revision_content_hash,
+    render_export_html,
+)
 from app.generation.editorial_service import (
     ApprovalRequest,
     EditorialService,
@@ -49,6 +55,15 @@ from app.stories.models import Story, StoryEvidenceSnapshot, StoryRevision
 router = APIRouter(tags=["content-packs"])
 SessionDependency = Depends(get_session)
 SecretResolverDependency = Depends(get_secret_resolver)
+
+
+class RenderedRevisionHtmlOut(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    revision_id: UUID
+    content_hash: str = Field(pattern=r"^[0-9a-f]{64}$")
+    platform: Literal["blog"]
+    html: str = Field(min_length=1)
 
 
 def get_editorial_profile_resolver(
@@ -593,6 +608,36 @@ async def get_variant_revision(revision_id: UUID, session: AsyncSession = Sessio
     if row is None:
         raise HTTPException(404, "Platform variant revision not found")
     return await _revision_out(session, row)
+
+
+@router.get(
+    "/platform-variant-revisions/{revision_id}/rendered-html",
+    response_model=RenderedRevisionHtmlOut,
+)
+async def get_variant_revision_rendered_html(
+    revision_id: UUID,
+    session: AsyncSession = SessionDependency,
+) -> RenderedRevisionHtmlOut:
+    row = await session.get(PlatformVariantRevision, revision_id)
+    if row is None:
+        raise HTTPException(404, "Platform variant revision not found")
+    variant = await session.get(PlatformVariant, row.platform_variant_id)
+    if variant is None:
+        raise HTTPException(404, "Platform variant not found")
+    if variant.platform != "blog":
+        raise HTTPException(422, "Rendered HTML projection is available only for blog revisions")
+    if row.content_hash != export_revision_content_hash(row):
+        raise HTTPException(409, "Revision content hash does not match its immutable content")
+    try:
+        html = render_export_html("blog", row.content)
+    except ExportContractError as exc:
+        raise HTTPException(409, str(exc)) from None
+    return RenderedRevisionHtmlOut(
+        revision_id=row.id,
+        content_hash=row.content_hash,
+        platform="blog",
+        html=html,
+    )
 
 
 @router.post("/platform-variants/{variant_id}/revisions", status_code=201)

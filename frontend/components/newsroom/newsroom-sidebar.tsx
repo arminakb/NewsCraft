@@ -5,11 +5,13 @@ import { usePathname } from "next/navigation"
 import {
   Activity,
   Bot,
+  CalendarDays,
   Clock3,
   Database,
   FileText,
   ImageIcon,
   ListTodo,
+  Library,
   Inbox,
   Newspaper,
   Settings,
@@ -27,6 +29,8 @@ export const newsroomNavItems = [
   { label: "Automations", href: "/automations", icon: Bot },
   { label: "Drafts", href: "/drafts", icon: FileText },
   { label: "Review & Publish", href: "/drafts?approval_state=pending_review", activeHref: "/review", icon: SquarePen },
+  { label: "Calendar", href: "/calendar", icon: CalendarDays },
+  { label: "Library", href: "/library", icon: Library },
   { label: "Sources", href: "/sources", icon: Database },
   { label: "Content", href: "/content", icon: FileText },
   { label: "Ingestion Runs", href: "/runs", icon: Clock3 },
@@ -48,7 +52,7 @@ export function NewsroomSidebar({ summary }: { summary?: JobSummary }) {
       <nav aria-label="Newsroom navigation" className="flex-1 space-y-1 p-3">
         {newsroomNavItems.map((item, index) => (
           <div key={item.href}>
-            {index === 6 ? <Separator className="my-3" /> : null}
+            {index === 8 ? <Separator className="my-3" /> : null}
             <NewsroomLink item={item} active={isCurrentPath(pathname, "activeHref" in item ? item.activeHref : item.href)} />
           </div>
         ))}

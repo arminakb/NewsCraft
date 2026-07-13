@@ -2,6 +2,7 @@ import { fireEvent, render, screen, within } from "@testing-library/react"
 
 import { MobileNewsroomNav } from "@/components/newsroom/mobile-newsroom-nav"
 import { NewsroomSidebar } from "@/components/newsroom/newsroom-sidebar"
+import { packageQueryKeys } from "@/lib/query-keys"
 
 let pathname = "/content"
 
@@ -31,15 +32,14 @@ describe("NewsroomSidebar", () => {
       "href",
       "/drafts?approval_state=pending_review"
     )
+    expect(screen.getByRole("link", { name: "Calendar" })).toHaveAttribute("href", "/calendar")
+    expect(screen.getByRole("link", { name: "Library" })).toHaveAttribute("href", "/library")
     expect(screen.getByRole("link", { name: "Content Settings" })).toHaveAttribute(
       "href",
       "/settings/content"
     )
     expect(screen.getByRole("link", { name: "Content" })).toHaveAttribute("aria-current", "page")
 
-    for (const futureRoute of ["Library"]) {
-      expect(screen.queryByRole("link", { name: futureRoute })).not.toBeInTheDocument()
-    }
   })
 
   it("marks Today only at the root path", () => {
@@ -66,7 +66,20 @@ describe("NewsroomSidebar", () => {
     expect(within(dialog).getByRole("link", { name: "Automations" })).toHaveAttribute("href", "/automations")
     expect(within(dialog).getByRole("link", { name: "Drafts" })).toHaveAttribute("href", "/drafts")
     expect(within(dialog).getByRole("link", { name: "Review & Publish" })).toHaveAttribute("href", "/drafts?approval_state=pending_review")
+    expect(within(dialog).getByRole("link", { name: "Calendar" })).toHaveAttribute("href", "/calendar")
+    expect(within(dialog).getByRole("link", { name: "Library" })).toHaveAttribute("href", "/library")
     expect(within(dialog).getByRole("link", { name: "Content Settings" })).toHaveAttribute("href", "/settings/content")
     expect(within(dialog).getByRole("link", { name: "Inbox" })).toHaveAttribute("href", "/inbox")
+  })
+
+  it("uses stable package keys for exports, manual plans, and timezone calendar windows", () => {
+    expect(packageQueryKeys.export("export-1")).toEqual(["exports", "export-1"])
+    expect(packageQueryKeys.manualPlan("plan-1")).toEqual(["manual-publication-plans", "plan-1"])
+    expect(packageQueryKeys.calendar("2026-07-01T00:00:00Z", "2026-08-01T00:00:00Z", "Asia/Tehran")).toEqual([
+      "calendar",
+      "2026-07-01T00:00:00Z",
+      "2026-08-01T00:00:00Z",
+      "Asia/Tehran",
+    ])
   })
 })

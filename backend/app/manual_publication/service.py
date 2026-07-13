@@ -117,12 +117,9 @@ def _is_complete(platform: str, state: dict[str, bool]) -> bool:
     return set(state) == set(expected) and all(expected.values())
 
 
-def _safe_url(value: str | None) -> str:
+def _safe_url(value: str | None) -> str | None:
     if value is None:
-        raise ManualPublicationError(
-            "external URL is required as publication evidence",
-            code="manual_external_url_required",
-        )
+        return None
     if len(value) > 2_048 or not value or any(character.isspace() for character in value):
         raise ManualPublicationError(
             "external URL must be a safe HTTP(S) URL",
@@ -165,6 +162,20 @@ class ManualPublicationService:
         if observed_at.tzinfo is None or observed_at.utcoffset() is None:
             raise RuntimeError("manual publication clock must be timezone-aware")
         return observed_at.astimezone(UTC)
+
+    async def latest_plan_for_revision(
+        self,
+        revision_id: UUID,
+    ) -> ManualPublicationPlan | None:
+        return await self.session.scalar(
+            select(ManualPublicationPlan)
+            .where(ManualPublicationPlan.platform_variant_revision_id == revision_id)
+            .order_by(
+                ManualPublicationPlan.created_at.desc(),
+                ManualPublicationPlan.id.desc(),
+            )
+            .limit(1)
+        )
 
     async def _lock_revision_context(
         self,

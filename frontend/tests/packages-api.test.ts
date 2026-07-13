@@ -2,6 +2,7 @@ import {
   approvePlatformRevision,
   decodeContentPackage,
   decodePlatformRevision,
+  getRenderedRevisionHtml,
   rejectPlatformRevision,
   saveManualPlatformRevision,
 } from "@/features/packages/api"
@@ -253,6 +254,35 @@ describe("multi-platform package API", () => {
       method: "POST",
       body: JSON.stringify({ expected_content_hash: "b".repeat(64), note: "Citation needs correction" }),
     }))
+  })
+
+  it("strictly decodes sanitized blog HTML bound to the requested immutable revision and hash", async () => {
+    const html = '<h1>Grounded report</h1>\n<p><a href="https://example.com/report">Source</a></p>'
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify({
+      revision_id: ids.revision,
+      content_hash: "b".repeat(64),
+      platform: "blog",
+      html,
+    }), { status: 200, headers: { "content-type": "application/json" } }))
+
+    await expect(getRenderedRevisionHtml(ids.revision, "b".repeat(64))).resolves.toBe(html)
+    expect(fetchSpy).toHaveBeenCalledWith(
+      `/api/backend/platform-variant-revisions/${ids.revision}/rendered-html`,
+      undefined,
+    )
+  })
+
+  it.each([
+    [{ revision_id: "99999999-9999-4999-8999-999999999999", content_hash: "b".repeat(64), platform: "blog", html: "<h1>Wrong revision</h1>" }, "identity mismatch"],
+    [{ revision_id: ids.revision, content_hash: "c".repeat(64), platform: "blog", html: "<h1>Wrong hash</h1>" }, "identity mismatch"],
+    [{ revision_id: ids.revision, content_hash: "b".repeat(64), platform: "blog", html: "<h1>Extra</h1>", extra: true }, "Invalid rendered revision HTML"],
+  ])("rejects a rendered HTML response that is not the exact requested projection", async (response, error) => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify(response), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    }))
+
+    await expect(getRenderedRevisionHtml(ids.revision, "b".repeat(64))).rejects.toThrow(error)
   })
 
   it("keeps the three manual request payloads discriminated at compile time", () => {

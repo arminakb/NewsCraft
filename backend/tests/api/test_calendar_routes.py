@@ -17,6 +17,7 @@ from app.manual_publication.service import ManualPublicationError
 
 PLAN_ID = UUID("11111111-1111-4111-8111-111111111111")
 REVISION_ID = UUID("31111111-1111-4111-8111-111111111111")
+OTHER_REVISION_ID = UUID("32222222-2222-4222-8222-222222222222")
 
 
 class _Session:
@@ -246,9 +247,75 @@ def test_real_application_registers_calendar_and_manual_publication_routes():
     assert "get" in paths["/calendar"]
     assert "get" in paths["/publications"]
     assert "post" in paths["/manual-publication-plans"]
+    assert "get" in paths[
+        "/platform-variant-revisions/{revision_id}/manual-publication-plan"
+    ]
     assert "patch" in paths["/manual-publication-plans/{plan_id}/checklist"]
     assert "post" in paths["/manual-publication-plans/{plan_id}/mark-published"]
     assert "post" in paths["/manual-publication-plans/{plan_id}/cancel"]
+
+
+def test_latest_manual_plan_for_revision_is_read_only_and_exact(api_client, monkeypatch):
+    client, session = api_client
+    calls = []
+
+    class FakeService:
+        def __init__(self, bound_session):
+            assert bound_session is session
+
+        async def latest_plan_for_revision(self, revision_id):
+            calls.append(revision_id)
+            return _plan()
+
+    monkeypatch.setattr(calendar_api, "ManualPublicationService", FakeService)
+    response = client.get(
+        f"/platform-variant-revisions/{REVISION_ID}/manual-publication-plan"
+    )
+
+    assert response.status_code == 200
+    assert response.json()["id"] == str(PLAN_ID)
+    assert response.json()["platform_variant_revision_id"] == str(REVISION_ID)
+    assert calls == [REVISION_ID]
+    assert session.commits == 0
+
+
+def test_latest_manual_plan_for_revision_returns_404_without_writes(api_client, monkeypatch):
+    client, session = api_client
+
+    class FakeService:
+        def __init__(self, bound_session):
+            assert bound_session is session
+
+        async def latest_plan_for_revision(self, _revision_id):
+            return None
+
+    monkeypatch.setattr(calendar_api, "ManualPublicationService", FakeService)
+    response = client.get(
+        f"/platform-variant-revisions/{REVISION_ID}/manual-publication-plan"
+    )
+
+    assert response.status_code == 404
+    assert response.json() == {"detail": "Manual publication plan not found"}
+    assert session.commits == 0
+
+
+def test_latest_manual_plan_for_revision_does_not_mask_projection_corruption(
+    api_client,
+    monkeypatch,
+):
+    client, session = api_client
+
+    class FakeService:
+        def __init__(self, bound_session):
+            assert bound_session is session
+
+        async def latest_plan_for_revision(self, _revision_id):
+            return _plan(platform_variant_revision_id=OTHER_REVISION_ID)
+
+    monkeypatch.setattr(calendar_api, "ManualPublicationService", FakeService)
+    with pytest.raises(RuntimeError, match="revision identity mismatch"):
+        client.get(f"/platform-variant-revisions/{REVISION_ID}/manual-publication-plan")
+    assert session.commits == 0
 
 
 @pytest.mark.parametrize(
@@ -341,6 +408,45 @@ def test_manual_mutations_delegate_exact_values_and_commit_only_after_success(
     assert session.commits == 1
 
 
+@pytest.mark.parametrize(
+    ("body", "expected_note"),
+    [
+        ({}, None),
+        ({"external_url": None, "note": "Recorded manually"}, "Recorded manually"),
+    ],
+)
+def test_mark_published_allows_null_or_omitted_external_url_and_keeps_note_optional(
+    api_client,
+    monkeypatch,
+    body,
+    expected_note,
+):
+    client, session = api_client
+    calls = []
+
+    class FakeService:
+        def __init__(self, bound_session):
+            assert bound_session is session
+
+        async def mark_published(self, **kwargs):
+            calls.append(kwargs)
+            return _plan(
+                status="manual_published",
+                external_url=None,
+                operator_note=expected_note,
+                completed_at=datetime(2026, 7, 14, 8, 5, tzinfo=UTC),
+            )
+
+    monkeypatch.setattr(calendar_api, "ManualPublicationService", FakeService)
+    response = client.post(f"/manual-publication-plans/{PLAN_ID}/mark-published", json=body)
+
+    assert response.status_code == 200
+    assert response.json()["external_url"] is None
+    assert response.json()["operator_note"] == expected_note
+    assert calls == [{"plan_id": PLAN_ID, "external_url": None, "note": expected_note}]
+    assert session.commits == 1
+
+
 def test_manual_mutation_maps_domain_error_without_committing(api_client, monkeypatch):
     client, session = api_client
 
@@ -405,14 +511,6 @@ def test_manual_mutation_maps_domain_error_without_committing(api_client, monkey
         (
             f"/manual-publication-plans/{PLAN_ID}/mark-published",
             {"external_url": "https://example.test/post with spaces", "note": "unsafe"},
-        ),
-        (
-            f"/manual-publication-plans/{PLAN_ID}/mark-published",
-            {"note": "missing publication evidence"},
-        ),
-        (
-            f"/manual-publication-plans/{PLAN_ID}/mark-published",
-            {"external_url": None, "note": "null publication evidence"},
         ),
     ],
 )

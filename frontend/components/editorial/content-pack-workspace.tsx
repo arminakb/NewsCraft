@@ -6,6 +6,7 @@ import { EvidencePanel } from "@/components/editorial/evidence-panel"
 import { RevisionTimeline } from "@/components/editorial/revision-timeline"
 import { VariantEditor } from "@/components/editorial/variant-editor"
 import { Button } from "@/components/ui/button"
+import { CopyExportActions } from "@/features/packages/components/copy-export-actions"
 import { MediaPlan } from "@/features/packages/components/media-plan"
 import { PlatformEditor } from "@/features/packages/components/platform-editor"
 import { PlatformPreview } from "@/features/packages/components/platform-preview"
@@ -56,6 +57,14 @@ export function ContentPackWorkspace({ packId, initialRevisionId = null }: { pac
   const variants = useMemo(
     () => [...(pack.data?.variants ?? [])].sort((left, right) => platformOrder.indexOf(left.platform) - platformOrder.indexOf(right.platform) || left.id.localeCompare(right.id)),
     [pack.data],
+  )
+  const intendedExportRevisions = useMemo(
+    () => variants.map((variant) => ({
+      variantId: variant.id,
+      revisionId: variant.currentRevision?.id ?? null,
+      approvalState: variant.currentRevision?.approvalState ?? null,
+    })),
+    [variants],
   )
   const initialVariantId = initialRevision.data?.variantId
   const activeVariant = variants.find((item) => item.id === selectedVariantId)
@@ -207,6 +216,7 @@ export function ContentPackWorkspace({ packId, initialRevisionId = null }: { pac
     </div>
     {!activeVariant || !revision ? <section className="rounded-lg border p-4"><h2 className="font-semibold">No platform revision is ready</h2><p className="text-sm text-muted-foreground">Generation is pending for {activeVariant ? platformLabel(activeVariant.platform) : "this content package"}.</p></section> : <div id={`platform-panel-${activeVariant.id}`} role="tabpanel" aria-label={`${platformLabel(activeVariant.platform)} package`} className="space-y-4">
       <PlatformPreview revision={revision} />
+      <div className="rounded-lg border p-4"><CopyExportActions key={revision.id} revision={revision} intendedRevisions={intendedExportRevisions} /></div>
       <div className="grid min-w-0 gap-4 min-[900px]:grid-cols-2">
         <div className="min-w-0 space-y-4">
           <EvidencePanel evidence={evidence.data ?? []} activeCitation={activeCitation} />

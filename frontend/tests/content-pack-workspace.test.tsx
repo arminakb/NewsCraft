@@ -9,6 +9,12 @@ import type { VariantRevision } from "@/lib/editorial-types"
 import { ApiError } from "@/lib/http"
 
 vi.mock("@/features/packages/api", () => ({ approvePlatformRevision: vi.fn(), getPackage: vi.fn(), getPlatformRevision: vi.fn(), getPlatformRevisions: vi.fn(), rejectPlatformRevision: vi.fn(), saveManualPlatformRevision: vi.fn() }))
+vi.mock("@/features/packages/components/copy-export-actions", () => ({
+  CopyExportActions: ({ revision, intendedRevisions }: {
+    revision: PlatformRevision
+    intendedRevisions: Array<{ variantId: string; revisionId: string | null; approvalState: PlatformRevision["approvalState"] | null }>
+  }) => <div aria-label="Copy and export binding">Copy/export revision {revision.id}; intended {intendedRevisions.map((item) => `${item.variantId}:${item.revisionId ?? "missing"}:${item.approvalState ?? "missing"}`).join(",")}</div>,
+}))
 vi.mock("@/lib/editorial-api", () => ({ getAIProviderOptions: vi.fn(), getPromptVersionOptions: vi.fn(), getStoryEvidence: vi.fn(), regenerateVariant: vi.fn(), saveVariantRevision: vi.fn() }))
 
 const revision: VariantRevision = { id: "rev-1", variantId: "variant-1", contentPackId: "pack-1", storyId: "story-1", parentRevisionId: null, generationAttemptId: null, revisionNumber: 1, content: { body: "Draft", parseMode: "HTML", buttons: [], mediaAssetIds: [], sourceUrl: null, mediaPolicy: "preserve", direction: "ltr", dryRun: false }, contentHash: "a".repeat(64), evidenceMap: [], validationResults: [{ gate: "telegram_schema", ok: true, reason: null }], approvalState: "pending_review", approvalNote: null, approvedAt: null, createdBy: "generation", origin: "generation", createdAt: "2026-07-12T08:00:00Z", providerProfile: null, resolvedModel: null }
@@ -76,11 +82,52 @@ it("switches platforms without mixing their immutable revision histories", async
   expect(await screen.findByRole("heading", { name: "Multi-platform editorial studio" })).toBeInTheDocument()
   expect(screen.getByRole("tablist", { name: "Package platforms" })).toBeInTheDocument()
   expect(screen.getAllByRole("tab").map((tab) => tab.textContent)).toEqual(["Telegram", "Instagram", "X", "Blog"])
+  expect(screen.getByLabelText("Copy and export binding")).toHaveTextContent("Copy/export revision rev-1")
   fireEvent.click(screen.getByRole("tab", { name: "Instagram" }))
   expect(await screen.findByRole("region", { name: "Instagram preview" })).toBeInTheDocument()
+  expect(screen.getByLabelText("Copy and export binding")).toHaveTextContent("Copy/export revision rev-instagram-4")
   expect(screen.getByRole("tab", { name: "Instagram" })).toHaveAttribute("aria-selected", "true")
   expect(screen.getByRole("button", { name: /Revision 4/ })).toBeInTheDocument()
   expect(screen.queryByRole("button", { name: /Revision 1/ })).not.toBeInTheDocument()
+})
+
+it("keeps historical copy bound to the selection while exporting the exact current revision of every pack variant", async () => {
+  const historical = telegramRevision({ ...revision, id: "rev-telegram-1", revisionNumber: 1 })
+  const telegramCurrent = telegramRevision({ ...revision, id: "rev-telegram-2", parentRevisionId: historical.id, revisionNumber: 2, approvalState: "approved", approvedAt: "2026-07-13T09:00:00Z" })
+  const instagramCurrent: InstagramRevision = {
+    ...telegramCurrent,
+    id: "rev-instagram-3",
+    platform: "instagram",
+    variantId: "variant-instagram",
+    revisionNumber: 3,
+    payload: {
+      hook: "Grounded hook",
+      caption: "Current Instagram caption",
+      cta: "Read more",
+      hashtags: ["#news"],
+      altText: "Summary card",
+      carousel: [],
+      citations: [],
+      manualChecklist: ["Verify copy"],
+    },
+    manualChecklist: ["Verify copy"],
+    mediaPlan: [],
+  }
+  vi.mocked(packageApi.getPackage).mockResolvedValue(pack(telegramCurrent, [
+    { id: telegramCurrent.variantId, platform: "telegram", currentRevision: telegramCurrent },
+    { id: instagramCurrent.variantId, platform: "instagram", currentRevision: instagramCurrent },
+  ]))
+  vi.mocked(packageApi.getPlatformRevision).mockResolvedValue(historical)
+  vi.mocked(packageApi.getPlatformRevisions).mockResolvedValue([telegramCurrent, historical])
+  mockCommonQueries()
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+
+  render(<TestApp client={client}><ContentPackWorkspace packId="pack-1" initialRevisionId={historical.id} /></TestApp>)
+
+  const binding = await screen.findByLabelText("Copy and export binding")
+  expect(binding).toHaveTextContent(`Copy/export revision ${historical.id}`)
+  expect(binding).toHaveTextContent(`intended ${telegramCurrent.variantId}:${telegramCurrent.id}:approved,${instagramCurrent.variantId}:${instagramCurrent.id}:approved`)
+  expect(binding).not.toHaveTextContent(`${telegramCurrent.variantId}:${historical.id}`)
 })
 
 it("fences media reordering while the manual editor has unsaved copy", async () => {

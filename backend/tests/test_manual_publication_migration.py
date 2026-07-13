@@ -35,7 +35,8 @@ def test_manual_publication_migration_has_database_state_and_history_guards():
         assert name in source
     assert "postgresql_where" in source
     assert "status IN ('planned', 'ready')" in source
-    assert "external_url IS NOT NULL" in source
+    assert "AND external_url IS NOT NULL" not in source
+    assert "status = 'manual_published' AND completed_at IS NOT NULL" in source
     assert "from app.manual_publication" not in source
 
 
@@ -71,7 +72,8 @@ def test_manual_publication_model_metadata_matches_migration_contract():
         for item in table.constraints
         if isinstance(item, CheckConstraint) and item.name == "ck_manual_publication_completion"
     )
-    assert "external_url IS NOT NULL" in completion
+    assert "AND external_url IS NOT NULL" not in completion
+    assert "status = 'manual_published' AND completed_at IS NOT NULL" in completion
     readiness = next(
         str(item.sqltext)
         for item in table.constraints

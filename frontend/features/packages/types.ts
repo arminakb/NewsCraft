@@ -207,3 +207,84 @@ export type ContentPackage = {
   updatedAt: string
   variants: ContentPackageVariant[]
 }
+
+export type ExportFormat = "json" | "markdown" | "html" | "zip"
+export type ExportJobStatus = "queued" | "running" | "succeeded" | "failed" | "needs_review" | "cancelled"
+
+export type ExportRequest = {
+  revisionIds: string[] | null
+  formats: ExportFormat[]
+  includeMedia: boolean
+}
+
+export type ExportJobAccepted = {
+  jobId: string
+  status: ExportJobStatus
+  deduplicated: boolean
+}
+
+export type ExportVariantIdentity = {
+  platform: Platform
+  platformVariantId: string
+  revisionId: string
+  contentHash: string
+  approvalState: "approved"
+  evidenceUrls: string[]
+}
+
+export type ExportFileIdentity = {
+  fileName: string
+  sha256: string
+  byteLength: number
+  kind: "json" | "markdown" | "html" | "media"
+  platform: Platform
+  revisionId: string
+  mediaAssetId: string | null
+}
+
+export type ExportManifest = {
+  schemaVersion: "newscraft-export-v1"
+  contentPackId: string
+  storyRevisionId: string
+  createdAt: string
+  variants: ExportVariantIdentity[]
+  files: ExportFileIdentity[]
+}
+
+export type ExportArtifact = {
+  exportId: string
+  contentPackId: string
+  state: "complete"
+  manifestFile: "manifest.json"
+  manifestSha256: string
+  archiveFile: "bundle.zip" | null
+  archiveSha256: string | null
+  manifest: ExportManifest
+}
+
+export type ExportOutcome = {
+  exportId: string
+  status: ExportJobStatus
+  finishedAt: string | null
+  artifact: ExportArtifact | null
+  downloads: string[]
+  errorCode: string | null
+  errorMessage: string | null
+}
+
+export type ManualPublicationStatus = "planned" | "ready" | "manual_published" | "cancelled"
+
+export type ManualPublicationPlan = {
+  id: string
+  platformVariantRevisionId: string
+  platform: ManualPlatform
+  scheduledFor: string
+  displayTimezone: string
+  status: ManualPublicationStatus
+  checklistState: Record<string, boolean>
+  externalUrl: string | null
+  operatorNote: string | null
+  completedAt: string | null
+  createdAt: string
+  updatedAt: string
+}

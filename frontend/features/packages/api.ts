@@ -1,9 +1,18 @@
-import { apiRequest } from "@/lib/http"
+import { ApiError, apiRequest } from "@/lib/http"
 import type {
   BlogPayload,
   CitationRef,
   ContentPackage,
+  ExportArtifact,
+  ExportFileIdentity,
+  ExportJobAccepted,
+  ExportJobStatus,
+  ExportManifest,
+  ExportOutcome,
+  ExportRequest,
+  ExportVariantIdentity,
   InstagramPayload,
+  ManualPublicationPlan,
   ManualPlatformEditPayload,
   ManualPlatformEditRequest,
   MediaAssignment,
@@ -21,6 +30,14 @@ const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3
 const SHA256_PATTERN = /^[0-9a-f]{64}$/
 const LOCATOR_PATTERN = /^chars:(0|[1-9]\d*)-(0|[1-9]\d*)$/
 const PLATFORMS = ["telegram", "instagram", "x", "blog"] as const
+const EXPORT_FORMATS = ["json", "markdown", "html", "zip"] as const
+const EXPORT_JOB_STATUSES = ["queued", "running", "succeeded", "failed", "needs_review", "cancelled"] as const
+const MANUAL_PLAN_STATUSES = ["planned", "ready", "manual_published", "cancelled"] as const
+const MANUAL_CHECKLIST_IDS = {
+  instagram: ["copy_reviewed", "citations_verified", "media_and_alt_text_ready", "platform_requirements_rechecked"],
+  x: ["thread_order_reviewed", "citations_and_links_verified", "media_and_alt_text_ready", "platform_requirements_rechecked"],
+  blog: ["article_reviewed", "citations_and_links_verified", "seo_fields_reviewed", "media_and_alt_text_ready"],
+} as const
 
 const REVISION_KEYS = [
   "id",
@@ -66,6 +83,28 @@ export async function getPlatformRevision(revisionId: string): Promise<PlatformR
   const revision = decodePlatformRevision(await apiRequest<unknown>(`/platform-variant-revisions/${revisionId}`))
   if (revision.id !== revisionId) throw new Error("Platform revision identity mismatch")
   return revision
+}
+
+export async function getRenderedRevisionHtml(
+  revisionId: string,
+  expectedContentHash: string,
+): Promise<string> {
+  const expectedHash = sha256(expectedContentHash, "Invalid rendered revision HTML content hash")
+  const row = exactObject(
+    await apiRequest<unknown>(`/platform-variant-revisions/${revisionId}/rendered-html`),
+    ["revision_id", "content_hash", "platform", "html"],
+    "Invalid rendered revision HTML",
+  )
+  const returnedRevisionId = uuid(row.revision_id, "Invalid rendered revision HTML")
+  const returnedContentHash = sha256(row.content_hash, "Invalid rendered revision HTML")
+  const platform = oneOf(row.platform, ["blog"] as const, "Invalid rendered revision HTML")
+  const html = string(row.html, "Invalid rendered revision HTML")
+  if (
+    returnedRevisionId !== revisionId
+    || returnedContentHash !== expectedHash
+    || platform !== "blog"
+  ) throw new Error("Rendered revision HTML identity mismatch")
+  return html
 }
 
 export async function saveManualPlatformRevision<P extends "instagram" | "x" | "blog">(
@@ -117,6 +156,322 @@ export async function rejectPlatformRevision(
   const revision = decodePlatformRevision(response)
   if (revision.id !== revisionId || revision.approvalState !== "rejected") throw new Error("Rejection response identity mismatch")
   return revision
+}
+
+export async function createContentPackageExport(
+  packId: string,
+  input: ExportRequest,
+): Promise<ExportJobAccepted> {
+  if (!input.formats.length || new Set(input.formats).size !== input.formats.length) {
+    throw new Error("Export formats must be non-empty and unique")
+  }
+  if (input.formats.some((format) => !EXPORT_FORMATS.includes(format))) {
+    throw new Error("Invalid export format")
+  }
+  if (input.revisionIds !== null && (!input.revisionIds.length || new Set(input.revisionIds).size !== input.revisionIds.length)) {
+    throw new Error("Export revision IDs must be non-empty and unique")
+  }
+  const response = decodeExportJobAccepted(await apiRequest<unknown>(
+    `/content-packs/${packId}/exports`,
+    jsonInit("POST", {
+      content_pack_id: packId,
+      revision_ids: input.revisionIds,
+      formats: input.formats,
+      include_media: input.includeMedia,
+    }),
+  ))
+  return response
+}
+
+export async function getExportOutcome(exportId: string): Promise<ExportOutcome> {
+  const outcome = decodeExportOutcome(await apiRequest<unknown>(`/exports/${exportId}`))
+  if (outcome.exportId !== exportId) throw new Error("Export response identity mismatch")
+  return outcome
+}
+
+export async function createManualPublicationPlan(
+  revisionId: string,
+  scheduledFor: string,
+  displayTimezone: string,
+): Promise<ManualPublicationPlan> {
+  const requestedSchedule = timestamp(scheduledFor, "Invalid manual publication schedule")
+  const plan = decodeManualPublicationPlan(await apiRequest<unknown>(
+    "/manual-publication-plans",
+    jsonInit("POST", {
+      revision_id: revisionId,
+      scheduled_for: requestedSchedule,
+      display_timezone: displayTimezone,
+    }),
+  ))
+  if (
+    plan.platformVariantRevisionId !== revisionId
+    || plan.displayTimezone !== displayTimezone
+    || new Date(plan.scheduledFor).getTime() !== new Date(requestedSchedule).getTime()
+  ) {
+    throw new Error("Manual publication plan response identity mismatch")
+  }
+  return plan
+}
+
+export async function getManualPublicationPlanForRevision(
+  revisionId: string,
+): Promise<ManualPublicationPlan | null> {
+  try {
+    const plan = decodeManualPublicationPlan(await apiRequest<unknown>(
+      `/platform-variant-revisions/${revisionId}/manual-publication-plan`,
+    ))
+    if (plan.platformVariantRevisionId !== revisionId) {
+      throw new Error("Manual publication plan response identity mismatch")
+    }
+    return plan
+  } catch (caught) {
+    if (caught instanceof ApiError && caught.status === 404) return null
+    throw caught
+  }
+}
+
+export async function updateManualPublicationChecklist(
+  planId: string,
+  checklistState: Record<string, boolean>,
+): Promise<ManualPublicationPlan> {
+  if (!Object.keys(checklistState).length || Object.values(checklistState).some((value) => typeof value !== "boolean")) {
+    throw new Error("Manual publication checklist update is invalid")
+  }
+  const plan = decodeManualPublicationPlan(await apiRequest<unknown>(
+    `/manual-publication-plans/${planId}/checklist`,
+    jsonInit("PATCH", { checklist_state: checklistState }),
+  ))
+  if (plan.id !== planId) throw new Error("Manual publication checklist response identity mismatch")
+  return plan
+}
+
+export async function markManualPublicationPublished(
+  planId: string,
+  input: { externalUrl: string | null; note: string | null },
+): Promise<ManualPublicationPlan> {
+  if (
+    input.externalUrl !== null
+    && (input.externalUrl.length > 2_048 || /\s/.test(input.externalUrl))
+  ) throw new Error("Invalid manual publication URL")
+  if (input.externalUrl !== null) httpUrl(input.externalUrl, "Invalid manual publication URL")
+  const plan = decodeManualPublicationPlan(await apiRequest<unknown>(
+    `/manual-publication-plans/${planId}/mark-published`,
+    jsonInit("POST", { external_url: input.externalUrl, note: input.note }),
+  ))
+  if (plan.id !== planId || plan.status !== "manual_published") {
+    throw new Error("Manual publication completion response identity mismatch")
+  }
+  return plan
+}
+
+function decodeExportJobAccepted(value: unknown): ExportJobAccepted {
+  const row = exactObject(value, ["job_id", "status", "deduplicated"], "Invalid export job response")
+  return {
+    jobId: uuid(row.job_id, "Invalid export job response"),
+    status: oneOf(row.status, EXPORT_JOB_STATUSES, "Invalid export job response"),
+    deduplicated: boolean(row.deduplicated, "Invalid export job response"),
+  }
+}
+
+export function decodeExportOutcome(value: unknown): ExportOutcome {
+  const message = "Invalid export outcome"
+  const row = exactObject(value, [
+    "export_id",
+    "status",
+    "finished_at",
+    "artifact",
+    "downloads",
+    "error_code",
+    "error_message",
+  ], message)
+  const exportId = uuid(row.export_id, message)
+  const status: ExportJobStatus = oneOf(row.status, EXPORT_JOB_STATUSES, message)
+  const artifact = row.artifact === null ? null : decodeExportArtifact(row.artifact)
+  const downloads = stringArray(row.downloads, message, false)
+  if (artifact !== null && artifact.exportId !== exportId) throw new Error(message)
+  const expectedPrefix = `/exports/${exportId}/download/`
+  if (downloads.some((download) => !download.startsWith(expectedPrefix) || download.length === expectedPrefix.length)) {
+    throw new Error(message)
+  }
+  downloads.forEach((download) => safeRelativePath(download.slice(expectedPrefix.length), message))
+  const finishedAt = nullableTimestamp(row.finished_at, message)
+  if (status === "succeeded") {
+    if (artifact === null || finishedAt === null || downloads.length === 0) throw new Error(message)
+  } else if (artifact !== null || downloads.length !== 0) {
+    throw new Error(message)
+  }
+  return {
+    exportId,
+    status,
+    finishedAt,
+    artifact,
+    downloads,
+    errorCode: nullableString(row.error_code, message),
+    errorMessage: nullableString(row.error_message, message, true),
+  }
+}
+
+function decodeExportArtifact(value: unknown): ExportArtifact {
+  const message = "Invalid export artifact"
+  const row = exactObject(value, [
+    "export_id",
+    "content_pack_id",
+    "state",
+    "manifest_file",
+    "manifest_sha256",
+    "archive_file",
+    "archive_sha256",
+    "manifest",
+  ], message)
+  const artifact: ExportArtifact = {
+    exportId: uuid(row.export_id, message),
+    contentPackId: uuid(row.content_pack_id, message),
+    state: oneOf(row.state, ["complete"] as const, message),
+    manifestFile: oneOf(row.manifest_file, ["manifest.json"] as const, message),
+    manifestSha256: sha256(row.manifest_sha256, message),
+    archiveFile: row.archive_file === null ? null : oneOf(row.archive_file, ["bundle.zip"] as const, message),
+    archiveSha256: row.archive_sha256 === null ? null : sha256(row.archive_sha256, message),
+    manifest: decodeExportManifest(row.manifest),
+  }
+  if (
+    artifact.manifest.contentPackId !== artifact.contentPackId
+    || (artifact.archiveFile === null) !== (artifact.archiveSha256 === null)
+  ) throw new Error(message)
+  return artifact
+}
+
+function decodeExportManifest(value: unknown): ExportManifest {
+  const message = "Invalid export manifest"
+  const row = exactObject(value, [
+    "schema_version",
+    "content_pack_id",
+    "story_revision_id",
+    "created_at",
+    "variants",
+    "files",
+  ], message)
+  const variants = array(row.variants, message).map(decodeExportVariantIdentity)
+  const files = array(row.files, message).map(decodeExportFileIdentity)
+  const variantKeys = variants.map((item) => `${item.platform}:${item.revisionId}`)
+  const fileNames = files.map((item) => item.fileName)
+  if (
+    new Set(variantKeys).size !== variantKeys.length
+    || new Set(fileNames).size !== fileNames.length
+    || files.some((file) => !variantKeys.includes(`${file.platform}:${file.revisionId}`))
+  ) throw new Error(message)
+  return {
+    schemaVersion: oneOf(row.schema_version, ["newscraft-export-v1"] as const, message),
+    contentPackId: uuid(row.content_pack_id, message),
+    storyRevisionId: uuid(row.story_revision_id, message),
+    createdAt: timestamp(row.created_at, message),
+    variants,
+    files,
+  }
+}
+
+function decodeExportVariantIdentity(value: unknown): ExportVariantIdentity {
+  const message = "Invalid export variant identity"
+  const row = exactObject(value, [
+    "platform",
+    "platform_variant_id",
+    "revision_id",
+    "content_hash",
+    "approval_state",
+    "evidence_urls",
+  ], message)
+  const evidenceUrls = array(row.evidence_urls, message).map((item) => httpUrl(item, message))
+  if (evidenceUrls.length !== new Set(evidenceUrls).size || evidenceUrls.some((item, index) => index > 0 && evidenceUrls[index - 1] > item)) {
+    throw new Error(message)
+  }
+  return {
+    platform: decodePlatform(row.platform),
+    platformVariantId: uuid(row.platform_variant_id, message),
+    revisionId: uuid(row.revision_id, message),
+    contentHash: sha256(row.content_hash, message),
+    approvalState: oneOf(row.approval_state, ["approved"] as const, message),
+    evidenceUrls,
+  }
+}
+
+function decodeExportFileIdentity(value: unknown): ExportFileIdentity {
+  const message = "Invalid export file identity"
+  const row = exactObject(value, [
+    "file_name",
+    "sha256",
+    "byte_length",
+    "kind",
+    "platform",
+    "revision_id",
+    "media_asset_id",
+  ], message)
+  const fileName = safeRelativePath(row.file_name, message)
+  const kind = oneOf(row.kind, ["json", "markdown", "html", "media"] as const, message)
+  const mediaAssetId = nullableUuid(row.media_asset_id, message)
+  if ((kind === "media") !== (mediaAssetId !== null)) throw new Error(message)
+  return {
+    fileName,
+    sha256: sha256(row.sha256, message),
+    byteLength: nonNegativeInteger(row.byte_length, message),
+    kind,
+    platform: decodePlatform(row.platform),
+    revisionId: uuid(row.revision_id, message),
+    mediaAssetId,
+  }
+}
+
+export function decodeManualPublicationPlan(value: unknown): ManualPublicationPlan {
+  const message = "Invalid manual publication plan"
+  const row = exactObject(value, [
+    "id",
+    "platform_variant_revision_id",
+    "platform",
+    "scheduled_for",
+    "display_timezone",
+    "status",
+    "checklist_state",
+    "external_url",
+    "operator_note",
+    "completed_at",
+    "created_at",
+    "updated_at",
+  ], message)
+  const platform = oneOf(row.platform, ["instagram", "x", "blog"] as const, message)
+  const status = oneOf(row.status, MANUAL_PLAN_STATUSES, message)
+  const checklistState = decodeManualChecklistState(platform, row.checklist_state)
+  const complete = Object.values(checklistState).every(Boolean)
+  const externalUrl = row.external_url === null ? null : httpUrl(row.external_url, message)
+  const operatorNote = nullableString(row.operator_note, message, true)
+  const completedAt = nullableTimestamp(row.completed_at, message)
+  if (
+    ((status === "ready" || status === "manual_published") && !complete)
+    || (status === "planned" && complete)
+    || (status === "manual_published" && completedAt === null)
+    || (status !== "manual_published" && (externalUrl !== null || operatorNote !== null || completedAt !== null))
+  ) throw new Error(message)
+  return {
+    id: uuid(row.id, message),
+    platformVariantRevisionId: uuid(row.platform_variant_revision_id, message),
+    platform,
+    scheduledFor: timestamp(row.scheduled_for, message),
+    displayTimezone: string(row.display_timezone, message),
+    status,
+    checklistState,
+    externalUrl,
+    operatorNote,
+    completedAt,
+    createdAt: timestamp(row.created_at, message),
+    updatedAt: timestamp(row.updated_at, message),
+  }
+}
+
+function decodeManualChecklistState(
+  platform: "instagram" | "x" | "blog",
+  value: unknown,
+): Record<string, boolean> {
+  const message = "Invalid manual publication checklist"
+  const keys = MANUAL_CHECKLIST_IDS[platform]
+  const row = exactObject(value, keys, message)
+  return Object.fromEntries(keys.map((key) => [key, boolean(row[key], message)]))
 }
 
 export function decodeContentPackage(value: unknown): ContentPackage {
@@ -597,6 +952,28 @@ function httpUrl(value: unknown, message: string): string {
 
 function nullableHttpUrl(value: unknown, message: string): string | null {
   return value === null ? null : httpUrl(value, message)
+}
+
+function timestamp(value: unknown, message: string): string {
+  const text = string(value, message)
+  const parsed = new Date(text)
+  if (Number.isNaN(parsed.getTime()) || !/(?:Z|[+-]\d{2}:\d{2})$/.test(text)) throw new Error(message)
+  return text
+}
+
+function nullableTimestamp(value: unknown, message: string): string | null {
+  return value === null ? null : timestamp(value, message)
+}
+
+function safeRelativePath(value: unknown, message: string): string {
+  const path = string(value, message)
+  const parts = path.split("/")
+  if (
+    path.startsWith("/")
+    || path.includes("\\")
+    || parts.some((part) => !part || part === "." || part === ".." || !/^[A-Za-z0-9._-]+$/.test(part))
+  ) throw new Error(message)
+  return path
 }
 
 function oneOf<const T extends readonly string[]>(value: unknown, choices: T, message: string): T[number] {

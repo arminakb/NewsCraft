@@ -80,16 +80,13 @@ class ManualPublicationChecklistIn(BaseModel):
 class ManualPublicationCompleteIn(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    external_url: str = Field(max_length=2048)
+    external_url: str | None = Field(default=None, max_length=2048)
     note: str | None = Field(default=None, max_length=2000)
 
     @field_validator("external_url")
     @classmethod
-    def require_safe_external_url(cls, value: str) -> str:
-        safe = validate_external_url(value)
-        if safe is None:
-            raise ValueError("external URL is required")
-        return safe
+    def require_safe_external_url(cls, value: str | None) -> str | None:
+        return validate_external_url(value)
 
 
 class ManualPublicationPlanOut(BaseModel):
@@ -203,6 +200,23 @@ async def create_manual_publication_plan(
     except ManualPublicationError as exc:
         raise _domain_http_error(exc) from None
     await session.commit()
+    return response
+
+
+@router.get(
+    "/platform-variant-revisions/{revision_id}/manual-publication-plan",
+    response_model=ManualPublicationPlanOut,
+)
+async def get_manual_publication_plan_for_revision(
+    revision_id: UUID,
+    session: AsyncSession = SessionDependency,
+) -> ManualPublicationPlanOut:
+    plan = await ManualPublicationService(session).latest_plan_for_revision(revision_id)
+    if plan is None:
+        raise HTTPException(status_code=404, detail="Manual publication plan not found")
+    response = ManualPublicationPlanOut.model_validate(plan)
+    if response.platform_variant_revision_id != revision_id:
+        raise RuntimeError("manual publication plan revision identity mismatch")
     return response
 
 

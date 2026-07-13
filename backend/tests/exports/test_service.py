@@ -434,10 +434,10 @@ async def test_selection_rejects_foreign_schema_invalid_and_hash_drifted_revisio
 
 
 def test_blog_html_is_sanitized_and_keeps_resolved_citation_links(tmp_path):
-    from app.exports.service import ExportService
+    from app.exports.service import ExportService, render_export_html
 
     malicious = (
-        '<script>alert(1)</script> [Source](https://example.com/report) '
+        '## Evidence\n\n<script>alert(1)</script> [Source](https://example.com/report) '
         '[Unsafe](javascript:alert(2)) '
         + "grounded " * 180
     )
@@ -450,6 +450,8 @@ def test_blog_html_is_sanitized_and_keeps_resolved_citation_links(tmp_path):
 
     html = service.render_html("blog", revisions[1].content)
 
+    assert html == render_export_html("blog", revisions[1].content)
+    assert "<h2>Evidence</h2>" in html
     assert "<script" not in html
     assert 'href="javascript:' not in html
     assert 'href="https://example.com/report"' in html

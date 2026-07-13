@@ -3,7 +3,8 @@ from types import SimpleNamespace
 from uuid import uuid4
 
 import pytest
-from fastapi import HTTPException
+from fastapi import FastAPI, HTTPException
+from fastapi.testclient import TestClient
 
 from app.api.content_packs import (
     _request_out,
@@ -13,6 +14,10 @@ from app.api.content_packs import (
 from app.api.content_packs import (
     edit_variant as edit_variant_route,
 )
+from app.api.content_packs import (
+    router as content_pack_router,
+)
+from app.db.session import get_session
 from app.generation.editorial_service import (
     EditVariantRequest,
     GeneratePackRequest,
@@ -38,6 +43,7 @@ def test_content_pack_resource_routes_are_registered_with_exact_methods():
         ("/platform-variants/{variant_id}/revisions", "GET"),
         ("/platform-variants/{variant_id}/revisions", "POST"),
         ("/platform-variant-revisions/{revision_id}", "GET"),
+        ("/platform-variant-revisions/{revision_id}/rendered-html", "GET"),
         ("/platform-variants/{variant_id}/regenerate", "POST"),
         ("/platform-variant-revisions/{revision_id}/approve", "POST"),
         ("/platform-variant-revisions/{revision_id}/reject", "POST"),
@@ -45,6 +51,88 @@ def test_content_pack_resource_routes_are_registered_with_exact_methods():
     assert expected <= routes
     edit_operation = app.openapi()["paths"]["/platform-variants/{variant_id}/revisions"]["post"]
     assert "201" in edit_operation["responses"]
+
+
+def test_blog_rendered_html_is_read_only_sanitized_and_bound_to_revision_identity():
+    from app.automations.telegram.handlers import sha256_canonical
+    from app.generation.models import PlatformVariant, PlatformVariantRevision
+
+    revision_id = uuid4()
+    variant_id = uuid4()
+    citation = {
+        "evidence_key": "evidence:one",
+        "evidence_snapshot_id": str(uuid4()),
+        "source_url": "https://example.com/report",
+        "locator": "chars:0-8",
+        "excerpt_sha256": "a" * 64,
+    }
+    body = (
+        "# Grounded report\n\n"
+        "[Source](https://example.com/report)\n\n"
+        "<script>alert(1)</script>\n\n"
+        + "grounded " * 30
+    )
+    content = {
+        "title": "Grounded report",
+        "slug": "grounded-report",
+        "excerpt": "A grounded report excerpt.",
+        "body_markdown": body,
+        "headings": ["Grounded report"],
+        "citations": [citation],
+        "tags": ["news"],
+        "seo_description": "A grounded description for a deterministic NewsCraft export package.",
+        "hero_media": None,
+        "canonical_sources": ["https://example.com/report"],
+        "manual_checklist": ["Verify source links"],
+    }
+    evidence_map = []
+    content_hash = sha256_canonical({"content": content, "evidence_map": evidence_map})
+    revision = SimpleNamespace(
+        id=revision_id,
+        platform_variant_id=variant_id,
+        content_hash=content_hash,
+        content=content,
+        evidence_map=evidence_map,
+    )
+    variant = SimpleNamespace(id=variant_id, platform="blog")
+
+    class Session:
+        def __init__(self):
+            self.reads = []
+
+        async def get(self, model, identifier):
+            self.reads.append((model, identifier))
+            return {
+                (PlatformVariantRevision, revision_id): revision,
+                (PlatformVariant, variant_id): variant,
+            }.get((model, identifier))
+
+    session = Session()
+    test_app = FastAPI()
+    test_app.include_router(content_pack_router)
+
+    async def override_session():
+        yield session
+
+    test_app.dependency_overrides[get_session] = override_session
+    with TestClient(test_app) as client:
+        response = client.get(f"/platform-variant-revisions/{revision_id}/rendered-html")
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "revision_id": str(revision_id),
+        "content_hash": content_hash,
+        "platform": "blog",
+        "html": response.json()["html"],
+    }
+    html = response.json()["html"]
+    assert "<h1>Grounded report</h1>" in html
+    assert 'href="https://example.com/report"' in html
+    assert "<script" not in html
+    assert session.reads == [
+        (PlatformVariantRevision, revision_id),
+        (PlatformVariant, variant_id),
+    ]
 
 
 def test_content_pack_request_uses_plural_platforms_and_safe_prompt_resolution():

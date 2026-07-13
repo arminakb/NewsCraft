@@ -9,6 +9,7 @@ from app.api.exports import router as exports_router
 from app.api.generation_settings import router as generation_settings_router
 from app.api.ingest import router as ingest_router
 from app.api.jobs import router as jobs_router
+from app.api.library import router as library_router
 from app.api.media import router as media_router
 from app.api.sources import router as sources_router
 from app.api.stories import router as stories_router
@@ -28,6 +29,7 @@ router.include_router(diagnostics_router)
 router.include_router(exports_router)
 router.include_router(calendar_router)
 router.include_router(jobs_router)
+router.include_router(library_router)
 router.include_router(control_router)
 router.include_router(telegram_sources_router)
 router.include_router(telegram_destinations_router)

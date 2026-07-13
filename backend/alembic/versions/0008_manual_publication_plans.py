@@ -147,8 +147,7 @@ def upgrade() -> None:
             name="ck_manual_publication_ready_checklist",
         ),
         sa.CheckConstraint(
-            "(status = 'manual_published' AND completed_at IS NOT NULL "
-            "AND external_url IS NOT NULL) OR "
+            "(status = 'manual_published' AND completed_at IS NOT NULL) OR "
             "(status <> 'manual_published' AND completed_at IS NULL "
             "AND external_url IS NULL AND operator_note IS NULL)",
             name="ck_manual_publication_completion",
