@@ -21,6 +21,7 @@ from app.jobs.events import redact_event_data
 from app.jobs.models import WorkflowEvent
 from app.jobs.repository import JobRepository
 from app.jobs.types import JobOrigin
+from app.research.schemas import CitationRef
 from app.sources.base import MediaCandidate, ParsedSourceItem
 from app.stories.models import Story, StoryEvidenceLink, StoryEvidenceSnapshot, StoryRevision
 
@@ -188,6 +189,16 @@ class TelegramCaptureRepository:
         )
         self.session.add(snapshot)
         await self.session.flush()
+        citations = []
+        if snapshot.content_text:
+            citation = CitationRef(
+                evidence_key=snapshot.evidence_key,
+                evidence_snapshot_id=snapshot.id,
+                source_url=snapshot.source_url,
+                locator=f"chars:0-{len(snapshot.content_text)}",
+                excerpt_sha256=snapshot.content_sha256,
+            )
+            citations.append(citation.model_dump(mode="json"))
         revision = StoryRevision(
             story_id=story_id,
             parent_revision_id=parent_revision_id,
@@ -196,7 +207,7 @@ class TelegramCaptureRepository:
             facts=[],
             disagreements=[],
             angles=[],
-            citations=[],
+            citations=citations,
             created_by=created_by,
         )
         self.session.add(revision)

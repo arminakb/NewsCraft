@@ -298,6 +298,7 @@ async def content_item(
     content_text: str,
     canonical_url: str,
     published_at: datetime | None = None,
+    created_at: datetime | None = None,
 ) -> ContentItem:
     observed_at = published_at or datetime(2026, 7, 11, 8, tzinfo=UTC)
     row = ContentItem(
@@ -312,6 +313,8 @@ async def content_item(
         date_parse_status="parsed",
         language_code="en",
     )
+    if created_at is not None:
+        row.created_at = created_at
     session.add(row)
     await session.flush()
     return row
@@ -372,17 +375,20 @@ async def provisional_story(
 
 @pytest.mark.asyncio
 async def test_group_content_items_reuses_story_and_captures_one_snapshot_per_hash(db_session: AsyncSession):
+    first_captured_at = datetime(2026, 7, 11, 8, tzinfo=UTC)
     first = await content_item(
         db_session,
         title="OpenAI agent launch details",
         canonical_url="https://a.example/agent",
         content_text="Evidence A",
+        created_at=first_captured_at,
     )
     second = await content_item(
         db_session,
         title="OpenAI agent launch report",
         canonical_url="https://b.example/agent",
         content_text="Evidence B",
+        created_at=first_captured_at + timedelta(minutes=1),
     )
     repository = StoryRepository(db_session)
 
@@ -397,17 +403,20 @@ async def test_group_content_items_reuses_story_and_captures_one_snapshot_per_ha
 
 @pytest.mark.asyncio
 async def test_related_items_on_separate_pages_reuse_existing_active_canonical(db_session: AsyncSession):
+    first_captured_at = datetime(2026, 7, 11, 8, tzinfo=UTC)
     first = await content_item(
         db_session,
         title="Original report",
         canonical_url="https://example.com/report?utm_source=feed",
         content_text="Evidence A",
+        created_at=first_captured_at,
     )
     second = await content_item(
         db_session,
         title="Updated report",
         canonical_url="https://example.com/report",
         content_text="Evidence B",
+        created_at=first_captured_at + timedelta(minutes=1),
     )
     repository = StoryRepository(db_session)
 
@@ -705,7 +714,7 @@ async def test_grouping_copies_all_provisional_snapshots_without_moving_original
     assert replay.id == canonical.id
     assert canonical.id not in {first[0].id, second[0].id}
     assert {row.content_sha256 for row in copied} == {row.content_sha256 for row in original_snapshots}
-    assert {row.id for row in copied}.isdisjoint(original_snapshot_ids)
+    assert {row.evidence_snapshot_id for row in copied}.isdisjoint(original_snapshot_ids)
     assert first[0].superseded_by_id == canonical.id
     assert second[0].superseded_by_id == canonical.id
     persisted_revision_ids = set(
@@ -718,8 +727,12 @@ async def test_grouping_copies_all_provisional_snapshots_without_moving_original
 async def test_grouping_preserves_release_two_dispatch_revision_ids(db_session: AsyncSession):
     from tests.postgres.test_telegram_process_handler import seed_dispatch
 
-    first_dispatch, _, _ = await seed_dispatch(db_session, route_name="grouping-one")
-    second_dispatch, _, _ = await seed_dispatch(db_session, route_name="grouping-two")
+    first_dispatch, _, shared = await seed_dispatch(db_session, route_name="grouping-one")
+    second_dispatch, _, _ = await seed_dispatch(
+        db_session,
+        route_name="grouping-two",
+        shared=shared,
+    )
     first_source_item = await db_session.get(SourceItem, first_dispatch.source_item_id)
     second_source_item = await db_session.get(SourceItem, second_dispatch.source_item_id)
     original_dispatch_revision_ids = {

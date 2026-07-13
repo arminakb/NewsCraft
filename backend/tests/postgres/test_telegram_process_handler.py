@@ -265,6 +265,10 @@ async def seed_dispatch(
     )
     session.add(story)
     await session.flush()
+    evidence_text = "متن منبع"
+    evidence_key = f"telegram.source.{route_name}"
+    evidence_snapshot_id = uuid4()
+    digest = hashlib.sha256(evidence_text.encode()).hexdigest()
     revision_number = int(shared.get("story_revision_number", 0)) + 1
     shared["story_revision_number"] = revision_number
     story_revision = StoryRevision(
@@ -274,18 +278,26 @@ async def seed_dispatch(
         facts=[],
         disagreements=[],
         angles=[],
-        citations=[],
+        citations=[
+            {
+                "evidence_key": evidence_key,
+                "evidence_snapshot_id": str(evidence_snapshot_id),
+                "source_url": source_item.source_url,
+                "locator": f"chars:0-{len(evidence_text)}",
+                "excerpt_sha256": digest,
+            }
+        ],
         created_by="telegram_capture",
     )
     session.add(story_revision)
     await session.flush()
-    digest = hashlib.sha256("متن منبع".encode()).hexdigest()
     snapshot = StoryEvidenceSnapshot(
+        id=evidence_snapshot_id,
         story_id=story.id,
         content_item_id=content_item.id,
-        evidence_key=f"telegram.source.{route_name}",
+        evidence_key=evidence_key,
         source_url=source_item.source_url,
-        content_text="متن منبع",
+        content_text=evidence_text,
         content_sha256=digest,
         authors=[],
         snapshot_metadata={},
@@ -794,7 +806,7 @@ async def test_same_route_reverse_completion_defers_later_until_parent_is_linked
             second.story_revision_id = first.story_revision_id
         ordered = sorted(
             ((first, first_job), (second, second_job)),
-            key=lambda pair: (pair[0].created_at, pair[0].id),
+            key=lambda pair: pair[0].creation_sequence,
         )
         (earlier, earlier_job), (later, later_job) = ordered
         earlier_id, later_id = earlier.id, later.id
@@ -874,7 +886,7 @@ async def test_simultaneous_same_route_finalization_has_no_dispatch_route_deadlo
             second.story_revision_id = first.story_revision_id
         ordered = sorted(
             ((first, first_job), (second, second_job)),
-            key=lambda pair: (pair[0].created_at, pair[0].id),
+            key=lambda pair: pair[0].creation_sequence,
         )
         dispatch_ids = [pair[0].id for pair in ordered]
         job_ids = [pair[1].id for pair in ordered]

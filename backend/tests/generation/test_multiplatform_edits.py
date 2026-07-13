@@ -2,6 +2,7 @@ import hashlib
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from types import SimpleNamespace
+from unittest.mock import AsyncMock
 from uuid import uuid4
 
 import pytest
@@ -807,6 +808,8 @@ async def test_legacy_telegram_approval_route_rejects_strict_integrity_failures(
     async def draft_out(session_value, approved):
         return {"id": approved.id, "approval_state": approved.approval_state}
 
+    locked_revision = AsyncMock(return_value=revision)
+    monkeypatch.setattr("app.api.telegram_drafts._locked_revision", locked_revision)
     monkeypatch.setattr("app.api.telegram_drafts._draft_out", draft_out)
 
     with pytest.raises(HTTPException) as caught:
@@ -817,6 +820,7 @@ async def test_legacy_telegram_approval_route_rejects_strict_integrity_failures(
         )
 
     assert caught.value.status_code == 409
+    locked_revision.assert_awaited_once_with(session, revision.id)
     assert revision.approval_state == "pending_review"
     assert session.added == []
 
@@ -831,6 +835,8 @@ async def test_legacy_telegram_approval_route_preserves_valid_response_and_event
         assert session_value is session
         return {"id": approved.id, "approval_state": approved.approval_state}
 
+    locked_revision = AsyncMock(return_value=revision)
+    monkeypatch.setattr("app.api.telegram_drafts._locked_revision", locked_revision)
     monkeypatch.setattr("app.api.telegram_drafts._draft_out", draft_out)
 
     response = await approve_telegram_draft(
@@ -840,6 +846,7 @@ async def test_legacy_telegram_approval_route_preserves_valid_response_and_event
     )
 
     assert response == {"id": revision.id, "approval_state": "approved"}
+    locked_revision.assert_awaited_once_with(session, revision.id)
     assert [
         event.event_type
         for event in session.added

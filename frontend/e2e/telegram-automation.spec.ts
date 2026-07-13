@@ -26,6 +26,12 @@ for (const viewport of [
   test(`${viewport.name} completes the Telegram newsroom flow without horizontal overflow`, async ({ page }) => {
     test.setTimeout(60_000)
     const backend = await installTelegramBackend(page)
+    expect(editorialRevision(draft(1, backend)).prompt_version).toEqual({
+      id: ids.prompt2,
+      version: 2,
+      output_schema_version: "telegram_rewrite.v1",
+      checksum_sha256: "b".repeat(64),
+    })
     await page.setViewportSize(viewport)
 
     await page.goto("/settings/content")
@@ -100,7 +106,7 @@ for (const viewport of [
     await expect(page.getByText("پیش‌نویس اولیه")).toBeVisible()
     await page.getByRole("link", { name: "Review exact revision" }).click()
     await expect(page.getByText("Captured source evidence")).toBeVisible()
-    await expect(page.getByText("image · image/jpeg")).toBeVisible()
+    await expect(page.getByLabel("Review Telegram revision").getByText("image · image/jpeg")).toBeVisible()
     await expect(page.getByLabel("Telegram body")).toHaveAttribute("dir", "rtl")
     await expectNoHorizontalOverflow(page)
     await page.getByLabel("Telegram body").fill("نسخه دوم با زمینه تأییدشده")
@@ -236,7 +242,7 @@ async function installTelegramBackend(page: Page, options: { reconciliation?: bo
       const revisionId = path.split("/").at(-1)!
       return json(route, editorialRevision(draftForId(revisionId, state)))
     }
-    if (path === `/content-packs/${ids.contentPack}`) return json(route, editorialPack())
+    if (path === `/content-packs/${ids.contentPack}`) return json(route, editorialPack(state))
     if (path === `/platform-variants/${draft(1, state).platform_variant_id}/revisions`) {
       return json(route, [editorialRevision(draft(1, state)), editorialRevision(draft(2, state))])
     }
@@ -595,17 +601,54 @@ function draftForId(id: string, state: BackendState) {
 
 function editorialRevision(row: ReturnType<typeof draft>) {
   return {
-    ...row,
+    id: row.id,
+    platform: "telegram",
+    platform_variant_id: row.platform_variant_id,
     content_pack_id: ids.contentPack,
     story_id: ids.story,
+    parent_revision_id: row.parent_revision_id,
+    generation_attempt_id: row.generation_attempt_id,
+    revision_number: row.revision_number,
+    content: row.content,
+    content_hash: row.content_hash,
+    evidence_map: row.evidence_map,
+    manual_checklist: [],
     validation_results: [{ gate: "telegram_schema", ok: true, reason: null }],
+    validation_issues: [],
+    media_plan: row.content.media_asset_ids,
+    source_media: row.media.map((item, index) => ({
+      id: item.id,
+      kind: item.kind,
+      mime_type: item.mime_type,
+      width: 1200,
+      height: 800,
+      duration_seconds: null,
+      byte_length: 1024,
+      checksum_sha256: item.checksum_sha256,
+      fetch_status: item.fetch_status,
+      available: item.fetch_status === "downloaded",
+      role: "source",
+      order: index,
+    })),
+    approval_state: row.approval_state,
+    approval_note: row.approval_note,
+    approved_at: row.approved_at,
+    created_by: row.created_by,
     origin: row.created_by === "operator" ? "operator" : "automation",
     provider_profile: { id: ids.provider, name: "OpenRouter newsroom", provider_type: "openrouter" },
     resolved_model: "openai/gpt-5-mini",
+    prompt_version: {
+      id: ids.prompt2,
+      version: 2,
+      output_schema_version: "telegram_rewrite.v1",
+      checksum_sha256: "b".repeat(64),
+    },
+    created_at: row.created_at,
   }
 }
 
-function editorialPack() {
+function editorialPack(state: BackendState) {
+  const current = draft(state.childCreated ? 2 : 1, state)
   return {
     id: ids.contentPack,
     story_id: ids.story,
@@ -614,7 +657,7 @@ function editorialPack() {
     status: "pending_review",
     created_at: "2026-07-12T09:00:00Z",
     updated_at: "2026-07-12T09:00:00Z",
-    variants: [{ id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", platform: "telegram" }],
+    variants: [{ id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", platform: "telegram", current_revision: editorialRevision(current) }],
   }
 }
 

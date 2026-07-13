@@ -102,7 +102,9 @@ async def test_later_platform_failure_and_worker_rollback_cannot_erase_prior_che
             is_active=True,
         )
         prompts[platform] = version
-        db_session.add_all([template, version])
+        db_session.add(template)
+        await db_session.flush()
+        db_session.add(version)
     job = WorkflowJob(
         id=uuid4(),
         job_type="content_pack.generate",
@@ -128,7 +130,10 @@ async def test_later_platform_failure_and_worker_rollback_cannot_erase_prior_che
         max_attempts=3,
         progress=0,
     )
-    db_session.add_all([story, snapshot, story_revision, brand, job])
+    job_id = job.id
+    db_session.add_all([story, brand, job])
+    await db_session.flush()
+    db_session.add_all([snapshot, story_revision])
     await db_session.commit()
 
     raw_instagram = {
@@ -182,7 +187,9 @@ async def test_later_platform_failure_and_worker_rollback_cannot_erase_prior_che
             started_at=datetime.now(UTC),
             finished_at=datetime.now(UTC),
         )
-        context.session.add_all([run, attempt])
+        context.session.add(run)
+        await context.session.flush()
+        context.session.add(attempt)
         await context.session.flush()
         first_run_id = run.id
         return run, attempt, authored
@@ -196,7 +203,7 @@ async def test_later_platform_failure_and_worker_rollback_cannot_erase_prior_che
     await db_session.rollback()
 
     async with session_factory() as reopened:
-        durable_job = await reopened.get(WorkflowJob, job.id)
+        durable_job = await reopened.get(WorkflowJob, job_id)
         pack = await reopened.scalar(select(ContentPack))
         variant = await reopened.scalar(
             select(PlatformVariant).where(PlatformVariant.platform == "instagram")

@@ -697,6 +697,7 @@ async def approve_telegram_draft(
     session: AsyncSession = SessionDependency,
 ):
     async with session.begin():
+        await _locked_revision(session, revision_id)
         try:
             revision = await EditorialService(session).approve_revision(
                 revision_id,

@@ -1,26 +1,13 @@
 from __future__ import annotations
 
-import hashlib
-import json
-import os
-from collections.abc import AsyncIterator
-from dataclasses import dataclass
 from pathlib import Path
 from uuid import UUID
 
 import pytest
-import pytest_asyncio
 from fastapi import HTTPException
-from httpx import ASGITransport, AsyncClient
-from sqlalchemy import select, text
-from sqlalchemy.engine import make_url
-from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker, create_async_engine
-from sqlalchemy.pool import NullPool
+from sqlalchemy import select
 
-from app.api.content_packs import get_editorial_profile_resolver
 from app.api.telegram_drafts import require_revision_transition
-from app.db.model_registry import Base
-from app.db.session import get_session
 from app.generation.default_prompts import (
     seed_default_editorial_prompts,
     seed_default_telegram_configuration,
@@ -32,16 +19,12 @@ from app.generation.editorial_service import (
     GeneratePackRequest,
 )
 from app.generation.models import GenerationRun, PlatformVariantRevision
-from app.generation.providers.base import GenerationProviderResult
-from app.generation.providers.profiles import ResolvedProviderProfile
 from app.generation.providers.registry import build_default_provider_registry
 from app.generation.telegram_schema import TelegramRewriteOutput
 from app.jobs.models import WorkflowEvent, WorkflowJob
-from app.jobs.registry import JobContext, build_default_registry
+from app.jobs.registry import JobContext
 from app.jobs.repository import JobRepository
 from app.jobs.types import JobOrigin
-from app.jobs.worker import WorkerRunner
-from app.main import app
 from app.research.fake import FakeResearchBackend
 from app.research.handlers import build_research_story_handler
 from app.research.models import ResearchAttempt, ResearchRun
@@ -50,174 +33,6 @@ from app.stories.handlers import handle_manual_intake
 from app.stories.models import Story
 
 ROOT = Path(__file__).resolve().parents[3]
-TEST_DATABASE_URL = os.getenv("TEST_DATABASE_URL")
-
-
-@pytest_asyncio.fixture(scope="module")
-async def release3_engine() -> AsyncIterator[AsyncEngine]:
-    if not TEST_DATABASE_URL:
-        pytest.skip("TEST_DATABASE_URL is required for the durable Release 3 integration flow")
-    database_name = make_url(TEST_DATABASE_URL).database
-    if not database_name or not database_name.endswith("_test"):
-        raise RuntimeError("Refusing destructive integration test unless database ends in '_test'")
-    engine = create_async_engine(TEST_DATABASE_URL, poolclass=NullPool)
-    async with engine.begin() as connection:
-        await connection.run_sync(Base.metadata.create_all)
-    try:
-        yield engine
-    finally:
-        await engine.dispose()
-
-
-@pytest_asyncio.fixture
-async def release3_factory(release3_engine: AsyncEngine):
-    table_names = [
-        release3_engine.dialect.identifier_preparer.quote(table.name) for table in Base.metadata.sorted_tables
-    ]
-    async with release3_engine.begin() as connection:
-        await connection.execute(text(f"TRUNCATE TABLE {', '.join(table_names)} RESTART IDENTITY CASCADE"))
-    return async_sessionmaker(release3_engine, expire_on_commit=False)
-
-
-class _AcceptanceProvider:
-    provider_name = "fake"
-
-    async def generate(self, request):
-        if request.purpose == "canonical_story":
-            evidence = json.loads(request.messages[1].content.split("Persisted evidence JSON: ", 1)[1])
-            source = evidence[-1]
-            content = source["content_text"]
-            output = {
-                "headline": "Release confirmed",
-                "narrative": (
-                    "The release evidence was checked through the deterministic editorial "
-                    "acceptance flow and remains bound to its immutable source snapshot."
-                ),
-                "facts": [
-                    {
-                        "text": "The supplied source confirms the release evidence.",
-                        "citations": [
-                            {
-                                "evidence_key": source["evidence_key"],
-                                "evidence_snapshot_id": source["evidence_snapshot_id"],
-                                "source_url": source["source_url"],
-                                "locator": f"chars:0-{len(content)}",
-                                "excerpt_sha256": hashlib.sha256(content.encode()).hexdigest(),
-                            }
-                        ],
-                    }
-                ],
-                "disagreements": [],
-                "angles": ["Explain the verified release timeline."],
-                "missing_information": [],
-            }
-        elif request.purpose == "telegram_pack":
-            output = {"body": "Verified Telegram draft", "parse_mode": "HTML", "buttons": []}
-        else:  # pragma: no cover - the registry constrains this acceptance flow
-            raise AssertionError(f"unexpected generation purpose: {request.purpose}")
-        return GenerationProviderResult(
-            provider="fake",
-            requested_model=request.requested_model,
-            resolved_model=request.requested_model or "fake-v1",
-            output=output,
-            raw_text=json.dumps(output, sort_keys=True),
-            usage={"input_tokens": 0, "output_tokens": 0, "cost_usd": 0},
-            finish_reason="stop",
-        )
-
-
-class _AcceptanceProfileResolver:
-    def __init__(self) -> None:
-        self.provider = _AcceptanceProvider()
-
-    async def validate_availability(self, profile, model_override):
-        return await self.resolve(profile, model_override)
-
-    async def resolve(self, profile, model_override):
-        return ResolvedProviderProfile(
-            profile_id=profile.id,
-            provider_type="fake",
-            model=model_override or profile.default_model,
-            provider=self.provider,
-        )
-
-
-@dataclass
-class AppHarness:
-    client: AsyncClient
-    session_factory: async_sessionmaker
-    worker: WorkerRunner
-    brand_id: UUID
-    fake_provider_profile_id: UUID
-    canonical_prompt_version_id: UUID
-    telegram_prompt_version_id: UUID
-
-    async def post_json(self, path: str, payload: dict, *, expected_status: int):
-        response = await self.client.post(path, json=payload)
-        assert response.status_code == expected_status, response.text
-        return response.json()
-
-    async def run_until_idle(self) -> None:
-        for _ in range(20):
-            if not await self.worker.run_once():
-                return
-        raise AssertionError("worker did not become idle")
-
-    async def story_for_job(self, job_id: str) -> Story:
-        async with self.session_factory() as session:
-            job = await session.get(WorkflowJob, UUID(job_id))
-            assert job is not None and job.status == "succeeded"
-            story = await session.get(Story, UUID(job.result["story_id"]))
-            assert story is not None
-            return story
-
-
-@pytest_asyncio.fixture
-async def app_harness(release3_factory):
-    resolver = _AcceptanceProfileResolver()
-    research_backend = FakeResearchBackend.from_fixture(
-        ROOT / "backend/tests/fixtures/research_brief.json"
-    )
-    async with release3_factory() as session:
-        defaults = await seed_default_telegram_configuration(
-            session, openrouter_available=False
-        )
-        prompts = await seed_default_editorial_prompts(session)
-        await session.commit()
-        ids = (
-            defaults.brand.id,
-            defaults.provider("fake").id,
-            prompts.canonical_story.id,
-            prompts.telegram_pack.id,
-        )
-
-    async def override_session():
-        async with release3_factory() as session:
-            yield session
-
-    app.dependency_overrides[get_session] = override_session
-    app.dependency_overrides[get_editorial_profile_resolver] = lambda: resolver
-    registry = build_default_registry(
-        capabilities=("ingestion", "generation"),
-        profile_resolver=resolver,
-        research_backend_resolver=lambda _profile: research_backend,
-    )
-    worker = WorkerRunner(
-        session_factory=release3_factory,
-        handler_registry=registry,
-        provider_registry=build_default_provider_registry(),
-        worker_id="release3-acceptance-worker",
-        capabilities=("ingestion", "generation"),
-        heartbeat_seconds=60,
-    )
-    try:
-        async with AsyncClient(
-            transport=ASGITransport(app=app), base_url="http://test"
-        ) as client:
-            yield AppHarness(client, release3_factory, worker, *ids)
-    finally:
-        app.dependency_overrides.clear()
-        await worker.close()
 
 
 def test_operator_runbook_records_release_3_offline_and_live_provider_contracts():
@@ -367,7 +182,10 @@ async def test_http_manual_story_research_generation_edit_and_exact_approval(app
 
 
 @pytest.mark.asyncio
-async def test_supplemental_direct_service_flow(release3_factory):
+async def test_supplemental_direct_service_flow(
+    release3_factory,
+    acceptance_profile_resolver,
+):
     async with release3_factory() as session:
         defaults = await seed_default_telegram_configuration(session, openrouter_available=False)
         prompts = await seed_default_editorial_prompts(session)
@@ -420,7 +238,7 @@ async def test_supplemental_direct_service_flow(release3_factory):
         assert research_run.status == "succeeded"
         assert research_run.result_story_revision_id is not None
 
-        resolver = _AcceptanceProfileResolver()
+        resolver = acceptance_profile_resolver
         editorial = EditorialService(session, profile_resolver=resolver)
         pack_request = await editorial.request_content_pack(
             story_id,

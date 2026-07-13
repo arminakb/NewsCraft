@@ -100,7 +100,15 @@ async def test_concurrent_exact_create_replay_has_one_active_plan_and_one_event(
         approved_at=datetime.now(UTC),
         created_by="test",
     )
-    db_session.add_all([story, story_revision, brand, pack, variant, revision])
+    db_session.add_all([story, brand])
+    await db_session.flush()
+    db_session.add(story_revision)
+    await db_session.flush()
+    db_session.add(pack)
+    await db_session.flush()
+    db_session.add(variant)
+    await db_session.flush()
+    db_session.add(revision)
     await db_session.commit()
     scheduled_for = datetime.now(UTC) + timedelta(hours=2)
 

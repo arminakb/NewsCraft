@@ -64,7 +64,9 @@ async def test_generation_media_revalidation_does_not_invert_ingestion_asset_lin
         confidence=Decimal("1"),
         extracted_from="content_image",
     )
-    db_session.add_all([content_item, asset, link])
+    db_session.add_all([content_item, asset])
+    await db_session.flush()
+    db_session.add(link)
     await db_session.commit()
 
     candidate = MediaCandidate(

@@ -10,7 +10,7 @@ The active backend lives in `backend/`. The ingestion dashboard lives in `fronte
 - Stores raw payloads, source items, deduplicated content items, identities, and media assets in PostgreSQL.
 - Extracts feed media, Telegram images/previews/documents, and stores media metadata for downstream use.
 - Classifies, scores, buckets, and readiness-checks content for downstream rewriting.
-- Supports manual content-item approval; AI generation, editorial revisions, scheduling, and publishing are planned in the content-platform rescue.
+- Supports evidence-backed research, multi-platform package generation, immutable editorial revisions, exact approval, deterministic exports, reviewed Telegram scheduling/publishing, and manual publication tracking for Instagram, X, and blog.
 - Provides source health diagnostics, validation reports, and manual ingestion endpoints.
 - Provides a Next.js ingestion dashboard for source health, runs, content queue, media extraction, and source detail review.
 - Includes a minimal legacy SQLite article reader for user-provided old `news.db` files.
@@ -91,12 +91,19 @@ Source access uses `TELEGRAM_SOURCE_EDITOR_API_ID`, `TELEGRAM_SOURCE_EDITOR_API_
 
 ### Research and generation
 
-Manual source intake, evidence-backed research, canonical story generation, Telegram draft
-generation, immutable editorial revisions, and exact approval are operated from Inbox,
-Drafts, Review, and Content settings. Fake mode is credential-free; OpenRouter and local
-Codex execution are explicit opt-ins with bounded, validated provider-profile settings.
+Manual source intake and evidence-backed research are operated from Inbox. Generated Telegram,
+Instagram, X, and blog content packages, immutable editorial revisions, and exact approval are
+handled in Drafts and Review, with provider and prompt-template configuration in Content
+Settings. Fake mode is credential-free; OpenRouter and local Codex execution are explicit
+opt-ins with bounded, validated provider-profile settings. Instagram, X, and blog are
+manual-only destinations; Telegram uses its separate reviewed publishing boundary. All
+platform previews are approximations rather than live platform state.
+
 See the [research and generation operator runbook](docs/operations/research-and-generation.md)
-for exact environment settings, safety boundaries, UI steps, and the offline acceptance gate.
+for exact environment settings and generation safety boundaries. See the
+[multi-platform manual publishing runbook](docs/operations/manual-publishing-packages.md) for
+the exact review, immutable edit, approval, copy/export, manual-plan, checklist, and completion
+flow plus offline acceptance limitations.
 
 Run the PostgreSQL queue contract suite:
 
@@ -242,6 +249,8 @@ Use `127.0.0.1` only for backend commands that run directly on the host. Docker 
 
 ## Documentation
 
+- Multi-platform manual publishing: [operator runbook](docs/operations/manual-publishing-packages.md)
+- Research and generation: [operator runbook](docs/operations/research-and-generation.md)
 - Backend ingestion details: `docs/ingestion-backend.md`
 - Source catalog notes: `docs/ingestion-source-catalog.md`
 - Selective integration audit: `docs/armin-selective-audit.md`

@@ -104,7 +104,15 @@ async def test_committed_regeneration_fence_prevents_second_session_revision_adv
         heartbeat_at=now,
         progress=0,
     )
-    db_session.add_all([story, story_revision, brand, pack, variant, base, owner_job])
+    db_session.add_all([story, brand, owner_job])
+    await db_session.flush()
+    db_session.add(story_revision)
+    await db_session.flush()
+    db_session.add(pack)
+    await db_session.flush()
+    db_session.add(variant)
+    await db_session.flush()
+    db_session.add(base)
     await db_session.commit()
 
     locked_variant = await db_session.scalar(
@@ -214,7 +222,15 @@ async def test_cached_regeneration_replay_does_not_deadlock_with_manual_edit(
         approval_state="approved",
         created_by="generation",
     )
-    db_session.add_all([story, story_revision, brand, pack, variant, base])
+    db_session.add_all([story, brand])
+    await db_session.flush()
+    db_session.add(story_revision)
+    await db_session.flush()
+    db_session.add(pack)
+    await db_session.flush()
+    db_session.add(variant)
+    await db_session.flush()
+    db_session.add(base)
     await db_session.commit()
 
     payload_citation = CitationRef(
@@ -398,7 +414,15 @@ async def test_cached_regeneration_replay_does_not_invert_normal_pack_lock_order
         approval_state="approved",
         created_by="generation",
     )
-    db_session.add_all([story, story_revision, brand, pack, variant, base])
+    db_session.add_all([story, brand])
+    await db_session.flush()
+    db_session.add(story_revision)
+    await db_session.flush()
+    db_session.add(pack)
+    await db_session.flush()
+    db_session.add(variant)
+    await db_session.flush()
+    db_session.add(base)
     await db_session.commit()
 
     def cached_replay_builder(profile_resolver):
@@ -571,9 +595,15 @@ async def test_regeneration_enqueue_does_not_lock_prompt_behind_variant(
         approval_state="approved",
         created_by="generation",
     )
-    db_session.add_all(
-        [story, story_revision, brand, profile, template, prompt, pack, variant, current]
-    )
+    db_session.add_all([story, brand, profile, template])
+    await db_session.flush()
+    db_session.add_all([story_revision, prompt])
+    await db_session.flush()
+    db_session.add(pack)
+    await db_session.flush()
+    db_session.add(variant)
+    await db_session.flush()
+    db_session.add(current)
     await db_session.commit()
 
     class Jobs:

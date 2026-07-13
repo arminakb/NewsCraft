@@ -53,6 +53,7 @@ async def test_capture_records_evidence_and_process_job_before_cursor_advance(tm
     assert session.story.status == "telegram_provisional"
     assert session.revision.revision_number == 1
     assert session.revision.created_by == "telegram_capture"
+    assert session.revision.citations == [_expected_snapshot_citation(session.snapshot)]
     assert session.evidence_link.evidence_snapshot_id == session.snapshot.id
     assert session.evidence_link.story_revision_id == session.revision.id
     assert session.evidence_link.claim_key == "telegram.source"
@@ -61,6 +62,26 @@ async def test_capture_records_evidence_and_process_job_before_cursor_advance(tm
     capture.cleanup_staged_media(staged)
 
     assert all(not path.exists() for path in (item.path for item in staged))
+
+
+async def test_media_only_capture_keeps_snapshot_without_invalid_empty_text_citation(tmp_path):
+    capture, session, jobs, _, route = _build_capture_repository(tmp_path, [])
+
+    dispatch = await capture.capture_and_enqueue(
+        route_id=ROUTE_ID,
+        source=_telegram_source(),
+        cursor=route,
+        envelope=_telegram_album(message_ids=(101, 102, 103), text=""),
+        materialized_media=_staged_album(tmp_path),
+        dispatch_kind="live",
+        dry_run_job_id=None,
+    )
+
+    assert session.snapshot.content_text == ""
+    assert session.revision.citations == []
+    assert session.evidence_link.evidence_snapshot_id == session.snapshot.id
+    assert dispatch.story_revision_id == session.revision.id
+    assert jobs.enqueued[0].job_type == "telegram.route.process"
 
 
 async def test_duplicate_route_source_returns_existing_before_mutation_or_cursor_regression(tmp_path):
@@ -145,6 +166,7 @@ async def test_source_edit_reuses_story_and_creates_linked_child_revision(tmp_pa
     assert session.revision.parent_revision_id == parent.id
     assert session.revision.revision_number == 2
     assert session.revision.created_by == "telegram_source_edit"
+    assert session.revision.citations == [_expected_snapshot_citation(session.snapshot)]
     assert session.evidence_link.evidence_snapshot_id == session.snapshot.id
     assert dispatch.source_key.startswith("album:900:edit:")
     assert dispatch.dispatch_kind == "source_edit"
@@ -152,6 +174,16 @@ async def test_source_edit_reuses_story_and_creates_linked_child_revision(tmp_pa
     assert jobs.enqueued[0].idempotency_key == f"telegram-process:{ROUTE_ID}:{dispatch.source_key}"
     assert route.cursor_state["last_message_id"] == original_cursor["last_message_id"]
     assert route.cursor_state["recent_fingerprints"]["103"] == dispatch.source_fingerprint
+
+
+def _expected_snapshot_citation(snapshot):
+    return {
+        "evidence_key": snapshot.evidence_key,
+        "evidence_snapshot_id": str(snapshot.id),
+        "source_url": snapshot.source_url,
+        "locator": f"chars:0-{len(snapshot.content_text)}",
+        "excerpt_sha256": snapshot.content_sha256,
+    }
 
 
 async def test_same_text_entity_only_edit_uses_distinct_content_identity_and_evidence_key(tmp_path):
