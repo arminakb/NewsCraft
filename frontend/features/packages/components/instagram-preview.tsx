@@ -5,6 +5,7 @@ import {
   PreviewDisclaimer,
   PreviewMediaAssignment,
 } from "@/features/packages/components/telegram-preview"
+import { DirectionBoundary } from "@/components/newsroom/direction-boundary"
 
 type InstagramRevision = Extract<PlatformRevision, { platform: "instagram" }>
 
@@ -20,11 +21,11 @@ export function InstagramPreview({ revision }: { revision: InstagramRevision }) 
       </header>
 
       <div className="space-y-2 rounded-md border bg-background p-3">
-        <p className="font-semibold" dir="auto">{payload.hook}</p>
-        <p className="whitespace-pre-wrap break-words" dir="auto">{payload.caption}</p>
-        <p dir="auto"><span className="font-medium">Call to action:</span> {payload.cta}</p>
-        <p className="break-words" dir="auto">{payload.hashtags.join(" ")}</p>
-        <p className="text-sm" dir="auto"><span className="font-medium">Package alt text:</span> {payload.altText}</p>
+        <DirectionBoundary as="p" language={null} className="font-semibold">{payload.hook}</DirectionBoundary>
+        <DirectionBoundary as="p" language={null} className="whitespace-pre-wrap break-words">{payload.caption}</DirectionBoundary>
+        <p><span className="font-medium">Call to action:</span> <DirectionBoundary as="span" language={null}>{payload.cta}</DirectionBoundary></p>
+        <DirectionBoundary as="p" language={null} className="break-words">{payload.hashtags.join(" ")}</DirectionBoundary>
+        <p className="text-sm"><span className="font-medium">Package alt text:</span> <DirectionBoundary as="span" language={null}>{payload.altText}</DirectionBoundary></p>
       </div>
 
       <section aria-label="Instagram carousel" className="space-y-3">
@@ -34,8 +35,8 @@ export function InstagramPreview({ revision }: { revision: InstagramRevision }) 
             {slides.map((slide) => (
               <li key={`${slide.order}-${slide.headline}`}>
                 <article aria-label={`Carousel slide ${slide.order}`} className="space-y-2 rounded-md border p-3">
-                  <h4 className="font-semibold">Slide {slide.order}: {slide.headline}</h4>
-                  <p className="whitespace-pre-wrap break-words" dir="auto">{slide.body}</p>
+                  <h4 className="font-semibold">Slide {slide.order}: <DirectionBoundary as="span" language={null}>{slide.headline}</DirectionBoundary></h4>
+                  <DirectionBoundary as="p" language={null} className="whitespace-pre-wrap break-words">{slide.body}</DirectionBoundary>
                   <PreviewMediaAssignment assignment={slide.media} />
                 </article>
               </li>

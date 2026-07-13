@@ -23,6 +23,7 @@ import { getAutomationControl } from "@/features/control/api"
 import { getApiErrorMessage } from "@/lib/http"
 import { queryKeys } from "@/lib/query-keys"
 import { ReviewResearchOutcome } from "@/features/automations/research-outcome"
+import { DirectionBoundary } from "@/components/newsroom/direction-boundary"
 
 export function TelegramReviewWorkspace({ revisionId, contentPackId, platformVariantId }: { revisionId: string; contentPackId?: string; platformVariantId?: string }) {
   const router = useRouter()
@@ -164,7 +165,7 @@ export function TelegramReviewWorkspace({ revisionId, contentPackId, platformVar
               {draft.evidenceMap.length ? <div className="space-y-2" aria-label="Exact evidence map">{draft.evidenceMap.map((citation) => <div key={`${citation.evidenceSnapshotId}-${citation.locator}`} className="rounded border p-2 text-xs"><div>{citation.evidenceKey} · {citation.locator}</div><div className="break-all">Excerpt hash {citation.excerptSha256}</div>{citation.sourceUrl ? <a href={citation.sourceUrl} target="_blank" rel="noreferrer" className="text-primary underline">Open original source</a> : <span>Operator-provided text</span>}</div>)}</div> : null}
               {draft.evidence.length ? draft.evidence.map((item) => (
                 <article key={item.evidenceSnapshotId} className="min-w-0 rounded-md border p-3">
-                  <p dir="auto" className="whitespace-pre-wrap break-words">{item.contentText}</p>
+                  <DirectionBoundary as="p" language={null} className="whitespace-pre-wrap break-words">{item.contentText}</DirectionBoundary>
                   <div className="break-all text-xs text-muted-foreground">Snapshot hash {item.contentSha256}</div>
                   {item.sourceUrl ? <a className="mt-2 block break-all text-sm text-primary underline" href={item.sourceUrl} target="_blank" rel="noreferrer">Open original source</a> : <div className="text-sm text-muted-foreground">Operator-provided text</div>}
                 </article>
@@ -195,7 +196,7 @@ export function TelegramReviewWorkspace({ revisionId, contentPackId, platformVar
           <CardContent className="space-y-4">
             <label className="block space-y-2">
               <span className="font-medium">Telegram body</span>
-              <textarea aria-label="Telegram body" dir={draft.content.direction} value={body} onChange={(event) => setBody(event.target.value)} className="min-h-64 w-full rounded-md border p-3" />
+              <DirectionBoundary as="textarea" aria-label="Telegram body" direction={draft.content.direction} value={body} onChange={(event) => setBody(event.target.value)} className="min-h-64 w-full rounded-md border p-3" />
             </label>
             <div className="flex flex-wrap gap-2">
               <Button onClick={() => editMutation.mutate()} disabled={mutationPending || !editorDirty}>Save as new revision</Button>

@@ -3,6 +3,7 @@ import type {
   MediaAssignment,
   PlatformRevision,
 } from "@/features/packages/types"
+import { DirectionBoundary } from "@/components/newsroom/direction-boundary"
 
 type TelegramRevision = Extract<PlatformRevision, { platform: "telegram" }>
 
@@ -73,17 +74,17 @@ export function PreviewMediaAssignment({ assignment }: { assignment: MediaAssign
         <dt className="font-medium">Order</dt>
         <dd>{assignment.order}</dd>
         <dt className="font-medium">Alt text</dt>
-        <dd className="whitespace-pre-wrap break-words" dir="auto">{assignment.altText}</dd>
+        <DirectionBoundary as="dd" language={null} className="whitespace-pre-wrap break-words">{assignment.altText}</DirectionBoundary>
         {assignment.manualBrief ? (
           <>
             <dt className="font-medium">Manual brief</dt>
-            <dd className="whitespace-pre-wrap break-words" dir="auto">{assignment.manualBrief}</dd>
+            <DirectionBoundary as="dd" language={null} className="whitespace-pre-wrap break-words">{assignment.manualBrief}</DirectionBoundary>
           </>
         ) : null}
         {assignment.imagePrompt ? (
           <>
             <dt className="font-medium">Image prompt</dt>
-            <dd className="whitespace-pre-wrap break-words" dir="auto">{assignment.imagePrompt}</dd>
+            <DirectionBoundary as="dd" language={null} className="whitespace-pre-wrap break-words">{assignment.imagePrompt}</DirectionBoundary>
           </>
         ) : null}
       </dl>
@@ -97,7 +98,7 @@ export function PreviewChecklist({ items, label }: { items: string[]; label: str
       <h3 className="font-semibold">Manual checklist</h3>
       {items.length ? (
         <ul className="list-disc space-y-1 ps-5">
-          {items.map((item, index) => <li key={`${index}-${item}`}>{item}</li>)}
+          {items.map((item, index) => <li key={`${index}-${item}`}><DirectionBoundary as="span" language={null}>{item}</DirectionBoundary></li>)}
         </ul>
       ) : (
         <p className="text-sm text-muted-foreground">No adjacent manual checklist items.</p>
@@ -118,7 +119,7 @@ export function TelegramPreview({ revision }: { revision: TelegramRevision }) {
 
       <section aria-label="Exact Telegram payload" className="min-w-0 space-y-3 rounded-md border bg-background p-3">
         <h3 className="font-semibold">Exact Telegram payload</h3>
-        <pre dir={payload.direction} className="whitespace-pre-wrap break-words font-sans">{payload.body}</pre>
+        <DirectionBoundary as="pre" direction={payload.direction} className="whitespace-pre-wrap break-words font-sans">{payload.body}</DirectionBoundary>
         <dl className="grid min-w-0 gap-1 text-sm sm:grid-cols-[max-content_1fr]">
           <dt className="font-medium">Parse mode</dt>
           <dd>{payload.parseMode}</dd>
@@ -143,7 +144,7 @@ export function TelegramPreview({ revision }: { revision: TelegramRevision }) {
               {payload.buttons.map((button, index) => (
                 <li key={`${index}-${button.url}`}>
                   <a href={button.url} target="_blank" rel="noreferrer" className="break-all text-primary underline">
-                    {button.text}: {button.url}
+                    <DirectionBoundary as="span" language={null}>{button.text}</DirectionBoundary>: {button.url}
                   </a>
                 </li>
               ))}

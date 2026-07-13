@@ -163,14 +163,14 @@ export function ContentPackWorkspace({ packId, initialRevisionId = null }: { pac
     ?? revisionHistory.error
     ?? evidence.error
     ?? (activeVariant?.platform === "telegram" ? providers.error ?? prompts.error : null)
-  if (queryError) return <main role="alert" className="p-6 text-red-700">{getApiErrorMessage(queryError, "Editorial workspace or captured evidence could not be loaded")}</main>
+  if (queryError) return <section role="alert" dir="auto" className="p-6 text-red-700">{getApiErrorMessage(queryError, "Editorial workspace or captured evidence could not be loaded")}</section>
   const loading = pack.isPending
     || (Boolean(initialRevisionId) && initialRevision.isPending)
     || (Boolean(pack.data?.storyId) && evidence.isPending)
     || (Boolean(activeVariant) && revisionHistory.isPending)
     || (activeVariant?.platform === "telegram" && (providers.isPending || prompts.isPending))
-  if (loading) return <main role="status" className="p-6">Loading editorial workspace and captured evidence…</main>
-  if (!pack.data) return <main role="alert" className="p-6 text-red-700">Content package data is unavailable.</main>
+  if (loading) return <section role="status" className="p-6">Loading editorial workspace and captured evidence…</section>
+  if (!pack.data) return <section role="alert" className="p-6 text-red-700">Content package data is unavailable.</section>
 
   const chooseVariant = (variant: ContentPackageVariant) => {
     if (workspaceBusy || variant.id === activeVariant?.id || !allowDiscard()) return
@@ -209,8 +209,8 @@ export function ContentPackWorkspace({ packId, initialRevisionId = null }: { pac
     }
   }
 
-  return <main className="min-w-0 space-y-4 p-4 md:p-6">
-    <header><h1 className="text-2xl font-semibold">Multi-platform editorial studio</h1><p className="text-sm text-muted-foreground">Pack {pack.data.id} · {pack.data.status}</p></header>
+  return <section className="min-w-0 space-y-4 p-4 md:p-6" aria-labelledby="content-pack-workspace-heading">
+    <header><h1 id="content-pack-workspace-heading" className="text-2xl font-semibold">Multi-platform editorial studio</h1><p className="text-sm text-muted-foreground">Pack {pack.data.id} · {pack.data.status}</p></header>
     <div role="tablist" aria-label="Package platforms" className="flex flex-wrap gap-2 border-b pb-3">
       {variants.map((variant) => <button key={variant.id} type="button" role="tab" disabled={workspaceBusy} aria-selected={variant.id === activeVariant?.id} aria-controls={`platform-panel-${variant.id}`} className={`rounded-lg border px-3 py-2 text-sm ${variant.id === activeVariant?.id ? "bg-primary text-primary-foreground" : "bg-background"}`} onClick={() => chooseVariant(variant)}>{platformLabel(variant.platform)}</button>)}
     </div>
@@ -259,7 +259,7 @@ export function ContentPackWorkspace({ packId, initialRevisionId = null }: { pac
         </div>
       </div>
     </div>}
-  </main>
+  </section>
 }
 
 function ExactEvidenceMap({ citations, onSelect }: { citations: CitationRef[]; onSelect: (citation: CitationRef) => void }) {

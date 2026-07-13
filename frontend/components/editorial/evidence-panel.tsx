@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react"
 import type { EvidenceCitation, EvidenceDetail } from "@/lib/editorial-types"
+import { DirectionBoundary } from "@/components/newsroom/direction-boundary"
 
 export function EvidencePanel({ evidence, activeCitation, onSelectCitation }: { evidence: EvidenceDetail[]; activeCitation: EvidenceCitation | null; onSelectCitation?: (citation: EvidenceCitation) => void }) {
   const selected = activeCitation ? evidence.find((item) => item.id === activeCitation.evidenceSnapshotId && item.evidenceKey === activeCitation.evidenceKey) : evidence[0]
@@ -26,12 +27,12 @@ export function EvidencePanel({ evidence, activeCitation, onSelectCitation }: { 
       <h2 id="evidence-heading" className="text-lg font-semibold">Evidence</h2>
       {!selected ? <p role={activeCitation ? "alert" : undefined} className="text-muted-foreground">{activeCitation ? `Evidence snapshot ${activeCitation.evidenceSnapshotId} is unavailable; the citation was not resolved.` : "No captured evidence is available."}</p> : (
         <article className="min-w-0 space-y-2 rounded-lg border p-3">
-          <div className="font-medium">{selected.title ?? (selected.sourceUrl ? "Captured source" : "Operator-provided text")}</div>
+          <DirectionBoundary language={null} className="font-medium">{selected.title ?? (selected.sourceUrl ? "Captured source" : "Operator-provided text")}</DirectionBoundary>
           {!selected.sourceUrl ? <div className="text-sm text-muted-foreground">Operator-provided text</div> : null}
           {integrity === "checking" ? <div role="status">Verifying citation integrity…</div> : null}
-          {integrity === "verified" && excerpt !== null ? <blockquote data-testid="evidence-excerpt" tabIndex={-1} className="border-s-4 ps-3 font-medium" dir="auto">{excerpt}</blockquote> : null}
+          {integrity === "verified" && excerpt !== null ? <DirectionBoundary language={null}><blockquote data-testid="evidence-excerpt" tabIndex={-1} className="border-s-4 ps-3 font-medium">{excerpt}</blockquote></DirectionBoundary> : null}
           {integrity === "failed" ? <div role="alert" className="text-red-700">Citation integrity verification failed. Approval-safe excerpt and source link are hidden.</div> : null}
-          <p className="max-h-72 overflow-auto whitespace-pre-wrap break-words text-sm" dir="auto">{selected.contentText}</p>
+          <DirectionBoundary as="p" language={null} className="max-h-72 overflow-auto whitespace-pre-wrap break-words text-sm">{selected.contentText}</DirectionBoundary>
           <dl className="grid gap-1 break-all text-xs text-muted-foreground">
             {activeCitation ? <><div>Locator {activeCitation.locator}</div><div>Excerpt hash {activeCitation.excerptSha256}</div></> : null}
             <div>Snapshot hash {selected.contentSha256}</div><div>Captured {new Date(selected.capturedAt).toLocaleString()}</div>

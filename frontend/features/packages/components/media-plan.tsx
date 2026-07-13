@@ -1,6 +1,7 @@
 "use client"
 
 import type { PlatformRevision, SourceMedia } from "@/features/packages/types"
+import { DirectionBoundary } from "@/components/newsroom/direction-boundary"
 
 type RevisionFor<P extends PlatformRevision["platform"]> = Extract<PlatformRevision, { platform: P }>
 type PayloadFor<P extends PlatformRevision["platform"]> = RevisionFor<P>["payload"]
@@ -110,7 +111,7 @@ function InstagramAssignments({ revision, onReorder }: { revision: RevisionFor<"
     <ol className="space-y-2">
       {slides.map((slide, index) => (
         <li key={`${slide.order}:${index}`} aria-label={`Media assignment slide ${slide.order}`} className="rounded-lg border p-3">
-          <div className="font-medium">Slide {slide.order} · {slide.headline}</div>
+          <div className="font-medium">Slide {slide.order} · <DirectionBoundary as="span" language={null}>{slide.headline}</DirectionBoundary></div>
           <AssignmentDetails platform="instagram" assignment={slide.media} sourceMedia={revision.sourceMedia} />
           {onReorder ? (
             <MoveControls
@@ -189,9 +190,9 @@ function AssignmentDetails({ platform, assignment, sourceMedia }: { platform: "i
     <div className="space-y-1 text-sm">
       <div>Role: {assignment.role} · order {assignment.order}</div>
       <div>Asset: {assignment.mediaAssetId ?? "not assigned"}</div>
-      <div>Alt text: <span>{assignment.altText}</span></div>
-      <div>Manual brief: <span>{assignment.manualBrief ?? "Not provided"}</span></div>
-      <div>Image prompt: <span>{assignment.imagePrompt ?? "Not provided"}</span></div>
+      <div>Alt text: <DirectionBoundary as="span" language={null}>{assignment.altText}</DirectionBoundary></div>
+      <div>Manual brief: <DirectionBoundary as="span" language={null}>{assignment.manualBrief ?? "Not provided"}</DirectionBoundary></div>
+      <div>Image prompt: <DirectionBoundary as="span" language={null}>{assignment.imagePrompt ?? "Not provided"}</DirectionBoundary></div>
       {requiresManual ? (
         <div role="alert" className="font-medium text-amber-800">
           Required manual asset{problem ? ` — ${problem}` : ""}

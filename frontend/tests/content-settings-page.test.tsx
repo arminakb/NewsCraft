@@ -109,6 +109,19 @@ describe("ContentSettingsPage", () => {
     ])
   })
 
+  it("keeps prompt prose directional while leaving the shell as the only main landmark", async () => {
+    const view = renderSettings()
+
+    const instructions = await screen.findByLabelText("Custom instructions")
+    expect(instructions).toHaveAttribute("data-testid", "direction-boundary")
+    expect(instructions).toHaveAttribute("dir", "auto")
+    expect(screen.getByLabelText("User template")).toHaveAttribute("dir", "auto")
+    await screen.findByText("Version 1")
+    fireEvent.click(screen.getByText("Inspect immutable templates"))
+    expect(screen.getByText(/Write faithfully/)).toHaveAttribute("dir", "auto")
+    expect(view.container.querySelector("main")).not.toBeInTheDocument()
+  })
+
   it("creates and updates brands, then creates and confirms an immutable prompt activation", async () => {
     vi.mocked(createBrandProfile).mockResolvedValue({
       ...(await getBrandProfiles())[0],

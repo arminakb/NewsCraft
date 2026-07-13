@@ -7,6 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { getTelegramDrafts } from "@/features/automations/telegram-api"
 import { getApiErrorMessage } from "@/lib/http"
 import { queryKeys } from "@/lib/query-keys"
+import { DirectionBoundary } from "@/components/newsroom/direction-boundary"
 
 export function TelegramDraftList({ approvalState }: { approvalState?: "draft" | "pending_review" | "approved" | "rejected" }) {
   const query = useQuery({
@@ -37,7 +38,7 @@ export function TelegramDraftList({ approvalState }: { approvalState?: "draft" |
               <CardHeader><CardTitle>Revision {draft.revisionNumber}</CardTitle></CardHeader>
               <CardContent className="space-y-3">
                 <div className="flex flex-wrap gap-2 text-sm"><span>{draft.approvalState.replaceAll("_", " ")}</span>{draft.publishStatus ? <span>· {draft.publishStatus.replaceAll("_", " ")}</span> : null}</div>
-                <p dir={draft.content.direction} className="line-clamp-4 whitespace-pre-wrap break-words">{draft.content.body}</p>
+                <DirectionBoundary as="p" direction={draft.content.direction} className="line-clamp-4 whitespace-pre-wrap break-words">{draft.content.body}</DirectionBoundary>
                 <Link className="inline-flex min-h-11 items-center text-primary underline" href={`/review/${draft.id}`}>Review exact revision</Link>
               </CardContent>
             </Card>

@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react"
 
 import { Button } from "@/components/ui/button"
+import { DirectionBoundary } from "@/components/newsroom/direction-boundary"
 import {
   createContentPackageExport,
   getExportOutcome,
@@ -220,7 +221,9 @@ export function CopyExportActions({
       {manualCopy !== null ? (
         <label className="grid gap-1">
           <span>Manual copy content</span>
-          <textarea
+          <DirectionBoundary
+            as="textarea"
+            language={null}
             ref={fallbackRef}
             aria-label="Manual copy content"
             className="min-h-32 rounded-lg border p-2 font-mono text-sm"

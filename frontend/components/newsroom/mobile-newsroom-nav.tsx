@@ -3,7 +3,7 @@
 import Link from "next/link"
 import { usePathname } from "next/navigation"
 import { Menu, X } from "lucide-react"
-import { useEffect, useRef, useState } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 
 import { isCurrentPath, newsroomNavItems } from "@/components/newsroom/newsroom-sidebar"
 import { cn } from "@/lib/utils"
@@ -13,41 +13,77 @@ export function MobileNewsroomNav() {
   const [open, setOpen] = useState(false)
   const triggerRef = useRef<HTMLButtonElement>(null)
   const firstLinkRef = useRef<HTMLAnchorElement>(null)
+  const dialogRef = useRef<HTMLDivElement>(null)
+
+  const closeAndRestore = useCallback(() => {
+    setOpen(false)
+    triggerRef.current?.focus()
+  }, [])
 
   useEffect(() => {
     if (!open) return
 
+    const previousBodyOverflow = document.body.style.overflow
+    document.body.style.overflow = "hidden"
     firstLinkRef.current?.focus()
-    const closeOnEscape = (event: KeyboardEvent) => {
+
+    const keepFocusInDialog = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
         event.preventDefault()
-        setOpen(false)
-        triggerRef.current?.focus()
+        closeAndRestore()
+        return
+      }
+
+      if (event.key !== "Tab") return
+
+      const focusableElements = Array.from(
+        dialogRef.current?.querySelectorAll<HTMLElement>(
+          'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+        ) ?? []
+      )
+      if (focusableElements.length === 0) return
+
+      const firstFocusable = focusableElements[0]
+      const lastFocusable = focusableElements.at(-1)
+      const activeElement = document.activeElement
+
+      if (event.shiftKey && (activeElement === firstFocusable || !dialogRef.current?.contains(activeElement))) {
+        event.preventDefault()
+        lastFocusable?.focus()
+      } else if (!event.shiftKey && activeElement === lastFocusable) {
+        event.preventDefault()
+        firstFocusable.focus()
       }
     }
-    document.addEventListener("keydown", closeOnEscape)
-    return () => document.removeEventListener("keydown", closeOnEscape)
-  }, [open])
-
-  const closeAndRestore = () => {
-    setOpen(false)
-    triggerRef.current?.focus()
-  }
+    const closeAtDesktopBreakpoint = () => {
+      if (window.innerWidth >= 900) closeAndRestore()
+    }
+    document.addEventListener("keydown", keepFocusInDialog)
+    window.addEventListener("resize", closeAtDesktopBreakpoint)
+    return () => {
+      document.removeEventListener("keydown", keepFocusInDialog)
+      window.removeEventListener("resize", closeAtDesktopBreakpoint)
+      document.body.style.overflow = previousBodyOverflow
+    }
+  }, [closeAndRestore, open])
 
   return (
     <>
       {open ? (
-        <div className="fixed inset-0 z-50 md:hidden">
+        <div className="fixed inset-0 z-50 min-[900px]:hidden">
           <div
             aria-hidden="true"
+            data-testid="mobile-navigation-backdrop"
             className="absolute inset-0 min-h-11 min-w-11 bg-slate-950/40"
             onClick={closeAndRestore}
           />
           <div
+            ref={dialogRef}
             id="newsroom-mobile-navigation"
             role="dialog"
             aria-label="Newsroom navigation"
-            className="absolute inset-x-3 bottom-20 max-h-[calc(100dvh-6rem)] overflow-y-auto rounded-lg border bg-white p-3 shadow-xl"
+            aria-modal="true"
+            className="absolute inset-x-3 bottom-20 max-h-[calc(100dvh-6rem)] min-w-0 overscroll-contain overflow-y-auto rounded-lg border bg-white p-3 shadow-xl"
           >
             <div className="mb-2 flex min-h-11 items-center justify-between gap-3 px-2">
               <span className="font-semibold">Navigate NewsCraft</span>
@@ -71,10 +107,10 @@ export function MobileNewsroomNav() {
                     href={item.href}
                     aria-current={active ? "page" : undefined}
                     className={cn(
-                      "flex min-h-11 items-center gap-3 rounded-md px-3 text-sm font-medium",
+                      "flex min-h-11 min-w-11 items-center gap-3 rounded-md px-3 text-sm font-medium",
                       active ? "bg-accent text-accent-foreground" : "hover:bg-muted"
                     )}
-                    onClick={() => setOpen(false)}
+                    onClick={closeAndRestore}
                   >
                     <Icon className="size-5" aria-hidden="true" />
                     {item.label}
@@ -88,7 +124,7 @@ export function MobileNewsroomNav() {
 
       <nav
         aria-label="Mobile newsroom navigation"
-        className="fixed inset-x-0 bottom-0 z-40 grid min-h-16 grid-cols-3 border-t bg-white/95 px-2 py-1 backdrop-blur md:hidden"
+        className="fixed inset-x-0 bottom-0 z-40 grid min-h-16 grid-cols-3 border-t bg-white/95 px-2 py-1 backdrop-blur min-[900px]:hidden"
       >
         {newsroomNavItems.slice(0, 2).map((item) => {
           const Icon = item.icon
@@ -99,7 +135,7 @@ export function MobileNewsroomNav() {
               href={item.href}
               aria-current={active ? "page" : undefined}
               className={cn(
-                "flex min-h-11 flex-col items-center justify-center gap-0.5 rounded-md px-2 text-xs font-medium",
+                "flex min-h-11 min-w-11 flex-col items-center justify-center gap-0.5 rounded-md px-2 text-xs font-medium",
                 active ? "text-primary" : "text-muted-foreground hover:bg-muted"
               )}
             >
@@ -114,7 +150,8 @@ export function MobileNewsroomNav() {
           aria-label="Open navigation"
           aria-controls="newsroom-mobile-navigation"
           aria-expanded={open}
-          className="flex min-h-11 flex-col items-center justify-center gap-0.5 rounded-md px-2 text-xs font-medium text-muted-foreground hover:bg-muted"
+          aria-haspopup="dialog"
+          className="flex min-h-11 min-w-11 flex-col items-center justify-center gap-0.5 rounded-md px-2 text-xs font-medium text-muted-foreground hover:bg-muted"
           onClick={() => setOpen(true)}
         >
           <Menu className="size-5" aria-hidden="true" />

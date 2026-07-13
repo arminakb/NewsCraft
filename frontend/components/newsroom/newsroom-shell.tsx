@@ -29,11 +29,11 @@ export function NewsroomShell({ children }: { children: React.ReactNode }) {
         : "active"
 
   return (
-    <div className="min-h-screen min-w-0 bg-slate-50 text-sm text-foreground md:grid md:grid-cols-[248px_minmax(0,1fr)]">
+    <div className="min-h-screen min-w-0 overflow-x-clip bg-slate-50 text-sm text-foreground min-[900px]:grid min-[900px]:grid-cols-[248px_minmax(0,1fr)]">
       <NewsroomSidebar summary={summaryQuery.data} />
       <div data-testid="newsroom-content" className="min-w-0 overflow-x-clip bg-white">
         <NewsroomHeader controlState={controlState} />
-        <main id="main-content" className="min-w-0 pb-20 md:pb-0">
+        <main id="main-content" tabIndex={-1} className="min-w-0 pb-20 min-[900px]:pb-0">
           {children}
         </main>
       </div>

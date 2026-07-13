@@ -170,6 +170,8 @@ it("records publication without an external URL and invalidates durable projecti
   fireEvent.change(screen.getByLabelText("Operator note (optional)"), {
     target: { value: "Checked on the public account" },
   })
+  expect(screen.getByLabelText("Operator note (optional)")).toHaveAttribute("data-testid", "direction-boundary")
+  expect(screen.getByLabelText("Operator note (optional)")).toHaveAttribute("dir", "auto")
   expect(publish).toBeEnabled()
   fireEvent.click(publish)
 
@@ -184,6 +186,7 @@ it("records publication without an external URL and invalidates durable projecti
     }),
   ))
   expect(await screen.findByRole("status")).toHaveTextContent("Manual publication recorded")
+  expect(screen.getByText("Checked on the public account")).toHaveAttribute("dir", "auto")
   expect(invalidate).toHaveBeenCalledWith({ queryKey: ["manual-publication-plans", ids.plan] })
   expect(invalidate).toHaveBeenCalledWith({ queryKey: ["content-packs", ids.pack] })
   expect(invalidate).toHaveBeenCalledWith({ queryKey: ["calendar"] })

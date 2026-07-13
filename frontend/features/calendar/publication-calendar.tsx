@@ -10,6 +10,7 @@ import { packageQueryKeys } from "@/lib/query-keys"
 
 import { getPublicationCalendar } from "./api"
 import type { CalendarEvent, CalendarPlatform } from "./types"
+import { DirectionBoundary } from "@/components/newsroom/direction-boundary"
 
 type CalendarView = "month" | "list"
 type CalendarMonth = { year: number; month: number }
@@ -71,7 +72,7 @@ export function PublicationCalendar({
   const moveToToday = () => setMonth(monthAt(new Date(), timezone))
 
   return (
-    <main className="min-w-0 space-y-6 p-4 md:p-6" aria-labelledby="publication-calendar-heading">
+    <section className="min-w-0 space-y-6 p-4 md:p-6" aria-labelledby="publication-calendar-heading">
       <header>
         <h1 id="publication-calendar-heading" className="text-2xl font-semibold">Publication calendar</h1>
         <p className="text-muted-foreground">Server-recorded Telegram and manual publication events in the operator timezone.</p>
@@ -153,7 +154,7 @@ export function PublicationCalendar({
           <ChronologicalList events={visibleEvents} timezone={timezone} />
         ) : null}
       </section>
-    </main>
+    </section>
   )
 }
 
@@ -198,10 +199,9 @@ function ChronologicalList({ events, timezone }: { events: CalendarEvent[]; time
 }
 
 function CalendarEventSummary({ event, timezone, compact = false }: { event: CalendarEvent; timezone: string; compact?: boolean }) {
-  const label = `${platformLabel(event.platform)}: ${event.title}`
   return (
     <article className={compact ? "space-y-1 rounded-md border bg-background p-2 text-xs" : "space-y-2 rounded-lg border p-4"}>
-      <div className="font-medium" dir="auto">{label}</div>
+      <div className="font-medium"><span>{platformLabel(event.platform)}: </span><DirectionBoundary as="span" language={null}>{event.title}</DirectionBoundary></div>
       <div className="flex flex-wrap gap-x-2 text-muted-foreground">
         <time dateTime={event.startsAt}>{formatEventTime(event.startsAt, timezone, compact)}</time>
         <span>{humanize(event.status)}</span>

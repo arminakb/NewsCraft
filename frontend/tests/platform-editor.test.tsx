@@ -118,6 +118,9 @@ it("creates an exact immutable Instagram edit request from the loaded revision",
   const onSave = vi.fn().mockResolvedValue(undefined)
   render(<PlatformEditor revision={instagramRevision} onSave={onSave} />)
 
+  expect(screen.getByLabelText("Caption")).toHaveAttribute("data-testid", "direction-boundary")
+  expect(screen.getByLabelText("Caption")).toHaveAttribute("dir", "auto")
+  expect(screen.getByLabelText("Alt text")).toHaveAttribute("dir", "auto")
   expect(screen.getByText("23/2200 characters")).toBeInTheDocument()
   expect(screen.getByText("Caption must be at most 2200 characters")).toBeInTheDocument()
   fireEvent.change(screen.getByLabelText("Caption"), { target: { value: "Short caption" } })
@@ -351,6 +354,8 @@ it("keeps Telegram on its compatible edit callback", async () => {
     />,
   )
 
+  expect(screen.getByLabelText("Telegram message")).toHaveAttribute("data-testid", "direction-boundary")
+  expect(screen.getByLabelText("Telegram message")).toHaveAttribute("dir", "ltr")
   fireEvent.change(screen.getByLabelText("Telegram message"), { target: { value: "Edited Telegram copy" } })
   fireEvent.click(screen.getByRole("button", { name: "Save new revision" }))
   await waitFor(() => expect(onTelegramSave).toHaveBeenCalledTimes(1))

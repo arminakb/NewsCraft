@@ -16,6 +16,8 @@ it("selects configured research profile IDs and queues deep research", async () 
   vi.mocked(requestResearch).mockResolvedValue({ disposition: "enqueued", runId: "run-1", jobId: "job-1", completeness: story.completeness })
   renderPanel(<ResearchPanel story={story} providers={providers} run={null} />)
   expect(screen.getByRole("option", { name: /Generation only/ })).toBeDisabled()
+  expect(screen.getByLabelText("Research note (optional)")).toHaveAttribute("data-testid", "direction-boundary")
+  expect(screen.getByLabelText("Research note (optional)")).toHaveAttribute("dir", "auto")
   fireEvent.change(screen.getByLabelText("Research provider"), { target: { value: "profile-1" } })
   fireEvent.click(screen.getByRole("button", { name: "Deep research" }))
   await waitFor(() => expect(requestResearch).toHaveBeenCalledWith("story-1", expect.objectContaining({ providerProfileId: "profile-1", depth: "deep", mode: "manual" })))
@@ -30,6 +32,24 @@ it("shows pending, failed, and completed research truth", () => {
   expect(screen.getByRole("button", { name: "Retry research" })).toBeInTheDocument()
   view.rerender(wrapper(<ResearchPanel story={story} providers={providers} run={run({ status: "succeeded", sources: [{ id: "source-1", url: "https://example.com/source", title: "Verified source", contentSha256: "b".repeat(64), publishedAt: "2026-07-12T09:00:00Z" }] })} />))
   expect(screen.getByRole("link", { name: "Open fetched source" })).toHaveAttribute("href", "https://example.com/source")
+})
+
+it("uses automatic direction for fetched sources without persisted source language", () => {
+  const persianStory = { ...story, primaryLanguage: "fa-IR" }
+  renderPanel(<ResearchPanel story={persianStory} providers={providers} run={run({
+    status: "succeeded",
+    sources: [{
+      id: "source-fa",
+      url: "https://example.com/fa",
+      title: "Verified English source",
+      contentSha256: "c".repeat(64),
+      publishedAt: null,
+    }],
+  })} />)
+
+  const boundary = screen.getByText("Verified English source").closest("[data-testid='direction-boundary']")
+  expect(boundary).toHaveAttribute("dir", "auto")
+  expect(boundary).not.toHaveAttribute("lang")
 })
 
 it("resets a stale provider selection and refuses submission after capability loss", async () => {

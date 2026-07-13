@@ -43,10 +43,10 @@ export function NewsroomSidebar({ summary }: { summary?: JobSummary }) {
   const pathname = usePathname()
 
   return (
-    <aside className="hidden min-h-screen border-r bg-sidebar text-sidebar-foreground md:flex md:w-[248px] md:flex-col">
+    <aside className="hidden min-h-screen border-r bg-sidebar text-sidebar-foreground min-[900px]:flex min-[900px]:w-[248px] min-[900px]:flex-col">
       <div className="px-5 py-5">
         <div className="text-2xl font-semibold text-primary">NewsCraft</div>
-        <div className="mt-1 text-sm text-muted-foreground">Newsroom Command Center</div>
+        <div className="mt-1 text-sm text-slate-600">Newsroom Command Center</div>
       </div>
       <Separator />
       <nav aria-label="Newsroom navigation" className="flex-1 space-y-1 p-3">

@@ -12,6 +12,55 @@ const revision: VariantRevision = {
   validationResults: [], approvalState: "pending_review", approvalNote: null, approvedAt: null, createdBy: "operator", origin: "operator", createdAt: "2026-07-12T08:00:00Z", providerProfile: null, resolvedModel: null,
 }
 
+it("uses the persisted Telegram direction through the shared content boundary", () => {
+  render(<VariantEditor revision={{ ...revision, content: { ...revision.content, body: "متن", direction: "rtl" } }} />)
+
+  expect(screen.getByLabelText("Telegram message")).toHaveAttribute("data-testid", "direction-boundary")
+  expect(screen.getByLabelText("Telegram message")).toHaveAttribute("dir", "rtl")
+  expect(screen.getByLabelText("Telegram message")).not.toHaveAttribute("lang")
+})
+
+it("uses automatic direction for Telegram labels and operator prose without affecting URLs", () => {
+  render(
+    <VariantEditor
+      revision={{
+        ...revision,
+        content: {
+          ...revision.content,
+          buttons: [{ text: "منبع خبر", url: "https://example.com" }],
+        },
+      }}
+      availableProviders={[{
+        id: "provider-uuid",
+        name: "Codex CLI",
+        providerType: "codex",
+        defaultModel: "gpt-5.4",
+        capabilities: { generation: true, research: true },
+        unavailableReason: null,
+      }]}
+      availablePromptVersions={[{
+        id: "prompt-uuid",
+        purpose: "telegram_pack",
+        version: 1,
+        checksumSha256: "c".repeat(64),
+        active: true,
+      }]}
+    />
+  )
+
+  for (const field of [
+    screen.getByLabelText("Button 1 text"),
+    screen.getByLabelText("Edit note"),
+    screen.getByLabelText("Rejection reason"),
+    screen.getByLabelText("Regeneration instruction"),
+  ]) {
+    expect(field).toHaveAttribute("data-testid", "direction-boundary")
+    expect(field).toHaveAttribute("dir", "auto")
+    expect(field).not.toHaveAttribute("lang")
+  }
+  expect(screen.getByLabelText("Button 1 URL")).not.toHaveAttribute("data-testid")
+})
+
 it("approves the exact loaded revision and hash", () => {
   const approve = vi.fn().mockResolvedValue({ ...revision, approvalState: "approved" })
   render(<VariantEditor revision={revision} onApprove={approve} />)

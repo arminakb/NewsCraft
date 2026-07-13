@@ -24,6 +24,7 @@ import {
 import type { AIProviderProfile, BrandProfile } from "@/features/automations/telegram-types"
 import { getApiErrorMessage } from "@/lib/http"
 import { queryKeys } from "@/lib/query-keys"
+import { DirectionBoundary } from "@/components/newsroom/direction-boundary"
 
 const telegramPromptBody = [
   "Source text: {source_text}",
@@ -177,20 +178,20 @@ export function ContentSettingsPage() {
     (placeholder) => !userTemplate.includes(`{${placeholder}}`)
   )
   if (queries.some((query) => query.isPending)) {
-    return <main className="p-4 md:p-6" role="status" aria-label="Loading content settings">Loading content settings</main>
+    return <section className="p-4 md:p-6" role="status" aria-label="Loading content settings">Loading content settings</section>
   }
   const queryError = queries.find((query) => query.isError)?.error
   if (queryError) {
     return (
-      <main className="space-y-3 p-4 md:p-6">
+      <section className="space-y-3 p-4 md:p-6">
         <div role="alert" dir="auto" className="text-red-700">{getApiErrorMessage(queryError, "Content settings request failed")}</div>
         <Button variant="outline" onClick={() => void Promise.all(queries.map((query) => query.refetch()))}>Retry settings</Button>
-      </main>
+      </section>
     )
   }
 
   return (
-    <main className="min-w-0 space-y-6 p-4 md:p-6" aria-labelledby="content-settings-heading">
+    <section className="min-w-0 space-y-6 p-4 md:p-6" aria-labelledby="content-settings-heading">
       <header>
         <h1 id="content-settings-heading" className="text-2xl font-semibold">Content settings</h1>
         <p className="text-muted-foreground">Manage live editorial configuration without exposing credential values or secret references.</p>
@@ -219,8 +220,8 @@ export function ContentSettingsPage() {
             ) : (
               <>
                 <div className="grid gap-3">
-                  <Field label="Custom instructions"><textarea className={fieldClass} rows={3} value={instructions} onChange={(event) => setInstructions(event.target.value)} /></Field>
-                  <Field label="User template"><textarea className={`${fieldClass} font-mono text-xs`} rows={9} value={userTemplate} onChange={(event) => setUserTemplate(event.target.value)} /></Field>
+                  <Field label="Custom instructions"><DirectionBoundary as="textarea" language={null} className={fieldClass} rows={3} value={instructions} onChange={(event) => setInstructions(event.target.value)} /></Field>
+                  <Field label="User template"><DirectionBoundary as="textarea" language={null} className={`${fieldClass} font-mono text-xs`} rows={9} value={userTemplate} onChange={(event) => setUserTemplate(event.target.value)} /></Field>
                   {missingPlaceholders.length ? <div role="alert" className="text-amber-800">Required placeholders missing: {missingPlaceholders.join(", ")}</div> : null}
                   <Button className="justify-self-start" onClick={() => addVersion.mutate()} disabled={addVersion.isPending || missingPlaceholders.length > 0}>Create prompt version</Button>
                 </div>
@@ -237,7 +238,7 @@ export function ContentSettingsPage() {
                           <div className="text-xs text-muted-foreground">{version.isActive ? "Active" : "Inactive"} · {version.checksumSha256.slice(0, 12)}</div>
                           <details className="mt-2">
                             <summary className="cursor-pointer">Inspect immutable templates</summary>
-                            <pre className="mt-2 max-h-48 overflow-auto whitespace-pre-wrap break-words rounded bg-muted p-2 text-xs">{version.systemTemplate}{"\n\n"}{version.userTemplate}</pre>
+                            <DirectionBoundary as="pre" language={null} className="mt-2 max-h-48 overflow-auto whitespace-pre-wrap break-words rounded bg-muted p-2 text-xs">{version.systemTemplate}{"\n\n"}{version.userTemplate}</DirectionBoundary>
                           </details>
                         </div>
                         <Button variant="outline" disabled={!activationConfirmed || activate.isPending || version.isActive} onClick={() => activate.mutate(version.id)}>Activate version {version.version}</Button>
@@ -287,7 +288,7 @@ export function ContentSettingsPage() {
           </CardContent>
         </Card>
       </section>
-    </main>
+    </section>
   )
 }
 
@@ -345,7 +346,7 @@ function PromptPurposeHistory({ title, purpose, templates }: { title: string; pu
   const [confirmActivation, setConfirmActivation] = useState(false)
   const create = useMutation({ mutationFn: () => createPromptVersion(template!.id, { systemTemplate, userTemplate: userTemplateValue }), onSuccess: async () => { setSystemTemplate(""); setUserTemplateValue(""); await queryClient.invalidateQueries({ queryKey: queryKeys.promptVersions(template!.id) }) } })
   const activatePurposeVersion = useMutation({ mutationFn: (id: string) => activatePromptVersion(id), onSuccess: async () => { setConfirmActivation(false); await Promise.all([queryClient.invalidateQueries({ queryKey: queryKeys.promptVersions(template!.id) }), queryClient.invalidateQueries({ queryKey: queryKeys.editorialPromptOptions })]) } })
-  return <Card><CardHeader><CardTitle>{title}</CardTitle><CardDescription>Immutable version history; activation selects an exact version and never edits one in place.</CardDescription></CardHeader><CardContent className="space-y-3">{!template ? <Empty>No prompt template configured</Empty> : <>{versions.isPending ? <div role="status">Loading immutable versions</div> : versions.isError ? <div role="alert">{getApiErrorMessage(versions.error)}</div> : <ol className="space-y-2">{versions.data?.map((version) => <li key={version.id} className="rounded border p-3"><strong>{version.isActive ? `Active version ${version.version}` : `Version ${version.version}`}</strong><div className="break-all text-xs text-muted-foreground">{version.checksumSha256}</div><Button variant="outline" className="mt-2" disabled={version.isActive || !confirmActivation || activatePurposeVersion.isPending} onClick={() => activatePurposeVersion.mutate(version.id)}>Activate {purpose} version {version.version}</Button></li>)}</ol>}<label className="flex gap-2"><input type="checkbox" checked={confirmActivation} onChange={(event) => setConfirmActivation(event.target.checked)} />Confirm {purpose} activation</label><details><summary>Create immutable {purpose} version</summary><div className="mt-2 grid gap-2"><Field label={`${purpose} system template`}><textarea className={fieldClass} value={systemTemplate} onChange={(event) => setSystemTemplate(event.target.value)} /></Field><Field label={`${purpose} user template`}><textarea className={fieldClass} value={userTemplateValue} onChange={(event) => setUserTemplateValue(event.target.value)} /></Field><Button disabled={!systemTemplate.trim() || !userTemplateValue.trim() || create.isPending} onClick={() => create.mutate()}>Create {purpose} version</Button>{create.isError ? <div role="alert">{getApiErrorMessage(create.error)}</div> : null}</div></details></>}</CardContent></Card>
+  return <Card><CardHeader><CardTitle>{title}</CardTitle><CardDescription>Immutable version history; activation selects an exact version and never edits one in place.</CardDescription></CardHeader><CardContent className="space-y-3">{!template ? <Empty>No prompt template configured</Empty> : <>{versions.isPending ? <div role="status">Loading immutable versions</div> : versions.isError ? <div role="alert">{getApiErrorMessage(versions.error)}</div> : <ol className="space-y-2">{versions.data?.map((version) => <li key={version.id} className="rounded border p-3"><strong>{version.isActive ? `Active version ${version.version}` : `Version ${version.version}`}</strong><div className="break-all text-xs text-muted-foreground">{version.checksumSha256}</div><Button variant="outline" className="mt-2" disabled={version.isActive || !confirmActivation || activatePurposeVersion.isPending} onClick={() => activatePurposeVersion.mutate(version.id)}>Activate {purpose} version {version.version}</Button></li>)}</ol>}<label className="flex gap-2"><input type="checkbox" checked={confirmActivation} onChange={(event) => setConfirmActivation(event.target.checked)} />Confirm {purpose} activation</label><details><summary>Create immutable {purpose} version</summary><div className="mt-2 grid gap-2"><Field label={`${purpose} system template`}><DirectionBoundary as="textarea" language={null} className={fieldClass} value={systemTemplate} onChange={(event) => setSystemTemplate(event.target.value)} /></Field><Field label={`${purpose} user template`}><DirectionBoundary as="textarea" language={null} className={fieldClass} value={userTemplateValue} onChange={(event) => setUserTemplateValue(event.target.value)} /></Field><Button disabled={!systemTemplate.trim() || !userTemplateValue.trim() || create.isPending} onClick={() => create.mutate()}>Create {purpose} version</Button>{create.isError ? <div role="alert">{getApiErrorMessage(create.error)}</div> : null}</div></details></>}</CardContent></Card>
 }
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {

@@ -64,6 +64,7 @@ describe("LibraryPage", () => {
         id: "story-1",
         title: "Persisted story",
         status: "shortlisted",
+        primaryLanguage: "fa-IR",
         evidenceCount: 2,
         updatedAt: "2026-07-13T08:00:00Z",
       }],
@@ -76,10 +77,15 @@ describe("LibraryPage", () => {
 
     fireEvent.click(screen.getByRole("tab", { name: "Stories" }))
     expect(await screen.findByText("Persisted story")).toBeInTheDocument()
+    expect(screen.getByText("Persisted story").closest("[data-testid='direction-boundary']"))
+      .toHaveAttribute("dir", "rtl")
+    expect(screen.getByText("Persisted story").closest("[data-testid='direction-boundary']"))
+      .toHaveAttribute("lang", "fa-IR")
     expect(screen.queryByRole("status", { name: "Loading originals" })).not.toBeInTheDocument()
 
     fireEvent.click(screen.getByRole("tab", { name: "Evidence" }))
     expect(await screen.findByRole("alert")).toHaveTextContent("evidence database unavailable")
+    expect(screen.getByRole("alert")).toHaveAttribute("dir", "auto")
 
     fireEvent.click(screen.getByRole("tab", { name: "Stories" }))
     expect(screen.getByText("Persisted story")).toBeInTheDocument()
@@ -87,6 +93,74 @@ describe("LibraryPage", () => {
 
     fireEvent.click(screen.getByRole("tab", { name: "Originals" }))
     expect(screen.getByRole("status", { name: "Loading originals" })).toBeInTheDocument()
+  })
+
+  it("retains the persisted story language in the strict Library projection", async () => {
+    const actual = await vi.importActual<typeof import("@/features/library/api")>("@/features/library/api")
+    const storyId = "11111111-1111-4111-8111-111111111111"
+
+    expect(actual.decodeLibraryStoryPage({
+      items: [{
+        id: storyId,
+        title: "گزارش امروز",
+        status: "inbox",
+        primary_language: "fa-IR",
+        superseded_by_id: null,
+        evidence_count: 1,
+        latest_evidence_at: "2026-07-13T08:00:00Z",
+        completeness: {
+          complete: true,
+          score: 100,
+          reasons: [],
+          independent_source_count: 1,
+          body_character_count: 120,
+          has_primary_evidence: true,
+        },
+        evidence_set_hash: "a".repeat(64),
+        created_at: "2026-07-13T07:00:00Z",
+        updated_at: "2026-07-13T08:00:00Z",
+      }],
+      next_cursor: null,
+    }).items[0]).toMatchObject({ id: storyId, primaryLanguage: "fa-IR" })
+  })
+
+  it("uses auto direction for original and evidence prose and does not add a nested main landmark", async () => {
+    vi.mocked(getLibraryOriginals).mockResolvedValue({
+      items: [{
+        id: "content-rtl",
+        title: "خبر فوری",
+        status: "approved",
+        sourceId: null,
+        sourceName: "خبرگزاری",
+        sourceUrl: null,
+        publishedAt: null,
+        sortAt: "2026-07-13T07:00:00Z",
+      }],
+      nextCursor: null,
+    })
+    vi.mocked(getLibraryEvidence).mockResolvedValue({
+      items: [{
+        id: "evidence-rtl",
+        storyId: "story-rtl",
+        contentItemId: null,
+        evidenceKey: "operator:key",
+        title: "مدرک",
+        sourceUrl: null,
+        authors: [],
+        publishedAt: null,
+        capturedAt: "2026-07-13T08:00:00Z",
+        contentSha256: "b".repeat(64),
+        excerpt: "متن مدرک ذخیره شده",
+      }],
+      nextCursor: null,
+    })
+
+    const view = renderLibrary()
+    expect(await screen.findByText("خبر فوری")).toHaveAttribute("dir", "auto")
+    expect(view.container.querySelector("main")).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole("tab", { name: "Evidence" }))
+    expect(await screen.findByText("متن مدرک ذخیره شده")).toHaveAttribute("dir", "auto")
   })
 
   it("shows distinct empty states instead of reusing another tab's records", async () => {
@@ -121,6 +195,7 @@ describe("LibraryPage", () => {
     }], nextCursor: null })
     vi.mocked(getLibraryStories).mockResolvedValue({ items: [{
       id: "story-1", title: "Story", status: "inbox", evidenceCount: 1,
+      primaryLanguage: "en",
       updatedAt: "2026-07-13T08:00:00Z",
     }], nextCursor: null })
     vi.mocked(getLibraryEvidence).mockResolvedValue({ items: [{

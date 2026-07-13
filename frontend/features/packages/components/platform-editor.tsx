@@ -5,6 +5,7 @@ import { useEffect, useMemo, useRef, useState } from "react"
 import { Button } from "@/components/ui/button"
 import { useDirtyNavigation } from "@/components/editorial/use-dirty-navigation"
 import { ApiError, getApiErrorMessage } from "@/lib/http"
+import { DirectionBoundary } from "@/components/newsroom/direction-boundary"
 import type {
   CitationRef,
   ManualPlatformEditRequest,
@@ -254,7 +255,9 @@ export function PlatformEditor({
 
         <label className="grid gap-1">
           <span>Edit note</span>
-          <input
+          <DirectionBoundary
+            as="input"
+            language={null}
             aria-label="Edit note"
             className="rounded-lg border p-2"
             maxLength={500}
@@ -296,10 +299,11 @@ function TelegramFields({ value, onChange }: { value: PayloadFor<"telegram">; on
   return (
     <label className="grid gap-1">
       <span>Telegram message</span>
-      <textarea
+      <DirectionBoundary
+        as="textarea"
         aria-label="Telegram message"
         className="min-h-56 rounded-lg border p-3"
-        dir={value.direction}
+        direction={value.direction}
         value={value.body}
         onChange={(event) => onChange({ ...value, body: event.target.value })}
       />
@@ -316,7 +320,9 @@ function InstagramFields({ value, onChange }: { value: PayloadFor<"instagram">; 
       <CountedField label="Call to action" value={value.cta} limit={300} onChange={(cta) => onChange({ ...value, cta })} />
       <label className="grid gap-1">
         <span>Hashtags</span>
-        <input
+        <DirectionBoundary
+          as="input"
+          language={null}
           aria-label="Hashtags"
           className="rounded-lg border p-2"
           value={value.hashtags.join(", ")}
@@ -364,11 +370,11 @@ function BlogFields({ value, onChange }: { value: PayloadFor<"blog">; onChange: 
       <CountedField label="Blog body" value={value.bodyMarkdown} multiline onChange={(bodyMarkdown) => onChange({ ...value, bodyMarkdown })} />
       <label className="grid gap-1">
         <span>Headings</span>
-        <textarea aria-label="Headings" className="rounded-lg border p-2" value={value.headings.join("\n")} onChange={(event) => onChange({ ...value, headings: lineList(event.target.value) })} />
+        <DirectionBoundary as="textarea" language={null} aria-label="Headings" className="rounded-lg border p-2" value={value.headings.join("\n")} onChange={(event) => onChange({ ...value, headings: lineList(event.target.value) })} />
       </label>
       <label className="grid gap-1">
         <span>Tags</span>
-        <input aria-label="Tags" className="rounded-lg border p-2" value={value.tags.join(", ")} onChange={(event) => onChange({ ...value, tags: commaList(event.target.value) })} />
+        <DirectionBoundary as="input" language={null} aria-label="Tags" className="rounded-lg border p-2" value={value.tags.join(", ")} onChange={(event) => onChange({ ...value, tags: commaList(event.target.value) })} />
       </label>
       <CountedField label="SEO description" value={value.seoDescription} limit={160} multiline onChange={(seoDescription) => onChange({ ...value, seoDescription })} />
       <label className="grid gap-1">
@@ -381,9 +387,9 @@ function BlogFields({ value, onChange }: { value: PayloadFor<"blog">; onChange: 
 
 function CountedField({ label, value, limit, multiline = false, onChange }: { label: string; value: string; limit?: number; multiline?: boolean; onChange: (value: string) => void }) {
   const control = multiline ? (
-    <textarea aria-label={label} className="min-h-28 rounded-lg border p-2" value={value} onChange={(event) => onChange(event.target.value)} />
+    <DirectionBoundary as="textarea" language={null} aria-label={label} className="min-h-28 rounded-lg border p-2" value={value} onChange={(event) => onChange(event.target.value)} />
   ) : (
-    <input aria-label={label} className="rounded-lg border p-2" value={value} onChange={(event) => onChange(event.target.value)} />
+    <DirectionBoundary as="input" language={null} aria-label={label} className="rounded-lg border p-2" value={value} onChange={(event) => onChange(event.target.value)} />
   )
   return (
     <label className="grid gap-1">

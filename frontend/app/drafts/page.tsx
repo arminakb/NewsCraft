@@ -9,8 +9,8 @@ import { queryKeys } from "@/lib/query-keys"
 
 export default function DraftsPage() {
   const requests = useQuery({ queryKey: queryKeys.contentPackRequests, queryFn: getContentPackRequests })
-  return <main className="space-y-6 p-4 md:p-6">
-    <header><h1 className="text-2xl font-semibold">Drafts</h1><p className="text-muted-foreground">Durable generation requests and completed packs.</p></header>
+  return <section className="space-y-6 p-4 md:p-6" aria-labelledby="drafts-heading">
+    <header><h1 id="drafts-heading" className="text-2xl font-semibold">Drafts</h1><p className="text-muted-foreground">Durable generation requests and completed packs.</p></header>
     <section aria-labelledby="durable-draft-requests-heading" className="space-y-4">
       <h2 id="durable-draft-requests-heading" className="text-xl font-semibold">Durable generation requests</h2>
       {requests.isPending ? <div role="status">Loading durable draft requests…</div> : null}
@@ -19,5 +19,5 @@ export default function DraftsPage() {
       {requests.isSuccess && !requests.data.length ? <p>No durable generation requests yet. Generate a Telegram draft from the Inbox.</p> : null}
     </section>
     <TelegramDraftList />
-  </main>
+  </section>
 }

@@ -12,6 +12,7 @@ import {
 import type { ManualPublicationPlan } from "@/features/packages/types"
 import { ApiError, getApiErrorMessage } from "@/lib/http"
 import { packageQueryKeys, queryKeys } from "@/lib/query-keys"
+import { DirectionBoundary } from "@/components/newsroom/direction-boundary"
 
 const CHECKLIST_LABELS: Record<string, string> = {
   copy_reviewed: "Copy reviewed",
@@ -177,7 +178,9 @@ export function ManualPublishingChecklist({
         ) : null}
         <label className="grid gap-1">
           <span>Operator note (optional)</span>
-          <textarea
+          <DirectionBoundary
+            as="textarea"
+            language={null}
             aria-label="Operator note (optional)"
             className="min-h-20 rounded-lg border p-2"
             maxLength={2_000}
@@ -200,7 +203,7 @@ export function ManualPublishingChecklist({
         <h3 className="font-medium">Completion evidence</h3>
         <p>Completed at {localPlan.completedAt ? <time dateTime={localPlan.completedAt}>{localPlan.completedAt}</time> : "Stored completion time unavailable"}</p>
         {localPlan.externalUrl ? <a className="block break-all text-primary underline" href={localPlan.externalUrl} target="_blank" rel="noreferrer">Open recorded publication</a> : <p>No publication URL was recorded.</p>}
-        {localPlan.operatorNote ? <p>{localPlan.operatorNote}</p> : <p>No operator note was recorded.</p>}
+        {localPlan.operatorNote ? <DirectionBoundary as="p" language={null}>{localPlan.operatorNote}</DirectionBoundary> : <p>No operator note was recorded.</p>}
       </section> : null}
       {localPlan.status === "cancelled" ? <p>Cancelled plans remain in publication history and cannot be edited.</p> : null}
       {pendingItem ? <div role="status">Saving checklist progress…</div> : null}

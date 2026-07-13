@@ -5,6 +5,7 @@ import {
   PreviewDisclaimer,
   PreviewMediaAssignment,
 } from "@/features/packages/components/telegram-preview"
+import { DirectionBoundary } from "@/components/newsroom/direction-boundary"
 
 type XRevision = Extract<PlatformRevision, { platform: "x" }>
 
@@ -27,7 +28,7 @@ export function XPreview({ revision }: { revision: XRevision }) {
             <li key={`${post.order}-${post.text}`}>
               <article aria-label={`X post ${post.order}`} className="space-y-3 rounded-md border bg-background p-3">
                 <h3 className="font-semibold">Post {post.order} of {posts.length}</h3>
-                <p className="whitespace-pre-wrap break-words" dir="auto">{post.text}</p>
+                <DirectionBoundary as="p" language={null} className="whitespace-pre-wrap break-words">{post.text}</DirectionBoundary>
                 {media.length ? (
                   <div className="space-y-2" aria-label={`Media for X post ${post.order}`}>
                     {media.map((assignment, index) => <PreviewMediaAssignment key={`${assignment.order}-${assignment.mediaAssetId ?? "manual"}-${index}`} assignment={assignment} />)}

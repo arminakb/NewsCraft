@@ -109,6 +109,35 @@ it("groups evidence and offers research from truthful completeness", async () =>
   expect(await screen.findByRole("dialog", { name: "Research story" })).toBeInTheDocument()
 })
 
+it("uses persisted story language but automatic direction for evidence without its own language", async () => {
+  const persianStory = { ...incomplete, title: "گزارش انتخابات", primaryLanguage: "fa-IR" }
+  vi.mocked(api.getStories).mockResolvedValue({ items: [persianStory], nextCursor: null })
+  vi.mocked(api.getStory).mockResolvedValue({
+    ...persianStory,
+    evidence: [{
+      id: "e-fa",
+      evidenceKey: "key-fa",
+      title: "English source",
+      contentText: "Exact English evidence text",
+      contentSha256: "c".repeat(64),
+      sourceUrl: null,
+      authors: [],
+      publishedAt: null,
+      capturedAt: "2026-07-12T08:00:00Z",
+    }],
+  })
+
+  renderInbox()
+
+  const titleBoundary = (await screen.findByText("گزارش انتخابات")).closest("[data-testid='direction-boundary']")
+  expect(titleBoundary).toHaveAttribute("dir", "rtl")
+  expect(titleBoundary).toHaveAttribute("lang", "fa-IR")
+  fireEvent.click(screen.getByRole("button", { name: "Open گزارش انتخابات" }))
+  const evidenceBoundary = (await screen.findByText("Exact English evidence text")).closest("[data-testid='direction-boundary']")
+  expect(evidenceBoundary).toHaveAttribute("dir", "auto")
+  expect(evidenceBoundary).not.toHaveAttribute("lang")
+})
+
 it("generates a durable pack using only configured IDs and active prompt versions", async () => {
   vi.mocked(api.getAIProviderOptions).mockResolvedValue([
     { id: "no-generation", name: "Research only", providerType: "openrouter", defaultModel: "model", capabilities: { generation: false, research: true }, unavailableReason: "Generation unavailable" },

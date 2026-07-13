@@ -37,11 +37,15 @@ describe("PublicationCalendar", () => {
   beforeEach(() => vi.restoreAllMocks())
 
   it("shows Telegram and manual events in the operator timezone with server-provided exact links", () => {
-    renderCalendar({ events: [telegramEvent, instagramEvent], timezone: "Asia/Tehran" })
+    const view = renderCalendar({ events: [telegramEvent, instagramEvent], timezone: "Asia/Tehran" })
 
     expect(screen.getByRole("heading", { name: "July 2026" })).toBeInTheDocument()
-    expect(screen.getByText("Telegram: Daily update")).toBeInTheDocument()
-    expect(screen.getByText("Instagram: Daily update")).toBeInTheDocument()
+    const titles = screen.getAllByText("Daily update")
+    expect(titles).toHaveLength(2)
+    expect(titles[0]).toHaveAttribute("data-testid", "direction-boundary")
+    expect(titles[0]).toHaveAttribute("dir", "auto")
+    expect(titles[0].parentElement).toHaveTextContent("Telegram: Daily update")
+    expect(titles[1].parentElement).toHaveTextContent("Instagram: Daily update")
     expect(screen.getByText("09:00")).toBeInTheDocument()
     expect(screen.getByText("10:00")).toBeInTheDocument()
     expect(screen.getByRole("link", { name: `Open Telegram event: Daily update (${telegramEvent.id})` })).toHaveAttribute(
@@ -52,6 +56,7 @@ describe("PublicationCalendar", () => {
       "href",
       `/review/${revisionIds.instagram}`,
     )
+    expect(view.container.querySelector("main")).not.toBeInTheDocument()
   })
 
   it("switches to a chronological list and filters only by persisted platform and status", () => {
@@ -76,12 +81,12 @@ describe("PublicationCalendar", () => {
     ])
 
     fireEvent.change(screen.getByLabelText("Platform"), { target: { value: "instagram" } })
-    expect(screen.getByText("Instagram: Daily update")).toBeInTheDocument()
-    expect(screen.queryByText("Telegram: Daily update")).not.toBeInTheDocument()
+    expect(screen.getByText("Daily update").parentElement).toHaveTextContent("Instagram: Daily update")
+    expect(screen.queryByRole("link", { name: `Open Telegram event: Daily update (${telegramEvent.id})` })).not.toBeInTheDocument()
 
     fireEvent.change(screen.getByLabelText("Status"), { target: { value: "cancelled" } })
     expect(screen.getByText("No publication events match these filters.")).toBeInTheDocument()
-    expect(screen.queryByText("Blog: Earlier analysis")).not.toBeInTheDocument()
+    expect(screen.queryByRole("link", { name: `Open Blog event: Earlier analysis (${cancelledBlog.id})` })).not.toBeInTheDocument()
   })
 
   it("requests inclusive-start/exclusive-end UTC month windows and navigates without inventing events", async () => {

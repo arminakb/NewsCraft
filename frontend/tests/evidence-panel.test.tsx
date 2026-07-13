@@ -28,3 +28,11 @@ it("hides the excerpt and source link when the citation hash does not match", as
   expect(screen.queryByTestId("evidence-excerpt")).not.toBeInTheDocument()
   expect(screen.queryByRole("link", { name: "Open original source" })).not.toBeInTheDocument()
 })
+
+it("uses automatic direction for evidence without a persisted evidence language", () => {
+  render(<EvidencePanel evidence={[{ ...evidence, title: "منبع", contentText: "متن منبع" }]} activeCitation={null} />)
+
+  expect(screen.getByText("منبع").closest("[data-testid='direction-boundary']")).toHaveAttribute("dir", "auto")
+  expect(screen.getByText("متن منبع").closest("[data-testid='direction-boundary']")).not.toHaveAttribute("lang")
+  expect(screen.getByText(/Snapshot hash/).closest("[data-testid='direction-boundary']")).toBeNull()
+})

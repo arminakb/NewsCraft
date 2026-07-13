@@ -27,6 +27,7 @@ export type LibraryStory = {
   id: string
   title: string
   status: string
+  primaryLanguage: string
   evidenceCount: number
   updatedAt: string
 }
@@ -222,7 +223,7 @@ function decodeLibraryStory(value: unknown): LibraryStory {
   nonNegativeInteger(completeness.independent_source_count, message)
   nonNegativeInteger(completeness.body_character_count, message)
   boolean(completeness.has_primary_evidence, message)
-  string(row.primary_language, message)
+  const primaryLanguage = string(row.primary_language, message)
   nullableUuid(row.superseded_by_id, message)
   nullableTimestamp(row.latest_evidence_at, message)
   sha256(row.evidence_set_hash, message)
@@ -231,6 +232,7 @@ function decodeLibraryStory(value: unknown): LibraryStory {
     id: uuid(row.id, message),
     title: string(row.title, message),
     status: string(row.status, message),
+    primaryLanguage,
     evidenceCount: nonNegativeInteger(row.evidence_count, message),
     updatedAt: timestamp(row.updated_at, message),
   }

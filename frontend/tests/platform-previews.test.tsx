@@ -200,7 +200,10 @@ it("keeps Telegram's exact nine content fields separate from adjacent evidence a
   const payload = screen.getByRole("region", { name: "Exact Telegram payload" })
   const evidence = screen.getByRole("region", { name: "Telegram evidence citations" })
   const checklist = screen.getByRole("region", { name: "Telegram manual checklist" })
+  const bodyBoundary = screen.getByText("<strong>Exact Telegram dispatch copy</strong>")
 
+  expect(bodyBoundary).toHaveAttribute("data-testid", "direction-boundary")
+  expect(bodyBoundary).toHaveAttribute("dir", "rtl")
   expect(payload).toHaveTextContent("<strong>Exact Telegram dispatch copy</strong>")
   expect(payload).toHaveTextContent("replace_manually")
   expect(payload).toHaveTextContent("31111111-1111-4111-8111-111111111111")
@@ -221,6 +224,8 @@ it("renders Instagram copy and carousel media in declared order, including a req
 
   expect(preview).toHaveTextContent("Grounded Instagram hook")
   expect(preview).toHaveTextContent("Grounded Instagram caption")
+  expect(screen.getByText("Grounded Instagram caption")).toHaveAttribute("data-testid", "direction-boundary")
+  expect(screen.getByText("Grounded Instagram caption")).toHaveAttribute("dir", "auto")
   expect(preview).toHaveTextContent("Two grounded carousel slides")
   const previewText = preview.textContent ?? ""
   expect(previewText.indexOf("First slide")).toBeLessThan(previewText.indexOf("Second slide"))
@@ -234,6 +239,7 @@ it("renders X posts in declared order with per-post citations and media gaps", (
   const preview = screen.getByRole("region", { name: "X thread preview" })
 
   const previewText = preview.textContent ?? ""
+  expect(screen.getByText("First exact post")).toHaveAttribute("data-testid", "direction-boundary")
   expect(previewText.indexOf("First exact post")).toBeLessThan(previewText.indexOf("Second exact post"))
   expect(preview).toHaveTextContent("last post")
   expect(preview).toHaveTextContent("Manual chart for the second post")
@@ -245,6 +251,7 @@ it("renders the complete blog package and truthful manual hero state", () => {
   const preview = screen.getByRole("region", { name: "Blog preview" })
 
   expect(preview).toHaveTextContent("Grounded blog title")
+  expect(screen.getByText("Grounded blog title")).toHaveAttribute("data-testid", "direction-boundary")
   expect(preview).toHaveTextContent("grounded-blog-title")
   expect(preview).toHaveTextContent("The exact grounded article body.")
   expect(preview).toHaveTextContent("Why it matters")

@@ -14,6 +14,7 @@ import { editorialQueryKeys } from "@/lib/query-keys"
 import { ManualIntakeDialog } from "./manual-intake-dialog"
 import { ResearchPanel } from "./research-panel"
 import { useEditorialModal } from "./use-editorial-modal"
+import { DirectionBoundary } from "@/components/newsroom/direction-boundary"
 
 const MAX_SELECTION = 200
 type InboxDeepLink = { storyId: string; evidenceId: string | null; researchRunId: string | null }
@@ -155,8 +156,8 @@ function StoryRow({ story, focusedEvidenceId, researchRunId, selected, onSelect,
   return <Card size="sm"><CardContent className="space-y-3">
     <div className="grid gap-3 md:grid-cols-[auto_minmax(0,1fr)_auto]">
       <input type="checkbox" aria-label={`Select ${story.title}`} checked={selected} onChange={(event) => onSelect(event.target.checked)} />
-      <button type="button" className="min-w-0 text-left" aria-expanded={open} aria-label={`Open ${story.title}`} onClick={onOpen}>
-        <strong className="block truncate">{story.title}</strong>
+      <button type="button" className="min-h-11 min-w-11 text-left min-[900px]:min-h-0 min-[900px]:min-w-0" aria-expanded={open} aria-label={`Open ${story.title}`} onClick={onOpen}>
+        <DirectionBoundary as="strong" language={story.primaryLanguage} className="block truncate">{story.title}</DirectionBoundary>
         <span className="block text-muted-foreground"><span>{story.evidenceCount} evidence items</span> · latest {story.latestEvidenceAt ? new Date(story.latestEvidenceAt).toLocaleString() : "not recorded"}</span>
       </button>
       <div className="flex flex-wrap gap-2"><Badge variant={story.completeness.complete ? "secondary" : "outline"}>{story.completeness.complete ? "Coverage complete" : "Coverage incomplete"}</Badge><Badge variant="outline">{story.completeness.score}%</Badge></div>
@@ -166,7 +167,7 @@ function StoryRow({ story, focusedEvidenceId, researchRunId, selected, onSelect,
       <Button size="sm" variant="outline" onClick={() => void onState("shortlisted")}>Shortlist</Button>
       <Button size="sm" variant="destructive" onClick={() => void onState("rejected")}>Reject</Button>
       {!story.completeness.complete ? <Button size="sm" variant="outline" onClick={onResearch}>Research more</Button> : null}
-      <Link className="inline-flex min-h-7 items-center px-2 text-primary underline" href={`/drafts?story_id=${story.id}`}>Open editorial studio</Link>
+      <Link className="inline-flex min-h-11 min-w-11 items-center px-2 text-primary underline min-[900px]:min-h-7 min-[900px]:min-w-0" href={`/drafts?story_id=${story.id}`}>Open editorial studio</Link>
     </div>
     {open ? <div className="space-y-4 border-t pt-3">
       {detail.isPending ? <div role="status">Loading evidence…</div> : detail.isError ? <div role="alert">{getApiErrorMessage(detail.error)}</div> : <div className="space-y-3">
@@ -192,11 +193,11 @@ function EvidenceArticle({ evidence, focusRef, focused }: { evidence: EvidenceDe
     tabIndex={-1}
   >
     {!evidence.sourceUrl ? <div className="text-sm font-medium">Operator-provided text</div> : null}
-    {evidence.title ? <div className="font-medium">{evidence.title}</div> : evidence.sourceUrl ? <div className="font-medium">Untitled source</div> : null}
+    {evidence.title ? <DirectionBoundary language={null} className="font-medium">{evidence.title}</DirectionBoundary> : evidence.sourceUrl ? <div className="font-medium">Untitled source</div> : null}
     {evidence.publishedAt ? <div className="text-xs text-muted-foreground">Published {new Date(evidence.publishedAt).toLocaleString()}</div> : null}
     <div className="text-xs text-muted-foreground">Captured {new Date(evidence.capturedAt).toLocaleString()}</div>
     <div className="text-xs text-muted-foreground">Snapshot {evidence.contentSha256.slice(0, 12)}</div>
-    <p className="mt-2 line-clamp-5 whitespace-pre-wrap break-words" dir="auto">{evidence.contentText}</p>
+    <DirectionBoundary as="p" language={null} className="mt-2 line-clamp-5 whitespace-pre-wrap break-words">{evidence.contentText}</DirectionBoundary>
     {evidence.sourceUrl ? <a className="mt-2 inline-flex text-primary underline" href={evidence.sourceUrl} target="_blank" rel="noreferrer">Open original source</a> : null}
   </article>
 }

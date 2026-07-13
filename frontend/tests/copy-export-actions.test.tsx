@@ -194,6 +194,8 @@ it("keeps failed clipboard content focused and selected behind a durable error",
   const expected = "1/2 First post\n\n2/2 Second post"
   expect(screen.getByRole("alert")).toHaveTextContent("Clipboard access failed")
   expect(fallback).toHaveValue(expected)
+  expect(fallback).toHaveAttribute("data-testid", "direction-boundary")
+  expect(fallback).toHaveAttribute("dir", "auto")
   expect(fallback).toHaveFocus()
   expect(fallback).toHaveProperty("selectionStart", 0)
   expect(fallback).toHaveProperty("selectionEnd", expected.length)

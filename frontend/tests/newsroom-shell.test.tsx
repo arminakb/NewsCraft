@@ -108,9 +108,13 @@ describe("NewsroomShell", () => {
   it("owns the single main landmark and keeps routed content shrinkable", async () => {
     const { container } = renderShell()
 
-    expect(await screen.findByRole("main")).toHaveAttribute("id", "main-content")
+    const main = await screen.findByRole("main")
+    expect(main).toHaveAttribute("id", "main-content")
+    expect(main).toHaveAttribute("tabindex", "-1")
+    expect(main).toHaveClass("min-[900px]:pb-0")
     expect(screen.getAllByRole("main")).toHaveLength(1)
     expect(screen.getByTestId("newsroom-content")).toHaveClass("min-w-0")
+    expect(container.firstElementChild).toHaveClass("min-[900px]:grid")
     expect(container.querySelector('[class*="440px"]')).not.toBeInTheDocument()
   })
 })

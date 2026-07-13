@@ -6,6 +6,7 @@ import { createManualStory } from "@/lib/editorial-api"
 import type { JobAccepted } from "@/lib/editorial-types"
 import { getApiErrorMessage } from "@/lib/http"
 import { useEditorialModal } from "./use-editorial-modal"
+import { DirectionBoundary } from "@/components/newsroom/direction-boundary"
 
 const field = "min-h-10 w-full rounded-lg border bg-background px-3 py-2"
 
@@ -43,12 +44,12 @@ export function ManualIntakeDialog({ open, onClose }: { open: boolean; onClose: 
       </div>
       {kind === "url" ? <>
         <Field label="Story URL"><input ref={initialFocusRef} className={field} type="url" value={url} onChange={(event) => setUrl(event.target.value)} required /></Field>
-        <Field label="Story title (optional)"><input className={field} value={title} maxLength={300} onChange={(event) => setTitle(event.target.value)} /></Field>
+        <Field label="Story title (optional)"><DirectionBoundary as="input" language={null} className={field} value={title} maxLength={300} onChange={(event) => setTitle(event.target.value)} /></Field>
       </> : <>
-        <Field label="Story title"><input className={field} value={title} maxLength={300} onChange={(event) => setTitle(event.target.value)} required /></Field>
-        <Field label="Source label"><input className={field} value={sourceLabel} maxLength={160} onChange={(event) => setSourceLabel(event.target.value)} required /></Field>
+        <Field label="Story title"><DirectionBoundary as="input" language={null} className={field} value={title} maxLength={300} onChange={(event) => setTitle(event.target.value)} required /></Field>
+        <Field label="Source label"><DirectionBoundary as="input" language={null} className={field} value={sourceLabel} maxLength={160} onChange={(event) => setSourceLabel(event.target.value)} required /></Field>
         <Field label="Source URL (optional)"><input className={field} type="url" value={sourceUrl} onChange={(event) => setSourceUrl(event.target.value)} /></Field>
-        <Field label="Story text"><textarea className={field} rows={7} value={text} onChange={(event) => setText(event.target.value)} minLength={20} required /></Field>
+        <Field label="Story text"><DirectionBoundary as="textarea" language={null} className={field} rows={7} value={text} onChange={(event) => setText(event.target.value)} minLength={20} required /></Field>
         {text.length > 0 && text.trim().length < 20 ? <div role="alert" className="text-sm text-amber-800">Story text must contain at least 20 characters.</div> : null}
       </>}
       {error ? <div role="alert" dir="auto" className="text-sm text-red-700">{error}</div> : null}

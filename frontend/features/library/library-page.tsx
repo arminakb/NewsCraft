@@ -21,6 +21,7 @@ import {
   type LibraryStory,
 } from "./api"
 import { getApiErrorMessage } from "@/lib/http"
+import { DirectionBoundary } from "@/components/newsroom/direction-boundary"
 
 const tabs = [
   { id: "originals", label: "Originals" },
@@ -94,9 +95,9 @@ export function LibraryPage() {
   const active = tabs.find((tab) => tab.id === activeTab) ?? tabs[0]
 
   return (
-    <main className="space-y-6 p-4 md:p-6">
+    <section className="space-y-6 p-4 md:p-6" aria-labelledby="library-heading">
       <header>
-        <h1 className="text-2xl font-semibold">Library</h1>
+        <h1 id="library-heading" className="text-2xl font-semibold">Library</h1>
         <p className="text-muted-foreground">
           Read-only views of persisted originals, editorial records, artifacts, and publications.
         </p>
@@ -252,7 +253,7 @@ export function LibraryPage() {
           </PanelState>
         ) : null}
       </section>
-    </main>
+    </section>
   )
 }
 
@@ -277,12 +278,12 @@ function PanelState({
     return <div aria-label={loadingLabel} role="status">{loadingLabel}…</div>
   }
   if (error && isEmpty) {
-    return <div className="text-red-700" role="alert">{getApiErrorMessage(error, errorFallback)}</div>
+    return <DirectionBoundary as="div" language={null} className="text-red-700" role="alert">{getApiErrorMessage(error, errorFallback)}</DirectionBoundary>
   }
   if (isEmpty) return <p>{emptyMessage}</p>
   return (
     <div className="space-y-4">
-      {error ? <div className="text-red-700" role="alert">{getApiErrorMessage(error, errorFallback)}</div> : null}
+      {error ? <DirectionBoundary as="div" language={null} className="text-red-700" role="alert">{getApiErrorMessage(error, errorFallback)}</DirectionBoundary> : null}
       {children}
     </div>
   )
@@ -291,7 +292,7 @@ function PanelState({
 function OriginalList({ items }: { items: LibraryOriginal[] }) {
   return <RecordList>{items.map((item) => (
     <li className="rounded-lg border p-4" key={item.id}>
-      <RecordHeading title={item.title || "Untitled original"} status={item.status} />
+      <RecordHeading language={null} title={item.title || "Untitled original"} status={item.status} />
       <p className="text-sm text-muted-foreground">{item.sourceName ?? "Source not recorded"} · {displayTime(item.publishedAt)}</p>
       {safeExternalUrl(item.sourceUrl) ? (
         <a className="text-primary underline" href={item.sourceUrl as string} rel="noreferrer" target="_blank">Open original source</a>
@@ -303,7 +304,7 @@ function OriginalList({ items }: { items: LibraryOriginal[] }) {
 function StoryList({ items }: { items: LibraryStory[] }) {
   return <RecordList>{items.map((item) => (
     <li className="rounded-lg border p-4" key={item.id}>
-      <RecordHeading title={item.title} status={item.status} />
+      <RecordHeading language={item.primaryLanguage} title={item.title} status={item.status} />
       <p className="text-sm text-muted-foreground">{item.evidenceCount} evidence snapshots · updated {displayTime(item.updatedAt)}</p>
       <Link className="text-primary underline" href={`/inbox?story_id=${encodeURIComponent(item.id)}`}>Open story</Link>
     </li>
@@ -313,8 +314,8 @@ function StoryList({ items }: { items: LibraryStory[] }) {
 function EvidenceList({ items }: { items: LibraryEvidence[] }) {
   return <RecordList>{items.map((item) => (
     <li className="rounded-lg border p-4" key={item.id}>
-      <RecordHeading title={item.title ?? "Untitled evidence"} status="snapshot" />
-      <p className="text-sm leading-6">{item.excerpt}</p>
+      <RecordHeading language={null} title={item.title ?? "Untitled evidence"} status="snapshot" />
+      <DirectionBoundary as="p" language={null} className="text-sm leading-6">{item.excerpt}</DirectionBoundary>
       <p className="text-xs text-muted-foreground">Captured {displayTime(item.capturedAt)} · SHA-256 {item.contentSha256}</p>
       <Link className="text-primary underline" href={`/inbox?story_id=${encodeURIComponent(item.storyId)}&evidence_id=${encodeURIComponent(item.id)}`}>Open evidence snapshot</Link>
     </li>
@@ -328,7 +329,7 @@ function ResearchList({ items }: { items: LibraryResearchRun[] }) {
       <p className="text-sm text-muted-foreground">
         {item.backend ?? "No backend"} · {item.attemptCount} attempts · {item.sourceCount} sources · {item.budget.maxQueries}/{item.budget.maxPages}/{item.budget.maxElapsedSeconds}s budget
       </p>
-      {item.errorSummary ? <p className="text-sm text-red-700">{item.errorSummary}</p> : null}
+      {item.errorSummary ? <DirectionBoundary as="p" language={null} className="text-sm text-red-700">{item.errorSummary}</DirectionBoundary> : null}
       <div className="flex flex-wrap gap-3">
         <Link className="text-primary underline" href={`/inbox?story_id=${encodeURIComponent(item.storyId)}&research_run_id=${encodeURIComponent(item.id)}`}>Open research run</Link>
         {item.resultRevisionId ? <span className="text-sm text-muted-foreground">Story revision {item.resultRevisionId}</span> : null}
@@ -352,7 +353,7 @@ function ExportList({ items }: { items: LibraryExport[] }) {
     <li className="rounded-lg border p-4" key={item.id}>
       <RecordHeading title={`Export ${item.id}`} status={item.status} />
       <p className="text-sm text-muted-foreground">Pack {item.contentPackId ?? "unavailable"} · finished {displayTime(item.finishedAt)}</p>
-      {item.errorSummary ? <p className="text-sm text-red-700">{item.errorSummary}</p> : null}
+      {item.errorSummary ? <DirectionBoundary as="p" language={null} className="text-sm text-red-700">{item.errorSummary}</DirectionBoundary> : null}
       <div className="flex flex-wrap gap-3">
         <a className="text-primary underline" href={backendPath(`/exports/${item.id}`)}>Open exact export</a>
         {safeDownloadPath(item.downloads[0], item.id) ? <a className="text-primary underline" href={backendPath(item.downloads[0])}>Download export</a> : null}
@@ -378,10 +379,10 @@ function RecordList({ children }: { children: ReactNode }) {
   return <ul className="grid gap-3">{children}</ul>
 }
 
-function RecordHeading({ status, title }: { status: string; title: string }) {
+function RecordHeading({ language, status, title }: { language?: string | null; status: string; title: string }) {
   return (
     <div className="flex flex-wrap items-start justify-between gap-2">
-      <h2 className="font-medium">{title}</h2>
+      <DirectionBoundary as="h2" language={language} className="font-medium">{title}</DirectionBoundary>
       <span className="rounded border px-2 py-0.5 text-xs capitalize">{status.replaceAll("_", " ")}</span>
     </div>
   )

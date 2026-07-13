@@ -113,10 +113,12 @@ describe("TelegramReviewWorkspace", () => {
     renderWorkspace()
 
     expect(await screen.findByText("متن دقیق منبع")).toHaveAttribute("dir", "auto")
+    expect(screen.getByText("متن دقیق منبع")).toHaveAttribute("data-testid", "direction-boundary")
     expect(screen.getByText("image · image/jpeg")).toBeInTheDocument()
     expect(screen.getByRole("img", { name: "Captured image 1" })).toHaveAttribute("src", revision.media[0].previewUrl)
     const editor = screen.getByRole("textbox", { name: "Telegram body" })
     expect(editor).toHaveAttribute("dir", "rtl")
+    expect(editor).toHaveAttribute("data-testid", "direction-boundary")
     expect(editor).toHaveValue("متن بازنویسی")
     expect(screen.getByRole("button", { name: "Publish exact revision" })).toBeDisabled()
   })
