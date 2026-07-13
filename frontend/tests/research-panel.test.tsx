@@ -45,6 +45,16 @@ it("resets a stale provider selection and refuses submission after capability lo
   expect(requestResearch).not.toHaveBeenCalled()
 })
 
+it("binds only a completed succeeded run with a durable result revision", async () => {
+  const completed = vi.fn()
+  const view = renderPanel(<ResearchPanel story={story} providers={providers} run={run({ status: "queued" })} onCompleted={completed} />)
+  expect(completed).not.toHaveBeenCalled()
+  view.rerender(wrapper(<ResearchPanel story={story} providers={providers} run={run({ status: "failed" })} onCompleted={completed} />))
+  expect(completed).not.toHaveBeenCalled()
+  view.rerender(wrapper(<ResearchPanel story={story} providers={providers} run={run({ status: "succeeded", resultStoryRevisionId: "story-revision-2" })} onCompleted={completed} />))
+  await waitFor(() => expect(completed).toHaveBeenCalledWith("run-1"))
+})
+
 function renderPanel(node: React.ReactNode) { return render(wrapper(node)) }
 function wrapper(node: React.ReactNode) { return <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>{node}</QueryClientProvider> }
 function run(overrides: Partial<ResearchRunDetail>): ResearchRunDetail { return { id: "run-1", storyId: "story-1", requestedMode: "manual", status: "queued", provider: { id: "profile-1", name: "Research desk", providerType: "codex" }, budget: { maxQueries: 4, maxPages: 8, maxElapsedSeconds: 60 }, requestedModel: "gpt-5", resolvedModel: null, evidenceSetHash: "a".repeat(64), completeness: story.completeness, attempts: [], sources: [], resultStoryRevisionId: null, ...overrides } }

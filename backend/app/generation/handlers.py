@@ -433,6 +433,7 @@ def build_canonical_generation_handler(profile_resolver: Any):
                 bound_parent is None
                 or bound_parent.story_id != story_id
                 or research_run is None
+                or research_run.status != "succeeded"
                 or research_run.story_id != story_id
                 or research_run.result_story_revision_id != bound_parent.id
             ):
@@ -799,7 +800,7 @@ def build_pack_generation_handler(profile_resolver: Any):
             content=content,
             content_hash=sha256_canonical({"content": content, "evidence_map": evidence_map}),
             evidence_map=evidence_map,
-            validation_results=[{"gate": "telegram_schema", "ok": True}],
+            validation_results=[{"gate": "telegram_schema", "ok": True, "reason": None}],
             approval_state="pending_review",
             created_by="generation",
         )

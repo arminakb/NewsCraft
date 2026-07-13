@@ -1,7 +1,7 @@
 import type { JobStatus } from "@/features/jobs/types"
 
 export type TelegramAccessMode = "public_html" | "mtproto_user"
-export type TelegramResearchMode = "off"
+export type TelegramResearchMode = "off" | "manual" | "auto_if_incomplete"
 export type TelegramMediaPolicy = "preserve" | "omit" | "replace_manually"
 export type TelegramAttributionPolicy = "preserve" | "remove" | "custom"
 export type TelegramPublishingPolicy = "review_required" | "auto_publish"
@@ -74,6 +74,7 @@ export type TelegramContentFilters = {
   excludeTerms?: string[]
   minTextCharacters?: number
   requireMedia?: boolean
+  researchProviderProfileId?: string
 }
 
 export type TelegramQuietHours = { timezone: string; start: string; end: string }
@@ -148,6 +149,7 @@ export type TelegramDispatch = {
   id: string
   routeId: string
   sourceItemId: string
+  storyId: string
   storyRevisionId: string
   sourceKey: string
   sourceFingerprint: string
@@ -170,7 +172,7 @@ export type TelegramAutomationOptions = {
   brandProfiles: TelegramOption[]
   promptTemplateVersions: Array<{ id: string; version: number }>
   aiProviderProfiles: Array<
-    TelegramOption & { providerType: "fake" | "openrouter"; defaultModel: string | null; configured: boolean }
+    TelegramOption & { providerType: "fake" | "openrouter" | "codex"; defaultModel: string | null; configured: boolean; capabilities: { generation: boolean; research: boolean } }
   >
 }
 
@@ -333,15 +335,17 @@ export type PromptVersionInput = { systemTemplate: string; userTemplate: string 
 export type AIProviderProfile = {
   id: string
   name: string
-  providerType: "fake" | "openrouter"
+  providerType: "fake" | "openrouter" | "codex"
   defaultModel: string | null
   settings: Record<string, unknown>
   enabled: boolean
   configured: boolean
+  capabilities: { generation: boolean; research: boolean }
+  unavailabilityCodes: string[]
 }
 export type AIProviderProfileInput = {
   name: string
-  providerType: "fake" | "openrouter"
+  providerType: "fake" | "openrouter" | "codex"
   defaultModel?: string | null
   secretRef?: string | null
   settings?: Record<string, unknown> | null

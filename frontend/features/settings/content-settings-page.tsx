@@ -208,6 +208,9 @@ export function ContentSettingsPage() {
           </CardContent>
         </Card>
 
+        <PromptPurposeHistory title="Canonical story prompts" purpose="canonical_story" templates={templates.data ?? []} />
+        <PromptPurposeHistory title="Telegram pack prompts" purpose="telegram_pack" templates={templates.data ?? []} />
+
         <Card>
           <CardHeader><CardTitle>Telegram prompt versions</CardTitle><CardDescription>History is read-only. Every edit creates a new immutable version.</CardDescription></CardHeader>
           <CardContent className="space-y-4">
@@ -321,14 +324,28 @@ function ProviderEditor({ provider }: { provider: AIProviderProfile }) {
   return (
     <fieldset role="group" aria-label={`Provider ${provider.name}`} className="grid gap-3 rounded-lg border p-3">
       <div className="flex flex-wrap items-center justify-between gap-2"><strong>{provider.name}</strong><span>{provider.configured ? "Configured" : "Unavailable"}</span></div>
+      <div className="text-sm text-muted-foreground">{provider.providerType} · {provider.defaultModel ?? "default model"} · Generation {provider.capabilities.generation ? "available" : "unavailable"} · Research {provider.capabilities.research ? "available" : "unavailable"}</div>
+      {provider.unavailabilityCodes.length ? <div role="status" className="text-sm text-amber-800">Unavailable: {provider.unavailabilityCodes.map((code) => code.replaceAll("_", " ")).join(", ")}</div> : null}
       <div className="grid gap-3 sm:grid-cols-2">
         <Field label="Provider model"><input className={fieldClass} value={model} onChange={(event) => setModel(event.target.value)} /></Field>
-        <Field label="Replacement environment variable name"><input className={fieldClass} pattern={environmentNamePattern} aria-invalid={!environmentNameIsValid} aria-describedby={!environmentNameIsValid ? `provider-environment-error-${provider.id}` : undefined} autoComplete="off" value={environmentName} onChange={(event) => setEnvironmentName(event.target.value)} /></Field>
+        {provider.providerType !== "codex" ? <Field label="Replacement environment variable name"><input className={fieldClass} pattern={environmentNamePattern} aria-invalid={!environmentNameIsValid} aria-describedby={!environmentNameIsValid ? `provider-environment-error-${provider.id}` : undefined} autoComplete="off" value={environmentName} onChange={(event) => setEnvironmentName(event.target.value)} /></Field> : <div className="self-end text-sm text-muted-foreground">Codex CLI uses the configured local executable and has no secret field.</div>}
       </div>
       {!environmentNameIsValid ? <div id={`provider-environment-error-${provider.id}`} role="alert" className="text-sm text-destructive">Use 3–128 characters: start with A–Z, then only A–Z, 0–9, or underscore.</div> : null}
-      <Button className="justify-self-start" variant="outline" disabled={mutation.isPending || !environmentNameIsValid} onClick={() => mutation.mutate()}>Save provider</Button>
+      <Button className="justify-self-start" variant="outline" disabled={mutation.isPending || !environmentNameIsValid || !provider.enabled || (provider.providerType === "codex" && !provider.configured)} onClick={() => mutation.mutate()}>Save provider</Button>
     </fieldset>
   )
+}
+
+function PromptPurposeHistory({ title, purpose, templates }: { title: string; purpose: string; templates: Array<{ id: string; purposeKey: string }> }) {
+  const queryClient = useQueryClient()
+  const template = templates.find((item) => item.purposeKey === purpose)
+  const versions = useQuery({ queryKey: template ? queryKeys.promptVersions(template.id) : ["prompt-purpose", purpose, "none"], queryFn: () => getPromptVersions(template!.id), enabled: Boolean(template) })
+  const [systemTemplate, setSystemTemplate] = useState("")
+  const [userTemplateValue, setUserTemplateValue] = useState("")
+  const [confirmActivation, setConfirmActivation] = useState(false)
+  const create = useMutation({ mutationFn: () => createPromptVersion(template!.id, { systemTemplate, userTemplate: userTemplateValue }), onSuccess: async () => { setSystemTemplate(""); setUserTemplateValue(""); await queryClient.invalidateQueries({ queryKey: queryKeys.promptVersions(template!.id) }) } })
+  const activatePurposeVersion = useMutation({ mutationFn: (id: string) => activatePromptVersion(id), onSuccess: async () => { setConfirmActivation(false); await Promise.all([queryClient.invalidateQueries({ queryKey: queryKeys.promptVersions(template!.id) }), queryClient.invalidateQueries({ queryKey: queryKeys.editorialPromptOptions })]) } })
+  return <Card><CardHeader><CardTitle>{title}</CardTitle><CardDescription>Immutable version history; activation selects an exact version and never edits one in place.</CardDescription></CardHeader><CardContent className="space-y-3">{!template ? <Empty>No prompt template configured</Empty> : <>{versions.isPending ? <div role="status">Loading immutable versions</div> : versions.isError ? <div role="alert">{getApiErrorMessage(versions.error)}</div> : <ol className="space-y-2">{versions.data?.map((version) => <li key={version.id} className="rounded border p-3"><strong>{version.isActive ? `Active version ${version.version}` : `Version ${version.version}`}</strong><div className="break-all text-xs text-muted-foreground">{version.checksumSha256}</div><Button variant="outline" className="mt-2" disabled={version.isActive || !confirmActivation || activatePurposeVersion.isPending} onClick={() => activatePurposeVersion.mutate(version.id)}>Activate {purpose} version {version.version}</Button></li>)}</ol>}<label className="flex gap-2"><input type="checkbox" checked={confirmActivation} onChange={(event) => setConfirmActivation(event.target.checked)} />Confirm {purpose} activation</label><details><summary>Create immutable {purpose} version</summary><div className="mt-2 grid gap-2"><Field label={`${purpose} system template`}><textarea className={fieldClass} value={systemTemplate} onChange={(event) => setSystemTemplate(event.target.value)} /></Field><Field label={`${purpose} user template`}><textarea className={fieldClass} value={userTemplateValue} onChange={(event) => setUserTemplateValue(event.target.value)} /></Field><Button disabled={!systemTemplate.trim() || !userTemplateValue.trim() || create.isPending} onClick={() => create.mutate()}>Create {purpose} version</Button>{create.isError ? <div role="alert">{getApiErrorMessage(create.error)}</div> : null}</div></details></>}</CardContent></Card>
 }
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {

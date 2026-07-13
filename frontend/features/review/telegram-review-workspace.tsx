@@ -5,12 +5,14 @@ import { useRouter } from "next/navigation"
 import { useEffect, useMemo, useRef, useState } from "react"
 
 import { useNotices } from "@/components/providers/notice-provider"
+import { guardedNavigation, useDirtyNavigation } from "@/components/editorial/use-dirty-navigation"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import {
   approveTelegramDraft,
   editTelegramDraft,
   getTelegramDestinations,
+  getTelegramDispatches,
   getTelegramDraft,
   getTelegramPublishJob,
   getTelegramRoute,
@@ -20,6 +22,7 @@ import {
 import { getAutomationControl } from "@/features/control/api"
 import { getApiErrorMessage } from "@/lib/http"
 import { queryKeys } from "@/lib/query-keys"
+import { ReviewResearchOutcome } from "@/features/automations/research-outcome"
 
 export function TelegramReviewWorkspace({ revisionId }: { revisionId: string }) {
   const router = useRouter()
@@ -27,6 +30,7 @@ export function TelegramReviewWorkspace({ revisionId }: { revisionId: string }) 
   const { pushNotice } = useNotices()
   const outcomeRef = useRef<HTMLDivElement>(null)
   const [body, setBody] = useState("")
+  const [baselineBody, setBaselineBody] = useState("")
   const [rejectionNote, setRejectionNote] = useState("")
   const [publishOutcome, setPublishOutcome] = useState<{ publishJobId: string; status: string } | null>(null)
 
@@ -36,7 +40,10 @@ export function TelegramReviewWorkspace({ revisionId }: { revisionId: string }) 
   })
   const draft = draftQuery.data
   useEffect(() => {
-    if (draft) setBody(draft.content.body)
+    if (draft) {
+      setBody(draft.content.body)
+      setBaselineBody(draft.content.body)
+    }
   }, [draft])
 
   const routeQuery = useQuery({
@@ -53,6 +60,8 @@ export function TelegramReviewWorkspace({ revisionId }: { revisionId: string }) 
     queryFn: getAutomationControl,
   })
   const destination = destinationsQuery.data?.find((item) => item.id === routeQuery.data?.destinationId)
+  const dispatchesQuery = useQuery({ queryKey: queryKeys.telegramDispatches(draft?.routeId ?? "unresolved"), queryFn: () => getTelegramDispatches(draft!.routeId!), enabled: Boolean(draft?.routeId && draft?.dispatchId) })
+  const dispatch = dispatchesQuery.data?.find((item) => item.id === draft?.dispatchId)
   const activePublishJobId = publishOutcome?.publishJobId ?? draft?.publishJobId ?? null
   const publishJobQuery = useQuery({
     queryKey: queryKeys.telegramPublishJob(activePublishJobId ?? "unresolved"),
@@ -73,7 +82,9 @@ export function TelegramReviewWorkspace({ revisionId }: { revisionId: string }) 
     onSuccess: async (child) => {
       await invalidateDraft()
       pushNotice({ tone: "success", title: "Revision saved", message: `Revision ${child.revisionNumber} is ready for review.` })
-      router.push(`/review/${child.id}`)
+      setBaselineBody(child.content.body)
+      releaseDirtyNavigation()
+      guardedNavigation(() => router.push(`/review/${child.id}`))
     },
     onError: (error) => pushNotice({ tone: "error", title: "Edit failed", message: getApiErrorMessage(error) }),
   })
@@ -116,14 +127,20 @@ export function TelegramReviewWorkspace({ revisionId }: { revisionId: string }) 
     if (destination && (!destination.enabled || destination.healthStatus !== "healthy")) values.push("Destination unhealthy")
     if (draft?.content.dryRun) values.push("Draft dry run blocks publishing")
     if (draft?.content.mediaPolicy === "replace_manually") values.push("Manual media replacement is required")
+    if (draft?.routeId && draft?.dispatchId && dispatchesQuery.isPending) values.push("Dispatch and research outcome are loading")
+    if (draft?.routeId && draft?.dispatchId && dispatchesQuery.isError) values.push("Dispatch and research outcome are unavailable")
+    if (draft?.routeId && draft?.dispatchId && dispatchesQuery.isSuccess && !dispatch) values.push("Expected dispatch is unavailable")
+    if (dispatch?.status === "needs_review" || dispatch?.errorCode?.includes("research")) values.push("Review required because research did not complete")
     return values
-  }, [controlQuery.data, controlQuery.isError, controlQuery.isPending, destination, destinationsQuery.isError, destinationsQuery.isPending, draft, routeQuery.data, routeQuery.isError, routeQuery.isPending])
+  }, [controlQuery.data, controlQuery.isError, controlQuery.isPending, destination, destinationsQuery.isError, destinationsQuery.isPending, dispatch, dispatchesQuery.isError, dispatchesQuery.isPending, dispatchesQuery.isSuccess, draft, routeQuery.data, routeQuery.isError, routeQuery.isPending])
+
+  const editorDirty = Boolean(draft && body !== baselineBody)
+  const releaseDirtyNavigation = useDirtyNavigation(editorDirty)
 
   if (draftQuery.isPending) return <div role="status" className="p-6">Loading Telegram revision…</div>
   if (draftQuery.isError || !draft) return <div role="alert" dir="auto" className="p-6 text-red-700">{getApiErrorMessage(draftQuery.error, "Telegram revision could not be loaded")}</div>
 
   const mutationPending = editMutation.isPending || approveMutation.isPending || rejectMutation.isPending || publishMutation.isPending
-  const editorDirty = body !== draft.content.body
   const canPublish = draft.approvalState === "approved" && blockers.length === 0 && !mutationPending && !editorDirty
 
   return (
@@ -132,15 +149,18 @@ export function TelegramReviewWorkspace({ revisionId }: { revisionId: string }) 
         <h1 id="telegram-review-heading" className="text-2xl font-semibold">Review Telegram revision {draft.revisionNumber}</h1>
         <p className="break-all text-sm text-muted-foreground">Exact hash: {draft.contentHash}</p>
       </div>
+      {draft.routeId && draft.dispatchId && routeQuery.data ? <Card size="sm"><CardHeader><CardTitle>Research and completeness</CardTitle></CardHeader><CardContent><ReviewResearchOutcome routeId={draft.routeId} dispatchId={draft.dispatchId} researchMode={routeQuery.data.researchMode} /></CardContent></Card> : null}
       <div className="grid min-w-0 gap-4 xl:grid-cols-2">
         <div className="min-w-0 space-y-4">
           <Card size="sm">
             <CardHeader><CardTitle>Captured source evidence</CardTitle></CardHeader>
             <CardContent className="space-y-3">
+              {draft.evidenceMap.length ? <div className="space-y-2" aria-label="Exact evidence map">{draft.evidenceMap.map((citation) => <div key={`${citation.evidenceSnapshotId}-${citation.locator}`} className="rounded border p-2 text-xs"><div>{citation.evidenceKey} · {citation.locator}</div><div className="break-all">Excerpt hash {citation.excerptSha256}</div>{citation.sourceUrl ? <a href={citation.sourceUrl} target="_blank" rel="noreferrer" className="text-primary underline">Open original source</a> : <span>Operator-provided text</span>}</div>)}</div> : null}
               {draft.evidence.length ? draft.evidence.map((item) => (
                 <article key={item.evidenceSnapshotId} className="min-w-0 rounded-md border p-3">
                   <p dir="auto" className="whitespace-pre-wrap break-words">{item.contentText}</p>
-                  {item.sourceUrl ? <a className="mt-2 block break-all text-sm text-primary underline" href={item.sourceUrl} target="_blank" rel="noreferrer">Open captured source</a> : null}
+                  <div className="break-all text-xs text-muted-foreground">Snapshot hash {item.contentSha256}</div>
+                  {item.sourceUrl ? <a className="mt-2 block break-all text-sm text-primary underline" href={item.sourceUrl} target="_blank" rel="noreferrer">Open original source</a> : <div className="text-sm text-muted-foreground">Operator-provided text</div>}
                 </article>
               )) : <p className="text-muted-foreground">No readable evidence is available.</p>}
             </CardContent>

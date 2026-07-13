@@ -20,6 +20,7 @@ from app.generation.models import (
     PromptTemplate,
     PromptTemplateVersion,
 )
+from app.generation.revision_validation import RevisionValidationError, validate_approvable_revision
 from app.generation.telegram_schema import (
     TelegramEvidenceCitation,
     TelegramRewriteOutput,
@@ -31,10 +32,11 @@ from app.jobs.repository import JobRepository
 from app.jobs.schemas import JobAcceptedOut
 from app.jobs.types import JobOrigin
 from app.research.citations import validate_citations
+from app.research.models import ResearchRun
 from app.research.schemas import CitationRef, Claim
 from app.research.service import ResearchRequestError, ResearchService
 from app.stories.evidence import EvidenceRecord
-from app.stories.models import Story, StoryEvidenceSnapshot
+from app.stories.models import Story, StoryEvidenceSnapshot, StoryRevision
 
 
 class InvalidGenerationRequest(ValueError):
@@ -54,6 +56,7 @@ class GeneratePackRequest(BaseModel):
     platform_prompt_template_version_id: UUID
     research_mode: Literal["off", "manual", "auto_if_incomplete"] = "off"
     research_provider_profile_id: UUID | None = None
+    research_run_id: UUID | None = None
 
 
 class EditVariantRequest(BaseModel):
@@ -150,11 +153,39 @@ class EditorialService:
             raise InvalidGenerationRequest("brand profile not found")
         if request.research_mode == "auto_if_incomplete" and request.research_provider_profile_id is None:
             raise InvalidGenerationRequest("auto research requires research_provider_profile_id")
-        payload = request.model_dump(mode="json") | {
-            "story_id": str(story_id),
-            "canonical_prompt_checksum": canonical.checksum_sha256,
-            "platform_prompt_checksum": platform.checksum_sha256,
-        }
+        if request.research_run_id is not None and (
+            request.research_mode != "off" or request.research_provider_profile_id is not None
+        ):
+            raise InvalidGenerationRequest("bound research run cannot request another research mode")
+        bound_payload: dict[str, str] = {}
+        if request.research_run_id is not None:
+            run = await self.session.get(ResearchRun, request.research_run_id)
+            result_revision = (
+                await self.session.get(StoryRevision, run.result_story_revision_id)
+                if run is not None and run.result_story_revision_id is not None
+                else None
+            )
+            if (
+                run is None
+                or run.status != "succeeded"
+                or run.story_id != story_id
+                or result_revision is None
+                or result_revision.story_id != story_id
+            ):
+                raise InvalidGenerationRequest("research run is not a succeeded result for this story")
+            bound_payload = {
+                "completed_research_run_id": str(run.id),
+                "research_result_story_revision_id": str(result_revision.id),
+            }
+        payload = (
+            request.model_dump(mode="json", exclude={"research_run_id"})
+            | bound_payload
+            | {
+                "story_id": str(story_id),
+                "canonical_prompt_checksum": canonical.checksum_sha256,
+                "platform_prompt_checksum": platform.checksum_sha256,
+            }
+        )
         digest = hashlib.sha256(json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
         if request.research_mode == "auto_if_incomplete":
             continuation = {
@@ -335,7 +366,7 @@ class EditorialService:
             content=content,
             content_hash=sha256_canonical({"content": content, "evidence_map": evidence_map}),
             evidence_map=evidence_map,
-            validation_results=[{"gate": "telegram_schema", "ok": True}],
+            validation_results=[{"gate": "telegram_schema", "ok": True, "reason": None}],
             approval_state="pending_review",
             approval_note=request.edit_note,
             created_by="operator",
@@ -358,6 +389,22 @@ class EditorialService:
             raise RevisionConflict("content hash changed")
         if revision.approval_state != "pending_review":
             raise RevisionConflict("revision is not pending review")
+        try:
+            validate_approvable_revision(revision)
+        except RevisionValidationError as exc:
+            raise InvalidGenerationRequest(str(exc)) from None
+        latest_id = await self.session.scalar(
+            select(PlatformVariantRevision.id)
+            .where(PlatformVariantRevision.platform_variant_id == revision.platform_variant_id)
+            .order_by(
+                PlatformVariantRevision.revision_number.desc(),
+                PlatformVariantRevision.created_at.desc(),
+                PlatformVariantRevision.id.desc(),
+            )
+            .limit(1)
+        )
+        if latest_id != revision.id:
+            raise RevisionConflict("revision is not current")
         revision.approval_state = "approved"
         revision.approval_note = request.note
         revision.approved_at = datetime.now(UTC)

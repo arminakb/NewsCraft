@@ -22,6 +22,7 @@ from app.automations.telegram.handlers import (
 from app.db.models import ItemMedia, MediaAsset, SourceItem
 from app.db.session import get_session
 from app.generation.models import ContentPack, PlatformVariant, PlatformVariantRevision
+from app.generation.revision_validation import RevisionValidationError, validate_approvable_revision
 from app.generation.telegram_schema import (
     TelegramEvidenceCitation,
     TelegramRewriteOutput,
@@ -227,7 +228,7 @@ def build_manual_revision(
         content=content,
         content_hash=sha256_canonical({"content": content, "evidence_map": evidence_map}),
         evidence_map=evidence_map,
-        validation_results=[{"gate": "telegram_schema", "ok": True}],
+        validation_results=[{"gate": "telegram_schema", "ok": True, "reason": None}],
         approval_state="pending_review",
         created_by="operator",
     )
@@ -244,6 +245,11 @@ def require_revision_transition(
     required = "approved" if action == "publish" else "pending_review"
     if revision.approval_state != required:
         raise HTTPException(409, f"Draft cannot {action} from its current state")
+    if action in {"approve", "publish"}:
+        try:
+            validate_approvable_revision(revision)
+        except RevisionValidationError as exc:
+            raise HTTPException(409, str(exc)) from None
     if action == "publish" and bool((revision.content or {}).get("dry_run")):
         raise HTTPException(409, "Dry-run drafts cannot be published")
 
@@ -290,9 +296,7 @@ async def _draft_out(
         .limit(1)
     )
     publication = (
-        await session.scalar(
-            select(Publication).where(Publication.publish_job_id == publish_job.id)
-        )
+        await session.scalar(select(Publication).where(Publication.publish_job_id == publish_job.id))
         if publish_job is not None
         else None
     )
@@ -303,11 +307,7 @@ async def _draft_out(
         except Exception:
             continue
     snapshots = (
-        list(
-            await session.scalars(
-                select(StoryEvidenceSnapshot).where(StoryEvidenceSnapshot.id.in_(evidence_ids))
-            )
-        )
+        list(await session.scalars(select(StoryEvidenceSnapshot).where(StoryEvidenceSnapshot.id.in_(evidence_ids))))
         if evidence_ids
         else []
     )
@@ -384,6 +384,18 @@ async def _locked_revision(
     )
     if revision is None:
         raise HTTPException(404, "Telegram draft not found")
+    latest_id = await session.scalar(
+        select(PlatformVariantRevision.id)
+        .where(PlatformVariantRevision.platform_variant_id == revision.platform_variant_id)
+        .order_by(
+            PlatformVariantRevision.revision_number.desc(),
+            PlatformVariantRevision.created_at.desc(),
+            PlatformVariantRevision.id.desc(),
+        )
+        .limit(1)
+    )
+    if latest_id != revision.id:
+        raise HTTPException(409, "Telegram draft revision is not current")
     return revision
 
 
@@ -402,9 +414,7 @@ async def _revision_snapshots(
         raise HTTPException(409, "Draft evidence is missing")
     variant = await session.get(PlatformVariant, revision.platform_variant_id)
     pack = await session.get(ContentPack, variant.content_pack_id) if variant is not None else None
-    story_revision = (
-        await session.get(StoryRevision, pack.story_revision_id) if pack is not None else None
-    )
+    story_revision = await session.get(StoryRevision, pack.story_revision_id) if pack is not None else None
     if variant is None or variant.platform != "telegram" or story_revision is None:
         raise HTTPException(409, "Draft lineage is invalid")
     from app.stories.models import StoryEvidenceSnapshot
@@ -412,9 +422,7 @@ async def _revision_snapshots(
     snapshots = list(
         await session.scalars(
             select(StoryEvidenceSnapshot).where(
-                StoryEvidenceSnapshot.id.in_(
-                    [citation.evidence_snapshot_id for citation in citations]
-                )
+                StoryEvidenceSnapshot.id.in_([citation.evidence_snapshot_id for citation in citations])
             )
         )
     )
@@ -513,12 +521,7 @@ async def get_telegram_draft_media(
     if media_asset_id not in content.media_asset_ids:
         raise HTTPException(404, "Telegram draft media not found")
     asset = await session.get(MediaAsset, media_asset_id)
-    if (
-        asset is None
-        or asset.fetch_status != "downloaded"
-        or not asset.storage_path
-        or not asset.checksum_sha256
-    ):
+    if asset is None or asset.fetch_status != "downloaded" or not asset.storage_path or not asset.checksum_sha256:
         raise HTTPException(409, "Telegram draft media is unavailable")
     path = Path(asset.storage_path)
     if not path.is_file():
@@ -564,9 +567,7 @@ async def edit_telegram_draft(
     async with session.begin():
         parent = await _locked_revision(session, revision_id)
         variant = await session.scalar(
-            select(PlatformVariant)
-            .where(PlatformVariant.id == parent.platform_variant_id)
-            .with_for_update()
+            select(PlatformVariant).where(PlatformVariant.id == parent.platform_variant_id).with_for_update()
         )
         if variant is None:
             raise HTTPException(409, "Telegram draft lineage is invalid")
@@ -574,18 +575,12 @@ async def edit_telegram_draft(
         requested_ids = set(body.media_asset_ids)
         requested_assets: list[MediaAsset] = []
         if requested_ids:
-            requested_assets = list(
-                await session.scalars(
-                    select(MediaAsset).where(MediaAsset.id.in_(requested_ids))
-                )
-            )
+            requested_assets = list(await session.scalars(select(MediaAsset).where(MediaAsset.id.in_(requested_ids))))
             found = {asset.id for asset in requested_assets}
             if found != requested_ids:
                 raise HTTPException(422, "One or more media assets do not exist")
             if any(
-                asset.fetch_status != "downloaded"
-                or not asset.storage_path
-                or not asset.checksum_sha256
+                asset.fetch_status != "downloaded" or not asset.storage_path or not asset.checksum_sha256
                 for asset in requested_assets
             ):
                 raise HTTPException(422, "Draft media must be downloaded and checksum-verified")
@@ -603,21 +598,22 @@ async def edit_telegram_draft(
                 raise HTTPException(409, "Draft source provenance is invalid")
             linked_ids = set(
                 await session.scalars(
-                    select(ItemMedia.media_asset_id).where(
-                        ItemMedia.content_item_id == source_item.content_item_id
-                    )
+                    select(ItemMedia.media_asset_id).where(ItemMedia.content_item_id == source_item.content_item_id)
                 )
             )
             if not requested_ids.issubset(linked_ids):
                 raise HTTPException(422, "Preserved media must belong to the draft source")
-        next_number = int(
-            await session.scalar(
-                select(func.coalesce(func.max(PlatformVariantRevision.revision_number), 0)).where(
-                    PlatformVariantRevision.platform_variant_id == parent.platform_variant_id
+        next_number = (
+            int(
+                await session.scalar(
+                    select(func.coalesce(func.max(PlatformVariantRevision.revision_number), 0)).where(
+                        PlatformVariantRevision.platform_variant_id == parent.platform_variant_id
+                    )
                 )
+                or 0
             )
-            or 0
-        ) + 1
+            + 1
+        )
         child = build_manual_revision(
             parent,
             body,
@@ -707,9 +703,7 @@ async def publish_telegram_draft(
         if route is None:
             raise HTTPException(409, "Telegram draft route is missing")
         destination = await session.scalar(
-            select(Destination)
-            .where(Destination.id == route.destination_id)
-            .with_for_update()
+            select(Destination).where(Destination.id == route.destination_id).with_for_update()
         )
         if destination is None:
             raise HTTPException(409, "Telegram draft destination is missing")
@@ -754,9 +748,7 @@ async def get_telegram_publish_job(
             .order_by(PublishOperationReceipt.operation_index)
         )
     )
-    publication = await session.scalar(
-        select(Publication).where(Publication.publish_job_id == publish_job.id)
-    )
+    publication = await session.scalar(select(Publication).where(Publication.publish_job_id == publish_job.id))
     return _publish_job_out(publish_job, receipts, publication)
 
 
@@ -768,9 +760,7 @@ async def reconcile_telegram_publish_job(
     session: AsyncSession = SessionDependency,
 ):
     async with session.begin():
-        publish_job = await session.scalar(
-            select(PublishJob).where(PublishJob.id == publish_job_id).with_for_update()
-        )
+        publish_job = await session.scalar(select(PublishJob).where(PublishJob.id == publish_job_id).with_for_update())
         if publish_job is None:
             raise HTTPException(404, "Telegram publish job not found")
         destination = await session.get(Destination, publish_job.destination_id)
@@ -808,10 +798,7 @@ async def reconcile_telegram_publish_job(
             result = await JobRepository(session).enqueue_job(
                 job_type="telegram.publish",
                 payload={"publish_job_id": str(publish_job.id)},
-                idempotency_key=(
-                    f"telegram-publish-reconcile:{publish_job.id}:"
-                    f"{publish_job.updated_at.isoformat()}"
-                ),
+                idempotency_key=(f"telegram-publish-reconcile:{publish_job.id}:{publish_job.updated_at.isoformat()}"),
                 origin=JobOrigin.RETRY,
             )
             publish_job.workflow_job_id = result.job.id

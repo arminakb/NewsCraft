@@ -11,6 +11,7 @@ from fastapi import HTTPException
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import select
 
+from app.api.content_packs import get_variant_revision
 from app.api.telegram_drafts import (
     TelegramContentHashIn,
     TelegramDraftEditIn,
@@ -69,9 +70,7 @@ class FakeProfileResolver:
 
 class PausingProvider(DeterministicFakeProvider):
     def __init__(self, session_factory) -> None:
-        super().__init__(
-            output={"body": "بازنویسی", "parse_mode": "HTML", "buttons": []}
-        )
+        super().__init__(output={"body": "بازنویسی", "parse_mode": "HTML", "buttons": []})
         self.session_factory = session_factory
 
     async def generate(self, request):
@@ -91,9 +90,7 @@ class RetryableProvider:
 
 class BlockingProvider(DeterministicFakeProvider):
     def __init__(self) -> None:
-        super().__init__(
-            output={"body": "ordered", "parse_mode": "HTML", "buttons": []}
-        )
+        super().__init__(output={"body": "ordered", "parse_mode": "HTML", "buttons": []})
         self.entered = asyncio.Event()
         self.release = asyncio.Event()
 
@@ -153,9 +150,7 @@ def durable_request_payload(
         },
     }
     if active_generation_attempt_id is not None:
-        payload["execution"]["active_generation_attempt_id"] = str(
-            active_generation_attempt_id
-        )
+        payload["execution"]["active_generation_attempt_id"] = str(active_generation_attempt_id)
     return payload
 
 
@@ -367,9 +362,7 @@ async def test_process_dispatch_persists_exact_review_revision_and_resumes_idemp
         dispatch = await session.get(AutomationDispatch, dispatch_id)
         revision = await session.get(PlatformVariantRevision, dispatch.variant_revision_id)
         run = await session.get(GenerationRun, dispatch.generation_run_id)
-        attempt = await session.scalar(
-            select(GenerationAttempt).where(GenerationAttempt.generation_run_id == run.id)
-        )
+        attempt = await session.scalar(select(GenerationAttempt).where(GenerationAttempt.generation_run_id == run.id))
         assert revision.approval_state == "pending_review"
         assert revision.generation_attempt_id == attempt.id
         assert revision.revision_number == 1
@@ -377,6 +370,11 @@ async def test_process_dispatch_persists_exact_review_revision_and_resumes_idemp
         assert revision.content["source_item_id"] == str(dispatch.source_item_id)
         assert revision.content["direction"] == "rtl"
         assert revision.evidence_map[0]["excerpt_sha256"]
+        assert revision.validation_results == [
+            {"gate": "telegram_schema", "ok": True, "reason": None},
+            {"gate": "evidence", "ok": True, "reason": None},
+            {"gate": "media", "ok": True, "reason": None},
+        ]
         assert run.status == attempt.status == "completed"
         assert generation_input_hash(run.request_payload) == run.input_hash
         assert resolver.calls == [(run.provider_profile_id, "fake-route-model")]
@@ -479,19 +477,13 @@ async def test_retryable_provider_failure_persists_attempt_and_route_retry_time(
     async with session_factory() as session:
         dispatch = await session.get(AutomationDispatch, dispatch_id)
         run = await session.get(GenerationRun, dispatch.generation_run_id)
-        attempt = await session.scalar(
-            select(GenerationAttempt).where(GenerationAttempt.generation_run_id == run.id)
-        )
+        attempt = await session.scalar(select(GenerationAttempt).where(GenerationAttempt.generation_run_id == run.id))
         assert run.status == attempt.status == "failed"
         assert run.error_class == attempt.error_class == "retryable"
         assert attempt.error_code == "openrouter_http_429"
         assert dispatch.status == "retryable"
         assert "telegram.generation.failed" in set(
-            await session.scalars(
-                select(WorkflowEvent.event_type).where(
-                    WorkflowEvent.workflow_job_id == job_id
-                )
-            )
+            await session.scalars(select(WorkflowEvent.event_type).where(WorkflowEvent.workflow_job_id == job_id))
         )
 
 
@@ -505,9 +497,7 @@ async def test_invalid_structured_output_is_durable_needs_review_not_retryable(
         dispatch_id = dispatch.id
         job_id = job.id
 
-    invalid = DeterministicFakeProvider(
-        output={"body": "<script>unsafe</script>", "parse_mode": "HTML", "buttons": []}
-    )
+    invalid = DeterministicFakeProvider(output={"body": "<script>unsafe</script>", "parse_mode": "HTML", "buttons": []})
     async with session_factory() as session:
         job = await session.get(WorkflowJob, job_id)
         await session.commit()
@@ -521,9 +511,7 @@ async def test_invalid_structured_output_is_durable_needs_review_not_retryable(
     async with session_factory() as session:
         dispatch = await session.get(AutomationDispatch, dispatch_id)
         run = await session.get(GenerationRun, dispatch.generation_run_id)
-        attempt = await session.scalar(
-            select(GenerationAttempt).where(GenerationAttempt.generation_run_id == run.id)
-        )
+        attempt = await session.scalar(select(GenerationAttempt).where(GenerationAttempt.generation_run_id == run.id))
         assert dispatch.status == "needs_review"
         assert run.error_class == attempt.error_class == "needs_review"
         assert attempt.validation_errors
@@ -543,9 +531,7 @@ async def test_completed_durable_output_resumes_revision_without_another_provide
                 route.prompt_template_version_id,
             )
             link = await session.scalar(
-                select(StoryEvidenceLink).where(
-                    StoryEvidenceLink.story_revision_id == dispatch.story_revision_id
-                )
+                select(StoryEvidenceLink).where(StoryEvidenceLink.story_revision_id == dispatch.story_revision_id)
             )
             snapshot = await session.get(StoryEvidenceSnapshot, link.evidence_snapshot_id)
             request_payload = durable_request_payload(
@@ -633,9 +619,7 @@ async def test_retry_fences_stale_generation_attempt_and_allocates_next_attempt(
                 route.prompt_template_version_id,
             )
             link = await session.scalar(
-                select(StoryEvidenceLink).where(
-                    StoryEvidenceLink.story_revision_id == dispatch.story_revision_id
-                )
+                select(StoryEvidenceLink).where(StoryEvidenceLink.story_revision_id == dispatch.story_revision_id)
             )
             snapshot = await session.get(StoryEvidenceSnapshot, link.evidence_snapshot_id)
             request_payload = durable_request_payload(
@@ -660,22 +644,20 @@ async def test_retry_fences_stale_generation_attempt_and_allocates_next_attempt(
             session.add(run)
             await session.flush()
             stale_attempt = GenerationAttempt(
-                    generation_run_id=run.id,
-                    attempt_number=1,
-                    provider="fake",
-                    requested_model="fake-route-model",
-                    prompt_snapshot={},
-                    response_payload={},
-                    usage={},
-                    validation_errors=[],
-                    status="running",
-                    started_at=datetime.now(UTC),
-                )
+                generation_run_id=run.id,
+                attempt_number=1,
+                provider="fake",
+                requested_model="fake-route-model",
+                prompt_snapshot={},
+                response_payload={},
+                usage={},
+                validation_errors=[],
+                status="running",
+                started_at=datetime.now(UTC),
+            )
             session.add(stale_attempt)
             await session.flush()
-            request_payload["execution"]["active_generation_attempt_id"] = str(
-                stale_attempt.id
-            )
+            request_payload["execution"]["active_generation_attempt_id"] = str(stale_attempt.id)
             run.request_payload = request_payload
             dispatch.generation_run_id = run.id
         job_id = job.id
@@ -724,9 +706,7 @@ async def test_late_stale_failure_cannot_clobber_winning_attempt_or_revision(
         async with session_factory() as session:
             job = await session.get(WorkflowJob, job_id)
             await session.commit()
-            return await build_telegram_process_handler(
-                FakeProfileResolver(stale_provider)
-            )(
+            return await build_telegram_process_handler(FakeProfileResolver(stale_provider))(
                 job,
                 JobContext(session=session, providers=build_default_provider_registry()),
             )
@@ -792,8 +772,7 @@ async def test_concurrent_routes_allocate_global_revision_numbers_without_collis
     async with session_factory() as session:
         dispatches = [await session.get(AutomationDispatch, dispatch_id) for dispatch_id in ids]
         revisions = [
-            await session.get(PlatformVariantRevision, dispatch.variant_revision_id)
-            for dispatch in dispatches
+            await session.get(PlatformVariantRevision, dispatch.variant_revision_id) for dispatch in dispatches
         ]
         assert {revision.revision_number for revision in revisions} == {1, 2}
         assert len({revision.platform_variant_id for revision in revisions}) == 1
@@ -873,11 +852,7 @@ async def test_same_route_reverse_completion_defers_later_until_parent_is_linked
         assert later.error_code is None
         assert later.error_message is None
         later_events = set(
-            await session.scalars(
-                select(WorkflowEvent.event_type).where(
-                    WorkflowEvent.workflow_job_id == later_job_id
-                )
-            )
+            await session.scalars(select(WorkflowEvent.event_type).where(WorkflowEvent.workflow_job_id == later_job_id))
         )
         assert "telegram.process.deferred" in later_events
         assert "telegram.generation.failed" not in later_events
@@ -910,9 +885,7 @@ async def test_simultaneous_same_route_finalization_has_no_dispatch_route_deadlo
         async with session_factory() as session:
             job = await session.get(WorkflowJob, job_ids[index])
             await session.commit()
-            return await build_telegram_process_handler(
-                FakeProfileResolver(providers[index])
-            )(
+            return await build_telegram_process_handler(FakeProfileResolver(providers[index]))(
                 job,
                 JobContext(session=session, providers=build_default_provider_registry()),
             )
@@ -925,11 +898,7 @@ async def test_simultaneous_same_route_finalization_has_no_dispatch_route_deadlo
         asyncio.gather(*tasks, return_exceptions=True),
         timeout=15,
     )
-    waiting_indexes = [
-        index
-        for index, result in enumerate(results)
-        if isinstance(result, RetryableJobError)
-    ]
+    waiting_indexes = [index for index, result in enumerate(results) if isinstance(result, RetryableJobError)]
     assert len(waiting_indexes) <= 1
     for index in waiting_indexes:
         async with session_factory() as session:
@@ -942,13 +911,9 @@ async def test_simultaneous_same_route_finalization_has_no_dispatch_route_deadlo
             )
 
     async with session_factory() as session:
-        dispatches = [
-            await session.get(AutomationDispatch, dispatch_id)
-            for dispatch_id in dispatch_ids
-        ]
+        dispatches = [await session.get(AutomationDispatch, dispatch_id) for dispatch_id in dispatch_ids]
         revisions = [
-            await session.get(PlatformVariantRevision, dispatch.variant_revision_id)
-            for dispatch in dispatches
+            await session.get(PlatformVariantRevision, dispatch.variant_revision_id) for dispatch in dispatches
         ]
         assert revisions[1].parent_revision_id == revisions[0].id
 
@@ -986,13 +951,9 @@ async def test_interleaved_routes_keep_global_numbers_and_route_specific_parent(
             )
 
     async with session_factory() as session:
-        dispatches = [
-            await session.get(AutomationDispatch, dispatch_id)
-            for dispatch_id in dispatch_ids
-        ]
+        dispatches = [await session.get(AutomationDispatch, dispatch_id) for dispatch_id in dispatch_ids]
         revisions = [
-            await session.get(PlatformVariantRevision, dispatch.variant_revision_id)
-            for dispatch in dispatches
+            await session.get(PlatformVariantRevision, dispatch.variant_revision_id) for dispatch in dispatches
         ]
         assert [revision.revision_number for revision in revisions] == [1, 2, 3]
         assert revisions[1].parent_revision_id is None
@@ -1000,11 +961,7 @@ async def test_interleaved_routes_keep_global_numbers_and_route_specific_parent(
         assert revisions[2].approval_state == "pending_review"
         assert list(await session.scalars(select(PublishJob))) == []
         event_types = set(
-            await session.scalars(
-                select(WorkflowEvent.event_type).where(
-                    WorkflowEvent.workflow_job_id == job_ids[2]
-                )
-            )
+            await session.scalars(select(WorkflowEvent.event_type).where(WorkflowEvent.workflow_job_id == job_ids[2]))
         )
         assert "telegram.generation.completed" in event_types
         assert "telegram.source_edit.revision_created" in event_types
@@ -1048,6 +1005,10 @@ async def test_manual_child_approval_and_publish_bind_exact_hash_and_route_ances
         assert edited["parent_revision_id"] == UUID(generated["revision_id"])
         assert edited["generation_attempt_id"] is None
         assert edited["approval_state"] == "pending_review"
+        exact = await get_variant_revision(child_id, session)
+        assert exact["id"] == child_id
+        assert exact["validation_results"] == [{"gate": "telegram_schema", "ok": True, "reason": None}]
+        assert exact["origin"] == "operator"
 
     async with session_factory() as session:
         with pytest.raises(HTTPException) as stale:
@@ -1084,9 +1045,7 @@ async def test_manual_child_approval_and_publish_bind_exact_hash_and_route_ances
         dispatch = await session.get(AutomationDispatch, dispatch_id)
         assert dispatch.publish_job_id is None
         jobs = list(
-            await session.scalars(
-                select(PublishJob).where(PublishJob.platform_variant_revision_id == child_id)
-            )
+            await session.scalars(select(PublishJob).where(PublishJob.platform_variant_revision_id == child_id))
         )
         assert len(jobs) == 1
 

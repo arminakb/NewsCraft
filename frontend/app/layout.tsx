@@ -3,6 +3,7 @@ import type { Metadata } from "next"
 import "./globals.css"
 
 import { NoticeProvider } from "@/components/providers/notice-provider"
+import { DirtyNavigationCoordinator } from "@/components/editorial/use-dirty-navigation"
 import { QueryProvider } from "@/components/providers/query-provider"
 import { NewsroomShell } from "@/components/newsroom/newsroom-shell"
 import { TooltipProvider } from "@/components/ui/tooltip"
@@ -16,6 +17,7 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
   return (
     <html lang="en">
       <body>
+        <DirtyNavigationCoordinator />
         <QueryProvider>
           <TooltipProvider>
             <NoticeProvider>

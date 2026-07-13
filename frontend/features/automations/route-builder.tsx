@@ -30,7 +30,8 @@ type FormState = {
   brandProfileId: string
   promptTemplateVersionId: string
   aiProviderProfileId: string
-  researchMode: "off"
+  researchMode: "off" | "manual" | "auto_if_incomplete"
+  researchProviderProfileId: string
   mediaPolicy: "preserve" | "omit" | "replace_manually"
   publishingPolicy: "review_required" | "auto_publish"
   pollIntervalSeconds: number
@@ -52,6 +53,7 @@ const initialForm: FormState = {
   promptTemplateVersionId: "",
   aiProviderProfileId: "",
   researchMode: "off",
+  researchProviderProfileId: "",
   mediaPolicy: "preserve",
   publishingPolicy: "review_required",
   pollIntervalSeconds: 300,
@@ -70,6 +72,8 @@ export function RouteBuilder({ onCreated }: { onCreated?: (routeId: string) => v
     queryFn: getTelegramAutomationOptions,
   })
   const options = optionsQuery.data
+  const generationProfiles = options?.aiProviderProfiles.filter((item) => item.capabilities.generation) ?? []
+  const researchProfiles = options?.aiProviderProfiles.filter((item) => item.capabilities.research) ?? []
   const choose = (value: string, fallback: string | undefined) => value || fallback || ""
 
   const mutation = useMutation({
@@ -98,10 +102,10 @@ export function RouteBuilder({ onCreated }: { onCreated?: (routeId: string) => v
         destinationId: destination.id,
         brandProfileId: choose(form.brandProfileId, options?.brandProfiles[0]?.id),
         promptTemplateVersionId: choose(form.promptTemplateVersionId, options?.promptTemplateVersions[0]?.id),
-        aiProviderProfileId: choose(form.aiProviderProfileId, options?.aiProviderProfiles[0]?.id),
+        aiProviderProfileId: choose(form.aiProviderProfileId, generationProfiles[0]?.id),
         accessMode: form.accessMode,
         researchMode: form.researchMode,
-        contentFilters: { includeTerms: [], excludeTerms: [], minTextCharacters: 1, requireMedia: false },
+        contentFilters: { includeTerms: [], excludeTerms: [], minTextCharacters: 1, requireMedia: false, ...(form.researchMode === "off" ? {} : { researchProviderProfileId: choose(form.researchProviderProfileId, researchProfiles[0]?.id) }) },
         mediaPolicy: form.mediaPolicy,
         attributionPolicy: "preserve",
         customFooter: null,
@@ -129,7 +133,8 @@ export function RouteBuilder({ onCreated }: { onCreated?: (routeId: string) => v
 
   const autoUnconfirmed = form.publishingPolicy === "auto_publish" && !form.confirmAutoPublish
   const mtprotoIncomplete = form.accessMode === "mtproto_user" && !(form.apiIdRef && form.apiHashRef && form.sessionRef)
-  const optionsIncomplete = !options?.brandProfiles.length || !options.promptTemplateVersions.length || !options.aiProviderProfiles.length
+  const optionsIncomplete = !options?.brandProfiles.length || !options.promptTemplateVersions.length || !generationProfiles.length
+  const researchProfileMissing = form.researchMode !== "off" && !choose(form.researchProviderProfileId, researchProfiles[0]?.id)
 
   return (
     <section className="mx-auto w-full max-w-4xl space-y-4 p-4 md:p-6" aria-labelledby="route-builder-heading">
@@ -170,8 +175,9 @@ export function RouteBuilder({ onCreated }: { onCreated?: (routeId: string) => v
             <CardContent className="grid gap-4 md:grid-cols-2">
               <Field label="Brand"><select className={fieldClass} value={choose(form.brandProfileId, options.brandProfiles[0]?.id)} onChange={(e) => setForm({ ...form, brandProfileId: e.target.value })}>{options.brandProfiles.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></Field>
               <Field label="Prompt version"><select className={fieldClass} value={choose(form.promptTemplateVersionId, options.promptTemplateVersions[0]?.id)} onChange={(e) => setForm({ ...form, promptTemplateVersionId: e.target.value })}>{options.promptTemplateVersions.map((item) => <option key={item.id} value={item.id}>Prompt version {item.version}</option>)}</select></Field>
-              <Field label="AI provider"><select className={fieldClass} value={choose(form.aiProviderProfileId, options.aiProviderProfiles[0]?.id)} onChange={(e) => setForm({ ...form, aiProviderProfileId: e.target.value })}>{options.aiProviderProfiles.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></Field>
-              <Field label="Research mode"><select className={fieldClass} value={form.researchMode} onChange={() => undefined}><option value="off">Off</option></select></Field>
+              <Field label="AI provider"><select className={fieldClass} value={choose(form.aiProviderProfileId, generationProfiles[0]?.id)} onChange={(e) => setForm({ ...form, aiProviderProfileId: e.target.value })}>{generationProfiles.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></Field>
+              <Field label="Research mode"><select className={fieldClass} value={form.researchMode} onChange={(e) => setForm({ ...form, researchMode: e.target.value as FormState["researchMode"], researchProviderProfileId: e.target.value === "off" ? "" : form.researchProviderProfileId })}><option value="off">Off</option><option value="manual">Manual</option><option value="auto_if_incomplete">Automatic if incomplete</option></select></Field>
+              {form.researchMode !== "off" ? <Field label="Research provider"><select className={fieldClass} value={choose(form.researchProviderProfileId, researchProfiles[0]?.id)} onChange={(e) => setForm({ ...form, researchProviderProfileId: e.target.value })}><option value="">Select an available research profile</option>{researchProfiles.map((item) => <option key={item.id} value={item.id}>{item.name} · {item.providerType} · {item.defaultModel ?? "default model"}</option>)}</select></Field> : null}
               <Field label="Media policy"><select className={fieldClass} value={form.mediaPolicy} onChange={(e) => setForm({ ...form, mediaPolicy: e.target.value as FormState["mediaPolicy"] })}><option value="preserve">Preserve</option><option value="omit">Omit</option><option value="replace_manually">Replace manually</option></select></Field>
               <Field label="Publishing policy"><select className={fieldClass} value={form.publishingPolicy} onChange={(e) => setForm({ ...form, publishingPolicy: e.target.value as FormState["publishingPolicy"], confirmAutoPublish: false })}><option value="review_required">Review required</option><option value="auto_publish">Automatic publish</option></select></Field>
               <Field label="Poll interval in seconds"><input required min={60} max={86400} type="number" className={fieldClass} value={form.pollIntervalSeconds} onChange={(e) => setForm({ ...form, pollIntervalSeconds: Number(e.target.value) })} /></Field>
@@ -182,7 +188,7 @@ export function RouteBuilder({ onCreated }: { onCreated?: (routeId: string) => v
           </Card>
           {mutation.isError ? <div role="alert" dir="auto" className="text-red-700">{getApiErrorMessage(mutation.error)}</div> : null}
           {outcome ? <div role="status" aria-label="Automation creation outcome" className="text-green-700">{outcome}</div> : null}
-          <Button size="lg" type="submit" disabled={mutation.isPending || autoUnconfirmed || mtprotoIncomplete || optionsIncomplete}>{mutation.isPending ? "Creating" : "Create and activate"}</Button>
+          <Button size="lg" type="submit" disabled={mutation.isPending || autoUnconfirmed || mtprotoIncomplete || optionsIncomplete || researchProfileMissing}>{mutation.isPending ? "Creating" : "Create and activate"}</Button>
         </form>
       ) : null}
     </section>

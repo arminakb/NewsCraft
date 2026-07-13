@@ -81,6 +81,19 @@ describe("ContentSettingsPage", () => {
         settings: {},
         enabled: true,
         configured: false,
+        capabilities: { generation: false, research: false },
+        unavailabilityCodes: ["secret_unavailable"],
+      },
+      {
+        id: "45454545-4545-4454-8454-454545454545",
+        name: "Codex CLI",
+        providerType: "codex",
+        defaultModel: "gpt-5.4",
+        settings: { timeout_seconds: 120 },
+        enabled: true,
+        configured: false,
+        capabilities: { generation: false, research: false },
+        unavailabilityCodes: ["executable_unavailable"],
       },
     ])
     vi.mocked(getTelegramDestinations).mockResolvedValue([
@@ -167,6 +180,8 @@ describe("ContentSettingsPage", () => {
       settings: {},
       enabled: true,
       configured: true,
+      capabilities: { generation: true, research: true },
+      unavailabilityCodes: [],
     })
     vi.mocked(updateAIProviderProfile).mockResolvedValue({
       ...(await getAIProviderProfiles())[0],
@@ -185,7 +200,7 @@ describe("ContentSettingsPage", () => {
     )
     await waitFor(() => expect(envName).toHaveValue(""))
 
-    expect(screen.getByText("Unavailable")).toBeInTheDocument()
+    expect(screen.getAllByText("Unavailable").length).toBeGreaterThan(0)
     expect(screen.queryByText("OPENROUTER_INTERNAL_SECRET")).not.toBeInTheDocument()
     expect(screen.queryByLabelText(/password|token/i)).not.toBeInTheDocument()
 
@@ -206,6 +221,16 @@ describe("ContentSettingsPage", () => {
       )
     )
     expect(within(provider).getByLabelText("Replacement environment variable name")).toHaveValue("")
+  })
+
+  it("shows exact Codex capability and executable truth without any secret field", async () => {
+    renderSettings()
+    const codex = await screen.findByRole("group", { name: "Provider Codex CLI" })
+    expect(codex).toHaveTextContent("Generation unavailable")
+    expect(codex).toHaveTextContent("Research unavailable")
+    expect(codex).toHaveTextContent("executable unavailable")
+    expect(within(codex).queryByLabelText("Replacement environment variable name")).not.toBeInTheDocument()
+    expect(within(codex).getByRole("button", { name: "Save provider" })).toBeDisabled()
   })
 
   it("shows destination health and auto-publish configuration without exposing secret references", async () => {

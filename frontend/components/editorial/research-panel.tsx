@@ -8,7 +8,7 @@ import type { AIProviderOption, ResearchRunDetail, StoryDetail } from "@/lib/edi
 import { getApiErrorMessage } from "@/lib/http"
 import { editorialQueryKeys } from "@/lib/query-keys"
 
-export function ResearchPanel({ story, providers, run }: { story: StoryDetail; providers: AIProviderOption[]; run: ResearchRunDetail | null }) {
+export function ResearchPanel({ story, providers, run, onCompleted }: { story: StoryDetail; providers: AIProviderOption[]; run: ResearchRunDetail | null; onCompleted?: (runId: string) => void }) {
   const queryClient = useQueryClient()
   const available = providers.filter((item) => item.capabilities.research)
   const [profileId, setProfileId] = useState(available[0]?.id ?? "")
@@ -18,6 +18,9 @@ export function ResearchPanel({ story, providers, run }: { story: StoryDetail; p
   useEffect(() => {
     if (!selectedProvider) setProfileId(available[0]?.id ?? "")
   }, [available, selectedProvider])
+  useEffect(() => {
+    if (run?.status === "succeeded" && run.resultStoryRevisionId) onCompleted?.(run.id)
+  }, [run?.id, run?.resultStoryRevisionId, run?.status])
   const mutation = useMutation({
     mutationFn: (depth: "standard" | "deep") => {
       const current = providers.find((item) => item.id === profileId && item.capabilities.research)

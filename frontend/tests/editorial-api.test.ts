@@ -7,6 +7,10 @@ import {
   groupPendingStories,
   requestContentPack,
   requestResearch,
+  saveVariantRevision,
+  approveVariantRevision,
+  rejectVariantRevision,
+  regenerateVariant,
   setStoryEditorialState,
 } from "@/lib/editorial-api"
 
@@ -43,7 +47,58 @@ describe("editorial API", () => {
   it("submits both immutable prompt version IDs", async () => {
     const fetchSpy = stubFetch({ job_id: "job-pack", status: "queued", deduplicated: false }, 202)
     await requestContentPack("story-1", { brandProfileId: "brand-1", generationProviderProfileId: "provider-1", canonicalPromptTemplateVersionId: "canonical-1", platformPromptTemplateVersionId: "platform-1" })
-    expect(fetchSpy).toHaveBeenCalledWith("/api/backend/stories/story-1/content-packs", expect.objectContaining({ body: JSON.stringify({ brand_profile_id: "brand-1", platform: "telegram", generation_provider_profile_id: "provider-1", canonical_prompt_template_version_id: "canonical-1", platform_prompt_template_version_id: "platform-1", research_mode: "off", research_provider_profile_id: null }) }))
+    expect(fetchSpy).toHaveBeenCalledWith("/api/backend/stories/story-1/content-packs", expect.objectContaining({ body: JSON.stringify({ brand_profile_id: "brand-1", platform: "telegram", generation_provider_profile_id: "provider-1", canonical_prompt_template_version_id: "canonical-1", platform_prompt_template_version_id: "platform-1", research_mode: "off", research_provider_profile_id: null, research_run_id: null }) }))
+  })
+
+  it("submits a selected succeeded research run identity without a result revision ID", async () => {
+    const fetchSpy = stubFetch({ job_id: "job-pack", status: "queued", deduplicated: false }, 202)
+    await requestContentPack("story-1", { brandProfileId: "brand-1", generationProviderProfileId: "provider-1", canonicalPromptTemplateVersionId: "canonical-1", platformPromptTemplateVersionId: "platform-1", researchRunId: "run-1" })
+    const body = JSON.parse(String((fetchSpy.mock.calls[0][1] as RequestInit).body))
+    expect(body).toMatchObject({ research_run_id: "run-1", research_mode: "off" })
+    expect(body).not.toHaveProperty("research_result_story_revision_id")
+  })
+
+  it("binds edit and approval mutations to exact revision IDs and hashes", async () => {
+    const revision = backendRevision()
+    const fetchSpy = vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(new Response(JSON.stringify(revision), { status: 201 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ ...revision, approval_state: "approved" }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ ...revision, approval_state: "rejected" }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ job_id: "job-1", status: "queued", deduplicated: false }), { status: 202 }))
+    const hash = "a".repeat(64)
+    await saveVariantRevision("variant-1", { baseRevisionId: "revision-1", baseContentHash: hash, content: { body: "Edited", parseMode: "HTML", buttons: [] }, mediaAssetIds: ["media-1"], editNote: "Corrected wording" })
+    await approveVariantRevision("revision-1", { expectedContentHash: hash, note: null })
+    await rejectVariantRevision("revision-1", { reason: "Unsupported claim" }, hash)
+    await regenerateVariant("variant-1", { providerProfileId: "provider-uuid", platformPromptTemplateVersionId: "prompt-uuid", instruction: null })
+    expect(fetchSpy).toHaveBeenNthCalledWith(1, "/api/backend/platform-variants/variant-1/revisions", expect.objectContaining({ body: JSON.stringify({ base_revision_id: "revision-1", base_content_hash: hash, content: { body: "Edited", parse_mode: "HTML", buttons: [] }, media_asset_ids: ["media-1"], edit_note: "Corrected wording" }) }))
+    expect(fetchSpy).toHaveBeenNthCalledWith(2, "/api/backend/platform-variant-revisions/revision-1/approve", expect.objectContaining({ body: JSON.stringify({ expected_content_hash: hash, note: null }) }))
+    expect(fetchSpy).toHaveBeenNthCalledWith(3, "/api/backend/platform-variant-revisions/revision-1/reject", expect.objectContaining({ body: JSON.stringify({ expected_content_hash: hash, note: "Unsupported claim" }) }))
+    expect(fetchSpy).toHaveBeenNthCalledWith(4, "/api/backend/platform-variants/variant-1/regenerate", expect.objectContaining({ body: JSON.stringify({ generation_provider_profile_id: "provider-uuid", platform_prompt_template_version_id: "prompt-uuid", instruction: null }) }))
+    expect(JSON.stringify(vi.mocked(fetchSpy).mock.calls)).not.toContain("provider_type")
+  })
+
+  it("rejects malformed persisted validation gates instead of treating them as approval-safe", async () => {
+    stubFetch([{ ...backendRevision(), validation_results: [{ gate: "media", valid: false, message: "wrong shape" }] }])
+    const { getVariantRevisions } = await import("@/lib/editorial-api")
+    await expect(getVariantRevisions("variant-1")).rejects.toThrow("Invalid revision validation result")
+  })
+
+  it.each([
+    ["content", { content: { ...backendRevision().content, parse_mode: "Markdown" } }, "Invalid revision content"],
+    ["evidence", { evidence_map: [] }, "Invalid revision evidence map"],
+    ["gates", { validation_results: [] }, "Invalid revision validation result"],
+  ])("rejects malformed revision %s instead of coercing it", async (_field, change, message) => {
+    stubFetch([{ ...backendRevision(), ...change }])
+    const { getVariantRevisions } = await import("@/lib/editorial-api")
+    await expect(getVariantRevisions("variant-1")).rejects.toThrow(message)
+  })
+
+  it("normalizes only the historical missing validation reason to null", async () => {
+    stubFetch([{ ...backendRevision(), validation_results: [{ gate: "telegram_schema", ok: true }] }])
+    const { getVariantRevisions } = await import("@/lib/editorial-api")
+    await expect(getVariantRevisions("variant-1")).resolves.toEqual([
+      expect.objectContaining({ validationResults: [{ gate: "telegram_schema", ok: true, reason: null }] }),
+    ])
   })
 
   it("maps brand and immutable prompt options from generation settings", async () => {
@@ -78,4 +133,7 @@ function stubFetchOnce(body: unknown) {
 }
 function summary(overrides: Record<string, unknown> = {}) {
   return { id: "story-1", title: "Story", status: "inbox", primary_language: "en", superseded_by_id: null, evidence_count: 2, latest_evidence_at: "2026-07-12T08:00:00Z", completeness: { complete: false, score: 40, reasons: ["More sources needed"] }, evidence_set_hash: "a".repeat(64), created_at: "2026-07-12T07:00:00Z", updated_at: "2026-07-12T08:00:00Z", ...overrides }
+}
+function backendRevision() {
+  return { id: "revision-1", platform_variant_id: "variant-1", content_pack_id: "pack-1", story_id: "story-1", parent_revision_id: null, generation_attempt_id: null, revision_number: 1, content: { body: "Edited", parse_mode: "HTML", buttons: [], source_item_id: null, media_asset_ids: [], source_url: null, media_policy: "preserve", direction: "ltr", dry_run: false }, content_hash: "a".repeat(64), evidence_map: [{ evidence_snapshot_id: "51111111-1111-4111-8111-111111111111", evidence_key: "operator-1", source_url: null, locator: "chars:0-6", excerpt_sha256: "b".repeat(64) }], validation_results: [{ gate: "telegram_schema", ok: true, reason: null }], approval_state: "pending_review", approval_note: null, approved_at: null, created_by: "operator", origin: "operator", provider_profile: null, resolved_model: null, created_at: "2026-07-12T08:00:00Z" }
 }

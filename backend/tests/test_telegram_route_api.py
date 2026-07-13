@@ -350,6 +350,7 @@ async def test_codex_is_safe_telegram_option_and_route_when_runtime_available(mo
             "provider_type": "codex",
             "default_model": "gpt-5.4",
             "configured": True,
+            "capabilities": {"generation": True, "research": True},
         }
     ]
     assert "/private/bin" not in str(options)

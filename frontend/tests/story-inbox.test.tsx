@@ -9,6 +9,7 @@ vi.mock("@/lib/editorial-api", async () => ({ getStories: vi.fn(), getStory: vi.
 const incomplete: StorySummary = { id: "story-1", title: "Election timeline", evidenceCount: 2, latestEvidenceAt: "2026-07-12T08:00:00Z", completeness: { complete: false, score: 40, reasons: ["More sources needed"] }, editorialState: "inbox", status: "inbox", primaryLanguage: "en", evidenceSetHash: "a".repeat(64), createdAt: "2026-07-12T07:00:00Z", updatedAt: "2026-07-12T08:00:00Z" }
 
 beforeEach(() => {
+  window.history.replaceState({}, "", "/")
   vi.resetAllMocks()
   vi.mocked(api.getStories).mockResolvedValue({ items: [incomplete], nextCursor: null })
   const evidence = { id: "e-1", evidenceKey: "key", title: "Operator memo", contentText: "Operator content", contentSha256: "b".repeat(64), sourceUrl: null, authors: [], publishedAt: "2026-07-12T07:30:00Z", capturedAt: "2026-07-12T08:00:00Z" }
@@ -18,6 +19,19 @@ beforeEach(() => {
   vi.mocked(api.getBrandOptions).mockResolvedValue([])
   vi.mocked(api.getPromptVersionOptions).mockResolvedValue([])
   vi.mocked(api.getResearchRuns).mockResolvedValue([])
+})
+
+it("submits the succeeded research run binding from the regeneration link query", async () => {
+  window.history.replaceState({}, "", "/inbox?story_id=story-1&research_run_id=run-1")
+  vi.mocked(api.getAIProviderOptions).mockResolvedValue([{ id: "provider-1", name: "Generation desk", providerType: "codex", defaultModel: "gpt-5", capabilities: { generation: true, research: true }, unavailableReason: null }])
+  vi.mocked(api.getBrandOptions).mockResolvedValue([{ id: "brand-1", name: "News desk", isDefault: true }])
+  vi.mocked(api.getPromptVersionOptions).mockResolvedValue([{ id: "canonical-1", purpose: "canonical_story", version: 1, checksumSha256: "a".repeat(64), active: true }, { id: "telegram-1", purpose: "telegram_pack", version: 1, checksumSha256: "b".repeat(64), active: true }])
+  vi.mocked(api.requestContentPack).mockResolvedValue({ jobId: "bound-pack", status: "queued", deduplicated: false })
+  renderInbox()
+  expect(await screen.findByText(/Generation is bound to succeeded research run run-1/)).toBeInTheDocument()
+  await waitFor(() => expect(screen.getByLabelText("Generation provider")).toHaveValue("provider-1"))
+  fireEvent.click(screen.getByRole("button", { name: "Generate Telegram pack" }))
+  await waitFor(() => expect(api.requestContentPack).toHaveBeenCalledWith("story-1", expect.objectContaining({ researchRunId: "run-1" })))
 })
 
 it("groups evidence and offers research from truthful completeness", async () => {
@@ -57,6 +71,7 @@ it("generates a durable pack using only configured IDs and active prompt version
     generationProviderProfileId: "provider-1",
     canonicalPromptTemplateVersionId: "canonical-1",
     platformPromptTemplateVersionId: "telegram-1",
+    researchRunId: null,
   }))
   expect(await screen.findByText(/pack-job/)).toBeInTheDocument()
 })

@@ -24,7 +24,7 @@ const options: TelegramAutomationOptions = {
   destinations: [],
   brandProfiles: [{ id: "brand-1", name: "Persian newsroom" }],
   promptTemplateVersions: [{ id: "prompt-1", version: 3 }],
-  aiProviderProfiles: [{ id: "provider-1", name: "Editorial AI", providerType: "openrouter", defaultModel: "model", configured: true }],
+  aiProviderProfiles: [{ id: "provider-1", name: "Editorial AI", providerType: "openrouter", defaultModel: "model", configured: true, capabilities: { generation: true, research: true } }],
 }
 
 describe("RouteBuilder", () => {
@@ -101,6 +101,24 @@ describe("RouteBuilder", () => {
       destinationId: "destination-1",
     }))
     expect(await screen.findByRole("status", { name: "Automation creation outcome" })).toHaveTextContent("initialization queued")
+  })
+
+  it("shows all research modes and submits only an available profile UUID", async () => {
+    renderBuilder()
+    await screen.findByRole("option", { name: "Persian newsroom" })
+    expect(screen.getByRole("option", { name: "Off" })).toBeInTheDocument()
+    expect(screen.getByRole("option", { name: "Manual" })).toBeInTheDocument()
+    expect(screen.getByRole("option", { name: "Automatic if incomplete" })).toBeInTheDocument()
+    fireEvent.change(screen.getByLabelText("Research mode"), { target: { value: "auto_if_incomplete" } })
+    expect(screen.getByLabelText("Research provider")).toHaveValue("provider-1")
+    fireEvent.change(screen.getByLabelText("Automation name"), { target: { value: "Research route" } })
+    fireEvent.change(screen.getByLabelText("Source name"), { target: { value: "Research source" } })
+    fillRequiredConnectionFields()
+    fireEvent.click(screen.getByRole("button", { name: "Create and activate" }))
+    await waitFor(() => expect(createTelegramRoute).toHaveBeenCalled())
+    const input = vi.mocked(createTelegramRoute).mock.calls[0][0]
+    expect(input).toMatchObject({ researchMode: "auto_if_incomplete", contentFilters: { researchProviderProfileId: "provider-1" } })
+    expect(JSON.stringify(input)).not.toMatch(/research_backend|openrouter|codex|fake/)
   })
 
   it("keeps entered values and exposes the server error", async () => {

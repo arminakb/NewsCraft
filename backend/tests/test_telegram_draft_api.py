@@ -78,6 +78,7 @@ def test_manual_edit_creates_immutable_pending_child_and_preserves_provenance():
     assert child.content["source_item_id"] == parent.content["source_item_id"]
     assert child.content["dry_run"] is False
     assert child.evidence_map == parent.evidence_map
+    assert child.validation_results == [{"gate": "telegram_schema", "ok": True, "reason": None}]
     assert child.content_hash != parent.content_hash
 
 

@@ -90,14 +90,14 @@ export async function getTelegramAutomationOptions(): Promise<TelegramAutomation
     destinations: Array<{ id: string; name: string; health_status: TelegramDestination["healthStatus"]; allow_auto_publish: boolean }>
     brand_profiles: Array<{ id: string; name: string }>
     prompt_template_versions: Array<{ id: string; version: number }>
-    ai_provider_profiles: Array<{ id: string; name: string; provider_type: "fake" | "openrouter"; default_model: string | null; configured: boolean }>
+    ai_provider_profiles: Array<{ id: string; name: string; provider_type: "fake" | "openrouter" | "codex"; default_model: string | null; configured: boolean; capabilities: { generation: boolean; research: boolean } }>
   }>("/telegram/automations/options")
   return {
     sources: row.sources.map((item) => ({ id: item.id, name: item.name, accessMode: item.access_mode })),
     destinations: row.destinations.map((item) => ({ id: item.id, name: item.name, healthStatus: item.health_status, allowAutoPublish: item.allow_auto_publish })),
     brandProfiles: row.brand_profiles,
     promptTemplateVersions: row.prompt_template_versions,
-    aiProviderProfiles: row.ai_provider_profiles.map((item) => ({ id: item.id, name: item.name, providerType: item.provider_type, defaultModel: item.default_model, configured: item.configured })),
+    aiProviderProfiles: row.ai_provider_profiles.map((item) => ({ id: item.id, name: item.name, providerType: item.provider_type, defaultModel: item.default_model, configured: item.configured, capabilities: item.capabilities })),
   }
 }
 
@@ -143,6 +143,7 @@ export async function createTelegramRoute(input: TelegramRouteInput): Promise<Te
     research_mode: input.researchMode, content_filters: contentFilters ? defined({
       model: contentFilters.model, include_terms: contentFilters.includeTerms, exclude_terms: contentFilters.excludeTerms,
       min_text_characters: contentFilters.minTextCharacters, require_media: contentFilters.requireMedia,
+      research_provider_profile_id: contentFilters.researchProviderProfileId,
     }) : undefined,
     media_policy: input.mediaPolicy, attribution_policy: input.attributionPolicy, custom_footer: input.customFooter,
     publishing_policy: input.publishingPolicy, poll_interval_seconds: input.pollIntervalSeconds,
@@ -288,7 +289,7 @@ export function mapTelegramRoute(row: BackendTelegramRoute): TelegramRoute {
     id: row.id, name: row.name, sourceId: row.source_id, destinationId: row.destination_id,
     brandProfileId: row.brand_profile_id, promptTemplateVersionId: row.prompt_template_version_id,
     aiProviderProfileId: row.ai_provider_profile_id, accessMode: row.access_mode, researchMode: row.research_mode,
-    contentFilters: { model: filters.model as string | null | undefined, includeTerms: filters.include_terms as string[] | undefined, excludeTerms: filters.exclude_terms as string[] | undefined, minTextCharacters: filters.min_text_characters as number | undefined, requireMedia: filters.require_media as boolean | undefined },
+    contentFilters: { model: filters.model as string | null | undefined, includeTerms: filters.include_terms as string[] | undefined, excludeTerms: filters.exclude_terms as string[] | undefined, minTextCharacters: filters.min_text_characters as number | undefined, requireMedia: filters.require_media as boolean | undefined, researchProviderProfileId: filters.research_provider_profile_id as string | undefined },
     mediaPolicy: row.media_policy, attributionPolicy: row.attribution_policy, customFooter: row.custom_footer,
     publishingPolicy: row.publishing_policy, pollIntervalSeconds: row.poll_interval_seconds,
     quietHours: typeof quiet.start === "string" && typeof quiet.end === "string" ? { timezone: quiet.timezone as string, start: quiet.start, end: quiet.end } : null,
@@ -329,7 +330,7 @@ function mapTelegramDestination(row: Record<string, unknown>): TelegramDestinati
   return { id: row.id as string, name: row.name as string, targetRef: row.target_ref as string, enabled: row.enabled as boolean, healthStatus: row.health_status as TelegramDestination["healthStatus"], configured: row.configured as boolean, settings: { ...safeSettings, allowAutoPublish: allowAutoPublish as boolean | undefined } }
 }
 function mapTelegramDispatch(row: Record<string, unknown>): TelegramDispatch {
-  return { id: row.id as string, routeId: row.route_id as string, sourceItemId: row.source_item_id as string, storyRevisionId: row.story_revision_id as string, sourceKey: row.source_key as string, sourceFingerprint: row.source_fingerprint as string, sourceMessageIds: row.source_message_ids as number[], dispatchKind: row.dispatch_kind as TelegramDispatch["dispatchKind"], status: row.status as string, generationRunId: row.generation_run_id as string | null, variantRevisionId: row.variant_revision_id as string | null, publishJobId: row.publish_job_id as string | null, errorCode: row.error_code as string | null, errorMessage: row.error_message as string | null, createdAt: row.created_at as string, updatedAt: row.updated_at as string }
+  return { id: row.id as string, routeId: row.route_id as string, sourceItemId: row.source_item_id as string, storyId: row.story_id as string, storyRevisionId: row.story_revision_id as string, sourceKey: row.source_key as string, sourceFingerprint: row.source_fingerprint as string, sourceMessageIds: row.source_message_ids as number[], dispatchKind: row.dispatch_kind as TelegramDispatch["dispatchKind"], status: row.status as string, generationRunId: row.generation_run_id as string | null, variantRevisionId: row.variant_revision_id as string | null, publishJobId: row.publish_job_id as string | null, errorCode: row.error_code as string | null, errorMessage: row.error_message as string | null, createdAt: row.created_at as string, updatedAt: row.updated_at as string }
 }
 function mapTelegramReceipt(row: BackendTelegramReceipt): TelegramPublishReceipt {
   return { id: row.id, operationIndex: row.operation_index, operationKey: row.operation_key, method: row.method, requestHash: row.request_hash, status: row.status, attemptCount: row.attempt_count, remoteMessageIds: row.remote_message_ids, responseMetadata: row.response_metadata, nextAttemptAt: row.next_attempt_at, ambiguousAt: row.ambiguous_at, completedAt: row.completed_at, createdAt: row.created_at, updatedAt: row.updated_at }
@@ -348,4 +349,4 @@ function mapBrandProfile(row: Record<string, unknown>): BrandProfile { return { 
 function mapPromptTemplate(row: Record<string, unknown>): PromptTemplate { return { id: row.id as string, purposeKey: row.purpose_key as string, name: row.name as string, description: row.description as string | null } }
 function mapPromptVersion(row: Record<string, unknown>): PromptVersion { return { id: row.id as string, promptTemplateId: row.prompt_template_id as string, version: row.version as number, systemTemplate: row.system_template as string, userTemplate: row.user_template as string, outputSchemaVersion: row.output_schema_version as string, outputSchema: row.output_schema as Record<string, unknown>, checksumSha256: row.checksum_sha256 as string, isActive: row.is_active as boolean, createdAt: row.created_at as string } }
 function providerBody(input: AIProviderProfileInput | AIProviderProfilePatch) { return defined({ name: input.name, provider_type: "providerType" in input ? input.providerType : undefined, default_model: input.defaultModel, secret_ref: input.secretRef, settings: input.settings, enabled: input.enabled }) }
-function mapAIProviderProfile(row: Record<string, unknown>): AIProviderProfile { return { id: row.id as string, name: row.name as string, providerType: row.provider_type as AIProviderProfile["providerType"], defaultModel: row.default_model as string | null, settings: row.settings as Record<string, unknown>, enabled: row.enabled as boolean, configured: row.configured as boolean } }
+function mapAIProviderProfile(row: Record<string, unknown>): AIProviderProfile { const capabilities = row.capabilities as Record<string, unknown>; return { id: row.id as string, name: row.name as string, providerType: row.provider_type as AIProviderProfile["providerType"], defaultModel: row.default_model as string | null, settings: row.settings as Record<string, unknown>, enabled: row.enabled as boolean, configured: row.configured as boolean, capabilities: { generation: capabilities?.generation === true, research: capabilities?.research === true }, unavailabilityCodes: Array.isArray(row.unavailability_codes) ? row.unavailability_codes.filter((item): item is string => typeof item === "string") : [] } }

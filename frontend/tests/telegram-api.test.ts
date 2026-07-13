@@ -76,7 +76,7 @@ describe("Telegram automation API", () => {
       brand_profiles: [{ id: ids.brand, name: "Main" }],
       prompt_template_versions: [{ id: ids.prompt, version: 2 }],
       ai_provider_profiles: [
-        { id: ids.provider, name: "OpenRouter", provider_type: "openrouter", default_model: "openai/gpt", configured: true },
+        { id: ids.provider, name: "OpenRouter", provider_type: "openrouter", default_model: "openai/gpt", configured: true, capabilities: { generation: true, research: true } },
       ],
       secret_ref: "MUST_NOT_CROSS_BOUNDARY",
     })
@@ -89,7 +89,7 @@ describe("Telegram automation API", () => {
       brandProfiles: [{ id: ids.brand, name: "Main" }],
       promptTemplateVersions: [{ id: ids.prompt, version: 2 }],
       aiProviderProfiles: [
-        { id: ids.provider, name: "OpenRouter", providerType: "openrouter", defaultModel: "openai/gpt", configured: true },
+        { id: ids.provider, name: "OpenRouter", providerType: "openrouter", defaultModel: "openai/gpt", configured: true, capabilities: { generation: true, research: true } },
       ],
     })
     expect(fetchSpy).toHaveBeenCalledWith("/api/backend/telegram/automations/options", undefined)

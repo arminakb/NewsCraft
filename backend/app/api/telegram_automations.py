@@ -35,6 +35,7 @@ from app.jobs.repository import JobRepository
 from app.jobs.schemas import JobAcceptedOut
 from app.jobs.types import JobOrigin
 from app.publishing.models import Destination
+from app.stories.models import StoryRevision
 
 router = APIRouter(prefix="/telegram/automations", tags=["telegram"])
 SessionDependency = Depends(get_session)
@@ -119,8 +120,8 @@ async def automation_options(
     )
     safe_profiles = []
     for profile in profiles:
-        configured = _provider_is_configured(profile, secrets, executable_resolver)
-        if configured:
+        capabilities, _codes = provider_capabilities(profile, secrets, executable_resolver)
+        if capabilities["generation"]:
             safe_profiles.append(
                 {
                     "id": profile.id,
@@ -128,6 +129,7 @@ async def automation_options(
                     "provider_type": profile.provider_type,
                     "default_model": profile.default_model,
                     "configured": True,
+                    "capabilities": capabilities,
                 }
             )
     return TelegramAutomationOptionsOut(
@@ -398,10 +400,35 @@ async def backfill_route(
 @router.get("/{route_id}/dispatches")
 async def list_route_dispatches(route_id: UUID, session: AsyncSession = SessionDependency):
     await _route_or_404(session, route_id)
-    return list(
+    rows = list(
         await session.scalars(
             select(AutomationDispatch)
             .where(AutomationDispatch.route_id == route_id)
             .order_by(AutomationDispatch.created_at.desc())
         )
     )
+    output = []
+    for row in rows:
+        story_revision = await session.get(StoryRevision, row.story_revision_id)
+        output.append(
+            {
+                "id": row.id,
+                "route_id": row.route_id,
+                "source_item_id": row.source_item_id,
+                "story_id": story_revision.story_id if story_revision is not None else None,
+                "story_revision_id": row.story_revision_id,
+                "source_key": row.source_key,
+                "source_fingerprint": row.source_fingerprint,
+                "source_message_ids": row.source_message_ids,
+                "dispatch_kind": row.dispatch_kind,
+                "status": row.status,
+                "generation_run_id": row.generation_run_id,
+                "variant_revision_id": row.variant_revision_id,
+                "publish_job_id": row.publish_job_id,
+                "error_code": row.error_code,
+                "error_message": row.error_message,
+                "created_at": row.created_at,
+                "updated_at": row.updated_at,
+            }
+        )
+    return output

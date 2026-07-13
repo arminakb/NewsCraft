@@ -40,6 +40,7 @@ from app.generation.providers.openrouter import (
     OpenRouterRetryableError,
 )
 from app.generation.providers.profiles import ProviderProfileConfigurationError
+from app.generation.revision_validation import RevisionValidationError, validate_approvable_revision
 from app.generation.telegram_schema import (
     TelegramEvidenceCitation,
     TelegramRewriteInput,
@@ -125,9 +126,7 @@ class BackfillJobPayload(RouteJobPayload):
     def validate_bound(self):
         if (self.count is None) == (self.since is None):
             raise ValueError("provide exactly one backfill bound")
-        if self.since is not None and (
-            self.since.tzinfo is None or self.since.utcoffset() is None
-        ):
+        if self.since is not None and (self.since.tzinfo is None or self.since.utcoffset() is None):
             raise ValueError("backfill since must be timezone-aware")
         return self
 
@@ -284,9 +283,7 @@ async def _capture(
                     envelope=envelope,
                     materialized_media=materialized,
                     dispatch_kind=dispatch_kind,
-                    dry_run_job_id=(dry_run_identity_id or job.id)
-                    if dispatch_kind == "dry_run"
-                    else None,
+                    dry_run_job_id=(dry_run_identity_id or job.id) if dispatch_kind == "dry_run" else None,
                     enqueue_process=enqueue_process,
                     process_scheduled_for=scheduled_for,
                     process_max_attempts=int((locked.retry_policy or {}).get("max_attempts", 3)),
@@ -323,9 +320,10 @@ def _validate_locked_route(
     required_status: str,
     activation_requested_at: str | None = None,
 ) -> str | None:
-    if activation_requested_at is not None and (
-        route.cursor_state or {}
-    ).get("activation_requested_at") != activation_requested_at:
+    if (
+        activation_requested_at is not None
+        and (route.cursor_state or {}).get("activation_requested_at") != activation_requested_at
+    ):
         raise PermanentJobError(
             code="activation_changed",
             message="Telegram route activation changed during initialization",
@@ -354,22 +352,15 @@ async def _enqueue_continuation(
     phase: str,
     continuation_state: dict[str, Any],
 ):
-    repository = (
-        media_stager if hasattr(media_stager, "enqueue_job") else JobRepository(context.session)
-    )
-    digest = hashlib.sha256(
-        json.dumps(continuation_state, sort_keys=True, separators=(",", ":")).encode()
-    ).hexdigest()
+    repository = media_stager if hasattr(media_stager, "enqueue_job") else JobRepository(context.session)
+    digest = hashlib.sha256(json.dumps(continuation_state, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
     return await repository.enqueue_job(
         job_type="telegram.route.initialize",
         payload={
             "route_id": str(route_id),
             "activation_requested_at": activation_requested_at,
         },
-        idempotency_key=(
-            f"telegram-route-initialize-catch-up:{route_id}:{last_scanned_id}:"
-            f"{phase}:{digest}"
-        ),
+        idempotency_key=(f"telegram-route-initialize-catch-up:{route_id}:{last_scanned_id}:{phase}:{digest}"),
         origin=JobOrigin.AUTOMATION,
     )
 
@@ -382,9 +373,7 @@ async def _defer_route_job(
     job: WorkflowJob,
     scheduled_for: datetime,
 ) -> None:
-    repository = (
-        media_stager if hasattr(media_stager, "enqueue_job") else JobRepository(context.session)
-    )
+    repository = media_stager if hasattr(media_stager, "enqueue_job") else JobRepository(context.session)
     payload = dict(job.payload)
     root_job_id = str(payload.get("defer_root_job_id") or job.id)
     next_sequence = int(payload.get("defer_sequence") or 0) + 1
@@ -397,9 +386,7 @@ async def _defer_route_job(
     await repository.enqueue_job(
         job_type=job.job_type,
         payload=payload,
-        idempotency_key=(
-            f"telegram-route-deferred:{route.id}:{root_job_id}:{next_sequence}"
-        ),
+        idempotency_key=(f"telegram-route-deferred:{route.id}:{root_job_id}:{next_sequence}"),
         origin=JobOrigin.AUTOMATION,
         scheduled_for=scheduled_for,
     )
@@ -426,12 +413,8 @@ async def _enqueue_forward_continuation(
             continuation_state=state,
         )
         return
-    repository = (
-        media_stager if hasattr(media_stager, "enqueue_job") else JobRepository(context.session)
-    )
-    digest = hashlib.sha256(
-        json.dumps(state, sort_keys=True, separators=(",", ":")).encode()
-    ).hexdigest()
+    repository = media_stager if hasattr(media_stager, "enqueue_job") else JobRepository(context.session)
+    digest = hashlib.sha256(json.dumps(state, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
     await repository.enqueue_job(
         job_type=job.job_type,
         payload=dict(job.payload),
@@ -564,9 +547,7 @@ async def _fetch_forward_step(
                 "last_scanned_id": last_scanned_id,
                 "last_captured_id": last_captured_id,
             }
-        envelopes = {
-            item.source_key: item for page in pages for item in page
-        }
+        envelopes = {item.source_key: item for page in pages for item in page}
         ordered = tuple(sorted(envelopes.values(), key=_coordinate))
         return _ForwardStep(
             envelopes=ordered,
@@ -623,16 +604,10 @@ async def _fetch_forward_step(
                     code="telegram_forward_envelope_no_progress",
                     message="Telegram forward pages made no unique envelope progress",
                 )
-            last_scanned_id = (
-                min(last_scanned_id, page_minimum) if last_scanned_id else page_minimum
-            )
+            last_scanned_id = min(last_scanned_id, page_minimum) if last_scanned_id else page_minimum
         if result.complete:
             remaining = list(reversed(prior_tokens))
-            envelopes = {
-                item.source_key: item
-                for page in reversed(scanned_pages)
-                for item in page
-            }
+            envelopes = {item.source_key: item for page in reversed(scanned_pages) for item in page}
             next_state = None
             if remaining:
                 next_state = {
@@ -810,9 +785,7 @@ def build_telegram_route_handlers(
     ) -> dict[str, Any] | None:
         if not loaded.control.global_pause and loaded.route.paused_at is None:
             return None
-        deferred_until = now() + timedelta(
-            seconds=max(loaded.route.poll_interval_seconds, 30)
-        )
+        deferred_until = now() + timedelta(seconds=max(loaded.route.poll_interval_seconds, 30))
         await _defer_route_job(
             context,
             media_stager,
@@ -930,10 +903,7 @@ def build_telegram_route_handlers(
                         code="telegram_activation_page_incomplete",
                         message="Telegram source did not provide a complete activation page",
                     )
-                if (
-                    result.next_page_token == current_page_token
-                    or result.next_page_token in seen_page_tokens
-                ):
+                if result.next_page_token == current_page_token or result.next_page_token in seen_page_tokens:
                     raise RetryableJobError(
                         code="telegram_activation_token_repeated",
                         message="Telegram activation repeated a page token",
@@ -949,9 +919,7 @@ def build_telegram_route_handlers(
                         activation_requested_at=str(requested_raw),
                     )
                     if pause_reason is not None:
-                        deferred_until = now() + timedelta(
-                            seconds=max(locked.poll_interval_seconds, 30)
-                        )
+                        deferred_until = now() + timedelta(seconds=max(locked.poll_interval_seconds, 30))
                         await _defer_route_job(
                             context,
                             media_stager,
@@ -1006,9 +974,7 @@ def build_telegram_route_handlers(
                     activation_requested_at=str(requested_raw),
                 )
                 if pause_reason is not None:
-                    deferred_until = now() + timedelta(
-                        seconds=max(locked.poll_interval_seconds, 30)
-                    )
+                    deferred_until = now() + timedelta(seconds=max(locked.poll_interval_seconds, 30))
                     await _defer_route_job(
                         context,
                         media_stager,
@@ -1103,9 +1069,7 @@ def build_telegram_route_handlers(
                         activation_requested_at=str(requested_raw),
                     )
                     if pause_reason is not None:
-                        deferred_until = now() + timedelta(
-                            seconds=max(locked.poll_interval_seconds, 30)
-                        )
+                        deferred_until = now() + timedelta(seconds=max(locked.poll_interval_seconds, 30))
                         await _defer_route_job(
                             context,
                             media_stager,
@@ -1142,9 +1106,7 @@ def build_telegram_route_handlers(
                         activation_requested_at=str(requested_raw),
                     )
                     if pause_reason is not None:
-                        deferred_until = now() + timedelta(
-                            seconds=max(locked.poll_interval_seconds, 30)
-                        )
+                        deferred_until = now() + timedelta(seconds=max(locked.poll_interval_seconds, 30))
                         await _defer_route_job(
                             context,
                             media_stager,
@@ -1170,9 +1132,7 @@ def build_telegram_route_handlers(
                 activation_requested_at=str(requested_raw),
             )
             if pause_reason is not None:
-                deferred_until = now() + timedelta(
-                    seconds=max(locked.poll_interval_seconds, 30)
-                )
+                deferred_until = now() + timedelta(seconds=max(locked.poll_interval_seconds, 30))
                 await _defer_route_job(
                     context,
                     media_stager,
@@ -1348,9 +1308,7 @@ def build_telegram_route_handlers(
             locked_state.pop("poll_forward", None)
             locked.cursor_state = locked_state
             locked.last_polled_at = now()
-            locked.next_poll_at = locked.last_polled_at + timedelta(
-                seconds=locked.poll_interval_seconds
-            )
+            locked.next_poll_at = locked.last_polled_at + timedelta(seconds=locked.poll_interval_seconds)
         return {"captured": captured, "source_edits": source_edits, "filtered": filtered}
 
     async def backfill_route(job: WorkflowJob, context: JobContext) -> dict[str, Any]:
@@ -1361,11 +1319,7 @@ def build_telegram_route_handlers(
             return deferred
         cursor = (loaded.route.cursor_state or {}).get("last_message_id")
         expected_activation = (loaded.route.cursor_state or {}).get("activation_requested_at")
-        if (
-            not loaded.route.enabled
-            or (loaded.route.cursor_state or {}).get("status") != "ready"
-            or cursor is None
-        ):
+        if not loaded.route.enabled or (loaded.route.cursor_state or {}).get("status") != "ready" or cursor is None:
             raise PermanentJobError(
                 code="route_not_initialized",
                 message="Telegram route must be initialized before backfill",
@@ -1395,8 +1349,7 @@ def build_telegram_route_handlers(
                 force_review=True,
                 activation_requested_at=expected_activation,
                 required_status="ready",
-                deferred_until=now()
-                + timedelta(seconds=max(loaded.route.poll_interval_seconds, 30)),
+                deferred_until=now() + timedelta(seconds=max(loaded.route.poll_interval_seconds, 30)),
             )
             if deferred is not None:
                 return deferred
@@ -1408,10 +1361,7 @@ def build_telegram_route_handlers(
         deferred = await defer_if_paused(job, context, loaded)
         if deferred is not None:
             return deferred
-        if (
-            not loaded.route.enabled
-            or (loaded.route.cursor_state or {}).get("status") != "ready"
-        ):
+        if not loaded.route.enabled or (loaded.route.cursor_state or {}).get("status") != "ready":
             raise PermanentJobError(
                 code="route_not_ready",
                 message="Telegram route is not ready for dry run",
@@ -1428,11 +1378,7 @@ def build_telegram_route_handlers(
             )
         )
         envelope = next(
-            (
-                item
-                for item in result.envelopes
-                if requested_id is None or item.anchor_message_id == requested_id
-            ),
+            (item for item in result.envelopes if requested_id is None or item.anchor_message_id == requested_id),
             None,
         )
         if envelope is None:
@@ -1451,8 +1397,7 @@ def build_telegram_route_handlers(
             activation_requested_at=expected_activation,
             required_status="ready",
             dry_run_identity_id=payload.defer_root_job_id or job.id,
-            deferred_until=now()
-            + timedelta(seconds=max(loaded.route.poll_interval_seconds, 30)),
+            deferred_until=now() + timedelta(seconds=max(loaded.route.poll_interval_seconds, 30)),
         )
         if deferred is not None:
             return deferred
@@ -1484,13 +1429,17 @@ async def enqueue_telegram_publish_intent(
     rendered-plan hash before any remote dispatch.
     """
 
-    idempotency_key = (
-        f"telegram-publish:{destination.id}:{revision.id}:{revision.content_hash}"
-    )
+    try:
+        validate_approvable_revision(revision)
+    except RevisionValidationError as exc:
+        raise NeedsReviewJobError(
+            code="telegram_revision_validation_invalid",
+            message=str(exc),
+        ) from None
+
+    idempotency_key = f"telegram-publish:{destination.id}:{revision.id}:{revision.content_hash}"
     publish_job = await session.scalar(
-        select(PublishJob)
-        .where(PublishJob.idempotency_key == idempotency_key)
-        .with_for_update()
+        select(PublishJob).where(PublishJob.idempotency_key == idempotency_key).with_for_update()
     )
     if publish_job is None:
         publish_job = PublishJob(
@@ -1506,9 +1455,7 @@ async def enqueue_telegram_publish_intent(
                 await session.flush()
         except IntegrityError:
             publish_job = await session.scalar(
-                select(PublishJob)
-                .where(PublishJob.idempotency_key == idempotency_key)
-                .with_for_update()
+                select(PublishJob).where(PublishJob.idempotency_key == idempotency_key).with_for_update()
             )
             if publish_job is None:  # pragma: no cover - unique conflict guarantees it
                 raise
@@ -1606,10 +1553,7 @@ def _media_decision(route: AutomationRoute, media: tuple[MediaAsset, ...]) -> tu
     if route.media_policy == "replace_manually":
         return [], False, "media_replacement_required"
     ready = all(
-        item.fetch_status == "downloaded"
-        and bool(item.storage_path)
-        and bool(item.checksum_sha256)
-        for item in media
+        item.fetch_status == "downloaded" and bool(item.storage_path) and bool(item.checksum_sha256) for item in media
     )
     return [item.id for item in media], ready, None if ready else "media_not_ready"
 
@@ -1655,9 +1599,7 @@ async def _content_pack_and_variant(
 ) -> tuple[ContentPack, PlatformVariant]:
     if parent is not None:
         variant = await session.scalar(
-            select(PlatformVariant)
-            .where(PlatformVariant.id == parent.platform_variant_id)
-            .with_for_update()
+            select(PlatformVariant).where(PlatformVariant.id == parent.platform_variant_id).with_for_update()
         )
         if variant is None:
             raise NeedsReviewJobError(
@@ -1728,9 +1670,7 @@ async def _content_pack_and_variant(
             )
             if variant is None:  # pragma: no cover
                 raise
-    variant = await session.scalar(
-        select(PlatformVariant).where(PlatformVariant.id == variant.id).with_for_update()
-    )
+    variant = await session.scalar(select(PlatformVariant).where(PlatformVariant.id == variant.id).with_for_update())
     if variant is None:  # pragma: no cover
         raise RuntimeError("Telegram variant disappeared during allocation")
     return pack, variant
@@ -1777,9 +1717,7 @@ def build_telegram_process_handler(profile_resolver: Any) -> JobHandler:
 
         async with session.begin():
             dispatch = await session.scalar(
-                select(AutomationDispatch)
-                .where(AutomationDispatch.id == payload.dispatch_id)
-                .with_for_update()
+                select(AutomationDispatch).where(AutomationDispatch.id == payload.dispatch_id).with_for_update()
             )
             if dispatch is None:
                 raise PermanentJobError(
@@ -1804,9 +1742,7 @@ def build_telegram_process_handler(profile_resolver: Any) -> JobHandler:
             if payload.completed_research_run_id is not None:
                 from app.research.models import ResearchRun
 
-                completed_run = await session.get(
-                    ResearchRun, payload.completed_research_run_id
-                )
+                completed_run = await session.get(ResearchRun, payload.completed_research_run_id)
                 if (
                     completed_run is None
                     or completed_run.status != "succeeded"
@@ -1820,12 +1756,10 @@ def build_telegram_process_handler(profile_resolver: Any) -> JobHandler:
             if payload.completed_research_run_id is None and route.research_mode == "manual":
                 from app.research.models import ResearchRun
 
-                profile_value = (route.content_filters or {}).get(
-                    "research_provider_profile_id"
-                )
+                profile_value = (route.content_filters or {}).get("research_provider_profile_id")
                 try:
                     research_profile_id = UUID(str(profile_value))
-                except (TypeError, ValueError):
+                except TypeError, ValueError:
                     raise PermanentJobError(
                         code="telegram_research_profile_invalid",
                         message="Telegram research provider profile is invalid",
@@ -1864,13 +1798,8 @@ def build_telegram_process_handler(profile_resolver: Any) -> JobHandler:
                         code="telegram_manual_research_required",
                         message="Manual research is required before generation",
                     )
-                selected_revision = await session.get(
-                    StoryRevision, manual_run.result_story_revision_id
-                )
-                if (
-                    selected_revision is None
-                    or selected_revision.story_id != story_revision.story_id
-                ):
+                selected_revision = await session.get(StoryRevision, manual_run.result_story_revision_id)
+                if selected_revision is None or selected_revision.story_id != story_revision.story_id:
                     raise NeedsReviewJobError(
                         code="telegram_manual_research_result_invalid",
                         message="Manual research result revision is invalid",
@@ -1880,18 +1809,13 @@ def build_telegram_process_handler(profile_resolver: Any) -> JobHandler:
                 dispatch.error_code = None
                 dispatch.error_message = None
                 story_revision = selected_revision
-            if (
-                payload.completed_research_run_id is None
-                and route.research_mode == "auto_if_incomplete"
-            ):
+            if payload.completed_research_run_id is None and route.research_mode == "auto_if_incomplete":
                 from app.research.service import ResearchRequestError, ResearchService
 
-                profile_value = (route.content_filters or {}).get(
-                    "research_provider_profile_id"
-                )
+                profile_value = (route.content_filters or {}).get("research_provider_profile_id")
                 try:
                     profile_id = UUID(str(profile_value))
-                except (TypeError, ValueError):
+                except TypeError, ValueError:
                     raise PermanentJobError(
                         code="telegram_research_profile_invalid",
                         message="Telegram research provider profile is invalid",
@@ -1902,9 +1826,7 @@ def build_telegram_process_handler(profile_resolver: Any) -> JobHandler:
                         "dispatch_id": str(dispatch.id),
                         "force_review": payload.force_review,
                     },
-                    "idempotency_prefix": (
-                        f"telegram-route-process-after-research:{dispatch.id}"
-                    ),
+                    "idempotency_prefix": (f"telegram-route-process-after-research:{dispatch.id}"),
                     "subscriber_id": f"telegram-dispatch:{dispatch.id}",
                     "expected_route_id": str(route.id),
                     "expected_story_id": str(story_revision.story_id),
@@ -1962,9 +1884,7 @@ def build_telegram_process_handler(profile_resolver: Any) -> JobHandler:
             else:
                 if run is not None and run.status == "running":
                     active_claim = int(
-                        ((run.request_payload or {}).get("execution") or {}).get(
-                            "active_workflow_attempt", 0
-                        )
+                        ((run.request_payload or {}).get("execution") or {}).get("active_workflow_attempt", 0)
                     )
                     if active_claim == workflow_attempt_count:
                         return {
@@ -2021,7 +1941,7 @@ def build_telegram_process_handler(profile_resolver: Any) -> JobHandler:
                 values = rewrite_input.model_dump(mode="json")
                 try:
                     rendered_user = prompt.user_template.format(**values)
-                except (KeyError, ValueError):
+                except KeyError, ValueError:
                     raise PermanentJobError(
                         code="telegram_prompt_invalid",
                         message="Telegram prompt template cannot be rendered",
@@ -2200,9 +2120,7 @@ def build_telegram_process_handler(profile_resolver: Any) -> JobHandler:
                         current_run.error_message = str(mapped)
                         current_run.finished_at = datetime.now(UTC)
                         if current_dispatch is not None:
-                            current_dispatch.status = (
-                                "needs_review" if error_class == "needs_review" else "failed"
-                            )
+                            current_dispatch.status = "needs_review" if error_class == "needs_review" else "failed"
                 mapped = _generation_error(exc, route, job)
                 if mapped is exc:
                     raise
@@ -2316,9 +2234,7 @@ def build_telegram_process_handler(profile_resolver: Any) -> JobHandler:
             story_revision = await session.get(StoryRevision, dispatch.story_revision_id)
             source_item = await session.get(SourceItem, dispatch.source_item_id)
             control = await session.scalar(
-                select(AutomationControl)
-                .where(AutomationControl.id == "global")
-                .with_for_update()
+                select(AutomationControl).where(AutomationControl.id == "global").with_for_update()
             )
             if route is None or story_revision is None or source_item is None:
                 raise PermanentJobError(
@@ -2353,8 +2269,8 @@ def build_telegram_process_handler(profile_resolver: Any) -> JobHandler:
                 dry_run=dispatch.dispatch_kind == "dry_run",
             ).model_dump(mode="json")
             validation_results = [
-                {"gate": "telegram_schema", "ok": True},
-                {"gate": "evidence", "ok": True},
+                {"gate": "telegram_schema", "ok": True, "reason": None},
+                {"gate": "evidence", "ok": True, "reason": None},
                 {"gate": "media", "ok": media_ready, "reason": media_reason},
             ]
             unresolved_earlier = await session.scalar(
@@ -2405,14 +2321,17 @@ def build_telegram_process_handler(profile_resolver: Any) -> JobHandler:
                 story_revision=story_revision,
                 parent=parent,
             )
-            revision_number = int(
-                await session.scalar(
-                    select(func.coalesce(func.max(PlatformVariantRevision.revision_number), 0)).where(
-                        PlatformVariantRevision.platform_variant_id == variant.id
+            revision_number = (
+                int(
+                    await session.scalar(
+                        select(func.coalesce(func.max(PlatformVariantRevision.revision_number), 0)).where(
+                            PlatformVariantRevision.platform_variant_id == variant.id
+                        )
                     )
+                    or 0
                 )
-                or 0
-            ) + 1
+                + 1
+            )
             gate = evaluate_auto_publish(
                 global_pause=bool(control and control.global_pause),
                 global_dry_run=bool(control and control.dry_run),
@@ -2441,9 +2360,9 @@ def build_telegram_process_handler(profile_resolver: Any) -> JobHandler:
                 evidence_map=evidence_map,
                 validation_results=validation_results,
                 approval_state="approved" if approved else "pending_review",
-                approval_note=None if approved else (
-                    "forced_review" if force_review else gate.reason or "review_required"
-                ),
+                approval_note=None
+                if approved
+                else ("forced_review" if force_review else gate.reason or "review_required"),
                 approved_at=datetime.now(UTC) if approved else None,
                 created_by=f"automation:{route.id}",
             )
@@ -2464,11 +2383,7 @@ def build_telegram_process_handler(profile_resolver: Any) -> JobHandler:
             session.add(
                 WorkflowEvent(
                     workflow_job_id=workflow_job_id,
-                    event_type=(
-                        "telegram.revision.auto_approved"
-                        if approved
-                        else "telegram.revision.review_required"
-                    ),
+                    event_type=("telegram.revision.auto_approved" if approved else "telegram.revision.review_required"),
                     actor="automation",
                     event_data=redact_event_data(
                         {
@@ -2493,9 +2408,7 @@ def build_telegram_process_handler(profile_resolver: Any) -> JobHandler:
                                 "dispatch_id": str(dispatch.id),
                                 "revision_id": str(revision.id),
                                 "parent_revision_id": (
-                                    str(revision.parent_revision_id)
-                                    if revision.parent_revision_id
-                                    else None
+                                    str(revision.parent_revision_id) if revision.parent_revision_id else None
                                 ),
                             }
                         ),
@@ -2525,9 +2438,7 @@ def build_telegram_process_handler(profile_resolver: Any) -> JobHandler:
                 raise exc from None
             async with session.begin():
                 dispatch = await session.scalar(
-                    select(AutomationDispatch)
-                    .where(AutomationDispatch.id == payload.dispatch_id)
-                    .with_for_update()
+                    select(AutomationDispatch).where(AutomationDispatch.id == payload.dispatch_id).with_for_update()
                 )
                 if dispatch is not None and dispatch.variant_revision_id is None:
                     dispatch.status = (

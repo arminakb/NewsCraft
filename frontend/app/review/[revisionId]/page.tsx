@@ -1,6 +1,6 @@
-import { TelegramReviewWorkspace } from "@/features/review/telegram-review-workspace"
+import { ExactRevisionReview } from "@/components/editorial/exact-revision-review"
 
 export default async function TelegramReviewPage({ params }: { params: Promise<{ revisionId: string }> }) {
   const { revisionId } = await params
-  return <TelegramReviewWorkspace revisionId={revisionId} />
+  return <ExactRevisionReview revisionId={revisionId} />
 }

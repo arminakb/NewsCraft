@@ -70,3 +70,41 @@ export type ResearchRunDetail = {
   resultStoryRevisionId: string | null
 }
 export type ResearchDisposition = { disposition: "skipped" | "complete_without_research" | "enqueued"; runId: string | null; jobId: string | null; completeness: Completeness }
+
+export type TelegramButton = { text: string; url: string }
+export type EvidenceCitation = { evidenceSnapshotId: string; evidenceKey: string; sourceUrl: string | null; locator: string; excerptSha256: string }
+export type RevisionState = "draft" | "pending_review" | "approved" | "rejected"
+export type ValidationResult = { gate: string; ok: boolean; reason: string | null }
+export type VariantRevision = {
+  id: string
+  variantId: string
+  contentPackId: string
+  storyId: string
+  parentRevisionId: string | null
+  generationAttemptId: string | null
+  revisionNumber: number
+  content: {
+    body: string
+    parseMode: "HTML"
+    buttons: TelegramButton[]
+    mediaAssetIds: string[]
+    sourceUrl: string | null
+    mediaPolicy: string
+    direction: "ltr" | "rtl" | "auto"
+    dryRun: boolean
+  }
+  contentHash: string
+  evidenceMap: EvidenceCitation[]
+  validationResults: ValidationResult[]
+  approvalState: RevisionState
+  approvalNote: string | null
+  approvedAt: string | null
+  createdBy: string
+  origin: "operator" | "generation" | "automation"
+  createdAt: string
+  providerProfile: { id: string; name: string; providerType: string } | null
+  resolvedModel: string | null
+}
+export type ContentPackSummary = { id: string; storyId: string; storyRevisionId: string; brandProfileId: string; status: string; createdAt: string; updatedAt: string; lastFailure: string | null; jobId: string | null; variants: Array<{ id: string; platform: "telegram" }> }
+export type ContentPackDetail = ContentPackSummary & { variantRevisions: Record<string, VariantRevision[]> }
+export type ContentPackRequestSummary = { id: string; jobId: string | null; storyId: string; status: string; lastFailure: string | null; createdAt: string; updatedAt: string; pack: ContentPackSummary | null }

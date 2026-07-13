@@ -2,18 +2,21 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { fireEvent, render, screen, waitFor } from "@testing-library/react"
 
 import { NoticeProvider } from "@/components/providers/notice-provider"
+import { DirtyNavigationCoordinator, useDirtyNavigation } from "@/components/editorial/use-dirty-navigation"
 import { getAutomationControl } from "@/features/control/api"
 import {
   approveTelegramDraft,
   editTelegramDraft,
   getTelegramDestinations,
   getTelegramDraft,
+  getTelegramDispatches,
   getTelegramPublishJob,
   getTelegramRoute,
   publishTelegramDraft,
   rejectTelegramDraft,
 } from "@/features/automations/telegram-api"
 import { TelegramReviewWorkspace } from "@/features/review/telegram-review-workspace"
+import { getResearchRuns, getStory } from "@/lib/editorial-api"
 
 const push = vi.fn()
 
@@ -21,6 +24,7 @@ vi.mock("next/navigation", () => ({ useRouter: () => ({ push }) }))
 vi.mock("@/features/control/api", () => ({ getAutomationControl: vi.fn() }))
 vi.mock("@/features/automations/telegram-api", () => ({
   getTelegramDraft: vi.fn(),
+  getTelegramDispatches: vi.fn(),
   getTelegramPublishJob: vi.fn(),
   getTelegramRoute: vi.fn(),
   getTelegramDestinations: vi.fn(),
@@ -29,6 +33,7 @@ vi.mock("@/features/automations/telegram-api", () => ({
   rejectTelegramDraft: vi.fn(),
   publishTelegramDraft: vi.fn(),
 }))
+vi.mock("@/lib/editorial-api", () => ({ getStory: vi.fn(), getResearchRuns: vi.fn() }))
 
 const revision = {
   id: "11111111-1111-4111-8111-111111111111",
@@ -80,6 +85,9 @@ describe("TelegramReviewWorkspace", () => {
   beforeEach(() => {
     vi.resetAllMocks()
     vi.mocked(getTelegramDraft).mockResolvedValue(revision as never)
+    vi.mocked(getTelegramDispatches).mockResolvedValue([{ id: revision.dispatchId, storyId: "story-1", status: "generated", errorCode: null }] as never)
+    vi.mocked(getStory).mockResolvedValue({ completeness: { complete: true, score: 100, reasons: [] } } as never)
+    vi.mocked(getResearchRuns).mockResolvedValue([])
     vi.mocked(getTelegramRoute).mockResolvedValue({
       id: revision.routeId,
       destinationId: "81111111-1111-4111-8111-111111111111",
@@ -124,6 +132,7 @@ describe("TelegramReviewWorkspace", () => {
   })
 
   it("saves a complete child revision and navigates to that exact child", async () => {
+    const confirm = vi.spyOn(window, "confirm")
     renderWorkspace()
     const editor = await screen.findByRole("textbox", { name: "Telegram body" })
     fireEvent.change(editor, { target: { value: "متن ویرایش شده" } })
@@ -136,6 +145,31 @@ describe("TelegramReviewWorkspace", () => {
       media_asset_ids: revision.content.mediaAssetIds,
     }))
     expect(push).toHaveBeenCalledWith("/review/91111111-1111-4111-8111-111111111111")
+    expect(confirm).not.toHaveBeenCalled()
+    confirm.mockRestore()
+  })
+
+  it("releases only legacy persisted edits and still protects a dirty exact editor", async () => {
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(false)
+    render(
+      <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+        <NoticeProvider><DirtyNavigationCoordinator /><AlwaysDirtyExactSource /><TelegramReviewWorkspace revisionId={revision.id} /></NoticeProvider>
+      </QueryClientProvider>,
+    )
+    fireEvent.change(await screen.findByRole("textbox", { name: "Telegram body" }), { target: { value: "persist only legacy" } })
+    fireEvent.click(screen.getByRole("button", { name: "Save as new revision" }))
+    await waitFor(() => expect(editTelegramDraft).toHaveBeenCalled())
+    expect(confirm).toHaveBeenCalledOnce()
+    expect(push).not.toHaveBeenCalled()
+    confirm.mockRestore()
+  })
+
+  it("registers unsaved legacy editor body changes with the shared navigation guard", async () => {
+    renderWorkspace()
+    fireEvent.change(await screen.findByRole("textbox", { name: "Telegram body" }), { target: { value: "unsaved legacy edit" } })
+    const unload = new Event("beforeunload", { cancelable: true })
+    window.dispatchEvent(unload)
+    expect(unload.defaultPrevented).toBe(true)
   })
 
   it("approves by exact hash and reports the durable publish job", async () => {
@@ -171,16 +205,46 @@ describe("TelegramReviewWorkspace", () => {
     expect(await screen.findByText(new RegExp(label, "i"))).toBeInTheDocument()
     expect(screen.getByRole("button", { name: "Publish exact revision" })).toBeDisabled()
   })
+
+  it("fails publish closed while the expected dispatch is loading", async () => {
+    vi.mocked(getTelegramDraft).mockResolvedValue({ ...revision, approvalState: "approved" } as never)
+    vi.mocked(getTelegramDispatches).mockReturnValue(new Promise<never>(() => undefined))
+    renderWorkspace()
+    expect(await screen.findByText(/Dispatch and research outcome are loading/i)).toBeInTheDocument()
+    expect(screen.getByRole("button", { name: "Publish exact revision" })).toBeDisabled()
+    expect(publishTelegramDraft).not.toHaveBeenCalled()
+  })
+
+  it("fails publish closed when the dispatch query errors", async () => {
+    vi.mocked(getTelegramDraft).mockResolvedValue({ ...revision, approvalState: "approved" } as never)
+    vi.mocked(getTelegramDispatches).mockRejectedValue(new Error("dispatch offline"))
+    renderWorkspace()
+    await waitFor(() => expect(screen.getByText(/Dispatch and research outcome are unavailable/i)).toBeInTheDocument())
+    expect(screen.getByRole("button", { name: "Publish exact revision" })).toBeDisabled()
+  })
+
+  it("fails publish closed when the expected dispatch is missing", async () => {
+    vi.mocked(getTelegramDraft).mockResolvedValue({ ...revision, approvalState: "approved" } as never)
+    vi.mocked(getTelegramDispatches).mockResolvedValue([])
+    renderWorkspace()
+    expect(await screen.findByText(/Expected dispatch is unavailable/i)).toBeInTheDocument()
+    expect(screen.getByRole("button", { name: "Publish exact revision" })).toBeDisabled()
+  })
 })
 
 function workspaceTree() {
   return (
     <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
-      <NoticeProvider><TelegramReviewWorkspace revisionId={revision.id} /></NoticeProvider>
+      <NoticeProvider><DirtyNavigationCoordinator /><TelegramReviewWorkspace revisionId={revision.id} /></NoticeProvider>
     </QueryClientProvider>
   )
 }
 
 function renderWorkspace() {
   return render(workspaceTree())
+}
+
+function AlwaysDirtyExactSource() {
+  useDirtyNavigation(true)
+  return null
 }

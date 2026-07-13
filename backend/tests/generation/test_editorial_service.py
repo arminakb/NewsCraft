@@ -611,6 +611,155 @@ async def test_request_enqueue_does_not_mark_story_drafted_before_pack_artifact(
 
 
 @pytest.mark.asyncio
+async def test_request_content_pack_binds_only_a_succeeded_same_story_research_result():
+    from app.generation.editorial_service import EditorialService, GeneratePackRequest
+    from app.generation.models import AIProviderProfile, BrandProfile
+    from app.jobs.types import JobStatus
+    from app.research.models import ResearchRun
+    from app.stories.models import Story, StoryRevision
+
+    story = Story(id=uuid4(), title="Story", status="inbox", primary_language="en")
+    result_revision = StoryRevision(id=uuid4(), story_id=story.id, revision_number=2)
+    run = ResearchRun(
+        id=uuid4(),
+        story_id=story.id,
+        requested_mode="manual",
+        status="succeeded",
+        result_story_revision_id=result_revision.id,
+    )
+    prompts = [
+        SimpleNamespace(id=uuid4(), checksum_sha256="a" * 64),
+        SimpleNamespace(id=uuid4(), checksum_sha256="b" * 64),
+    ]
+    profile = AIProviderProfile(
+        id=uuid4(),
+        name="Fake",
+        provider_type="fake",
+        default_model="fake-v1",
+        secret_ref=None,
+        settings={},
+        enabled=True,
+    )
+    brand = BrandProfile(
+        id=uuid4(),
+        name="Brand",
+        output_language="en",
+        tone="neutral",
+        editorial_rules=[],
+        attribution_rules={},
+        default_hashtags=[],
+        platform_preferences={},
+        is_default=False,
+    )
+
+    class Session:
+        def __init__(self):
+            self.values = [*prompts, profile, story]
+
+        async def scalar(self, statement):
+            return self.values.pop(0)
+
+        async def get(self, model, identifier):
+            return {BrandProfile: brand, ResearchRun: run, StoryRevision: result_revision}[model]
+
+        async def flush(self):
+            return None
+
+    class Jobs:
+        kwargs = None
+
+        async def enqueue_job(self, **kwargs):
+            self.kwargs = kwargs
+            return SimpleNamespace(job=SimpleNamespace(id=uuid4(), status=JobStatus.QUEUED), created=True)
+
+    jobs = Jobs()
+    await EditorialService(Session(), jobs=jobs).request_content_pack(
+        story.id,
+        GeneratePackRequest(
+            brand_profile_id=brand.id,
+            platform="telegram",
+            generation_provider_profile_id=profile.id,
+            canonical_prompt_template_version_id=prompts[0].id,
+            platform_prompt_template_version_id=prompts[1].id,
+            research_run_id=run.id,
+        ),
+    )
+    assert jobs.kwargs["payload"]["completed_research_run_id"] == str(run.id)
+    assert jobs.kwargs["payload"]["research_result_story_revision_id"] == str(result_revision.id)
+    assert "research_run_id" not in jobs.kwargs["payload"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("failure", ["failed", "cross_story"])
+async def test_request_content_pack_rejects_failed_or_cross_story_research_run(failure):
+    from app.generation.editorial_service import EditorialService, GeneratePackRequest, InvalidGenerationRequest
+    from app.generation.models import AIProviderProfile, BrandProfile
+    from app.research.models import ResearchRun
+    from app.stories.models import Story, StoryRevision
+
+    story = Story(id=uuid4(), title="Story", status="inbox", primary_language="en")
+    run_story_id = uuid4() if failure == "cross_story" else story.id
+    result_revision = StoryRevision(id=uuid4(), story_id=run_story_id, revision_number=2)
+    run = ResearchRun(
+        id=uuid4(),
+        story_id=run_story_id,
+        requested_mode="manual",
+        status="failed" if failure == "failed" else "succeeded",
+        result_story_revision_id=result_revision.id,
+    )
+    prompts = [
+        SimpleNamespace(id=uuid4(), checksum_sha256="a" * 64),
+        SimpleNamespace(id=uuid4(), checksum_sha256="b" * 64),
+    ]
+    profile = AIProviderProfile(
+        id=uuid4(),
+        name="Fake",
+        provider_type="fake",
+        default_model="fake-v1",
+        secret_ref=None,
+        settings={},
+        enabled=True,
+    )
+    brand = BrandProfile(
+        id=uuid4(),
+        name="Brand",
+        output_language="en",
+        tone="neutral",
+        editorial_rules=[],
+        attribution_rules={},
+        default_hashtags=[],
+        platform_preferences={},
+        is_default=False,
+    )
+
+    class Session:
+        def __init__(self):
+            self.values = [*prompts, profile, story]
+
+        async def scalar(self, statement):
+            return self.values.pop(0)
+
+        async def get(self, model, identifier):
+            return {BrandProfile: brand, ResearchRun: run, StoryRevision: result_revision}[model]
+
+        async def flush(self):
+            return None
+
+    with pytest.raises(InvalidGenerationRequest, match="succeeded result for this story"):
+        await EditorialService(Session(), jobs=SimpleNamespace()).request_content_pack(
+            story.id,
+            GeneratePackRequest(
+                brand_profile_id=brand.id,
+                platform="telegram",
+                generation_provider_profile_id=profile.id,
+                canonical_prompt_template_version_id=prompts[0].id,
+                platform_prompt_template_version_id=prompts[1].id,
+                research_run_id=run.id,
+            ),
+        )
+
+
+@pytest.mark.asyncio
 async def test_superseded_after_enqueue_is_locked_and_rejected_before_provider_or_artifact():
     from app.generation.handlers import build_canonical_generation_handler
     from app.jobs.errors import PermanentJobError

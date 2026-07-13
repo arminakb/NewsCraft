@@ -36,8 +36,10 @@ export const queryKeys = {
   evidence: (storyId: string) => ["stories", storyId, "evidence"] as const,
   researchRuns: (storyId: string) => ["stories", storyId, "research-runs"] as const,
   contentPacks: ["content-packs"] as const,
+  contentPackRequests: ["content-pack-requests"] as const,
   contentPack: (id: string) => ["content-packs", id] as const,
   variantRevisions: (variantId: string) => ["platform-variants", variantId, "revisions"] as const,
+  variantRevision: (revisionId: string) => ["platform-variant-revisions", revisionId] as const,
 }
 
 export const editorialQueryKeys = {
