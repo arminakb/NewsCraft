@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import inspect
 from datetime import UTC, datetime
 from types import SimpleNamespace
 from uuid import uuid4
@@ -65,6 +66,31 @@ def test_auto_publish_gate_is_fail_closed(override, allowed, reason):
     decision = evaluate_auto_publish(**{**valid_gate_input(), **override})
 
     assert (decision.allowed, decision.reason) == (allowed, reason)
+
+
+def test_generation_finalization_locks_variant_before_runtime_controls():
+    """Keep the writer, reviewed scheduler, and publish worker acyclic."""
+
+    source = inspect.getsource(build_telegram_process_handler)
+    finalization = source[source.index("session.expire_all()") :]
+
+    variant_lock = finalization.index("await _content_pack_and_variant")
+    dispatch_lock = finalization.index("locked_dispatch = await session.scalar")
+    route_lock = finalization.index("locked_route = await session.scalar")
+    lineage_recheck = finalization.index("refreshed_parent = await _route_parent_revision")
+    control_lock = finalization.index("select(AutomationControl)", route_lock)
+    destination_lock = finalization.index("select(Destination)")
+    publish_gate = finalization.index("gate = evaluate_auto_publish")
+
+    assert (
+        variant_lock
+        < dispatch_lock
+        < route_lock
+        < lineage_recheck
+        < control_lock
+        < destination_lock
+        < publish_gate
+    )
 
 
 def test_captured_snapshot_is_verified_and_cited_exactly():

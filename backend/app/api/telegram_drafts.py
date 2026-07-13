@@ -9,7 +9,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Response
 from fastapi.responses import FileResponse
-from pydantic import BaseModel, ConfigDict, Field, HttpUrl, model_validator
+from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, HttpUrl, field_validator, model_validator
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.concurrency import run_in_threadpool
@@ -37,6 +37,7 @@ from app.generation.telegram_schema import (
 from app.jobs.events import redact_event_data
 from app.jobs.models import WorkflowEvent
 from app.jobs.repository import JobRepository
+from app.jobs.schemas import JobAcceptedOut
 from app.jobs.types import JobOrigin
 from app.publishing.models import (
     Destination,
@@ -47,8 +48,10 @@ from app.publishing.models import (
 )
 from app.publishing.telegram.service import (
     PublishValidationError,
+    ReviewedTelegramScheduleError,
     derive_telegram_permalink,
     ordered_receipt_remote_ids,
+    schedule_reviewed_telegram,
     validate_reconciliation,
 )
 from app.stories.models import StoryEvidenceSnapshot, StoryRevision
@@ -81,6 +84,19 @@ class TelegramContentHashIn(BaseModel):
 
 class TelegramRejectIn(TelegramContentHashIn):
     note: str | None = Field(default=None, max_length=500)
+
+
+class ScheduleTelegramIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    content_hash: str = Field(pattern=r"^[0-9a-f]{64}$")
+    destination_id: UUID
+    scheduled_for: AwareDatetime
+
+    @field_validator("scheduled_for")
+    @classmethod
+    def normalize_scheduled_for(cls, value: datetime) -> datetime:
+        return value.astimezone(UTC)
 
 
 class TelegramReconcileIn(BaseModel):
@@ -386,12 +402,29 @@ async def _locked_revision(
     session: AsyncSession,
     revision_id: UUID,
 ) -> PlatformVariantRevision:
+    provisional = await session.scalar(
+        select(PlatformVariantRevision)
+        .where(PlatformVariantRevision.id == revision_id)
+        .execution_options(populate_existing=True)
+    )
+    if provisional is None:
+        raise HTTPException(404, "Telegram draft not found")
+    variant = await session.scalar(
+        select(PlatformVariant)
+        .where(PlatformVariant.id == provisional.platform_variant_id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
+    if variant is None or variant.platform != "telegram":
+        raise HTTPException(404, "Telegram draft not found")
     revision = await session.scalar(
         select(PlatformVariantRevision)
-        .join(PlatformVariant, PlatformVariant.id == PlatformVariantRevision.platform_variant_id)
-        .where(PlatformVariantRevision.id == revision_id)
-        .where(PlatformVariant.platform == "telegram")
+        .where(
+            PlatformVariantRevision.id == revision_id,
+            PlatformVariantRevision.platform_variant_id == variant.id,
+        )
         .with_for_update()
+        .execution_options(populate_existing=True)
     )
     if revision is None:
         raise HTTPException(404, "Telegram draft not found")
@@ -752,6 +785,32 @@ async def publish_telegram_draft(
             "status": publish_job.status,
         },
     }
+
+
+@draft_router.post(
+    "/{revision_id}/schedule",
+    response_model=JobAcceptedOut,
+    status_code=202,
+)
+async def schedule_telegram_revision(
+    revision_id: UUID,
+    body: ScheduleTelegramIn,
+    session: AsyncSession = SessionDependency,
+) -> JobAcceptedOut:
+    try:
+        async with session.begin():
+            result = await schedule_reviewed_telegram(
+                session,
+                revision_id=revision_id,
+                request=body,
+            )
+    except ReviewedTelegramScheduleError as exc:
+        raise HTTPException(exc.status_code, str(exc)) from None
+    return JobAcceptedOut(
+        job_id=result.workflow_job.id,
+        status=result.workflow_job.status,
+        deduplicated=not result.created,
+    )
 
 
 @router.get("/publish-jobs/{publish_job_id}")

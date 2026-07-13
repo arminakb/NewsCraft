@@ -3,7 +3,8 @@ from __future__ import annotations
 import asyncio
 import hashlib
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
+from types import SimpleNamespace
 from uuid import UUID
 
 import pytest
@@ -20,13 +21,14 @@ from app.db.models import ItemMedia, MediaAsset, SourceItem
 from app.generation.models import ContentPack, PlatformVariant, PlatformVariantRevision
 from app.generation.telegram_schema import TelegramEvidenceCitation, TelegramVariantContent
 from app.jobs.errors import NeedsReviewJobError, PermanentJobError, RetryableJobError
-from app.jobs.models import WorkflowJob
+from app.jobs.models import AutomationControl, WorkflowJob
 from app.jobs.types import JobOrigin
 from app.publishing.models import (
     Publication,
     PublishJob,
     PublishOperationReceipt,
 )
+from app.publishing.telegram import service as telegram_service
 from app.publishing.telegram.client import (
     TelegramAmbiguousError,
     TelegramPermanentError,
@@ -34,8 +36,12 @@ from app.publishing.telegram.client import (
     TelegramRetryableBeforeDispatch,
 )
 from app.publishing.telegram.contracts import TelegramOperationResult
-from app.publishing.telegram.service import publish_telegram
-from app.stories.models import StoryEvidenceSnapshot
+from app.publishing.telegram.service import (
+    ReviewedTelegramScheduleError,
+    publish_telegram,
+    schedule_reviewed_telegram,
+)
+from app.stories.models import StoryEvidenceSnapshot, StoryRevision
 from tests.postgres.test_telegram_process_handler import seed_dispatch
 
 
@@ -87,6 +93,15 @@ class ResumeTelegramClient:
         if self.message_attempts == 1:
             raise TelegramRateLimited(retry_after=1)
         return TelegramOperationResult((8102,), {"ok": True, "result_count": 1})
+
+
+class CountingTelegramClient:
+    def __init__(self) -> None:
+        self.calls = 0
+
+    async def execute(self, operation, token):
+        self.calls += 1
+        return TelegramOperationResult((9101,), {"ok": True, "result_count": 1})
 
 
 async def resolve_destination_secret(secret_ref: str) -> str:
@@ -190,6 +205,139 @@ async def _seed_publish_fixtures(session_factory) -> PublishFixture:
                 publish_job_ids.append(publish_job.id)
 
     return PublishFixture(*publish_job_ids)
+
+
+async def _seed_schedulable_revision(session):
+    dispatch, _, _ = await seed_dispatch(
+        session,
+        route_name="ReviewedScheduleFreshness",
+        publishing_policy="review_required",
+    )
+    route = await session.get(AutomationRoute, dispatch.route_id)
+    source_item = await session.get(SourceItem, dispatch.source_item_id)
+    story_revision = await session.get(StoryRevision, dispatch.story_revision_id)
+    snapshot = await session.scalar(
+        select(StoryEvidenceSnapshot).where(
+            StoryEvidenceSnapshot.story_id == story_revision.story_id,
+            StoryEvidenceSnapshot.content_item_id == source_item.content_item_id,
+        )
+    )
+    pack = ContentPack(
+        story_revision_id=dispatch.story_revision_id,
+        brand_profile_id=route.brand_profile_id,
+        status="ready",
+    )
+    session.add(pack)
+    await session.flush()
+    variant = PlatformVariant(content_pack_id=pack.id, platform="telegram")
+    session.add(variant)
+    await session.flush()
+    content = TelegramVariantContent(
+        body="Reviewed schedule freshness",
+        source_item_id=dispatch.source_item_id,
+        source_url=source_item.source_url,
+        media_policy="omit",
+        media_asset_ids=[],
+        direction="rtl",
+        dry_run=False,
+    ).model_dump(mode="json")
+    evidence_map = [
+        TelegramEvidenceCitation(
+            evidence_snapshot_id=snapshot.id,
+            evidence_key=snapshot.evidence_key,
+            source_url=snapshot.source_url,
+            locator=f"chars:0-{len(snapshot.content_text)}",
+            excerpt_sha256=snapshot.content_sha256,
+        ).model_dump(mode="json")
+    ]
+    revision = PlatformVariantRevision(
+        platform_variant_id=variant.id,
+        revision_number=1,
+        content=content,
+        content_hash=sha256_canonical({"content": content, "evidence_map": evidence_map}),
+        evidence_map=evidence_map,
+        validation_results=[{"gate": "telegram_schema", "ok": True}],
+        approval_state="approved",
+        approved_at=datetime.now(UTC),
+        created_by="test",
+    )
+    session.add(revision)
+    await session.flush()
+    dispatch.variant_revision_id = revision.id
+    dispatch.status = "approved"
+    return revision, route
+
+
+@pytest.mark.asyncio
+async def test_reviewed_schedule_refreshes_identity_mapped_revision(
+    db_session,
+    session_factory,
+):
+    async with db_session.begin():
+        revision, route = await _seed_schedulable_revision(db_session)
+    revision_id = revision.id
+    content_hash = revision.content_hash
+    destination_id = route.destination_id
+
+    async with session_factory() as concurrent:
+        async with concurrent.begin():
+            changed = await concurrent.get(PlatformVariantRevision, revision_id)
+            changed.approval_state = "pending_review"
+            changed.approved_at = None
+
+    due = datetime.now(UTC) + timedelta(hours=1)
+    with pytest.raises(ReviewedTelegramScheduleError, match="approved"):
+        async with db_session.begin():
+            await schedule_reviewed_telegram(
+                db_session,
+                revision_id=revision_id,
+                request=SimpleNamespace(
+                    content_hash=content_hash,
+                    destination_id=destination_id,
+                    scheduled_for=due,
+                ),
+                clock=lambda: due - timedelta(minutes=30),
+            )
+
+
+@pytest.mark.asyncio
+async def test_pre_dispatch_revalidation_refreshes_control_changed_between_transactions(
+    session_factory,
+    monkeypatch,
+):
+    fixture = await _seed_publish_fixtures(session_factory)
+    client = CountingTelegramClient()
+    original_revalidate = telegram_service._revalidate_claim
+    changed = False
+
+    async def change_control_then_revalidate(session, context):
+        nonlocal changed
+        if not changed:
+            async with session_factory() as concurrent:
+                async with concurrent.begin():
+                    control = await concurrent.get(AutomationControl, "global")
+                    control.global_pause = True
+            changed = True
+        return await original_revalidate(session, context)
+
+    monkeypatch.setattr(
+        telegram_service,
+        "_revalidate_claim",
+        change_control_then_revalidate,
+    )
+
+    async with session_factory() as session:
+        with pytest.raises(NeedsReviewJobError) as caught:
+            await publish_telegram(
+                session,
+                publish_job_id=fixture.concurrent_job_id,
+                client=client,
+                secret_resolver=resolve_destination_secret,
+            )
+
+    assert caught.value.code == "telegram_publish_context_drift"
+    assert changed is True
+    assert client.calls == 0
 
 
 @pytest.mark.asyncio

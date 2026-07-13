@@ -2,10 +2,10 @@ from __future__ import annotations
 
 import hashlib
 import inspect
-from collections.abc import Iterable, Sequence
+from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
-from typing import Any, Literal
+from typing import Any, Literal, Protocol
 from uuid import UUID
 
 from sqlalchemy import func, select
@@ -15,13 +15,16 @@ from app.automations.models import AutomationDispatch, AutomationRoute
 from app.core.redaction import redact_secrets
 from app.db.models import ItemMedia, MediaAsset, SourceItem
 from app.generation.models import ContentPack, PlatformVariant, PlatformVariantRevision
+from app.generation.revision_validation import RevisionValidationError, validate_approvable_revision
 from app.generation.telegram_schema import (
     TelegramEvidenceCitation,
     TelegramVariantContent,
 )
 from app.jobs.errors import NeedsReviewJobError, PermanentJobError, RetryableJobError
 from app.jobs.events import redact_event_data
-from app.jobs.models import AutomationControl, WorkflowEvent
+from app.jobs.models import AutomationControl, WorkflowEvent, WorkflowJob
+from app.jobs.repository import JobRepository
+from app.jobs.types import JobOrigin, JobStatus
 from app.publishing.models import (
     Destination,
     Publication,
@@ -44,6 +47,26 @@ class PublishValidationError(RuntimeError):
     def __init__(self, code: str, message: str) -> None:
         self.code = code
         super().__init__(message)
+
+
+class ReviewedTelegramScheduleError(RuntimeError):
+    def __init__(self, code: str, message: str, *, status_code: int = 409) -> None:
+        self.code = code
+        self.status_code = status_code
+        super().__init__(message)
+
+
+class ReviewedTelegramScheduleRequest(Protocol):
+    content_hash: str
+    destination_id: UUID
+    scheduled_for: datetime
+
+
+@dataclass(frozen=True, slots=True)
+class ReviewedTelegramScheduleResult:
+    publish_job: PublishJob
+    workflow_job: WorkflowJob
+    created: bool
 
 
 def validate_publish_evidence(
@@ -177,15 +200,360 @@ async def _revision_dispatch(session: Any, revision: PlatformVariantRevision) ->
             .where(AutomationDispatch.variant_revision_id == current.id)
             .order_by(AutomationDispatch.created_at.desc())
             .limit(1)
+            .execution_options(populate_existing=True)
         )
         if dispatch is not None:
             return dispatch
         current = (
-            await session.get(PlatformVariantRevision, current.parent_revision_id)
+            await session.get(
+                PlatformVariantRevision,
+                current.parent_revision_id,
+                populate_existing=True,
+            )
             if current.parent_revision_id
             else None
         )
     return None
+
+
+def _schedule_utc(value: datetime, *, field: str) -> datetime:
+    if not isinstance(value, datetime) or value.tzinfo is None or value.utcoffset() is None:
+        raise ReviewedTelegramScheduleError(
+            "telegram_schedule_time_naive",
+            f"{field} must be timezone-aware",
+        )
+    return value.astimezone(UTC)
+
+
+def _row_time_matches(value: datetime | None, expected: datetime) -> bool:
+    if value is None or value.tzinfo is None or value.utcoffset() is None:
+        return False
+    return value.astimezone(UTC) == expected
+
+
+def _enum_text(value: Any) -> str:
+    return str(value.value) if hasattr(value, "value") else str(value)
+
+
+def _validate_schedule_replay(
+    *,
+    publish_job: PublishJob,
+    workflow_job: WorkflowJob,
+    publication: Publication | None,
+    revision: PlatformVariantRevision,
+    destination: Destination,
+    idempotency_key: str,
+    scheduled_for: datetime,
+) -> None:
+    if publication is not None:
+        raise ReviewedTelegramScheduleError(
+            "telegram_schedule_already_published",
+            "Telegram revision is already published",
+        )
+    if (
+        publish_job.destination_id != destination.id
+        or publish_job.platform_variant_revision_id != revision.id
+        or publish_job.idempotency_key != idempotency_key
+        or publish_job.payload_hash != revision.content_hash
+        or publish_job.workflow_job_id != workflow_job.id
+        or publish_job.status != "scheduled"
+        or not _row_time_matches(publish_job.scheduled_for, scheduled_for)
+    ):
+        raise ReviewedTelegramScheduleError(
+            "telegram_schedule_conflict",
+            "Existing Telegram publish intent conflicts with this schedule",
+        )
+    if (
+        workflow_job.job_type != "telegram.publish"
+        or workflow_job.idempotency_key != idempotency_key
+        or _enum_text(workflow_job.status) != JobStatus.QUEUED.value
+        or _enum_text(workflow_job.origin) != JobOrigin.MANUAL.value
+        or workflow_job.pause_sensitive is not True
+        or not _row_time_matches(workflow_job.scheduled_for, scheduled_for)
+        or workflow_job.payload != {"publish_job_id": str(publish_job.id)}
+    ):
+        raise ReviewedTelegramScheduleError(
+            "telegram_schedule_workflow_drift",
+            "Existing Telegram workflow drift conflicts with this schedule",
+        )
+
+
+async def schedule_reviewed_telegram(
+    session: Any,
+    *,
+    revision_id: UUID,
+    request: ReviewedTelegramScheduleRequest,
+    clock: Callable[[], datetime] | None = None,
+) -> ReviewedTelegramScheduleResult:
+    """Persist one exact reviewed Telegram schedule without contacting Telegram."""
+
+    schedule_clock = clock or (lambda: datetime.now(UTC))
+    observed_at = _schedule_utc(
+        schedule_clock(),
+        field="Scheduling clock",
+    )
+    scheduled_for = _schedule_utc(request.scheduled_for, field="scheduled_for")
+
+    candidate = await session.scalar(
+        select(PlatformVariantRevision)
+        .where(PlatformVariantRevision.id == revision_id)
+        .execution_options(populate_existing=True)
+    )
+    if candidate is None:
+        raise ReviewedTelegramScheduleError(
+            "telegram_revision_missing",
+            "Telegram draft not found",
+            status_code=404,
+        )
+
+    # Revision creation serializes on the parent variant. Lock it first so the
+    # currentness check cannot race a newly-created higher revision.
+    variant = await session.scalar(
+        select(PlatformVariant)
+        .where(PlatformVariant.id == candidate.platform_variant_id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
+    if variant is None or variant.platform != "telegram":
+        raise ReviewedTelegramScheduleError(
+            "telegram_revision_lineage_invalid",
+            "Telegram draft lineage is invalid",
+        )
+    revision = await session.scalar(
+        select(PlatformVariantRevision)
+        .where(
+            PlatformVariantRevision.id == revision_id,
+            PlatformVariantRevision.platform_variant_id == variant.id,
+        )
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
+    if revision is None:
+        raise ReviewedTelegramScheduleError(
+            "telegram_revision_missing",
+            "Telegram draft not found",
+            status_code=404,
+        )
+    latest_id = await session.scalar(
+        select(PlatformVariantRevision.id)
+        .where(PlatformVariantRevision.platform_variant_id == variant.id)
+        .order_by(
+            PlatformVariantRevision.revision_number.desc(),
+            PlatformVariantRevision.created_at.desc(),
+            PlatformVariantRevision.id.desc(),
+        )
+        .limit(1)
+    )
+    if latest_id != revision.id:
+        raise ReviewedTelegramScheduleError(
+            "telegram_revision_not_current",
+            "Telegram draft revision is not current",
+        )
+    if revision.approval_state != "approved":
+        raise ReviewedTelegramScheduleError(
+            "telegram_revision_not_approved",
+            "Telegram revision must be approved before scheduling",
+        )
+    if request.content_hash != revision.content_hash:
+        raise ReviewedTelegramScheduleError(
+            "telegram_revision_changed",
+            "Telegram draft content changed",
+        )
+    try:
+        content = TelegramVariantContent.model_validate(revision.content)
+        validate_approvable_revision(revision)
+    except (RevisionValidationError, TypeError, ValueError):
+        raise ReviewedTelegramScheduleError(
+            "telegram_revision_schema_invalid",
+            "Telegram revision schema or validation gates are invalid",
+        ) from None
+    if content.dry_run:
+        raise ReviewedTelegramScheduleError(
+            "telegram_revision_dry_run",
+            "Dry-run Telegram revisions cannot be scheduled",
+        )
+    if _canonical_hash({"content": revision.content, "evidence_map": revision.evidence_map}) != revision.content_hash:
+        raise ReviewedTelegramScheduleError(
+            "telegram_revision_hash_drift",
+            "Telegram revision hash no longer matches its content",
+        )
+
+    idempotency_key = (
+        f"telegram-publish:{request.destination_id}:{revision.id}:{revision.content_hash}"
+    )
+    publish_job = await session.scalar(
+        select(PublishJob)
+        .where(PublishJob.idempotency_key == idempotency_key)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
+
+    dispatch = await _revision_dispatch(session, revision)
+    if dispatch is None:
+        raise ReviewedTelegramScheduleError(
+            "telegram_route_provenance_missing",
+            "Telegram revision has no route provenance",
+        )
+    route = await session.get(
+        AutomationRoute,
+        dispatch.route_id,
+        populate_existing=True,
+    )
+    if route is None:
+        raise ReviewedTelegramScheduleError(
+            "telegram_route_missing",
+            "Telegram revision route is missing",
+        )
+    if route.destination_id != request.destination_id:
+        raise ReviewedTelegramScheduleError(
+            "telegram_route_destination_mismatch",
+            "Telegram route does not match the requested destination",
+        )
+
+    publish_job_created = False
+    if publish_job is None:
+        observed_at = _schedule_utc(
+            schedule_clock(),
+            field="Scheduling clock",
+        )
+        if scheduled_for <= observed_at:
+            raise ReviewedTelegramScheduleError(
+                "telegram_schedule_not_future",
+                "scheduled_for must be strictly in the future",
+            )
+        candidate_publish_job = PublishJob(
+            destination_id=request.destination_id,
+            platform_variant_revision_id=revision.id,
+            status="scheduled",
+            idempotency_key=idempotency_key,
+            payload_hash=revision.content_hash,
+            scheduled_for=scheduled_for,
+        )
+        try:
+            async with session.begin_nested():
+                session.add(candidate_publish_job)
+                await session.flush()
+        except IntegrityError:
+            publish_job = await session.scalar(
+                select(PublishJob)
+                .where(PublishJob.idempotency_key == idempotency_key)
+                .with_for_update()
+                .execution_options(populate_existing=True)
+            )
+            if publish_job is None:  # pragma: no cover - unique conflict guarantees it
+                raise ReviewedTelegramScheduleError(
+                    "telegram_schedule_insert_conflict",
+                    "Telegram publish intent conflicted with this schedule",
+                ) from None
+        else:
+            publish_job = candidate_publish_job
+            publish_job_created = True
+
+    destination = await session.scalar(
+        select(Destination)
+        .where(Destination.id == request.destination_id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
+    if destination is None or destination.platform != "telegram":
+        raise ReviewedTelegramScheduleError(
+            "telegram_destination_invalid",
+            "An existing Telegram destination is required",
+        )
+    if not destination.enabled:
+        raise ReviewedTelegramScheduleError(
+            "telegram_destination_disabled",
+            "Telegram destination must be enabled",
+        )
+
+    workflow_job = await session.scalar(
+        select(WorkflowJob)
+        .where(WorkflowJob.idempotency_key == idempotency_key)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
+    if publish_job is None:  # pragma: no cover - creation/reload above is exhaustive
+        raise ReviewedTelegramScheduleError(
+            "telegram_schedule_publish_intent_missing",
+            "Telegram publish intent is unavailable",
+        )
+    if publish_job_created and workflow_job is not None:
+        raise ReviewedTelegramScheduleError(
+            "telegram_schedule_durable_drift",
+            "Existing Telegram durable rows conflict with this schedule",
+        )
+    if not publish_job_created:
+        if workflow_job is None:
+            raise ReviewedTelegramScheduleError(
+                "telegram_schedule_durable_drift",
+                "Existing Telegram durable rows conflict with this schedule",
+            )
+        publication = await session.scalar(
+            select(Publication)
+            .where(Publication.publish_job_id == publish_job.id)
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )
+        _validate_schedule_replay(
+            publish_job=publish_job,
+            workflow_job=workflow_job,
+            publication=publication,
+            revision=revision,
+            destination=destination,
+            idempotency_key=idempotency_key,
+            scheduled_for=scheduled_for,
+        )
+        return ReviewedTelegramScheduleResult(
+            publish_job=publish_job,
+            workflow_job=workflow_job,
+            created=False,
+        )
+
+    enqueue = await JobRepository(session).enqueue_job(
+        job_type="telegram.publish",
+        payload={"publish_job_id": str(publish_job.id)},
+        idempotency_key=idempotency_key,
+        origin=JobOrigin.MANUAL,
+        scheduled_for=scheduled_for,
+        pause_sensitive=True,
+    )
+    if not enqueue.created:
+        raise ReviewedTelegramScheduleError(
+            "telegram_schedule_concurrent_drift",
+            "Telegram workflow already exists without a matching publish intent",
+        )
+    observed_at = _schedule_utc(
+        schedule_clock(),
+        field="Scheduling clock",
+    )
+    if scheduled_for <= observed_at:
+        raise ReviewedTelegramScheduleError(
+            "telegram_schedule_not_future",
+            "scheduled_for must be strictly in the future",
+        )
+    publish_job.workflow_job_id = enqueue.job.id
+    session.add(
+        WorkflowEvent(
+            workflow_job_id=enqueue.job.id,
+            event_type="telegram.publish.scheduled",
+            actor="operator",
+            event_data=redact_event_data(
+                {
+                    "publish_job_id": str(publish_job.id),
+                    "destination_id": str(destination.id),
+                    "revision_id": str(revision.id),
+                    "content_hash": revision.content_hash,
+                    "scheduled_for": scheduled_for.isoformat(),
+                }
+            ),
+        )
+    )
+    await session.flush()
+    return ReviewedTelegramScheduleResult(
+        publish_job=publish_job,
+        workflow_job=enqueue.job,
+        created=True,
+    )
 
 
 async def _resolve_secret(resolver: Any, secret_ref: str) -> str:
@@ -228,16 +596,39 @@ class _PublishContext:
 
 
 async def _load_context(session: Any, publish_job_id: UUID, observed_at: datetime) -> _PublishContext | dict:
-    publish_job = await session.scalar(
-        select(PublishJob).where(PublishJob.id == publish_job_id).with_for_update()
+    revision_id = await session.scalar(
+        select(PublishJob.platform_variant_revision_id).where(PublishJob.id == publish_job_id)
     )
-    if publish_job is None:
+    if revision_id is None:
         raise PermanentJobError(
             code="telegram_publish_job_missing",
             message="Telegram publish job was not found",
         )
+    revision = await session.scalar(
+        select(PlatformVariantRevision)
+        .where(PlatformVariantRevision.id == revision_id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
+    publish_job = await session.scalar(
+        select(PublishJob)
+        .where(PublishJob.id == publish_job_id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
+    if (
+        revision is None
+        or publish_job is None
+        or publish_job.platform_variant_revision_id != revision.id
+    ):
+        raise PermanentJobError(
+            code="telegram_publish_context_missing",
+            message="Telegram publish context is incomplete",
+        )
     existing_publication = await session.scalar(
-        select(Publication).where(Publication.publish_job_id == publish_job.id)
+        select(Publication)
+        .where(Publication.publish_job_id == publish_job.id)
+        .execution_options(populate_existing=True)
     )
     if existing_publication is not None:
         if (
@@ -259,20 +650,12 @@ async def _load_context(session: Any, publish_job_id: UUID, observed_at: datetim
             "idempotent": True,
         }
 
-    revision = await session.scalar(
-        select(PlatformVariantRevision)
-        .join(PlatformVariant, PlatformVariant.id == PlatformVariantRevision.platform_variant_id)
-        .where(
-            PlatformVariantRevision.id == publish_job.platform_variant_revision_id,
-            PlatformVariant.platform == "telegram",
-        )
+    variant = await session.get(
+        PlatformVariant,
+        revision.platform_variant_id,
+        populate_existing=True,
     )
-    destination = await session.scalar(
-        select(Destination)
-        .where(Destination.id == publish_job.destination_id)
-        .with_for_update()
-    )
-    if revision is None or destination is None:
+    if variant is None or variant.platform != "telegram":
         raise PermanentJobError(
             code="telegram_publish_context_missing",
             message="Telegram publish context is incomplete",
@@ -298,7 +681,18 @@ async def _load_context(session: Any, publish_job_id: UUID, observed_at: datetim
             message="Telegram revision hash no longer matches",
         )
 
-    dispatch = await _revision_dispatch(session, revision)
+    dispatch_ancestor = await _revision_dispatch(session, revision)
+    if dispatch_ancestor is None:
+        raise NeedsReviewJobError(
+            code="telegram_route_provenance_missing",
+            message="Telegram revision has no route provenance",
+        )
+    dispatch = await session.scalar(
+        select(AutomationDispatch)
+        .where(AutomationDispatch.id == dispatch_ancestor.id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
     if dispatch is None:
         raise NeedsReviewJobError(
             code="telegram_route_provenance_missing",
@@ -308,12 +702,25 @@ async def _load_context(session: Any, publish_job_id: UUID, observed_at: datetim
         select(AutomationRoute)
         .where(AutomationRoute.id == dispatch.route_id)
         .with_for_update()
+        .execution_options(populate_existing=True)
     )
     control = await session.scalar(
         select(AutomationControl)
         .where(AutomationControl.id == "global")
         .with_for_update()
+        .execution_options(populate_existing=True)
     )
+    destination = await session.scalar(
+        select(Destination)
+        .where(Destination.id == publish_job.destination_id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
+    if destination is None:
+        raise PermanentJobError(
+            code="telegram_publish_context_missing",
+            message="Telegram publish context is incomplete",
+        )
     if route is None or route.destination_id != destination.id:
         raise NeedsReviewJobError(
             code="telegram_publish_route_drift",
@@ -334,9 +741,20 @@ async def _load_context(session: Any, publish_job_id: UUID, observed_at: datetim
             message="Telegram publication is blocked by current controls",
         )
 
-    variant = await session.get(PlatformVariant, revision.platform_variant_id)
-    pack = await session.get(ContentPack, variant.content_pack_id) if variant else None
-    story_revision = await session.get(StoryRevision, pack.story_revision_id) if pack else None
+    pack = await session.get(
+        ContentPack,
+        variant.content_pack_id,
+        populate_existing=True,
+    )
+    story_revision = (
+        await session.get(
+            StoryRevision,
+            pack.story_revision_id,
+            populate_existing=True,
+        )
+        if pack
+        else None
+    )
     citations: list[TelegramEvidenceCitation] = []
     try:
         citations = [TelegramEvidenceCitation.model_validate(item) for item in revision.evidence_map]
@@ -349,7 +767,7 @@ async def _load_context(session: Any, publish_job_id: UUID, observed_at: datetim
         await session.scalars(
             select(StoryEvidenceSnapshot).where(
                 StoryEvidenceSnapshot.id.in_([item.evidence_snapshot_id for item in citations])
-            )
+            ).execution_options(populate_existing=True)
         )
     )
     try:
@@ -366,7 +784,9 @@ async def _load_context(session: Any, publish_job_id: UUID, observed_at: datetim
 
     media = list(
         await session.scalars(
-            select(MediaAsset).where(MediaAsset.id.in_(list(content.media_asset_ids)))
+            select(MediaAsset)
+            .where(MediaAsset.id.in_(list(content.media_asset_ids)))
+            .execution_options(populate_existing=True)
         )
     )
     try:
@@ -383,6 +803,7 @@ async def _load_context(session: Any, publish_job_id: UUID, observed_at: datetim
             .where(PublishOperationReceipt.publish_job_id == publish_job.id)
             .order_by(PublishOperationReceipt.operation_index)
             .with_for_update()
+            .execution_options(populate_existing=True)
         )
     )
     if not receipts:
@@ -482,31 +903,55 @@ async def _load_context(session: Any, publish_job_id: UUID, observed_at: datetim
     )
 
 
-async def _revalidate_claim(session: Any, context: _PublishContext) -> None:
+async def _revalidate_claim(session: Any, context: _PublishContext) -> PublishJob:
     revision = await session.scalar(
         select(PlatformVariantRevision)
         .where(PlatformVariantRevision.id == context.revision_id)
         .with_for_update()
+        .execution_options(populate_existing=True)
+    )
+    publish_job = await session.scalar(
+        select(PublishJob)
+        .where(PublishJob.id == context.publish_job_id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
     )
     dispatch = (
         await session.scalar(
             select(AutomationDispatch)
             .where(AutomationDispatch.id == context.dispatch_id)
             .with_for_update()
+            .execution_options(populate_existing=True)
         )
         if context.dispatch_id is not None
         else None
     )
-    destination = await session.scalar(
-        select(Destination).where(Destination.id == context.destination_id).with_for_update()
-    )
     route = await session.scalar(
-        select(AutomationRoute).where(AutomationRoute.id == context.route_id).with_for_update()
+        select(AutomationRoute)
+        .where(AutomationRoute.id == context.route_id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
     )
     control = await session.scalar(
-        select(AutomationControl).where(AutomationControl.id == "global").with_for_update()
+        select(AutomationControl)
+        .where(AutomationControl.id == "global")
+        .with_for_update()
+        .execution_options(populate_existing=True)
     )
-    if revision is None or dispatch is None or route is None or destination is None or control is None:
+    destination = await session.scalar(
+        select(Destination)
+        .where(Destination.id == context.destination_id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
+    if (
+        revision is None
+        or publish_job is None
+        or dispatch is None
+        or route is None
+        or destination is None
+        or control is None
+    ):
         raise NeedsReviewJobError(
             code="telegram_publish_context_drift",
             message="Telegram publish context changed before dispatch",
@@ -534,6 +979,9 @@ async def _revalidate_claim(session: Any, context: _PublishContext) -> None:
         or destination.health_status != "healthy"
         or destination.secret_ref != context.destination_secret_ref
         or destination.target_ref != context.target_ref
+        or publish_job.platform_variant_revision_id != revision.id
+        or publish_job.destination_id != destination.id
+        or publish_job.payload_hash != context.plan.payload_hash
     ):
         raise NeedsReviewJobError(
             code="telegram_publish_context_drift",
@@ -544,9 +992,29 @@ async def _revalidate_claim(session: Any, context: _PublishContext) -> None:
             code="telegram_publish_source_drift",
             message="Telegram revision no longer matches its source dispatch",
         )
-    variant = await session.get(PlatformVariant, revision.platform_variant_id)
-    pack = await session.get(ContentPack, variant.content_pack_id) if variant is not None else None
-    story_revision = await session.get(StoryRevision, pack.story_revision_id) if pack is not None else None
+    variant = await session.get(
+        PlatformVariant,
+        revision.platform_variant_id,
+        populate_existing=True,
+    )
+    pack = (
+        await session.get(
+            ContentPack,
+            variant.content_pack_id,
+            populate_existing=True,
+        )
+        if variant is not None
+        else None
+    )
+    story_revision = (
+        await session.get(
+            StoryRevision,
+            pack.story_revision_id,
+            populate_existing=True,
+        )
+        if pack is not None
+        else None
+    )
     try:
         citations = [TelegramEvidenceCitation.model_validate(item) for item in revision.evidence_map]
     except Exception:
@@ -558,7 +1026,7 @@ async def _revalidate_claim(session: Any, context: _PublishContext) -> None:
         await session.scalars(
             select(StoryEvidenceSnapshot).where(
                 StoryEvidenceSnapshot.id.in_([item.evidence_snapshot_id for item in citations])
-            )
+            ).execution_options(populate_existing=True)
         )
     )
     try:
@@ -575,7 +1043,11 @@ async def _revalidate_claim(session: Any, context: _PublishContext) -> None:
             message="Telegram evidence lineage changed before dispatch",
         )
     if content.media_policy == "preserve" and content.media_asset_ids:
-        source_item = await session.get(SourceItem, dispatch.source_item_id)
+        source_item = await session.get(
+            SourceItem,
+            dispatch.source_item_id,
+            populate_existing=True,
+        )
         linked_ids = (
             set(
                 await session.scalars(
@@ -594,7 +1066,9 @@ async def _revalidate_claim(session: Any, context: _PublishContext) -> None:
             )
     media = list(
         await session.scalars(
-            select(MediaAsset).where(MediaAsset.id.in_(list(content.media_asset_ids)))
+            select(MediaAsset)
+            .where(MediaAsset.id.in_(list(content.media_asset_ids)))
+            .execution_options(populate_existing=True)
         )
     )
     try:
@@ -622,6 +1096,7 @@ async def _revalidate_claim(session: Any, context: _PublishContext) -> None:
             code="telegram_publish_plan_drift",
             message="Telegram publish operations changed before dispatch",
         )
+    return publish_job
 
 
 async def _record_failure(
@@ -742,7 +1217,10 @@ async def publish_telegram(
     except (NeedsReviewJobError, PermanentJobError) as exc:
         async with session.begin():
             publish_job = await session.scalar(
-                select(PublishJob).where(PublishJob.id == publish_job_id).with_for_update()
+                select(PublishJob)
+                .where(PublishJob.id == publish_job_id)
+                .with_for_update()
+                .execution_options(populate_existing=True)
             )
             if publish_job is not None:
                 publish_job.status = "attention"
@@ -783,18 +1261,21 @@ async def publish_telegram(
         claim_error: NeedsReviewJobError | None = None
         competing_claim = False
         async with session.begin():
-            publish_job = await session.scalar(
-                select(PublishJob).where(PublishJob.id == prepared.publish_job_id).with_for_update()
-            )
+            try:
+                publish_job = await _revalidate_claim(session, prepared)
+            except NeedsReviewJobError as exc:
+                claim_error = exc
+                publish_job = await session.scalar(
+                    select(PublishJob)
+                    .where(PublishJob.id == prepared.publish_job_id)
+                    .with_for_update()
+                    .execution_options(populate_existing=True)
+                )
             if publish_job is None:
                 raise NeedsReviewJobError(
                     code="telegram_publish_job_missing",
                     message="Telegram publish job is missing",
                 )
-            try:
-                await _revalidate_claim(session, prepared)
-            except NeedsReviewJobError as exc:
-                claim_error = exc
             receipt = await session.scalar(
                 select(PublishOperationReceipt)
                 .where(
@@ -810,7 +1291,11 @@ async def publish_telegram(
                     message="Telegram publish receipt is missing",
                 )
             if claim_error is not None:
-                attempt = await session.get(PublishAttempt, prepared.attempt_id)
+                attempt = await session.get(
+                    PublishAttempt,
+                    prepared.attempt_id,
+                    populate_existing=True,
+                )
                 publish_job.status = "attention"
                 if attempt is not None and attempt.status == "running":
                     attempt.status = "needs_review"
@@ -823,7 +1308,11 @@ async def publish_telegram(
             elif receipt.status == "dispatching":
                 competing_claim = True
                 retry_at = (receipt.updated_at or claim_time) + timedelta(minutes=5)
-                attempt = await session.get(PublishAttempt, prepared.attempt_id)
+                attempt = await session.get(
+                    PublishAttempt,
+                    prepared.attempt_id,
+                    populate_existing=True,
+                )
                 if attempt is not None and attempt.status == "running":
                     attempt.status = "failed"
                     attempt.error_class = "retryable"
@@ -835,7 +1324,11 @@ async def publish_telegram(
                     code="telegram_publish_receipt_not_sendable",
                     message="Telegram publish receipt requires attention",
                 )
-                attempt = await session.get(PublishAttempt, prepared.attempt_id)
+                attempt = await session.get(
+                    PublishAttempt,
+                    prepared.attempt_id,
+                    populate_existing=True,
+                )
                 if receipt.status == "ambiguous":
                     publish_job.status = "reconciliation_required"
                 else:

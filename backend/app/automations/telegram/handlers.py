@@ -1584,6 +1584,7 @@ async def _route_parent_revision(
             PlatformVariantRevision.revision_number.desc(),
         )
         .limit(1)
+        .execution_options(populate_existing=True)
     )
 
 
@@ -2194,7 +2195,6 @@ def build_telegram_process_handler(profile_resolver: Any) -> JobHandler:
             dispatch = await session.scalar(
                 select(AutomationDispatch)
                 .where(AutomationDispatch.id == payload.dispatch_id)
-                .with_for_update()
                 .execution_options(populate_existing=True)
             )
             if dispatch is None:
@@ -2236,51 +2236,24 @@ def build_telegram_process_handler(profile_resolver: Any) -> JobHandler:
             route = await session.scalar(
                 select(AutomationRoute)
                 .where(AutomationRoute.id == dispatch.route_id)
-                .with_for_update()
                 .execution_options(populate_existing=True)
             )
             story_revision = await session.get(StoryRevision, dispatch.story_revision_id)
             source_item = await session.get(SourceItem, dispatch.source_item_id)
-            control = await session.scalar(
-                select(AutomationControl).where(AutomationControl.id == "global").with_for_update()
-            )
             if route is None or story_revision is None or source_item is None:
                 raise PermanentJobError(
                     code="telegram_dispatch_context_missing",
                     message="Telegram dispatch context is incomplete",
                 )
-            destination = await session.scalar(
-                select(Destination)
-                .where(Destination.id == route.destination_id)
-                .with_for_update()
-                .execution_options(populate_existing=True)
+            provisional_dispatch_identity = (
+                dispatch.route_id,
+                dispatch.story_revision_id,
+                dispatch.source_item_id,
+                dispatch.generation_run_id,
+                dispatch.creation_sequence,
+                dispatch.dispatch_kind,
             )
-            if destination is None:
-                raise PermanentJobError(
-                    code="telegram_destination_missing",
-                    message="Telegram destination was not found",
-                )
-            snapshot = await _exact_dispatch_evidence(session, story_revision.id)
-            evidence_map = build_evidence_map(snapshot)
-            content_item, media = await _dispatch_media(session, source_item)
-            media_ids, media_ready, media_reason = _media_decision(route, media)
-            output = TelegramRewriteOutput.model_validate(run.output_payload["output"])
-            content = TelegramVariantContent(
-                body=output.body,
-                parse_mode=output.parse_mode,
-                buttons=output.buttons,
-                source_item_id=dispatch.source_item_id,
-                source_url=source_item.source_url,
-                media_policy=route.media_policy,
-                media_asset_ids=media_ids if route.media_policy == "preserve" else [],
-                direction=content_item.direction or "ltr",
-                dry_run=dispatch.dispatch_kind == "dry_run",
-            ).model_dump(mode="json")
-            validation_results = [
-                {"gate": "telegram_schema", "ok": True, "reason": None},
-                {"gate": "evidence", "ok": True, "reason": None},
-                {"gate": "media", "ok": media_ready, "reason": media_reason},
-            ]
+            provisional_route_brand_profile_id = route.brand_profile_id
             unresolved_earlier = await session.scalar(
                 select(AutomationDispatch)
                 .join(StoryRevision, StoryRevision.id == AutomationDispatch.story_revision_id)
@@ -2325,6 +2298,112 @@ def build_telegram_process_handler(profile_resolver: Any) -> JobHandler:
                 story_revision=story_revision,
                 parent=parent,
             )
+            locked_dispatch = await session.scalar(
+                select(AutomationDispatch)
+                .where(AutomationDispatch.id == payload.dispatch_id)
+                .with_for_update()
+                .execution_options(populate_existing=True)
+            )
+            if locked_dispatch is None:
+                raise PermanentJobError(
+                    code="telegram_dispatch_missing",
+                    message="Telegram automation dispatch was not found",
+                )
+            if locked_dispatch.variant_revision_id is not None:
+                return {
+                    "dispatch_id": str(locked_dispatch.id),
+                    "revision_id": str(locked_dispatch.variant_revision_id),
+                    "publish_job_id": (
+                        str(locked_dispatch.publish_job_id)
+                        if locked_dispatch.publish_job_id
+                        else None
+                    ),
+                    "idempotent": True,
+                }
+            if (
+                locked_dispatch.route_id,
+                locked_dispatch.story_revision_id,
+                locked_dispatch.source_item_id,
+                locked_dispatch.generation_run_id,
+                locked_dispatch.creation_sequence,
+                locked_dispatch.dispatch_kind,
+            ) != provisional_dispatch_identity:
+                raise NeedsReviewJobError(
+                    code="telegram_dispatch_identity_drift",
+                    message="Telegram dispatch identity changed before revision persistence",
+                )
+            dispatch = locked_dispatch
+            locked_route = await session.scalar(
+                select(AutomationRoute)
+                .where(AutomationRoute.id == dispatch.route_id)
+                .with_for_update()
+                .execution_options(populate_existing=True)
+            )
+            if locked_route is None:
+                raise PermanentJobError(
+                    code="telegram_route_missing",
+                    message="Telegram automation route was not found",
+                )
+            if locked_route.brand_profile_id != provisional_route_brand_profile_id:
+                raise NeedsReviewJobError(
+                    code="telegram_route_identity_drift",
+                    message="Telegram route identity changed before revision persistence",
+                )
+            route = locked_route
+            refreshed_parent = await _route_parent_revision(
+                session,
+                dispatch=dispatch,
+                story_id=story_revision.story_id,
+            )
+            if refreshed_parent is not None and refreshed_parent.platform_variant_id != variant.id:
+                raise RetryableJobError(
+                    code="telegram_route_lineage_changed",
+                    message="Telegram route lineage changed before revision persistence",
+                )
+            if refreshed_parent is None and parent is not None:
+                raise NeedsReviewJobError(
+                    code="telegram_route_lineage_invalid",
+                    message="Telegram route lineage disappeared before revision persistence",
+                )
+            parent = refreshed_parent
+            control = await session.scalar(
+                select(AutomationControl)
+                .where(AutomationControl.id == "global")
+                .with_for_update()
+                .execution_options(populate_existing=True)
+            )
+            destination = await session.scalar(
+                select(Destination)
+                .where(Destination.id == route.destination_id)
+                .with_for_update()
+                .execution_options(populate_existing=True)
+            )
+            if destination is None:
+                raise PermanentJobError(
+                    code="telegram_destination_missing",
+                    message="Telegram destination was not found",
+                )
+            snapshot = await _exact_dispatch_evidence(session, story_revision.id)
+            evidence_map = build_evidence_map(snapshot)
+            content_item, media = await _dispatch_media(session, source_item)
+            media_ids, media_ready, media_reason = _media_decision(route, media)
+            output = TelegramRewriteOutput.model_validate(run.output_payload["output"])
+            content = TelegramVariantContent(
+                body=output.body,
+                parse_mode=output.parse_mode,
+                buttons=output.buttons,
+                source_item_id=dispatch.source_item_id,
+                source_url=source_item.source_url,
+                media_policy=route.media_policy,
+                media_asset_ids=media_ids if route.media_policy == "preserve" else [],
+                direction=content_item.direction or "ltr",
+                dry_run=dispatch.dispatch_kind == "dry_run",
+            ).model_dump(mode="json")
+            validation_results = [
+                {"gate": "telegram_schema", "ok": True, "reason": None},
+                {"gate": "evidence", "ok": True, "reason": None},
+                {"gate": "media", "ok": media_ready, "reason": media_reason},
+            ]
             await _require_automation_variant_write_allowed(session, variant.id)
             revision_number = (
                 int(
