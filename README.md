@@ -89,6 +89,30 @@ The API service runs Alembic migrations before Uvicorn starts.
 
 Source access uses `TELEGRAM_SOURCE_EDITOR_API_ID`, `TELEGRAM_SOURCE_EDITOR_API_HASH`, and `TELEGRAM_SOURCE_EDITOR_SESSION`. Generation uses `OPENROUTER_API_KEY` only when an enabled OpenRouter profile references it. Publishing alone receives `TELEGRAM_DESTINATION_NEWS_TOKEN`. The scheduler receives none of these values.
 
+### Deterministic release acceptance
+
+The Release 5 smoke uses the fake AI provider, dry-run-only publishing, and a bundled Telegram
+album fixture. It needs no external credentials or network requests. The acceptance override
+enables that fixture only in the source/generation worker with `APP_ENV=test`; the backend
+rejects the fixture setting in every other environment.
+
+```bash
+docker network inspect contenthub_default >/dev/null 2>&1 || \
+  docker network create contenthub_default
+docker compose -f docker-compose.yml -f docker-compose.acceptance.yml \
+  up -d --build postgres api worker-source-generation worker-publishing scheduler frontend
+python scripts/smoke.py \
+  --base-url http://127.0.0.1:8000 \
+  --provider fake \
+  --telegram-mode dry-run \
+  --output-dir ./smoke-results
+docker compose -f docker-compose.yml -f docker-compose.acceptance.yml ps
+```
+
+Do not use `docker-compose.acceptance.yml` as a deployment configuration. See the
+[Release 5 acceptance evidence](docs/operations/release-acceptance.md) for the complete test,
+migration, browser, Compose, and environmental-gate checklist.
+
 ### Research and generation
 
 Manual source intake and evidence-backed research are operated from Inbox. Generated Telegram,
@@ -263,6 +287,7 @@ Use `127.0.0.1` only for backend commands that run directly on the host. Docker 
 
 ## Documentation
 
+- Release 5 acceptance: [evidence and rerun checklist](docs/operations/release-acceptance.md)
 - Multi-platform manual publishing: [operator runbook](docs/operations/manual-publishing-packages.md)
 - Research and generation: [operator runbook](docs/operations/research-and-generation.md)
 - Backend ingestion details: `docs/ingestion-backend.md`

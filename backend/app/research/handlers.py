@@ -27,7 +27,7 @@ from app.research.continuations import (
     normalize_continuation,
 )
 from app.research.models import ResearchAttempt, ResearchRun, ResearchSource
-from app.research.schemas import CandidateResearchBrief, DiscoveredSourcePayload, ResearchBudget
+from app.research.schemas import DiscoveredSourcePayload, ResearchBudget
 from app.research.service import ResearchRequestError, ResearchService, evidence_set_hash
 from app.stories.evidence import EvidenceRecord, build_evidence_key
 from app.stories.models import Story, StoryEvidenceLink, StoryEvidenceSnapshot, StoryRevision
@@ -44,26 +44,12 @@ class DefaultResearchBackendResolver:
     async def __call__(self, profile: AIProviderProfile) -> ResearchBackend:
         from app.research.codex_adapter import CodexResearchBackend
         from app.research.duckduckgo import DuckDuckGoSearchClient
-        from app.research.fake import FakeResearchBackend
+        from app.research.fake import EvidenceGroundedFakeResearchBackend
         from app.research.openrouter_loop import OpenRouterResearchBackend
         from app.research.safe_fetch import SafeArticleFetcher
 
         if profile.provider_type == "fake":
-            from app.research.base import ResearchBackendOutput
-
-            return FakeResearchBackend(
-                output=ResearchBackendOutput(
-                    sources=[],
-                    brief=CandidateResearchBrief(
-                        summary="No additional research evidence was configured.",
-                        verified_facts=[],
-                        disagreements=[],
-                        missing_information=[],
-                        suggested_angles=[],
-                        discovered_evidence_keys=[],
-                    ),
-                )
-            )
+            return EvidenceGroundedFakeResearchBackend()
         if profile.provider_type == "codex":
             executable = shutil.which(settings.codex_executable)
             if executable is None:

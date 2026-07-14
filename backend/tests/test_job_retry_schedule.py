@@ -63,5 +63,8 @@ class LockedJobRepository(JobRepository):
     async def _locked_job(self, job_id):
         return self.job if self.job.id == job_id else None
 
+    async def _locked_retention_run(self, job_id):
+        return None
+
     async def _append_event(self, **event):
         self.events.append(event)

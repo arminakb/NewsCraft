@@ -33,6 +33,21 @@ def test_fault_injection_profile_is_accepted_only_for_test_environment(
     assert configured.failure_injection_profile == "worker_after_claim"
 
 
+def test_telegram_acceptance_fixture_is_test_environment_only(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("APP_ENV", "production")
+    monkeypatch.setenv("TELEGRAM_ACCEPTANCE_FIXTURE_PATH", "/fixtures/album.html")
+
+    with pytest.raises(SettingsError, match="Telegram acceptance fixture requires APP_ENV=test"):
+        Settings(_env_file=None)
+
+    monkeypatch.setenv("APP_ENV", "test")
+    configured = Settings(_env_file=None)
+
+    assert configured.telegram_acceptance_fixture_path == "/fixtures/album.html"
+
+
 @pytest.mark.asyncio
 async def test_noop_fault_injector_never_interrupts_a_named_point() -> None:
     await NoopFaultInjector().hit("worker.after_claim", {"job_id": str(uuid4())})

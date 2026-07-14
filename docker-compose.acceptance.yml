@@ -1,0 +1,7 @@
+services:
+  worker-source-generation:
+    environment:
+      APP_ENV: test
+      TELEGRAM_ACCEPTANCE_FIXTURE_PATH: /acceptance-fixtures/telegram_public_album.html
+    volumes:
+      - ./backend/tests/fixtures:/acceptance-fixtures:ro

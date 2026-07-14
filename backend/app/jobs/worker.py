@@ -120,17 +120,30 @@ def _build_source_dependencies(owner: HttpClientOwner) -> dict[str, Any]:
     from app.automations.telegram.registry import TelegramSourceRegistry
     from app.core.secrets import EnvironmentSecretResolver
 
+    if settings.telegram_acceptance_fixture_path:
+        from app.automations.telegram.acceptance_fixture import (
+            TelegramAcceptanceFixtureTransport,
+        )
+
+        public_html_client = owner.get(
+            "telegram-public-html-acceptance",
+            timeout=30.0,
+            follow_redirects=True,
+            trust_env=False,
+            transport=TelegramAcceptanceFixtureTransport(settings.telegram_acceptance_fixture_path),
+        )
+    else:
+        public_html_client = owner.get(
+            "telegram-public-html",
+            timeout=30.0,
+            follow_redirects=True,
+            trust_env=True,
+        )
+
     source_registry = TelegramSourceRegistry()
     source_registry.register(
         "public_html",
-        PublicHtmlTelegramAdapter(
-            owner.get(
-                "telegram-public-html",
-                timeout=30.0,
-                follow_redirects=True,
-                trust_env=True,
-            )
-        ),
+        PublicHtmlTelegramAdapter(public_html_client),
     )
     source_registry.register(
         "mtproto_user",

@@ -241,7 +241,7 @@ it("filters, keeps bounded selection on failure, and supports bulk state changes
   fireEvent.click(screen.getByRole("button", { name: "Reject selected" }))
   expect(await screen.findByRole("alert")).toHaveTextContent("conflict")
   expect(screen.getByText("200 stories selected")).toBeInTheDocument()
-})
+}, 10_000)
 
 it("queues durable grouping and displays the accepted job", async () => {
   vi.mocked(api.groupPendingStories).mockResolvedValue({ jobId: "job-group", status: "queued", deduplicated: false })

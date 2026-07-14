@@ -738,6 +738,7 @@ async def _invoke(
         metadata={
             "provider_profile_id": str(profile.id),
             "prompt_template_version_id": str(prompt.id),
+            "input_payload": dict(input_payload),
         },
     )
     provider_completed = False

@@ -265,6 +265,24 @@ def test_compose_has_ephemeral_postgres_test_profile():
     assert "/var/lib/postgresql" in service["tmpfs"]
 
 
+def test_acceptance_compose_enables_fixture_only_for_source_worker():
+    acceptance = yaml.safe_load(
+        (ROOT / "docker-compose.acceptance.yml").read_text(encoding="utf-8")
+    )
+    source_worker = acceptance["services"]["worker-source-generation"]
+
+    assert source_worker["environment"] == {
+        "APP_ENV": "test",
+        "TELEGRAM_ACCEPTANCE_FIXTURE_PATH": (
+            "/acceptance-fixtures/telegram_public_album.html"
+        ),
+    }
+    assert source_worker["volumes"] == [
+        "./backend/tests/fixtures:/acceptance-fixtures:ro"
+    ]
+    assert set(acceptance["services"]) == {"worker-source-generation"}
+
+
 def test_dockerignore_excludes_local_build_noise():
     dockerignore = (ROOT / ".dockerignore").read_text(encoding="utf-8")
 

@@ -59,6 +59,23 @@ describe("PublicationCalendar", () => {
     expect(view.container.querySelector("main")).not.toBeInTheDocument()
   })
 
+  it("nests every calendar header and cell in an ARIA row", () => {
+    renderCalendar({ events: [telegramEvent], timezone: "Asia/Tehran" })
+
+    const grid = screen.getByRole("grid")
+    const rowGroups = within(grid).getAllByRole("rowgroup")
+    expect(rowGroups).toHaveLength(2)
+    for (const row of within(grid).getAllByRole("row")) {
+      expect(row.parentElement).toHaveAttribute("role", "rowgroup")
+    }
+    for (const cell of [
+      ...within(grid).getAllByRole("columnheader"),
+      ...within(grid).getAllByRole("gridcell", { hidden: true }),
+    ]) {
+      expect(cell.parentElement).toHaveAttribute("role", "row")
+    }
+  })
+
   it("switches to a chronological list and filters only by persisted platform and status", () => {
     const cancelledBlog: CalendarEvent = {
       id: "manual:cccccccc-cccc-4ccc-8ccc-cccccccccccc",

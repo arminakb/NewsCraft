@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 from dataclasses import fields
 from typing import get_type_hints
@@ -7,6 +8,8 @@ from uuid import uuid4
 
 import pytest
 
+from app.generation.canonical import CanonicalStoryOutput
+from app.generation.platform_schemas import BlogVariantPayload, InstagramVariantPayload, XVariantPayload
 from app.generation.providers.base import (
     GenerationProvider,
     GenerationProviderRequest,
@@ -20,6 +23,7 @@ from app.generation.providers.registry import (
     UnknownProviderError,
     build_default_provider_registry,
 )
+from app.generation.telegram_schema import TelegramRewriteOutput
 
 
 def _request() -> GenerationProviderRequest:
@@ -92,6 +96,78 @@ async def test_fake_provider_default_output_is_stable():
 
     assert result.output == {"status": "ok"}
     assert result.raw_text == '{"status":"ok"}'
+
+
+async def test_default_fake_provider_completes_cited_four_platform_acceptance_outputs():
+    content = "The deterministic source confirms the NewsCraft acceptance release."
+    snapshot_id = uuid4()
+    evidence = [
+        {
+            "evidence_snapshot_id": str(snapshot_id),
+            "evidence_key": "operator-text:" + "a" * 64,
+            "source_url": "https://example.test/release",
+            "title": "Acceptance release",
+            "content_text": content,
+            "content_sha256": hashlib.sha256(content.encode()).hexdigest(),
+        },
+        {
+            "evidence_snapshot_id": str(uuid4()),
+            "evidence_key": "operator-text:" + "b" * 64,
+            "source_url": None,
+            "title": "Media-only evidence",
+            "content_text": "",
+            "content_sha256": hashlib.sha256(b"").hexdigest(),
+        },
+    ]
+    provider = DeterministicFakeProvider()
+    canonical_result = await provider.generate(
+        GenerationProviderRequest(
+            run_id=uuid4(),
+            purpose="canonical_story",
+            requested_model="fake-v1",
+            messages=(
+                ProviderMessage(role="system", content="Return canonical JSON."),
+                ProviderMessage(
+                    role="user",
+                    content="داستان و شواهد را با قالب سفارشی پردازش کن.",
+                ),
+            ),
+            response_schema={},
+            metadata={"input_payload": {"evidence_json": json.dumps(evidence)}},
+        )
+    )
+    canonical = CanonicalStoryOutput.model_validate(canonical_result.output)
+    citation = canonical.facts[0].citations[0]
+    assert citation.evidence_snapshot_id == snapshot_id
+    assert citation.excerpt_sha256 == hashlib.sha256(content.encode()).hexdigest()
+
+    canonical_json = json.dumps(canonical.model_dump(mode="json"))
+    models = {
+        "telegram_pack": TelegramRewriteOutput,
+        "instagram_pack": InstagramVariantPayload,
+        "x_pack": XVariantPayload,
+        "blog_pack": BlogVariantPayload,
+    }
+    for purpose, model in models.items():
+        result = await provider.generate(
+            GenerationProviderRequest(
+                run_id=uuid4(),
+                purpose=purpose,
+                requested_model="fake-v1",
+                messages=(
+                    ProviderMessage(role="system", content="Return platform JSON."),
+                    ProviderMessage(
+                        role="user",
+                        content="خروجی شبکه را با قالب سفارشی ایجاد کن.",
+                    ),
+                ),
+                response_schema={},
+                metadata={
+                    "input_payload": {"canonical_story_json": canonical_json}
+                },
+            )
+        )
+        model.model_validate(result.output)
 
 
 def test_provider_registry_registers_and_returns_exact_provider():

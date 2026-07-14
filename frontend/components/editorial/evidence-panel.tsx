@@ -34,8 +34,12 @@ export function EvidencePanel({ evidence, activeCitation, onSelectCitation }: { 
           {integrity === "failed" ? <div role="alert" className="text-red-700">Citation integrity verification failed. Approval-safe excerpt and source link are hidden.</div> : null}
           <DirectionBoundary as="p" language={null} className="max-h-72 overflow-auto whitespace-pre-wrap break-words text-sm">{selected.contentText}</DirectionBoundary>
           <dl className="grid gap-1 break-all text-xs text-muted-foreground">
-            {activeCitation ? <><div>Locator {activeCitation.locator}</div><div>Excerpt hash {activeCitation.excerptSha256}</div></> : null}
-            <div>Snapshot hash {selected.contentSha256}</div><div>Captured {new Date(selected.capturedAt).toLocaleString()}</div>
+            {activeCitation ? <>
+              <dt>Locator</dt><dd>{activeCitation.locator}</dd>
+              <dt>Excerpt hash</dt><dd>{activeCitation.excerptSha256}</dd>
+            </> : null}
+            <dt>Snapshot hash</dt><dd>{selected.contentSha256}</dd>
+            <dt>Captured</dt><dd>{new Date(selected.capturedAt).toLocaleString()}</dd>
           </dl>
           {selected.sourceUrl && (!activeCitation || integrity === "verified") ? <a href={selected.sourceUrl} target="_blank" rel="noreferrer" className="inline-flex text-primary underline">Open original source</a> : null}
         </article>

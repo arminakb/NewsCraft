@@ -36,3 +36,15 @@ it("uses automatic direction for evidence without a persisted evidence language"
   expect(screen.getByText("متن منبع").closest("[data-testid='direction-boundary']")).not.toHaveAttribute("lang")
   expect(screen.getByText(/Snapshot hash/).closest("[data-testid='direction-boundary']")).toBeNull()
 })
+
+it("uses valid definition terms and descriptions for evidence metadata", () => {
+  const { container } = render(
+    <EvidencePanel evidence={[evidence]} activeCitation={citation} />,
+  )
+
+  const list = container.querySelector("dl")
+  expect(list).not.toBeNull()
+  expect(Array.from(list!.children, (child) => child.tagName)).toEqual([
+    "DT", "DD", "DT", "DD", "DT", "DD", "DT", "DD",
+  ])
+})

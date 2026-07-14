@@ -1,11 +1,14 @@
 import asyncio
 import sys
 from datetime import UTC, datetime
+from pathlib import Path
 from types import SimpleNamespace
 from uuid import uuid4
 
+import httpx
 import pytest
 
+from app.automations.telegram.contracts import TelegramFetchRequest
 from app.generation.providers.registry import build_default_provider_registry
 from app.jobs import worker as worker_module
 from app.jobs.errors import NeedsReviewJobError, PermanentJobError, RetryableJobError
@@ -578,3 +581,35 @@ def test_source_generation_real_builders_never_resolve_destination_secret(monkey
     worker_module._build_generation_dependencies(FakeOwner())
 
     assert secret_calls == []
+
+
+async def test_source_builder_uses_explicit_test_only_telegram_fixture(monkeypatch):
+    clients = []
+
+    class FakeOwner:
+        def get(self, purpose, **configuration):
+            assert purpose == "telegram-public-html-acceptance"
+            client = httpx.AsyncClient(transport=configuration["transport"])
+            clients.append(client)
+            return client
+
+    monkeypatch.setattr(
+        worker_module.settings,
+        "telegram_acceptance_fixture_path",
+        str(Path("tests/fixtures/telegram_public_album.html")),
+    )
+
+    dependencies = worker_module._build_source_dependencies(FakeOwner())
+    adapter = dependencies["source_registry"].get("public_html")
+    result = await adapter.fetch(
+        TelegramFetchRequest(
+            channel_ref="example_channel",
+            after_id=41,
+            before_id=None,
+            limit=20,
+        )
+    )
+
+    assert [item.message_ids for item in result.envelopes] == [(42, 43, 44)]
+    for client in clients:
+        await client.aclose()

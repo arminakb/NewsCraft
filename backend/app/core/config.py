@@ -34,11 +34,14 @@ class Settings(BaseSettings):
     telegram_media_staging_root: str = "/data/telegram-staging"
     telegram_max_photo_bytes: int = Field(default=10_000_000, gt=0)
     telegram_max_file_bytes: int = Field(default=49_000_000, gt=0)
+    telegram_acceptance_fixture_path: str | None = None
 
     def __init__(self, **values: Any) -> None:
         super().__init__(**values)
         if self.failure_injection_profile and self.app_env != "test":
             raise SettingsError("failure injection requires APP_ENV=test")
+        if self.telegram_acceptance_fixture_path and self.app_env != "test":
+            raise SettingsError("Telegram acceptance fixture requires APP_ENV=test")
 
     @field_validator("scheduler_timezone")
     @classmethod

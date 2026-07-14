@@ -8,6 +8,7 @@ from types import SimpleNamespace
 import httpx
 import pytest
 
+from app.automations.telegram.acceptance_fixture import TelegramAcceptanceFixtureTransport
 from app.automations.telegram.contracts import (
     TelegramEnvelope,
     TelegramFetchRequest,
@@ -93,6 +94,21 @@ async def test_public_html_adapter_returns_ordered_album_and_respects_after_id()
     assert [media.kind for media in result.envelopes[1].media] == ["photo", "video", "document"]
     assert result.snapshot_token
     assert result.complete is True
+    await client.aclose()
+
+
+async def test_test_only_acceptance_transport_serves_album_and_materializes_media(tmp_path):
+    transport = TelegramAcceptanceFixtureTransport(Path("tests/fixtures/telegram_public_album.html"))
+    client = httpx.AsyncClient(transport=transport)
+    adapter = PublicHtmlTelegramAdapter(client)
+
+    result = await adapter.fetch(_request(after_id=41))
+    assert [item.message_ids for item in result.envelopes] == [(42, 43, 44)]
+
+    materialized = await adapter.materialize_media(result.envelopes[0], tmp_path)
+    assert [item.reference.kind for item in materialized] == ["photo", "video", "document"]
+    assert all(item.path.read_bytes() for item in materialized)
+    assert all(len(item.checksum_sha256) == 64 for item in materialized)
     await client.aclose()
 
 

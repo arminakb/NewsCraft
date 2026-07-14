@@ -16,7 +16,7 @@ from app.generation.provider_settings import default_research_budgets
 from app.jobs.errors import NeedsReviewJobError
 from app.jobs.models import WorkflowEvent, WorkflowJob
 from app.jobs.registry import JobContext
-from app.research.base import ResearchBackendOutput, ResearchResult, ResearchUsage
+from app.research.base import ResearchBackendOutput, ResearchRequest, ResearchResult, ResearchUsage
 from app.research.continuations import append_unique_continuation, enqueue_bound_continuation
 from app.research.fake import FakeResearchBackend
 from app.research.handlers import (
@@ -35,6 +35,7 @@ from app.research.schemas import (
     ResearchBudget,
 )
 from app.research.service import ResearchRequestError, evidence_set_hash
+from app.stories.evidence import EvidenceRecord
 from app.stories.models import Story, StoryEvidenceLink, StoryEvidenceSnapshot, StoryRevision
 
 
@@ -70,8 +71,93 @@ def test_continuation_is_constrained_to_telegram_process():
 
 async def test_default_fake_backend_resolution_is_db_and_network_free():
     resolver = DefaultResearchBackendResolver(SimpleNamespace())
-    backend = await resolver(SimpleNamespace(id=uuid4(), provider_type="fake", settings={}, secret_ref=None))
+    profile_id = uuid4()
+    backend = await resolver(SimpleNamespace(id=profile_id, provider_type="fake", settings={}, secret_ref=None))
     assert isinstance(backend, FakeResearchBackend)
+
+    content = "The operator evidence confirms the deterministic acceptance release."
+    digest = sha256(content.encode()).hexdigest()
+    evidence = EvidenceRecord(
+        evidence_key=f"operator-text:{digest}",
+        evidence_snapshot_id=uuid4(),
+        content_item_id=None,
+        title="Acceptance release",
+        content_text=content,
+        content_sha256=digest,
+        source_url=None,
+        authors=(),
+        published_at=None,
+        captured_at=datetime.now(UTC),
+    )
+    empty_evidence = EvidenceRecord(
+        evidence_key=f"operator-text:{sha256(b'').hexdigest()}",
+        evidence_snapshot_id=uuid4(),
+        content_item_id=None,
+        title="Media-only evidence",
+        content_text="",
+        content_sha256=sha256(b"").hexdigest(),
+        source_url=None,
+        authors=(),
+        published_at=None,
+        captured_at=datetime.now(UTC),
+    )
+    result = await backend.research(
+        ResearchRequest(
+            run_id=uuid4(),
+            story_id=uuid4(),
+            provider_profile_id=profile_id,
+            requested_model="fake-v1",
+            mode="manual",
+            evidence=[empty_evidence, evidence],
+            budget=ResearchBudget(),
+        )
+    )
+
+    assert result.output.sources == []
+    assert result.output.brief.discovered_evidence_keys == []
+    claim = result.output.brief.verified_facts[0]
+    assert claim.citations[0].evidence_key == evidence.evidence_key
+    assert claim.citations[0].locator == f"chars:0-{len(content)}"
+    assert claim.citations[0].excerpt_sha256 == digest
+
+
+async def test_default_fake_backend_reports_all_empty_evidence_without_invalid_citation():
+    resolver = DefaultResearchBackendResolver(SimpleNamespace())
+    profile_id = uuid4()
+    backend = await resolver(
+        SimpleNamespace(id=profile_id, provider_type="fake", settings={}, secret_ref=None)
+    )
+    digest = sha256(b"").hexdigest()
+    result = await backend.research(
+        ResearchRequest(
+            run_id=uuid4(),
+            story_id=uuid4(),
+            provider_profile_id=profile_id,
+            requested_model="fake-v1",
+            mode="manual",
+            evidence=[
+                EvidenceRecord(
+                    evidence_key=f"operator-text:{digest}",
+                    evidence_snapshot_id=uuid4(),
+                    content_item_id=None,
+                    title="Media-only evidence",
+                    content_text="",
+                    content_sha256=digest,
+                    source_url=None,
+                    authors=(),
+                    published_at=None,
+                    captured_at=datetime.now(UTC),
+                )
+            ],
+            budget=ResearchBudget(),
+        )
+    )
+
+    assert result.output.brief.verified_facts == []
+    assert result.output.brief.disagreements == []
+    assert result.output.brief.missing_information == [
+        "The supplied evidence contains no textual content to cite."
+    ]
 
 
 def _binding_values():

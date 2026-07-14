@@ -161,6 +161,7 @@ export function PublicationCalendar({
 function MonthGrid({ events, month, timezone }: { events: CalendarEvent[]; month: CalendarMonth; timezone: string }) {
   const firstWeekday = new Date(Date.UTC(month.year, month.month - 1, 1)).getUTCDay()
   const dayCount = new Date(Date.UTC(month.year, month.month, 0)).getUTCDate()
+  const weekCount = Math.ceil((firstWeekday + dayCount) / 7)
   const eventsByDay = new Map<string, CalendarEvent[]>()
   for (const event of events) {
     const key = dateKey(new Date(event.startsAt), timezone)
@@ -169,22 +170,30 @@ function MonthGrid({ events, month, timezone }: { events: CalendarEvent[]; month
 
   return (
     <div className="overflow-x-auto rounded-lg border" role="grid" aria-label={`${monthLabel(month)} calendar grid`}>
-      <div className="grid min-w-[840px] grid-cols-7 bg-muted/50" role="row">
-        {WEEKDAYS.map((weekday) => <div key={weekday} role="columnheader" className="border-b p-2 text-sm font-medium">{weekday}</div>)}
+      <div className="min-w-[840px] bg-muted/50" role="rowgroup">
+        <div className="grid grid-cols-7" role="row">
+          {WEEKDAYS.map((weekday) => <div key={weekday} role="columnheader" className="border-b p-2 text-sm font-medium">{weekday}</div>)}
+        </div>
       </div>
-      <div className="grid min-w-[840px] grid-cols-7">
-        {Array.from({ length: firstWeekday }, (_, index) => <div key={`before-${index}`} role="gridcell" aria-hidden="true" className="min-h-28 border-b border-e bg-muted/20" />)}
-        {Array.from({ length: dayCount }, (_, index) => {
-          const day = index + 1
-          const key = localDateKey(month.year, month.month, day)
-          const dayEvents = eventsByDay.get(key) ?? []
-          return (
-            <div key={key} role="gridcell" aria-label={key} className="min-h-28 space-y-2 border-b border-e p-2">
-              <div className="text-sm font-medium">{day}</div>
-              {dayEvents.length ? <ul className="space-y-2">{dayEvents.map((event) => <li key={event.id}><CalendarEventSummary event={event} timezone={timezone} compact /></li>)}</ul> : null}
-            </div>
-          )
-        })}
+      <div className="min-w-[840px]" role="rowgroup">
+        {Array.from({ length: weekCount }, (_, weekIndex) => (
+          <div key={`week-${weekIndex}`} className="grid grid-cols-7" role="row">
+            {Array.from({ length: 7 }, (_, weekdayIndex) => {
+              const day = weekIndex * 7 + weekdayIndex - firstWeekday + 1
+              if (day < 1 || day > dayCount) {
+                return <div key={`outside-${weekIndex}-${weekdayIndex}`} role="gridcell" aria-label={`Outside ${monthLabel(month)}`} className="min-h-28 border-b border-e bg-muted/20" />
+              }
+              const key = localDateKey(month.year, month.month, day)
+              const dayEvents = eventsByDay.get(key) ?? []
+              return (
+                <div key={key} role="gridcell" aria-label={key} className="min-h-28 space-y-2 border-b border-e p-2">
+                  <div className="text-sm font-medium">{day}</div>
+                  {dayEvents.length ? <ul className="space-y-2">{dayEvents.map((event) => <li key={event.id}><CalendarEventSummary event={event} timezone={timezone} compact /></li>)}</ul> : null}
+                </div>
+              )
+            })}
+          </div>
+        ))}
       </div>
     </div>
   )

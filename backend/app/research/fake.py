@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 from pathlib import Path
 
 from app.research.base import (
@@ -9,6 +10,7 @@ from app.research.base import (
     ResearchResult,
     ResearchUsage,
 )
+from app.research.schemas import CandidateCitation, CandidateClaim, CandidateResearchBrief
 
 
 class FakeResearchBackend:
@@ -26,7 +28,7 @@ class FakeResearchBackend:
         return cls(output=output)
 
     async def research(self, request: ResearchRequest) -> ResearchResult:
-        output = ResearchBackendOutput.model_validate(self._output.model_dump())
+        output = self._output_for(request)
         _validate_output(request, output)
         usage = self._build_usage(output)
         elapsed_ms = self._elapsed_ms()
@@ -44,6 +46,10 @@ class FakeResearchBackend:
             ],
         )
 
+    def _output_for(self, request: ResearchRequest) -> ResearchBackendOutput:
+        del request
+        return ResearchBackendOutput.model_validate(self._output.model_dump())
+
     def _build_usage(self, output: ResearchBackendOutput) -> ResearchUsage:
         return ResearchUsage(
             model_calls=1,
@@ -57,6 +63,71 @@ class FakeResearchBackend:
 
     def _elapsed_ms(self) -> int:
         return 0
+
+
+class EvidenceGroundedFakeResearchBackend(FakeResearchBackend):
+    """Build deterministic, citation-valid research from the request evidence."""
+
+    def __init__(self) -> None:
+        super().__init__(
+            output=ResearchBackendOutput(
+                sources=[],
+                brief=CandidateResearchBrief(
+                    summary="Deterministic research is grounded in the supplied evidence.",
+                    verified_facts=[],
+                    disagreements=[],
+                    missing_information=[],
+                    suggested_angles=[],
+                    discovered_evidence_keys=[],
+                ),
+            )
+        )
+
+    def _output_for(self, request: ResearchRequest) -> ResearchBackendOutput:
+        evidence = next((item for item in request.evidence if item.content_text), None)
+        if evidence is None:
+            return ResearchBackendOutput(
+                sources=[],
+                brief=CandidateResearchBrief(
+                    summary=(
+                        "The deterministic research backend found no textual evidence "
+                        "that could be cited."
+                    ),
+                    verified_facts=[],
+                    disagreements=[],
+                    missing_information=[
+                        "The supplied evidence contains no textual content to cite."
+                    ],
+                    suggested_angles=[],
+                    discovered_evidence_keys=[],
+                ),
+            )
+        content = evidence.content_text
+        return ResearchBackendOutput(
+            sources=[],
+            brief=CandidateResearchBrief(
+                summary=(
+                    "The deterministic research backend verified the supplied immutable "
+                    "evidence without network access."
+                ),
+                verified_facts=[
+                    CandidateClaim(
+                        text=content,
+                        citations=[
+                            CandidateCitation(
+                                evidence_key=evidence.evidence_key,
+                                locator=f"chars:0-{len(content)}",
+                                excerpt_sha256=hashlib.sha256(content.encode()).hexdigest(),
+                            )
+                        ],
+                    )
+                ],
+                disagreements=[],
+                missing_information=[],
+                suggested_angles=["Explain the verified evidence and its operational context."],
+                discovered_evidence_keys=[],
+            ),
+        )
 
 
 def _validate_output(request: ResearchRequest, output: ResearchBackendOutput) -> None:
@@ -103,4 +174,4 @@ def _validate_budget(
         raise ResearchBudgetExceeded("Research budget exceeded")
 
 
-__all__ = ["FakeResearchBackend"]
+__all__ = ["EvidenceGroundedFakeResearchBackend", "FakeResearchBackend"]
