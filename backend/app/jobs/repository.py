@@ -550,6 +550,35 @@ class JobRepository:
         await self.session.flush()
         return True
 
+    async def checkpoint_job(
+        self,
+        *,
+        job_id: UUID,
+        worker_id: str,
+        payload: dict[str, Any] | None = None,
+        result: dict[str, Any] | None = None,
+        now: datetime | None = None,
+    ) -> None:
+        """Persist handler checkpoints without exposing a WorkflowJob instance."""
+
+        if payload is None and result is None:
+            raise ValueError("a job checkpoint requires payload or result")
+        observed_at = _now(now)
+        job = await self._locked_job(job_id)
+        if job is None or not self._has_active_lease(job, worker_id=worker_id, now=observed_at):
+            raise self._invalid(job_id, action="checkpoint", job=job)
+        if payload is not None:
+            safe_payload = _redact_job_payload(job.job_type, payload)
+            if safe_payload != payload:
+                raise ValueError("job checkpoint payload contains a secret value")
+            job.payload = safe_payload
+        if result is not None:
+            safe_result = redact_secrets(result)
+            if not isinstance(safe_result, dict):  # pragma: no cover - dict input contract
+                raise TypeError("job checkpoint result must be a mapping")
+            job.result = safe_result
+        await self.session.flush()
+
     async def finish_job(
         self,
         *,

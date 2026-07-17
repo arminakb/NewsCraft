@@ -17,6 +17,7 @@ from sqlalchemy import select, text
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.faults import FaultInjector, NoopFaultInjector
 from app.db.models import ContentItem, ItemMedia, MediaAsset, RawPayload, SourceItem
 from app.exports.models import BuildExportPayload, ExportArtifact
 from app.generation.models import GenerationAttempt, GenerationRun, PlatformVariantRevision
@@ -1724,7 +1725,9 @@ class RetentionService:
         *,
         export_root: Path,
         media_root: Path,
+        fault_injector: FaultInjector | None = None,
     ) -> RetentionRun:
+        injector = fault_injector if fault_injector is not None else NoopFaultInjector()
         run = await self.session.scalar(select(RetentionRun).where(RetentionRun.id == run_id).with_for_update())
         if run is None:
             raise RetentionNotFound(f"retention run {run_id} was not found")
@@ -1809,6 +1812,13 @@ class RetentionService:
                         "message": "Persisted cleanup identity could not be removed safely",
                     }
                 )
+        await injector.hit(
+            "retention.after_filesystem_delete_before_finalize",
+            {
+                "retention_run_id": str(run.id),
+                "cleanup_intent_count": len(intents),
+            },
+        )
         run.count_snapshot = counts
         run.error_snapshot = errors
         run.status = "partial" if errors else "succeeded"

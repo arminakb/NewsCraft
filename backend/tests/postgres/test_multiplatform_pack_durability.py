@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import hashlib
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 from uuid import uuid4
 
@@ -24,6 +24,7 @@ from app.generation.models import (
 from app.jobs.errors import NeedsReviewJobError
 from app.jobs.models import WorkflowJob
 from app.jobs.registry import JobContext
+from app.jobs.types import JobExecution
 from app.stories.models import Story, StoryEvidenceSnapshot, StoryRevision
 
 
@@ -114,12 +115,8 @@ async def test_later_platform_failure_and_worker_rollback_cannot_erase_prior_che
             "brand_profile_id": str(brand_id),
             "generation_provider_profile_id": str(uuid4()),
             "platforms": ["instagram", "blog"],
-            "platform_prompt_template_version_ids": {
-                platform: str(prompt.id) for platform, prompt in prompts.items()
-            },
-            "platform_prompt_checksums": {
-                platform: prompt.checksum_sha256 for platform, prompt in prompts.items()
-            },
+            "platform_prompt_template_version_ids": {platform: str(prompt.id) for platform, prompt in prompts.items()},
+            "platform_prompt_checksums": {platform: prompt.checksum_sha256 for platform, prompt in prompts.items()},
         },
         result={},
         priority=0,
@@ -128,11 +125,15 @@ async def test_later_platform_failure_and_worker_rollback_cannot_erase_prior_che
         pause_sensitive=True,
         attempt_count=1,
         max_attempts=3,
+        lease_owner="worker-durability",
+        lease_expires_at=datetime.now(UTC) + timedelta(minutes=5),
+        heartbeat_at=datetime.now(UTC),
         progress=0,
     )
     job_id = job.id
     db_session.add_all([story, brand, job])
     await db_session.flush()
+    execution = JobExecution.from_job(job)
     db_session.add_all([snapshot, story_revision])
     await db_session.commit()
 
@@ -197,7 +198,7 @@ async def test_later_platform_failure_and_worker_rollback_cannot_erase_prior_che
     monkeypatch.setattr("app.generation.handlers._invoke", invoke)
     with pytest.raises(NeedsReviewJobError, match="Later platform failed"):
         await build_pack_generation_handler(SimpleNamespace())(
-            job,
+            execution,
             JobContext(session=db_session, providers=SimpleNamespace()),
         )
     await db_session.rollback()
@@ -205,12 +206,8 @@ async def test_later_platform_failure_and_worker_rollback_cannot_erase_prior_che
     async with session_factory() as reopened:
         durable_job = await reopened.get(WorkflowJob, job_id)
         pack = await reopened.scalar(select(ContentPack))
-        variant = await reopened.scalar(
-            select(PlatformVariant).where(PlatformVariant.platform == "instagram")
-        )
-        blog_variant = await reopened.scalar(
-            select(PlatformVariant).where(PlatformVariant.platform == "blog")
-        )
+        variant = await reopened.scalar(select(PlatformVariant).where(PlatformVariant.platform == "instagram"))
+        blog_variant = await reopened.scalar(select(PlatformVariant).where(PlatformVariant.platform == "blog"))
         revision = await reopened.scalar(select(PlatformVariantRevision))
         run = await reopened.get(GenerationRun, first_run_id)
 

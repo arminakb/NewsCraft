@@ -9,16 +9,25 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.generation.providers.registry import ProviderRegistry
 from app.jobs.errors import DuplicateJobHandlerError, UnknownJobTypeError
-from app.jobs.models import WorkflowJob
+from app.jobs.types import JobExecution
 
 
 @dataclass(frozen=True, slots=True)
 class JobContext:
+    """Resources owned by one handler invocation.
+
+    The handler may commit, roll back, or expire this session. The runner owns
+    session closure and uses different sessions for claim, heartbeat, and
+    terminal workflow transitions.
+    """
+
     session: AsyncSession
     providers: ProviderRegistry
 
 
-type JobHandler = Callable[[WorkflowJob, JobContext], Awaitable[dict[str, Any]]]
+# External or material side effects performed by a handler must have a durable
+# idempotency key, checkpoint, or ambiguity receipt that makes lease replay safe.
+type JobHandler = Callable[[JobExecution, JobContext], Awaitable[dict[str, Any]]]
 
 
 class JobHandlerRegistry:

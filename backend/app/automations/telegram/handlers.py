@@ -22,6 +22,7 @@ from app.automations.telegram.contracts import (
 from app.automations.telegram.policy import evaluate_auto_publish
 from app.automations.telegram.registry import TelegramSourceRegistry
 from app.automations.telegram.route_policy import evaluate_content_filter, next_allowed_at, retry_at
+from app.core.faults import FaultInjector, NoopFaultInjector
 from app.core.redaction import redact_secrets, redact_string
 from app.db.models import ContentItem, ItemMedia, MediaAsset, Source, SourceItem
 from app.generation.models import (
@@ -51,10 +52,10 @@ from app.generation.telegram_schema import (
 )
 from app.jobs.errors import NeedsReviewJobError, PermanentJobError, RetryableJobError
 from app.jobs.events import redact_event_data
-from app.jobs.models import AutomationControl, WorkflowEvent, WorkflowJob
+from app.jobs.models import AutomationControl, WorkflowEvent
 from app.jobs.registry import JobContext, JobHandler
 from app.jobs.repository import JobRepository
-from app.jobs.types import JobOrigin
+from app.jobs.types import JobExecution, JobOrigin, job_payload_copy
 from app.media.reference_fence import fence_platform_revision_media_write
 from app.publishing.models import Destination, PublishJob
 from app.stories.models import StoryEvidenceLink, StoryEvidenceSnapshot, StoryRevision
@@ -250,7 +251,7 @@ async def _capture(
     loaded: _LoadedRoute,
     envelope: TelegramEnvelope,
     dispatch_kind: str,
-    job: WorkflowJob,
+    job: JobExecution,
     context: JobContext,
     media_stager: Any,
     enqueue_process: bool = True,
@@ -383,11 +384,11 @@ async def _defer_route_job(
     media_stager: Any,
     *,
     route: AutomationRoute,
-    job: WorkflowJob,
+    job: JobExecution,
     scheduled_for: datetime,
 ) -> None:
     repository = media_stager if hasattr(media_stager, "enqueue_job") else JobRepository(context.session)
-    payload = dict(job.payload)
+    payload = job_payload_copy(job)
     root_job_id = str(payload.get("defer_root_job_id") or job.id)
     next_sequence = int(payload.get("defer_sequence") or 0) + 1
     payload.update(
@@ -410,7 +411,7 @@ async def _enqueue_forward_continuation(
     media_stager: Any,
     *,
     route_id: UUID,
-    job: WorkflowJob,
+    job: JobExecution,
     state: dict[str, Any],
     last_scanned_id: int,
 ) -> None:
@@ -430,7 +431,7 @@ async def _enqueue_forward_continuation(
     digest = hashlib.sha256(json.dumps(state, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
     await repository.enqueue_job(
         job_type=job.job_type,
-        payload=dict(job.payload),
+        payload=job_payload_copy(job),
         idempotency_key=f"telegram-route-poll-forward:{route_id}:{digest}",
         origin=JobOrigin.AUTOMATION,
     )
@@ -441,7 +442,7 @@ async def _persist_forward_progress(
     media_stager: Any,
     *,
     route_id: UUID,
-    job: WorkflowJob,
+    job: JobExecution,
     state_key: str,
     state: dict[str, Any],
     last_scanned_id: int,
@@ -792,7 +793,7 @@ def build_telegram_route_handlers(
     now = clock or (lambda: datetime.now(UTC))
 
     async def defer_if_paused(
-        job: WorkflowJob,
+        job: JobExecution,
         context: JobContext,
         loaded: _LoadedRoute,
     ) -> dict[str, Any] | None:
@@ -813,8 +814,8 @@ def build_telegram_route_handlers(
             "deferred_until": deferred_until.isoformat(),
         }
 
-    async def initialize_route(job: WorkflowJob, context: JobContext) -> dict[str, Any]:
-        payload = _parse_payload(InitializeJobPayload, job.payload)
+    async def initialize_route(job: JobExecution, context: JobContext) -> dict[str, Any]:
+        payload = _parse_payload(InitializeJobPayload, job_payload_copy(job))
         loaded = await _load_route(context, payload.route_id, source_registry)
         route = loaded.route
         deferred = await defer_if_paused(job, context, loaded)
@@ -1179,8 +1180,8 @@ def build_telegram_route_handlers(
             "continuation_enqueued": True,
         }
 
-    async def poll_route(job: WorkflowJob, context: JobContext) -> dict[str, Any]:
-        payload = _parse_payload(RouteJobPayload, job.payload)
+    async def poll_route(job: JobExecution, context: JobContext) -> dict[str, Any]:
+        payload = _parse_payload(RouteJobPayload, job_payload_copy(job))
         loaded = await _load_route(context, payload.route_id, source_registry)
         route = loaded.route
         deferred = await defer_if_paused(job, context, loaded)
@@ -1324,8 +1325,8 @@ def build_telegram_route_handlers(
             locked.next_poll_at = locked.last_polled_at + timedelta(seconds=locked.poll_interval_seconds)
         return {"captured": captured, "source_edits": source_edits, "filtered": filtered}
 
-    async def backfill_route(job: WorkflowJob, context: JobContext) -> dict[str, Any]:
-        payload = _parse_payload(BackfillJobPayload, job.payload)
+    async def backfill_route(job: JobExecution, context: JobContext) -> dict[str, Any]:
+        payload = _parse_payload(BackfillJobPayload, job_payload_copy(job))
         loaded = await _load_route(context, payload.route_id, source_registry)
         deferred = await defer_if_paused(job, context, loaded)
         if deferred is not None:
@@ -1368,8 +1369,8 @@ def build_telegram_route_handlers(
                 return deferred
         return {"route_id": str(loaded.route.id), "captured": len(envelopes), "force_review": True}
 
-    async def dry_run_route(job: WorkflowJob, context: JobContext) -> dict[str, Any]:
-        payload = _parse_payload(DryRunJobPayload, job.payload)
+    async def dry_run_route(job: JobExecution, context: JobContext) -> dict[str, Any]:
+        payload = _parse_payload(DryRunJobPayload, job_payload_copy(job))
         loaded = await _load_route(context, payload.route_id, source_registry)
         deferred = await defer_if_paused(job, context, loaded)
         if deferred is not None:
@@ -1706,7 +1707,7 @@ async def _require_automation_variant_write_allowed(session: Any, variant_id: UU
         ) from None
 
 
-def _generation_error(exc: Exception, route: AutomationRoute, job: WorkflowJob) -> Exception:
+def _generation_error(exc: Exception, route: AutomationRoute, job: JobExecution) -> Exception:
     if isinstance(exc, OpenRouterRetryableError):
         scheduled = retry_at(
             route.retry_policy or {},
@@ -1734,9 +1735,15 @@ def _generation_error(exc: Exception, route: AutomationRoute, job: WorkflowJob) 
     return exc
 
 
-def build_telegram_process_handler(profile_resolver: Any) -> JobHandler:
-    async def _process_route_dispatch(job: WorkflowJob, context: JobContext) -> dict[str, Any]:
-        payload = _parse_payload(ProcessDispatchPayload, job.payload)
+def build_telegram_process_handler(
+    profile_resolver: Any,
+    *,
+    fault_injector: FaultInjector | None = None,
+) -> JobHandler:
+    injector = fault_injector if fault_injector is not None else NoopFaultInjector()
+
+    async def _process_route_dispatch(job: JobExecution, context: JobContext) -> dict[str, Any]:
+        payload = _parse_payload(ProcessDispatchPayload, job_payload_copy(job))
         workflow_job_id = job.id
         workflow_attempt_count = job.attempt_count
         session = context.session
@@ -2091,6 +2098,14 @@ def build_telegram_process_handler(profile_resolver: Any) -> JobHandler:
                 raise RuntimeError("Telegram generation attempt was not prepared")
             try:
                 generated = await provider.generate(provider_request)
+                await injector.hit(
+                    "telegram_process.after_provider_before_persist",
+                    {
+                        "workflow_job_id": str(workflow_job_id),
+                        "dispatch_id": str(payload.dispatch_id),
+                        "generation_attempt_id": str(active_attempt_id),
+                    },
+                )
                 parsed_output = TelegramRewriteOutput.model_validate(generated.output).model_dump(mode="json")
                 durable_output = _redacted_dict(
                     {
@@ -2543,9 +2558,9 @@ def build_telegram_process_handler(profile_resolver: Any) -> JobHandler:
                 "publish_job_id": str(publish_job.id) if publish_job is not None else None,
             }
 
-    async def process_route_dispatch(job: WorkflowJob, context: JobContext) -> dict[str, Any]:
+    async def process_route_dispatch(job: JobExecution, context: JobContext) -> dict[str, Any]:
         workflow_job_id = job.id
-        failure_payload = dict(job.payload or {})
+        failure_payload = job_payload_copy(job)
         try:
             return await _process_route_dispatch(job, context)
         except (RetryableJobError, NeedsReviewJobError, PermanentJobError) as exc:
@@ -2604,7 +2619,7 @@ def build_telegram_process_handler(profile_resolver: Any) -> JobHandler:
 
 
 async def process_route_dispatch(
-    job: WorkflowJob,
+    job: JobExecution,
     context: JobContext,
     *,
     profile_resolver: Any,

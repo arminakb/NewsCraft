@@ -7,9 +7,11 @@ import shutil
 import signal
 import tempfile
 from collections.abc import Callable
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
+from uuid import UUID
 
 import httpx
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -28,13 +30,20 @@ from app.jobs.errors import (
 from app.jobs.registry import JobContext, JobHandlerRegistry, build_default_registry
 from app.jobs.repository import JobRepository
 from app.jobs.runtime import RuntimeHeartbeatService, build_component_id
-from app.jobs.types import JobErrorClass
+from app.jobs.types import JobErrorClass, JobExecution
 
 logger = logging.getLogger(__name__)
 
 RepositoryFactory = Callable[[AsyncSession], JobRepository]
 RuntimeServiceFactory = Callable[[AsyncSession], RuntimeHeartbeatService]
 CAPABILITY_CHOICES = ("ingestion", "source", "generation", "publishing")
+
+
+@dataclass(frozen=True, slots=True)
+class _InvalidClaim:
+    job_id: UUID
+    job_type: str
+    attempt_count: int
 
 
 class HttpClientOwner:
@@ -227,6 +236,8 @@ def build_worker_runner(
 
 
 class WorkerRunner:
+    """Run jobs across isolated claim, handler, heartbeat, and terminal sessions."""
+
     def __init__(
         self,
         *,
@@ -259,7 +270,99 @@ class WorkerRunner:
     async def run_once(self) -> bool:
         observed_at = self._now()
         await self._record_runtime_heartbeat(observed_at)
+        execution, invalid_claim = await self._claim_execution(observed_at)
+        if execution is None:
+            if invalid_claim is None:
+                return False
+            await self._fail_invalid_claim(invalid_claim)
+            return True
 
+        await self.fault_injector.hit(
+            "worker.after_claim",
+            {
+                "job_id": execution.id,
+                "job_type": execution.job_type,
+                "worker_id": execution.lease_owner,
+                "attempt_count": execution.attempt_count,
+            },
+        )
+
+        stop_heartbeat = asyncio.Event()
+        heartbeat_started = asyncio.Event()
+        heartbeat_task = asyncio.create_task(
+            self._lease_heartbeat_loop(execution.id, stop_heartbeat, heartbeat_started),
+            name=f"job-heartbeat:{execution.id}",
+        )
+        await heartbeat_started.wait()
+        if heartbeat_task.done():
+            await heartbeat_task
+
+        try:
+            result, failure, cancellation = await self._execute_handler(execution)
+        finally:
+            stop_heartbeat.set()
+            await heartbeat_task
+
+        completion_time = self._now()
+        await self.fault_injector.hit(
+            "worker.after_handler_before_terminal",
+            {
+                "job_id": execution.id,
+                "job_type": execution.job_type,
+                "worker_id": execution.lease_owner,
+                "attempt_count": execution.attempt_count,
+                "handler_outcome": "succeeded" if failure is None else "failed",
+            },
+        )
+        if failure is None:
+            await self._finish_execution(execution, result or {}, completion_time)
+            await self._hit_after_terminal(execution, terminal_state="succeeded")
+            logger.info(
+                "job completed id=%s type=%s state=succeeded attempt=%s",
+                execution.id,
+                execution.job_type,
+                execution.attempt_count,
+            )
+        else:
+            error_class, error_code, error_message, requested_retry_at = failure
+            retry_at = (
+                requested_retry_at or completion_time + timedelta(seconds=30)
+                if error_class == JobErrorClass.RETRYABLE
+                else None
+            )
+            await self._fail_execution(
+                execution,
+                error_class=error_class,
+                error_code=error_code,
+                error_message=error_message,
+                retry_at=retry_at,
+                now=completion_time,
+            )
+            await self._hit_after_terminal(execution, terminal_state="failed")
+            logger.warning(
+                "job failed id=%s type=%s state=failed attempt=%s error_code=%s",
+                execution.id,
+                execution.job_type,
+                execution.attempt_count,
+                error_code,
+            )
+        if cancellation is not None:
+            raise cancellation
+        return True
+
+    async def _hit_after_terminal(self, execution: JobExecution, *, terminal_state: str) -> None:
+        await self.fault_injector.hit(
+            "worker.after_terminal_commit",
+            {
+                "job_id": execution.id,
+                "job_type": execution.job_type,
+                "worker_id": execution.lease_owner,
+                "attempt_count": execution.attempt_count,
+                "terminal_state": terminal_state,
+            },
+        )
+
+    async def _claim_execution(self, observed_at: datetime) -> tuple[JobExecution | None, _InvalidClaim | None]:
         async with self.session_factory() as session:
             repository = self.repository_factory(session)
             job = await repository.claim_next_job(
@@ -268,50 +371,59 @@ class WorkerRunner:
                 allowed_job_types=self.handler_registry.job_types(),
                 now=observed_at,
             )
-            await session.commit()
             if job is None:
-                return False
+                await session.commit()
+                return None, None
+            try:
+                execution = JobExecution.from_job(job)
+            except TypeError, ValueError:
+                invalid_claim = _InvalidClaim(
+                    job_id=job.id,
+                    job_type=str(job.job_type),
+                    attempt_count=int(job.attempt_count),
+                )
+                await session.commit()
+                return None, invalid_claim
+            if execution.lease_owner != self.worker_id:
+                invalid_claim = _InvalidClaim(
+                    job_id=execution.id,
+                    job_type=execution.job_type,
+                    attempt_count=execution.attempt_count,
+                )
+                await session.commit()
+                return None, invalid_claim
+            await session.commit()
+            return execution, None
 
-            await self.fault_injector.hit(
-                "worker.after_claim",
-                {
-                    "job_id": job.id,
-                    "job_type": job.job_type,
-                    "worker_id": self.worker_id,
-                    "attempt_count": job.attempt_count,
-                },
-            )
-
-            stop_heartbeat = asyncio.Event()
-            heartbeat_started = asyncio.Event()
-            heartbeat_task = asyncio.create_task(
-                self._lease_heartbeat_loop(job.id, stop_heartbeat, heartbeat_started),
-                name=f"job-heartbeat:{job.id}",
-            )
-            await heartbeat_started.wait()
-            if heartbeat_task.done():
-                await heartbeat_task
-
-            cancellation: asyncio.CancelledError | None = None
-            result: dict[str, Any] | None = None
-            failure: tuple[JobErrorClass, str, str, datetime | None] | None = None
+    async def _execute_handler(
+        self,
+        execution: JobExecution,
+    ) -> tuple[
+        dict[str, Any] | None,
+        tuple[JobErrorClass, str, str, datetime | None] | None,
+        asyncio.CancelledError | None,
+    ]:
+        cancellation: asyncio.CancelledError | None = None
+        result: dict[str, Any] | None = None
+        failure: tuple[JobErrorClass, str, str, datetime | None] | None = None
+        async with self.session_factory() as session:
             try:
                 try:
-                    handler = self.handler_registry.get(job.job_type)
+                    handler = self.handler_registry.get(execution.job_type)
                 except UnknownJobTypeError:
                     raise PermanentJobError(
                         code="unknown_job_type", message="No handler is registered for this job type"
                     ) from None
-
                 handler_task = asyncio.create_task(
-                    handler(job, JobContext(session=session, providers=self.provider_registry)),
-                    name=f"job-handler:{job.id}",
+                    handler(execution, JobContext(session=session, providers=self.provider_registry)),
+                    name=f"job-handler:{execution.id}",
                 )
                 try:
                     result = await asyncio.shield(handler_task)
                 except asyncio.CancelledError as exc:
                     cancellation = exc
                     result = await handler_task
+                await session.commit()
             except RetryableJobError as exc:
                 failure = (JobErrorClass.RETRYABLE, exc.code, exc.message, exc.retry_at)
             except NeedsReviewJobError as exc:
@@ -325,56 +437,66 @@ class WorkerRunner:
                     "Unhandled job handler exception",
                     None,
                 )
-            finally:
-                stop_heartbeat.set()
-                await heartbeat_task
-
-            completion_time = self._now()
             if failure is not None:
-                # A handler may leave the SQLAlchemy transaction failed after a
-                # constraint/database error. Roll back handler-local work before
-                # persisting the durable job failure transition.
                 await session.rollback()
-            if failure is None:
-                await repository.finish_job(
-                    job_id=job.id,
-                    worker_id=self.worker_id,
-                    result=result or {},
-                    now=completion_time,
-                )
-                logger.info(
-                    "job completed id=%s type=%s state=succeeded attempt=%s",
-                    job.id,
-                    job.job_type,
-                    job.attempt_count,
-                )
-            else:
-                error_class, error_code, error_message, requested_retry_at = failure
-                retry_at = (
-                    requested_retry_at or completion_time + timedelta(seconds=30)
-                    if error_class == JobErrorClass.RETRYABLE
-                    else None
-                )
-                await repository.fail_job(
-                    job_id=job.id,
-                    worker_id=self.worker_id,
-                    error_class=error_class,
-                    error_code=error_code,
-                    error_message=error_message,
-                    retry_at=retry_at,
-                    now=completion_time,
-                )
-                logger.warning(
-                    "job failed id=%s type=%s state=failed attempt=%s error_code=%s",
-                    job.id,
-                    job.job_type,
-                    job.attempt_count,
-                    error_code,
-                )
+        return result, failure, cancellation
+
+    async def _finish_execution(
+        self,
+        execution: JobExecution,
+        result: dict[str, Any],
+        now: datetime,
+    ) -> None:
+        async with self.session_factory() as session:
+            await self.repository_factory(session).finish_job(
+                job_id=execution.id,
+                worker_id=execution.lease_owner,
+                result=result,
+                now=now,
+            )
             await session.commit()
-            if cancellation is not None:
-                raise cancellation
-            return True
+
+    async def _fail_execution(
+        self,
+        execution: JobExecution,
+        *,
+        error_class: JobErrorClass,
+        error_code: str,
+        error_message: str,
+        retry_at: datetime | None,
+        now: datetime,
+    ) -> None:
+        async with self.session_factory() as session:
+            await self.repository_factory(session).fail_job(
+                job_id=execution.id,
+                worker_id=execution.lease_owner,
+                error_class=error_class,
+                error_code=error_code,
+                error_message=error_message,
+                retry_at=retry_at,
+                now=now,
+            )
+            await session.commit()
+
+    async def _fail_invalid_claim(self, claim: _InvalidClaim) -> None:
+        completion_time = self._now()
+        async with self.session_factory() as session:
+            await self.repository_factory(session).fail_job(
+                job_id=claim.job_id,
+                worker_id=self.worker_id,
+                error_class=JobErrorClass.PERMANENT,
+                error_code="job_execution_invalid",
+                error_message="Claimed job could not be materialized safely",
+                retry_at=None,
+                now=completion_time,
+            )
+            await session.commit()
+        logger.warning(
+            "job failed id=%s type=%s state=failed attempt=%s error_code=job_execution_invalid",
+            claim.job_id,
+            claim.job_type,
+            claim.attempt_count,
+        )
 
     async def _record_runtime_heartbeat(self, observed_at: datetime) -> None:
         async with self.session_factory() as session:

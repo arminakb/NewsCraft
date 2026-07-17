@@ -9,6 +9,7 @@ from app.exports.models import BuildExportPayload
 from app.exports.service import ExportContractError, ExportService
 from app.jobs.errors import PermanentJobError
 from app.jobs.registry import JobContext, JobHandler
+from app.jobs.types import JobExecution, job_payload_copy
 
 
 def build_export_handler(
@@ -19,9 +20,9 @@ def build_export_handler(
 ) -> JobHandler:
     injector = fault_injector if fault_injector is not None else NoopFaultInjector()
 
-    async def handle(job, context: JobContext) -> dict:
+    async def handle(job: JobExecution, context: JobContext) -> dict:
         try:
-            payload = BuildExportPayload.model_validate(job.payload)
+            payload = BuildExportPayload.model_validate(job_payload_copy(job))
         except ValidationError as exc:
             raise PermanentJobError(
                 code="export_job_payload_invalid",

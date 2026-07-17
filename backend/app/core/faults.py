@@ -12,9 +12,13 @@ FAULT_POINTS = frozenset(
     {
         "worker.after_claim",
         "worker.before_heartbeat",
+        "worker.after_handler_before_terminal",
+        "worker.after_terminal_commit",
         "research.after_provider_before_persist",
         "generation.after_provider_before_persist",
+        "telegram_process.after_provider_before_persist",
         "export.after_manifest_before_commit",
+        "retention.after_filesystem_delete_before_finalize",
         "telegram.before_send",
         "telegram.after_send_before_receipt",
         "publication.after_receipt_before_commit",

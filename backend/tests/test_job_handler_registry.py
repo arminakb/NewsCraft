@@ -8,11 +8,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.generation.providers.registry import ProviderRegistry
 from app.jobs.errors import DuplicateJobHandlerError, UnknownJobTypeError
-from app.jobs.models import WorkflowJob
 from app.jobs.registry import JobContext, JobHandlerRegistry, build_default_registry
+from app.jobs.types import JobExecution
 
 
-async def _handler(job: WorkflowJob, context: JobContext) -> dict[str, Any]:
+async def _handler(job: JobExecution, context: JobContext) -> dict[str, Any]:
     return {"job_id": str(job.id), "provider_names": context.providers.names()}
 
 
@@ -117,3 +117,19 @@ def test_capabilities_control_the_registry_without_a_static_job_type_switch():
         "telegram.route.process",
     )
     assert publishing.job_types() == ("telegram.destination.check", "telegram.publish")
+
+
+def test_every_registered_handler_accepts_immutable_job_execution():
+    registry = build_default_registry(
+        capabilities=("ingestion", "source", "generation", "publishing"),
+        source_registry=object(),
+        media_stager=object(),
+        profile_resolver=object(),
+        telegram_client=object(),
+        destination_secret_resolver=object(),
+        research_backend_resolver=object(),
+    )
+
+    for job_type in registry.job_types():
+        handler = registry.get(job_type)
+        assert get_type_hints(handler)["job"] is JobExecution, job_type

@@ -19,29 +19,43 @@ from app.jobs.worker import WorkerRunner
 
 
 class FakeSession:
-    def __init__(self, events):
+    def __init__(self, events, *, fail_commit=False):
         self.events = events
+        self.tracked_job = None
+        self.fail_commit = fail_commit
 
     async def __aenter__(self):
         return self
 
     async def __aexit__(self, exc_type, exc, tb):
+        if exc_type is not None:
+            await self.rollback()
         return None
 
     async def commit(self):
         self.events.append(("commit", id(self)))
+        if self.fail_commit:
+            raise RuntimeError("commit failed")
 
     async def rollback(self):
         self.events.append(("rollback", id(self)))
+
+    def expire_all(self):
+        if self.tracked_job is not None and hasattr(self.tracked_job, "expire"):
+            self.tracked_job.expire()
 
 
 class SessionFactory:
     def __init__(self, events):
         self.events = events
         self.sessions = []
+        self.fail_commit_on_session = None
 
     def __call__(self):
-        session = FakeSession(self.events)
+        session = FakeSession(
+            self.events,
+            fail_commit=len(self.sessions) == self.fail_commit_on_session,
+        )
         self.sessions.append(session)
         return session
 
@@ -52,8 +66,11 @@ class SharedRepositoryState:
         self.claim_allowed = None
         self.claim_session = None
         self.heartbeat_sessions = []
+        self.heartbeat_failure = None
         self.finished = []
+        self.finish_sessions = []
         self.failed = []
+        self.fail_sessions = []
 
 
 class FakeRepository:
@@ -65,16 +82,21 @@ class FakeRepository:
         self.state.claim_allowed = allowed_job_types
         self.state.claim_session = self.session
         job, self.state.job = self.state.job, None
+        self.session.tracked_job = job
         return job
 
     async def heartbeat_job(self, **kwargs):
         self.state.heartbeat_sessions.append(self.session)
+        if self.state.heartbeat_failure is not None:
+            raise self.state.heartbeat_failure
         return True
 
     async def finish_job(self, **kwargs):
+        self.state.finish_sessions.append(self.session)
         self.state.finished.append(kwargs)
 
     async def fail_job(self, **kwargs):
+        self.state.fail_sessions.append(self.session)
         self.state.failed.append(kwargs)
 
 
@@ -94,7 +116,39 @@ def _job(job_type="ingest.collect", payload=None):
         payload=payload or {},
         attempt_count=1,
         max_attempts=3,
+        origin=JobOrigin.AUTOMATION,
+        lease_owner="worker-test",
+        created_at=datetime(2026, 7, 11, 7, 0, tzinfo=UTC),
+        scheduled_for=datetime(2026, 7, 11, 8, 0, tzinfo=UTC),
+        priority=0,
+        pause_sensitive=True,
     )
+
+
+class ExpirableJob(SimpleNamespace):
+    _execution_fields = frozenset(
+        {
+            "id",
+            "job_type",
+            "payload",
+            "attempt_count",
+            "max_attempts",
+            "origin",
+            "lease_owner",
+            "created_at",
+            "scheduled_for",
+            "priority",
+            "pause_sensitive",
+        }
+    )
+
+    def expire(self):
+        object.__setattr__(self, "_expired", True)
+
+    def __getattribute__(self, name):
+        if name in object.__getattribute__(self, "_execution_fields") and object.__getattribute__(self, "_expired"):
+            raise RuntimeError(f"expired workflow job attribute accessed: {name}")
+        return super().__getattribute__(name)
 
 
 def _runner(job, handler=None):
@@ -135,16 +189,136 @@ async def test_claim_commits_before_handler_and_lease_heartbeat_uses_independent
     observed = {}
 
     async def handler(claimed, context):
-        observed["commit_seen"] = ("commit", id(context.session)) in events
+        observed["claim_commit_seen"] = ("commit", id(state.claim_session)) in events
+        observed["handler_session"] = context.session
         return {"checked": 1}
 
     runner, state, _, events, _ = _runner(job, handler)
 
     assert await runner.run_once() is True
-    assert observed["commit_seen"] is True
+    assert observed["claim_commit_seen"] is True
+    assert observed["handler_session"] is not state.claim_session
     assert state.heartbeat_sessions
     assert all(session is not state.claim_session for session in state.heartbeat_sessions)
+    assert all(session is not observed["handler_session"] for session in state.heartbeat_sessions)
+    assert state.finish_sessions[0] is not state.claim_session
+    assert state.finish_sessions[0] is not observed["handler_session"]
+    assert state.finish_sessions[0] not in state.heartbeat_sessions
     assert state.finished[0]["result"] == {"checked": 1}
+
+
+@pytest.mark.asyncio
+async def test_handler_expire_all_cannot_invalidate_worker_terminal_bookkeeping():
+    job = ExpirableJob(
+        id=uuid4(),
+        job_type="ingest.collect",
+        payload={"source_ids": ["source-1"]},
+        attempt_count=1,
+        max_attempts=3,
+        origin=JobOrigin.AUTOMATION,
+        lease_owner="worker-test",
+        created_at=datetime(2026, 7, 11, 7, 0, tzinfo=UTC),
+        scheduled_for=datetime(2026, 7, 11, 8, 0, tzinfo=UTC),
+        priority=0,
+        pause_sensitive=True,
+        _expired=False,
+    )
+
+    async def handler(execution, context):
+        assert execution.id == job.id
+        context.session.expire_all()
+        return {"checked": 1}
+
+    runner, state, _, _, _ = _runner(job, handler)
+
+    assert await runner.run_once() is True
+    assert state.finished[0]["job_id"] == job.id
+    assert state.finished[0]["result"] == {"checked": 1}
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("handler_action", ["commit", "rollback"])
+async def test_handler_commit_or_rollback_cannot_affect_terminal_session(handler_action):
+    async def handler(execution, context):
+        await getattr(context.session, handler_action)()
+        return {"action": handler_action}
+
+    runner, state, _, _, _ = _runner(_job(), handler)
+
+    assert await runner.run_once() is True
+    assert state.finished[0]["result"] == {"action": handler_action}
+    assert state.finish_sessions[0] is not state.claim_session
+
+
+@pytest.mark.asyncio
+async def test_heartbeat_session_failure_does_not_poison_handler_or_terminal_scope():
+    async def handler(execution, context):
+        return {"checked": 1}
+
+    runner, state, _, _, _ = _runner(_job(), handler)
+    state.heartbeat_failure = RuntimeError("heartbeat transaction failed")
+
+    assert await runner.run_once() is True
+    assert state.finished[0]["result"] == {"checked": 1}
+    assert state.heartbeat_sessions
+    assert state.finish_sessions[0] not in state.heartbeat_sessions
+
+
+@pytest.mark.asyncio
+async def test_failed_handler_transaction_is_rolled_back_before_fresh_failure_transition():
+    async def handler(execution, context):
+        context.session.fail_commit = True
+        return {"must_not_finish": True}
+
+    runner, state, _, events, _ = _runner(_job(), handler)
+
+    assert await runner.run_once() is True
+    assert state.finished == []
+    assert state.failed[0]["error_code"] == "unhandled_exception"
+    assert state.fail_sessions[0] is not state.claim_session
+    assert any(event[0] == "rollback" for event in events)
+
+
+@pytest.mark.asyncio
+async def test_terminal_commit_failure_propagates_and_rolls_back_terminal_scope():
+    async def handler(execution, context):
+        return {"checked": 1}
+
+    runner, state, sessions, events, _ = _runner(_job(), handler)
+    sessions.fail_commit_on_session = 4
+
+    with pytest.raises(RuntimeError, match="commit failed"):
+        await runner.run_once()
+
+    assert len(state.finished) == 1
+    assert ("rollback", id(state.finish_sessions[0])) in events
+
+
+@pytest.mark.asyncio
+async def test_unsafe_claim_payload_is_failed_without_invoking_handler():
+    invoked = False
+
+    async def handler(execution, context):
+        nonlocal invoked
+        invoked = True
+        return {}
+
+    runner, state, _, _, _ = _runner(_job(payload={"api_key": "secret-canary"}), handler)
+
+    assert await runner.run_once() is True
+    assert invoked is False
+    assert state.failed[0]["error_class"] == JobErrorClass.PERMANENT
+    assert state.failed[0]["error_code"] == "job_execution_invalid"
+
+
+@pytest.mark.asyncio
+async def test_invalid_claim_never_uses_untrusted_orm_lease_owner_for_terminal_fence():
+    job = _job()
+    job.lease_owner = "another-worker"
+    runner, state, _, _, _ = _runner(job, handler=lambda *_: pytest.fail("handler invoked"))
+
+    assert await runner.run_once() is True
+    assert state.failed[0]["worker_id"] == "worker-test"
 
 
 @pytest.mark.asyncio
@@ -297,9 +471,7 @@ def test_cli_accepts_repeatable_semantic_capabilities():
         (("publishing",), ("publishing",)),
     ],
 )
-def test_each_capability_constructs_only_its_permitted_dependency_bundle(
-    monkeypatch, capabilities, expected_builders
-):
+def test_each_capability_constructs_only_its_permitted_dependency_bundle(monkeypatch, capabilities, expected_builders):
     constructed = []
     captured = {}
 
@@ -428,9 +600,7 @@ def test_main_builds_worker_from_cli_capabilities(monkeypatch):
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("failure", [RuntimeError("transport failed"), asyncio.CancelledError()])
-async def test_media_stager_removes_partial_tree_when_materialization_raises(
-    monkeypatch, tmp_path, failure
-):
+async def test_media_stager_removes_partial_tree_when_materialization_raises(monkeypatch, tmp_path, failure):
     monkeypatch.setattr(
         worker_module,
         "settings",
