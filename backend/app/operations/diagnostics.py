@@ -17,6 +17,7 @@ from app.generation.models import GenerationRun
 from app.jobs.models import AutomationControl, WorkflowJob
 from app.jobs.runtime import RuntimeHeartbeatService
 from app.jobs.types import JobStatus
+from app.operations.health import database_time, normalize_utc, snapshot_high_water
 from app.publishing.models import Destination, Publication, PublishJob
 from app.research.models import ResearchAttempt, ResearchRun
 
@@ -89,11 +90,11 @@ class OperationsDiagnostics:
         )
 
     async def snapshot(self) -> OperationsSnapshot:
-        generated_at = _now(self.clock)
         heartbeats = await RuntimeHeartbeatService(self.session).list_recent(limit=10_000)
         control = await self.session.get(AutomationControl, "global")
         queue_counts = await self._queue_counts()
         attention = await self._attention()
+        generated_at = await self._generated_at(heartbeats, attention)
         return OperationsSnapshot(
             generated_at=generated_at,
             global_paused=bool(control and control.global_pause),
@@ -106,6 +107,21 @@ class OperationsDiagnostics:
             queue_counts=queue_counts,
             attention=attention,
         )
+
+    async def _generated_at(
+        self,
+        heartbeats: Sequence[object],
+        attention: Sequence[AttentionItem],
+    ) -> datetime:
+        # Read the clock only after all projected rows. Under PostgreSQL's
+        # READ COMMITTED visibility a heartbeat may commit while this snapshot
+        # is being assembled; the final database clock/high-water boundary
+        # guarantees that no returned observation postdates generated_at.
+        observed_at = _now(self.clock) if self.clock is not None else await database_time(self.session)
+        timestamps = [observed_at]
+        timestamps.extend(heartbeat.observed_at for heartbeat in heartbeats)
+        timestamps.extend(item.occurred_at for item in attention)
+        return snapshot_high_water(*timestamps)
 
     async def _queue_counts(self) -> dict[str, int]:
         rows = await self.session.execute(select(WorkflowJob.status, func.count()).group_by(WorkflowJob.status))
@@ -308,9 +324,7 @@ def _now(clock: ClockSource | None) -> datetime:
         value = clock()
     else:
         value = clock.now()
-    if value.tzinfo is None or value.utcoffset() is None:
-        raise ValueError("clock must return a timezone-aware datetime")
-    return value
+    return normalize_utc(value, field="clock")
 
 
 def _component_health(
@@ -336,7 +350,7 @@ def _component_health(
                 action_url=_component_action_url(component_id, None),
             )
             continue
-        observed_at = heartbeat.observed_at
+        observed_at = normalize_utc(heartbeat.observed_at, field="heartbeat observed_at")
         age = generated_at - observed_at
         if age <= timedelta(seconds=30):
             status = "healthy"

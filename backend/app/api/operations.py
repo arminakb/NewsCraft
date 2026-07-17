@@ -5,6 +5,7 @@ from typing import Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Query
+from fastapi.responses import PlainTextResponse
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -12,6 +13,11 @@ from app.core.redaction import redact_secrets
 from app.db.session import get_session
 from app.jobs.schemas import JobAcceptedOut
 from app.operations.diagnostics import OperationsDiagnostics
+from app.operations.health import (
+    OperationalHealthService,
+    OperationalHealthSnapshot,
+    render_prometheus_metrics,
+)
 from app.operations.history import (
     HistoryCategory,
     HistoryService,
@@ -187,6 +193,21 @@ async def operations_diagnostics(
 ) -> OperationsSnapshotOut:
     snapshot = await OperationsDiagnostics(session).snapshot()
     return OperationsSnapshotOut.model_validate(snapshot.model_dump())
+
+
+@router.get("/health", response_model=OperationalHealthSnapshot)
+async def operations_health(
+    session: AsyncSession = SessionDependency,
+) -> OperationalHealthSnapshot:
+    return await OperationalHealthService(session).snapshot()
+
+
+@router.get("/metrics", response_class=PlainTextResponse)
+async def operations_metrics(
+    session: AsyncSession = SessionDependency,
+) -> str:
+    snapshot = await OperationalHealthService(session).snapshot()
+    return render_prometheus_metrics(snapshot)
 
 
 @router.get("/history", response_model=HistoryPageOut)

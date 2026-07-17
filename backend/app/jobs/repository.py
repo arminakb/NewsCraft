@@ -11,6 +11,7 @@ from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.redaction import redact_secrets
+from app.jobs.capability_gate import api_capability_gate_enabled, require_available_job_type
 from app.jobs.errors import InvalidJobTransition
 from app.jobs.events import redact_event_data
 from app.jobs.models import AutomationControl, WorkflowEvent, WorkflowJob
@@ -397,6 +398,16 @@ class JobRepository:
     ) -> EnqueueJobResult:
         effective_scheduled_for = _now(scheduled_for)
         safe_payload = _redact_job_payload(job_type, payload)
+        if api_capability_gate_enabled(self.session):
+            existing = await self.session.scalar(
+                select(WorkflowJob).where(WorkflowJob.idempotency_key == idempotency_key)
+            )
+            if existing is not None:
+                if existing.scheduled_for is None:
+                    existing.scheduled_for = effective_scheduled_for
+                    await self.session.flush()
+                return EnqueueJobResult(job=existing, created=False)
+            await require_available_job_type(self.session, job_type)
         statement = (
             insert(WorkflowJob)
             .values(
@@ -674,6 +685,8 @@ class JobRepository:
         job = await self._locked_job(job_id)
         if job is None or job.status not in (JobStatus.FAILED, JobStatus.NEEDS_REVIEW):
             raise self._invalid(job_id, action="retry", job=job)
+
+        await require_available_job_type(self.session, str(job.job_type))
 
         previous_status = str(job.status)
         observed_at = _now(now)

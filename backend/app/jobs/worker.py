@@ -266,16 +266,26 @@ class WorkerRunner:
         self.lease_seconds = lease_seconds
         self.heartbeat_seconds = heartbeat_seconds
         self.fault_injector = fault_injector if fault_injector is not None else NoopFaultInjector()
+        self._runtime_heartbeat_managed = False
+        self._active_work_type: str | None = None
+        self._active_work_started_at: datetime | None = None
+        self._last_loop_success_at: datetime | None = None
 
     async def run_once(self) -> bool:
         observed_at = self._now()
-        await self._record_runtime_heartbeat(observed_at)
+        if not self._runtime_heartbeat_managed:
+            await self._record_runtime_heartbeat(observed_at)
         execution, invalid_claim = await self._claim_execution(observed_at)
         if execution is None:
             if invalid_claim is None:
+                await self._record_loop_success()
                 return False
             await self._fail_invalid_claim(invalid_claim)
+            await self._record_loop_success()
             return True
+
+        self._active_work_type = execution.job_type
+        self._active_work_started_at = observed_at
 
         await self.fault_injector.hit(
             "worker.after_claim",
@@ -348,6 +358,7 @@ class WorkerRunner:
             )
         if cancellation is not None:
             raise cancellation
+        await self._record_loop_success()
         return True
 
     async def _hit_after_terminal(self, execution: JobExecution, *, terminal_state: str) -> None:
@@ -505,9 +516,49 @@ class WorkerRunner:
                 component_type="worker",
                 capabilities=self.capabilities,
                 observed_at=observed_at,
-                metadata={"job_types": list(self.handler_registry.job_types())},
+                metadata=self._runtime_metadata(),
             )
             await session.commit()
+
+    def _runtime_metadata(self) -> dict[str, object]:
+        return {
+            "job_types": list(self.handler_registry.job_types()),
+            "state": "working" if self._active_work_type is not None else "idle",
+            "active_work_type": self._active_work_type,
+            "active_work_started_at": (
+                self._active_work_started_at.isoformat() if self._active_work_started_at is not None else None
+            ),
+            "last_success_at": (
+                self._last_loop_success_at.isoformat() if self._last_loop_success_at is not None else None
+            ),
+        }
+
+    async def _record_loop_success(self) -> None:
+        self._last_loop_success_at = self._now()
+        self._active_work_type = None
+        self._active_work_started_at = None
+        if not self._runtime_heartbeat_managed:
+            await self._record_runtime_heartbeat(self._last_loop_success_at)
+
+    async def _runtime_heartbeat_loop(
+        self,
+        stop: asyncio.Event,
+        started: asyncio.Event,
+    ) -> None:
+        try:
+            while not stop.is_set():
+                try:
+                    await self._record_runtime_heartbeat(self._now())
+                except Exception:  # noqa: BLE001 - a later heartbeat retries independently
+                    logger.exception("runtime heartbeat failed component=%s", self.worker_id)
+                finally:
+                    started.set()
+                try:
+                    await asyncio.wait_for(stop.wait(), timeout=self.heartbeat_seconds)
+                except TimeoutError:
+                    pass
+        finally:
+            started.set()
 
     async def _lease_heartbeat_loop(
         self,
@@ -555,15 +606,29 @@ class WorkerRunner:
 
     async def run_forever(self, *, stop: asyncio.Event | None = None) -> None:
         stop_event = stop or asyncio.Event()
-        await self._record_runtime_heartbeat(self._now())
-        while not stop_event.is_set():
-            handled = await self.run_once()
-            if handled:
-                continue
-            try:
-                await asyncio.wait_for(stop_event.wait(), timeout=settings.worker_poll_seconds)
-            except TimeoutError:
-                pass
+        runtime_stop = asyncio.Event()
+        runtime_started = asyncio.Event()
+        self._runtime_heartbeat_managed = True
+        runtime_task = asyncio.create_task(
+            self._runtime_heartbeat_loop(runtime_stop, runtime_started),
+            name=f"runtime-heartbeat:{self.worker_id}",
+        )
+        await runtime_started.wait()
+        if runtime_task.done():
+            await runtime_task
+        try:
+            while not stop_event.is_set():
+                handled = await self.run_once()
+                if handled:
+                    continue
+                try:
+                    await asyncio.wait_for(stop_event.wait(), timeout=settings.worker_poll_seconds)
+                except TimeoutError:
+                    pass
+        finally:
+            runtime_stop.set()
+            await runtime_task
+            self._runtime_heartbeat_managed = False
 
     async def close(self) -> None:
         if self.resource_owner is not None:

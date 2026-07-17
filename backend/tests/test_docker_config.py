@@ -190,7 +190,7 @@ def test_runtime_environment_names_and_review_first_dry_run_are_documented():
         assert phrase in readme
 
 
-def test_api_healthcheck_waits_for_post_migration_uvicorn_without_dependency_cycle():
+def test_api_healthcheck_uses_readiness_without_dependency_cycle():
     services = _compose_yaml()["services"]
     api = services["api"]
 
@@ -198,11 +198,37 @@ def test_api_healthcheck_waits_for_post_migration_uvicorn_without_dependency_cyc
         "CMD",
         "python",
         "-c",
-        "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=2).close()",
+        "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health/ready', timeout=2).close()",
     ]
     assert api["depends_on"] == {"postgres": {"condition": "service_healthy"}}
     assert "worker" not in api["depends_on"]
     assert "scheduler" not in api["depends_on"]
+
+
+def test_worker_and_scheduler_healthchecks_use_persisted_heartbeat_freshness():
+    services = _compose_yaml()["services"]
+
+    for name in ("worker-source-generation", "worker-publishing"):
+        assert services[name]["healthcheck"]["test"] == [
+            "CMD",
+            "python",
+            "-m",
+            "app.jobs.healthcheck",
+            "--component-type",
+            "worker",
+            "--max-age-seconds",
+            "120",
+        ]
+    assert services["scheduler"]["healthcheck"]["test"] == [
+        "CMD",
+        "python",
+        "-m",
+        "app.jobs.healthcheck",
+        "--component-type",
+        "scheduler",
+        "--max-age-seconds",
+        "90",
+    ]
 
 
 def test_daily_bundle_command_is_documented_for_docker():

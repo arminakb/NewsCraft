@@ -5,6 +5,7 @@ import logging
 import signal
 from dataclasses import dataclass
 from datetime import UTC, datetime, time, timedelta
+from time import monotonic
 from uuid import uuid4
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
@@ -324,28 +325,53 @@ async def run_scheduler() -> None:
         loop.add_signal_handler(signum, stop.set)
 
     component_id = build_component_id("scheduler")
-    async with async_session() as session:
-        await RuntimeHeartbeatService(session).record(
+    runtime_state: dict[str, object] = {
+        "state": "idle",
+        "active_work_started_at": None,
+        "last_success_at": None,
+        "last_duration_ms": None,
+        "last_result": None,
+    }
+    heartbeat_stop = asyncio.Event()
+    heartbeat_started = asyncio.Event()
+    heartbeat_task = asyncio.create_task(
+        _scheduler_runtime_heartbeat_loop(
             component_id=component_id,
-            component_type="scheduler",
-            capabilities=("scheduling",),
-            observed_at=datetime.now(UTC),
-            metadata={},
-        )
-        await session.commit()
+            runtime_state=runtime_state,
+            stop=heartbeat_stop,
+            started=heartbeat_started,
+        ),
+        name=f"runtime-heartbeat:{component_id}",
+    )
+    await heartbeat_started.wait()
+    if heartbeat_task.done():
+        await heartbeat_task
 
-    while not stop.is_set():
-        async with async_session() as heartbeat_session:
-            await RuntimeHeartbeatService(heartbeat_session).record(
-                component_id=component_id,
-                component_type="scheduler",
-                capabilities=("scheduling",),
-                observed_at=datetime.now(UTC),
-                metadata={},
+    try:
+        while not stop.is_set():
+            cycle_started_at = datetime.now(UTC)
+            cycle_started = monotonic()
+            runtime_state["state"] = "ticking"
+            runtime_state["active_work_started_at"] = cycle_started_at.isoformat()
+            async with async_session() as session:
+                result = await SchedulerService(session).tick()
+            cycle_finished_at = datetime.now(UTC)
+            runtime_state.update(
+                {
+                    "state": "idle",
+                    "active_work_started_at": None,
+                    "last_success_at": cycle_finished_at.isoformat(),
+                    "last_duration_ms": max(0, int((monotonic() - cycle_started) * 1_000)),
+                    "last_result": {
+                        "expired": result.expired_leases,
+                        "reconciled": result.reconciled,
+                        "enqueued": result.enqueued,
+                        "deduplicated": result.deduplicated,
+                        "invalid": result.invalid,
+                        "paused": result.paused,
+                    },
+                }
             )
-            await heartbeat_session.commit()
-        async with async_session() as session:
-            result = await SchedulerService(session).tick()
             logger.info(
                 "scheduler tick expired=%d reconciled=%d enqueued=%d deduplicated=%d invalid=%d paused=%s",
                 result.expired_leases,
@@ -355,10 +381,44 @@ async def run_scheduler() -> None:
                 result.invalid,
                 result.paused,
             )
-        try:
-            await asyncio.wait_for(stop.wait(), timeout=settings.scheduler_poll_seconds)
-        except TimeoutError:
-            pass
+            try:
+                await asyncio.wait_for(stop.wait(), timeout=settings.scheduler_poll_seconds)
+            except TimeoutError:
+                pass
+    finally:
+        heartbeat_stop.set()
+        await heartbeat_task
+
+
+async def _scheduler_runtime_heartbeat_loop(
+    *,
+    component_id: str,
+    runtime_state: dict[str, object],
+    stop: asyncio.Event,
+    started: asyncio.Event,
+) -> None:
+    try:
+        while not stop.is_set():
+            try:
+                async with async_session() as session:
+                    await RuntimeHeartbeatService(session).record(
+                        component_id=component_id,
+                        component_type="scheduler",
+                        capabilities=("scheduling",),
+                        observed_at=datetime.now(UTC),
+                        metadata=dict(runtime_state),
+                    )
+                    await session.commit()
+            except Exception:  # noqa: BLE001 - a later heartbeat retries independently
+                logger.exception("scheduler runtime heartbeat failed component=%s", component_id)
+            finally:
+                started.set()
+            try:
+                await asyncio.wait_for(stop.wait(), timeout=settings.scheduler_poll_seconds)
+            except TimeoutError:
+                pass
+    finally:
+        started.set()
 
 
 def main() -> None:

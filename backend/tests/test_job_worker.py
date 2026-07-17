@@ -208,6 +208,42 @@ async def test_claim_commits_before_handler_and_lease_heartbeat_uses_independent
 
 
 @pytest.mark.asyncio
+async def test_runtime_heartbeat_remains_fresh_while_handler_is_blocked():
+    handler_started = asyncio.Event()
+    release_handler = asyncio.Event()
+    stop = asyncio.Event()
+
+    async def handler(execution, context):
+        handler_started.set()
+        await release_handler.wait()
+        return {"checked": 1}
+
+    runner, state, _, _, runtime = _runner(_job(), handler)
+    runner.heartbeat_seconds = 0.01
+    task = asyncio.create_task(runner.run_forever(stop=stop))
+    await asyncio.wait_for(handler_started.wait(), timeout=1)
+    for _ in range(100):
+        if any(record[2]["metadata"]["state"] == "working" for record in runtime):
+            break
+        await asyncio.sleep(0.005)
+
+    working = [record[2] for record in runtime if record[2]["metadata"]["state"] == "working"]
+    assert working
+    assert working[-1]["metadata"]["active_work_type"] == "ingest.collect"
+    assert working[-1]["metadata"]["active_work_started_at"] is not None
+    assert "job_id" not in working[-1]["metadata"]
+
+    release_handler.set()
+    for _ in range(100):
+        if state.finished:
+            break
+        await asyncio.sleep(0.005)
+    stop.set()
+    await asyncio.wait_for(task, timeout=1)
+    assert state.finished
+
+
+@pytest.mark.asyncio
 async def test_handler_expire_all_cannot_invalidate_worker_terminal_bookkeeping():
     job = ExpirableJob(
         id=uuid4(),

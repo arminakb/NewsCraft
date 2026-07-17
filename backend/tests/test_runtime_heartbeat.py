@@ -1,3 +1,4 @@
+import asyncio
 import os
 from collections.abc import AsyncIterator
 from datetime import UTC, datetime
@@ -10,6 +11,7 @@ from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from sqlalchemy.pool import NullPool
 
+from app.jobs import scheduler as scheduler_module
 from app.jobs.models import RuntimeHeartbeat
 from app.jobs.registry import JobHandlerRegistry
 from app.jobs.runtime import RuntimeHeartbeatService, build_component_id
@@ -207,14 +209,26 @@ async def test_two_worker_heartbeats_report_exact_capabilities_registry_jobs_and
             "component_type": "worker",
             "capabilities": ("generation", "ingestion", "source"),
             "observed_at": observed_at,
-            "metadata": {"job_types": ["telegram.route.poll", "telegram.route.process"]},
+            "metadata": {
+                "job_types": ["telegram.route.poll", "telegram.route.process"],
+                "state": "idle",
+                "active_work_type": None,
+                "active_work_started_at": None,
+                "last_success_at": None,
+            },
         },
         {
             "component_id": "worker-publishing",
             "component_type": "worker",
             "capabilities": ("publishing",),
             "observed_at": observed_at,
-            "metadata": {"job_types": ["telegram.publish"]},
+            "metadata": {
+                "job_types": ["telegram.publish"],
+                "state": "idle",
+                "active_work_type": None,
+                "active_work_started_at": None,
+                "last_success_at": None,
+            },
         },
     ]
 
@@ -239,3 +253,55 @@ async def test_scheduler_heartbeat_has_own_identity_type_and_no_secret_metadata(
     assert params["capabilities"] == ["scheduling"]
     assert params["observed_at"] == observed_at
     assert params["metadata"] == {}
+
+
+@pytest.mark.asyncio
+async def test_scheduler_runtime_heartbeat_is_independent_and_allowlisted(monkeypatch):
+    records = []
+
+    class SessionContext:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return None
+
+        async def commit(self):
+            return None
+
+    class Recorder:
+        def __init__(self, _session):
+            pass
+
+        async def record(self, **kwargs):
+            records.append(kwargs)
+
+    monkeypatch.setattr(scheduler_module, "async_session", lambda: SessionContext())
+    monkeypatch.setattr(scheduler_module, "RuntimeHeartbeatService", Recorder)
+    runtime_state = {
+        "state": "ticking",
+        "active_work_started_at": "2026-07-17T08:30:00+00:00",
+        "last_success_at": "2026-07-17T08:29:45+00:00",
+        "last_duration_ms": 12,
+        "last_result": {"enqueued": 1},
+    }
+    stop = asyncio.Event()
+    started = asyncio.Event()
+
+    task = asyncio.create_task(
+        scheduler_module._scheduler_runtime_heartbeat_loop(
+            component_id="scheduler",
+            runtime_state=runtime_state,
+            stop=stop,
+            started=started,
+        )
+    )
+    await asyncio.wait_for(started.wait(), timeout=1)
+    stop.set()
+    await asyncio.wait_for(task, timeout=1)
+
+    assert len(records) == 1
+    assert records[0]["component_id"] == "scheduler"
+    assert records[0]["component_type"] == "scheduler"
+    assert records[0]["capabilities"] == ("scheduling",)
+    assert records[0]["metadata"] == runtime_state

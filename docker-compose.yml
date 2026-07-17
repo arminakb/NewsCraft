@@ -49,6 +49,9 @@ services:
       NO_PROXY: ${NO_PROXY:-newscraft-postgres,postgres,localhost,127.0.0.1}
       MEDIA_ROOT: /data/media
       EXPORT_ROOT: /data/exports
+      READINESS_REQUIRED_CAPABILITIES: ${READINESS_REQUIRED_CAPABILITIES:-}
+      CAPABILITY_QUEUE_CEILING: ${CAPABILITY_QUEUE_CEILING:-1000}
+      CAPABILITY_RETRY_AFTER_SECONDS: ${CAPABILITY_RETRY_AFTER_SECONDS:-5}
       OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
       OPENROUTER_BASE_URL: ${OPENROUTER_BASE_URL:-https://openrouter.ai/api/v1}
       TELEGRAM_SOURCE_EDITOR_API_ID: ${TELEGRAM_SOURCE_EDITOR_API_ID:-}
@@ -70,7 +73,7 @@ services:
       postgres:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=2).close()"]
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health/ready', timeout=2).close()"]
       interval: 5s
       timeout: 5s
       retries: 20
@@ -120,6 +123,12 @@ services:
         condition: service_healthy
       api:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-m", "app.jobs.healthcheck", "--component-type", "worker", "--max-age-seconds", "120"]
+      interval: 15s
+      timeout: 5s
+      retries: 4
+      start_period: 15s
 
   worker-publishing:
     image: newscraft-backend:local
@@ -149,6 +158,12 @@ services:
         condition: service_healthy
       api:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-m", "app.jobs.healthcheck", "--component-type", "worker", "--max-age-seconds", "120"]
+      interval: 15s
+      timeout: 5s
+      retries: 4
+      start_period: 15s
 
   scheduler:
     image: newscraft-backend:local
@@ -176,6 +191,12 @@ services:
         condition: service_healthy
       api:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-m", "app.jobs.healthcheck", "--component-type", "scheduler", "--max-age-seconds", "90"]
+      interval: 15s
+      timeout: 5s
+      retries: 4
+      start_period: 15s
 
 volumes:
   postgres_data:

@@ -52,6 +52,22 @@ class InvalidJobTransition(RuntimeError):
         super().__init__(f"Job {job_id} cannot {action} from status {status}")
 
 
+class JobCapabilityUnavailable(RuntimeError):
+    """Stable, non-sensitive rejection for an API-owned asynchronous mutation."""
+
+    def __init__(
+        self,
+        *,
+        code: str,
+        job_type: str,
+        retry_after_seconds: int,
+    ) -> None:
+        self.code = code
+        self.job_type = job_type
+        self.retry_after_seconds = retry_after_seconds
+        super().__init__(code)
+
+
 class UnknownJobTypeError(LookupError):
     """Raised when no handler is registered for a workflow job type."""
 
