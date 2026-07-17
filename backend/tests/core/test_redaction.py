@@ -13,7 +13,7 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, HttpUrl
 
 from app.core.logging import configure_logging
-from app.core.redaction import redact_secrets, redact_string, redact_url
+from app.core.redaction import redact_request_target, redact_secrets, redact_string, redact_url
 
 
 class DeliveryMode(StrEnum):
@@ -74,6 +74,23 @@ def test_redact_string_applies_literals_auth_tokens_and_urls() -> None:
     assert redact_url("https://user:pass@example.com/a?token=one&q=ok") == (
         "https://example.com/a?token=%5BREDACTED%5D&q=ok"
     )
+
+
+def test_redact_request_target_preserves_path_and_safe_query_diagnostics() -> None:
+    target = (
+        "/health/live?token=token-canary&key=key-canary&session_id=session-canary"
+        "&credential_ref=credential-canary&safe=yes&max_output_tokens=10"
+    )
+
+    redacted = redact_request_target(target)
+
+    assert redacted.startswith("/health/live?")
+    assert "safe=yes" in redacted
+    assert "max_output_tokens=10" in redacted
+    assert all(
+        canary not in redacted for canary in ("token-canary", "key-canary", "session-canary", "credential-canary")
+    )
+    assert redacted.count("%5BREDACTED%5D") == 4
 
 
 def test_redact_string_handles_quoted_pairs_fragments_and_delimited_pairs() -> None:
