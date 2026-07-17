@@ -32,7 +32,7 @@ from app.core.secrets import SecretResolver
 from app.db.models import Source
 from app.db.session import get_session
 from app.generation.models import AIProviderProfile, BrandProfile, PromptTemplate, PromptTemplateVersion
-from app.jobs.repository import JobRepository
+from app.jobs.repository import EnqueueJobResult, JobRepository
 from app.jobs.schemas import JobAcceptedOut
 from app.jobs.types import JobOrigin
 from app.publishing.models import Destination
@@ -70,12 +70,25 @@ def _provider_supports_research(
     return capabilities["research"]
 
 
-def _job_out(result) -> JobAcceptedOut:
+_ROUTE_RESPONSE_ATTRIBUTES = tuple(TelegramRouteOut.model_fields)
+
+
+def _job_out(result: EnqueueJobResult) -> JobAcceptedOut:
     return JobAcceptedOut(
         job_id=result.job.id,
         status=result.job.status,
         deduplicated=not result.created,
     )
+
+
+async def _materialize_route_out(
+    session: AsyncSession,
+    route: AutomationRoute,
+) -> TelegramRouteOut:
+    """Copy every public route scalar while async ORM access is still safe."""
+    await session.flush()
+    await session.refresh(route, attribute_names=list(_ROUTE_RESPONSE_ATTRIBUTES))
+    return TelegramRouteOut.model_validate(route)
 
 
 async def _route_or_404(session: AsyncSession, route_id: UUID) -> AutomationRoute:
@@ -211,7 +224,9 @@ async def create_route(
             "retry_policy": body.retry_policy.model_dump(mode="json"),
         }
         if all(getattr(existing, key) == value for key, value in expected.items()):
-            return existing
+            response = await _materialize_route_out(session, existing)
+            await session.commit()
+            return response
         raise HTTPException(409, "Telegram automation route already exists with different configuration")
     route = AutomationRoute(
         name=body.name,
@@ -237,9 +252,9 @@ async def create_route(
         backfill_since=None,
     )
     session.add(route)
-    await session.flush()
+    response = await _materialize_route_out(session, route)
     await session.commit()
-    return route
+    return response
 
 
 @router.get("/{route_id}", response_model=TelegramRouteOut)
@@ -270,8 +285,9 @@ async def update_research_policy(
         filters["research_provider_profile_id"] = str(body.research_provider_profile_id)
     route.research_mode = body.research_mode
     route.content_filters = filters
+    response = await _materialize_route_out(session, route)
     await session.commit()
-    return route
+    return response
 
 
 @router.post("/{route_id}/activate", response_model=TelegramRouteAcceptedOut, status_code=202)
@@ -308,24 +324,30 @@ async def activate_route(
         idempotency_key=f"telegram-route-initialize:{route.id}:{requested_at}",
         origin=JobOrigin.AUTOMATION,
     )
+    response = TelegramRouteAcceptedOut(
+        route=await _materialize_route_out(session, route),
+        job=_job_out(result),
+    )
     await session.commit()
-    return TelegramRouteAcceptedOut(route=route, job=_job_out(result))
+    return response
 
 
 @router.post("/{route_id}/pause", response_model=TelegramRouteOut)
 async def pause_route(route_id: UUID, session: AsyncSession = SessionDependency):
     route = await _route_or_404(session, route_id)
     route.paused_at = datetime.now(UTC)
+    response = await _materialize_route_out(session, route)
     await session.commit()
-    return route
+    return response
 
 
 @router.post("/{route_id}/resume", response_model=TelegramRouteOut)
 async def resume_route(route_id: UUID, session: AsyncSession = SessionDependency):
     route = await _route_or_404(session, route_id)
     route.paused_at = None
+    response = await _materialize_route_out(session, route)
     await session.commit()
-    return route
+    return response
 
 
 @router.post("/{route_id}/dry-run", response_model=TelegramRouteAcceptedOut, status_code=202)
@@ -348,8 +370,12 @@ async def dry_run_route(
         idempotency_key=f"telegram-route-dry-run:{route.id}:{request_hash}",
         origin=JobOrigin.MANUAL,
     )
+    response = TelegramRouteAcceptedOut(
+        route=await _materialize_route_out(session, route),
+        job=_job_out(result),
+    )
     await session.commit()
-    return TelegramRouteAcceptedOut(route=route, job=_job_out(result))
+    return response
 
 
 @router.post("/{route_id}/backfill", response_model=TelegramRouteAcceptedOut, status_code=202)
@@ -368,8 +394,12 @@ async def backfill_route(
         idempotency_key=f"telegram-route-backfill:{route.id}:{bounds_hash}",
         origin=JobOrigin.MANUAL,
     )
+    response = TelegramRouteAcceptedOut(
+        route=await _materialize_route_out(session, route),
+        job=_job_out(result),
+    )
     await session.commit()
-    return TelegramRouteAcceptedOut(route=route, job=_job_out(result))
+    return response
 
 
 @router.get("/{route_id}/dispatches")

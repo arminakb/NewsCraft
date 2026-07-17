@@ -9,6 +9,7 @@ from fastapi import HTTPException
 from pydantic import ValidationError
 
 from app.api.telegram_automations import (
+    _materialize_route_out,
     activate_route,
     automation_options,
     backfill_route,
@@ -64,6 +65,19 @@ def test_route_output_exposes_poll_and_resource_timestamps():
     assert output.next_poll_at == route.next_poll_at
     assert output.created_at == route.created_at
     assert output.updated_at == route.updated_at
+
+
+async def test_route_materializer_refreshes_every_public_scalar_before_copying():
+    route = saved_route()
+    session = RouteSession(route)
+
+    output = await _materialize_route_out(session, route)
+
+    assert output == TelegramRouteOut.model_validate(route)
+    assert session.calls == [
+        "flush",
+        ("refresh", tuple(TelegramRouteOut.model_fields)),
+    ]
 
 
 def test_auto_publish_requires_explicit_confirmation():
@@ -185,6 +199,30 @@ async def test_pause_and_resume_change_only_paused_at():
     assert route.enabled is False
 
 
+async def test_route_response_is_a_snapshot_before_commit_invalidates_the_orm_object():
+    route = saved_route()
+    original_name = route.name
+    original_updated_at = route.updated_at
+    session = InvalidatingCommitSession(route)
+
+    response = await pause_route(route.id, session)
+
+    assert response.name == original_name
+    assert response.updated_at == original_updated_at
+    assert route.name == "invalidated after commit"
+    assert route.updated_at is None
+
+
+async def test_commit_failure_never_returns_a_materialized_success_response():
+    route = saved_route()
+    session = FailingCommitSession(route)
+
+    with pytest.raises(RuntimeError, match="commit failed"):
+        await pause_route(route.id, session)
+
+    assert session.calls[-1] == "commit"
+
+
 async def test_route_create_validates_references_and_options_omit_all_secret_references():
     source = Source(
         id=uuid4(),
@@ -257,7 +295,7 @@ async def test_route_create_validates_references_and_options_omit_all_secret_ref
     replayed = await create_route(TelegramRouteCreate.model_validate(payload), session, secrets)
     options = await automation_options(session, secrets)
 
-    assert replayed is route
+    assert replayed == route
     assert route.cursor_state == {"status": "not_initialized"}
     assert route.enabled is False
     assert options.sources == [{"id": source.id, "name": "Source", "access_mode": "public_html"}]
@@ -504,6 +542,7 @@ class RouteSession:
     def __init__(self, route):
         self.route = route
         self.route_lock_count = 0
+        self.calls = []
 
     async def get(self, model, identifier):
         return self.route if model is AutomationRoute and self.route.id == identifier else None
@@ -517,10 +556,29 @@ class RouteSession:
         return None
 
     async def flush(self):
+        self.calls.append("flush")
         return None
 
+    async def refresh(self, instance, *, attribute_names):
+        assert instance is self.route
+        self.calls.append(("refresh", tuple(attribute_names)))
+
     async def commit(self):
+        self.calls.append("commit")
         return None
+
+
+class InvalidatingCommitSession(RouteSession):
+    async def commit(self):
+        await super().commit()
+        self.route.name = "invalidated after commit"
+        self.route.updated_at = None
+
+
+class FailingCommitSession(RouteSession):
+    async def commit(self):
+        self.calls.append("commit")
+        raise RuntimeError("commit failed")
 
 
 class FakeJobs:
@@ -553,6 +611,13 @@ class ConfigurationSession:
 
     async def flush(self):
         return None
+
+    async def refresh(self, instance, *, attribute_names):
+        now = datetime.now(UTC)
+        if getattr(instance, "created_at", None) is None:
+            instance.created_at = now
+        if getattr(instance, "updated_at", None) is None:
+            instance.updated_at = now
 
     async def commit(self):
         return None
