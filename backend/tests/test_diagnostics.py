@@ -26,7 +26,22 @@ async def _override_session():
     yield FakeSession()
 
 
-async def test_diagnostics_endpoint_reports_database_and_source_support():
+async def test_diagnostics_endpoint_reports_database_and_source_support(monkeypatch):
+    for name in (
+        "HTTP_PROXY",
+        "HTTPS_PROXY",
+        "ALL_PROXY",
+        "NO_PROXY",
+        "http_proxy",
+        "https_proxy",
+        "all_proxy",
+        "no_proxy",
+    ):
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setenv(
+        "ALL_PROXY",
+        "socks5h://diagnostic-user-canary:diagnostic-password-canary@diagnostic-host-canary.example:1080",
+    )
     app.dependency_overrides[get_session] = _override_session
     try:
         transport = ASGITransport(app=app)
@@ -41,6 +56,16 @@ async def test_diagnostics_endpoint_reports_database_and_source_support():
     assert payload["checks"]["database"] == "ok"
     assert payload["checks"]["rss_parser"] == "ok"
     assert payload["checks"]["telegram_public_parser"] == "ok"
+    assert payload["outbound_proxy"]["mode"] == "proxy"
+    assert payload["outbound_proxy"]["scheme"] == "socks5h"
+    assert "canary" not in response.text
+    assert set(payload["outbound_proxy"]) == {
+        "mode",
+        "scheme",
+        "bypass_rule_count",
+        "last_connectivity_status",
+        "configuration_error_code",
+    }
 
 
 async def test_diagnostics_summarizes_source_health_counts():

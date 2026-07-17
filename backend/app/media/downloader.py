@@ -8,6 +8,7 @@ import httpx
 from sqlalchemy import select, text
 
 from app.core.config import settings
+from app.core.outbound_proxy import build_outbound_http_client
 from app.db.models import MediaAsset
 
 IMAGE_MIME_EXTENSIONS = {
@@ -36,7 +37,7 @@ class MediaDownloader:
     async def download_missing(self, limit: int = 100) -> dict[str, int]:
         counts = {"checked": 0, "downloaded": 0, "skipped": 0, "failed": 0}
         owns_client = self.http_client is None
-        client = self.http_client or httpx.AsyncClient(timeout=30.0, follow_redirects=True, trust_env=True)
+        client = self.http_client or build_outbound_http_client(timeout=30.0, follow_redirects=True)
         try:
             assets = await self._load_missing_assets(limit)
             for asset in assets:

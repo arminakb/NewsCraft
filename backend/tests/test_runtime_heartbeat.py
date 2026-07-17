@@ -11,6 +11,7 @@ from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from sqlalchemy.pool import NullPool
 
+from app.core.outbound_proxy import ProxyDiagnostics
 from app.jobs import scheduler as scheduler_module
 from app.jobs.models import RuntimeHeartbeat
 from app.jobs.registry import JobHandlerRegistry
@@ -158,8 +159,16 @@ async def test_repeated_component_heartbeat_updates_in_place(heartbeat_db_sessio
 
 
 @pytest.mark.asyncio
-async def test_two_worker_heartbeats_report_exact_capabilities_registry_jobs_and_supplied_time():
+async def test_two_worker_heartbeats_report_exact_capabilities_registry_jobs_and_supplied_time(monkeypatch):
     records = []
+    monkeypatch.setattr(
+        "app.jobs.worker.safe_proxy_diagnostics",
+        lambda: ProxyDiagnostics(
+            mode="direct",
+            bypass_rule_count=0,
+            last_connectivity_status="not_checked",
+        ),
+    )
 
     class SessionContext(FakeSession):
         async def __aenter__(self):
@@ -215,6 +224,13 @@ async def test_two_worker_heartbeats_report_exact_capabilities_registry_jobs_and
                 "active_work_type": None,
                 "active_work_started_at": None,
                 "last_success_at": None,
+                "outbound_proxy": {
+                    "mode": "direct",
+                    "scheme": None,
+                    "bypass_rule_count": 0,
+                    "last_connectivity_status": "not_checked",
+                    "configuration_error_code": None,
+                },
             },
         },
         {
@@ -228,9 +244,51 @@ async def test_two_worker_heartbeats_report_exact_capabilities_registry_jobs_and
                 "active_work_type": None,
                 "active_work_started_at": None,
                 "last_success_at": None,
+                "outbound_proxy": {
+                    "mode": "direct",
+                    "scheme": None,
+                    "bypass_rule_count": 0,
+                    "last_connectivity_status": "not_checked",
+                    "configuration_error_code": None,
+                },
             },
         },
     ]
+
+
+def test_worker_heartbeat_proxy_projection_never_persists_proxy_credentials(monkeypatch):
+    for name in (
+        "HTTP_PROXY",
+        "HTTPS_PROXY",
+        "ALL_PROXY",
+        "NO_PROXY",
+        "http_proxy",
+        "https_proxy",
+        "all_proxy",
+        "no_proxy",
+    ):
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setenv(
+        "ALL_PROXY",
+        "http://heartbeat-user-canary:heartbeat-password-canary@heartbeat-host-canary.example:8080",
+    )
+    runner = WorkerRunner(
+        session_factory=lambda: FakeSession(),
+        handler_registry=JobHandlerRegistry(),
+        worker_id="worker-source-generation",
+        capabilities=("ingestion",),
+    )
+
+    metadata = runner._runtime_metadata()
+
+    assert metadata["outbound_proxy"] == {
+        "mode": "proxy",
+        "scheme": "http",
+        "bypass_rule_count": 0,
+        "last_connectivity_status": metadata["outbound_proxy"]["last_connectivity_status"],
+        "configuration_error_code": None,
+    }
+    assert "canary" not in repr(metadata)
 
 
 @pytest.mark.asyncio

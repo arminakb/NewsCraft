@@ -13,6 +13,7 @@ from typing import Any, Literal
 from jsonschema import Draft202012Validator
 from jsonschema.exceptions import SchemaError, ValidationError
 
+from app.core.outbound_proxy import OutboundProxyPolicy
 from app.core.redaction import redact_secrets
 from app.research.schemas import ResearchBudget
 
@@ -78,7 +79,9 @@ type ProcessRunner = Callable[..., Awaitable[ProcessRunResult]]
 
 
 def build_codex_environment(source: Mapping[str, str], *, work_dir: Path) -> dict[str, str]:
-    environment = {key: source[key] for key in _ALLOWED_ENVIRONMENT if source.get(key)}
+    proxy_names = {"HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY"}
+    environment = {key: source[key] for key in _ALLOWED_ENVIRONMENT if key not in proxy_names and source.get(key)}
+    environment.update(OutboundProxyPolicy.from_environment(source).canonical_environment())
     environment["HOME"] = str(work_dir)
     return environment
 

@@ -16,6 +16,7 @@ from sqlalchemy import and_, func, or_, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import Settings, settings
+from app.core.outbound_proxy import ProxyDiagnostics, safe_proxy_diagnostics
 from app.core.redaction import redact_string
 from app.db.schema import SCHEMA_HEAD
 from app.jobs.models import RuntimeHeartbeat, WorkflowJob
@@ -120,6 +121,7 @@ class OperationalHealthSnapshot(BaseModel):
     queues: list[QueueOperationalHealth]
     alerts: list[OperationalAlert]
     metrics: dict[str, int | float]
+    outbound_proxy: ProxyDiagnostics
 
 
 class ReadinessSnapshot(BaseModel):
@@ -784,6 +786,7 @@ def _operational_snapshot(
         queues=queues,
         alerts=alerts,
         metrics=metrics,
+        outbound_proxy=safe_proxy_diagnostics(),
     )
 
 

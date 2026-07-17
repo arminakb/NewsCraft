@@ -105,11 +105,21 @@ async def test_run_daily_bundle_orchestrates_ingestion_discovery_extraction_down
 
 
 async def test_http_client_builders_ignore_blank_proxy_settings(monkeypatch):
+    for name in (
+        "HTTP_PROXY",
+        "HTTPS_PROXY",
+        "ALL_PROXY",
+        "NO_PROXY",
+        "http_proxy",
+        "https_proxy",
+        "all_proxy",
+        "no_proxy",
+    ):
+        monkeypatch.setenv(name, "  ")
     for module in (daily_bundle_main, ingestion_service):
-        monkeypatch.setattr(module.settings, "all_proxy", "")
-        monkeypatch.setattr(module.settings, "https_proxy", "")
-        monkeypatch.setattr(module.settings, "http_proxy", "")
         client = module._build_http_client()
+        assert client._trust_env is False
+        assert client._transport.__class__.__name__ == "OutboundProxyTransport"
         await client.aclose()
 
 

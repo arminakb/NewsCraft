@@ -6,6 +6,7 @@ from typing import Any
 import httpx
 
 from app.core.config import settings
+from app.core.outbound_proxy import build_outbound_http_client
 from app.core.redaction import redact_secrets, redact_string
 from app.db.models import Source
 from app.ingestion.repository import IngestionRepository, build_item_identities
@@ -177,15 +178,7 @@ class IngestionService:
 
 
 def _build_http_client() -> httpx.AsyncClient:
-    proxy = _configured_proxy()
-    return httpx.AsyncClient(timeout=20.0, proxy=proxy, trust_env=True)
-
-
-def _configured_proxy() -> str | None:
-    for value in (settings.all_proxy, settings.https_proxy, settings.http_proxy):
-        if value and value.strip():
-            return value
-    return None
+    return build_outbound_http_client(timeout=20.0)
 
 
 def _filter_sources(sources: list[Source], source_ids: list[str] | None) -> list[Source]:

@@ -7,6 +7,8 @@ NewsCraft exposes three different health boundaries. They are intentionally not 
 - `GET /operations/health` returns sanitized dependency, component, queue, alert, and metric state. `GET /operations/metrics` exposes the same bounded measures in Prometheus text format.
 - `GET /health` remains a temporary liveness-compatible alias. `GET /operations/diagnostics` remains the existing operator/UI contract, with its timestamp race repaired.
 
+The JSON diagnostic projections also include the safe outbound proxy summary defined in `docs/operations/outbound-proxy-policy.md`: mode, scheme, bypass count, last connectivity status, and a sanitized configuration error code only. Proxy configuration does not change core database/storage readiness; the owning outbound capability fails safely when its policy is invalid or its configured proxy is unavailable.
+
 API-owned asynchronous mutations and operator retries are admitted only when a fresh worker heartbeat advertises the exact job type and that type is below `CAPABILITY_QUEUE_CEILING`. Rejections use HTTP 503 with the stable codes `job_capability_unavailable`, `job_capability_unknown`, or `job_queue_capacity_exceeded`, plus a `Retry-After` header. Idempotent replays still return the already accepted job. Scheduler and worker continuation sessions are not API-gated.
 
 ## State meanings

@@ -43,10 +43,14 @@ services:
     command: sh -c "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000"
     environment:
       DATABASE_URL: postgresql+asyncpg://newscraft:newscraft@newscraft-postgres:5432/newscraft
-      HTTP_PROXY: ${HTTP_PROXY:-http://xray-proxy:10808}
-      HTTPS_PROXY: ${HTTPS_PROXY:-http://xray-proxy:10808}
-      ALL_PROXY: ${ALL_PROXY:-http://xray-proxy:10808}
-      NO_PROXY: ${NO_PROXY:-newscraft-postgres,postgres,localhost,127.0.0.1}
+      HTTP_PROXY: ${HTTP_PROXY-}
+      HTTPS_PROXY: ${HTTPS_PROXY-}
+      ALL_PROXY: ${ALL_PROXY-}
+      NO_PROXY: ${NO_PROXY-}
+      http_proxy: ${http_proxy-}
+      https_proxy: ${https_proxy-}
+      all_proxy: ${all_proxy-}
+      no_proxy: ${no_proxy-}
       MEDIA_ROOT: /data/media
       EXPORT_ROOT: /data/exports
       READINESS_REQUIRED_CAPABILITIES: ${READINESS_REQUIRED_CAPABILITIES:-}
@@ -66,9 +70,6 @@ services:
       - media_data:/data/media
       - export_data:/data/exports
       - .:/workspace
-    networks:
-      - default
-      - xray_proxy
     depends_on:
       postgres:
         condition: service_healthy
@@ -97,10 +98,14 @@ services:
     environment:
       NEWSCRAFT_COMPONENT_ID: worker-source-generation
       DATABASE_URL: postgresql+asyncpg://newscraft:newscraft@newscraft-postgres:5432/newscraft
-      HTTP_PROXY: ${HTTP_PROXY:-http://xray-proxy:10808}
-      HTTPS_PROXY: ${HTTPS_PROXY:-http://xray-proxy:10808}
-      ALL_PROXY: ${ALL_PROXY:-http://xray-proxy:10808}
-      NO_PROXY: ${NO_PROXY:-newscraft-postgres,postgres,localhost,127.0.0.1}
+      HTTP_PROXY: ${HTTP_PROXY-}
+      HTTPS_PROXY: ${HTTPS_PROXY-}
+      ALL_PROXY: ${ALL_PROXY-}
+      NO_PROXY: ${NO_PROXY-}
+      http_proxy: ${http_proxy-}
+      https_proxy: ${https_proxy-}
+      all_proxy: ${all_proxy-}
+      no_proxy: ${no_proxy-}
       MEDIA_ROOT: /data/media
       EXPORT_ROOT: /data/exports
       TELEGRAM_MEDIA_STAGING_ROOT: /data/media-staging
@@ -115,9 +120,6 @@ services:
       - media_data:/data/media
       - export_data:/data/exports
       - media_staging:/data/media-staging
-    networks:
-      - default
-      - xray_proxy
     depends_on:
       postgres:
         condition: service_healthy
@@ -138,10 +140,14 @@ services:
     environment:
       NEWSCRAFT_COMPONENT_ID: worker-publishing
       DATABASE_URL: postgresql+asyncpg://newscraft:newscraft@newscraft-postgres:5432/newscraft
-      HTTP_PROXY: ${HTTP_PROXY:-http://xray-proxy:10808}
-      HTTPS_PROXY: ${HTTPS_PROXY:-http://xray-proxy:10808}
-      ALL_PROXY: ${ALL_PROXY:-http://xray-proxy:10808}
-      NO_PROXY: ${NO_PROXY:-newscraft-postgres,postgres,localhost,127.0.0.1}
+      HTTP_PROXY: ${HTTP_PROXY-}
+      HTTPS_PROXY: ${HTTPS_PROXY-}
+      ALL_PROXY: ${ALL_PROXY-}
+      NO_PROXY: ${NO_PROXY-}
+      http_proxy: ${http_proxy-}
+      https_proxy: ${https_proxy-}
+      all_proxy: ${all_proxy-}
+      no_proxy: ${no_proxy-}
       MEDIA_ROOT: /data/media
       TELEGRAM_MEDIA_STAGING_ROOT: /data/media-staging
       TELEGRAM_DESTINATION_NEWS_TOKEN: ${TELEGRAM_DESTINATION_NEWS_TOKEN:-}
@@ -150,9 +156,6 @@ services:
     volumes:
       - media_data:/data/media
       - media_staging:/data/media-staging
-    networks:
-      - default
-      - xray_proxy
     depends_on:
       postgres:
         condition: service_healthy
@@ -173,19 +176,20 @@ services:
     environment:
       NEWSCRAFT_COMPONENT_ID: scheduler
       DATABASE_URL: postgresql+asyncpg://newscraft:newscraft@newscraft-postgres:5432/newscraft
-      HTTP_PROXY: ${HTTP_PROXY:-http://xray-proxy:10808}
-      HTTPS_PROXY: ${HTTPS_PROXY:-http://xray-proxy:10808}
-      ALL_PROXY: ${ALL_PROXY:-http://xray-proxy:10808}
-      NO_PROXY: ${NO_PROXY:-newscraft-postgres,postgres,localhost,127.0.0.1}
+      HTTP_PROXY: ${HTTP_PROXY-}
+      HTTPS_PROXY: ${HTTPS_PROXY-}
+      ALL_PROXY: ${ALL_PROXY-}
+      NO_PROXY: ${NO_PROXY-}
+      http_proxy: ${http_proxy-}
+      https_proxy: ${https_proxy-}
+      all_proxy: ${all_proxy-}
+      no_proxy: ${no_proxy-}
       MEDIA_ROOT: /data/media
     extra_hosts:
       - "host.docker.internal:host-gateway"
     volumes:
       - media_data:/data/media
       - media_staging:/data/media-staging
-    networks:
-      - default
-      - xray_proxy
     depends_on:
       postgres:
         condition: service_healthy
@@ -203,8 +207,3 @@ volumes:
   media_data:
   export_data:
   media_staging:
-
-networks:
-  xray_proxy:
-    external: true
-    name: ${XRAY_PROXY_NETWORK:-contenthub_default}

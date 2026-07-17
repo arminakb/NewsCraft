@@ -3,7 +3,6 @@ from __future__ import annotations
 from typing import Any, Literal
 from uuid import UUID
 
-import httpx
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import select
@@ -11,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.stories import _story_summary
 from app.api.telegram_destinations import get_secret_resolver
+from app.core.outbound_proxy import build_outbound_http_client
 from app.core.redaction import redact_secrets, redact_string
 from app.db.session import get_session
 from app.exports.service import (
@@ -71,7 +71,7 @@ def get_editorial_profile_resolver(
 ) -> ProviderProfileResolver:
     return ProviderProfileResolver(
         secret_resolver=secrets,
-        http_client_factory=lambda **kwargs: httpx.AsyncClient(
+        http_client_factory=lambda **kwargs: build_outbound_http_client(
             base_url=kwargs["base_url"], timeout=kwargs["timeout_seconds"]
         ),
         provider_registry=build_default_provider_registry(),

@@ -26,13 +26,14 @@ export function DiagnosticsDashboard({ snapshot }: { snapshot: OperationsSnapsho
 
   return (
     <div className="space-y-4">
-      <div className="grid gap-3 sm:grid-cols-3">
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <TruthCard label="Snapshot generated" value={formatTehranTimestamp(snapshot.generatedAt)} />
         <TruthCard
           label="Automation control"
           value={snapshot.globalPaused ? "Operations paused" : "Operations active"}
         />
         <TruthCard label="Publication mode" value={snapshot.dryRun ? "Dry run enabled" : "Live mode enabled"} />
+        <TruthCard label="Outbound network" value={outboundProxySummary(snapshot)} />
       </div>
 
       <Card className="rounded-md py-0" size="sm">
@@ -115,6 +116,13 @@ export function DiagnosticsDashboard({ snapshot }: { snapshot: OperationsSnapsho
       </div>
     </div>
   )
+}
+
+function outboundProxySummary(snapshot: OperationsSnapshot): string {
+  const proxy = snapshot.outboundProxy
+  if (proxy.configurationErrorCode) return `Configuration error: ${proxy.configurationErrorCode}`
+  const route = proxy.mode === "direct" ? "Direct" : `Proxy (${proxy.scheme ?? "unknown"})`
+  return `${route} · ${proxy.bypassRuleCount} bypass rules · ${humanize(proxy.lastConnectivityStatus)}`
 }
 
 function RuntimeComponent({ componentId, value }: { componentId: string; value: OperationComponentHealth }) {

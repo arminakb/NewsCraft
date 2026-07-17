@@ -1,4 +1,5 @@
 import json
+import os
 import subprocess
 from pathlib import Path
 
@@ -9,13 +10,36 @@ from app.core.config import Settings
 ROOT = Path(__file__).resolve().parents[2]
 
 
-def _compose_config() -> dict:
+PROXY_ENVIRONMENT_NAMES = {
+    "HTTP_PROXY",
+    "HTTPS_PROXY",
+    "ALL_PROXY",
+    "NO_PROXY",
+    "http_proxy",
+    "https_proxy",
+    "all_proxy",
+    "no_proxy",
+}
+
+
+def _compose_config(
+    proxy_environment: dict[str, str] | None = None,
+    *,
+    files: tuple[str, ...] = ("docker-compose.yml",),
+) -> dict:
+    environment = {key: value for key, value in os.environ.items() if key not in PROXY_ENVIRONMENT_NAMES}
+    environment.update(proxy_environment or {})
+    argv = ["docker", "compose", "--env-file", "/dev/null"]
+    for file_name in files:
+        argv.extend(("-f", file_name))
+    argv.extend(("config", "--format", "json"))
     result = subprocess.run(
-        ["docker", "compose", "config", "--format", "json"],
+        argv,
         cwd=ROOT,
         check=True,
         capture_output=True,
         text=True,
+        env=environment,
     )
     return json.loads(result.stdout)
 
@@ -45,7 +69,12 @@ def test_compose_defines_exact_normal_runtime_services_and_test_profile():
     normal_services = {name for name, service in services.items() if not service.get("profiles")}
 
     assert normal_services == {
-        "postgres", "api", "frontend", "worker-source-generation", "worker-publishing", "scheduler"
+        "postgres",
+        "api",
+        "frontend",
+        "worker-source-generation",
+        "worker-publishing",
+        "scheduler",
     }
     assert services["postgres-test"]["profiles"] == ["test"]
 
@@ -86,8 +115,11 @@ def test_worker_and_scheduler_are_long_running_backend_services():
             assert service["environment"][setting] == api["environment"][setting]
 
     source_secret_names = {
-        "OPENROUTER_API_KEY", "OPENROUTER_BASE_URL", "TELEGRAM_SOURCE_EDITOR_API_ID",
-        "TELEGRAM_SOURCE_EDITOR_API_HASH", "TELEGRAM_SOURCE_EDITOR_SESSION",
+        "OPENROUTER_API_KEY",
+        "OPENROUTER_BASE_URL",
+        "TELEGRAM_SOURCE_EDITOR_API_ID",
+        "TELEGRAM_SOURCE_EDITOR_API_HASH",
+        "TELEGRAM_SOURCE_EDITOR_SESSION",
     }
     destination_secret_names = {"TELEGRAM_DESTINATION_NEWS_TOKEN"}
     assert source_secret_names <= set(source_worker["environment"])
@@ -96,11 +128,7 @@ def test_worker_and_scheduler_are_long_running_backend_services():
     assert not source_secret_names & set(publishing_worker["environment"])
 
     secret_markers = ("OPENROUTER", "TELEGRAM", "TOKEN", "SECRET")
-    assert not any(
-        marker in name.upper()
-        for name in scheduler["environment"]
-        for marker in secret_markers
-    )
+    assert not any(marker in name.upper() for name in scheduler["environment"] for marker in secret_markers)
 
 
 def test_expected_runtime_components_match_release_two_compose_identities():
@@ -108,12 +136,8 @@ def test_expected_runtime_components_match_release_two_compose_identities():
     services = _compose_yaml()["services"]
 
     assert expected == "worker-source-generation,worker-publishing,scheduler"
-    assert services["worker-source-generation"]["environment"]["NEWSCRAFT_COMPONENT_ID"] == (
-        "worker-source-generation"
-    )
-    assert services["worker-publishing"]["environment"]["NEWSCRAFT_COMPONENT_ID"] == (
-        "worker-publishing"
-    )
+    assert services["worker-source-generation"]["environment"]["NEWSCRAFT_COMPONENT_ID"] == ("worker-source-generation")
+    assert services["worker-publishing"]["environment"]["NEWSCRAFT_COMPONENT_ID"] == ("worker-publishing")
     assert services["scheduler"]["environment"]["NEWSCRAFT_COMPONENT_ID"] == "scheduler"
 
 
@@ -246,14 +270,37 @@ def test_manual_ingest_example_includes_required_request_id():
     assert '"request_id":"123e4567-e89b-42d3-a456-426614174000"' in readme
 
 
-def test_api_and_worker_default_to_dockerized_xray_proxy():
-    compose = (ROOT / "docker-compose.yml").read_text(encoding="utf-8")
+def test_base_compose_unset_and_empty_proxy_values_are_direct_without_external_network():
+    for proxy_environment in ({}, {name: "" for name in PROXY_ENVIRONMENT_NAMES}):
+        compose = _compose_config(proxy_environment)
+        assert "xray_proxy" not in compose.get("networks", {})
+        for name in ("api", "worker-source-generation", "worker-publishing", "scheduler"):
+            service = compose["services"][name]
+            assert service["environment"]["HTTP_PROXY"] == ""
+            assert service["environment"]["HTTPS_PROXY"] == ""
+            assert service["environment"]["ALL_PROXY"] == ""
+            assert "xray_proxy" not in service.get("networks", {})
 
-    assert "HTTP_PROXY: ${HTTP_PROXY:-http://xray-proxy:10808}" in compose
-    assert "HTTPS_PROXY: ${HTTPS_PROXY:-http://xray-proxy:10808}" in compose
-    assert "ALL_PROXY: ${ALL_PROXY:-http://xray-proxy:10808}" in compose
-    assert "xray_proxy:" in compose
-    assert "name: ${XRAY_PROXY_NETWORK:-contenthub_default}" in compose
+
+def test_proxy_network_override_is_explicit_and_preserves_valid_configuration():
+    compose = _compose_config(
+        {
+            "HTTP_PROXY": "http://proxy.example:18080",
+            "HTTPS_PROXY": "https://proxy.example:18443",
+            "ALL_PROXY": "socks5://proxy.example:1080",
+            "NO_PROXY": "postgres,localhost",
+        },
+        files=("docker-compose.yml", "docker-compose.proxy.yml"),
+    )
+
+    assert compose["networks"]["xray_proxy"]["external"] is True
+    for name in ("api", "worker-source-generation", "worker-publishing", "scheduler"):
+        service = compose["services"][name]
+        assert service["environment"]["HTTP_PROXY"] == "http://proxy.example:18080"
+        assert service["environment"]["HTTPS_PROXY"] == "https://proxy.example:18443"
+        assert service["environment"]["ALL_PROXY"] == "socks5://proxy.example:1080"
+        assert service["environment"]["NO_PROXY"] == "postgres,localhost"
+        assert "xray_proxy" in service["networks"]
 
 
 def test_database_url_uses_newscraft_specific_postgres_alias():
@@ -292,20 +339,14 @@ def test_compose_has_ephemeral_postgres_test_profile():
 
 
 def test_acceptance_compose_enables_fixture_only_for_source_worker():
-    acceptance = yaml.safe_load(
-        (ROOT / "docker-compose.acceptance.yml").read_text(encoding="utf-8")
-    )
+    acceptance = yaml.safe_load((ROOT / "docker-compose.acceptance.yml").read_text(encoding="utf-8"))
     source_worker = acceptance["services"]["worker-source-generation"]
 
     assert source_worker["environment"] == {
         "APP_ENV": "test",
-        "TELEGRAM_ACCEPTANCE_FIXTURE_PATH": (
-            "/acceptance-fixtures/telegram_public_album.html"
-        ),
+        "TELEGRAM_ACCEPTANCE_FIXTURE_PATH": ("/acceptance-fixtures/telegram_public_album.html"),
     }
-    assert source_worker["volumes"] == [
-        "./backend/tests/fixtures:/acceptance-fixtures:ro"
-    ]
+    assert source_worker["volumes"] == ["./backend/tests/fixtures:/acceptance-fixtures:ro"]
     assert set(acceptance["services"]) == {"worker-source-generation"}
 
 

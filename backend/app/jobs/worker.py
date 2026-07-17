@@ -13,12 +13,17 @@ from pathlib import Path
 from typing import Any
 from uuid import UUID
 
-import httpx
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.core.config import settings
 from app.core.faults import FaultInjector, NoopFaultInjector
 from app.core.logging import configure_logging
+from app.core.outbound_proxy import (
+    OutboundProxyPolicy,
+    build_outbound_http_client,
+    safe_proxy_diagnostics,
+    telethon_proxy_from_policy,
+)
 from app.db.session import async_session
 from app.generation.providers.registry import ProviderRegistry, build_default_provider_registry
 from app.jobs.errors import (
@@ -50,16 +55,25 @@ class HttpClientOwner:
     def __init__(
         self,
         *,
-        client_factory: Callable[..., Any] = httpx.AsyncClient,
+        client_factory: Callable[..., Any] | None = None,
+        proxy_policy: OutboundProxyPolicy | None = None,
         max_clients: int = 16,
     ) -> None:
         if max_clients <= 0:
             raise ValueError("max_clients must be positive")
-        self.client_factory = client_factory
+        self.client_factory = client_factory or build_outbound_http_client
+        self.proxy_policy = (
+            proxy_policy
+            if proxy_policy is not None
+            else (OutboundProxyPolicy.from_environment() if client_factory is None else None)
+        )
+        self._inject_proxy_policy = client_factory is None
         self.max_clients = max_clients
         self._clients: dict[tuple[str, tuple[tuple[str, str], ...]], Any] = {}
 
     def get(self, purpose: str, **configuration: Any) -> Any:
+        if self._inject_proxy_policy:
+            configuration = {"policy": self.proxy_policy, **configuration}
         key = (purpose, tuple(sorted((name, repr(value)) for name, value in configuration.items())))
         existing = self._clients.get(key)
         if existing is not None:
@@ -129,6 +143,14 @@ def _build_source_dependencies(owner: HttpClientOwner) -> dict[str, Any]:
     from app.automations.telegram.registry import TelegramSourceRegistry
     from app.core.secrets import EnvironmentSecretResolver
 
+    proxy_policy = getattr(owner, "proxy_policy", None) or OutboundProxyPolicy.from_environment({})
+    mtproto_proxy = telethon_proxy_from_policy(proxy_policy)
+
+    def build_telegram_client(**configuration: Any) -> Any:
+        if mtproto_proxy is not None:
+            configuration["proxy"] = mtproto_proxy
+        return TelegramClient(**configuration)
+
     if settings.telegram_acceptance_fixture_path:
         from app.automations.telegram.acceptance_fixture import (
             TelegramAcceptanceFixtureTransport,
@@ -138,7 +160,6 @@ def _build_source_dependencies(owner: HttpClientOwner) -> dict[str, Any]:
             "telegram-public-html-acceptance",
             timeout=30.0,
             follow_redirects=True,
-            trust_env=False,
             transport=TelegramAcceptanceFixtureTransport(settings.telegram_acceptance_fixture_path),
         )
     else:
@@ -146,7 +167,6 @@ def _build_source_dependencies(owner: HttpClientOwner) -> dict[str, Any]:
             "telegram-public-html",
             timeout=30.0,
             follow_redirects=True,
-            trust_env=True,
         )
 
     source_registry = TelegramSourceRegistry()
@@ -158,7 +178,7 @@ def _build_source_dependencies(owner: HttpClientOwner) -> dict[str, Any]:
         "mtproto_user",
         MtprotoTelegramAdapter(
             secret_resolver=EnvironmentSecretResolver(),
-            client_factory=TelegramClient,
+            client_factory=build_telegram_client,
         ),
     )
     return {"source_registry": source_registry, "media_stager": _TelegramMediaStager()}
@@ -196,7 +216,6 @@ def _build_publishing_dependencies(owner: HttpClientOwner) -> dict[str, Any]:
                 "telegram-bot",
                 timeout=30.0,
                 follow_redirects=True,
-                trust_env=True,
             )
         ),
         "destination_secret_resolver": EnvironmentSecretResolver(),
@@ -531,6 +550,7 @@ class WorkerRunner:
             "last_success_at": (
                 self._last_loop_success_at.isoformat() if self._last_loop_success_at is not None else None
             ),
+            "outbound_proxy": safe_proxy_diagnostics().model_dump(mode="json"),
         }
 
     async def _record_loop_success(self) -> None:

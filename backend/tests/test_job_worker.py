@@ -9,6 +9,7 @@ import httpx
 import pytest
 
 from app.automations.telegram.contracts import TelegramFetchRequest
+from app.core.outbound_proxy import OutboundProxyPolicy, ProxyConfigurationError
 from app.generation.providers.registry import build_default_provider_registry
 from app.jobs import worker as worker_module
 from app.jobs.errors import NeedsReviewJobError, PermanentJobError, RetryableJobError
@@ -819,3 +820,49 @@ async def test_source_builder_uses_explicit_test_only_telegram_fixture(monkeypat
     assert [item.message_ids for item in result.envelopes] == [(42, 43, 44)]
     for client in clients:
         await client.aclose()
+
+
+def test_source_builder_passes_normalized_proxy_to_telethon(monkeypatch):
+    configurations: list[dict[str, object]] = []
+
+    class FakeTelegramClient:
+        def __init__(self, **configuration):
+            configurations.append(configuration)
+
+    class FakeOwner:
+        proxy_policy = OutboundProxyPolicy.from_environment(
+            {"ALL_PROXY": "socks5h://user-canary:password-canary@proxy.example:1080"}
+        )
+
+        def get(self, purpose, **configuration):
+            return object()
+
+    monkeypatch.setattr("telethon.TelegramClient", FakeTelegramClient)
+    adapter = worker_module._build_source_dependencies(FakeOwner())["source_registry"].get("mtproto_user")
+
+    adapter.client_factory(api_id=123, api_hash="hash-canary", session="session-canary")
+
+    assert configurations[0]["proxy"] == {
+        "proxy_type": "socks5",
+        "addr": "proxy.example",
+        "port": 1080,
+        "rdns": True,
+        "username": "user-canary",
+        "password": "password-canary",
+    }
+
+
+def test_source_builder_fails_safely_when_mtproto_cannot_use_proxy(monkeypatch):
+    class FakeOwner:
+        proxy_policy = OutboundProxyPolicy.from_environment(
+            {"ALL_PROXY": "https://user-canary:password-canary@proxy-canary.example:8443"}
+        )
+
+        def get(self, purpose, **configuration):
+            raise AssertionError("clients must not be constructed after unsafe MTProto configuration")
+
+    with pytest.raises(ProxyConfigurationError) as caught:
+        worker_module._build_source_dependencies(FakeOwner())
+
+    assert caught.value.code == "proxy_mtproto_scheme_unsupported"
+    assert "canary" not in repr(caught.value)

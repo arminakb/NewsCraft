@@ -15,6 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.automations.models import AutomationRoute
 from app.core.config import Settings, settings
 from app.core.logging import configure_logging
+from app.core.outbound_proxy import safe_proxy_diagnostics
 from app.db.models import Source
 from app.db.session import async_session
 from app.jobs.events import redact_event_data
@@ -331,6 +332,7 @@ async def run_scheduler() -> None:
         "last_success_at": None,
         "last_duration_ms": None,
         "last_result": None,
+        "outbound_proxy": safe_proxy_diagnostics().model_dump(mode="json"),
     }
     heartbeat_stop = asyncio.Event()
     heartbeat_started = asyncio.Event()

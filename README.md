@@ -277,19 +277,27 @@ ALL_PROXY=
 NO_PROXY=postgres,localhost,127.0.0.1
 ```
 
-If your network needs a proxy, export it before running Compose:
+Unset, empty, and whitespace-only proxy values mean direct networking. The base Compose stack has no proxy fallback and requires no external proxy network. If your network needs a proxy, export it before running Compose:
 
 ```bash
 export ALL_PROXY=socks5h://host.docker.internal:10808
 ```
 
-Use `127.0.0.1` only for backend commands that run directly on the host. Docker containers need `host.docker.internal` to reach a proxy bound to the host loopback interface.
+Use `127.0.0.1` only for backend commands that run directly on the host. Docker containers need `host.docker.internal` to reach a proxy bound to the host loopback interface. If the proxy is instead reachable only through an external Docker network, opt in explicitly:
+
+```bash
+XRAY_PROXY_NETWORK=contenthub_default \
+docker compose -f docker-compose.yml -f docker-compose.proxy.yml up -d
+```
+
+NewsCraft validates uppercase and legacy lowercase variables centrally, rejects conflicting or malformed configuration, disables library environment inheritance, and never falls back to direct access after an explicitly configured proxy fails. See the [outbound proxy policy](docs/operations/outbound-proxy-policy.md) for precedence, `NO_PROXY`, MTProto limitations, diagnostics, and the SSRF-safe exception.
 
 ## Documentation
 
 - Release 5 acceptance: [evidence and rerun checklist](docs/operations/release-acceptance.md)
 - Multi-platform manual publishing: [operator runbook](docs/operations/manual-publishing-packages.md)
 - Research and generation: [operator runbook](docs/operations/research-and-generation.md)
+- Outbound networking: [proxy policy and operations](docs/operations/outbound-proxy-policy.md)
 - Backend ingestion details: `docs/ingestion-backend.md`
 - Source catalog notes: `docs/ingestion-source-catalog.md`
 - Selective integration audit: `docs/armin-selective-audit.md`

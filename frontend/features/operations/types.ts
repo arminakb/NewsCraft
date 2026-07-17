@@ -21,6 +21,14 @@ export type OperationAttentionItem = {
   actionUrl: string
 }
 
+export type OutboundProxyDiagnostics = {
+  mode: "direct" | "proxy"
+  scheme: string | null
+  bypassRuleCount: number
+  lastConnectivityStatus: "not_checked" | "ok" | "failed"
+  configurationErrorCode: string | null
+}
+
 export type OperationsSnapshot = {
   generatedAt: string
   globalPaused: boolean
@@ -28,6 +36,7 @@ export type OperationsSnapshot = {
   components: Record<string, OperationComponentHealth>
   queueCounts: Record<string, number>
   attention: OperationAttentionItem[]
+  outboundProxy: OutboundProxyDiagnostics
 }
 
 export type HistoryCategory =

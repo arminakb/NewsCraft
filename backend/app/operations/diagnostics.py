@@ -11,6 +11,7 @@ from sqlalchemy.orm import aliased
 
 from app.automations.models import AutomationDispatch, AutomationRoute
 from app.core.config import settings
+from app.core.outbound_proxy import ProxyDiagnostics, safe_proxy_diagnostics
 from app.core.redaction import redact_secrets, redact_string
 from app.db.models import Source
 from app.generation.models import GenerationRun
@@ -62,6 +63,7 @@ class OperationsSnapshot(BaseModel):
     components: dict[str, ComponentHealth]
     queue_counts: dict[str, int]
     attention: list[AttentionItem]
+    outbound_proxy: ProxyDiagnostics
 
 
 class Clock(Protocol):
@@ -106,6 +108,7 @@ class OperationsDiagnostics:
             ),
             queue_counts=queue_counts,
             attention=attention,
+            outbound_proxy=safe_proxy_diagnostics(),
         )
 
     async def _generated_at(

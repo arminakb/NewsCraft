@@ -11,6 +11,7 @@ from pydantic import ValidationError
 
 from app.core.codex_exec import CodexExecutor
 from app.core.config import Settings, settings
+from app.core.outbound_proxy import build_outbound_http_client
 from app.core.secrets import SecretResolver
 from app.generation.models import AIProviderProfile
 from app.generation.provider_settings import OpenRouterProviderSettings
@@ -32,7 +33,7 @@ class ResolvedProviderProfile:
 
 
 def _default_http_client_factory(**kwargs) -> httpx.AsyncClient:
-    return httpx.AsyncClient(
+    return build_outbound_http_client(
         base_url=kwargs["base_url"],
         timeout=kwargs["timeout_seconds"],
     )

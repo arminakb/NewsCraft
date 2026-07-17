@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from sqlalchemy import select, text
 
+from app.core.outbound_proxy import safe_proxy_diagnostics
 from app.core.redaction import redact_string
 from app.db.models import Source
 
@@ -27,6 +28,7 @@ class DiagnosticsService:
             "checks": checks,
             "source_health": source_health["counts"],
             "problem_sources": source_health["problem_sources"],
+            "outbound_proxy": safe_proxy_diagnostics().model_dump(mode="json"),
         }
 
     async def _database_status(self) -> str:

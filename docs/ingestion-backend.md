@@ -70,13 +70,19 @@ This replaces Telethon for public-channel ingestion. Telethon still makes sense 
 
 ## Proxy
 
+Direct networking is the default. Unset, empty, and whitespace-only `HTTP_PROXY`, `HTTPS_PROXY`, and `ALL_PROXY` values do not configure a proxy, and the base Compose stack does not attach an external proxy network.
+
 If the host needs a proxy, export `ALL_PROXY` before running the worker or Docker Compose:
 
 ```bash
 export ALL_PROXY=socks5h://host.docker.internal:10808
 ```
 
-Use `127.0.0.1` only for commands that run directly on the host. Docker containers need `host.docker.internal` to reach a proxy bound to the host loopback interface. The service accepts `HTTP_PROXY`, `HTTPS_PROXY`, and `ALL_PROXY` through environment variables.
+Use `127.0.0.1` only for commands that run directly on the host. Docker containers need `host.docker.internal` to reach a proxy bound to the host loopback interface. NewsCraft resolves `HTTP_PROXY`, `HTTPS_PROXY`, `ALL_PROXY`, and `NO_PROXY` once, then passes explicit routing to every general outbound client with environment inheritance disabled. Invalid, unsupported, or conflicting configuration fails safely; an unreachable configured proxy never falls back to direct access.
+
+Public Telegram HTML follows the general HTTP policy. Telethon/MTProto supports explicit `http`, `socks5`, and `socks5h` proxy translation; HTTPS proxy URLs cannot represent MTProto routing in the installed stack and fail with a sanitized configuration code. The manually pinned SSRF-safe fetch path remains the intentional `direct_pinned_ssrf` exception.
+
+See `docs/operations/outbound-proxy-policy.md` for exact precedence, bypass rules, optional external-network Compose override, and diagnostics.
 
 See `docs/proxy-validation-notes.md` for the 2026-07-06 requested source validation benchmark and Docker proxy failure analysis.
 
