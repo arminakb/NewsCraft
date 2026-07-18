@@ -10,6 +10,7 @@ from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 from pathlib import Path
 from typing import Any, Protocol
+from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import and_, func, or_, select, text
@@ -19,7 +20,7 @@ from app.core.config import Settings, settings
 from app.core.outbound_proxy import ProxyDiagnostics, safe_proxy_diagnostics
 from app.core.redaction import redact_string
 from app.db.schema import SCHEMA_HEAD
-from app.jobs.models import RuntimeHeartbeat, WorkflowJob
+from app.jobs.models import RuntimeHeartbeat, WorkflowEvent, WorkflowJob
 from app.jobs.runtime import RuntimeHeartbeatService
 from app.jobs.types import JobStatus
 
@@ -38,6 +39,13 @@ class HealthState(StrEnum):
     STALE = "stale"
     UNAVAILABLE = "unavailable"
     UNKNOWN = "unknown"
+
+
+class RestartState(StrEnum):
+    UNKNOWN = "unknown"
+    STABLE = "stable"
+    RECOVERED = "recovered"
+    CRASH_LOOP = "crash_loop"
 
 
 STATE_DEFINITIONS: dict[str, str] = {
@@ -74,6 +82,11 @@ class ComponentOperationalHealth(BaseModel):
     activity: str
     active_work_type: str | None = None
     active_work_age_seconds: float | None = Field(default=None, ge=0)
+    process_started_at: datetime | None = None
+    restart_state: RestartState
+    restart_count_window: int = Field(ge=0)
+    restart_window_seconds: int = Field(ge=60)
+    last_restart_at: datetime | None = None
     message: str
     runbook_url: str
 
@@ -110,6 +123,22 @@ class OperationalAlert(BaseModel):
     runbook_url: str
 
 
+class JobRecoveryOperationalHealth(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    job_id: str
+    job_type: str
+    state: HealthState
+    code: str
+    recovery_count: int = Field(ge=1)
+    attempt_count: int = Field(ge=0)
+    max_attempts: int = Field(ge=1)
+    status: str
+    last_recovered_at: datetime
+    message: str
+    runbook_url: str
+
+
 class OperationalHealthSnapshot(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -119,6 +148,7 @@ class OperationalHealthSnapshot(BaseModel):
     dependencies: dict[str, DependencyHealth]
     components: dict[str, ComponentOperationalHealth]
     queues: list[QueueOperationalHealth]
+    recoveries: list[JobRecoveryOperationalHealth]
     alerts: list[OperationalAlert]
     metrics: dict[str, int | float]
     outbound_proxy: ProxyDiagnostics
@@ -378,6 +408,7 @@ class OperationalHealthService:
                 query_time = await database_time(self.session)
                 heartbeats = await RuntimeHeartbeatService(self.session).list_recent(limit=10_000)
                 queue_rows = await self._queue_rows(query_time)
+                recovery_rows = await self._recovery_rows(query_time)
                 database_observed_at = await database_time(self.session)
                 database_latency_ms = max(0, int((time.monotonic() - started) * 1_000))
         except (Exception, TimeoutError):  # noqa: BLE001 - operational output is fail-closed and sanitized
@@ -403,7 +434,7 @@ class OperationalHealthService:
                 config=self.config,
                 expected_component_ids=self.config.expected_runtime_component_ids,
             )
-            return _operational_snapshot(fallback_time, dependencies, components, [])
+            return _operational_snapshot(fallback_time, dependencies, components, [], [])
 
         generated_at = snapshot_high_water(
             fallback_time,
@@ -444,7 +475,17 @@ class OperationalHealthService:
             healthy_job_coverage=coverage,
             config=self.config,
         )
-        return _operational_snapshot(generated_at, dependencies, components, queues)
+        recoveries = build_recovery_health(
+            recovery_rows,
+            config=self.config,
+        )
+        return _operational_snapshot(
+            generated_at,
+            dependencies,
+            components,
+            queues,
+            recoveries,
+        )
 
     async def _queue_rows(self, observed_at: datetime) -> list[Mapping[str, Any]]:
         due_at = func.coalesce(WorkflowJob.scheduled_for, WorkflowJob.created_at)
@@ -506,6 +547,41 @@ class OperationalHealthService:
         result = await self.session.execute(statement)
         return list(result.mappings())
 
+    async def _recovery_rows(self, observed_at: datetime) -> list[Mapping[str, Any]]:
+        cutoff = observed_at - timedelta(seconds=self.config.recovery_observation_window_seconds)
+        recovery_count = func.count(WorkflowEvent.id)
+        last_recovered_at = func.max(WorkflowEvent.created_at)
+        statement = (
+            select(
+                WorkflowEvent.workflow_job_id.label("job_id"),
+                WorkflowJob.job_type.label("job_type"),
+                WorkflowJob.status.label("status"),
+                WorkflowJob.attempt_count.label("attempt_count"),
+                WorkflowJob.max_attempts.label("max_attempts"),
+                WorkflowJob.error_code.label("error_code"),
+                recovery_count.label("recovery_count"),
+                last_recovered_at.label("last_recovered_at"),
+            )
+            .join(WorkflowJob, WorkflowJob.id == WorkflowEvent.workflow_job_id)
+            .where(
+                WorkflowEvent.event_type == "job.lease_expired",
+                WorkflowEvent.created_at >= cutoff,
+                WorkflowEvent.workflow_job_id.is_not(None),
+            )
+            .group_by(
+                WorkflowEvent.workflow_job_id,
+                WorkflowJob.job_type,
+                WorkflowJob.status,
+                WorkflowJob.attempt_count,
+                WorkflowJob.max_attempts,
+                WorkflowJob.error_code,
+            )
+            .order_by(last_recovered_at.desc())
+            .limit(25)
+        )
+        result = await self.session.execute(statement)
+        return list(result.mappings())
+
 
 def build_component_health(
     heartbeats: Sequence[object],
@@ -547,6 +623,9 @@ def build_component_health(
                 last_success_at=None,
                 capabilities=(),
                 activity="unknown",
+                restart_state=RestartState.UNKNOWN,
+                restart_count_window=0,
+                restart_window_seconds=config.restart_warning_window_seconds,
                 message="No trustworthy heartbeat has been observed",
                 runbook_url=f"{RUNBOOK_ROOT}#heartbeat-missing-or-stale",
             )
@@ -563,6 +642,22 @@ def build_component_health(
         if activity not in {"idle", "working", "ticking"}:
             activity = "unknown"
         active_work_type = _safe_job_type(metadata.get("active_work_type"))
+        process_started_at = _metadata_timestamp(metadata, "process_started_at")
+        restart_times = _metadata_timestamps(metadata, "restart_observed_at")
+        restart_window_start = reference_time - timedelta(seconds=config.restart_warning_window_seconds)
+        recent_restarts = tuple(
+            value
+            for value in restart_times
+            if restart_window_start <= value <= database_reference + timedelta(seconds=1)
+        )
+        if process_started_at is None:
+            restart_state = RestartState.UNKNOWN
+        elif len(recent_restarts) >= config.restart_warning_count:
+            restart_state = RestartState.CRASH_LOOP
+        elif recent_restarts:
+            restart_state = RestartState.RECOVERED
+        else:
+            restart_state = RestartState.STABLE
         heartbeat_age = max(0.0, (reference_time - observed_at).total_seconds())
         success_age = (
             max(0.0, (reference_time - last_success_at).total_seconds()) if last_success_at is not None else None
@@ -599,6 +694,10 @@ def build_component_health(
                 state = HealthState.STALE
                 code = "active_work_overdue"
                 message = "Runtime heartbeat is fresh but active work has exceeded its progress threshold"
+            if state == HealthState.HEALTHY and restart_state == RestartState.CRASH_LOOP:
+                state = HealthState.STALE
+                code = "restart_rate_high"
+                message = "Process restart rate exceeds the configured warning threshold"
 
         job_types = _safe_job_types(metadata.get("job_types"))
         if state == HealthState.HEALTHY:
@@ -617,6 +716,11 @@ def build_component_health(
             activity=activity,
             active_work_type=active_work_type,
             active_work_age_seconds=active_age,
+            process_started_at=process_started_at,
+            restart_state=restart_state,
+            restart_count_window=len(recent_restarts),
+            restart_window_seconds=config.restart_warning_window_seconds,
+            last_restart_at=recent_restarts[-1] if recent_restarts else None,
             message=message,
             runbook_url=f"{RUNBOOK_ROOT}#heartbeat-missing-or-stale",
         )
@@ -722,11 +826,66 @@ def build_queue_health(
     return queues
 
 
+def build_recovery_health(
+    rows: Sequence[Mapping[str, Any]],
+    *,
+    config: Settings,
+) -> list[JobRecoveryOperationalHealth]:
+    recoveries: list[JobRecoveryOperationalHealth] = []
+    for row in rows:
+        last_recovered_at = row.get("last_recovered_at")
+        if not isinstance(last_recovered_at, datetime):
+            continue
+        job_id = _safe_job_id(row.get("job_id"))
+        job_type = _safe_job_type(row.get("job_type")) or "unknown"
+        status = str(row.get("status") or "unknown").casefold()
+        recovery_count = max(1, int(row.get("recovery_count") or 0))
+        attempt_count = max(0, int(row.get("attempt_count") or 0))
+        max_attempts = max(1, int(row.get("max_attempts") or 1))
+        error_code = str(row.get("error_code") or "")
+        if status == JobStatus.FAILED and error_code == "worker_lease_expired":
+            state = HealthState.UNAVAILABLE
+            code = "poison_job_terminal"
+            message = "A process-interrupted job exhausted its bounded attempts"
+        elif status == JobStatus.NEEDS_REVIEW:
+            state = HealthState.UNAVAILABLE
+            code = "recovery_requires_review"
+            message = "A recovered job requires operator review before further execution"
+        elif recovery_count >= config.recovery_warning_count:
+            state = HealthState.STALE
+            code = "repeated_lease_recovery"
+            message = "A job has required repeated lease recovery"
+        else:
+            state = HealthState.HEALTHY
+            code = "lease_recovered"
+            message = "A job lease was recovered within its bounded attempt policy"
+        recoveries.append(
+            JobRecoveryOperationalHealth(
+                job_id=job_id,
+                job_type=job_type,
+                state=state,
+                code=code,
+                recovery_count=recovery_count,
+                attempt_count=attempt_count,
+                max_attempts=max_attempts,
+                status=status,
+                last_recovered_at=normalize_utc(
+                    last_recovered_at,
+                    field="last_recovered_at",
+                ),
+                message=message,
+                runbook_url=f"{RUNBOOK_ROOT}#poison-and-repeated-recovery",
+            )
+        )
+    return recoveries
+
+
 def _operational_snapshot(
     generated_at: datetime,
     dependencies: dict[str, DependencyHealth],
     components: dict[str, ComponentOperationalHealth],
     queues: list[QueueOperationalHealth],
+    recoveries: list[JobRecoveryOperationalHealth],
 ) -> OperationalHealthSnapshot:
     alerts: list[OperationalAlert] = []
     for name, dependency in sorted(dependencies.items()):
@@ -762,9 +921,21 @@ def _operational_snapshot(
                     runbook_url=queue.runbook_url,
                 )
             )
+    for recovery in recoveries:
+        if recovery.state != HealthState.HEALTHY:
+            alerts.append(
+                OperationalAlert(
+                    code=recovery.code,
+                    state=recovery.state,
+                    scope=f"job:{recovery.job_id}",
+                    message=recovery.message,
+                    runbook_url=recovery.runbook_url,
+                )
+            )
     states = [item.state for item in dependencies.values()]
     states.extend(item.state for item in components.values())
     states.extend(item.state for item in queues)
+    states.extend(item.state for item in recoveries)
     state = _worst_state(states)
     metrics: dict[str, int | float] = {
         "dependencies_unavailable": sum(item.state == HealthState.UNAVAILABLE for item in dependencies.values()),
@@ -776,6 +947,11 @@ def _operational_snapshot(
         "stale_running_jobs": sum(item.stale_running_count + item.overdue_running_count for item in queues),
         "retry_pressure_jobs": sum(item.excessive_retry_count for item in queues),
         "workerless_due_job_types": sum(item.code == "no_compatible_worker" for item in queues),
+        "component_restarts_window": sum(item.restart_count_window for item in components.values()),
+        "crash_loop_components": sum(item.restart_state == RestartState.CRASH_LOOP for item in components.values()),
+        "lease_recoveries_recent": sum(item.recovery_count for item in recoveries),
+        "repeated_recovery_jobs": sum(item.code == "repeated_lease_recovery" for item in recoveries),
+        "poison_jobs_terminal": sum(item.code == "poison_job_terminal" for item in recoveries),
     }
     return OperationalHealthSnapshot(
         generated_at=generated_at,
@@ -784,6 +960,7 @@ def _operational_snapshot(
         dependencies=dependencies,
         components=components,
         queues=queues,
+        recoveries=recoveries,
         alerts=alerts,
         metrics=metrics,
         outbound_proxy=safe_proxy_diagnostics(),
@@ -908,6 +1085,31 @@ def _metadata_timestamp(metadata: Mapping[str, object], key: str) -> datetime | 
         return None
 
 
+def _metadata_timestamps(
+    metadata: Mapping[str, object],
+    key: str,
+) -> tuple[datetime, ...]:
+    values = metadata.get(key)
+    if not isinstance(values, Sequence) or isinstance(values, (str, bytes, bytearray)):
+        return ()
+    parsed = {
+        timestamp
+        for value in values[-32:]
+        if isinstance(value, str)
+        and len(value) <= 64
+        and (timestamp := _metadata_timestamp({key: value}, key)) is not None
+    }
+    return tuple(sorted(parsed))
+
+
+def _safe_job_id(value: object) -> str:
+    try:
+        return str(UUID(str(value)))
+    except TypeError, ValueError, AttributeError:
+        digest = hashlib.sha256(str(value).encode("utf-8", errors="replace")).hexdigest()[:12]
+        return f"job-{digest}"
+
+
 def _worst_state(states: Sequence[HealthState]) -> HealthState:
     for state in (HealthState.UNAVAILABLE, HealthState.STALE, HealthState.UNKNOWN):
         if state in states:
@@ -933,6 +1135,7 @@ def render_prometheus_metrics(snapshot: OperationalHealthSnapshot) -> str:
                 f"newscraft_component_last_success_age_seconds{{{labels}}} "
                 f"{component.last_success_age_seconds}"
             )
+        lines.append(f"newscraft_component_restarts_window{{{labels}}} {component.restart_count_window}")
     for queue in snapshot.queues:
         label = f'job_type="{queue.job_type}"'
         lines.append(f"newscraft_queue_due_jobs{{{label}}} {queue.due_count}")

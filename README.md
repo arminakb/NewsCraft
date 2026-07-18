@@ -67,7 +67,9 @@ docker compose up -d postgres
 docker compose up api
 ```
 
-The API service runs Alembic migrations before Uvicorn starts.
+Compose runs Alembic through the one-shot `migrate` service. The API starts Uvicorn only after
+that service completes successfully; a failed migration remains exited and does not enter an
+API restart loop.
 
 ## Workflow runtime
 
@@ -292,12 +294,19 @@ docker compose -f docker-compose.yml -f docker-compose.proxy.yml up -d
 
 NewsCraft validates uppercase and legacy lowercase variables centrally, rejects conflicting or malformed configuration, disables library environment inheritance, and never falls back to direct access after an explicitly configured proxy fails. See the [outbound proxy policy](docs/operations/outbound-proxy-policy.md) for precedence, `NO_PROXY`, MTProto limitations, diagnostics, and the SSRF-safe exception.
 
+The base, development, test, and acceptance configurations explicitly use `restart: "no"`.
+The production override uses `unless-stopped` only for PostgreSQL, API, frontend, both workers,
+and scheduler; migration and test services remain non-restarting. See the
+[restart supervision runbook](docs/operations/restart-supervision.md) before kill drills,
+manual stops, rollback, or backup/restore work.
+
 ## Documentation
 
 - Release 5 acceptance: [evidence and rerun checklist](docs/operations/release-acceptance.md)
 - Multi-platform manual publishing: [operator runbook](docs/operations/manual-publishing-packages.md)
 - Research and generation: [operator runbook](docs/operations/research-and-generation.md)
 - Outbound networking: [proxy policy and operations](docs/operations/outbound-proxy-policy.md)
+- Restart supervision: [policies, recovery drills, poison jobs, and rollback](docs/operations/restart-supervision.md)
 - Backend ingestion details: `docs/ingestion-backend.md`
 - Source catalog notes: `docs/ingestion-source-catalog.md`
 - Selective integration audit: `docs/armin-selective-audit.md`

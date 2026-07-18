@@ -90,6 +90,9 @@ def build_default_registry(
 
     registry = JobHandlerRegistry()
     if "ingestion" in selected:
+        from app.jobs.canary import SOURCE_GENERATION_CANARY, handle_worker_canary
+
+        registry.register(SOURCE_GENERATION_CANARY, handle_worker_canary)
         registry.register("ingest.collect", handle_ingest_collect)
         registry.register("manual_intake", handle_manual_intake)
         registry.register("story.group_pending", group_pending_content)
@@ -137,9 +140,11 @@ def build_default_registry(
             build_research_story_handler(research_backend_resolver),
         )
     if "publishing" in selected:
+        from app.jobs.canary import PUBLISHING_CANARY, handle_worker_canary
         from app.publishing.telegram.handlers import build_telegram_publish_handlers
 
         handlers = build_telegram_publish_handlers(telegram_client, destination_secret_resolver)
+        registry.register(PUBLISHING_CANARY, handle_worker_canary)
         registry.register("telegram.destination.check", handlers.destination_check)
         registry.register("telegram.publish", handlers.publish)
     return registry

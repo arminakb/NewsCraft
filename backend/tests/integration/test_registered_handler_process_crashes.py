@@ -27,6 +27,7 @@ SIDE_EFFECT_EVENT = "phase2.process_crash_side_effect"
 REGISTERED_JOB_TYPES = (
     "ingest.collect",
     "manual_intake",
+    "operations.canary.source_generation",
     "story.group_pending",
     "telegram.route.backfill",
     "telegram.route.dry_run",
@@ -39,6 +40,7 @@ REGISTERED_JOB_TYPES = (
     "build_export",
     "execute_retention",
     "research_story",
+    "operations.canary.publishing",
     "telegram.destination.check",
     "telegram.publish",
 )
@@ -176,7 +178,7 @@ def test_literal_process_matrix_matches_all_default_registry_keys(tmp_path: Path
         destination_secret_resolver=object(),
     )
 
-    assert len(REGISTERED_JOB_TYPES) == 16
+    assert len(REGISTERED_JOB_TYPES) == 18
     assert set(REGISTERED_JOB_TYPES) == set(registry.job_types())
 
 

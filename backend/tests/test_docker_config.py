@@ -21,6 +21,18 @@ PROXY_ENVIRONMENT_NAMES = {
     "no_proxy",
 }
 
+ALL_COMPOSE_SERVICES = {
+    "postgres",
+    "postgres-test",
+    "migrate",
+    "api",
+    "frontend",
+    "worker-source-generation",
+    "worker-publishing",
+    "scheduler",
+}
+PRODUCTION_LONG_RUNNING_SERVICES = ALL_COMPOSE_SERVICES - {"postgres-test", "migrate"}
+
 
 def _compose_config(
     proxy_environment: dict[str, str] | None = None,
@@ -29,7 +41,7 @@ def _compose_config(
 ) -> dict:
     environment = {key: value for key, value in os.environ.items() if key not in PROXY_ENVIRONMENT_NAMES}
     environment.update(proxy_environment or {})
-    argv = ["docker", "compose", "--env-file", "/dev/null"]
+    argv = ["docker", "compose", "--env-file", "/dev/null", "--profile", "*"]
     for file_name in files:
         argv.extend(("-f", file_name))
     argv.extend(("config", "--format", "json"))
@@ -70,6 +82,7 @@ def test_compose_defines_exact_normal_runtime_services_and_test_profile():
 
     assert normal_services == {
         "postgres",
+        "migrate",
         "api",
         "frontend",
         "worker-source-generation",
@@ -224,35 +237,56 @@ def test_api_healthcheck_uses_readiness_without_dependency_cycle():
         "-c",
         "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health/ready', timeout=2).close()",
     ]
-    assert api["depends_on"] == {"postgres": {"condition": "service_healthy"}}
+    assert api["depends_on"] == {"migrate": {"condition": "service_completed_successfully"}}
     assert "worker" not in api["depends_on"]
     assert "scheduler" not in api["depends_on"]
 
 
-def test_worker_and_scheduler_healthchecks_use_persisted_heartbeat_freshness():
+def test_worker_and_scheduler_healthchecks_verify_identity_capability_and_job_coverage():
     services = _compose_yaml()["services"]
 
-    for name in ("worker-source-generation", "worker-publishing"):
-        assert services[name]["healthcheck"]["test"] == [
-            "CMD",
-            "python",
-            "-m",
-            "app.jobs.healthcheck",
-            "--component-type",
-            "worker",
-            "--max-age-seconds",
-            "120",
-        ]
-    assert services["scheduler"]["healthcheck"]["test"] == [
-        "CMD",
-        "python",
-        "-m",
-        "app.jobs.healthcheck",
-        "--component-type",
-        "scheduler",
-        "--max-age-seconds",
-        "90",
-    ]
+    expected = {
+        "worker-source-generation": {
+            "--component-id": "worker-source-generation",
+            "--component-type": "worker",
+            "--expected-capabilities": "generation,ingestion,source",
+            "--expected-job-types": (
+                "build_export,content_pack.generate,content_pack.generate_telegram,"
+                "content_pack.regenerate,execute_retention,ingest.collect,manual_intake,"
+                "operations.canary.source_generation,research_story,story.group_pending,"
+                "telegram.route.backfill,"
+                "telegram.route.dry_run,telegram.route.initialize,telegram.route.poll,"
+                "telegram.route.process"
+            ),
+            "--max-age-seconds": "120",
+        },
+        "worker-publishing": {
+            "--component-id": "worker-publishing",
+            "--component-type": "worker",
+            "--expected-capabilities": "publishing",
+            "--expected-job-types": ("operations.canary.publishing,telegram.destination.check,telegram.publish"),
+            "--max-age-seconds": "120",
+        },
+        "scheduler": {
+            "--component-id": "scheduler",
+            "--component-type": "scheduler",
+            "--expected-capabilities": "scheduling",
+            "--expected-job-types": "",
+            "--max-age-seconds": "90",
+        },
+    }
+    for name, expected_options in expected.items():
+        command = services[name]["healthcheck"]["test"]
+        assert command[:4] == ["CMD", "python", "-m", "app.jobs.healthcheck"]
+        assert dict(zip(command[4::2], command[5::2], strict=True)) == expected_options
+
+
+def test_frontend_healthcheck_targets_the_process_only_route():
+    frontend = _compose_yaml()["services"]["frontend"]
+
+    assert frontend["depends_on"] == {"api": {"condition": "service_healthy"}}
+    assert frontend["healthcheck"]["test"][:3] == ["CMD", "node", "-e"]
+    assert "http://127.0.0.1:3000/health" in frontend["healthcheck"]["test"][3]
 
 
 def test_daily_bundle_command_is_documented_for_docker():
@@ -311,11 +345,63 @@ def test_database_url_uses_newscraft_specific_postgres_alias():
     assert "newscraft-postgres" in compose
 
 
-def test_api_service_runs_alembic_before_uvicorn():
+def test_migration_is_one_shot_and_api_waits_for_success_before_uvicorn():
     compose = yaml.safe_load((ROOT / "docker-compose.yml").read_text(encoding="utf-8"))
-    command = compose["services"]["api"]["command"]
+    services = compose["services"]
 
-    assert command == 'sh -c "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000"'
+    assert services["migrate"]["command"] == "alembic upgrade head"
+    assert services["migrate"]["restart"] == "no"
+    assert services["migrate"]["depends_on"] == {"postgres": {"condition": "service_healthy"}}
+    assert services["api"]["command"] == ("uvicorn app.main:app --host 0.0.0.0 --port 8000")
+    assert "alembic" not in services["api"]["command"]
+    assert services["api"]["depends_on"] == {"migrate": {"condition": "service_completed_successfully"}}
+
+
+def test_restart_policies_are_exact_in_every_supported_compose_mode():
+    modes = {
+        "base": ("docker-compose.yml",),
+        "development": ("docker-compose.yml", "docker-compose.dev.yml"),
+        "test": ("docker-compose.yml", "docker-compose.test.yml"),
+        "acceptance": ("docker-compose.yml", "docker-compose.acceptance.yml"),
+        "production": ("docker-compose.yml", "docker-compose.production.yml"),
+    }
+
+    for mode, files in modes.items():
+        services = _compose_config(files=files)["services"]
+        assert set(services) == ALL_COMPOSE_SERVICES, mode
+        expected = {
+            name: ("unless-stopped" if mode == "production" and name in PRODUCTION_LONG_RUNNING_SERVICES else "no")
+            for name in ALL_COMPOSE_SERVICES
+        }
+        assert {name: service["restart"] for name, service in services.items()} == expected
+
+
+def test_production_app_processes_run_beneath_docker_init():
+    services = _compose_config(files=("docker-compose.yml", "docker-compose.production.yml"))["services"]
+
+    for name in (
+        "api",
+        "frontend",
+        "worker-source-generation",
+        "worker-publishing",
+        "scheduler",
+    ):
+        assert services[name]["init"] is True
+    for name in ("postgres", "postgres-test", "migrate"):
+        assert "init" not in services[name]
+
+
+def test_all_supported_compose_modes_render_with_valid_dependency_conditions():
+    for files in (
+        ("docker-compose.yml",),
+        ("docker-compose.yml", "docker-compose.dev.yml"),
+        ("docker-compose.yml", "docker-compose.test.yml"),
+        ("docker-compose.yml", "docker-compose.acceptance.yml"),
+        ("docker-compose.yml", "docker-compose.production.yml"),
+    ):
+        services = _compose_config(files=files)["services"]
+        assert services["api"]["depends_on"]["migrate"]["condition"] == ("service_completed_successfully")
+        assert services["migrate"]["depends_on"]["postgres"]["condition"] == ("service_healthy")
 
 
 def test_postgres_18_volume_uses_supported_data_parent():
@@ -347,7 +433,8 @@ def test_acceptance_compose_enables_fixture_only_for_source_worker():
         "TELEGRAM_ACCEPTANCE_FIXTURE_PATH": ("/acceptance-fixtures/telegram_public_album.html"),
     }
     assert source_worker["volumes"] == ["./backend/tests/fixtures:/acceptance-fixtures:ro"]
-    assert set(acceptance["services"]) == {"worker-source-generation"}
+    assert set(acceptance["services"]) == ALL_COMPOSE_SERVICES
+    assert all(service["restart"] == "no" for service in acceptance["services"].values())
 
 
 def test_dockerignore_excludes_local_build_noise():

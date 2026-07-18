@@ -7,7 +7,7 @@ import pytest
 from sqlalchemy import text
 
 from app.core.config import Settings
-from app.jobs.models import RuntimeHeartbeat, WorkflowJob
+from app.jobs.models import RuntimeHeartbeat, WorkflowEvent, WorkflowJob
 from app.jobs.types import JobOrigin, JobStatus
 from app.operations.health import HealthState, OperationalHealthService, ReadinessService
 
@@ -131,3 +131,57 @@ async def test_postgres_due_work_detects_wrong_worker_capability_and_index_exist
         )
     )
     assert index_exists is True
+
+
+@pytest.mark.asyncio
+async def test_postgres_operational_health_identifies_terminal_poison_recovery_safely(
+    db_session,
+    tmp_path,
+):
+    observed_at = datetime.now(UTC)
+    poison_job = WorkflowJob(
+        id=uuid4(),
+        job_type="build_export",
+        status=JobStatus.FAILED,
+        payload={},
+        result={},
+        idempotency_key=f"phase3-poison:{uuid4()}",
+        origin=JobOrigin.MANUAL,
+        attempt_count=3,
+        max_attempts=3,
+        error_class="retryable",
+        error_code="worker_lease_expired",
+        error_message="Worker lease expired after the final configured attempt",
+        finished_at=observed_at,
+    )
+    db_session.add(poison_job)
+    await db_session.flush()
+    for offset in (3, 2, 1):
+        db_session.add(
+            WorkflowEvent(
+                workflow_job_id=poison_job.id,
+                event_type="job.lease_expired",
+                actor="system",
+                event_data={},
+                created_at=observed_at - timedelta(minutes=offset),
+            )
+        )
+    await db_session.flush()
+
+    operational = await OperationalHealthService(
+        db_session,
+        config=_config(
+            tmp_path,
+            expected_runtime_component_ids="",
+            readiness_required_capabilities="",
+        ),
+    ).snapshot()
+
+    recovery = next(item for item in operational.recoveries if item.job_id == str(poison_job.id))
+    assert recovery.code == "poison_job_terminal"
+    assert recovery.recovery_count == 3
+    assert recovery.attempt_count == recovery.max_attempts == 3
+    assert any(
+        alert.code == "poison_job_terminal" and alert.scope == f"job:{poison_job.id}" for alert in operational.alerts
+    )
+    assert operational.metrics["poison_jobs_terminal"] == 1

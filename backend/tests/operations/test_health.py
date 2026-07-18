@@ -12,8 +12,10 @@ from app.operations.health import (
     DependencyHealth,
     HealthState,
     ReadinessService,
+    RestartState,
     build_component_health,
     build_queue_health,
+    build_recovery_health,
     normalize_utc,
     probe_storage_directory,
     render_prometheus_metrics,
@@ -127,9 +129,7 @@ async def test_readiness_succeeds_for_database_schema_storage_and_required_capab
 async def test_readiness_fails_when_configured_required_capability_has_no_fresh_worker(tmp_path):
     (tmp_path / "media").mkdir()
     (tmp_path / "exports").mkdir()
-    session = ReadinessSession(
-        heartbeats=[_heartbeat("worker-source-generation", NOW - timedelta(seconds=61))]
-    )
+    session = ReadinessSession(heartbeats=[_heartbeat("worker-source-generation", NOW - timedelta(seconds=61))])
 
     snapshot = await ReadinessService(
         session,
@@ -247,6 +247,54 @@ def test_scheduler_heartbeat_uses_scheduler_specific_boundaries(tmp_path):
     assert components["unavailable"].state == HealthState.UNAVAILABLE
 
 
+def test_process_restart_history_reports_recovery_and_crash_loop_rate(tmp_path):
+    config = _config(tmp_path, restart_warning_count=3)
+    recovered = _heartbeat(
+        "worker-recovered",
+        NOW,
+        metadata={
+            "job_types": ["ingest.collect"],
+            "state": "idle",
+            "last_success_at": NOW.isoformat(),
+            "process_started_at": (NOW - timedelta(minutes=2)).isoformat(),
+            "process_instance_id": "must-not-be-projected",
+            "restart_observed_at": [(NOW - timedelta(minutes=2)).isoformat()],
+        },
+    )
+    crash_loop = _heartbeat(
+        "worker-crash-loop",
+        NOW,
+        metadata={
+            "job_types": ["ingest.collect"],
+            "state": "idle",
+            "last_success_at": NOW.isoformat(),
+            "process_started_at": (NOW - timedelta(seconds=30)).isoformat(),
+            "process_instance_id": "restart-canary-secret",
+            "restart_observed_at": [
+                (NOW - timedelta(minutes=3)).isoformat(),
+                (NOW - timedelta(minutes=2)).isoformat(),
+                (NOW - timedelta(minutes=1)).isoformat(),
+            ],
+        },
+    )
+
+    components, coverage = build_component_health(
+        [recovered, crash_loop],
+        reference_time=NOW,
+        config=config,
+    )
+
+    assert components["worker-recovered"].restart_state == RestartState.RECOVERED
+    assert components["worker-recovered"].restart_count_window == 1
+    assert components["worker-recovered"].state == HealthState.HEALTHY
+    assert components["worker-crash-loop"].restart_state == RestartState.CRASH_LOOP
+    assert components["worker-crash-loop"].restart_count_window == 3
+    assert components["worker-crash-loop"].state == HealthState.STALE
+    assert components["worker-crash-loop"].code == "restart_rate_high"
+    assert coverage == {"ingest.collect": 1}
+    assert "canary" not in json.dumps({key: value.model_dump(mode="json") for key, value in components.items()})
+
+
 def test_fresh_runtime_heartbeat_exposes_overdue_active_work_as_stale(tmp_path):
     heartbeat = _heartbeat(
         "worker-source-generation",
@@ -323,6 +371,43 @@ def test_due_age_warning_and_unavailable_boundaries_are_deterministic(tmp_path):
     assert (unavailable.state, unavailable.code) == (HealthState.UNAVAILABLE, "due_work_overdue")
 
 
+def test_recovery_health_exposes_safe_repeated_and_terminal_poison_job_ids(tmp_path):
+    repeated_id = "123e4567-e89b-42d3-a456-426614174000"
+    terminal_id = "123e4567-e89b-42d3-a456-426614174001"
+    recoveries = build_recovery_health(
+        [
+            {
+                "job_id": repeated_id,
+                "job_type": "build_export",
+                "status": "queued",
+                "attempt_count": 2,
+                "max_attempts": 3,
+                "error_code": None,
+                "recovery_count": 2,
+                "last_recovered_at": NOW,
+            },
+            {
+                "job_id": terminal_id,
+                "job_type": "telegram.publish",
+                "status": "failed",
+                "attempt_count": 3,
+                "max_attempts": 3,
+                "error_code": "worker_lease_expired",
+                "recovery_count": 3,
+                "last_recovered_at": NOW,
+            },
+        ],
+        config=_config(tmp_path),
+    )
+
+    assert [(item.job_id, item.code, item.state) for item in recoveries] == [
+        (repeated_id, "repeated_lease_recovery", HealthState.STALE),
+        (terminal_id, "poison_job_terminal", HealthState.UNAVAILABLE),
+    ]
+    rendered = json.dumps([item.model_dump(mode="json") for item in recoveries])
+    assert "worker_lease_expired" not in rendered
+
+
 def test_health_output_omits_secret_values_references_payloads_and_raw_metadata(tmp_path):
     heartbeat = _heartbeat(
         "OPENROUTER_API_KEY",
@@ -392,11 +477,13 @@ def test_prometheus_output_uses_only_sanitized_fixed_metrics(tmp_path):
         {"database": _dependency("database", HealthState.HEALTHY, NOW)},
         components,
         queues,
+        [],
     )
     rendered = render_prometheus_metrics(snapshot)
 
     assert "newscraft_component_heartbeat_age_seconds" in rendered
     assert "newscraft_queue_due_jobs" in rendered
+    assert "newscraft_component_restarts_window" in rendered
     assert "component-92df3a66daaf" in rendered
     for forbidden in ("OPENROUTER_API_KEY", "credential_ref", "metrics-canary", "payload"):
         assert forbidden not in rendered

@@ -32,8 +32,8 @@ RUNTIME_SERVICES = [
     "frontend",
 ]
 STOP_COMMAND = ["docker", "compose", "stop", *RUNTIME_SERVICES]
-START_COMMAND = ["docker", "compose", "start", *RUNTIME_SERVICES]
-RECOVERY_COMMAND = "docker compose start " + " ".join(RUNTIME_SERVICES)
+START_COMMAND = ["docker", "compose", "up", "-d", "--no-deps", *RUNTIME_SERVICES]
+RECOVERY_COMMAND = "docker compose up -d --no-deps " + " ".join(RUNTIME_SERVICES)
 
 
 def _content_archive(files: dict[str, bytes] | None = None) -> bytes:
@@ -644,10 +644,7 @@ def test_restore_stops_replaces_and_restarts_actual_split_services(
             "run",
             "--rm",
             "--no-deps",
-            "api",
-            "alembic",
-            "upgrade",
-            "head",
+            "migrate",
         ]
     )
     start_index = runner.commands.index(START_COMMAND)

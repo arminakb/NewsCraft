@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlalchemy.pool import NullPool
 
 from app.automations.models import AutomationDispatch
+from app.core.config import Settings
 from app.core.faults import InjectedFault, ScriptedFaultInjector
 from app.generation.handlers import build_canonical_generation_handler
 from app.generation.models import GenerationAttempt, GenerationRun
@@ -21,6 +22,7 @@ from app.jobs.registry import JobContext, JobHandlerRegistry
 from app.jobs.repository import JobRepository
 from app.jobs.types import JobOrigin, JobStatus
 from app.jobs.worker import WorkerRunner
+from app.operations.health import OperationalHealthService
 from app.research.fake import FakeResearchBackend
 from app.research.handlers import build_research_story_handler
 from app.research.models import ResearchAttempt, ResearchRun
@@ -32,7 +34,16 @@ CRASH_EXIT_CODE = 73
 ROOT = Path(__file__).resolve().parents[3]
 
 
-def _crash_after_claim(database_url: str, job_id: str) -> None:
+def _crash_after_claim(
+    database_url: str,
+    job_id: str,
+    job_type: str = "fault.recovery",
+    worker_id: str = "worker-before-crash",
+    claimed_at_value: str | None = None,
+    lease_seconds: int = 90,
+) -> None:
+    claimed_at = datetime.fromisoformat(claimed_at_value) if claimed_at_value else CLAIMED_AT
+
     async def run() -> None:
         engine = create_async_engine(database_url, poolclass=NullPool)
         factory = async_sessionmaker(engine, expire_on_commit=False)
@@ -41,14 +52,14 @@ def _crash_after_claim(database_url: str, job_id: str) -> None:
         async def handler(job, context):
             raise AssertionError("worker.after_claim must fire before the handler")
 
-        registry.register("fault.recovery", handler)
+        registry.register(job_type, handler)
         runner = WorkerRunner(
             session_factory=factory,
             handler_registry=registry,
-            worker_id="worker-before-crash",
+            worker_id=worker_id,
             capabilities=(),
-            clock=lambda: CLAIMED_AT,
-            lease_seconds=90,
+            clock=lambda: claimed_at,
+            lease_seconds=lease_seconds,
             heartbeat_seconds=30,
             fault_injector=ScriptedFaultInjector({"worker.after_claim": 1}),
         )
@@ -613,3 +624,102 @@ async def test_final_route_research_crash_marks_subscribed_dispatch_for_review(
     assert run is not None and run.status == "failed"
     assert run.finished_at == recovered_at
     assert attempts == []
+
+
+@pytest.mark.asyncio
+async def test_repeated_process_killing_poison_job_exhausts_bounded_attempts(
+    release3_factory,
+    tmp_path,
+):
+    async with release3_factory() as session:
+        queued = await JobRepository(session).enqueue_job(
+            job_type="fault.poison",
+            payload={},
+            idempotency_key="phase3:poison-process-kill",
+            origin=JobOrigin.MANUAL,
+            max_attempts=3,
+            scheduled_for=CLAIMED_AT,
+        )
+        job_id = queued.job.id
+        await session.commit()
+
+    for attempt in range(1, 4):
+        claimed_at = CLAIMED_AT + timedelta(seconds=(attempt - 1) * 31)
+        worker_id = f"poison-worker-{attempt}"
+        process = multiprocessing.get_context("spawn").Process(
+            target=_crash_after_claim,
+            args=(
+                os.environ["TEST_DATABASE_URL"],
+                str(job_id),
+                "fault.poison",
+                worker_id,
+                claimed_at.isoformat(),
+                30,
+            ),
+        )
+        process.start()
+        process.join(timeout=20)
+        if process.is_alive():
+            process.kill()
+            process.join(timeout=5)
+            raise AssertionError(f"poison attempt {attempt} did not terminate")
+        assert process.exitcode == CRASH_EXIT_CODE
+
+        async with release3_factory() as session:
+            claimed = await session.get(WorkflowJob, job_id)
+            assert claimed is not None
+            assert claimed.status == JobStatus.RUNNING
+            assert claimed.lease_owner == worker_id
+            assert claimed.attempt_count == attempt
+
+        # Each process dies without a terminal transition. Lease recovery is
+        # the only retry path and must become terminal after the configured bound.
+        async with release3_factory() as session:
+            assert await JobRepository(session).requeue_expired_leases(now=claimed_at + timedelta(seconds=31)) == 1
+            await session.commit()
+
+    async with release3_factory() as session:
+        terminal = await session.get(WorkflowJob, job_id)
+        replay = await JobRepository(session).claim_next_job(
+            worker_id="poison-worker-4",
+            lease_seconds=30,
+            allowed_job_types=("fault.poison",),
+            now=CLAIMED_AT + timedelta(seconds=94),
+        )
+        events = list(
+            await session.scalars(
+                select(WorkflowEvent.event_type)
+                .where(WorkflowEvent.workflow_job_id == job_id)
+                .order_by(WorkflowEvent.created_at)
+            )
+        )
+
+    assert terminal is not None
+    assert terminal.status == JobStatus.FAILED
+    assert terminal.attempt_count == terminal.max_attempts == 3
+    assert terminal.error_code == "worker_lease_expired"
+    assert terminal.lease_owner is None
+    assert replay is None
+    assert events.count("job.lease_expired") == 3
+    assert events.count("job.failed") == 1
+
+    (tmp_path / "media").mkdir()
+    (tmp_path / "exports").mkdir()
+    async with release3_factory() as session:
+        operational = await OperationalHealthService(
+            session,
+            config=Settings(
+                media_root=str(tmp_path / "media"),
+                export_root=str(tmp_path / "exports"),
+                expected_runtime_component_ids="",
+                readiness_required_capabilities="",
+                recovery_observation_window_seconds=604_800,
+            ),
+        ).snapshot()
+
+    recovery = next(item for item in operational.recoveries if item.job_id == str(job_id))
+    assert recovery.code == "poison_job_terminal"
+    assert recovery.recovery_count == 3
+    assert recovery.attempt_count == recovery.max_attempts == 3
+    assert any(alert.code == "poison_job_terminal" and alert.scope == f"job:{job_id}" for alert in operational.alerts)
+    assert operational.metrics["poison_jobs_terminal"] == 1

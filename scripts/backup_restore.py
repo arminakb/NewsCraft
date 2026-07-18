@@ -31,8 +31,15 @@ RUNTIME_SERVICES = (
     "frontend",
 )
 STOP_COMMAND = ("docker", "compose", "stop", *RUNTIME_SERVICES)
-START_COMMAND = ("docker", "compose", "start", *RUNTIME_SERVICES)
-RECOVERY_COMMAND = "docker compose start " + " ".join(RUNTIME_SERVICES)
+START_COMMAND = (
+    "docker",
+    "compose",
+    "up",
+    "-d",
+    "--no-deps",
+    *RUNTIME_SERVICES,
+)
+RECOVERY_COMMAND = "docker compose up -d --no-deps " + " ".join(RUNTIME_SERVICES)
 MAX_MANIFEST_BYTES = 1_000_000
 MIN_CUSTOM_DUMP_HEADER_BYTES = 11
 CHUNK_SIZE = 1024 * 1024
@@ -363,10 +370,7 @@ class BackupRestore:
                         "run",
                         "--rm",
                         "--no-deps",
-                        "api",
-                        "alembic",
-                        "upgrade",
-                        "head",
+                        "migrate",
                     ]
                 )
                 self.runner.run(START_COMMAND)

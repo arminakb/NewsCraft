@@ -1,0 +1,29 @@
+services:
+  postgres:
+    restart: unless-stopped
+
+  postgres-test:
+    restart: "no"
+
+  migrate:
+    restart: "no"
+
+  api:
+    init: true
+    restart: unless-stopped
+
+  frontend:
+    init: true
+    restart: unless-stopped
+
+  worker-source-generation:
+    init: true
+    restart: unless-stopped
+
+  worker-publishing:
+    init: true
+    restart: unless-stopped
+
+  scheduler:
+    init: true
+    restart: unless-stopped

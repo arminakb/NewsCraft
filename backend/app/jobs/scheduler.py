@@ -326,12 +326,15 @@ async def run_scheduler() -> None:
         loop.add_signal_handler(signum, stop.set)
 
     component_id = build_component_id("scheduler")
+    process_started_at = datetime.now(UTC)
     runtime_state: dict[str, object] = {
         "state": "idle",
         "active_work_started_at": None,
         "last_success_at": None,
         "last_duration_ms": None,
         "last_result": None,
+        "process_instance_id": uuid4().hex,
+        "process_started_at": process_started_at.isoformat(),
         "outbound_proxy": safe_proxy_diagnostics().model_dump(mode="json"),
     }
     heartbeat_stop = asyncio.Event()

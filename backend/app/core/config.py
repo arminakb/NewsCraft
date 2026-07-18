@@ -37,6 +37,10 @@ class Settings(BaseSettings):
     scheduler_health_fresh_seconds: int = Field(default=45, ge=5)
     scheduler_health_unavailable_seconds: int = Field(default=90, ge=10)
     job_stuck_seconds: int = Field(default=900, ge=60)
+    restart_warning_window_seconds: int = Field(default=600, ge=60, le=86_400)
+    restart_warning_count: int = Field(default=3, ge=2, le=32)
+    recovery_observation_window_seconds: int = Field(default=86_400, ge=60, le=604_800)
+    recovery_warning_count: int = Field(default=2, ge=2, le=100)
     openrouter_base_url: str = "https://openrouter.ai/api/v1"
     openrouter_default_model: str = "openai/gpt-5-mini"
     codex_enabled: bool = False

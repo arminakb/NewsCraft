@@ -11,7 +11,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
@@ -285,6 +285,8 @@ class WorkerRunner:
         self.lease_seconds = lease_seconds
         self.heartbeat_seconds = heartbeat_seconds
         self.fault_injector = fault_injector if fault_injector is not None else NoopFaultInjector()
+        self._process_instance_id = uuid4().hex
+        self._process_started_at = self._now()
         self._runtime_heartbeat_managed = False
         self._active_work_type: str | None = None
         self._active_work_started_at: datetime | None = None
@@ -550,6 +552,8 @@ class WorkerRunner:
             "last_success_at": (
                 self._last_loop_success_at.isoformat() if self._last_loop_success_at is not None else None
             ),
+            "process_instance_id": self._process_instance_id,
+            "process_started_at": self._process_started_at.isoformat(),
             "outbound_proxy": safe_proxy_diagnostics().model_dump(mode="json"),
         }
 

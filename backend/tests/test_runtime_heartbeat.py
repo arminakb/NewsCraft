@@ -159,6 +159,56 @@ async def test_repeated_component_heartbeat_updates_in_place(heartbeat_db_sessio
 
 
 @pytest.mark.asyncio
+async def test_process_instance_changes_accumulate_bounded_restart_history(
+    heartbeat_db_session,
+):
+    service = RuntimeHeartbeatService(heartbeat_db_session)
+    first = datetime(2026, 7, 11, 8, 0, tzinfo=UTC)
+    second = datetime(2026, 7, 11, 8, 1, tzinfo=UTC)
+    third = datetime(2026, 7, 11, 8, 2, tzinfo=UTC)
+
+    await service.record(
+        "worker-source-generation",
+        "worker",
+        ("ingestion",),
+        first,
+        {
+            "process_instance_id": "instance-a",
+            "process_started_at": first.isoformat(),
+        },
+    )
+    await heartbeat_db_session.commit()
+    await service.record(
+        "worker-source-generation",
+        "worker",
+        ("ingestion",),
+        second,
+        {
+            "process_instance_id": "instance-b",
+            "process_started_at": second.isoformat(),
+        },
+    )
+    await heartbeat_db_session.commit()
+    await service.record(
+        "worker-source-generation",
+        "worker",
+        ("ingestion",),
+        third,
+        {
+            "process_instance_id": "instance-c",
+            "process_started_at": third.isoformat(),
+        },
+    )
+    await heartbeat_db_session.commit()
+
+    row = (await service.list_recent())[0]
+    assert row.runtime_metadata["restart_observed_at"] == [
+        second.isoformat(),
+        third.isoformat(),
+    ]
+
+
+@pytest.mark.asyncio
 async def test_two_worker_heartbeats_report_exact_capabilities_registry_jobs_and_supplied_time(monkeypatch):
     records = []
     monkeypatch.setattr(
@@ -168,6 +218,10 @@ async def test_two_worker_heartbeats_report_exact_capabilities_registry_jobs_and
             bypass_rule_count=0,
             last_connectivity_status="not_checked",
         ),
+    )
+    monkeypatch.setattr(
+        "app.jobs.worker.uuid4",
+        lambda: type("ProcessInstance", (), {"hex": "process-instance"})(),
     )
 
     class SessionContext(FakeSession):
@@ -224,6 +278,8 @@ async def test_two_worker_heartbeats_report_exact_capabilities_registry_jobs_and
                 "active_work_type": None,
                 "active_work_started_at": None,
                 "last_success_at": None,
+                "process_instance_id": "process-instance",
+                "process_started_at": observed_at.isoformat(),
                 "outbound_proxy": {
                     "mode": "direct",
                     "scheme": None,
@@ -244,6 +300,8 @@ async def test_two_worker_heartbeats_report_exact_capabilities_registry_jobs_and
                 "active_work_type": None,
                 "active_work_started_at": None,
                 "last_success_at": None,
+                "process_instance_id": "process-instance",
+                "process_started_at": observed_at.isoformat(),
                 "outbound_proxy": {
                     "mode": "direct",
                     "scheme": None,
