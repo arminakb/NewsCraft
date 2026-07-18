@@ -50,7 +50,7 @@ This exception continues to reject loopback/private/link-local targets, unsafe r
 
 ## Compose deployment
 
-For a host-reachable proxy, configure the proxy variables normally and use the base stack. Containers reach a host-loopback proxy through `host.docker.internal`.
+For local development with a host-reachable proxy, configure the proxy variables normally and use the base stack. Only the source/generation and publishing workers receive them. Containers reach a host-loopback proxy through `host.docker.internal`.
 
 If the proxy hostname exists only on a separate external Docker network, add the explicit override:
 
@@ -59,7 +59,12 @@ XRAY_PROXY_NETWORK=contenthub_default \
 docker compose -f docker-compose.yml -f docker-compose.proxy.yml up -d
 ```
 
-The override attaches API, workers, and scheduler to `XRAY_PROXY_NETWORK`; it does not inject a proxy URL. Operators must still configure the intended URL explicitly.
+The override attaches only the two outbound workers to `XRAY_PROXY_NETWORK`; the API and scheduler remain detached and receive no proxy values. It does not inject a proxy URL. Operators must still configure the intended URL explicitly.
+
+Production reads authenticated proxy URLs from worker-specific files mounted at
+`/run/secrets/HTTP_PROXY`, `/run/secrets/HTTPS_PROXY`, and `/run/secrets/ALL_PROXY`.
+Source and publishing use different host files and Docker secret objects. Create restrictive
+empty files for direct mode; never reuse a shared proxy secret file across workers.
 
 ## Safe diagnostics and failures
 

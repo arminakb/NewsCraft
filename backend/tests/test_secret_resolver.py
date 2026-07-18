@@ -4,9 +4,12 @@ import pytest
 
 from app.core.secrets import (
     EnvironmentSecretResolver,
+    FileSecretResolver,
+    SecretFileSecurityError,
     SecretNotConfiguredError,
     SecretReferenceError,
     SecretResolver,
+    build_worker_secret_resolver,
 )
 
 
@@ -95,3 +98,93 @@ def test_environment_resolver_satisfies_public_protocol():
     resolver: SecretResolver = EnvironmentSecretResolver({"VALID_KEY": "secret"})
 
     assert resolver.configured("VALID_KEY") is True
+
+
+def test_file_secret_resolver_reads_each_time_for_rotation(tmp_path):
+    secret = tmp_path / "OPENROUTER_API_KEY"
+    secret.write_text("first-canary\n", encoding="utf-8")
+    secret.chmod(0o400)
+    resolver = FileSecretResolver(tmp_path)
+
+    assert resolver.resolve("OPENROUTER_API_KEY") == "first-canary"
+    secret.chmod(0o600)
+    secret.write_text("rotated-canary\n", encoding="utf-8")
+    secret.chmod(0o400)
+    assert resolver.resolve("OPENROUTER_API_KEY") == "rotated-canary"
+
+
+def test_file_secret_resolver_rejects_symlinks_and_broad_permissions(tmp_path):
+    broad = tmp_path / "BROAD_SECRET"
+    broad.write_text("broad-canary", encoding="utf-8")
+    broad.chmod(0o644)
+    resolver = FileSecretResolver(tmp_path)
+
+    with pytest.raises(SecretFileSecurityError):
+        resolver.resolve("BROAD_SECRET")
+
+    target = tmp_path / "target"
+    target.write_text("symlink-canary", encoding="utf-8")
+    target.chmod(0o400)
+    (tmp_path / "LINK_SECRET").symlink_to(target)
+    with pytest.raises(SecretNotConfiguredError):
+        resolver.resolve("LINK_SECRET")
+
+
+def test_production_worker_ignores_environment_fallback(tmp_path):
+    resolver = build_worker_secret_resolver(
+        app_env="production",
+        secret_root=tmp_path,
+        environ={"TELEGRAM_DESTINATION_NEWS_TOKEN": "environment-canary"},
+    )
+
+    assert resolver.configured("TELEGRAM_DESTINATION_NEWS_TOKEN") is False
+    with pytest.raises(SecretNotConfiguredError):
+        resolver.resolve("TELEGRAM_DESTINATION_NEWS_TOKEN")
+
+
+def test_production_workers_resolve_every_owned_category_and_reject_other_worker_files(
+    tmp_path,
+):
+    source_root = tmp_path / "source"
+    publishing_root = tmp_path / "publishing"
+    source_root.mkdir()
+    publishing_root.mkdir()
+    source_secret = source_root / "OPENROUTER_API_KEY"
+    source_api_id = source_root / "TELEGRAM_SOURCE_EDITOR_API_ID"
+    source_proxy = source_root / "HTTP_PROXY"
+    destination_secret = publishing_root / "TELEGRAM_DESTINATION_NEWS_TOKEN"
+    publishing_proxy = publishing_root / "HTTP_PROXY"
+    source_secret.write_text("provider-canary", encoding="utf-8")
+    source_api_id.write_text("source-canary", encoding="utf-8")
+    source_proxy.write_text("http://source-proxy-canary.example:8080", encoding="utf-8")
+    destination_secret.write_text("destination-canary", encoding="utf-8")
+    publishing_proxy.write_text(
+        "http://publishing-proxy-canary.example:8080", encoding="utf-8"
+    )
+    for secret in (
+        source_secret,
+        source_api_id,
+        source_proxy,
+        destination_secret,
+        publishing_proxy,
+    ):
+        secret.chmod(0o400)
+
+    source = build_worker_secret_resolver(
+        app_env="production", secret_root=source_root, environ={}
+    )
+    publishing = build_worker_secret_resolver(
+        app_env="production", secret_root=publishing_root, environ={}
+    )
+
+    assert source.resolve("OPENROUTER_API_KEY") == "provider-canary"
+    assert source.resolve("TELEGRAM_SOURCE_EDITOR_API_ID") == "source-canary"
+    assert source.resolve("HTTP_PROXY") == "http://source-proxy-canary.example:8080"
+    assert publishing.resolve("TELEGRAM_DESTINATION_NEWS_TOKEN") == "destination-canary"
+    assert publishing.resolve("HTTP_PROXY") == (
+        "http://publishing-proxy-canary.example:8080"
+    )
+    with pytest.raises(SecretNotConfiguredError):
+        source.resolve("TELEGRAM_DESTINATION_NEWS_TOKEN")
+    with pytest.raises(SecretNotConfiguredError):
+        publishing.resolve("OPENROUTER_API_KEY")

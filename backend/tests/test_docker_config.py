@@ -21,6 +21,42 @@ PROXY_ENVIRONMENT_NAMES = {
     "no_proxy",
 }
 
+API_ENVIRONMENT_NAMES = {
+    "DATABASE_URL",
+    "MEDIA_ROOT",
+    "EXPORT_ROOT",
+    "READINESS_REQUIRED_CAPABILITIES",
+    "CAPABILITY_QUEUE_CEILING",
+    "CAPABILITY_RETRY_AFTER_SECONDS",
+    "CAPABILITY_OBSERVATION_TTL_SECONDS",
+}
+SOURCE_WORKER_ENVIRONMENT_NAMES = {
+    "NEWSCRAFT_COMPONENT_ID",
+    "DATABASE_URL",
+    "HTTP_PROXY",
+    "HTTPS_PROXY",
+    "ALL_PROXY",
+    "NO_PROXY",
+    "MEDIA_ROOT",
+    "EXPORT_ROOT",
+    "TELEGRAM_MEDIA_STAGING_ROOT",
+    "OPENROUTER_API_KEY",
+    "OPENROUTER_BASE_URL",
+    "TELEGRAM_SOURCE_EDITOR_API_ID",
+    "TELEGRAM_SOURCE_EDITOR_API_HASH",
+    "TELEGRAM_SOURCE_EDITOR_SESSION",
+}
+PUBLISHING_WORKER_ENVIRONMENT_NAMES = {
+    "NEWSCRAFT_COMPONENT_ID",
+    "DATABASE_URL",
+    "HTTP_PROXY",
+    "HTTPS_PROXY",
+    "ALL_PROXY",
+    "NO_PROXY",
+    "MEDIA_ROOT",
+    "TELEGRAM_DESTINATION_NEWS_TOKEN",
+}
+SCHEDULER_ENVIRONMENT_NAMES = {"NEWSCRAFT_COMPONENT_ID", "DATABASE_URL"}
 ALL_COMPOSE_SERVICES = {
     "postgres",
     "postgres-test",
@@ -111,21 +147,16 @@ def test_worker_and_scheduler_are_long_running_backend_services():
     for service in (source_worker, publishing_worker, scheduler):
         assert service["build"] == api["build"]
         assert service["image"] == api["image"]
-        assert "media_data:/data/media" in service["volumes"]
-        assert "media_staging:/data/media-staging" in service["volumes"]
         assert service["depends_on"]["postgres"]["condition"] == "service_healthy"
         assert service["depends_on"]["api"]["condition"] == "service_healthy"
         assert set(service["depends_on"]) == {"postgres", "api"}
         assert "ports" not in service
-        for setting in (
-            "DATABASE_URL",
-            "HTTP_PROXY",
-            "HTTPS_PROXY",
-            "ALL_PROXY",
-            "NO_PROXY",
-            "MEDIA_ROOT",
-        ):
-            assert service["environment"][setting] == api["environment"][setting]
+        assert service["environment"]["DATABASE_URL"] == api["environment"]["DATABASE_URL"]
+
+    assert "media_data:/data/media" in source_worker["volumes"]
+    assert "media_staging:/data/media-staging" in source_worker["volumes"]
+    assert publishing_worker["volumes"] == ["media_data:/data/media:ro"]
+    assert "volumes" not in scheduler
 
     source_secret_names = {
         "OPENROUTER_API_KEY",
@@ -162,7 +193,7 @@ def test_compose_contains_no_literal_runtime_secret_values():
                 assert value == "${" + key + ":-}"
 
 
-def test_api_can_authoritatively_check_all_configured_secret_references():
+def test_only_owning_workers_receive_external_credential_references():
     services = _compose_yaml()["services"]
     api_environment = services["api"]["environment"]
     source_environment = services["worker-source-generation"]["environment"]
@@ -176,22 +207,81 @@ def test_api_can_authoritatively_check_all_configured_secret_references():
         "TELEGRAM_DESTINATION_NEWS_TOKEN",
     }
 
-    assert reference_names <= set(api_environment)
-    assert "TELEGRAM_DESTINATION_NEWS_TOKEN" not in source_environment
-    assert not {
+    assert not reference_names & set(api_environment)
+    assert {
         "OPENROUTER_API_KEY",
         "TELEGRAM_SOURCE_EDITOR_API_ID",
         "TELEGRAM_SOURCE_EDITOR_API_HASH",
         "TELEGRAM_SOURCE_EDITOR_SESSION",
-    } & set(publishing_environment)
+    } <= set(source_environment)
+    assert "TELEGRAM_DESTINATION_NEWS_TOKEN" not in source_environment
+    assert {"TELEGRAM_DESTINATION_NEWS_TOKEN"} <= set(publishing_environment)
+    assert not (reference_names - {"TELEGRAM_DESTINATION_NEWS_TOKEN"}) & set(publishing_environment)
     assert not reference_names & set(scheduler_environment)
+
+
+def test_phase_six_base_compose_has_exact_service_environment_boundaries():
+    services = _compose_yaml()["services"]
+
+    assert set(services["api"]["environment"]) == API_ENVIRONMENT_NAMES
+    assert set(services["worker-source-generation"]["environment"]) == (SOURCE_WORKER_ENVIRONMENT_NAMES)
+    assert set(services["worker-publishing"]["environment"]) == (PUBLISHING_WORKER_ENVIRONMENT_NAMES)
+    assert set(services["scheduler"]["environment"]) == SCHEDULER_ENVIRONMENT_NAMES
+    assert set(services["frontend"]["environment"]) == {"API_INTERNAL_BASE_URL"}
+
+
+def test_phase_six_base_compose_mounts_only_role_owned_storage():
+    services = _compose_yaml()["services"]
+
+    assert services["api"]["volumes"] == [
+        "media_data:/data/media:ro",
+        "export_data:/data/exports:ro",
+    ]
+    assert services["worker-source-generation"]["volumes"] == [
+        "media_data:/data/media",
+        "export_data:/data/exports",
+        "media_staging:/data/media-staging",
+    ]
+    assert services["worker-publishing"]["volumes"] == [
+        "media_data:/data/media:ro",
+    ]
+    assert "volumes" not in services["scheduler"]
+    assert all(mount != ".:/workspace" for service in services.values() for mount in service.get("volumes", []) or [])
+
+
+def test_phase_six_production_secrets_are_worker_only_read_only_files():
+    production = yaml.safe_load((ROOT / "docker-compose.production.yml").read_text(encoding="utf-8"))
+    services = production["services"]
+
+    assert set(services) == ALL_COMPOSE_SERVICES
+    source_targets = {item["target"] for item in services["worker-source-generation"]["secrets"]}
+    publishing_targets = {item["target"] for item in services["worker-publishing"]["secrets"]}
+    assert source_targets == {
+        "OPENROUTER_API_KEY",
+        "TELEGRAM_SOURCE_EDITOR_API_ID",
+        "TELEGRAM_SOURCE_EDITOR_API_HASH",
+        "TELEGRAM_SOURCE_EDITOR_SESSION",
+        "HTTP_PROXY",
+        "HTTPS_PROXY",
+        "ALL_PROXY",
+    }
+    assert publishing_targets == {
+        "TELEGRAM_DESTINATION_NEWS_TOKEN",
+        "HTTP_PROXY",
+        "HTTPS_PROXY",
+        "ALL_PROXY",
+    }
+    for service_name in ("worker-source-generation", "worker-publishing"):
+        assert services[service_name]["environment"]["APP_ENV"] == "production"
+        for mounted_secret in services[service_name]["secrets"]:
+            assert mounted_secret["mode"] == 0o400
 
 
 def test_export_storage_is_persistent_and_shared_only_with_the_builder_and_api():
     compose = _compose_yaml()
     services = compose["services"]
 
-    assert "export_data:/data/exports" in services["api"]["volumes"]
+    assert "export_data:/data/exports:ro" in services["api"]["volumes"]
     assert "export_data:/data/exports" in services["worker-source-generation"]["volumes"]
     assert services["api"]["environment"]["EXPORT_ROOT"] == "/data/exports"
     assert services["worker-source-generation"]["environment"]["EXPORT_ROOT"] == "/data/exports"
@@ -221,7 +311,7 @@ def test_runtime_environment_names_and_review_first_dry_run_are_documented():
         "dry run",
         "review",
         "opt in to real credentials",
-        "restart the API and only the relevant worker",
+        "restart only the relevant worker",
         "No live credentials or publishing are used by default tests",
     ):
         assert phrase in readme
@@ -295,7 +385,7 @@ def test_daily_bundle_command_is_documented_for_docker():
 
     assert "python -m app.daily_bundle" in readme
     assert "/workspace/today-news" in readme
-    assert ".:/workspace" in compose
+    assert ".:/workspace" not in compose
 
 
 def test_manual_ingest_example_includes_required_request_id():
@@ -308,11 +398,15 @@ def test_base_compose_unset_and_empty_proxy_values_are_direct_without_external_n
     for proxy_environment in ({}, {name: "" for name in PROXY_ENVIRONMENT_NAMES}):
         compose = _compose_config(proxy_environment)
         assert "xray_proxy" not in compose.get("networks", {})
-        for name in ("api", "worker-source-generation", "worker-publishing", "scheduler"):
+        for name in ("worker-source-generation", "worker-publishing"):
             service = compose["services"][name]
             assert service["environment"]["HTTP_PROXY"] == ""
             assert service["environment"]["HTTPS_PROXY"] == ""
             assert service["environment"]["ALL_PROXY"] == ""
+            assert "xray_proxy" not in service.get("networks", {})
+        for name in ("api", "scheduler"):
+            service = compose["services"][name]
+            assert not PROXY_ENVIRONMENT_NAMES & set(service["environment"])
             assert "xray_proxy" not in service.get("networks", {})
 
 
@@ -328,13 +422,17 @@ def test_proxy_network_override_is_explicit_and_preserves_valid_configuration():
     )
 
     assert compose["networks"]["xray_proxy"]["external"] is True
-    for name in ("api", "worker-source-generation", "worker-publishing", "scheduler"):
+    for name in ("worker-source-generation", "worker-publishing"):
         service = compose["services"][name]
         assert service["environment"]["HTTP_PROXY"] == "http://proxy.example:18080"
         assert service["environment"]["HTTPS_PROXY"] == "https://proxy.example:18443"
         assert service["environment"]["ALL_PROXY"] == "socks5://proxy.example:1080"
         assert service["environment"]["NO_PROXY"] == "postgres,localhost"
         assert "xray_proxy" in service["networks"]
+    for name in ("api", "scheduler"):
+        service = compose["services"][name]
+        assert not PROXY_ENVIRONMENT_NAMES & set(service["environment"])
+        assert "xray_proxy" not in service.get("networks", {})
 
 
 def test_database_url_uses_newscraft_specific_postgres_alias():

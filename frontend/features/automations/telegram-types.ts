@@ -9,6 +9,14 @@ export type TelegramApprovalState = "draft" | "pending_review" | "approved" | "r
 export type TelegramDirection = "ltr" | "rtl"
 export type TelegramParseMode = "HTML"
 export type TelegramDestinationHealth = "unknown" | "healthy" | "unhealthy"
+export type CredentialCapabilityStatus = "available" | "unavailable" | "unknown" | "stale"
+export type CredentialCapabilityState = {
+  status: CredentialCapabilityStatus
+  owner: string | null
+  observedAt: string | null
+  expiresAt: string | null
+  failureCode: string
+}
 export type TelegramPublishStatus =
   | "queued"
   | "dispatching"
@@ -34,6 +42,7 @@ export type TelegramSource = {
   accessMode: TelegramAccessMode
   languageHint: string | null
   configured: boolean
+  capabilityState: CredentialCapabilityState
 }
 
 export type TelegramSourceInput = {
@@ -53,6 +62,7 @@ export type TelegramDestination = {
   enabled: boolean
   healthStatus: TelegramDestinationHealth
   configured: boolean
+  capabilityState: CredentialCapabilityState
   settings: { allowAutoPublish?: boolean } & Record<string, unknown>
 }
 
@@ -167,12 +177,12 @@ export type TelegramDispatch = {
 
 export type TelegramOption = { id: string; name: string }
 export type TelegramAutomationOptions = {
-  sources: Array<TelegramOption & { accessMode: TelegramAccessMode }>
-  destinations: Array<TelegramOption & { healthStatus: TelegramDestinationHealth; allowAutoPublish: boolean }>
+  sources: Array<TelegramOption & { accessMode: TelegramAccessMode; capabilityState: CredentialCapabilityState }>
+  destinations: Array<TelegramOption & { healthStatus: TelegramDestinationHealth; allowAutoPublish: boolean; capabilityState: CredentialCapabilityState }>
   brandProfiles: TelegramOption[]
   promptTemplateVersions: Array<{ id: string; version: number }>
   aiProviderProfiles: Array<
-    TelegramOption & { providerType: "fake" | "openrouter" | "codex"; defaultModel: string | null; configured: boolean; capabilities: { generation: boolean; research: boolean } }
+    TelegramOption & { providerType: "fake" | "openrouter" | "codex"; defaultModel: string | null; configured: boolean; capabilities: { generation: boolean; research: boolean }; capabilityStates: { generation: CredentialCapabilityState; research: CredentialCapabilityState } }
   >
 }
 
@@ -341,6 +351,7 @@ export type AIProviderProfile = {
   enabled: boolean
   configured: boolean
   capabilities: { generation: boolean; research: boolean }
+  capabilityStates: { generation: CredentialCapabilityState; research: CredentialCapabilityState }
   unavailabilityCodes: string[]
 }
 export type AIProviderProfileInput = {

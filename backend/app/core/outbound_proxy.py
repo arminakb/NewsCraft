@@ -11,6 +11,8 @@ from urllib.parse import unquote, urlsplit
 import httpx
 from pydantic import BaseModel, ConfigDict, Field
 
+from app.core.secrets import FileSecretResolver, SecretFileSecurityError, SecretNotConfiguredError
+
 SUPPORTED_PROXY_SCHEMES = frozenset({"http", "https", "socks5", "socks5h"})
 _DEFAULT_PROXY_PORTS = {"http": 80, "https": 443, "socks5": 1080, "socks5h": 1080}
 _PROXY_VARIABLES = ("HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY")
@@ -111,9 +113,9 @@ class OutboundProxyPolicy:
     @classmethod
     def from_environment(cls, environment: Mapping[str, str] | None = None) -> OutboundProxyPolicy:
         source = os.environ if environment is None else environment
-        http_value = _paired_environment_value(source, "HTTP_PROXY")
-        https_value = _paired_environment_value(source, "HTTPS_PROXY")
-        all_value = _paired_environment_value(source, "ALL_PROXY")
+        http_value = _paired_environment_value(source, "HTTP_PROXY", include_secret_file=True)
+        https_value = _paired_environment_value(source, "HTTPS_PROXY", include_secret_file=True)
+        all_value = _paired_environment_value(source, "ALL_PROXY", include_secret_file=True)
         no_proxy_value = _paired_environment_value(source, "NO_PROXY")
         rules = _parse_no_proxy(no_proxy_value)
         return cls(
@@ -323,12 +325,31 @@ def _mtproto_endpoint(policy: OutboundProxyPolicy) -> ProxyEndpoint | None:
     return candidates[0]
 
 
-def _paired_environment_value(environment: Mapping[str, str], uppercase_name: str) -> str | None:
+def _paired_environment_value(
+    environment: Mapping[str, str],
+    uppercase_name: str,
+    *,
+    include_secret_file: bool = False,
+) -> str | None:
     upper = _normalized_environment_value(environment.get(uppercase_name))
     lower = _normalized_environment_value(environment.get(uppercase_name.casefold()))
     if upper is not None and lower is not None and upper != lower:
         raise ProxyConfigurationError("proxy_environment_conflict")
-    return upper if upper is not None else lower
+    environment_value = upper if upper is not None else lower
+    if not include_secret_file:
+        return environment_value
+    secret_root = environment.get("NEWSCRAFT_SECRET_ROOT", "/run/secrets")
+    if not isinstance(secret_root, str):
+        raise ProxyConfigurationError("proxy_secret_file_unavailable")
+    try:
+        file_value = FileSecretResolver(secret_root).resolve(uppercase_name)
+    except SecretNotConfiguredError:
+        file_value = None
+    except SecretFileSecurityError:
+        raise ProxyConfigurationError("proxy_secret_file_unavailable") from None
+    if environment_value is not None and file_value is not None:
+        raise ProxyConfigurationError("proxy_environment_file_conflict")
+    return file_value if file_value is not None else environment_value
 
 
 def _normalized_environment_value(value: object) -> str | None:
@@ -411,11 +432,13 @@ def _valid_hostname(value: str) -> bool:
 
 
 def _has_nonempty_proxy_value(environment: Mapping[str, str]) -> bool:
-    return any(
-        _normalized_environment_value(environment.get(name)) is not None
-        or _normalized_environment_value(environment.get(name.casefold())) is not None
-        for name in _PROXY_VARIABLES[:3]
-    )
+    try:
+        return any(
+            _paired_environment_value(environment, name, include_secret_file=True) is not None
+            for name in _PROXY_VARIABLES[:3]
+        )
+    except ProxyConfigurationError:
+        return True
 
 
 __all__ = [

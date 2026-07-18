@@ -15,6 +15,7 @@ from app.generation.provider_settings import (
     ResearchBudgetSettings,
     ResearchBudgetsSettings,
 )
+from app.jobs.credential_capabilities import CapabilityStatus
 
 
 class BrandProfileCreate(BaseModel):
@@ -125,6 +126,7 @@ class AIProviderProfileOut(BaseModel):
     enabled: bool
     configured: bool
     capabilities: dict[Literal["generation", "research"], bool]
+    capability_states: dict[Literal["generation", "research"], CapabilityStatus]
     unavailability_codes: list[str]
 
 

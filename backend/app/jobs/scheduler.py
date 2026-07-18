@@ -6,7 +6,7 @@ import signal
 from dataclasses import dataclass
 from datetime import UTC, datetime, time, timedelta
 from time import monotonic
-from uuid import uuid4
+from uuid import UUID, uuid4
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from sqlalchemy import Select, select
@@ -18,6 +18,7 @@ from app.core.logging import configure_logging
 from app.core.outbound_proxy import safe_proxy_diagnostics
 from app.db.models import Source
 from app.db.session import async_session
+from app.jobs.credential_capabilities import CapabilityStatusService
 from app.jobs.events import redact_event_data
 from app.jobs.models import AutomationControl, WorkflowEvent, WorkflowSchedule
 from app.jobs.repository import JobRepository
@@ -113,6 +114,8 @@ class SchedulerService:
             enqueued = 0
             deduplicated = 0
             for route in await self._lock_due_routes(observed_at):
+                if not await self._route_capabilities_available(route, observed_at):
+                    continue
                 due_time = route.next_poll_at
                 if due_time is None:  # pragma: no cover - due query excludes nulls
                     continue
@@ -317,6 +320,41 @@ class SchedulerService:
 
     async def _lock_due_routes(self, now: datetime) -> list[AutomationRoute]:
         return list(await self.session.scalars(build_due_route_statement(now)))
+
+    async def _route_capabilities_available(
+        self,
+        route: AutomationRoute,
+        observed_at: datetime,
+    ) -> bool:
+        status = CapabilityStatusService(
+            self.session,
+            config=self.settings,
+            clock=lambda: observed_at,
+        )
+        required = [
+            await status.get("source", route.source_id, "source"),
+            await status.get(
+                "provider",
+                route.ai_provider_profile_id,
+                "generation",
+            ),
+        ]
+        research_profile_id = (route.content_filters or {}).get("research_provider_profile_id")
+        if route.research_mode != "off" and research_profile_id is not None:
+            try:
+                research_id = UUID(str(research_profile_id))
+            except ValueError:
+                return False
+            required.append(await status.get("provider", research_id, "research"))
+        if route.publishing_policy == "auto_publish":
+            required.append(
+                await status.get(
+                    "destination",
+                    route.destination_id,
+                    "publishing",
+                )
+            )
+        return all(item.available for item in required)
 
 
 async def run_scheduler() -> None:

@@ -10,6 +10,7 @@ import pytest
 
 from app.automations.telegram.contracts import TelegramFetchRequest
 from app.core.outbound_proxy import OutboundProxyPolicy, ProxyConfigurationError
+from app.core.secrets import EnvironmentSecretResolver
 from app.generation.providers.registry import build_default_provider_registry
 from app.jobs import worker as worker_module
 from app.jobs.errors import NeedsReviewJobError, PermanentJobError, RetryableJobError
@@ -513,7 +514,7 @@ def test_each_capability_constructs_only_its_permitted_dependency_bundle(monkeyp
     captured = {}
 
     def bundle(name, values):
-        def build(owner):
+        def build(owner, secrets):
             constructed.append(name)
             return values
 
@@ -551,15 +552,18 @@ def test_each_capability_constructs_only_its_permitted_dependency_bundle(monkeyp
 def test_publishing_never_constructs_source_or_openrouter_dependencies(monkeypatch):
     monkeypatch.setattr(
         "app.jobs.worker._build_source_dependencies",
-        lambda owner: pytest.fail("MTProto constructed"),
+        lambda owner, secrets: pytest.fail("MTProto constructed"),
     )
     monkeypatch.setattr(
         "app.jobs.worker._build_generation_dependencies",
-        lambda owner: pytest.fail("OpenRouter constructed"),
+        lambda owner, secrets: pytest.fail("OpenRouter constructed"),
     )
     monkeypatch.setattr(
         "app.jobs.worker._build_publishing_dependencies",
-        lambda owner: {"telegram_client": object(), "destination_secret_resolver": object()},
+        lambda owner, secrets: {
+            "telegram_client": object(),
+            "destination_secret_resolver": object(),
+        },
     )
     monkeypatch.setattr("app.jobs.worker.build_default_registry", lambda **kwargs: JobHandlerRegistry())
 
@@ -568,6 +572,9 @@ def test_publishing_never_constructs_source_or_openrouter_dependencies(monkeypat
 
 def test_publishing_never_resolves_export_root(monkeypatch):
     class PublishingSettings:
+        app_env = "test"
+        worker_secret_root = "/run/secrets"
+
         @property
         def export_root(self):
             pytest.fail("publishing must not resolve EXPORT_ROOT")
@@ -575,7 +582,10 @@ def test_publishing_never_resolves_export_root(monkeypatch):
     monkeypatch.setattr(worker_module, "settings", PublishingSettings())
     monkeypatch.setattr(
         "app.jobs.worker._build_publishing_dependencies",
-        lambda owner: {"telegram_client": object(), "destination_secret_resolver": object()},
+        lambda owner, secrets: {
+            "telegram_client": object(),
+            "destination_secret_resolver": object(),
+        },
     )
     monkeypatch.setattr("app.jobs.worker.build_default_registry", lambda **kwargs: JobHandlerRegistry())
 
@@ -586,15 +596,15 @@ def test_source_generation_never_constructs_bot_api_or_resolves_destination_toke
     monkeypatch.setenv("TELEGRAM_DESTINATION_NEWS_TOKEN", "must-not-be-read")
     monkeypatch.setattr(
         "app.jobs.worker._build_publishing_dependencies",
-        lambda owner: pytest.fail("Bot API constructed"),
+        lambda owner, secrets: pytest.fail("Bot API constructed"),
     )
     monkeypatch.setattr(
         "app.jobs.worker._build_source_dependencies",
-        lambda owner: {"source_registry": object(), "media_stager": object()},
+        lambda owner, secrets: {"source_registry": object(), "media_stager": object()},
     )
     monkeypatch.setattr(
         "app.jobs.worker._build_generation_dependencies",
-        lambda owner: {"profile_resolver": object()},
+        lambda owner, secrets: {"profile_resolver": object()},
     )
     monkeypatch.setattr("app.jobs.worker.build_default_registry", lambda **kwargs: JobHandlerRegistry())
 
@@ -766,7 +776,7 @@ async def test_run_worker_closes_owner_when_dependency_construction_fails(monkey
     assert events == ["close"]
 
 
-def test_source_generation_real_builders_never_resolve_destination_secret(monkeypatch):
+def test_source_generation_real_builders_never_resolve_destination_secret():
     secret_calls = []
 
     class SpyResolver:
@@ -782,10 +792,9 @@ def test_source_generation_real_builders_never_resolve_destination_secret(monkey
         def get(self, *args, **kwargs):
             return object()
 
-    monkeypatch.setattr("app.core.secrets.EnvironmentSecretResolver", SpyResolver)
-
-    worker_module._build_source_dependencies(FakeOwner())
-    worker_module._build_generation_dependencies(FakeOwner())
+    resolver = SpyResolver()
+    worker_module._build_source_dependencies(FakeOwner(), resolver)
+    worker_module._build_generation_dependencies(FakeOwner(), resolver)
 
     assert secret_calls == []
 
@@ -806,7 +815,9 @@ async def test_source_builder_uses_explicit_test_only_telegram_fixture(monkeypat
         str(Path("tests/fixtures/telegram_public_album.html")),
     )
 
-    dependencies = worker_module._build_source_dependencies(FakeOwner())
+    dependencies = worker_module._build_source_dependencies(
+        FakeOwner(), EnvironmentSecretResolver({})
+    )
     adapter = dependencies["source_registry"].get("public_html")
     result = await adapter.fetch(
         TelegramFetchRequest(
@@ -838,7 +849,9 @@ def test_source_builder_passes_normalized_proxy_to_telethon(monkeypatch):
             return object()
 
     monkeypatch.setattr("telethon.TelegramClient", FakeTelegramClient)
-    adapter = worker_module._build_source_dependencies(FakeOwner())["source_registry"].get("mtproto_user")
+    adapter = worker_module._build_source_dependencies(
+        FakeOwner(), EnvironmentSecretResolver({})
+    )["source_registry"].get("mtproto_user")
 
     adapter.client_factory(api_id=123, api_hash="hash-canary", session="session-canary")
 
@@ -862,7 +875,7 @@ def test_source_builder_fails_safely_when_mtproto_cannot_use_proxy(monkeypatch):
             raise AssertionError("clients must not be constructed after unsafe MTProto configuration")
 
     with pytest.raises(ProxyConfigurationError) as caught:
-        worker_module._build_source_dependencies(FakeOwner())
+        worker_module._build_source_dependencies(FakeOwner(), EnvironmentSecretResolver({}))
 
     assert caught.value.code == "proxy_mtproto_scheme_unsupported"
     assert "canary" not in repr(caught.value)

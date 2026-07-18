@@ -54,6 +54,19 @@ const activeVersion = {
   createdAt: "2026-07-12T08:00:00Z",
 }
 
+const unavailableState = {
+  status: "unavailable" as const,
+  owner: "worker-source-generation",
+  observedAt: "2026-07-18T08:00:00Z",
+  expiresAt: "2026-07-18T08:02:00Z",
+  failureCode: "credential_missing",
+}
+const availableState = {
+  ...unavailableState,
+  status: "available" as const,
+  failureCode: "available",
+}
+
 describe("ContentSettingsPage", () => {
   beforeEach(() => {
     vi.resetAllMocks()
@@ -82,6 +95,7 @@ describe("ContentSettingsPage", () => {
         enabled: true,
         configured: false,
         capabilities: { generation: false, research: false },
+        capabilityStates: { generation: unavailableState, research: unavailableState },
         unavailabilityCodes: ["secret_unavailable"],
       },
       {
@@ -93,6 +107,7 @@ describe("ContentSettingsPage", () => {
         enabled: true,
         configured: false,
         capabilities: { generation: false, research: false },
+        capabilityStates: { generation: unavailableState, research: unavailableState },
         unavailabilityCodes: ["executable_unavailable"],
       },
     ])
@@ -104,6 +119,7 @@ describe("ContentSettingsPage", () => {
         enabled: true,
         healthStatus: "healthy",
         configured: true,
+        capabilityState: availableState,
         settings: { allowAutoPublish: false },
       },
     ])
@@ -194,11 +210,14 @@ describe("ContentSettingsPage", () => {
       enabled: true,
       configured: true,
       capabilities: { generation: true, research: true },
+      capabilityStates: { generation: availableState, research: availableState },
       unavailabilityCodes: [],
     })
     vi.mocked(updateAIProviderProfile).mockResolvedValue({
       ...(await getAIProviderProfiles())[0],
       configured: true,
+      capabilities: { generation: true, research: true },
+      capabilityStates: { generation: availableState, research: availableState },
     })
     renderSettings()
 
@@ -213,7 +232,9 @@ describe("ContentSettingsPage", () => {
     )
     await waitFor(() => expect(envName).toHaveValue(""))
 
-    expect(screen.getAllByText("Unavailable").length).toBeGreaterThan(0)
+    expect(
+      screen.getByRole("group", { name: "Provider OpenRouter newsroom" })
+    ).toHaveTextContent("Generation: Unavailable")
     expect(screen.queryByText("OPENROUTER_INTERNAL_SECRET")).not.toBeInTheDocument()
     expect(screen.queryByLabelText(/password|token/i)).not.toBeInTheDocument()
 
@@ -239,11 +260,11 @@ describe("ContentSettingsPage", () => {
   it("shows exact Codex capability and executable truth without any secret field", async () => {
     renderSettings()
     const codex = await screen.findByRole("group", { name: "Provider Codex CLI" })
-    expect(codex).toHaveTextContent("Generation unavailable")
-    expect(codex).toHaveTextContent("Research unavailable")
+    expect(codex).toHaveTextContent("Generation: Unavailable")
+    expect(codex).toHaveTextContent("Research: Unavailable")
     expect(codex).toHaveTextContent("executable unavailable")
     expect(within(codex).queryByLabelText("Replacement environment variable name")).not.toBeInTheDocument()
-    expect(within(codex).getByRole("button", { name: "Save provider" })).toBeDisabled()
+    expect(within(codex).getByRole("button", { name: "Save provider" })).toBeEnabled()
   })
 
   it("shows destination health and auto-publish configuration without exposing secret references", async () => {
@@ -256,7 +277,7 @@ describe("ContentSettingsPage", () => {
     const destination = await screen.findByRole("group", { name: "Destination Main channel" })
     expect(destination).toHaveTextContent("Healthy")
     expect(destination).toHaveTextContent("Auto-publish disabled")
-    expect(destination).toHaveTextContent("Configured")
+    expect(destination).toHaveTextContent("Publishing worker: Available")
     expect(destination).not.toHaveTextContent("TELEGRAM_BOT_TOKEN")
 
     fireEvent.change(screen.getByLabelText("Destination name"), { target: { value: "Backup channel" } })

@@ -2,7 +2,6 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { fireEvent, render, screen, waitFor } from "@testing-library/react"
 
 import {
-  activateTelegramRoute,
   createTelegramDestination,
   createTelegramRoute,
   createTelegramSource,
@@ -12,7 +11,6 @@ import { RouteBuilder } from "@/features/automations/route-builder"
 import type { TelegramAutomationOptions } from "@/features/automations/telegram-types"
 
 vi.mock("@/features/automations/telegram-api", () => ({
-  activateTelegramRoute: vi.fn(),
   createTelegramDestination: vi.fn(),
   createTelegramRoute: vi.fn(),
   createTelegramSource: vi.fn(),
@@ -24,7 +22,7 @@ const options: TelegramAutomationOptions = {
   destinations: [],
   brandProfiles: [{ id: "brand-1", name: "Persian newsroom" }],
   promptTemplateVersions: [{ id: "prompt-1", version: 3 }],
-  aiProviderProfiles: [{ id: "provider-1", name: "Editorial AI", providerType: "openrouter", defaultModel: "model", configured: true, capabilities: { generation: true, research: true } }],
+  aiProviderProfiles: [{ id: "provider-1", name: "Editorial AI", providerType: "openrouter", defaultModel: "model", configured: true, capabilities: { generation: true, research: true }, capabilityStates: { generation: availableState(), research: availableState() } }],
 }
 
 describe("RouteBuilder", () => {
@@ -34,7 +32,6 @@ describe("RouteBuilder", () => {
     vi.mocked(createTelegramSource).mockResolvedValue({ id: "source-1" } as never)
     vi.mocked(createTelegramDestination).mockResolvedValue({ destination: { id: "destination-1" } } as never)
     vi.mocked(createTelegramRoute).mockResolvedValue({ id: "route-1", name: "Morning route" } as never)
-    vi.mocked(activateTelegramRoute).mockResolvedValue({ route: { id: "route-1" }, job: { jobId: "job-1" } } as never)
   })
 
   it("renders safe options and conservative defaults without credential-value inputs", async () => {
@@ -66,19 +63,18 @@ describe("RouteBuilder", () => {
     fireEvent.change(screen.getByLabelText("Session environment variable"), { target: { value: "TELEGRAM_SESSION" } })
 
     fireEvent.change(screen.getByLabelText("Publishing policy"), { target: { value: "auto_publish" } })
-    const submit = screen.getByRole("button", { name: "Create and activate" })
+    const submit = screen.getByRole("button", { name: "Create automation" })
     expect(screen.getByRole("checkbox", { name: /confirm automatic publishing/i })).not.toBeChecked()
     expect(submit).toBeDisabled()
     fireEvent.click(screen.getByRole("checkbox", { name: /confirm automatic publishing/i }))
     expect(submit).toBeEnabled()
   })
 
-  it("creates source, destination, route, then activates while preserving exact defaults", async () => {
+  it("creates configuration without activating before workers observe credentials", async () => {
     const order: string[] = []
     vi.mocked(createTelegramSource).mockImplementation(async () => { order.push("source"); return { id: "source-1" } as never })
     vi.mocked(createTelegramDestination).mockImplementation(async () => { order.push("destination"); return { destination: { id: "destination-1" } } as never })
     vi.mocked(createTelegramRoute).mockImplementation(async () => { order.push("route"); return { id: "route-1" } as never })
-    vi.mocked(activateTelegramRoute).mockImplementation(async () => { order.push("activate"); return {} as never })
     renderBuilder()
     await screen.findByRole("option", { name: "Persian newsroom" })
 
@@ -88,9 +84,9 @@ describe("RouteBuilder", () => {
     fireEvent.change(screen.getByLabelText("Destination name"), { target: { value: "Main channel" } })
     fireEvent.change(screen.getByLabelText("Destination target"), { target: { value: "@main" } })
     fireEvent.change(screen.getByLabelText("Bot token environment variable"), { target: { value: "TELEGRAM_MAIN_BOT_TOKEN" } })
-    fireEvent.click(screen.getByRole("button", { name: "Create and activate" }))
+    fireEvent.click(screen.getByRole("button", { name: "Create automation" }))
 
-    await waitFor(() => expect(order).toEqual(["source", "destination", "route", "activate"]))
+    await waitFor(() => expect(order).toEqual(["source", "destination", "route"]))
     expect(createTelegramRoute).toHaveBeenCalledWith(expect.objectContaining({
       accessMode: "public_html",
       researchMode: "off",
@@ -100,7 +96,7 @@ describe("RouteBuilder", () => {
       sourceId: "source-1",
       destinationId: "destination-1",
     }))
-    expect(await screen.findByRole("status", { name: "Automation creation outcome" })).toHaveTextContent("initialization queued")
+    expect(await screen.findByRole("status", { name: "Automation creation outcome" })).toHaveTextContent("owning workers report current capability status")
   })
 
   it("shows all research modes and submits only an available profile UUID", async () => {
@@ -114,7 +110,7 @@ describe("RouteBuilder", () => {
     fireEvent.change(screen.getByLabelText("Automation name"), { target: { value: "Research route" } })
     fireEvent.change(screen.getByLabelText("Source name"), { target: { value: "Research source" } })
     fillRequiredConnectionFields()
-    fireEvent.click(screen.getByRole("button", { name: "Create and activate" }))
+    fireEvent.click(screen.getByRole("button", { name: "Create automation" }))
     await waitFor(() => expect(createTelegramRoute).toHaveBeenCalled())
     const input = vi.mocked(createTelegramRoute).mock.calls[0][0]
     expect(input).toMatchObject({ researchMode: "auto_if_incomplete", contentFilters: { researchProviderProfileId: "provider-1" } })
@@ -129,7 +125,7 @@ describe("RouteBuilder", () => {
     fireEvent.change(screen.getByLabelText("Automation name"), { target: { value: "Keep me" } })
     fireEvent.change(screen.getByLabelText("Source name"), { target: { value: "Source retained" } })
     fillRequiredConnectionFields()
-    fireEvent.click(screen.getByRole("button", { name: "Create and activate" }))
+    fireEvent.click(screen.getByRole("button", { name: "Create automation" }))
 
     expect(await screen.findByRole("alert")).toHaveTextContent("Destination health check unavailable")
     expect(screen.getByLabelText("Automation name")).toHaveValue("Keep me")
@@ -142,6 +138,16 @@ function fillRequiredConnectionFields() {
   fireEvent.change(screen.getByLabelText("Destination name"), { target: { value: "Destination" } })
   fireEvent.change(screen.getByLabelText("Destination target"), { target: { value: "@target" } })
   fireEvent.change(screen.getByLabelText("Bot token environment variable"), { target: { value: "TELEGRAM_BOT_TOKEN" } })
+}
+
+function availableState() {
+  return {
+    status: "available" as const,
+    owner: "worker-source-generation",
+    observedAt: "2026-07-18T08:00:00Z",
+    expiresAt: "2026-07-18T08:02:00Z",
+    failureCode: "available",
+  }
 }
 
 function renderBuilder() {

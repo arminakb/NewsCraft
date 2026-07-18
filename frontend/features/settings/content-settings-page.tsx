@@ -21,7 +21,7 @@ import {
   updateAIProviderProfile,
   updateBrandProfile,
 } from "@/features/automations/telegram-api"
-import type { AIProviderProfile, BrandProfile } from "@/features/automations/telegram-types"
+import type { AIProviderProfile, BrandProfile, CredentialCapabilityState } from "@/features/automations/telegram-types"
 import { getApiErrorMessage } from "@/lib/http"
 import { queryKeys } from "@/lib/query-keys"
 import { DirectionBoundary } from "@/components/newsroom/direction-boundary"
@@ -252,7 +252,7 @@ export function ContentSettingsPage() {
         </Card>
 
         <Card>
-          <CardHeader><CardTitle>AI providers</CardTitle><CardDescription>The actual API key stays in .env. Enter only its environment-variable name.</CardDescription></CardHeader>
+          <CardHeader><CardTitle>AI providers</CardTitle><CardDescription>Enter only a credential reference. The generation worker—not this API—reports whether it is usable.</CardDescription></CardHeader>
           <CardContent className="space-y-4">
             <form className="grid gap-3" onSubmit={(event) => { event.preventDefault(); createProvider.mutate() }}>
               <div className="grid gap-3 sm:grid-cols-2">
@@ -282,7 +282,7 @@ export function ContentSettingsPage() {
               <div key={destination.id} role="group" aria-label={`Destination ${destination.name}`} className="space-y-1 rounded-lg border p-3">
                 <div className="flex flex-wrap items-center justify-between gap-2"><strong>{destination.name}</strong><span>{healthLabel(destination.healthStatus)}</span></div>
                 <div className="text-sm text-muted-foreground">{destination.targetRef} · {destination.settings.allowAutoPublish ? "Auto-publish enabled" : "Auto-publish disabled"}</div>
-                <div className="text-xs text-muted-foreground">{destination.configured ? "Configured" : "Unavailable"}</div>
+                <div className="text-xs text-muted-foreground">Publishing worker: {capabilityLabel(destination.capabilityState)}</div>
               </div>
             )) : <Empty>No Telegram destinations configured</Empty>}
           </CardContent>
@@ -324,17 +324,24 @@ function ProviderEditor({ provider }: { provider: AIProviderProfile }) {
   })
   return (
     <fieldset role="group" aria-label={`Provider ${provider.name}`} className="grid gap-3 rounded-lg border p-3">
-      <div className="flex flex-wrap items-center justify-between gap-2"><strong>{provider.name}</strong><span>{provider.configured ? "Configured" : "Unavailable"}</span></div>
-      <div className="text-sm text-muted-foreground">{provider.providerType} · {provider.defaultModel ?? "default model"} · Generation {provider.capabilities.generation ? "available" : "unavailable"} · Research {provider.capabilities.research ? "available" : "unavailable"}</div>
+      <div className="flex flex-wrap items-center justify-between gap-2"><strong>{provider.name}</strong><span>Generation: {capabilityLabel(provider.capabilityStates.generation)}</span></div>
+      <div className="text-sm text-muted-foreground">{provider.providerType} · {provider.defaultModel ?? "default model"} · Research: {capabilityLabel(provider.capabilityStates.research)}</div>
       {provider.unavailabilityCodes.length ? <div role="status" className="text-sm text-amber-800">Unavailable: {provider.unavailabilityCodes.map((code) => code.replaceAll("_", " ")).join(", ")}</div> : null}
       <div className="grid gap-3 sm:grid-cols-2">
         <Field label="Provider model"><input className={fieldClass} value={model} onChange={(event) => setModel(event.target.value)} /></Field>
         {provider.providerType !== "codex" ? <Field label="Replacement environment variable name"><input className={fieldClass} pattern={environmentNamePattern} aria-invalid={!environmentNameIsValid} aria-describedby={!environmentNameIsValid ? `provider-environment-error-${provider.id}` : undefined} autoComplete="off" value={environmentName} onChange={(event) => setEnvironmentName(event.target.value)} /></Field> : <div className="self-end text-sm text-muted-foreground">Codex CLI uses the configured local executable and has no secret field.</div>}
       </div>
       {!environmentNameIsValid ? <div id={`provider-environment-error-${provider.id}`} role="alert" className="text-sm text-destructive">Use 3–128 characters: start with A–Z, then only A–Z, 0–9, or underscore.</div> : null}
-      <Button className="justify-self-start" variant="outline" disabled={mutation.isPending || !environmentNameIsValid || !provider.enabled || (provider.providerType === "codex" && !provider.configured)} onClick={() => mutation.mutate()}>Save provider</Button>
+      <Button className="justify-self-start" variant="outline" disabled={mutation.isPending || !environmentNameIsValid || !provider.enabled} onClick={() => mutation.mutate()}>Save provider</Button>
     </fieldset>
   )
+}
+
+function capabilityLabel(state: CredentialCapabilityState) {
+  if (state.status === "available") return "Available"
+  if (state.status === "unavailable") return "Unavailable"
+  if (state.status === "stale") return "Observation stale"
+  return "Awaiting worker observation"
 }
 
 function PromptPurposeHistory({ title, purpose, templates }: { title: string; purpose: string; templates: Array<{ id: string; purposeKey: string }> }) {

@@ -22,6 +22,7 @@ from sqlalchemy.ext.asyncio import (
 )
 from sqlalchemy.pool import NullPool
 
+from app.api.capabilities import get_capability_status_service
 from app.api.content_packs import get_editorial_profile_resolver
 from app.api.exports import _export_root, _media_root
 from app.db.model_registry import Base
@@ -39,6 +40,7 @@ from app.jobs.worker import WorkerRunner
 from app.main import app
 from app.research.fake import FakeResearchBackend
 from app.stories.models import Story
+from tests.capability_fakes import AVAILABLE_CAPABILITIES
 
 ROOT = Path(__file__).resolve().parents[3]
 TEST_DATABASE_URL = os.getenv("TEST_DATABASE_URL")
@@ -502,6 +504,7 @@ async def app_harness(
             yield session
 
     app.dependency_overrides[get_session] = override_session
+    app.dependency_overrides[get_capability_status_service] = lambda: AVAILABLE_CAPABILITIES
     app.dependency_overrides[get_editorial_profile_resolver] = lambda: resolver
     app.dependency_overrides[_export_root] = lambda: export_root
     app.dependency_overrides[_media_root] = lambda: media_root

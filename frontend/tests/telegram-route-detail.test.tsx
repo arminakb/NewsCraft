@@ -49,13 +49,21 @@ const route = {
   updatedAt: "2026-07-12T08:00:00Z",
 }
 
+const availableState = {
+  status: "available" as const,
+  owner: "worker-source-generation",
+  observedAt: "2026-07-18T08:00:00Z",
+  expiresAt: "2026-07-18T08:02:00Z",
+  failureCode: "available",
+}
+
 describe("RouteDetail", () => {
   beforeEach(() => {
     vi.resetAllMocks()
     vi.mocked(getTelegramRoute).mockResolvedValue(route as never)
     vi.mocked(getTelegramAutomationOptions).mockResolvedValue({
-      sources: [{ id: "source-1", name: "Wire", accessMode: "public_html" }],
-      destinations: [{ id: "destination-1", name: "News", healthStatus: "healthy", allowAutoPublish: false }],
+      sources: [{ id: "source-1", name: "Wire", accessMode: "public_html", capabilityState: availableState }],
+      destinations: [{ id: "destination-1", name: "News", healthStatus: "healthy", allowAutoPublish: false, capabilityState: availableState }],
       brandProfiles: [], promptTemplateVersions: [], aiProviderProfiles: [],
     })
     vi.mocked(getTelegramDispatches).mockResolvedValue([

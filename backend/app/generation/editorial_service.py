@@ -44,6 +44,7 @@ from app.generation.telegram_schema import (
     TelegramRewriteOutput,
     TelegramVariantContent,
 )
+from app.jobs.credential_capabilities import provider_shape_capabilities
 from app.jobs.events import redact_event_data
 from app.jobs.models import WorkflowEvent, WorkflowJob
 from app.jobs.repository import JobRepository
@@ -186,6 +187,9 @@ class EditorialService:
             select(AIProviderProfile).where(AIProviderProfile.id == profile_id).with_for_update()
         )
         if profile is None or not profile.enabled or not profile.default_model:
+            raise InvalidGenerationRequest("generation provider profile is unavailable")
+        shaped, _codes = provider_shape_capabilities(profile)
+        if not shaped["generation"]:
             raise InvalidGenerationRequest("generation provider profile is unavailable")
         if self.profile_resolver is not None:
             try:

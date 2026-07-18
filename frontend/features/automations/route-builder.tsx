@@ -6,7 +6,6 @@ import { useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import {
-  activateTelegramRoute,
   createTelegramDestination,
   createTelegramRoute,
   createTelegramSource,
@@ -116,7 +115,6 @@ export function RouteBuilder({ onCreated }: { onCreated?: (routeId: string) => v
         confirmAutoPublish: form.confirmAutoPublish,
       }
       const route = await createTelegramRoute(routeInput)
-      await activateTelegramRoute(route.id)
       return route
     },
     onSuccess: async (route) => {
@@ -126,7 +124,7 @@ export function RouteBuilder({ onCreated }: { onCreated?: (routeId: string) => v
         queryClient.invalidateQueries({ queryKey: queryKeys.telegramRoutes, exact: true }),
         queryClient.invalidateQueries({ queryKey: queryKeys.telegramOptions }),
       ])
-      setOutcome("Automation created; initialization queued.")
+      setOutcome("Automation created. Activate it after the owning workers report current capability status.")
       onCreated?.(route.id)
     },
   })
@@ -188,7 +186,7 @@ export function RouteBuilder({ onCreated }: { onCreated?: (routeId: string) => v
           </Card>
           {mutation.isError ? <div role="alert" dir="auto" className="text-red-700">{getApiErrorMessage(mutation.error)}</div> : null}
           {outcome ? <div role="status" aria-label="Automation creation outcome" className="text-green-700">{outcome}</div> : null}
-          <Button size="lg" type="submit" disabled={mutation.isPending || autoUnconfirmed || mtprotoIncomplete || optionsIncomplete || researchProfileMissing}>{mutation.isPending ? "Creating" : "Create and activate"}</Button>
+          <Button size="lg" type="submit" disabled={mutation.isPending || autoUnconfirmed || mtprotoIncomplete || optionsIncomplete || researchProfileMissing}>{mutation.isPending ? "Creating" : "Create automation"}</Button>
         </form>
       ) : null}
     </section>

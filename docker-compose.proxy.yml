@@ -1,20 +1,10 @@
 services:
-  api:
-    networks:
-      - default
-      - xray_proxy
-
   worker-source-generation:
     networks:
       - default
       - xray_proxy
 
   worker-publishing:
-    networks:
-      - default
-      - xray_proxy
-
-  scheduler:
     networks:
       - default
       - xray_proxy

@@ -24,8 +24,10 @@ from app.core.outbound_proxy import (
     safe_proxy_diagnostics,
     telethon_proxy_from_policy,
 )
+from app.core.secrets import SecretResolver, build_worker_secret_resolver
 from app.db.session import async_session
 from app.generation.providers.registry import ProviderRegistry, build_default_provider_registry
+from app.jobs.credential_capabilities import WorkerCredentialCapabilityObserver
 from app.jobs.errors import (
     NeedsReviewJobError,
     PermanentJobError,
@@ -135,13 +137,12 @@ class _TelegramMediaStager:
             shutil.rmtree(staging_dir, ignore_errors=True)
 
 
-def _build_source_dependencies(owner: HttpClientOwner) -> dict[str, Any]:
+def _build_source_dependencies(owner: HttpClientOwner, secrets: SecretResolver) -> dict[str, Any]:
     from telethon import TelegramClient
 
     from app.automations.telegram.mtproto import MtprotoTelegramAdapter
     from app.automations.telegram.public_html import PublicHtmlTelegramAdapter
     from app.automations.telegram.registry import TelegramSourceRegistry
-    from app.core.secrets import EnvironmentSecretResolver
 
     proxy_policy = getattr(owner, "proxy_policy", None) or OutboundProxyPolicy.from_environment({})
     mtproto_proxy = telethon_proxy_from_policy(proxy_policy)
@@ -177,19 +178,18 @@ def _build_source_dependencies(owner: HttpClientOwner) -> dict[str, Any]:
     source_registry.register(
         "mtproto_user",
         MtprotoTelegramAdapter(
-            secret_resolver=EnvironmentSecretResolver(),
+            secret_resolver=secrets,
             client_factory=build_telegram_client,
         ),
     )
     return {"source_registry": source_registry, "media_stager": _TelegramMediaStager()}
 
 
-def _build_generation_dependencies(owner: HttpClientOwner) -> dict[str, Any]:
-    from app.core.secrets import EnvironmentSecretResolver
+def _build_generation_dependencies(owner: HttpClientOwner, secrets: SecretResolver) -> dict[str, Any]:
     from app.generation.providers.registry import build_provider_profile_resolver
 
     profile_resolver = build_provider_profile_resolver(
-        secret_resolver=EnvironmentSecretResolver(),
+        secret_resolver=secrets,
         http_client_factory=lambda **kwargs: owner.get(
             "openrouter",
             base_url=kwargs["base_url"],
@@ -206,8 +206,7 @@ def _build_generation_dependencies(owner: HttpClientOwner) -> dict[str, Any]:
     }
 
 
-def _build_publishing_dependencies(owner: HttpClientOwner) -> dict[str, Any]:
-    from app.core.secrets import EnvironmentSecretResolver
+def _build_publishing_dependencies(owner: HttpClientOwner, secrets: SecretResolver) -> dict[str, Any]:
     from app.publishing.telegram.client import TelegramBotClient
 
     return {
@@ -218,7 +217,7 @@ def _build_publishing_dependencies(owner: HttpClientOwner) -> dict[str, Any]:
                 follow_redirects=True,
             )
         ),
-        "destination_secret_resolver": EnvironmentSecretResolver(),
+        "destination_secret_resolver": secrets,
     }
 
 
@@ -239,18 +238,23 @@ def build_worker_runner(
     resource_owner: HttpClientOwner | None = None,
 ) -> WorkerRunner:
     owner = resource_owner or HttpClientOwner()
+    secrets = build_worker_secret_resolver(
+        app_env=settings.app_env,
+        secret_root=settings.worker_secret_root,
+    )
     dependencies: dict[str, Any] = {}
     if "source" in capabilities:
-        dependencies.update(_build_source_dependencies(owner))
+        dependencies.update(_build_source_dependencies(owner, secrets))
     if "generation" in capabilities:
-        dependencies.update(_build_generation_dependencies(owner))
+        dependencies.update(_build_generation_dependencies(owner, secrets))
     if "publishing" in capabilities:
-        dependencies.update(_build_publishing_dependencies(owner))
+        dependencies.update(_build_publishing_dependencies(owner, secrets))
     registry = build_default_registry(capabilities=capabilities, **dependencies)
     return WorkerRunner(
         handler_registry=registry,
         capabilities=capabilities,
         resource_owner=owner,
+        secret_resolver=secrets,
     )
 
 
@@ -266,6 +270,7 @@ class WorkerRunner:
         repository_factory: RepositoryFactory = JobRepository,
         runtime_service_factory: RuntimeServiceFactory = RuntimeHeartbeatService,
         resource_owner: HttpClientOwner | None = None,
+        secret_resolver: SecretResolver | None = None,
         worker_id: str | None = None,
         capabilities: tuple[str, ...] = ("generation", "ingestion", "source"),
         clock: Callable[[], datetime] | None = None,
@@ -279,6 +284,7 @@ class WorkerRunner:
         self.repository_factory = repository_factory
         self.runtime_service_factory = runtime_service_factory
         self.resource_owner = resource_owner
+        self.secret_resolver = secret_resolver
         self.worker_id = worker_id or build_component_id("worker")
         self.capabilities = tuple(sorted(set(capabilities)))
         self.clock = clock or (lambda: datetime.now(UTC))
@@ -532,12 +538,21 @@ class WorkerRunner:
 
     async def _record_runtime_heartbeat(self, observed_at: datetime) -> None:
         async with self.session_factory() as session:
+            metadata = self._runtime_metadata()
+            if self.secret_resolver is not None:
+                observations = await WorkerCredentialCapabilityObserver(
+                    session,
+                    secret_resolver=self.secret_resolver,
+                ).observe(self.capabilities)
+                metadata["external_capabilities"] = [
+                    observation.model_dump(mode="json") for observation in observations
+                ]
             await self.runtime_service_factory(session).record(
                 component_id=self.worker_id,
                 component_type="worker",
                 capabilities=self.capabilities,
                 observed_at=observed_at,
-                metadata=self._runtime_metadata(),
+                metadata=metadata,
             )
             await session.commit()
 

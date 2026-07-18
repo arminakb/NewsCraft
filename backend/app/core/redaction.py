@@ -120,6 +120,11 @@ def _redact_key_value(key: object, value: object, *, serialized: bool = False) -
     return _secret_key(key) and not _safe_secret_value(key, value, serialized=serialized)
 
 
+def _sensitive_query_value(key: object, value: object) -> bool:
+    normalized = _normalized_key(key)
+    return "key" in normalized.split("_") or _redact_key_value(key, value, serialized=True)
+
+
 def _safe_mapping_key(key: object) -> tuple[str, bool]:
     if isinstance(key, Enum):
         return _safe_mapping_key(key.value)
@@ -158,7 +163,7 @@ def redact_url(url: str) -> str:
     query = [
         (
             key,
-            _REDACTED if _redact_key_value(key, value, serialized=True) else _redact_recognizable_values(value),
+            _REDACTED if _sensitive_query_value(key, value) else _redact_recognizable_values(value),
         )
         for key, value in parse_qsl(parsed.query, keep_blank_values=True)
     ]
@@ -166,6 +171,38 @@ def redact_url(url: str) -> str:
         (
             parsed.scheme.casefold(),
             netloc,
+            _redact_recognizable_values(parsed.path),
+            urlencode(query),
+            _redact_recognizable_values(parsed.fragment),
+        )
+    )
+
+
+def redact_request_target(target: str) -> str:
+    """Redact a relative HTTP request target while preserving useful routing data."""
+
+    try:
+        parsed = urlsplit(target)
+    except UnicodeError, ValueError:
+        return _REDACTED
+    if parsed.scheme or parsed.netloc:
+        if parsed.scheme.casefold() in {"http", "https"} and parsed.hostname:
+            return redact_url(target)
+        return _REDACTED
+    try:
+        query = [
+            (
+                _redact_recognizable_values(key),
+                _REDACTED if _sensitive_query_value(key, value) else _redact_recognizable_values(value),
+            )
+            for key, value in parse_qsl(parsed.query, keep_blank_values=True)
+        ]
+    except UnicodeError, ValueError:
+        return _REDACTED
+    return urlunsplit(
+        (
+            "",
+            "",
             _redact_recognizable_values(parsed.path),
             urlencode(query),
             _redact_recognizable_values(parsed.fragment),

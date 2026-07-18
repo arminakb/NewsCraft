@@ -8,9 +8,8 @@ from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.capabilities import CapabilityStatusDependency
 from app.api.stories import _story_summary
-from app.api.telegram_destinations import get_secret_resolver
-from app.core.outbound_proxy import build_outbound_http_client
 from app.core.redaction import redact_secrets, redact_string
 from app.db.session import get_session
 from app.exports.service import (
@@ -47,14 +46,12 @@ from app.generation.platform_schemas import (
 )
 from app.generation.platform_validation import validate_platform_payload
 from app.generation.providers.profiles import ProviderProfileResolver
-from app.generation.providers.registry import build_default_provider_registry
 from app.jobs.models import WorkflowJob
 from app.research.schemas import CitationRef
 from app.stories.models import Story, StoryEvidenceSnapshot, StoryRevision
 
 router = APIRouter(tags=["content-packs"])
 SessionDependency = Depends(get_session)
-SecretResolverDependency = Depends(get_secret_resolver)
 
 
 class RenderedRevisionHtmlOut(BaseModel):
@@ -67,15 +64,9 @@ class RenderedRevisionHtmlOut(BaseModel):
 
 
 def get_editorial_profile_resolver(
-    secrets=SecretResolverDependency,
-) -> ProviderProfileResolver:
-    return ProviderProfileResolver(
-        secret_resolver=secrets,
-        http_client_factory=lambda **kwargs: build_outbound_http_client(
-            base_url=kwargs["base_url"], timeout=kwargs["timeout_seconds"]
-        ),
-        provider_registry=build_default_provider_registry(),
-    )
+) -> None:
+    """The API never constructs a provider or resolves a worker credential."""
+    return None
 
 
 ProfileResolverDependency = Depends(get_editorial_profile_resolver)
@@ -509,8 +500,22 @@ async def create_content_pack(
     story_id: UUID,
     body: GeneratePackRequest,
     session: AsyncSession = SessionDependency,
-    profile_resolver: ProviderProfileResolver = ProfileResolverDependency,
+    profile_resolver: ProviderProfileResolver | None = ProfileResolverDependency,
+    capability_status: CapabilityStatusDependency = None,
 ):
+    await capability_status.require_available(
+        "provider",
+        body.generation_provider_profile_id,
+        "generation",
+        job_type="content_pack.generate",
+    )
+    if body.research_mode == "auto_if_incomplete" and body.research_provider_profile_id is not None:
+        await capability_status.require_available(
+            "provider",
+            body.research_provider_profile_id,
+            "research",
+            job_type="research_story",
+        )
     try:
         result = await EditorialService(session, profile_resolver=profile_resolver).request_content_pack(story_id, body)
     except InvalidGenerationRequest as exc:
@@ -648,7 +653,14 @@ async def regenerate_variant(
     body: RegenerateVariantRequest,
     session: AsyncSession = SessionDependency,
     profile_resolver: ProviderProfileResolver = ProfileResolverDependency,
+    capability_status: CapabilityStatusDependency = None,
 ):
+    await capability_status.require_available(
+        "provider",
+        body.generation_provider_profile_id,
+        "generation",
+        job_type="content_pack.regenerate",
+    )
     try:
         result = await EditorialService(session, profile_resolver=profile_resolver).regenerate_variant(variant_id, body)
     except (InvalidGenerationRequest, RevisionConflict) as exc:

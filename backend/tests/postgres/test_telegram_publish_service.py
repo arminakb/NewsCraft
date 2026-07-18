@@ -43,6 +43,7 @@ from app.publishing.telegram.service import (
     schedule_reviewed_telegram,
 )
 from app.stories.models import StoryEvidenceSnapshot, StoryRevision
+from tests.capability_fakes import AVAILABLE_CAPABILITIES
 from tests.postgres.test_telegram_process_handler import seed_dispatch
 
 
@@ -624,6 +625,7 @@ async def _reconcile(
             body,
             response,
             session,
+            AVAILABLE_CAPABILITIES,
         )
     return response.status_code, result
 

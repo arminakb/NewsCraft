@@ -58,33 +58,17 @@ services:
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000
     environment:
       DATABASE_URL: postgresql+asyncpg://newscraft:newscraft@newscraft-postgres:5432/newscraft
-      HTTP_PROXY: ${HTTP_PROXY-}
-      HTTPS_PROXY: ${HTTPS_PROXY-}
-      ALL_PROXY: ${ALL_PROXY-}
-      NO_PROXY: ${NO_PROXY-}
-      http_proxy: ${http_proxy-}
-      https_proxy: ${https_proxy-}
-      all_proxy: ${all_proxy-}
-      no_proxy: ${no_proxy-}
       MEDIA_ROOT: /data/media
       EXPORT_ROOT: /data/exports
       READINESS_REQUIRED_CAPABILITIES: ${READINESS_REQUIRED_CAPABILITIES:-}
       CAPABILITY_QUEUE_CEILING: ${CAPABILITY_QUEUE_CEILING:-1000}
       CAPABILITY_RETRY_AFTER_SECONDS: ${CAPABILITY_RETRY_AFTER_SECONDS:-5}
-      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
-      OPENROUTER_BASE_URL: ${OPENROUTER_BASE_URL:-https://openrouter.ai/api/v1}
-      TELEGRAM_SOURCE_EDITOR_API_ID: ${TELEGRAM_SOURCE_EDITOR_API_ID:-}
-      TELEGRAM_SOURCE_EDITOR_API_HASH: ${TELEGRAM_SOURCE_EDITOR_API_HASH:-}
-      TELEGRAM_SOURCE_EDITOR_SESSION: ${TELEGRAM_SOURCE_EDITOR_SESSION:-}
-      TELEGRAM_DESTINATION_NEWS_TOKEN: ${TELEGRAM_DESTINATION_NEWS_TOKEN:-}
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
+      CAPABILITY_OBSERVATION_TTL_SECONDS: ${CAPABILITY_OBSERVATION_TTL_SECONDS:-120}
     ports:
       - "127.0.0.1:8000:8000"
     volumes:
-      - media_data:/data/media
-      - export_data:/data/exports
-      - .:/workspace
+      - media_data:/data/media:ro
+      - export_data:/data/exports:ro
     depends_on:
       migrate:
         condition: service_completed_successfully
@@ -126,10 +110,6 @@ services:
       HTTPS_PROXY: ${HTTPS_PROXY-}
       ALL_PROXY: ${ALL_PROXY-}
       NO_PROXY: ${NO_PROXY-}
-      http_proxy: ${http_proxy-}
-      https_proxy: ${https_proxy-}
-      all_proxy: ${all_proxy-}
-      no_proxy: ${no_proxy-}
       MEDIA_ROOT: /data/media
       EXPORT_ROOT: /data/exports
       TELEGRAM_MEDIA_STAGING_ROOT: /data/media-staging
@@ -169,18 +149,12 @@ services:
       HTTPS_PROXY: ${HTTPS_PROXY-}
       ALL_PROXY: ${ALL_PROXY-}
       NO_PROXY: ${NO_PROXY-}
-      http_proxy: ${http_proxy-}
-      https_proxy: ${https_proxy-}
-      all_proxy: ${all_proxy-}
-      no_proxy: ${no_proxy-}
       MEDIA_ROOT: /data/media
-      TELEGRAM_MEDIA_STAGING_ROOT: /data/media-staging
       TELEGRAM_DESTINATION_NEWS_TOKEN: ${TELEGRAM_DESTINATION_NEWS_TOKEN:-}
     extra_hosts:
       - "host.docker.internal:host-gateway"
     volumes:
-      - media_data:/data/media
-      - media_staging:/data/media-staging
+      - media_data:/data/media:ro
     depends_on:
       postgres:
         condition: service_healthy
@@ -202,20 +176,6 @@ services:
     environment:
       NEWSCRAFT_COMPONENT_ID: scheduler
       DATABASE_URL: postgresql+asyncpg://newscraft:newscraft@newscraft-postgres:5432/newscraft
-      HTTP_PROXY: ${HTTP_PROXY-}
-      HTTPS_PROXY: ${HTTPS_PROXY-}
-      ALL_PROXY: ${ALL_PROXY-}
-      NO_PROXY: ${NO_PROXY-}
-      http_proxy: ${http_proxy-}
-      https_proxy: ${https_proxy-}
-      all_proxy: ${all_proxy-}
-      no_proxy: ${no_proxy-}
-      MEDIA_ROOT: /data/media
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
-    volumes:
-      - media_data:/data/media
-      - media_staging:/data/media-staging
     depends_on:
       postgres:
         condition: service_healthy

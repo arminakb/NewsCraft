@@ -32,6 +32,7 @@ class Settings(BaseSettings):
     health_storage_timeout_seconds: float = Field(default=0.25, gt=0, le=2)
     capability_queue_ceiling: int = Field(default=1_000, ge=1)
     capability_retry_after_seconds: int = Field(default=5, ge=1, le=300)
+    capability_observation_ttl_seconds: int = Field(default=120, ge=30, le=3600)
     worker_health_fresh_seconds: int = Field(default=60, ge=5)
     worker_health_unavailable_seconds: int = Field(default=120, ge=10)
     scheduler_health_fresh_seconds: int = Field(default=45, ge=5)
@@ -49,6 +50,7 @@ class Settings(BaseSettings):
     telegram_max_photo_bytes: int = Field(default=10_000_000, gt=0)
     telegram_max_file_bytes: int = Field(default=49_000_000, gt=0)
     telegram_acceptance_fixture_path: str | None = None
+    worker_secret_root: str = "/run/secrets"
 
     def __init__(self, **values: Any) -> None:
         super().__init__(**values)

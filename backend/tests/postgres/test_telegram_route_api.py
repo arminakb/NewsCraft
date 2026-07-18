@@ -10,6 +10,7 @@ from httpx import ASGITransport, AsyncClient
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from app.api.capabilities import get_capability_status_service
 from app.automations.models import AutomationRoute, TelegramSourceConfig
 from app.db.models import Source
 from app.db.session import get_session
@@ -20,6 +21,7 @@ from app.generation.default_prompts import (
 from app.jobs.models import WorkflowJob
 from app.main import app
 from app.publishing.models import Destination
+from tests.capability_fakes import AVAILABLE_CAPABILITIES
 
 
 @dataclass(frozen=True, slots=True)
@@ -208,6 +210,7 @@ async def _api_client(
 
     previous_overrides = dict(app.dependency_overrides)
     app.dependency_overrides[get_session] = override_session
+    app.dependency_overrides[get_capability_status_service] = lambda: AVAILABLE_CAPABILITIES
     try:
         async with AsyncClient(
             transport=ASGITransport(app=app, raise_app_exceptions=False),

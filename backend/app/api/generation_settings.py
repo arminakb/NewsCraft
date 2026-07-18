@@ -1,8 +1,5 @@
 from __future__ import annotations
 
-import shutil
-from collections.abc import Callable
-from typing import Annotated
 from uuid import UUID, uuid4
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -11,6 +8,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.capabilities import CapabilityStatusDependency
 from app.api.generation_schemas import (
     AIProviderProfileCreate,
     AIProviderProfileOut,
@@ -22,9 +20,6 @@ from app.api.generation_schemas import (
     PromptTemplateVersionCreate,
     PromptTemplateVersionOut,
 )
-from app.api.telegram_destinations import get_secret_resolver
-from app.core.config import settings as application_settings
-from app.core.secrets import SecretResolver
 from app.db.session import get_session
 from app.generation.canonical import CanonicalStoryOutput
 from app.generation.default_prompts import prompt_checksum, validate_prompt_template_fields
@@ -36,18 +31,10 @@ from app.generation.provider_settings import (
     merge_provider_settings,
 )
 from app.generation.telegram_schema import TelegramRewriteOutput
+from app.jobs.credential_capabilities import CapabilityStatusService, provider_shape_capabilities
 
 router = APIRouter(tags=["generation-settings"])
 SessionDependency = Depends(get_session)
-SecretResolverDependency = Annotated[SecretResolver, Depends(get_secret_resolver)]
-type ExecutableResolver = Callable[[str], str | None]
-
-
-def get_executable_resolver() -> ExecutableResolver:
-    return shutil.which
-
-
-ExecutableResolverDependency = Annotated[ExecutableResolver, Depends(get_executable_resolver)]
 
 _TELEGRAM_REWRITE_VARIABLES = (
     "source_text",
@@ -94,12 +81,22 @@ _EDITORIAL_PROMPT_CONTRACTS = {
 }
 
 
-def _profile_out(
+async def _profile_out(
     profile: AIProviderProfile,
-    secrets: SecretResolver,
-    executable_resolver: ExecutableResolver = shutil.which,
+    capability_status: CapabilityStatusService,
 ) -> AIProviderProfileOut:
-    capabilities, codes = provider_capabilities(profile, secrets, executable_resolver)
+    shaped, codes = provider_shape_capabilities(profile)
+    capability_states = {
+        "generation": await capability_status.get("provider", profile.id, "generation"),
+        "research": await capability_status.get("provider", profile.id, "research"),
+    }
+    capabilities = {
+        name: shaped[name] and state.available
+        for name, state in capability_states.items()
+    }
+    for state in capability_states.values():
+        if not state.available and state.failure_code not in codes:
+            codes.append(state.failure_code)
     generation = capabilities["generation"]
     research = capabilities["research"]
     configured = generation or research
@@ -112,69 +109,9 @@ def _profile_out(
         enabled=profile.enabled,
         configured=configured,
         capabilities=capabilities,
+        capability_states=capability_states,
         unavailability_codes=codes,
     )
-
-
-def provider_capabilities(
-    profile: AIProviderProfile,
-    secrets: SecretResolver,
-    executable_resolver: ExecutableResolver = shutil.which,
-) -> tuple[dict[str, bool], list[str]]:
-    codes: list[str] = []
-    generation = False
-    research = False
-    if not profile.enabled:
-        codes.append("disabled")
-    elif profile.provider_type == "fake":
-        generation = research = profile.secret_ref is None and not dict(profile.settings or {})
-        if not generation:
-            codes.append("invalid_settings")
-    elif profile.provider_type == "codex":
-        try:
-            CodexProviderSettings.model_validate(dict(profile.settings or {}))
-            valid_settings = True
-        except ValidationError:
-            valid_settings = False
-        executable_available = (
-            application_settings.codex_enabled
-            and executable_resolver(application_settings.codex_executable) is not None
-        )
-        generation = research = bool(
-            profile.default_model and profile.secret_ref is None and valid_settings and executable_available
-        )
-        if not profile.default_model:
-            codes.append("model_missing")
-        if profile.secret_ref is not None or not valid_settings:
-            codes.append("invalid_settings")
-        if not executable_available:
-            codes.append("executable_unavailable")
-    elif profile.provider_type == "openrouter":
-        try:
-            validated = OpenRouterProviderSettings.model_validate(dict(profile.settings or {}))
-            valid_settings = True
-        except ValidationError:
-            validated = None
-            valid_settings = False
-        secret_available = bool(profile.secret_ref and secrets.configured(profile.secret_ref))
-        generation = bool(profile.default_model and secret_available and valid_settings)
-        research = bool(
-            generation
-            and validated is not None
-            and validated.pricing is not None
-            and validated.research_budgets is not None
-        )
-        if not profile.default_model:
-            codes.append("model_missing")
-        if not secret_available:
-            codes.append("secret_unavailable")
-        if not valid_settings:
-            codes.append("invalid_settings")
-        elif not research:
-            codes.append("research_settings_missing")
-    else:
-        codes.append("unsupported_provider")
-    return {"generation": generation, "research": research}, codes
 
 
 def _brand_values(body: BrandProfileCreate) -> dict:
@@ -408,24 +345,22 @@ async def activate_prompt_version(version_id: UUID, session: AsyncSession = Sess
 @router.get("/ai-provider-profiles", response_model=list[AIProviderProfileOut])
 async def list_provider_profiles(
     session: AsyncSession = SessionDependency,
-    secrets: SecretResolverDependency = None,
-    executable_resolver: ExecutableResolverDependency = shutil.which,
+    capability_status: CapabilityStatusDependency = None,
 ):
     rows = list(await session.scalars(select(AIProviderProfile).order_by(AIProviderProfile.name)))
-    return [_profile_out(row, secrets, executable_resolver) for row in rows]
+    return [await _profile_out(row, capability_status) for row in rows]
 
 
 @router.post("/ai-provider-profiles", response_model=AIProviderProfileOut, status_code=201)
 async def create_provider_profile(
     body: AIProviderProfileCreate,
     session: AsyncSession = SessionDependency,
-    secrets: SecretResolverDependency = None,
-    executable_resolver: ExecutableResolverDependency = shutil.which,
+    capability_status: CapabilityStatusDependency = None,
 ):
     existing = await session.scalar(select(AIProviderProfile).where(AIProviderProfile.name == body.name))
     if existing is not None:
         if _provider_matches(existing, body):
-            return _profile_out(existing, secrets, executable_resolver)
+            return await _profile_out(existing, capability_status)
         raise HTTPException(409, "AI provider profile already exists with different configuration")
     profile = AIProviderProfile(**_provider_values(body))
     try:
@@ -436,9 +371,9 @@ async def create_provider_profile(
         existing = await session.scalar(select(AIProviderProfile).where(AIProviderProfile.name == body.name))
         if existing is None or not _provider_matches(existing, body):
             raise HTTPException(409, "AI provider profile already exists with different configuration") from None
-        return _profile_out(existing, secrets, executable_resolver)
+        return await _profile_out(existing, capability_status)
     await session.commit()
-    return _profile_out(profile, secrets, executable_resolver)
+    return await _profile_out(profile, capability_status)
 
 
 @router.patch("/ai-provider-profiles/{provider_profile_id}", response_model=AIProviderProfileOut)
@@ -446,8 +381,7 @@ async def patch_provider_profile(
     provider_profile_id: UUID,
     body: AIProviderProfilePatch,
     session: AsyncSession = SessionDependency,
-    secrets: SecretResolverDependency = None,
-    executable_resolver: ExecutableResolverDependency = shutil.which,
+    capability_status: CapabilityStatusDependency = None,
 ):
     profile = await session.get(AIProviderProfile, provider_profile_id)
     if profile is None:
@@ -483,4 +417,4 @@ async def patch_provider_profile(
     profile.settings = _validated_settings(validated.provider_type, validated.settings)
     profile.enabled = validated.enabled
     await session.commit()
-    return _profile_out(profile, secrets, executable_resolver)
+    return await _profile_out(profile, capability_status)

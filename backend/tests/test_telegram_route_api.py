@@ -23,9 +23,11 @@ from app.automations.models import AutomationRoute, TelegramSourceConfig
 from app.db.models import Source
 from app.generation.models import AIProviderProfile, BrandProfile, PromptTemplate, PromptTemplateVersion
 from app.generation.provider_settings import default_codex_provider_settings
+from app.jobs.errors import JobCapabilityUnavailable
 from app.jobs.repository import EnqueueJobResult
 from app.jobs.types import JobStatus
 from app.publishing.models import Destination
+from tests.capability_fakes import AVAILABLE_CAPABILITIES, StaticCapabilityStatusService
 
 
 def valid_route_payload() -> dict:
@@ -117,7 +119,7 @@ async def test_activation_enqueues_initialization_without_backfill_or_network():
     session = RouteSession(route)
     jobs = FakeJobs()
 
-    result = await activate_route(route.id, session, jobs)
+    result = await activate_route(route.id, session, jobs, AVAILABLE_CAPABILITIES)
 
     assert result.route.enabled is True
     assert route.cursor_state["status"] == "initializing"
@@ -126,6 +128,24 @@ async def test_activation_enqueues_initialization_without_backfill_or_network():
     assert route.backfill_limit is None
     assert route.backfill_since is None
     assert jobs.enqueued[0]["job_type"] == "telegram.route.initialize"
+
+
+@pytest.mark.parametrize("status", ["unavailable", "unknown", "stale"])
+async def test_activation_rejects_non_current_worker_capability_status(status):
+    route = saved_route()
+    session = RouteSession(route)
+    jobs = FakeJobs()
+
+    with pytest.raises(JobCapabilityUnavailable):
+        await activate_route(
+            route.id,
+            session,
+            jobs,
+            StaticCapabilityStatusService(status),
+        )
+
+    assert route.enabled is False
+    assert jobs.enqueued == []
 
 
 async def test_replayed_activation_locks_route_and_reuses_initialization_identity_without_reset():
@@ -143,8 +163,8 @@ async def test_replayed_activation_locks_route_and_reuses_initialization_identit
     session = RouteSession(route)
     jobs = FakeJobs()
 
-    first = await activate_route(route.id, session, jobs)
-    second = await activate_route(route.id, session, jobs)
+    first = await activate_route(route.id, session, jobs, AVAILABLE_CAPABILITIES)
+    second = await activate_route(route.id, session, jobs, AVAILABLE_CAPABILITIES)
 
     assert session.route_lock_count == 2
     assert route.cursor_state is original_state
@@ -166,12 +186,14 @@ async def test_backfill_and_dry_run_enqueue_without_mutating_live_cursor():
         TelegramRouteBackfillIn.model_validate({"count": 20}),
         session,
         jobs,
+        AVAILABLE_CAPABILITIES,
     )
     dry_run = await dry_run_route(
         route.id,
         SimpleNamespace(source_message_id=912),
         session,
         jobs,
+        AVAILABLE_CAPABILITIES,
     )
 
     assert route.cursor_state == original_cursor
@@ -192,7 +214,7 @@ async def test_pause_and_resume_change_only_paused_at():
 
     paused = await pause_route(route.id, session)
     assert paused.paused_at is not None
-    resumed = await resume_route(route.id, session)
+    resumed = await resume_route(route.id, session, AVAILABLE_CAPABILITIES)
 
     assert resumed.paused_at is None
     assert route.cursor_state == original_cursor
@@ -281,7 +303,6 @@ async def test_route_create_validates_references_and_options_omit_all_secret_ref
     session = ConfigurationSession(
         [source, source_config, orphan, destination, brand, prompt, version, provider]
     )
-    secrets = SimpleNamespace(configured=lambda reference: reference == "OPENROUTER_EDITOR_KEY")
     payload = {
         **valid_route_payload(),
         "source_id": source.id,
@@ -291,14 +312,15 @@ async def test_route_create_validates_references_and_options_omit_all_secret_ref
         "ai_provider_profile_id": provider.id,
     }
 
-    route = await create_route(TelegramRouteCreate.model_validate(payload), session, secrets)
-    replayed = await create_route(TelegramRouteCreate.model_validate(payload), session, secrets)
-    options = await automation_options(session, secrets)
+    route = await create_route(TelegramRouteCreate.model_validate(payload), session)
+    replayed = await create_route(TelegramRouteCreate.model_validate(payload), session)
+    options = await automation_options(session, AVAILABLE_CAPABILITIES)
 
     assert replayed == route
     assert route.cursor_state == {"status": "not_initialized"}
     assert route.enabled is False
-    assert options.sources == [{"id": source.id, "name": "Source", "access_mode": "public_html"}]
+    assert options.sources[0]["id"] == source.id
+    assert options.sources[0]["capability_state"].status == "available"
     assert options.ai_provider_profiles[0]["configured"] is True
     assert "secret_ref" not in str(options)
     assert "OPENROUTER_EDITOR_KEY" not in str(options)
@@ -309,7 +331,6 @@ async def test_route_create_validates_references_and_options_omit_all_secret_ref
         await create_route(
             TelegramRouteCreate.model_validate({**payload, "media_policy": "omit"}),
             session,
-            secrets,
         )
     assert conflict.value.status_code == 409
     assert session.source_lock_count == 3
@@ -368,17 +389,11 @@ def codex_route_configuration():
     return session, payload, provider
 
 
-async def test_codex_is_safe_telegram_option_and_route_when_runtime_available(monkeypatch):
-    monkeypatch.setattr("app.api.generation_settings.application_settings.codex_enabled", True)
+async def test_codex_is_safe_telegram_option_and_route_when_worker_reports_available():
     session, payload, provider = codex_route_configuration()
-    secrets = SimpleNamespace(configured=lambda reference: False)
 
-    options = await automation_options(
-        session, secrets, lambda name: "/private/bin/codex"
-    )
-    route = await create_route(
-        payload, session, secrets, lambda name: "/private/bin/codex"
-    )
+    options = await automation_options(session, AVAILABLE_CAPABILITIES)
+    route = await create_route(payload, session)
 
     assert route.ai_provider_profile_id == provider.id
     assert options.ai_provider_profiles == [
@@ -389,36 +404,49 @@ async def test_codex_is_safe_telegram_option_and_route_when_runtime_available(mo
             "default_model": "gpt-5.4",
             "configured": True,
             "capabilities": {"generation": True, "research": True},
+            "capability_states": {
+                "generation": await AVAILABLE_CAPABILITIES.get(
+                    "provider", provider.id, "generation"
+                ),
+                "research": await AVAILABLE_CAPABILITIES.get(
+                    "provider", provider.id, "research"
+                ),
+            },
         }
     ]
     assert "/private/bin" not in str(options)
 
 
 @pytest.mark.parametrize(
-    "mutation,available",
+    "mutation",
     [
-        ({"enabled": False}, True),
-        ({"settings": {"unexpected": True}}, True),
-        ({"secret_ref": "OPENAI_API_KEY"}, True),
-        ({}, False),
+        {"enabled": False},
+        {"settings": {"unexpected": True}},
+        {"secret_ref": "OPENAI_API_KEY"},
     ],
 )
-async def test_telegram_route_rejects_unavailable_or_invalid_codex(
-    monkeypatch, mutation, available
-):
-    monkeypatch.setattr("app.api.generation_settings.application_settings.codex_enabled", True)
+async def test_telegram_route_rejects_invalid_codex_shape(mutation):
     session, payload, provider = codex_route_configuration()
     for key, value in mutation.items():
         setattr(provider, key, value)
-    def executable(name):
-        return "/private/bin/codex" if available else None
-    secrets = SimpleNamespace(configured=lambda reference: True)
 
-    options = await automation_options(session, secrets, executable)
+    options = await automation_options(session, AVAILABLE_CAPABILITIES)
     assert options.ai_provider_profiles == []
-    with pytest.raises(HTTPException, match="not configured") as error:
-        await create_route(payload, session, secrets, executable)
+    with pytest.raises(HTTPException, match="configuration is invalid") as error:
+        await create_route(payload, session)
     assert error.value.status_code == 422
+
+
+async def test_valid_codex_configuration_remains_editable_when_worker_is_unavailable():
+    session, payload, provider = codex_route_configuration()
+    unavailable = StaticCapabilityStatusService("unavailable")
+
+    options = await automation_options(session, unavailable)
+    route = await create_route(payload, session)
+
+    assert route.ai_provider_profile_id == provider.id
+    assert options.ai_provider_profiles[0]["configured"] is False
+    assert options.ai_provider_profiles[0]["capability_states"]["generation"].status == "unavailable"
 
 
 @pytest.mark.parametrize(
@@ -432,9 +460,8 @@ async def test_telegram_route_rejects_unavailable_or_invalid_codex(
     ],
 )
 async def test_telegram_rejects_drifted_fake_and_openrouter_profiles(
-    monkeypatch, provider_type, mutation, configured_secrets
+    provider_type, mutation, configured_secrets
 ):
-    monkeypatch.setattr("app.api.generation_settings.application_settings.codex_enabled", True)
     session, payload, provider = codex_route_configuration()
     provider.provider_type = provider_type
     provider.default_model = "fake-v1" if provider_type == "fake" else "model-a"
@@ -442,14 +469,12 @@ async def test_telegram_rejects_drifted_fake_and_openrouter_profiles(
     provider.settings = {}
     for key, value in mutation.items():
         setattr(provider, key, value)
-    secrets = SimpleNamespace(
-        configured=lambda reference: reference in configured_secrets
-    )
+    assert isinstance(configured_secrets, set)
 
-    options = await automation_options(session, secrets, lambda name: "/bin/codex")
+    options = await automation_options(session, AVAILABLE_CAPABILITIES)
     assert options.ai_provider_profiles == []
-    with pytest.raises(HTTPException, match="not configured") as error:
-        await create_route(payload, session, secrets, lambda name: "/bin/codex")
+    with pytest.raises(HTTPException, match="configuration is invalid") as error:
+        await create_route(payload, session)
     assert error.value.status_code == 422
 
 
@@ -504,7 +529,6 @@ async def test_auto_route_is_rejected_when_destination_disallows_auto_publish():
         await create_route(
             TelegramRouteCreate.model_validate(payload),
             session,
-            SimpleNamespace(configured=lambda reference: False),
         )
 
 
