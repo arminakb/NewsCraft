@@ -2,6 +2,7 @@ import AxeBuilder from "@axe-core/playwright"
 import { expect, test } from "@playwright/test"
 
 import { installMockBackend, type MockStory } from "./support/mock-backend"
+import type { components } from "../lib/api/generated"
 
 const ROUTES = [
   { path: "/", name: "Today", readyText: "No workflow jobs yet" },
@@ -32,6 +33,50 @@ const MOBILE_ACTION_STORY = {
   updated_at: "2026-07-13T08:00:00Z",
 } satisfies MockStory
 
+const DIAGNOSTICS_STATUS_FIXTURE = {
+  generated_at: "2026-07-13T08:00:00Z",
+  global_paused: false,
+  dry_run: true,
+  components: Object.fromEntries(
+    (["healthy", "degraded", "down", "unknown"] as const).map((status, index) => [
+      `component-${status}`,
+      {
+        status,
+        observed_at: index === 3 ? null : "2026-07-13T07:59:00Z",
+        last_success_at: index === 0 ? "2026-07-13T07:58:00Z" : null,
+        message: `${status} component state`,
+        action_url: status === "healthy" ? null : "/diagnostics",
+      },
+    ]),
+  ),
+  queue_counts: {},
+  attention: [
+    {
+      id: "attention-error",
+      severity: "error",
+      kind: "generation",
+      title: "Generation requires review",
+      occurred_at: "2026-07-13T07:59:00Z",
+      action_url: "/jobs?status=needs_review",
+    },
+    {
+      id: "attention-warning",
+      severity: "warning",
+      kind: "job",
+      title: "Queue is approaching its limit",
+      occurred_at: "2026-07-13T07:58:00Z",
+      action_url: "/jobs?status=queued",
+    },
+  ],
+  outbound_proxy: {
+    mode: "direct",
+    scheme: null,
+    bypass_rule_count: 0,
+    last_connectivity_status: "not_checked",
+    configuration_error_code: null,
+  },
+} satisfies components["schemas"]["OperationsSnapshotOut"]
+
 for (const viewport of VIEWPORTS) {
   for (const theme of THEMES) {
     test.describe(`${viewport.label} ${theme} accessibility`, () => {
@@ -61,8 +106,57 @@ for (const viewport of VIEWPORTS) {
           expect(violations).toEqual([])
         })
       }
+
+      test("Diagnostics status palettes have no serious or critical axe violations", async ({ page }) => {
+        const unhandledRequests = await installMockBackend(page, { operations: DIAGNOSTICS_STATUS_FIXTURE })
+        await page.setViewportSize(viewport)
+        await page.goto("/diagnostics")
+        await setTheme(page, theme)
+        for (const status of ["healthy", "degraded", "down", "unknown", "error", "warning"]) {
+          await expect(page.getByText(status, { exact: true }).first()).toBeVisible()
+        }
+        expect(unhandledRequests).toEqual([])
+        await expectNoSeriousAxeViolations(page)
+      })
+
+      test("Diagnostics loading state has no serious or critical axe violations", async ({ page }) => {
+        await installMockBackend(page, { operationsDelayMs: 10_000 })
+        await page.setViewportSize(viewport)
+        await page.goto("/diagnostics")
+        await setTheme(page, theme)
+        await expect(page.getByRole("status", { name: "Loading operational diagnostics" })).toBeVisible()
+        await expectNoSeriousAxeViolations(page)
+      })
+
+      test("Diagnostics API-error state has no serious or critical axe violations", async ({ page }) => {
+        await installMockBackend(page, { operationsFailure: true })
+        await page.setViewportSize(viewport)
+        await page.goto("/diagnostics")
+        await setTheme(page, theme)
+        await expect(page.getByRole("alert")).toBeVisible()
+        await expectNoSeriousAxeViolations(page)
+      })
     })
   }
+}
+
+async function setTheme(page: import("@playwright/test").Page, theme: (typeof THEMES)[number]) {
+  await page.evaluate((selectedTheme) => {
+    document.documentElement.classList.toggle("dark", selectedTheme === "dark")
+  }, theme)
+}
+
+async function expectNoSeriousAxeViolations(page: import("@playwright/test").Page) {
+  const results = await new AxeBuilder({ page }).analyze()
+  const violations = results.violations
+    .filter((violation) => violation.impact === "serious" || violation.impact === "critical")
+    .map((violation) => ({
+      id: violation.id,
+      impact: violation.impact,
+      help: violation.help,
+      targets: violation.nodes.flatMap((node) => node.target),
+    }))
+  expect(violations).toEqual([])
 }
 
 test("responsive shell switches at 900px and exposes one skip target", async ({ page }) => {

@@ -1,3 +1,4 @@
+from decimal import Decimal
 from types import SimpleNamespace
 from uuid import uuid4
 
@@ -276,6 +277,53 @@ def test_instruction_changes_rendered_telegram_prompt_and_input_hash():
     assert stage_input_hash({"message": first[1].content}) != stage_input_hash({"message": second[1].content})
 
 
+def test_qualified_generation_usage_uses_frozen_pricing_as_cost_floor():
+    from app.generation.handlers import _usage_with_qualified_pricing
+
+    usage, cost = _usage_with_qualified_pricing(
+        {"input_tokens": 1_000_000, "output_tokens": 500_000, "cost_usd": 1},
+        SimpleNamespace(
+            pricing_input_usd_per_million=Decimal("2"),
+            pricing_output_usd_per_million=Decimal("4"),
+        ),
+    )
+
+    assert cost == Decimal("4")
+    assert usage["cost_usd"] == 4.0
+    assert usage["cost_basis"] == "provider_or_profile_max"
+
+
+@pytest.mark.parametrize("invalid", ["NaN", "Infinity", "-1"])
+def test_qualified_generation_usage_rejects_invalid_cost(invalid):
+    from app.generation.handlers import _usage_with_qualified_pricing
+    from app.jobs.errors import NeedsReviewJobError
+
+    with pytest.raises(NeedsReviewJobError, match="usage metadata"):
+        _usage_with_qualified_pricing(
+            {"input_tokens": 1, "output_tokens": 1, "cost_usd": invalid},
+            SimpleNamespace(
+                pricing_input_usd_per_million=Decimal("1"),
+                pricing_output_usd_per_million=Decimal("1"),
+                max_output_tokens=100,
+            ),
+        )
+
+
+def test_qualified_generation_usage_rejects_output_token_overrun():
+    from app.generation.handlers import _usage_with_qualified_pricing
+    from app.jobs.errors import NeedsReviewJobError
+
+    with pytest.raises(NeedsReviewJobError, match="output-token budget"):
+        _usage_with_qualified_pricing(
+            {"input_tokens": 1, "output_tokens": 101, "cost_usd": 0},
+            SimpleNamespace(
+                pricing_input_usd_per_million=Decimal("1"),
+                pricing_output_usd_per_million=Decimal("1"),
+                max_output_tokens=100,
+            ),
+        )
+
+
 async def _async_value(value):
     return value
 
@@ -334,6 +382,71 @@ async def test_generation_lifecycle_commits_running_attempt_before_provider_and_
     )
     assert validated == {"ok": True, "validated": True}
     assert run.status == attempt.status == "succeeded"
+
+
+@pytest.mark.asyncio
+async def test_generation_lifecycle_stops_when_frozen_pack_cost_budget_is_exceeded():
+    from app.generation.handlers import _invoke
+    from app.generation.models import AIProviderProfile
+    from app.generation.providers.base import GenerationProviderResult
+    from app.jobs.errors import NeedsReviewJobError
+    from app.jobs.registry import JobContext
+
+    session = _LifecycleSession()
+    profile = AIProviderProfile(
+        id=uuid4(),
+        name="Qualified",
+        provider_type="openrouter",
+        default_model="qualified-model",
+        secret_ref="OPENROUTER_EDITOR_KEY",
+        settings={},
+        enabled=True,
+    )
+    session.profile = profile
+
+    class Provider:
+        async def generate(self, request):
+            return GenerationProviderResult(
+                provider="openrouter",
+                requested_model="qualified-model",
+                resolved_model="qualified-model",
+                output={"ok": True},
+                raw_text='{"ok":true}',
+                usage={"input_tokens": 1, "output_tokens": 1, "cost_usd": 1.25},
+                finish_reason="stop",
+            )
+
+    resolved = SimpleNamespace(
+        provider=Provider(),
+        provider_type="openrouter",
+        model="qualified-model",
+        max_attempts=3,
+        max_elapsed_seconds=180,
+        max_pack_cost_usd=Decimal("1.50"),
+        pricing_input_usd_per_million=Decimal("1"),
+        pricing_output_usd_per_million=Decimal("1"),
+    )
+    resolver = SimpleNamespace(resolve=lambda profile, model: _async_value(resolved))
+
+    with pytest.raises(NeedsReviewJobError) as caught:
+        await _invoke(
+            JobContext(session=session, providers=SimpleNamespace()),
+            profile_resolver=resolver,
+            profile_id=profile.id,
+            prompt=_lifecycle_prompt(),
+            purpose="test",
+            story_revision_id=None,
+            input_payload={"value": "executed"},
+            input_hash="a" * 64,
+            workflow_job_id=uuid4(),
+            workflow_attempt=1,
+            prior_pack_cost_usd=Decimal("0.50"),
+            validate_output=lambda output: output,
+        )
+
+    assert caught.value.code == "generation_pack_cost_budget_exhausted"
+    assert session.attempt.status == "failed"
+    assert session.attempt.usage["cost_usd"] == 1.25
 
 
 @pytest.mark.asyncio
@@ -1130,6 +1243,8 @@ async def test_canonical_handler_rechecks_exact_active_prompt_immediately_before
 
     assert caught.value.code == "generation_canonical_prompt_configuration_invalid"
     assert provider_calls == 0
+
+
 @pytest.mark.asyncio
 async def test_generation_rejects_provider_configuration_drift_before_provider_call():
     from app.generation.handlers import _invoke

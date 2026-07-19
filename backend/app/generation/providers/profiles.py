@@ -3,6 +3,7 @@ from __future__ import annotations
 import shutil
 from collections.abc import Callable
 from dataclasses import dataclass, field
+from decimal import Decimal
 from typing import Any
 from uuid import UUID
 
@@ -39,6 +40,11 @@ class ResolvedProviderProfile:
     configuration_revision: str = ""
     configuration_checksum: str = ""
     max_output_tokens: int | None = None
+    max_attempts: int | None = None
+    max_pack_cost_usd: Decimal | None = None
+    max_elapsed_seconds: int | None = None
+    pricing_input_usd_per_million: Decimal | None = None
+    pricing_output_usd_per_million: Decimal | None = None
 
 
 def _default_http_client_factory(**kwargs) -> httpx.AsyncClient:
@@ -176,7 +182,7 @@ class ProviderProfileResolver:
                     ttl_days=self.application_settings.generation_invalid_output_quarantine_ttl_days,
                     age_executable=self.application_settings.generation_invalid_output_quarantine_age_executable,
                 )
-            except (OSError, ValueError, RuntimeError):
+            except OSError, ValueError, RuntimeError:
                 await client.aclose()
                 raise ProviderProfileConfigurationError("Invalid output quarantine is unavailable") from None
         provider = OpenRouterProvider(
@@ -200,6 +206,17 @@ class ProviderProfileResolver:
             max_output_tokens=(
                 validated.generation_policy.max_output_tokens if validated.generation_policy is not None else None
             ),
+            max_attempts=(
+                validated.generation_policy.max_attempts if validated.generation_policy is not None else None
+            ),
+            max_pack_cost_usd=(
+                validated.generation_policy.max_pack_cost_usd if validated.generation_policy is not None else None
+            ),
+            max_elapsed_seconds=(
+                validated.generation_policy.max_elapsed_seconds if validated.generation_policy is not None else None
+            ),
+            pricing_input_usd_per_million=(validated.pricing.input_usd_per_million if validated.pricing else None),
+            pricing_output_usd_per_million=(validated.pricing.output_usd_per_million if validated.pricing else None),
             provider=provider,
         )
 

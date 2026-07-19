@@ -1685,6 +1685,19 @@
         "title": "EditVariantRequest",
         "type": "object"
       },
+      "ErrorDetailOut": {
+        "properties": {
+          "detail": {
+            "title": "Detail",
+            "type": "string"
+          }
+        },
+        "required": [
+          "detail"
+        ],
+        "title": "ErrorDetailOut",
+        "type": "object"
+      },
       "ExpiredExportArtifact": {
         "additionalProperties": false,
         "properties": {
@@ -9581,6 +9594,16 @@
               }
             },
             "description": "Successful Response"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorDetailOut"
+                }
+              }
+            },
+            "description": "Not Found"
           },
           "422": {
             "content": {

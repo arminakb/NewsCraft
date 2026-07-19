@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import re
 from collections.abc import Awaitable, Callable
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
+from decimal import Decimal, InvalidOperation
 from types import UnionType
 from typing import Any, Literal, Union, get_args, get_origin
 from uuid import UUID, uuid4
@@ -531,6 +534,29 @@ def _job_payload(job: JobExecution | object) -> dict[str, Any]:
         ) from None
 
 
+def _pack_budget_state(job: JobExecution | object, payload: dict[str, Any]) -> tuple[datetime, Decimal]:
+    raw_started = payload.get("generation_budget_started_at")
+    raw_cost = payload.get("generation_budget_cost_usd", "0")
+    try:
+        started = (
+            datetime.fromisoformat(raw_started) if isinstance(raw_started, str) else getattr(job, "created_at", None)
+        )
+        if started is None and not isinstance(job, JobExecution):
+            # Direct unit-handler doubles predate the immutable execution snapshot.
+            started = datetime.now(UTC)
+        if started.tzinfo is None or started.utcoffset() is None:
+            raise ValueError
+        cost = Decimal(str(raw_cost))
+        if not cost.is_finite() or cost < 0:
+            raise ValueError
+    except AttributeError, InvalidOperation, TypeError, ValueError:
+        raise PermanentJobError(
+            code="generation_pack_budget_invalid",
+            message="Generation pack budget state is invalid",
+        ) from None
+    return started.astimezone(UTC), cost
+
+
 async def _checkpoint_execution(
     job: JobExecution | object,
     context: JobContext,
@@ -600,6 +626,8 @@ async def _invoke(
     validate_output: Callable[[dict[str, Any]], Any],
     expected_provider_configuration_revision: str | None = None,
     expected_provider_configuration_checksum: str | None = None,
+    pack_budget_started_at: datetime | None = None,
+    prior_pack_cost_usd: Decimal = Decimal("0"),
     before_provider_call: Callable[[], Awaitable[None]] | None = None,
     fault_injector: FaultInjector | None = None,
 ) -> tuple[GenerationRun, GenerationAttempt, Any]:
@@ -777,10 +805,7 @@ async def _invoke(
             # The callback may use SELECT ... FOR UPDATE. Release that read
             # transaction before crossing the provider/network boundary.
             await context.session.commit()
-        if (
-            expected_provider_configuration_revision is not None
-            or expected_provider_configuration_checksum is not None
-        ):
+        if expected_provider_configuration_revision is not None or expected_provider_configuration_checksum is not None:
             await context.session.refresh(profile)
             try:
                 latest = await profile_resolver.resolve(profile, None)
@@ -813,8 +838,41 @@ async def _invoke(
             if old_client is not None and old_client is not getattr(latest.provider, "http_client", None):
                 await old_client.aclose()
             resolved = latest
-        result = await resolved.provider.generate(request)
+        max_attempts = getattr(resolved, "max_attempts", None)
+        if max_attempts is not None and attempt.attempt_number > max_attempts:
+            raise NeedsReviewJobError(
+                code="generation_provider_attempt_budget_exhausted",
+                message="Generation provider attempt budget is exhausted",
+            )
+        remaining_seconds: float | None = None
+        max_elapsed_seconds = getattr(resolved, "max_elapsed_seconds", None)
+        if max_elapsed_seconds is not None and pack_budget_started_at is not None:
+            remaining_seconds = max_elapsed_seconds - (datetime.now(UTC) - pack_budget_started_at).total_seconds()
+            if remaining_seconds <= 0:
+                raise NeedsReviewJobError(
+                    code="generation_pack_elapsed_budget_exhausted",
+                    message="Generation pack elapsed-time budget is exhausted",
+                )
+        if remaining_seconds is None:
+            result = await resolved.provider.generate(request)
+        else:
+            try:
+                async with asyncio.timeout(remaining_seconds):
+                    result = await resolved.provider.generate(request)
+            except TimeoutError:
+                raise NeedsReviewJobError(
+                    code="generation_pack_elapsed_budget_exhausted",
+                    message="Generation pack elapsed-time budget is exhausted",
+                ) from None
         provider_completed = True
+        normalized_usage, call_cost = _usage_with_qualified_pricing(result.usage, resolved)
+        result = replace(result, usage=normalized_usage)
+        max_pack_cost_usd = getattr(resolved, "max_pack_cost_usd", None)
+        if max_pack_cost_usd is not None and prior_pack_cost_usd + call_cost > max_pack_cost_usd:
+            raise NeedsReviewJobError(
+                code="generation_pack_cost_budget_exhausted",
+                message="Generation pack cost budget is exhausted",
+            )
         await injector.hit(
             "generation.after_provider_before_persist",
             {
@@ -898,6 +956,8 @@ async def _invoke(
                     durable_error_code = redact_string(mapped.code)
                     durable_error_message = redact_string(mapped.message)
                     current_attempt.status = "failed"
+                    if provider_completed:
+                        current_attempt.usage = _redacted_dict(result.usage)
                     current_attempt.error_class = error_class
                     current_attempt.error_code = durable_error_code
                     current_attempt.error_message = durable_error_message
@@ -971,6 +1031,52 @@ async def _invoke(
     return current_run, current_attempt, validated
 
 
+def _usage_with_qualified_pricing(usage: dict[str, Any], resolved: Any) -> tuple[dict[str, Any], Decimal]:
+    """Normalize a call cost and use frozen profile pricing when the provider omits it."""
+
+    normalized = dict(usage)
+    try:
+        supplied = Decimal(str(normalized.get("cost_usd", 0)))
+        input_tokens = Decimal(str(normalized.get("input_tokens", 0)))
+        output_tokens = Decimal(str(normalized.get("output_tokens", 0)))
+    except InvalidOperation, TypeError, ValueError:
+        raise NeedsReviewJobError(
+            code="generation_provider_usage_invalid",
+            message="Generation provider usage metadata is invalid",
+        ) from None
+    if (
+        not supplied.is_finite()
+        or not input_tokens.is_finite()
+        or not output_tokens.is_finite()
+        or supplied < 0
+        or input_tokens < 0
+        or output_tokens < 0
+    ):
+        raise NeedsReviewJobError(
+            code="generation_provider_usage_invalid",
+            message="Generation provider usage metadata is invalid",
+        )
+    max_output_tokens = getattr(resolved, "max_output_tokens", None)
+    if max_output_tokens is not None and output_tokens > max_output_tokens:
+        raise NeedsReviewJobError(
+            code="generation_provider_output_budget_exhausted",
+            message="Generation provider output-token budget is exhausted",
+        )
+    priced = Decimal("0")
+    if (
+        getattr(resolved, "pricing_input_usd_per_million", None) is not None
+        and getattr(resolved, "pricing_output_usd_per_million", None) is not None
+    ):
+        priced = (
+            input_tokens * resolved.pricing_input_usd_per_million
+            + output_tokens * resolved.pricing_output_usd_per_million
+        ) / Decimal(1_000_000)
+    effective = max(supplied, priced)
+    normalized["cost_usd"] = float(effective)
+    normalized["cost_basis"] = "provider_or_profile_max" if priced else "provider"
+    return normalized, effective
+
+
 def build_canonical_generation_handler(
     profile_resolver: Any,
     *,
@@ -980,6 +1086,7 @@ def build_canonical_generation_handler(
 
     async def handle(job: JobExecution, context: JobContext) -> dict[str, Any]:
         payload = _job_payload(job)
+        budget_started_at, _prior_cost = _pack_budget_state(job, payload)
         story_id = _required_uuid(payload, "story_id")
         prompt_id = _required_uuid(payload, "canonical_prompt_template_version_id")
         profile_id = _required_uuid(payload, "generation_provider_profile_id")
@@ -1110,6 +1217,7 @@ def build_canonical_generation_handler(
             workflow_attempt=job.attempt_count,
             expected_provider_configuration_revision=payload.get("generation_provider_configuration_revision"),
             expected_provider_configuration_checksum=payload.get("generation_provider_configuration_checksum"),
+            pack_budget_started_at=budget_started_at,
             validate_output=validate_canonical,
             before_provider_call=before_provider_call,
             fault_injector=injector,
@@ -1184,7 +1292,12 @@ def build_canonical_generation_handler(
         )
         context.session.add(revision)
         await context.session.flush()
-        continuation = payload | {"story_revision_id": str(revision.id)}
+        canonical_cost = Decimal(str((_attempt.usage or {}).get("cost_usd", 0)))
+        continuation = payload | {
+            "story_revision_id": str(revision.id),
+            "generation_budget_started_at": budget_started_at.isoformat(),
+            "generation_budget_cost_usd": str(canonical_cost),
+        }
         queued = await JobRepository(context.session).enqueue_job(
             job_type="content_pack.generate_telegram",
             payload=continuation,
@@ -1314,6 +1427,7 @@ def build_pack_generation_handler(
 
     async def handle(job: JobExecution, context: JobContext) -> dict[str, Any]:
         payload = _job_payload(job)
+        budget_started_at, cumulative_cost = _pack_budget_state(job, payload)
         revision_id = _required_uuid(payload, "story_revision_id")
         brand_id = _required_uuid(payload, "brand_profile_id")
         profile_id = _required_uuid(payload, "generation_provider_profile_id")
@@ -1523,10 +1637,13 @@ def build_pack_generation_handler(
                 workflow_attempt=job.attempt_count,
                 expected_provider_configuration_revision=payload.get("generation_provider_configuration_revision"),
                 expected_provider_configuration_checksum=payload.get("generation_provider_configuration_checksum"),
+                pack_budget_started_at=budget_started_at,
+                prior_pack_cost_usd=cumulative_cost,
                 validate_output=validate_output,
                 before_provider_call=before_provider_call,
                 fault_injector=injector,
             )
+            cumulative_cost += Decimal(str((attempt.usage or {}).get("cost_usd", 0)))
             if (
                 regeneration_context is not None
                 and regeneration_fence_owner is None

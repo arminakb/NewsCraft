@@ -1,6 +1,8 @@
 import AxeBuilder from "@axe-core/playwright"
 import { expect, test, type Locator, type Page, type Route } from "@playwright/test"
 
+import { fulfillMockJson } from "./support/mock-backend"
+
 type Platform = "telegram" | "instagram" | "x" | "blog"
 
 const platforms = ["telegram", "instagram", "x", "blog"] as const
@@ -651,7 +653,7 @@ async function installAcceptanceBackend(page: Page, options: BackendOptions = {}
 }
 
 async function json(route: Route, body: unknown, status = 200) {
-  await route.fulfill({ status, contentType: "application/json", body: JSON.stringify(body) })
+  await fulfillMockJson(route, body, status)
 }
 
 function accepted(jobId: string) {

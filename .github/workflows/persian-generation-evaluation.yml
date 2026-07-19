@@ -28,7 +28,8 @@ jobs:
       APP_ENV: production
       DATABASE_URL: ${{ secrets.PERSIAN_EVALUATION_DATABASE_URL }}
       NEWSCRAFT_PERSIAN_EVALUATION_DATABASE: isolated
-      OPENROUTER_EDITOR_KEY: ${{ secrets.OPENROUTER_EDITOR_KEY }}
+      PROVIDER_PROFILE_ID: ${{ inputs.provider_profile_id }}
+      MAX_CAMPAIGN_COST_USD: ${{ inputs.max_campaign_cost_usd }}
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v7
@@ -49,6 +50,7 @@ jobs:
         working-directory: backend
         env:
           WORKER_SECRET_ROOT: ${{ runner.temp }}/newscraft-evaluation-secrets
+          OPENROUTER_EDITOR_KEY: ${{ secrets.OPENROUTER_EDITOR_KEY }}
         run: |
           install -d -m 700 "$WORKER_SECRET_ROOT"
           install -m 600 /dev/null "$WORKER_SECRET_ROOT/OPENROUTER_EDITOR_KEY"
@@ -59,9 +61,9 @@ jobs:
           trap 'kill "$worker_pid" 2>/dev/null || true' EXIT
           PYTHONPATH=. uv run python -m app.validation.persian_generation \
             --corpus ../validation/persian-generation/corpus-v1.json \
-            --provider-profile-id '${{ inputs.provider_profile_id }}' \
+            --provider-profile-id "$PROVIDER_PROFILE_ID" \
             --repeats 2 \
-            --max-campaign-cost-usd '${{ inputs.max_campaign_cost_usd }}' \
+            --max-campaign-cost-usd "$MAX_CAMPAIGN_COST_USD" \
             --confirm-funded-run \
             --output ../validation/persian-generation/run-v1.json
       - name: Upload blinded review bundle
@@ -70,3 +72,6 @@ jobs:
           name: persian-generation-run-${{ github.run_id }}
           path: validation/persian-generation/run-v1.json
           retention-days: 30
+      - name: Remove ephemeral provider credential
+        if: always()
+        run: rm -f "$RUNNER_TEMP/newscraft-evaluation-secrets/OPENROUTER_EDITOR_KEY"

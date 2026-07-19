@@ -61,8 +61,6 @@ jobs:
       APP_ENV: production
       DATABASE_URL: ${{ secrets.TELEGRAM_STAGING_DATABASE_URL }}
       NEWSCRAFT_LIVE_TELEGRAM_STAGING: authorized
-      STAGING_TOKEN: ${{ secrets.TELEGRAM_STAGING_TOKEN }}
-      REPORT_SIGNING_KEY: ${{ secrets.TELEGRAM_STAGING_REPORT_SIGNING_KEY }}
       SCENARIO: ${{ inputs.scenario }}
       DESTINATION_ID: ${{ inputs.destination_id }}
       REVISION_ID: ${{ inputs.revision_id }}
@@ -87,6 +85,9 @@ jobs:
         working-directory: backend
         run: uv sync --locked
       - name: Prepare worker-only credentials
+        env:
+          STAGING_TOKEN: ${{ secrets.TELEGRAM_STAGING_TOKEN }}
+          REPORT_SIGNING_KEY: ${{ secrets.TELEGRAM_STAGING_REPORT_SIGNING_KEY }}
         run: |
           install -d -m 700 "$RUNNER_TEMP/newscraft-live-secrets"
           install -m 600 /dev/null "$RUNNER_TEMP/newscraft-live-secrets/TELEGRAM_STAGING_TOKEN"
@@ -116,10 +117,11 @@ jobs:
         working-directory: backend
         run: |
           uv run python - <<'PY'
-          import os
           from pathlib import Path
           report = next(Path("../reports/live-telegram-staging").glob("*.json")).read_text(encoding="utf-8")
-          if any(value and value in report for value in (os.environ["STAGING_TOKEN"], os.environ["REPORT_SIGNING_KEY"])):
+          secret_root = Path("${{ runner.temp }}/newscraft-live-secrets")
+          values = [path.read_text(encoding="utf-8") for path in secret_root.iterdir()]
+          if any(value and value in report for value in values):
               raise SystemExit("secret value found in report")
           PY
       - uses: actions/upload-artifact@v4
@@ -128,3 +130,6 @@ jobs:
           name: live-telegram-staging-${{ inputs.scenario }}-${{ github.run_id }}
           path: reports/live-telegram-staging/
           retention-days: 30
+      - name: Remove ephemeral credentials
+        if: always()
+        run: rm -f "$RUNNER_TEMP/newscraft-live-secrets/TELEGRAM_STAGING_TOKEN" "$RUNNER_TEMP/newscraft-live-secrets/REPORT_SIGNING_KEY"

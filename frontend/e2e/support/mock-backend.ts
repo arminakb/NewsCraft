@@ -25,6 +25,9 @@ export type MockStory = {
 
 export type MockBackendOptions = {
   stories?: MockStory[]
+  operations?: components["schemas"]["OperationsSnapshotOut"]
+  operationsDelayMs?: number
+  operationsFailure?: boolean
 }
 
 const CONTRACT_ID = "newscraft-openapi"
@@ -70,12 +73,13 @@ export function assertContractResponse(
   body: unknown,
 ): void {
   const normalizedMethod = method.toLowerCase() as HttpMethod
-  const key = `${normalizedMethod} ${path} ${status}`
+  const contractPath = resolveContractPath(path)
+  const key = `${normalizedMethod} ${contractPath} ${status}`
   let validate = validators.get(key)
   if (!validate) {
     const pointer = [
       "paths",
-      path,
+      contractPath,
       normalizedMethod,
       "responses",
       String(status),
@@ -89,6 +93,13 @@ export function assertContractResponse(
   if (!validate(body)) {
     throw new Error(`Mock response violates ${key}: ${ajv.errorsText(validate.errors)}`)
   }
+}
+
+export async function fulfillMockJson(route: Route, body: unknown, status = 200): Promise<void> {
+  const request = route.request()
+  const path = new URL(request.url()).pathname.replace(/^\/api\/backend/, "")
+  if (status !== 501) assertContractResponse(request.method(), path, status, body)
+  await route.fulfill({ status, contentType: "application/json", body: JSON.stringify(body) })
 }
 
 export async function installMockBackend(
@@ -173,7 +184,14 @@ export async function installMockBackend(
       return
     }
     if (method === "GET" && path === "/operations/diagnostics") {
-      await fulfillContractJson(route, method, path, OPERATIONS_FIXTURE)
+      if (options.operationsDelayMs) {
+        await new Promise((resolve) => setTimeout(resolve, options.operationsDelayMs))
+      }
+      if (options.operationsFailure) {
+        await route.abort("failed")
+        return
+      }
+      await fulfillContractJson(route, method, path, options.operations ?? OPERATIONS_FIXTURE)
       return
     }
     if (method === "GET" && path === "/telegram/reconciliation") {
@@ -210,4 +228,22 @@ async function fulfillContractJson(
 
 function escapePointer(value: string): string {
   return value.replaceAll("~", "~0").replaceAll("/", "~1")
+}
+
+function resolveContractPath(actualPath: string): string {
+  const paths = (contract.paths ?? {}) as JsonObject
+  if (actualPath in paths) return actualPath
+  const matches = Object.keys(paths).filter((candidate) => {
+    const pattern = candidate
+      .split("/")
+      .map((part) => part.startsWith("{") && part.endsWith("}") ? "[^/]+" : escapeRegex(part))
+      .join("/")
+    return new RegExp(`^${pattern}$`).test(actualPath)
+  })
+  if (matches.length !== 1) throw new Error(`No unique OpenAPI path matches ${actualPath}`)
+  return matches[0]
+}
+
+function escapeRegex(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
 }

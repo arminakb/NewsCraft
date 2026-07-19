@@ -55,7 +55,8 @@ No database migration was required.
 - Frontend focused generated-schema, mapper, diagnostics, reconciliation, and outcome suites: **5 files, 17 tests passed**.
 - Full Vitest regression before the final two test-only policy assertions: **49 files, 378 tests passed**. The final focused Phase 10 set including those assertions passed 17/17.
 - Frontend strict typecheck: passed.
-- Playwright collection: **33 tests in 6 files**; every intended browser test remains discoverable.
+- Playwright collection after the completion audit: **60 tests in 7 files**;
+  every intended browser test remains discoverable.
 - Backend Ruff checks and format checks passed for the exporter/contract tests.
 - Final npm audit after AJV remediation: 2 moderate PostCSS paths, 0 high, 0 critical; the existing time-bounded risk-register entry remains accurate.
 
@@ -89,7 +90,12 @@ Failed/limited commands are not represented as passes:
 - [x] Canonical OpenAPI and generated wire types are committed and deterministic.
 - [x] Covered operations transports use generated schemas while retaining tested wire/domain mappers.
 - [x] Shared migrated mocks validate exact operation/status bodies; missing required fields and undocumented paths/statuses fail.
-- [x] Every mocked E2E suite has a fail-closed unmatched-request boundary; all 33 tests collect.
+- [x] Every JSON response in every mocked E2E suite passes through the shared
+  OpenAPI validator; concrete UUID paths resolve to their documented templates,
+  undocumented statuses fail, and deliberate unmatched requests remain the
+  sole 501 sentinel.
+- [x] The manual-publication-plan lookup documents and validates its exercised
+  404 response as well as 200/422; all 60 tests collect.
 - [x] Actual ASGI 200 and 422 samples validate against OpenAPI.
 - [x] CI regeneration/diff, contract tests, typecheck, and mocked browser jobs are blocking.
 - [x] Public-schema tests exclude the internal credential names in scope.
@@ -98,7 +104,9 @@ Failed/limited commands are not represented as passes:
 ## Remaining risks, cleanup, and rollback
 
 - Some backend endpoints still generate `unknown` success bodies because their routes lack explicit Pydantic response models. They remain documented technical debt; migrated operations/reconciliation endpoints are generated and checked. Add response models endpoint-by-endpoint before deleting their corresponding handwritten projections.
-- The shared strict registry currently owns the confirmed accessibility/diagnostics boundary. Larger scenario suites retain their specialized state machines plus fail-closed fallbacks; they can compose more shared fixtures as endpoint groups receive response models.
+- Specialized scenario state machines retain their local state, but their JSON
+  responses use the same strict registry as the shared fixture. This keeps the
+  scenario coverage without creating a second contract boundary.
 - The browser execution result must come from healthy CI hardware before a production release.
 - Generated `.next`, temporary npm audit JSON, and package-manager logs are not committed. No live credential or external side effect was used.
 - Rollback reverts the Phase 10 commit, including both generated artifacts and the compatible tool versions together.

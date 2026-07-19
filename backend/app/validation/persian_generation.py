@@ -55,6 +55,22 @@ def _sha256(value: Any) -> str:
     return hashlib.sha256(_canonical_bytes(value)).hexdigest()
 
 
+def _verified_self_hash(value: dict[str, Any], field: str) -> str:
+    supplied = value.get(field)
+    unsigned = {key: item for key, item in value.items() if key != field}
+    expected = _sha256(unsigned)
+    if not isinstance(supplied, str) or not hmac.compare_digest(supplied, expected):
+        raise EvaluationDataError(f"{field} does not match the immutable payload")
+    return supplied
+
+
+def _write_private_json(path: Path, value: dict[str, Any]) -> None:
+    path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+    path.parent.chmod(0o700)
+    path.write_text(json.dumps(value, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    path.chmod(0o600)
+
+
 def load_corpus(path: Path) -> dict[str, Any]:
     corpus = json.loads(path.read_text(encoding="utf-8"))
     if corpus.get("schema_version") != "persian-generation-corpus-v1":
@@ -119,11 +135,9 @@ def _weighted_kappa(left: list[int], right: list[int]) -> float:
     observed = sum(((a - b) / 4) ** 2 for a, b in zip(left, right, strict=True)) / count
     left_counts = Counter(left)
     right_counts = Counter(right)
-    expected = sum(
-        left_counts[a] * right_counts[b] * ((a - b) / 4) ** 2
-        for a in range(1, 6)
-        for b in range(1, 6)
-    ) / (count * count)
+    expected = sum(left_counts[a] * right_counts[b] * ((a - b) / 4) ** 2 for a in range(1, 6) for b in range(1, 6)) / (
+        count * count
+    )
     return 1.0 if expected == 0 and observed == 0 else (0.0 if expected == 0 else 1 - observed / expected)
 
 
@@ -135,6 +149,11 @@ def score_evaluation(
 ) -> dict[str, Any]:
     if run.get("schema_version") != "persian-generation-run-v1" or run.get("status") != "completed":
         raise EvaluationDataError("run is incomplete or unsupported")
+    if reviews.get("schema_version") != "persian-generation-reviews-v1":
+        raise EvaluationDataError("reviews are unsupported")
+    run_sha256 = _verified_self_hash(run, "run_sha256")
+    if len(signing_key) < 32:
+        raise EvaluationDataError("report signing key must contain at least 32 bytes")
     packs = run.get("packs", [])
     calls = run.get("provider_calls", [])
     variants = run.get("variants", [])
@@ -272,7 +291,7 @@ def score_evaluation(
         "created_at": datetime.now(UTC).isoformat(),
         "campaign_id": run["campaign_id"],
         "corpus_sha256": run["corpus_sha256"],
-        "run_sha256": _sha256(run),
+        "run_sha256": run_sha256,
         "reviews_sha256": _sha256(reviews),
         "provider_configuration_checksum": run["provider_configuration_checksum"],
         "prompt_checksums": run["prompt_checksums"],
@@ -384,9 +403,7 @@ async def _seed_and_enqueue(args: argparse.Namespace, corpus: dict[str, Any]) ->
         raise EvaluationDataError("evaluation timed out before all jobs reached a terminal state")
 
     async with async_session() as session:
-        jobs = list(
-            await session.scalars(select(WorkflowJob).where(WorkflowJob.id.in_([item.id for item in jobs])))
-        )
+        jobs = list(await session.scalars(select(WorkflowJob).where(WorkflowJob.id.in_([item.id for item in jobs]))))
         job_by_id = {str(item.id): item for item in jobs}
         job_eval = {str(item.id): item.payload["evaluation_run_id"] for item in jobs}
         runs = list(await session.scalars(select(GenerationRun).where(GenerationRun.created_at >= started)))
@@ -472,8 +489,7 @@ async def _seed_and_enqueue(args: argparse.Namespace, corpus: dict[str, Any]) ->
         "provider_configuration_checksum": provider_checksum,
         "prompt_checksums": dict(prompts),
         "corpus_stories": [
-            {"id": item["id"], "split": item["split"], "promotional": item["promotional"]}
-            for item in corpus["stories"]
+            {"id": item["id"], "split": item["split"], "promotional": item["promotional"]} for item in corpus["stories"]
         ],
         "packs": packs,
         "variants": variants,
@@ -512,7 +528,7 @@ def main(argv: list[str] | None = None) -> None:
         run = json.loads(args.run.read_text(encoding="utf-8"))
         reviews = json.loads(args.reviews.read_text(encoding="utf-8"))
         report = score_evaluation(run, reviews, signing_key=args.signing_key_file.read_bytes())
-        args.output.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        _write_private_json(args.output, report)
         if not report["passed"]:
             raise SystemExit(2)
         return
@@ -521,7 +537,7 @@ def main(argv: list[str] | None = None) -> None:
         raise SystemExit("a positive preapproved budget and --confirm-funded-run are required")
     corpus = load_corpus(args.corpus)
     output = asyncio.run(_seed_and_enqueue(args, corpus))
-    args.output.write_text(json.dumps(output, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    _write_private_json(args.output, output)
 
 
 if __name__ == "__main__":

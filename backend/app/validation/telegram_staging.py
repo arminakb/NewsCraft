@@ -29,7 +29,7 @@ from app.jobs.errors import NeedsReviewJobError
 from app.jobs.models import AutomationControl, RuntimeHeartbeat, WorkflowJob
 from app.publishing.models import Destination, Publication, PublishJob, PublishOperationReceipt
 from app.publishing.telegram.client import TelegramBotClient
-from app.publishing.telegram.service import _revision_dispatch, publish_telegram
+from app.publishing.telegram.service import _revision_dispatch, derive_telegram_permalink, publish_telegram
 
 _MARKER = re.compile(r"^NC-STAGING-[A-Z0-9-]{8,80}$")
 _SAFE_REFERENCE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._@:/-]{0,127}$")
@@ -298,13 +298,22 @@ async def _run(args: argparse.Namespace) -> dict[str, Any]:
             raise StagingQualificationError("dry-run attempted a remote send or created a publication")
     elif args.scenario == "success":
         observed_ids = [remote_id for result in recorder.results for remote_id in result.remote_message_ids]
+        expected_permalink = derive_telegram_permalink(destination.target_ref, observed_ids)
         if (
             first_send_count != args.expected_operation_count
             or recorder.send_count != first_send_count
             or len(observed_ids) != args.expected_remote_message_count
+            or len(observed_ids) != len(set(observed_ids))
+            or any(remote_id <= 0 for remote_id in observed_ids)
         ):
             raise StagingQualificationError("success replay produced an additional remote send")
-        if state["publication_id"] is None or state["publication_payload_hash"] != args.content_hash:
+        if (
+            state["publication_id"] is None
+            or state["publication_payload_hash"] != args.content_hash
+            or state["publication_remote_message_ids"] != observed_ids
+            or state["publication_permalink"] != expected_permalink
+            or state["reconciliation_status"] != "confirmed"
+        ):
             raise StagingQualificationError("successful remote send has no exact local publication")
     elif args.scenario == "ambiguity":
         ambiguous = [item for item in state["receipts"] if item["status"] == "ambiguous"]
@@ -357,6 +366,7 @@ async def _verify(args: argparse.Namespace) -> dict[str, Any]:
     if chat.get("id") != args.expected_chat_id or chat.get("title") != args.expected_chat_title:
         raise StagingQualificationError("Telegram getChat identity changed before evidence verification")
     async with async_session() as session:
+        expected_permalink = derive_telegram_permalink(destination.target_ref, observed)
         publication = await session.scalar(
             select(Publication).where(
                 Publication.destination_id == destination.id,
@@ -368,6 +378,7 @@ async def _verify(args: argparse.Namespace) -> dict[str, Any]:
             or publication.payload_hash != args.content_hash
             or publication.reconciliation_status != "confirmed"
             or list(publication.remote_message_ids) != observed
+            or publication.permalink != expected_permalink
         ):
             raise StagingQualificationError("manual observation does not match confirmed local publication")
         state = await _state(publication.publish_job_id)

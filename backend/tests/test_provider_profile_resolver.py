@@ -1,3 +1,4 @@
+from decimal import Decimal
 from uuid import uuid4
 
 import httpx
@@ -85,6 +86,37 @@ async def test_profile_resolver_honors_selected_secret_settings_and_default_mode
         "http_referer": "http://127.0.0.1:3000/",
         "app_title": "NewsCraft",
     }
+    await factory.clients[0].aclose()
+
+
+async def test_profile_resolver_exposes_frozen_generation_execution_policy():
+    secrets = FakeSecrets({"OPENROUTER_EDITOR_KEY": "editor-secret"})
+    factory = RecordingFactory()
+    resolver = ProviderProfileResolver(
+        secret_resolver=secrets,
+        http_client_factory=factory,
+        provider_registry=build_default_provider_registry(),
+    )
+    selected = profile()
+    selected.settings = {
+        **selected.settings,
+        "generation_policy": {
+            "qualification_status": "qualified",
+            "max_output_tokens": 8_000,
+            "max_attempts": 2,
+            "max_pack_cost_usd": "1.50",
+            "max_elapsed_seconds": 150,
+        },
+    }
+
+    resolved = await resolver.resolve(selected, model_override=None)
+
+    assert resolved.max_output_tokens == 8_000
+    assert resolved.max_attempts == 2
+    assert resolved.max_pack_cost_usd == Decimal("1.50")
+    assert resolved.max_elapsed_seconds == 150
+    assert resolved.pricing_input_usd_per_million == Decimal("1.25")
+    assert resolved.pricing_output_usd_per_million == Decimal("5.00")
     await factory.clients[0].aclose()
 
 
@@ -249,8 +281,7 @@ async def test_profile_configuration_checksum_tracks_model_and_safe_settings_but
     )
 
     resolved = [
-        await resolver.resolve(candidate, None)
-        for candidate in (base, changed_secret, changed_model, changed_timeout)
+        await resolver.resolve(candidate, None) for candidate in (base, changed_secret, changed_model, changed_timeout)
     ]
     try:
         assert resolved[0].configuration_checksum == resolved[1].configuration_checksum

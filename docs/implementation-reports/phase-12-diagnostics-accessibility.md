@@ -18,6 +18,8 @@ The documented defect was confirmed in source: the shared destructive badge used
 - Diagnostics maps every component status exhaustively to a semantic badge variant. Attention errors/warnings use semantic variants rather than destructive/outline ad hoc choices.
 - The shared Phase 10 diagnostics fixture now includes an actual error-attention row, so the repaired Axe route exercises the original failing treatment.
 - Accessibility coverage is defined for light and dark themes at 390×844 and 1440×1000. The existing skip-link, focus, touch-target, and unmatched-request assertions remain.
+- Each viewport/theme combination explicitly exercises healthy, degraded,
+  down, unknown, warning, and error palettes plus loading and API-error states.
 - `badge-contrast.test.tsx` numerically protects normal-text >=4.5:1 and focus-indicator >=3:1 for all eight theme/status pairs and statically rejects the old translucent classes.
 - Diagnostics component tests cover visible healthy/degraded/down/unknown/error labels, semantic classes, RTL prose, action naming, exact timestamps, and decorative icon semantics.
 - `docs/operations/accessibility-verification.md` records the required keyboard, zoom/reflow, forced-color, reduced-motion, RTL, and screen-reader release checklist and evidence fields.
@@ -52,7 +54,10 @@ Static WCAG luminance calculations produced:
 
 Source scans confirmed the old `bg-destructive/10`, `dark:bg-destructive/20`, and `text-destructive` badge treatment is absent from Badge/Diagnostics. Decorative icons in the component retain `aria-hidden="true"`.
 
-The attempted focused Vitest command terminated before collection with native Node/V8 `Trace/breakpoint trap`. The user had already identified faulty CPU/RAM and explicitly directed that host-dependent tests stop. It was not retried or represented as an application failure/pass. Chromium/Axe and manual assistive-technology checks are likewise deferred to the Phase 7 healthy CI runner.
+The completion audit passed the lightweight generated-contract/status test set,
+TypeScript typecheck, and deterministic collection of all 60 Playwright cases.
+Chromium/Axe execution and manual assistive-technology checks remain deferred
+to the Phase 7 healthy CI runner.
 
 ## Acceptance and Definition of Done
 
@@ -60,7 +65,8 @@ The attempted focused Vitest command terminated before collection with native No
 - [x] Explicit semantic light/dark status pairs replace translucent destructive text.
 - [x] Numeric palette tests encode >=4.5:1 text and >=3:1 focus thresholds.
 - [x] Diagnostics retains text labels, named links, RTL boundary, timestamps, and decorative icons.
-- [x] Light/dark and mobile/desktop Axe scenarios with an error fixture are encoded in the blocking browser suite.
+- [x] Light/dark and mobile/desktop Axe scenarios encode every status palette
+  plus loading and API-error states in the blocking browser suite.
 - [x] Manual zoom/forced-color/RTL/screen-reader checklist is documented.
 - [ ] Runtime Vitest, Axe, keyboard, zoom, forced-color, and screen-reader evidence is pending healthy hardware by explicit user direction.
 

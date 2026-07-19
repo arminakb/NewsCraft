@@ -43,9 +43,7 @@ async def test_openrouter_posts_json_schema_and_returns_normalized_result():
         {
             "choices": [
                 {
-                    "message": {
-                        "content": '{"body":"بازنویسی","parse_mode":"HTML","buttons":[]}'
-                    },
+                    "message": {"content": '{"body":"بازنویسی","parse_mode":"HTML","buttons":[]}'},
                     "finish_reason": "stop",
                 }
             ],
@@ -72,9 +70,7 @@ async def test_openrouter_accepts_object_content_and_maps_transport_failure_retr
         {
             "choices": [
                 {
-                    "message": {
-                        "content": {"body": "Object", "parse_mode": "HTML", "buttons": []}
-                    },
+                    "message": {"content": {"body": "Object", "parse_mode": "HTML", "buttons": []}},
                     "finish_reason": "stop",
                 }
             ],
@@ -110,9 +106,7 @@ async def test_openrouter_accepts_object_content_and_maps_transport_failure_retr
     ],
 )
 async def test_openrouter_maps_http_failures_without_leaking_authorization(status, error_type):
-    provider, _, client = provider_with_response(
-        {"error": {"message": "Bearer test-key upstream"}}, status=status
-    )
+    provider, _, client = provider_with_response({"error": {"message": "Bearer test-key upstream"}}, status=status)
     try:
         with pytest.raises(error_type) as caught:
             await provider.generate(provider_request())
@@ -143,9 +137,7 @@ async def test_openrouter_maps_invalid_json_or_schema_to_needs_review(content):
 async def test_openrouter_honors_nontelegram_schema_and_classifies_malformed_usage():
     provider, _, client = provider_with_response(
         {
-            "choices": [
-                {"message": {"content": '{"status":"ok"}'}, "finish_reason": "stop"}
-            ],
+            "choices": [{"message": {"content": '{"status":"ok"}'}, "finish_reason": "stop"}],
             "usage": {},
             "model": "model",
         }
@@ -173,9 +165,7 @@ async def test_openrouter_honors_nontelegram_schema_and_classifies_malformed_usa
         {
             "choices": [
                 {
-                    "message": {
-                        "content": '{"body":"ok","parse_mode":"HTML","buttons":[]}'
-                    },
+                    "message": {"content": '{"body":"ok","parse_mode":"HTML","buttons":[]}'},
                     "finish_reason": "stop",
                 }
             ],
@@ -211,9 +201,7 @@ async def test_openrouter_provider_boundary_accepts_reviewable_manual_platform_o
     }
     provider, requests, client = provider_with_response(
         {
-            "choices": [
-                {"message": {"content": json.dumps(output)}, "finish_reason": "stop"}
-            ],
+            "choices": [{"message": {"content": json.dumps(output)}, "finish_reason": "stop"}],
             "model": "model",
         }
     )
@@ -375,20 +363,14 @@ async def test_openrouter_revalidates_redacted_output_against_exact_schema():
         (
             {
                 "choices": [
-                    {
-                        "message": {
-                            "content": {"body": "<script>x</script>", "parse_mode": "HTML", "buttons": []}
-                        }
-                    }
+                    {"message": {"content": {"body": "<script>x</script>", "parse_mode": "HTML", "buttons": []}}}
                 ]
             },
             "telegram_schema",
         ),
         (
             {
-                "choices": [
-                    {"message": {"content": {"body": "ok", "parse_mode": "HTML", "buttons": []}}}
-                ],
+                "choices": [{"message": {"content": {"body": "ok", "parse_mode": "HTML", "buttons": []}}}],
                 "usage": {"prompt_tokens": "private-invalid-value"},
             },
             "usage",
@@ -406,9 +388,7 @@ async def test_openrouter_revalidates_redacted_output_against_exact_schema():
         ),
         (
             {
-                "choices": [
-                    {"message": {"content": {"body": "ok", "parse_mode": "HTML", "buttons": []}}}
-                ],
+                "choices": [{"message": {"content": {"body": "ok", "parse_mode": "HTML", "buttons": []}}}],
                 "model": {"private": "value"},
             },
             "resolved_model",
@@ -475,6 +455,16 @@ async def test_openrouter_honors_bounded_retry_after_without_exposing_response()
     assert "private-invalid-value" not in str(caught.value.diagnostic)
 
 
+async def test_openrouter_retries_only_the_qualified_http_status_allowlist():
+    for status, expected_error in ((500, OpenRouterRetryableError), (501, OpenRouterPermanentError)):
+        provider, _, client = provider_with_response({"error": "safe"}, status=status)
+        try:
+            with pytest.raises(expected_error):
+                await provider.generate(provider_request())
+        finally:
+            await client.aclose()
+
+
 async def test_openrouter_optional_quarantine_receives_invalid_bytes_only_when_configured():
     stored = []
 
@@ -516,9 +506,7 @@ async def test_openrouter_rejects_malformed_cost_or_finish_metadata(usage, finis
         {
             "choices": [
                 {
-                    "message": {
-                        "content": '{"body":"ok","parse_mode":"HTML","buttons":[]}'
-                    },
+                    "message": {"content": '{"body":"ok","parse_mode":"HTML","buttons":[]}'},
                     "finish_reason": finish_reason,
                 }
             ],
@@ -539,9 +527,7 @@ async def test_openrouter_rejects_falsey_supplied_nonmapping_usage(usage):
         {
             "choices": [
                 {
-                    "message": {
-                        "content": '{"body":"ok","parse_mode":"HTML","buttons":[]}'
-                    },
+                    "message": {"content": '{"body":"ok","parse_mode":"HTML","buttons":[]}'},
                     "finish_reason": "stop",
                 }
             ],
@@ -561,9 +547,7 @@ async def test_openrouter_classifies_enormous_integer_cost_as_needs_review():
         {
             "choices": [
                 {
-                    "message": {
-                        "content": '{"body":"ok","parse_mode":"HTML","buttons":[]}'
-                    },
+                    "message": {"content": '{"body":"ok","parse_mode":"HTML","buttons":[]}'},
                     "finish_reason": "stop",
                 }
             ],

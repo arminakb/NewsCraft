@@ -1,5 +1,7 @@
 import { expect, test, type Page, type Route } from "@playwright/test"
 
+import { fulfillMockJson } from "./support/mock-backend"
+
 const failedJob = backendJob({
   id: "22222222-2222-4222-8222-222222222222",
   status: "failed",
@@ -116,7 +118,7 @@ async function installApiRoutes(page: Page) {
 }
 
 async function fulfillJson(route: Route, body: unknown) {
-  await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(body) })
+  await fulfillMockJson(route, body)
 }
 
 function backendJob(overrides: Record<string, unknown> = {}) {

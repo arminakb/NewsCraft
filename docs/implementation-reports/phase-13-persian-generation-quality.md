@@ -27,7 +27,8 @@ The profile must not be marked qualified until the signed report passes.
   recipient mount, audits hash/artifact metadata, and prunes at a maximum
   seven-day TTL. Quarantine failures never replace the safe primary diagnostic.
 - HTTP 402/configuration failures remain permanent; malformed output remains
-  needs-review; transport, 408, 429, and 5xx failures retry the same model.
+  needs-review; transport and exactly 408/429/500/502/503/504 retry the same
+  model. Other 5xx statuses are not silently broadened into the qualified class.
   `Retry-After` is honored up to five minutes, otherwise bounded exponential
   backoff with deterministic jitter is used.
 - Provider configuration identity covers profile ID, provider type, resolved
@@ -38,6 +39,9 @@ The profile must not be marked qualified until the signed report passes.
   immediately before calling the provider and reject drift permanently.
 - The qualified policy schema pins output-token, attempt, elapsed-time, cost,
   retry-class, and no-automatic-fallback settings.
+- The worker now enforces the pinned attempt, cumulative elapsed-time, output
+  token, and pack-cost ceilings. Cost accounting applies the greater of the
+  provider-reported amount and the frozen input/output pricing calculation.
 - OpenRouter profiles without explicit pricing and a `qualified` generation
   policy are rejected for editorial generation; fake/Codex test and local paths
   remain available under their existing capability controls.
@@ -53,6 +57,9 @@ The profile must not be marked qualified until the signed report passes.
   adjudication for differences over one point, claim support/citation labels,
   language/encoding/title/promotion decisions, all acceptance thresholds,
   canonical input hashes, a report hash, and HMAC-SHA256 signature.
+- The scorer verifies the run file's embedded self-hash before accepting it,
+  requires the expected review schema and a signing key of at least 32 bytes,
+  and writes run/report files with private directory/file permissions.
 - A protected `workflow_dispatch` campaign uses the locked Python environment,
   a file-scoped worker secret, an isolated database marker, concurrency fencing,
   an explicit profile, and a preapproved positive budget.
@@ -75,6 +82,10 @@ git diff --check: passed
 
 No live provider request, funded campaign, editor review, Docker stack, or broad
 CPU/RAM-intensive suite was run locally.
+
+The later completion audit included the enforcement and self-hash regressions
+in a **164-test** cross-phase backend policy set; all passed in 2.53 seconds with
+one existing Starlette/httpx deprecation warning.
 
 ## External acceptance still required
 

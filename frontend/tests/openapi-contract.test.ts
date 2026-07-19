@@ -34,6 +34,17 @@ describe("generated OpenAPI mock contract", () => {
     ).toThrow()
   })
 
+  it("resolves concrete resource URLs to their OpenAPI path templates", () => {
+    expect(() => assertContractResponse("GET", "/stories/not-a-uuid", 422, {
+      detail: [{
+        type: "uuid_parsing",
+        loc: ["path", "story_id"],
+        msg: "Input should be a valid UUID",
+        input: "not-a-uuid",
+      }],
+    })).not.toThrow()
+  })
+
   it("keeps every mocked browser suite on a fail-closed unmatched-request boundary", () => {
     const e2eRoot = resolve(process.cwd(), "e2e")
     for (const name of readdirSync(e2eRoot).filter((entry) => entry.endsWith(".spec.ts"))) {
@@ -41,6 +52,10 @@ describe("generated OpenAPI mock contract", () => {
       expect(
         source.includes("installMockBackend") || (source.includes("Unhandled") && source.includes("501")),
         `${name} must reject unmatched backend requests`,
+      ).toBe(true)
+      expect(
+        source.includes("installMockBackend") || source.includes("fulfillMockJson"),
+        `${name} must validate JSON responses against OpenAPI`,
       ).toBe(true)
     }
   })

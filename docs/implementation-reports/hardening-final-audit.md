@@ -17,6 +17,30 @@ This is not a production-launch approval. Production generation and publishing
 must remain gated until the Phase 13 and Phase 14 protected workflows produce
 passing signed evidence.
 
+## Completion-audit corrections
+
+A second requirement-by-requirement pass closed five gaps that were not fully
+represented by the original phase commits:
+
+- Phase 7 production-image jobs now inspect runtime contents, not merely whether
+  an image can be built.
+- Phase 10 routes every E2E JSON mock through the generated OpenAPI validator,
+  resolves concrete UUID paths to templates, and documents the exercised
+  manual-publication 404 response.
+- Phase 12 covers all status palettes plus loading and API-error states at every
+  required viewport/theme combination.
+- Phase 13 enforces frozen attempt/time/token/cost policy, exact retry classes,
+  pricing-derived cost floors, run self-hash verification, strong signing-key
+  minimums, and private report permissions.
+- Phase 14 keeps credentials out of job-wide environment state and verifies
+  exact remote/local message IDs plus the expected permalink.
+
+Lightweight completion-audit evidence: backend Ruff passed; the combined focused
+backend suite passed **164 tests in 2.53 seconds**; generated OpenAPI and
+TypeScript artifacts were refreshed; focused frontend contract tests passed;
+strict TypeScript passed; and Playwright deterministically collected **60 tests
+in 7 files** without launching a browser.
+
 ## Revision chain
 
 The audit was performed on branch `phase-14-production-publishing-proof`, based

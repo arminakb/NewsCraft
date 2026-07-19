@@ -154,10 +154,7 @@ class OpenRouterProvider:
             headers["HTTP-Referer"] = self.http_referer
         payload = {
             "model": request.requested_model,
-            "messages": [
-                {"role": message.role, "content": message.content}
-                for message in request.messages
-            ],
+            "messages": [{"role": message.role, "content": message.content} for message in request.messages],
             "response_format": {
                 "type": "json_schema",
                 "json_schema": {
@@ -169,11 +166,7 @@ class OpenRouterProvider:
         }
         max_output_tokens = request.metadata.get("max_output_tokens")
         if max_output_tokens is not None:
-            if (
-                isinstance(max_output_tokens, bool)
-                or not isinstance(max_output_tokens, int)
-                or max_output_tokens < 1
-            ):
+            if isinstance(max_output_tokens, bool) or not isinstance(max_output_tokens, int) or max_output_tokens < 1:
                 raise OpenRouterPermanentError(
                     code="openrouter_max_output_tokens_invalid",
                     message="OpenRouter output token allowance is invalid",
@@ -186,7 +179,7 @@ class OpenRouterProvider:
                 headers=headers,
                 timeout=self.timeout_seconds,
             )
-        except (httpx.TimeoutException, httpx.TransportError):
+        except httpx.TimeoutException, httpx.TransportError:
             raise OpenRouterRetryableError(
                 code="openrouter_transport_failed",
                 message="OpenRouter transport failed",
@@ -298,9 +291,7 @@ class OpenRouterProvider:
             }
             if request.purpose == "research_action":
                 normalized_usage["usage_supplied"] = (
-                    supplied_usage is not None
-                    and "prompt_tokens" in usage
-                    and "completion_tokens" in usage
+                    supplied_usage is not None and "prompt_tokens" in usage and "completion_tokens" in usage
                 )
             resolved_model = body.get("model") or request.requested_model
             if not isinstance(resolved_model, str):
@@ -331,9 +322,7 @@ class OpenRouterProvider:
                 finish_reason,
                 secrets=(self._api_key,),
             )
-            safe_requested_model = str(
-                redact_secrets(request.requested_model, secrets=(self._api_key,))
-            )
+            safe_requested_model = str(redact_secrets(request.requested_model, secrets=(self._api_key,)))
         except (OverflowError, TypeError, ValueError) as exc:
             await invalid("normalization", exc)
         return GenerationProviderResult(
@@ -349,7 +338,7 @@ class OpenRouterProvider:
     def _raise_http_error(self, response: httpx.Response, requested_model: str) -> None:
         status_code = response.status_code
         error_type: type[OpenRouterError]
-        if status_code in {408, 429} or status_code >= 500:
+        if status_code in {408, 429, 500, 502, 503, 504}:
             error_type = OpenRouterRetryableError
         else:
             error_type = OpenRouterPermanentError
@@ -363,7 +352,7 @@ class OpenRouterProvider:
                     retry_after_seconds = int(
                         (parsedate_to_datetime(retry_after).astimezone(UTC) - datetime.now(UTC)).total_seconds()
                     )
-                except (TypeError, ValueError, OverflowError):
+                except TypeError, ValueError, OverflowError:
                     retry_after_seconds = None
             if retry_after_seconds is not None:
                 retry_after_seconds = min(300, max(1, retry_after_seconds))

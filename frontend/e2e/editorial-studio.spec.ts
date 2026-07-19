@@ -1,5 +1,7 @@
 import { expect, test } from "@playwright/test"
 
+import { fulfillMockJson } from "./support/mock-backend"
+
 const ids = {
   story: "10000000-0000-4000-8000-000000000001",
   storyRevision: "10000000-0000-4000-8000-000000000002",
@@ -60,26 +62,26 @@ test("manual text to research to both prompt IDs to exact revision approval", as
     const request = route.request()
     const path = new URL(request.url()).pathname.replace("/api/backend", "")
     const method = request.method()
-    if (path === "/stories" && method === "GET") return route.fulfill({ json: { items: [summary], next_cursor: null } })
-    if (path === "/stories/manual" && method === "POST") return route.fulfill({ status: 202, json: { job_id: ids.intakeJob, status: "queued", deduplicated: false } })
-    if (path === `/stories/${ids.story}` && method === "GET") return route.fulfill({ json: summary })
-    if (path === `/stories/${ids.story}/evidence` && method === "GET") return route.fulfill({ json: [evidence] })
-    if (path === `/stories/${ids.story}/research-runs` && method === "POST") { researchStarted = true; return route.fulfill({ status: 202, json: { disposition: "enqueued", run_id: ids.researchRun, job_id: ids.researchJob, completeness: summary.completeness } }) }
-    if (path === `/stories/${ids.story}/research-runs` && method === "GET") return route.fulfill({ json: { items: researchStarted ? [{ id: ids.researchRun, story_id: ids.story, requested_mode: "manual", status: "succeeded", provider: { id: ids.provider, name: "Codex CLI", provider_type: "codex" }, budget: {}, completeness: { complete: true, score: 100, reasons: [] }, sources: [], result_revision_id: ids.storyRevision }] : [] } })
-    if (path === "/ai-provider-profiles" && method === "GET") return route.fulfill({ json: [{ id: ids.provider, name: "Codex CLI", provider_type: "codex", default_model: "gpt-5.4", capabilities: { generation: true, research: true }, unavailability_codes: [] }] })
-    if (path === "/brand-profiles" && method === "GET") return route.fulfill({ json: [{ id: ids.brand, name: "News desk", is_default: true }] })
-    if (path === "/prompt-templates" && method === "GET") return route.fulfill({ json: [{ id: ids.canonicalTemplate, purpose_key: "canonical_story" }, { id: ids.telegramTemplate, purpose_key: "telegram_pack" }] })
-    if (path === `/prompt-templates/${ids.canonicalTemplate}/versions`) return route.fulfill({ json: [{ id: ids.canonicalPromptVersion, version: 1, checksum_sha256: "c".repeat(64), is_active: true }] })
-    if (path === `/prompt-templates/${ids.telegramTemplate}/versions`) return route.fulfill({ json: [{ id: ids.telegramPromptVersion, version: 1, checksum_sha256: "f".repeat(64), is_active: true }] })
-    if (path === `/stories/${ids.story}/content-packs` && method === "POST") { generationBody = request.postDataJSON(); return route.fulfill({ status: 202, json: { job_id: ids.packJob, status: "queued", deduplicated: false } }) }
-    if (path === `/platform-variant-revisions/${ids.revision}` && method === "GET") return route.fulfill({ json: revision() })
-    if (path === `/content-packs/${ids.contentPack}`) return route.fulfill({ json: pack() })
-    if (path === `/platform-variants/${ids.variant}/revisions`) return route.fulfill({ json: [revision()] })
-    if (path === `/platform-variant-revisions/${ids.revision}/approve` && method === "POST") { revisionApproved = true; return route.fulfill({ json: revision() }) }
-    if (path === `/telegram/drafts/${ids.revision}`) return route.fulfill({ json: { ...revision(), evidence: [{ evidence_snapshot_id: evidence.id, evidence_key: "operator-1", source_url: null, content_text: evidence.content_text, content_sha256: evidence.content_sha256 }], media: [], route_id: null, dispatch_id: null, publish_job_id: null, publish_status: null, publication: null } })
-    if (path === "/telegram/destinations") return route.fulfill({ json: [] })
-    if (path === "/automation-control") return route.fulfill({ json: { global_pause: false, dry_run: false, pause_reason: null, paused_at: null, updated_at: now } })
-    return route.fulfill({ status: 501, json: { detail: `Unhandled ${method} ${path}` } })
+    if (path === "/stories" && method === "GET") return fulfillMockJson(route, { items: [summary], next_cursor: null })
+    if (path === "/stories/manual" && method === "POST") return fulfillMockJson(route, { job_id: ids.intakeJob, status: "queued", deduplicated: false }, 202)
+    if (path === `/stories/${ids.story}` && method === "GET") return fulfillMockJson(route, summary)
+    if (path === `/stories/${ids.story}/evidence` && method === "GET") return fulfillMockJson(route, [evidence])
+    if (path === `/stories/${ids.story}/research-runs` && method === "POST") { researchStarted = true; return fulfillMockJson(route, { disposition: "enqueued", run_id: ids.researchRun, job_id: ids.researchJob, completeness: summary.completeness }, 202) }
+    if (path === `/stories/${ids.story}/research-runs` && method === "GET") return fulfillMockJson(route, { items: researchStarted ? [{ id: ids.researchRun, story_id: ids.story, requested_mode: "manual", status: "succeeded", provider: { id: ids.provider, name: "Codex CLI", provider_type: "codex" }, budget: {}, completeness: { complete: true, score: 100, reasons: [] }, sources: [], result_revision_id: ids.storyRevision }] : [] })
+    if (path === "/ai-provider-profiles" && method === "GET") return fulfillMockJson(route, [{ id: ids.provider, name: "Codex CLI", provider_type: "codex", default_model: "gpt-5.4", capabilities: { generation: true, research: true }, unavailability_codes: [] }])
+    if (path === "/brand-profiles" && method === "GET") return fulfillMockJson(route, [{ id: ids.brand, name: "News desk", is_default: true }])
+    if (path === "/prompt-templates" && method === "GET") return fulfillMockJson(route, [{ id: ids.canonicalTemplate, purpose_key: "canonical_story" }, { id: ids.telegramTemplate, purpose_key: "telegram_pack" }])
+    if (path === `/prompt-templates/${ids.canonicalTemplate}/versions`) return fulfillMockJson(route, [{ id: ids.canonicalPromptVersion, version: 1, checksum_sha256: "c".repeat(64), is_active: true }])
+    if (path === `/prompt-templates/${ids.telegramTemplate}/versions`) return fulfillMockJson(route, [{ id: ids.telegramPromptVersion, version: 1, checksum_sha256: "f".repeat(64), is_active: true }])
+    if (path === `/stories/${ids.story}/content-packs` && method === "POST") { generationBody = request.postDataJSON(); return fulfillMockJson(route, { job_id: ids.packJob, status: "queued", deduplicated: false }, 202) }
+    if (path === `/platform-variant-revisions/${ids.revision}` && method === "GET") return fulfillMockJson(route, revision())
+    if (path === `/content-packs/${ids.contentPack}`) return fulfillMockJson(route, pack())
+    if (path === `/platform-variants/${ids.variant}/revisions`) return fulfillMockJson(route, [revision()])
+    if (path === `/platform-variant-revisions/${ids.revision}/approve` && method === "POST") { revisionApproved = true; return fulfillMockJson(route, revision()) }
+    if (path === `/telegram/drafts/${ids.revision}`) return fulfillMockJson(route, { ...revision(), evidence: [{ evidence_snapshot_id: evidence.id, evidence_key: "operator-1", source_url: null, content_text: evidence.content_text, content_sha256: evidence.content_sha256 }], media: [], route_id: null, dispatch_id: null, publish_job_id: null, publish_status: null, publication: null })
+    if (path === "/telegram/destinations") return fulfillMockJson(route, [])
+    if (path === "/automation-control") return fulfillMockJson(route, { global_pause: false, dry_run: false, pause_reason: null, paused_at: null, updated_at: now })
+    return fulfillMockJson(route, { detail: `Unhandled ${method} ${path}` }, 501)
   })
 
   await page.goto("/inbox")

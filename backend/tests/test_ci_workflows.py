@@ -7,6 +7,8 @@ import yaml
 ROOT = Path(__file__).resolve().parents[2]
 CI_PATH = ROOT / ".github/workflows/ci.yml"
 NIGHTLY_PATH = ROOT / ".github/workflows/nightly.yml"
+PERSIAN_EVALUATION_PATH = ROOT / ".github/workflows/persian-generation-evaluation.yml"
+TELEGRAM_STAGING_PATH = ROOT / ".github/workflows/live-telegram-staging.yml"
 BLOCKING_JOBS = {
     "backend-static",
     "backend-unit",
@@ -71,6 +73,8 @@ def test_ci_uses_frozen_installs_test_database_guard_and_retained_artifacts() ->
     assert "scripts/export_openapi.py" in text
     assert "npm run api:generate" in text
     assert "git diff --exit-code -- contracts/openapi.json frontend/lib/api/generated.ts" in text
+    assert "importlib.util.find_spec('pytest') is None" in text
+    assert "accessSync('/app/server.js')" in text
     assert (ROOT / "frontend/next-env.d.ts").read_text(encoding="utf-8").splitlines()[2] == (
         'import "./.next/types/routes.d.ts";'
     )
@@ -92,3 +96,22 @@ def test_nightly_has_real_stack_restart_restore_and_large_list_drills() -> None:
     assert "playwright install --with-deps chromium" in text
     assert "story-inbox-performance.spec.ts" in text
     assert "retention-days: 30" in text
+
+
+def test_protected_external_workflows_keep_provider_keys_out_of_job_environment() -> None:
+    persian = _workflow(PERSIAN_EVALUATION_PATH)
+    telegram = _workflow(TELEGRAM_STAGING_PATH)
+    persian_job = persian["jobs"]["qualify"]
+    telegram_job = telegram["jobs"]["qualify"]
+
+    assert "OPENROUTER_EDITOR_KEY" not in persian_job["env"]
+    assert "STAGING_TOKEN" not in telegram_job["env"]
+    assert "REPORT_SIGNING_KEY" not in telegram_job["env"]
+    for path, secret_filename in (
+        (PERSIAN_EVALUATION_PATH, "OPENROUTER_EDITOR_KEY"),
+        (TELEGRAM_STAGING_PATH, "TELEGRAM_STAGING_TOKEN"),
+    ):
+        text = path.read_text(encoding="utf-8")
+        assert 'install -m 600 /dev/null "$' in text
+        assert secret_filename in text
+        assert "if: always()" in text

@@ -101,6 +101,9 @@ Failed/limited commands were not counted as passes:
 - [x] Frozen installs and 30-day sanitized artifact retention are encoded.
 - [x] PR CI receives no live provider or Telegram credential.
 - [x] Scheduled/manual real-stack, restart, restore-contract, and inbox-budget drills exist.
+- [x] Production image jobs inspect runtime contents after build: the backend
+  imports the application with no pytest/Ruff installation, and the frontend
+  contains the standalone server plus generated static assets.
 - [ ] A pushed test branch must prove remote execution, deliberate category failures, cold/warm cache equivalence, and median duration.
 - [ ] GitHub branch protection must require `Release gate`, an approval, current branch, and resolved conversations.
 

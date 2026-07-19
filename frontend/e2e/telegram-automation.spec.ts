@@ -1,5 +1,7 @@
 import { expect, test, type Page, type Route } from "@playwright/test"
 
+import { fulfillMockJson } from "./support/mock-backend"
+
 const ids = {
   template: "11111111-1111-4111-8111-111111111111",
   prompt1: "22222222-2222-4222-8222-222222222222",
@@ -388,7 +390,7 @@ async function expectNoHorizontalOverflow(page: Page) {
 }
 
 async function json(route: Route, body: unknown, status = 200) {
-  await route.fulfill({ status, contentType: "application/json", body: JSON.stringify(body) })
+  await fulfillMockJson(route, body, status)
 }
 
 function automationControl(state: BackendState) {

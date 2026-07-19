@@ -23,6 +23,9 @@ disabled until the workflow artifacts pass the runbook.
 - The workflow mounts a dedicated `TELEGRAM_STAGING_TOKEN` and report-signing
   key as mode-0600 files. Neither is accepted as an input or artifact; a final
   count-only scan fails if either value appears in the report.
+- Credential expressions are scoped only to the preparation step, unset before
+  the harness runs, and removed by an `always()` cleanup step; they are not
+  inherited through job-wide environment state.
 - The harness requires `NEWSCRAFT_LIVE_TELEGRAM_STAGING=authorized`, two distinct
   observers, a written authorization ticket, a current migration head, and no
   fresh publishing-worker heartbeat. This prevents a background worker racing
@@ -44,6 +47,9 @@ disabled until the workflow artifacts pass the runbook.
 - The separate verify scenario never sends. It requires two-observer
   confirmation of exactly one remote marker and exact positive unique remote
   IDs, then matches them to one confirmed local publication/hash.
+- Verification also requires the observed ID sequence to equal the durable
+  publication IDs and validates the expected public-channel permalink. Private
+  numeric channel IDs correctly require no derived permalink.
 - Signed reports retain authorization/observation references, safe chat
   identity, operation hashes/status, remote IDs, local publication/permalink,
   scenario outcome, canonical report SHA-256, and HMAC-SHA256 signature.
@@ -74,6 +80,10 @@ pytest integration/test_publish_crash_recovery.py: 7 skipped in 0.03s because
        no explicitly configured `*_test` PostgreSQL database was present
 workflow YAML parse: passed
 ```
+
+The completion audit's cross-phase backend policy suite passed **164 tests in
+2.53 seconds**, including mismatched remote/local IDs, duplicate or non-positive
+IDs, permalink identity, and workflow secret-scope policy.
 
 The PostgreSQL crash-recovery suite, container restart matrix, real channel
 success, media variants, scheduled send, manual remote verification, and live

@@ -44,7 +44,7 @@ def _state(*, ambiguous=False, publication=True):
         "publication_id": str(uuid4()) if publication else None,
         "publication_payload_hash": "a" * 64 if publication else None,
         "publication_remote_message_ids": [501] if publication else [],
-        "publication_permalink": "https://t.me/c/123/501" if publication else None,
+        "publication_permalink": None,
         "reconciliation_status": "confirmed" if publication else None,
         "receipts": [
             {
@@ -135,6 +135,22 @@ async def test_success_sends_once_and_replay_does_not_send_again(monkeypatch):
     assert "staging-token-canary" not in str(report)
 
 
+async def test_success_rejects_remote_ids_that_do_not_match_the_publication(monkeypatch):
+    args = _args("success")
+    mismatched = _state()
+    mismatched["publication_remote_message_ids"] = [999]
+    _patch_boundaries(monkeypatch, mismatched)
+
+    async def publish_once(job_id, *, client, resolver, fault_injector=None):
+        if client.send_count == 0:
+            return await client.execute(SimpleNamespace(), "staging-token-canary")
+        return {"idempotent": True}
+
+    monkeypatch.setattr(telegram_staging, "_publish_once", publish_once)
+    with pytest.raises(telegram_staging.StagingQualificationError, match="exact local publication"):
+        await telegram_staging._run(args)
+
+
 async def test_ambiguity_stops_after_send_and_replay_requires_reconciliation(monkeypatch):
     args = _args("ambiguity")
     _patch_boundaries(monkeypatch, _state(ambiguous=True, publication=False))
@@ -172,3 +188,47 @@ async def test_dry_run_calls_no_remote_send_and_creates_no_publication(monkeypat
 
     assert report["remote_send_count"] == 0
     assert report["publish"]["publication_id"] is None
+
+
+async def test_verify_rejects_a_public_channel_permalink_mismatch(monkeypatch):
+    args = _args("verify")
+    args.expected_target_ref = "@newscraft_stage"
+    destination = SimpleNamespace(
+        id=uuid4(),
+        target_ref="@newscraft_stage",
+        secret_ref="TELEGRAM_STAGING_TOKEN",
+    )
+    publication = SimpleNamespace(
+        payload_hash=args.content_hash,
+        reconciliation_status="confirmed",
+        remote_message_ids=[501],
+        permalink="https://t.me/newscraft_stage/999",
+        publish_job_id=uuid4(),
+    )
+
+    async def preflight(_args):
+        return destination, SimpleNamespace(), SimpleNamespace()
+
+    class Session:
+        async def scalar(self, statement):
+            return publication
+
+    class SessionContext:
+        async def __aenter__(self):
+            return Session()
+
+        async def __aexit__(self, *args):
+            return False
+
+    monkeypatch.setattr(telegram_staging, "_load_preflight", preflight)
+    monkeypatch.setattr(telegram_staging, "async_session", lambda: SessionContext())
+    monkeypatch.setattr(telegram_staging, "build_outbound_http_client", lambda **kwargs: _Http())
+    monkeypatch.setattr(telegram_staging, "TelegramBotClient", lambda http: _Telegram())
+    monkeypatch.setattr(
+        telegram_staging,
+        "FileSecretResolver",
+        lambda root: SimpleNamespace(resolve=lambda reference: "staging-token-canary"),
+    )
+
+    with pytest.raises(telegram_staging.StagingQualificationError, match="manual observation"):
+        await telegram_staging._verify(args)

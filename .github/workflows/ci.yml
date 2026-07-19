@@ -320,6 +320,12 @@ jobs:
           mkdir -p reports
           docker build --pull -t newscraft-ci-backend:${{ github.sha }} backend
           docker build --pull -t newscraft-ci-frontend:${{ github.sha }} frontend
+      - name: Smoke production-only runtime contents
+        run: |
+          docker run --rm newscraft-ci-backend:${{ github.sha }} python -c \
+            "import importlib.util; import app.main; assert importlib.util.find_spec('pytest') is None; assert importlib.util.find_spec('ruff') is None"
+          docker run --rm --entrypoint node newscraft-ci-frontend:${{ github.sha }} -e \
+            "require('node:fs').accessSync('/app/server.js'); require('node:fs').accessSync('/app/.next/static')"
       - name: Backend CycloneDX SBOM
         uses: anchore/sbom-action@v0
         with:

@@ -1,5 +1,7 @@
 import { expect, test, type Page, type Route } from "@playwright/test"
 
+import { fulfillMockJson } from "./support/mock-backend"
+
 type Platform = "telegram" | "instagram" | "x" | "blog"
 
 const ids = {
@@ -293,7 +295,7 @@ async function expectNoHorizontalOverflow(page: Page) {
 }
 
 async function json(route: Route, body: unknown, status = 200) {
-  await route.fulfill({ status, contentType: "application/json", body: JSON.stringify(body) })
+  await fulfillMockJson(route, body, status)
 }
 
 function contentPack() {

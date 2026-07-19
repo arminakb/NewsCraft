@@ -3,6 +3,7 @@ from uuid import uuid4
 
 import pytest
 
+from app.validation import persian_generation
 from app.validation.persian_generation import (
     EvaluationDataError,
     build_execution_plan,
@@ -62,9 +63,7 @@ def _passing_run_and_reviews():
                             "encoding_ok": True,
                             "title_acceptable": True,
                             "promotional": story["promotional"],
-                            "claim_labels": [
-                                {"claim_id": "claim-1", "support": "supported", "citation_valid": True}
-                            ],
+                            "claim_labels": [{"claim_id": "claim-1", "support": "supported", "citation_valid": True}],
                         }
                     )
     packs = [
@@ -100,12 +99,13 @@ def _passing_run_and_reviews():
         "variants": variants,
         "provider_calls": calls,
     }
+    run["run_sha256"] = persian_generation._sha256(run)
     return run, {"schema_version": "persian-generation-reviews-v1", "reviews": reviews}
 
 
 def test_quality_scorer_enforces_all_thresholds_and_signs_immutable_inputs():
     run, reviews = _passing_run_and_reviews()
-    report = score_evaluation(run, reviews, signing_key=b"test-signing-key")
+    report = score_evaluation(run, reviews, signing_key=b"test-signing-key" * 2)
 
     assert report["passed"] is True
     assert all(report["criteria"].values())
@@ -119,4 +119,16 @@ def test_quality_scorer_rejects_missing_second_blinded_review():
     reviews["reviews"].pop()
 
     with pytest.raises(EvaluationDataError, match="exactly two"):
-        score_evaluation(run, reviews, signing_key=b"test-signing-key")
+        score_evaluation(run, reviews, signing_key=b"test-signing-key" * 2)
+
+
+def test_quality_scorer_rejects_tampered_run_and_short_signing_key():
+    run, reviews = _passing_run_and_reviews()
+    run["packs"][0]["cost_usd"] = 1.99
+
+    with pytest.raises(EvaluationDataError, match="run_sha256"):
+        score_evaluation(run, reviews, signing_key=b"x" * 32)
+
+    run, reviews = _passing_run_and_reviews()
+    with pytest.raises(EvaluationDataError, match="at least 32 bytes"):
+        score_evaluation(run, reviews, signing_key=b"too-short")

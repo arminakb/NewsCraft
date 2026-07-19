@@ -2170,6 +2170,11 @@ export interface components {
             /** Media Asset Ids */
             media_asset_ids: string[];
         };
+        /** ErrorDetailOut */
+        ErrorDetailOut: {
+            /** Detail */
+            detail: string;
+        };
         /** ExpiredExportArtifact */
         ExpiredExportArtifact: {
             /**
@@ -5744,6 +5749,15 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ManualPublicationPlanOut"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorDetailOut"];
                 };
             };
             /** @description Validation Error */
