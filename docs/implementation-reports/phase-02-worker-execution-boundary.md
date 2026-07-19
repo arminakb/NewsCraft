@@ -4,11 +4,11 @@ Date: 2026-07-17
 
 Baseline revision: `7826ebaf04565b0401baacac8f5234ed88764029`
 
-Final classification: **IMPLEMENTATION COMPLETE — DEPLOYED VERIFICATION BLOCKED BY PHASE 1**.
+Final classification: **COMPLETE**.
 
 The previously missing literal process-crash obligation is now verified for all 16 registered job types. The tests use spawned worker processes and `os._exit(86)`, then recover expired leases from PostgreSQL and assert duplicate prevention. Handler-specific hard-death coverage also exercises every non-transactional production mechanism: provider calls, Telegram route media storage, export manifests, retention filesystem deletion, and Telegram dispatch/receipt/publication.
 
-The ten complete deployed smoke runs remain **NOT VERIFIED (0/10)** exactly as required. They are blocked during configuration by the existing, out-of-scope Phase 1 `AutomationRoute.updated_at` response-serialization defect. Consequently, this report does not claim deployed Phase 2 verification or overall multi-phase completion.
+The deferred deployed gate is now verified. On source revision `5ad72dc49bdb9189a7629bcf6b68a181d5c1ec15`, ten counted full smoke executions (five fresh-database and five repeated-database) passed all 13 stages with zero worker or scheduler exit/restart, zero post-handler ORM-expiry failure, zero runner-exception job, zero expired-lease recovery, and zero duplicate job, revision, generation, export, or Telegram operation. No production code was changed during final verification.
 
 ## Planning-source caveat
 
@@ -562,6 +562,20 @@ app/api/telegram_automations.py:312
 
 During the aborted run, `telegram.route.initialize` completed successfully through the new worker boundary. `api`, both workers, scheduler, frontend, and PostgreSQL all remained healthy/running; no worker exited. This was not a complete smoke run and does not count toward the required ten. The isolated project and disposable volumes were removed afterward. The default legacy data volume was retained.
 
+### Final deployed verification gate
+
+The blocked gate was completed on 2026-07-17 after the independent Phase 1, Phase 5, and Phase 9 fixes were present. Five isolated cohorts each ran once on newly created volumes and once more against the retained database. All ten counted executions passed all 13 stages, cleanup, and a 15-assertion post-run audit. Phase 2-specific evidence was:
+
+- source/generation worker, publishing worker, and scheduler remained running and healthy with restart count zero after every run;
+- `workflow_events` contained zero `job.lease_expired` event and `workflow_jobs` contained zero `unhandled_exception` or `worker_lease_expired` error;
+- no queued or running job remained after each audit;
+- each content pack had exactly four platform variants and five distinct revisions, with no duplicate revision number or content hash;
+- generation input hashes, attempt numbers, workflow idempotency keys, exports, and Telegram dispatch/operation cardinalities contained no duplicate;
+- bounded logs contained zero `MissingGreenlet`, traceback, runner-exception code, Uvicorn formatter error, route-mutation 500, or secret-reference canary;
+- all isolated containers, networks, and volumes were removed after the gate.
+
+Exact commands, revision/environment/image metadata, all ten smoke artifacts, all ten machine-audit sidecars, non-counting attempt classifications, and cleanup evidence are recorded in `docs/implementation-reports/phase-01-02-final-deployed-verification.md`. The aggregate machine-readable result is `/tmp/newscraft-phase01-02-final-gate/final-verification.json`.
+
 ## Test result summary
 
 | Gate | Result |
@@ -575,7 +589,7 @@ During the aborted run, `telegram.route.initialize` completed successfully throu
 | Complete PostgreSQL suite (pre-continuation gate) | PASS — 106 tests |
 | Full backend final tree | PASS — 1,649 tests across the documented split |
 | Ruff lint and selected-file format check | PASS |
-| Ten complete deployed smoke runs | **NOT VERIFIED — 0/10 complete; blocked by Phase 1** |
+| Ten complete deployed smoke runs | **PASS — 10/10 complete; 5 fresh and 5 repeated; 130/130 stages and 150/150 audit assertions** |
 
 Skipped tests were pre-existing environment/optional-path skips and were not counted as passes. The one warning is a pre-existing `StarletteDeprecationWarning` concerning `httpx`/`TestClient`.
 
@@ -585,7 +599,7 @@ Skipped tests were pre-existing environment/optional-path skips and were not cou
 - [x] **PASS** — Handler commit, rollback, `expire_all()`, and return end in the correct terminal workflow state without post-handler ORM reads. Verified in unit and real PostgreSQL tests.
 - [x] **PASS** — A stale lease owner cannot finish, fail, checkpoint, or otherwise terminalize a second worker's live claim. Verified with controlled-clock PostgreSQL re-claim tests.
 - [x] **PASS** — Every side-effecting registered job type has an automated literal process-crash/retry duplicate-prevention assertion. A runtime inventory test proves the matrix contains exactly the 16 default registry keys. Every key is killed with `os._exit(86)` before handler work, after committed handler work, and after terminal commit; each expired lease is recovered and leaves exactly one durable effect. Actual production handlers/storage are additionally hard-killed at every non-transactional provider, media, export, retention, and Telegram send/receipt boundary.
-- [ ] **NOT VERIFIED** — Ten full acceptance runs have zero worker exits and zero lease recovery caused by a runner exception. Zero full runs completed because the first isolated run stopped at the out-of-scope Phase 1 `AutomationRoute.updated_at` `MissingGreenlet` response defect.
+- [x] **PASS** — Ten full acceptance runs had zero worker/scheduler exit or restart, zero post-handler ORM-expiry failure, zero runner-exception job, and zero expired-lease recovery.
 
 ## Definition of Done checklist
 
@@ -594,7 +608,7 @@ Skipped tests were pre-existing environment/optional-path skips and were not cou
 - [x] **PASS** — Lease-owner fencing covers finish and fail; checkpoint fencing was added as well.
 - [x] **PASS** — Crash/retry tests cover every external or material side-effect mechanism with literal interpreter termination and cover every exact registered job type at the worker boundary. Ordinary Python exceptions are supplemental only and were not counted as this evidence.
 - [x] **PASS** — Full backend gate passes.
-- [ ] **NOT VERIFIED** — Repeated deployed smoke gate passes with no worker exit; blocked before a full run by Phase 1.
+- [x] **PASS** — Repeated deployed smoke gate passes with no worker exit, lease recovery, runner exception, or duplicate material/external operation.
 
 ## Rollback plan
 
@@ -612,13 +626,12 @@ An emergency snapshot-only runner patch is not equivalent to this boundary and m
 ## Remaining risks and unverified items
 
 - `plan.md` is absent, so the detailed Phase 2 source of truth could not be read at the requested path.
-- The ten-run deployed gate is blocked by Phase 1 and therefore unverified.
 - No live OpenRouter, Codex, Telegram MTProto, or Telegram publishing credential was used. Tests were deterministic and credential-free; real external-provider behavior remains outside this session's verification.
 - Generation/research provider invocations are necessarily at-least-once when a process dies after the provider returns but before its output is durable. The tests prove one durable run artifact/revision, not one billable upstream invocation. Provider-level exactly-once behavior would require an upstream idempotency contract.
 - Telegram sends without a durable receipt are fundamentally ambiguous. The verified safety policy prevents an automatic resend and transitions to operator reconciliation; it does not claim unknowable exactly-once remote delivery.
 - A process can leave an ephemeral Telegram download staging directory behind. The durable media store is checksum-addressed and was hard-death tested for one stored object, but periodic staging cleanup remains an operational hygiene concern rather than a duplicate-publication risk.
 - The default local PostgreSQL volume contains an unavailable historical Alembic revision. It was preserved; acceptance used and then removed an isolated fresh volume.
-- The pre-existing Uvicorn access-logging formatting error also appeared in acceptance logs. It belongs to Phase 5 and was not changed.
+- The final deployed verification used the independently completed Phase 5 formatter and observed zero access-logging formatting error.
 
 ## Changes outside Phase 2
 
@@ -628,10 +641,10 @@ Pre-existing untracked files (`TASK.md`, `solutions.md`, `docs/production-readin
 
 ## Is Phase 2 genuinely complete?
 
-**Yes, with the required qualification:** **IMPLEMENTATION COMPLETE — DEPLOYED VERIFICATION BLOCKED BY PHASE 1**.
+**Yes:** **COMPLETE**.
 
-All Phase 2 implementation requirements and every criterion verifiable in the current environment are complete, including the previously missing literal per-job-type process-crash coverage. The phase is not represented as deployed-verified because the ten smoke runs remain `NOT VERIFIED` behind the Phase 1 serialization defect.
+All Phase 2 implementation requirements and applicable acceptance criteria are complete, including literal per-job-type process-crash coverage and the final ten-run deployed gate.
 
-## Recommended next phase
+## Final phase determination
 
-**Phase 1 — ORM response materialization**, because its `AutomationRoute.updated_at` `MissingGreenlet` prevents the required full deployed smoke from reaching Phase 2 worker flows. After Phase 1 is completed independently, rerun ten fresh-volume credential-free acceptance cycles and update only the deployed-verification portion of this report. Do not begin Phase 3 restart-policy work until that smoke gate passes.
+Phase 2 is **COMPLETE**. The final verification did not start or implement Phase 3, Phase 4, Phase 6, or any other phase.

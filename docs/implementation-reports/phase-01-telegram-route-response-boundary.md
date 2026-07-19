@@ -6,7 +6,7 @@ Baseline source revision: `7826ebaf04565b0401baacac8f5234ed88764029`
 
 ## Status
 
-The Phase 1 production fix and all code-level acceptance coverage are complete. One fresh deployed acceptance run passed all 13 smoke stages. The required ten-run deployed repetition gate remains **NOT VERIFIED** because the second fresh run reached and passed every Phase 1 route operation, then failed at the final Diagnostics invariant due the separately planned Phase 9 `generated_at`/heartbeat race. No Phase 9 or Phase 5 production code was changed in this phase.
+**COMPLETE.** The Phase 1 production fix, code-level acceptance coverage, and final deployed repetition gate all pass. On source revision `5ad72dc49bdb9189a7629bcf6b68a181d5c1ec15`, ten counted full smoke executions (five fresh-database and five repeated-database) passed all 13 stages with zero Telegram route mutation HTTP 500, zero `AutomationRoute.updated_at`/`MissingGreenlet` failure, and zero duplicate job, revision, export, generation, or Telegram operation. The earlier Phase 9 Diagnostics race and Phase 5 formatter defect were fixed in their own completed phases; no production code was changed during this final verification.
 
 ## Sequence and scope
 
@@ -149,6 +149,19 @@ component_observation_from_future
 
 The endpoint captures `generated_at` before querying component heartbeats; a heartbeat can commit between those operations and therefore be newer than the snapshot. This belongs to Phase 9. The same run also reproduced the known Phase 5 Uvicorn access-formatter exception, without changing the HTTP response. Both are out of scope here. The isolated stack and volumes were removed after the run.
 
+### Final deployed verification gate
+
+The deferred final gate was completed on 2026-07-17. Five isolated cohorts each ran once on newly created volumes and once more against the retained database. All ten counted executions passed all 13 stages, cleanup, and a 15-assertion post-run audit. Phase 1-specific deployed evidence was:
+
+- every create, activate, bounded-backfill validation, dry-run replay, pause, and resume response remained successful and timestamped;
+- bounded logs contained zero route-mutation HTTP 500, `MissingGreenlet`, traceback, formatter failure, or secret-reference canary;
+- every route row had a materialized `updated_at`;
+- every repeated operation retained its idempotency/duplicate-prevention cardinality;
+- all containers remained running and healthy with restart count zero;
+- all isolated deployment resources were removed afterward.
+
+Exact commands, environment/image metadata, all ten smoke paths, all ten machine-audit paths, non-counting attempt classifications, and cleanup evidence are recorded in `docs/implementation-reports/phase-01-02-final-deployed-verification.md`. The aggregate machine-readable result is `/tmp/newscraft-phase01-02-final-gate/final-verification.json`.
+
 ## Acceptance matrix
 
 | Criterion | Result |
@@ -161,7 +174,7 @@ The endpoint captures `generated_at` before querying component heartbeats; a hea
 | Concurrent activation returns one consistent route/job pair | PASS |
 | Public response schema and secret boundary are unchanged | PASS |
 | Three same-database deployed route-mutation reruns | PASS |
-| Ten complete fresh-volume deployed smoke runs | **NOT VERIFIED — 1/10 complete; blocked by Phase 9 diagnostics race** |
+| User-specified final gate: ten complete deployed executions including fresh and repeated databases | **PASS — 10/10 complete; 5 fresh and 5 repeated; 130/130 stages** |
 
 ## Definition of done
 
@@ -169,12 +182,12 @@ The endpoint captures `generated_at` before querying component heartbeats; a hea
 - [x] No response path touches a route/job ORM instance after commit.
 - [x] PostgreSQL/ASGI tests cover success, commit failure, retry, and concurrency.
 - [x] API schema and secret boundary are unchanged.
-- [ ] Ten complete fresh-volume smoke runs pass; one completed, and the next was blocked only at the out-of-scope Phase 9 Diagnostics invariant after all Phase 1 behavior passed.
+- [x] Ten complete deployed smoke runs pass, including clean/fresh and retained same-database executions, with zero route 500 or post-commit ORM response failure.
 
 ## Rollback
 
 No migration is involved. Revert the endpoint materializer/refactor and its focused tests together. Do not partially revert by returning live ORM rows from any one mutation.
 
-## Recommended next action
+## Final phase determination
 
-Fix the Phase 9 Diagnostics snapshot race as its own phase, then rerun the remaining fresh-volume acceptance cycles. The Phase 5 structured access-log fix should remain separate. Do not enable Phase 3 production restart supervision until the repeated deployed gate can complete without these later-phase blockers.
+Phase 1 is **COMPLETE**. The final verification did not start or implement Phase 3, Phase 4, Phase 6, or any other phase.

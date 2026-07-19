@@ -177,12 +177,14 @@ curl -X POST http://localhost:8000/sources/seed
 Export a date-range daily news bundle for the writing agent:
 
 ```bash
-docker compose run --rm api python -m app.daily_bundle \
+docker compose run --rm \
+  --volume "$PWD/today-news:/output/today-news" \
+  worker-source-generation python -m app.daily_bundle \
   --start 2026-07-05 \
   --end 2026-07-06 \
   --topic "AI" \
   --topic "economy" \
-  --output /workspace/today-news/2026-07-05 \
+  --output /output/today-news/2026-07-05 \
   --download-media
 ```
 

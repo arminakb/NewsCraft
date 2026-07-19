@@ -220,7 +220,7 @@ async def probe_storage_directory(
     try:
         async with asyncio.timeout(timeout_seconds):
             available = await asyncio.to_thread(inspect)
-    except (OSError, TimeoutError):
+    except OSError, TimeoutError:
         available = False
     latency_ms = max(0, int((time.monotonic() - started) * 1_000))
     if available:
@@ -295,7 +295,7 @@ class ReadinessService:
                 observed_at = await database_time(self.session)
                 if required_capabilities:
                     heartbeats = await RuntimeHeartbeatService(self.session).list_recent(limit=10_000)
-        except (Exception, TimeoutError):  # noqa: BLE001 - readiness returns a safe constant code
+        except Exception, TimeoutError:  # noqa: BLE001 - readiness returns a safe constant code
             latency_ms = max(0, int((time.monotonic() - started) * 1_000))
             checks["database"] = DependencyHealth(
                 state=HealthState.UNAVAILABLE,
@@ -337,9 +337,7 @@ class ReadinessService:
             observed_at=observed_at,
             latency_ms=latency_ms,
             message=(
-                "Database schema is current"
-                if schema_revision == SCHEMA_HEAD
-                else "Database schema is not current"
+                "Database schema is current" if schema_revision == SCHEMA_HEAD else "Database schema is not current"
             ),
             runbook_url=f"{RUNBOOK_ROOT}#schema-mismatch",
         )
@@ -411,7 +409,7 @@ class OperationalHealthService:
                 recovery_rows = await self._recovery_rows(query_time)
                 database_observed_at = await database_time(self.session)
                 database_latency_ms = max(0, int((time.monotonic() - started) * 1_000))
-        except (Exception, TimeoutError):  # noqa: BLE001 - operational output is fail-closed and sanitized
+        except Exception, TimeoutError:  # noqa: BLE001 - operational output is fail-closed and sanitized
             dependencies["database"] = DependencyHealth(
                 state=HealthState.UNAVAILABLE,
                 code="database_unavailable",
@@ -456,9 +454,7 @@ class OperationalHealthService:
             observed_at=database_observed_at,
             latency_ms=database_latency_ms,
             message=(
-                "Database schema is current"
-                if schema_revision == SCHEMA_HEAD
-                else "Database schema is not current"
+                "Database schema is current" if schema_revision == SCHEMA_HEAD else "Database schema is not current"
             ),
             runbook_url=f"{RUNBOOK_ROOT}#schema-mismatch",
         )
@@ -537,9 +533,7 @@ class OperationalHealthService:
                 func.count().filter(WorkflowJob.status == JobStatus.NEEDS_REVIEW).label("needs_review_count"),
             )
             .where(
-                WorkflowJob.status.in_(
-                    (JobStatus.QUEUED, JobStatus.RUNNING, JobStatus.FAILED, JobStatus.NEEDS_REVIEW)
-                )
+                WorkflowJob.status.in_((JobStatus.QUEUED, JobStatus.RUNNING, JobStatus.FAILED, JobStatus.NEEDS_REVIEW))
             )
             .group_by(WorkflowJob.job_type)
             .order_by(WorkflowJob.job_type)
@@ -596,9 +590,7 @@ def build_component_health(
         database_time_value or reference_time,
         field="database reference time",
     )
-    expected = {
-        value.strip() for value in (expected_component_ids or "").split(",") if value.strip()
-    }
+    expected = {value.strip() for value in (expected_component_ids or "").split(",") if value.strip()}
     latest: dict[str, object] = {}
     for heartbeat in sorted(
         heartbeats,
@@ -663,9 +655,7 @@ def build_component_health(
             max(0.0, (reference_time - last_success_at).total_seconds()) if last_success_at is not None else None
         )
         active_age = (
-            max(0.0, (reference_time - active_started_at).total_seconds())
-            if active_started_at is not None
-            else None
+            max(0.0, (reference_time - active_started_at).total_seconds()) if active_started_at is not None else None
         )
 
         if observed_at > database_reference + timedelta(seconds=1):
@@ -686,11 +676,7 @@ def build_component_health(
                 state = HealthState.UNAVAILABLE
                 code = "heartbeat_unavailable"
                 message = "Heartbeat is older than the unavailable threshold"
-            if (
-                state == HealthState.HEALTHY
-                and active_age is not None
-                and active_age > config.job_stuck_seconds
-            ):
+            if state == HealthState.HEALTHY and active_age is not None and active_age > config.job_stuck_seconds:
                 state = HealthState.STALE
                 code = "active_work_overdue"
                 message = "Runtime heartbeat is fresh but active work has exceeded its progress threshold"
@@ -1121,7 +1107,7 @@ def render_prometheus_metrics(snapshot: OperationalHealthSnapshot) -> str:
     """Render fixed-name, sanitized operational gauges without payload/error labels."""
     lines = [
         "# TYPE newscraft_health_state gauge",
-        f"newscraft_health_state{{state=\"{snapshot.state.value}\"}} 1",
+        f'newscraft_health_state{{state="{snapshot.state.value}"}} 1',
     ]
     for name, value in sorted(snapshot.metrics.items()):
         lines.append(f"# TYPE newscraft_{name} gauge")
@@ -1132,8 +1118,7 @@ def render_prometheus_metrics(snapshot: OperationalHealthSnapshot) -> str:
             lines.append(f"newscraft_component_heartbeat_age_seconds{{{labels}}} {component.heartbeat_age_seconds}")
         if component.last_success_age_seconds is not None:
             lines.append(
-                f"newscraft_component_last_success_age_seconds{{{labels}}} "
-                f"{component.last_success_age_seconds}"
+                f"newscraft_component_last_success_age_seconds{{{labels}}} {component.last_success_age_seconds}"
             )
         lines.append(f"newscraft_component_restarts_window{{{labels}}} {component.restart_count_window}")
     for queue in snapshot.queues:
@@ -1142,8 +1127,5 @@ def render_prometheus_metrics(snapshot: OperationalHealthSnapshot) -> str:
         lines.append(f"newscraft_queue_running_jobs{{{label}}} {queue.running_count}")
         lines.append(f"newscraft_queue_expired_leases{{{label}}} {queue.expired_lease_count}")
         if queue.oldest_due_age_seconds is not None:
-            lines.append(
-                f"newscraft_queue_oldest_due_age_seconds{{{label}}} "
-                f"{queue.oldest_due_age_seconds}"
-            )
+            lines.append(f"newscraft_queue_oldest_due_age_seconds{{{label}}} {queue.oldest_due_age_seconds}")
     return "\n".join(lines) + "\n"

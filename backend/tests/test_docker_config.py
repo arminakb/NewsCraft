@@ -384,7 +384,8 @@ def test_daily_bundle_command_is_documented_for_docker():
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
 
     assert "python -m app.daily_bundle" in readme
-    assert "/workspace/today-news" in readme
+    assert "/output/today-news" in readme
+    assert "worker-source-generation" in readme
     assert ".:/workspace" not in compose
 
 
