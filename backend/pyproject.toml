@@ -2,7 +2,7 @@
 name = "newscraft-backend"
 version = "0.1.0"
 description = "PostgreSQL-backed ingestion backend for NewsCraft"
-requires-python = ">=3.14"
+requires-python = ">=3.14,<3.15"
 dependencies = [
   "alembic>=1.16",
   "asyncpg>=0.30",
@@ -26,12 +26,22 @@ dependencies = [
   "uvicorn[standard]>=0.35",
 ]
 
-[project.optional-dependencies]
+[dependency-groups]
 dev = [
+  "mypy>=1.18,<2",
+  "packaging>=25,<27",
+  "pip-audit>=2.9,<3",
   "pytest>=8.4",
   "pytest-asyncio>=1.0",
   "ruff>=0.13",
 ]
+
+[build-system]
+requires = ["setuptools>=82"]
+build-backend = "setuptools.build_meta"
+
+[tool.uv]
+required-version = "==0.11.29"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

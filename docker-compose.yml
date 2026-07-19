@@ -1,6 +1,6 @@
 services:
   postgres:
-    image: postgres:18
+    image: postgres:18.3-bookworm@sha256:80630f83606d8db77d30b3851b16a9f78be2d0d4dda6f7b82a1fdca5ebe3acba
     restart: "no"
     environment:
       POSTGRES_USER: newscraft
@@ -21,7 +21,7 @@ services:
       retries: 20
 
   postgres-test:
-    image: postgres:18
+    image: postgres:18.3-bookworm@sha256:80630f83606d8db77d30b3851b16a9f78be2d0d4dda6f7b82a1fdca5ebe3acba
     restart: "no"
     profiles: ["test"]
     environment:

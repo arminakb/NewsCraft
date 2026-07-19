@@ -107,7 +107,12 @@ def test_local_service_ports_bind_to_loopback():
 def test_dockerfile_runs_backend_api():
     dockerfile = (ROOT / "backend/Dockerfile").read_text(encoding="utf-8")
 
-    assert "FROM python:3.14-slim" in dockerfile
+    assert "python:3.14.6-slim-bookworm@sha256:" in dockerfile
+    assert "ghcr.io/astral-sh/uv:0.11.29@sha256:" in dockerfile
+    assert "uv sync --locked --no-dev --no-editable" in dockerfile
+    assert "USER newscraft" in dockerfile
+    assert ".[dev]" not in dockerfile
+    assert "pip install" not in dockerfile
     assert "uvicorn" in dockerfile
     assert "app.main:app" in dockerfile
 
@@ -507,7 +512,7 @@ def test_postgres_18_volume_uses_supported_data_parent():
     compose = yaml.safe_load((ROOT / "docker-compose.yml").read_text(encoding="utf-8"))
     postgres = compose["services"]["postgres"]
 
-    assert postgres["image"] == "postgres:18"
+    assert postgres["image"].startswith("postgres:18.3-bookworm@sha256:")
     assert "postgres_data:/var/lib/postgresql" in postgres["volumes"]
     assert "postgres_data:/var/lib/postgresql/data" not in postgres["volumes"]
 
@@ -516,7 +521,7 @@ def test_compose_has_ephemeral_postgres_test_profile():
     compose = yaml.safe_load((ROOT / "docker-compose.yml").read_text(encoding="utf-8"))
     service = compose["services"]["postgres-test"]
 
-    assert service["image"] == "postgres:18"
+    assert service["image"].startswith("postgres:18.3-bookworm@sha256:")
     assert service["profiles"] == ["test"]
     assert service["environment"]["POSTGRES_DB"] == "newscraft_test"
     assert service["ports"] == ["127.0.0.1:55432:5432"]
