@@ -1,444 +1,319 @@
-Read `solutions.md` completely as the authoritative production-hardening plan.
-
-Implement **Phase 10 only: Frontend/Backend Contract Drift and Stale Deterministic Fixtures**.
-
-Use **GPT-5.6 Sol xhigh** for this phase.
-
-Work in a clean branch or worktree created from the committed Phase 8 revision.
-
-The following phases are already implemented and must remain intact:
-
-* Phase 1: Telegram route response boundary
-* Phase 2: Worker execution boundary
-* Phase 3: Restart supervision
-* Phase 4: Outbound proxy policy
-* Phase 5: Safe access logging
-* Phase 6: Credential topology
-* Phase 8: Dependency locking and reproducible builds
-* Phase 9: Readiness and operational health
+You are continuing the NewsCraft Production Hardening project.
 
-Do not implement Phase 7 CI, Phase 11 performance work, or any other phase.
+Use **GPT-5.5 xhigh**.
 
-## Objective
-
-Eliminate contract drift between:
+Your task is to **resume, verify, finalize, and commit Phase 8 only: Dependency Locking and Reproducible Builds**.
 
-* FastAPI/Pydantic backend schemas
-* generated or handwritten frontend TypeScript types
-* frontend API mappers
-* deterministic backend fixtures
-* Vitest mocks
-* Playwright route mocks
-* real deployed API behavior
+Do not implement Phase 10, Phase 7 CI, Phase 11, or any other phase.
 
-The backend contract must become the authoritative source of truth.
+## Existing Phase 8 work
 
-The current known symptom is that Playwright passes only 21/33 tests because deterministic browser fixtures and route mocks no longer match the actual backend contract.
+The existing Phase 8 worktree is expected at:
 
-Do not assume the audit is fully current. Inspect the current repository and reproduce the failures before changing production code.
+`/home/armin/Documents/newscraft-phase8`
 
-## Required workflow
+Expected branch:
 
-### 1. Inspect and reproduce
+`phase-08-dependency-locking`
 
-Before modifying production code:
+Phase 8 was already implemented in that worktree, but no commit was created because the previous session ended.
 
-1. Run the current:
+Known reported results:
 
-   * backend contract/schema tests
-   * frontend TypeScript typecheck
-   * full Vitest suite
-   * Playwright mocked suite
-   * available live-stack Playwright smoke tests
-2. Capture the exact failing Playwright tests and distinguish:
+* Complete `uv.lock` added.
+* Frozen backend runtime and development installs implemented.
+* Backend production packaging changed to non-editable installation.
+* Frontend `latest` declarations replaced with exact existing versions.
+* Python, uv, Node, and PostgreSQL images pinned by patch version and digest.
+* Dependency policy, risk register, locking tests, and Phase 8 report added.
+* Backend: `1,783 passed`.
+* Ruff, compilation, imports, and `pip-audit` passed.
+* Frontend clean `npm ci`, typecheck, and production build passed.
+* Two clean builds per image produced identical dependency-inventory hashes.
+* Six Compose variants rendered.
+* Both production images passed health checks.
+* Temporary Phase 8 resources were reportedly cleaned up.
 
-   * contract-shape mismatch
-   * missing endpoint mock
-   * stale enum or status value
-   * nullability mismatch
-   * date/time serialization mismatch
-   * pagination mismatch
-   * renamed field
-   * changed capability-state behavior
-   * frontend implementation bug
-   * unrelated performance timeout
-3. Inspect:
+Previously reported remaining items:
 
-   * FastAPI OpenAPI generation
-   * Pydantic response/request schemas
-   * handwritten frontend wire types
-   * frontend domain types
-   * frontend mappers
-   * test factories
-   * deterministic backend fixtures
-   * Playwright route interception
-   * MSW or other mock systems if present
-   * duplicated endpoint fixtures
-4. Produce a contract inventory containing:
+* Phase 8 changes were uncommitted.
+* Full Vitest was `369/370` because of one Story Inbox timeout assigned to Phase 11.
+* Mocked Playwright failures were caused by stale Phase 10 fixtures.
+* Two moderate PostCSS advisory paths were temporarily accepted and documented.
 
-   * endpoint
-   * request schema
-   * response schema
-   * backend source
-   * frontend consumer
-   * current mock source
-   * observed drift
-5. Reproduce at least one failure that passes TypeScript but fails at runtime because the mock contract is stale.
+Do not blindly trust this summary. Verify the repository state and evidence yourself.
 
-Do not fix failures before documenting their confirmed cause.
+## Mandatory preflight
 
-### 2. Write a concise implementation plan
+Before editing anything:
 
-Before changing production code, provide a concise plan covering:
+1. Enter the expected Phase 8 worktree.
+2. Run:
 
-* authoritative contract source
-* OpenAPI normalization
-* frontend type-generation strategy
-* generated versus handwritten type boundaries
-* frontend mapping layer
-* deterministic fixture strategy
-* Playwright mock consolidation
-* drift-detection tests
-* migration approach
-* rollback risks
+   * `pwd`
+   * `git branch --show-current`
+   * `git rev-parse HEAD`
+   * `git status --short`
+   * `git diff --stat`
+3. Confirm that the branch is `phase-08-dependency-locking`.
+4. Confirm that the dirty files correspond to Phase 8.
+5. Read:
 
-Do not begin unrelated frontend refactoring.
+   * `solutions.md`
+   * `ACTIVE_TASK.md` if present
+   * `docs/implementation-reports/phase-08-dependency-locking.md`
+   * dependency policy and risk-register documents
+6. Do not require `ACTIVE_PHASE.md`; it may not exist.
+7. If the worktree path, branch, or changes do not match the expected Phase 8 state, stop and report the exact mismatch before changing files.
 
-## Architecture requirements
+## Primary objective
 
-### A. Backend OpenAPI is authoritative
+Produce a self-contained Phase 8 commit that makes dependency installation and production builds reproducible.
 
-Use the backend-generated OpenAPI schema as the canonical wire-contract source.
+The resulting commit must not depend on files outside the Phase 8 worktree or on unstaged local modifications.
 
-Requirements:
+## Phase 8 scope
 
-* generation must be deterministic,
-* operation IDs must be stable,
-* schema ordering must be stable where possible,
-* environment-specific values must not enter the artifact,
-* credential values and secret references must never appear,
-* generated schema must represent the actual deployed FastAPI routes,
-* schema generation must not require live external credentials,
-* generation must work from a clean checkout.
+Phase 8 includes only:
 
-If the current OpenAPI contains unstable or duplicate operation IDs, fix only the necessary API metadata.
+* backend dependency intent and locking
+* frontend dependency declaration normalization
+* frontend lockfile consistency
+* runtime versus development dependency separation
+* non-editable backend production installation
+* frozen Docker dependency installation
+* reviewed base-image version and digest pins
+* dependency inventory and reproducibility checks
+* dependency-update policy
+* vulnerability-risk register
+* Phase 8 tests and documentation
+* `docs/implementation-reports/phase-08-dependency-locking.md`
 
-Do not redesign unrelated endpoints.
+Do not fix:
 
-### B. Commit a canonical OpenAPI artifact
+* stale Playwright fixtures
+* frontend/backend contract drift
+* Story Inbox performance
+* CI workflows
+* unrelated formatting backlog
+* unrelated application behavior
 
-Generate and commit a canonical repository artifact, for example:
+## Verification of implementation
 
-`api/openapi.json`
+Inspect and verify that the current changes satisfy the following.
 
-or another clearly justified location.
+### Backend locking
 
-The artifact must:
+* `pyproject.toml` is the human-edited dependency-intent source.
+* One complete committed lock artifact exists, preferably `uv.lock`.
+* Runtime and development/test dependency groups are explicit.
+* Frozen runtime installation succeeds.
+* Frozen development installation succeeds.
+* Production installation is non-editable.
+* Production installation excludes test and lint tools.
+* Required runtime imports work from the production environment.
+* The supported Python and uv versions are explicit.
 
-* be generated through a documented command,
-* use deterministic formatting,
-* contain no local absolute paths,
-* contain no timestamps unless intentionally normalized,
-* contain no secret values,
-* be reproducible from the same source revision.
+### Frontend locking
 
-Running the generation command twice must produce no diff.
+* No direct dependency uses:
 
-### C. Generate frontend wire types
+  * `latest`
+  * `*`
+  * an unjustifiably broad unstable range
+* Exact versions correspond to the tested lockfile unless a documented change was required.
+* `npm ci` succeeds from a clean checkout.
+* `npm ci` does not modify `package-lock.json`.
+* Runtime and development dependencies are correctly classified.
+* Node and npm version policy is explicit.
 
-Generate frontend wire types from the canonical OpenAPI artifact using one reviewed generator compatible with the locked Phase 8 toolchain.
+### Docker and Compose
 
-Requirements:
+* Backend Docker builds use frozen locked installation.
+* Backend production image does not install development dependencies.
+* Frontend Docker builds use `npm ci`.
+* Lock and intent files are copied before source where appropriate for cache correctness.
+* Builds fail when intent and lock disagree.
+* Python, Node, PostgreSQL, and relevant helper images use reviewed version pins and digests.
+* Base, production, development, test, acceptance, and proxy Compose variants render successfully.
 
-* generated files must be clearly marked,
-* generated files must not be manually edited,
-* the generator command and exact version must be documented,
-* generated output must be deterministic,
-* generated wire types must represent requests, responses, enums, nullable fields, and pagination accurately,
-* frontend code must not depend directly on arbitrary OpenAPI internals when a stable adapter boundary is more appropriate.
+### Documentation and security
 
-Do not introduce multiple competing generators.
+* Dependency update procedure is documented.
+* Security findings are classified rather than hidden.
+* The PostCSS moderate advisory paths include:
 
-### D. Separate wire types from domain/view types
+  * package/advisory
+  * severity
+  * project exploitability
+  * temporary acceptance rationale
+  * owner or follow-up action
+  * review or expiry date
+* No credential, local environment value, cache, or build output is included.
 
-Generated types should represent the API wire format.
+## Known non-Phase-8 failures
 
-Handwritten types may remain for UI/domain behavior, but conversion must happen in explicit mappers.
+Re-run enough tests to verify ownership.
 
-Requirements:
+The following may remain outside Phase 8 only if evidence confirms they are unrelated:
 
-* every mapper has typed input and output,
-* no unchecked `as unknown as ...` contract bypasses,
-* no broad `any` at API boundaries,
-* nullable and optional fields are handled explicitly,
-* unknown enum values fail safely or map to an explicit fallback,
-* date/time parsing remains timezone-safe,
-* capability states introduced in Phase 6 remain accessible and truthful.
+### Story Inbox Vitest timeout
 
-Do not force UI components to consume raw generated schemas when a domain model is clearer.
+Expected ownership:
 
-### E. Consolidate deterministic fixtures
+`Phase 11 — Inbox performance`
 
-Create one canonical deterministic fixture/factory system based on generated wire types.
+Do not increase the timeout or optimize Story Inbox as part of Phase 8.
 
-Use it for:
+### Mocked Playwright failures
 
-* Vitest API mocks
-* Playwright route mocks
-* deterministic backend fixture responses where applicable
-* frontend component test setup
-* contract examples
+Expected ownership:
 
-Requirements:
+`Phase 10 — Contract drift and stale fixtures`
 
-* fixture objects must typecheck against generated wire types,
-* missing required fields must fail tests,
-* extra invalid fields should be detected where runtime validation is used,
-* fixtures must use realistic states from the current backend,
-* credentials and raw secret references must never appear,
-* timestamps must be deterministic,
-* identifiers must be stable,
-* pagination metadata must be internally consistent.
+Do not modify Playwright fixtures, OpenAPI generation, frontend wire types, or route mocks as part of Phase 8.
 
-Do not maintain separate copied JSON responses across many Playwright files.
+Document these as unrelated downstream blockers, not Phase 8 implementation failures.
 
-### F. Consolidate Playwright route mocks
+## Clean-snapshot validation
 
-Move mocked route behavior into a centralized typed layer.
+Before committing, validate the staged Phase 8 snapshot independently from unstaged files.
 
-Requirements:
+Use a detached worktree, exported index, or equivalent clean-snapshot method.
 
-* every intercepted endpoint is registered explicitly,
-* unhandled API requests fail the test immediately,
-* HTTP method and path must both match,
-* query parameters must be validated where relevant,
-* request bodies must be checked against current schemas where practical,
-* responses must come from typed canonical factories,
-* tests may override specific fixture fields without copying the full response,
-* error responses must also follow the current backend error contract,
-* duplicate route definitions must be removed.
-
-Do not silently return generic 200 responses for unknown routes.
-
-### G. Runtime contract validation
-
-Add development/test runtime validation at important API boundaries where useful.
-
-Suitable approaches may include generated runtime schemas or a small explicit validation layer.
-
-At minimum, ensure that:
-
-* deterministic mocks are validated,
-* critical API responses used by the frontend can be validated during tests,
-* contract failures produce safe and understandable errors,
-* production performance is not significantly degraded.
-
-Do not add a large runtime dependency without justification.
-
-### H. Contract drift commands
-
-Add repository commands such as:
-
-* generate OpenAPI
-* generate frontend types
-* generate or validate fixtures
-* check contract drift
-
-A contract check must:
-
-1. regenerate artifacts,
-2. compare with committed output,
-3. fail when differences remain,
-4. leave the working tree unchanged when contracts are current.
-
-Phase 7 will later make these commands mandatory in CI, but do not implement the CI workflow now.
-
-## Current failure handling
-
-Investigate all current Playwright failures individually.
-
-For every failure, classify it as:
-
-* fixed by contract synchronization,
-* actual frontend bug fixed within Phase 10,
-* backend contract bug fixed within Phase 10,
-* unrelated Phase 11 performance issue,
-* environment limitation,
-* intentionally obsolete test removed with justification.
-
-Do not delete or skip failing tests merely to reach green status.
-
-Do not increase timeouts to hide stale fixtures or incorrect behavior.
-
-If the single Vitest timeout is caused by an actual performance issue, leave it documented for Phase 11. If it is caused by stale contract setup or unnecessary mock retries, fix it in Phase 10.
-
-## Required tests
-
-Add or update tests for:
-
-### OpenAPI determinism
-
-* generation succeeds without external credentials,
-* two generations are byte-identical,
-* committed artifact matches current backend,
-* operation IDs are unique,
-* no local paths, timestamps, credential values, or secret references appear.
-
-### Generated frontend types
-
-* generation is deterministic,
-* generated files contain the expected critical models,
-* nullability and required fields match backend schemas,
-* enums match backend values,
-* generated output contains no `any` where the generator can provide a concrete type,
-* manually editing generated output is detected by regeneration.
-
-### Mappers
-
-Cover at least:
-
-* Telegram route models
-* capability state
-* source configuration
-* destination configuration
-* content/generation settings
-* drafts and reconciliation
-* pagination
-* nullable fields
-* unknown enum values
-* timestamp parsing
-* backend validation-error mapping
-
-### Fixtures
-
-* all canonical fixtures satisfy generated wire types,
-* intentionally removing a required field fails validation,
-* invalid enum values fail or map through an explicit tested fallback,
-* no secret value or reference appears,
-* timestamps and IDs are deterministic.
-
-### Playwright routing
-
-* all expected routes are registered,
-* unknown route fails immediately,
-* wrong method fails,
-* malformed request body fails,
-* query mismatch fails where relevant,
-* successful and error responses follow current schemas,
-* route overrides remain typed.
-
-### Regression
-
-Run the completed-phase regressions for:
-
-* Phase 1 API response serialization
-* Phase 2 worker execution
-* Phase 3 restart/health contracts
-* Phase 4 proxy diagnostics
-* Phase 5 redaction
-* Phase 6 capability projections
-* Phase 8 locked builds
-* Phase 9 operational diagnostics
-
-## Validation requirements
-
-Run the Phase 10 commands from `solutions.md`, plus:
+At minimum run:
 
 ### Backend
 
-* canonical OpenAPI generation
-* OpenAPI regeneration with zero diff
-* backend schema/API tests
-* full backend suite
+* frozen clean runtime installation
+* frozen clean development installation
+* backend production import
+* dependency inventory generation
+* Phase 8 locking-policy tests
+* full backend test suite
 * Ruff lint
-* targeted Ruff formatting
+* targeted Ruff formatting checks
 * Python compilation
-* `git diff --check`
+* `pip-audit`
 
 ### Frontend
 
-* frozen `npm ci`
-* frontend type generation
-* second generation with zero diff
-* full TypeScript typecheck
-* full Vitest suite
-* full mocked Playwright suite
+* remove or isolate existing `node_modules`
+* clean `npm ci`
+* verify zero package-lock drift
+* TypeScript typecheck
 * production build
-* contract-check command
-* working-tree drift check
+* full Vitest to confirm the exact known timeout ownership
+* frontend dependency inventory
+* npm or OSV audit
 
-### Deployed/live-stack validation
+### Docker and Compose
 
-Using an isolated stack:
+* clean backend production image build
+* clean frontend production image build
+* backend image import/start smoke
+* frontend image health check
+* render:
 
-1. Start the current production-style backend and frontend.
-2. Run the browser smoke suite without route mocks where supported.
-3. Verify critical screens against actual API responses:
+  * base Compose
+  * production Compose
+  * development Compose
+  * test Compose
+  * acceptance Compose
+  * proxy Compose
 
-   * automation list/detail
-   * route builder
-   * Telegram sources
-   * Telegram destinations
-   * generation settings
-   * capability state
-   * diagnostics
-4. Confirm frontend behavior matches mocked-suite behavior.
-5. Verify no secret values or references enter browser responses, generated schemas, fixtures, screenshots, traces, or logs.
-6. Clean up all isolated deployment resources.
+### Reproducibility
 
-## Acceptance criteria
+Build each production image twice with clean dependency installation where feasible.
 
-Do not mark Phase 10 complete unless directly verified:
+Compare dependency-inventory hashes.
 
-* Backend OpenAPI is the authoritative wire-contract source.
-* A deterministic canonical OpenAPI artifact is committed.
-* Frontend wire types are deterministically generated from it.
-* Handwritten frontend API wire types are removed or reduced to justified adapter/domain types.
-* API mappers are explicit and tested.
-* Deterministic fixtures are centralized and typed.
-* Playwright route mocks are centralized and reject unhandled requests.
-* OpenAPI and generated-type regeneration produce zero diff.
-* Full frontend typecheck passes.
-* Full Vitest suite passes, excluding only a proven unrelated Phase 11 issue if clearly documented.
-* Full mocked Playwright suite passes.
-* Live-stack browser smoke passes for supported critical screens.
-* No contracts, fixtures, traces, or logs contain credential values or raw secret references.
-* Completed Phase 1, 2, 3, 4, 5, 6, 8, and 9 behavior remains green.
-* No Phase 7 CI or unrelated phase is implemented.
-* Temporary resources are cleaned up.
+Do not claim byte-for-byte image reproducibility unless demonstrated.
 
-If any failure remains, document the exact owning phase and evidence. Do not claim strict completion when a Phase 10-owned contract or mocked-browser failure remains.
+### General
 
-## Final report
+Run:
 
-Create:
+* `git diff --check`
+* `git diff --cached --check`
+* secret and absolute-path sweep
+* generated-file and temporary-artifact sweep
 
-`docs/implementation-reports/phase-10-contract-drift.md`
+## Report portability
 
-Include:
+Review:
 
-* reproduced failures
-* root-cause classification for every original Playwright failure
-* before-and-after contract architecture
-* canonical OpenAPI location
-* type generator and exact version
-* generated files
-* mapper strategy
-* fixture architecture
-* Playwright mock architecture
-* changed files
-* tests added
-* exact commands executed
-* exact test counts
-* mocked and live-browser results
-* deterministic-generation evidence
-* secret-leak sweep
-* acceptance-criteria checklist
-* remaining risks
-* unverified items
-* confirmation that no other phase was implemented
-* strict final status
+`docs/implementation-reports/phase-08-dependency-locking.md`
 
-Do not create a commit unless explicitly instructed.
+Remove or normalize non-portable paths such as:
 
-Stop after Phase 10 implementation, validation, and reporting.
+* `/home/armin/...`
+* random `/tmp/...` paths
+
+Commands may be documented using repository-relative paths or placeholders.
+
+Historical local evidence may be retained only when clearly labeled and when the report remains useful from another checkout.
+
+Update the strict status based on verified evidence.
+
+A suitable status is:
+
+`IMPLEMENTATION COMPLETE — DOWNSTREAM PHASE 10/11 REGRESSION GATES REMAIN`
+
+Do not mark a known Phase 10 or Phase 11 issue as a Phase 8 failure.
+
+## Staging and commit
+
+After verification:
+
+1. Classify every changed and untracked file as:
+
+   * Phase 8 implementation
+   * Phase 8 tests/documentation
+   * unrelated
+   * generated/temporary
+2. Stage only Phase 8 files.
+3. Review:
+
+   * `git diff --cached --name-status`
+   * `git diff --cached --stat`
+   * `git diff --cached --check`
+4. Ensure no cache, virtual environment, build output, credential, temporary audit artifact, or task-control file is staged.
+5. Create one commit:
+
+`build: lock dependencies and make production installs reproducible`
+
+Do not amend or rewrite earlier completed-phase commits.
+
+## After the commit
+
+Create a clean Phase 10 branch or worktree based exactly on the Phase 8 commit, but do not implement Phase 10.
+
+Preferred branch name:
+
+`phase-10-contract-drift`
+
+Report the exact command used and the resulting path/branch.
+
+## Final response
+
+Report:
+
+* verified starting branch and commit
+* Phase 8 commit hash
+* every file included in the commit
+* lock artifacts
+* exact Python, uv, Node, npm, and image versions
+* clean runtime/dev installation results
+* backend test result
+* frontend typecheck/build/Vitest results
+* Docker and Compose results
+* reproducibility inventory hashes
+* audit findings and temporary acceptances
+* files intentionally excluded
+* remaining dirty files
+* Phase 10 branch/worktree created
+* confirmation that no Phase 10 or other phase was implemented
+* strict Phase 8 status
+
+Stop after committing Phase 8 and preparing the clean Phase 10 branch/worktree.
