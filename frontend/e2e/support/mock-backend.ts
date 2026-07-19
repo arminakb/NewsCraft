@@ -131,9 +131,19 @@ export async function installMockBackend(
       return
     }
     if (method === "GET" && path === "/stories") {
+      const search = url.searchParams.get("search")?.trim().toLocaleLowerCase()
+      const stories = search
+        ? (options.stories ?? []).filter((story) => story.title.toLocaleLowerCase().includes(search))
+        : options.stories ?? []
+      const requestedLimit = Number(url.searchParams.get("limit") ?? "100")
+      const limit = Number.isInteger(requestedLimit) ? Math.min(Math.max(requestedLimit, 1), 100) : 100
+      const cursor = url.searchParams.get("cursor")
+      const offset = cursor?.startsWith("offset:") ? Number(cursor.slice("offset:".length)) : 0
+      const safeOffset = Number.isInteger(offset) && offset >= 0 ? offset : 0
+      const nextOffset = safeOffset + limit
       await fulfillContractJson(route, method, path, {
-        items: options.stories ?? [],
-        next_cursor: null,
+        items: stories.slice(safeOffset, nextOffset),
+        next_cursor: nextOffset < stories.length ? `offset:${nextOffset}` : null,
       })
       return
     }

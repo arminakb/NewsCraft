@@ -164,20 +164,19 @@ it("generates a durable pack using only configured IDs and active prompt version
   expect(await screen.findByText(/pack-job/)).toBeInTheDocument()
 })
 
-it("deduplicates loaded pages and immediately removes shortlisted stories from the inbox filter", async () => {
+it("replaces the bounded page and immediately removes shortlisted stories from the inbox filter", async () => {
   vi.mocked(api.getStories)
     .mockResolvedValueOnce({ items: [incomplete], nextCursor: "cursor-1" })
-    .mockResolvedValueOnce({ items: [incomplete, { ...incomplete, id: "story-2", title: "Second story" }], nextCursor: null })
-    .mockResolvedValue({ items: [{ ...incomplete, id: "story-2", title: "Second story" }], nextCursor: null })
+    .mockResolvedValueOnce({ items: [{ ...incomplete, id: "story-2", title: "Second story" }], nextCursor: null })
+    .mockResolvedValue({ items: [], nextCursor: null })
   vi.mocked(api.setStoryEditorialState).mockResolvedValue({ ...incomplete, editorialState: "shortlisted", status: "shortlisted" })
   renderInbox()
   await screen.findByText("Election timeline")
-  fireEvent.click(screen.getByRole("button", { name: "Load more stories" }))
+  fireEvent.click(screen.getByRole("button", { name: "Load next page" }))
   expect(await screen.findByText("Second story")).toBeInTheDocument()
-  expect(screen.getAllByText("Election timeline")).toHaveLength(1)
-  fireEvent.click(screen.getAllByRole("button", { name: "Shortlist" })[0])
-  await waitFor(() => expect(screen.queryByText("Election timeline")).not.toBeInTheDocument())
-  expect(screen.getByText("Second story")).toBeInTheDocument()
+  expect(screen.queryByText("Election timeline")).not.toBeInTheDocument()
+  fireEvent.click(screen.getByRole("button", { name: "Shortlist" }))
+  await waitFor(() => expect(screen.queryByText("Second story")).not.toBeInTheDocument())
 })
 
 it("ignores a deferred load-more page after filters change", async () => {
@@ -189,12 +188,26 @@ it("ignores a deferred load-more page after filters change", async () => {
     .mockResolvedValue({ items: [{ ...incomplete, id: "search-story", title: "Search result" }], nextCursor: null })
   renderInbox()
   await screen.findByText("Election timeline")
-  fireEvent.click(screen.getByRole("button", { name: "Load more stories" }))
+  fireEvent.click(screen.getByRole("button", { name: "Load next page" }))
   fireEvent.change(screen.getByLabelText("Search stories"), { target: { value: "updated" } })
   expect(await screen.findByText("Search result")).toBeInTheDocument()
   resolveOldPage({ items: [{ ...incomplete, id: "stale-story", title: "Stale old page" }], nextCursor: "stale-cursor" })
   await waitFor(() => expect(screen.queryByText("Stale old page")).not.toBeInTheDocument())
-  expect(screen.queryByRole("button", { name: "Load more stories" })).not.toBeInTheDocument()
+  expect(screen.queryByRole("button", { name: "Load next page" })).not.toBeInTheDocument()
+})
+
+it("keeps the current bounded page when the next cursor request fails", async () => {
+  vi.mocked(api.getStories)
+    .mockResolvedValueOnce({ items: [incomplete], nextCursor: "cursor-1" })
+    .mockRejectedValueOnce(new Error("page unavailable"))
+  renderInbox()
+  await screen.findByText("Election timeline")
+
+  fireEvent.click(screen.getByRole("button", { name: "Load next page" }))
+
+  expect(await screen.findByRole("alert")).toHaveTextContent("page unavailable")
+  expect(screen.getByText("Election timeline")).toBeInTheDocument()
+  expect(screen.getByRole("button", { name: "Load next page" })).toBeEnabled()
 })
 
 it("drops a generation selection when cached capabilities change and refuses stale submission", async () => {
@@ -231,17 +244,33 @@ it("traps research dialog focus, closes on Escape, and restores the opener", asy
   await waitFor(() => expect(opener).toHaveFocus())
 })
 
-it("filters, keeps bounded selection on failure, and supports bulk state changes", async () => {
-  vi.mocked(api.getStories).mockResolvedValue({ items: Array.from({ length: 201 }, (_, index) => ({ ...incomplete, id: `story-${index + 1}`, title: `Story ${index + 1}` })), nextCursor: null })
+it("keeps a bounded page and a capped cross-page selection when a bulk action fails", async () => {
+  const stories = Array.from({ length: 250 }, (_, index) => ({ ...incomplete, id: `story-${index + 1}`, title: `Story ${index + 1}` }))
+  vi.mocked(api.getStories)
+    .mockResolvedValueOnce({ items: stories.slice(0, 100), nextCursor: "cursor-100" })
+    .mockResolvedValueOnce({ items: stories.slice(100, 200), nextCursor: "cursor-200" })
+    .mockResolvedValueOnce({ items: stories.slice(200), nextCursor: null })
   vi.mocked(api.bulkSetStoryEditorialState).mockRejectedValue(new Error("conflict"))
   renderInbox()
-  await screen.findAllByRole("checkbox", { name: /Select Story/ })
-  fireEvent.click(screen.getByRole("button", { name: "Select up to 200 visible" }))
+  expect(await screen.findAllByRole("checkbox", { name: /Select Story/ })).toHaveLength(100)
+  expect(api.getStories).toHaveBeenCalledWith(expect.objectContaining({ limit: 100 }))
+  fireEvent.click(screen.getByRole("button", { name: "Select visible page" }))
+  expect(screen.getByText("100 stories selected")).toBeInTheDocument()
+  fireEvent.click(screen.getByRole("button", { name: "Load next page" }))
+  expect(await screen.findByRole("checkbox", { name: "Select Story 101" })).toBeInTheDocument()
+  expect(screen.getAllByRole("checkbox", { name: /Select Story/ })).toHaveLength(100)
+  expect(screen.queryByRole("checkbox", { name: "Select Story 1" })).not.toBeInTheDocument()
+  fireEvent.click(screen.getByRole("button", { name: "Select visible page" }))
+  expect(screen.getByText("200 stories selected")).toBeInTheDocument()
+  fireEvent.click(screen.getByRole("button", { name: "Load next page" }))
+  expect(await screen.findByRole("checkbox", { name: "Select Story 201" })).not.toBeChecked()
+  expect(screen.getAllByRole("checkbox", { name: /Select Story/ })).toHaveLength(50)
+  fireEvent.click(screen.getByRole("button", { name: "Select visible page" }))
   expect(screen.getByText("200 stories selected")).toBeInTheDocument()
   fireEvent.click(screen.getByRole("button", { name: "Reject selected" }))
   expect(await screen.findByRole("alert")).toHaveTextContent("conflict")
   expect(screen.getByText("200 stories selected")).toBeInTheDocument()
-}, 10_000)
+})
 
 it("queues durable grouping and displays the accepted job", async () => {
   vi.mocked(api.groupPendingStories).mockResolvedValue({ jobId: "job-group", status: "queued", deduplicated: false })
