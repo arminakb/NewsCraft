@@ -7,7 +7,7 @@ import pytest
 from app.jobs.models import AutomationControl
 from app.jobs.runtime import RuntimeHeartbeatService
 from app.jobs.types import JobStatus
-from app.operations.diagnostics import OperationsDiagnostics
+from app.operations.diagnostics import OperationsDiagnostics, _publish_receipt_attention
 
 NOW = datetime(2026, 7, 13, 8, 30, tzinfo=UTC)
 PUBLISH_JOB_ID = UUID("11111111-1111-4111-8111-111111111111")
@@ -17,6 +17,31 @@ DESTINATION_ID = UUID("44444444-4444-4444-8444-444444444444")
 ROUTE_ID = UUID("55555555-5555-4555-8555-555555555555")
 RESEARCH_RUN_ID = UUID("66666666-6666-4666-8666-666666666666")
 GENERATION_RUN_ID = UUID("77777777-7777-4777-8777-777777777777")
+
+
+def test_ambiguous_and_dispatching_receipts_project_publication_attention():
+    ambiguous = _publish_receipt_attention(
+        SimpleNamespace(
+            publish_job_id=PUBLISH_JOB_ID,
+            status="ambiguous",
+            ambiguous_at=NOW,
+            updated_at=NOW - timedelta(seconds=1),
+        )
+    )
+    dispatching = _publish_receipt_attention(
+        SimpleNamespace(
+            publish_job_id=PUBLISH_JOB_ID,
+            status="dispatching",
+            ambiguous_at=None,
+            updated_at=NOW - timedelta(minutes=6),
+        )
+    )
+
+    assert ambiguous.severity == "error"
+    assert ambiguous.occurred_at == NOW
+    assert "ambiguous" in ambiguous.title
+    assert dispatching.severity == "warning"
+    assert dispatching.occurred_at == NOW - timedelta(minutes=6)
 
 
 class FrozenClock:
@@ -49,6 +74,7 @@ class FakeSession:
         research_rows=(),
         generation_runs=(),
         publish_jobs=(),
+        publish_receipts=(),
         publication_rows=(),
         control=None,
     ):
@@ -62,6 +88,7 @@ class FakeSession:
         self.research_rows = list(research_rows)
         self.generation_runs = list(generation_runs)
         self.publish_jobs = list(publish_jobs)
+        self.publish_receipts = list(publish_receipts)
         self.publication_rows = list(publication_rows)
         self.control = control
         self.scalar_sql: list[str] = []
@@ -87,6 +114,8 @@ class FakeSession:
             return Rows(self.generation_runs)
         if "FROM publish_jobs" in sql:
             return Rows(self.publish_jobs)
+        if "FROM publish_operation_receipts" in sql:
+            return Rows(self.publish_receipts)
         raise AssertionError(f"Unexpected scalar query: {sql}")
 
     async def execute(self, statement):

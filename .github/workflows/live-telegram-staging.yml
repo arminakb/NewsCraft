@@ -1,0 +1,130 @@
+name: Live Telegram staging qualification
+
+on:
+  workflow_dispatch:
+    inputs:
+      scenario:
+        description: Controlled scenario (dry-run, success, ambiguity, or verify)
+        required: true
+        type: choice
+        options: [dry-run, success, ambiguity, verify]
+      destination_id:
+        description: Exact dedicated staging destination UUID
+        required: true
+        type: string
+      revision_id:
+        description: Exact approved staging revision UUID
+        required: true
+        type: string
+      content_hash:
+        description: Exact approved revision SHA-256
+        required: true
+        type: string
+      marker:
+        description: Unique NC-STAGING-* marker present exactly once
+        required: true
+        type: string
+      expected_target_ref:
+        description: Authorized private channel target reference
+        required: true
+        type: string
+      expected_chat_id:
+        description: Authorized numeric Telegram channel ID
+        required: true
+        type: string
+      expected_chat_title:
+        description: Authorized private channel title
+        required: true
+        type: string
+      authorization_ticket:
+        description: Written send or verification authorization record
+        required: true
+        type: string
+      evidence_json:
+        description: Two observers, expected counts, and verify-only remote evidence JSON
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: live-telegram-staging
+  cancel-in-progress: false
+
+jobs:
+  qualify:
+    environment: live-telegram-staging
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      APP_ENV: production
+      DATABASE_URL: ${{ secrets.TELEGRAM_STAGING_DATABASE_URL }}
+      NEWSCRAFT_LIVE_TELEGRAM_STAGING: authorized
+      STAGING_TOKEN: ${{ secrets.TELEGRAM_STAGING_TOKEN }}
+      REPORT_SIGNING_KEY: ${{ secrets.TELEGRAM_STAGING_REPORT_SIGNING_KEY }}
+      SCENARIO: ${{ inputs.scenario }}
+      DESTINATION_ID: ${{ inputs.destination_id }}
+      REVISION_ID: ${{ inputs.revision_id }}
+      CONTENT_HASH: ${{ inputs.content_hash }}
+      MARKER: ${{ inputs.marker }}
+      EXPECTED_TARGET_REF: ${{ inputs.expected_target_ref }}
+      EXPECTED_CHAT_ID: ${{ inputs.expected_chat_id }}
+      EXPECTED_CHAT_TITLE: ${{ inputs.expected_chat_title }}
+      AUTHORIZATION_TICKET: ${{ inputs.authorization_ticket }}
+      EVIDENCE_JSON: ${{ inputs.evidence_json }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v7
+        with:
+          version: 0.11.29
+          enable-cache: true
+          cache-dependency-glob: backend/uv.lock
+      - uses: actions/setup-python@v6
+        with:
+          python-version: 3.14.6
+      - name: Frozen install
+        working-directory: backend
+        run: uv sync --locked
+      - name: Prepare worker-only credentials
+        run: |
+          install -d -m 700 "$RUNNER_TEMP/newscraft-live-secrets"
+          install -m 600 /dev/null "$RUNNER_TEMP/newscraft-live-secrets/TELEGRAM_STAGING_TOKEN"
+          install -m 600 /dev/null "$RUNNER_TEMP/newscraft-live-secrets/REPORT_SIGNING_KEY"
+          printf '%s' "$STAGING_TOKEN" > "$RUNNER_TEMP/newscraft-live-secrets/TELEGRAM_STAGING_TOKEN"
+          printf '%s' "$REPORT_SIGNING_KEY" > "$RUNNER_TEMP/newscraft-live-secrets/REPORT_SIGNING_KEY"
+      - name: Run controlled qualification step
+        working-directory: backend
+        run: |
+          mkdir -p ../reports/live-telegram-staging
+          uv run python -m app.validation.telegram_staging \
+            --scenario "$SCENARIO" \
+            --destination-id "$DESTINATION_ID" \
+            --revision-id "$REVISION_ID" \
+            --content-hash "$CONTENT_HASH" \
+            --marker "$MARKER" \
+            --expected-target-ref "$EXPECTED_TARGET_REF" \
+            --expected-chat-id "$EXPECTED_CHAT_ID" \
+            --expected-chat-title "$EXPECTED_CHAT_TITLE" \
+            --authorization-ticket "$AUTHORIZATION_TICKET" \
+            --evidence-json "$EVIDENCE_JSON" \
+            --secret-root "$RUNNER_TEMP/newscraft-live-secrets" \
+            --signing-key-file "$RUNNER_TEMP/newscraft-live-secrets/REPORT_SIGNING_KEY" \
+            --confirm-live-send \
+            --output "../reports/live-telegram-staging/${SCENARIO}-${GITHUB_RUN_ID}.json"
+      - name: Prove report contains no token or signing key
+        working-directory: backend
+        run: |
+          uv run python - <<'PY'
+          import os
+          from pathlib import Path
+          report = next(Path("../reports/live-telegram-staging").glob("*.json")).read_text(encoding="utf-8")
+          if any(value and value in report for value in (os.environ["STAGING_TOKEN"], os.environ["REPORT_SIGNING_KEY"])):
+              raise SystemExit("secret value found in report")
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: live-telegram-staging-${{ inputs.scenario }}-${{ github.run_id }}
+          path: reports/live-telegram-staging/
+          retention-days: 30
