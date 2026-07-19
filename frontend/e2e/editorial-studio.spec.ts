@@ -79,7 +79,7 @@ test("manual text to research to both prompt IDs to exact revision approval", as
     if (path === `/telegram/drafts/${ids.revision}`) return route.fulfill({ json: { ...revision(), evidence: [{ evidence_snapshot_id: evidence.id, evidence_key: "operator-1", source_url: null, content_text: evidence.content_text, content_sha256: evidence.content_sha256 }], media: [], route_id: null, dispatch_id: null, publish_job_id: null, publish_status: null, publication: null } })
     if (path === "/telegram/destinations") return route.fulfill({ json: [] })
     if (path === "/automation-control") return route.fulfill({ json: { global_pause: false, dry_run: false, pause_reason: null, paused_at: null, updated_at: now } })
-    return route.fulfill({ status: 404, json: { detail: `Unhandled ${method} ${path}` } })
+    return route.fulfill({ status: 501, json: { detail: `Unhandled ${method} ${path}` } })
   })
 
   await page.goto("/inbox")

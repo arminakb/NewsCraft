@@ -268,9 +268,14 @@ jobs:
         run: |
           cd backend
           mkdir -p reports
-          uv run pytest -p no:cacheprovider -q tests/test_api.py tests/api --junitxml=reports/contracts.xml
+          uv run python scripts/export_openapi.py --output ../contracts/openapi.json
+          uv run pytest -p no:cacheprovider -q tests/test_openapi_contract.py tests/test_api.py tests/api --junitxml=reports/contracts.xml
           cd ../frontend
-          npm test -- --run tests/api-client.test.ts tests/backend-proxy-route.test.ts tests/control-api.test.ts tests/editorial-api.test.ts tests/job-api.test.ts tests/packages-api.test.ts tests/telegram-api.test.ts
+          npm run api:generate
+          npm run typecheck
+          npm test -- --run tests/openapi-contract.test.ts tests/operations-api.test.ts tests/api-client.test.ts tests/backend-proxy-route.test.ts tests/control-api.test.ts tests/editorial-api.test.ts tests/job-api.test.ts tests/packages-api.test.ts tests/telegram-api.test.ts
+          cd ..
+          git diff --exit-code -- contracts/openapi.json frontend/lib/api/generated.ts
       - uses: actions/upload-artifact@v4
         if: always()
         with:

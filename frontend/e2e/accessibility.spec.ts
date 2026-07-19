@@ -1,5 +1,7 @@
 import AxeBuilder from "@axe-core/playwright"
-import { expect, test, type Page, type Route } from "@playwright/test"
+import { expect, test } from "@playwright/test"
+
+import { installMockBackend, type MockStory } from "./support/mock-backend"
 
 const ROUTES = [
   { path: "/", name: "Today", readyText: "No workflow jobs yet" },
@@ -26,13 +28,13 @@ const MOBILE_ACTION_STORY = {
   evidence_set_hash: "a".repeat(64),
   created_at: "2026-07-13T07:00:00Z",
   updated_at: "2026-07-13T08:00:00Z",
-}
+} satisfies MockStory
 
 for (const viewport of VIEWPORTS) {
   test.describe(`${viewport.label} accessibility`, () => {
     for (const route of ROUTES) {
       test(`${route.name} has no serious or critical axe violations`, async ({ page }) => {
-        const unhandledRequests = await installOfflineBackend(page)
+        const unhandledRequests = await installMockBackend(page)
         await page.setViewportSize(viewport)
         await page.goto(route.path)
 
@@ -57,7 +59,7 @@ for (const viewport of VIEWPORTS) {
 }
 
 test("responsive shell switches at 900px and exposes one skip target", async ({ page }) => {
-  const unhandledRequests = await installOfflineBackend(page)
+  const unhandledRequests = await installMockBackend(page)
 
   await page.setViewportSize({ width: 899, height: 844 })
   await page.goto("/")
@@ -83,7 +85,7 @@ test("responsive shell switches at 900px and exposes one skip target", async ({ 
 })
 
 test("primary Inbox actions provide 44 by 44 pixel touch targets on mobile", async ({ page }) => {
-  const unhandledRequests = await installOfflineBackend(page, { stories: [MOBILE_ACTION_STORY] })
+  const unhandledRequests = await installMockBackend(page, { stories: [MOBILE_ACTION_STORY] })
 
   await page.setViewportSize({ width: 390, height: 844 })
   await page.goto("/inbox")
@@ -107,89 +109,3 @@ test("primary Inbox actions provide 44 by 44 pixel touch targets on mobile", asy
   }
   expect(unhandledRequests, "Unhandled backend requests in mobile target test").toEqual([])
 })
-
-async function installOfflineBackend(
-  page: Page,
-  options: { stories?: Array<typeof MOBILE_ACTION_STORY> } = {},
-): Promise<string[]> {
-  const unhandledRequests: string[] = []
-
-  await page.route("**/api/backend/**", async (route) => {
-    const request = route.request()
-    const url = new URL(request.url())
-    const path = url.pathname.replace(/^\/api\/backend/, "")
-    const method = request.method()
-
-    if (method === "GET" && path === "/automation-control") {
-      await fulfillJson(route, {
-        global_pause: false,
-        dry_run: true,
-        pause_reason: null,
-        paused_at: null,
-        updated_at: "2026-07-13T08:00:00Z",
-      })
-      return
-    }
-    if (method === "GET" && path === "/jobs/summary") {
-      await fulfillJson(route, { queued: 0, running: 0, attention: 0, succeeded_today: 0 })
-      return
-    }
-    if (method === "GET" && path === "/jobs") {
-      await fulfillJson(route, { items: [] })
-      return
-    }
-    if (method === "GET" && path === "/telegram/drafts") {
-      await fulfillJson(route, [])
-      return
-    }
-    if (method === "GET" && path === "/stories") {
-      await fulfillJson(route, { items: options.stories ?? [], next_cursor: null })
-      return
-    }
-    if (method === "GET" && path === "/telegram/automations") {
-      await fulfillJson(route, [])
-      return
-    }
-    if (method === "GET" && path === "/telegram/automations/options") {
-      await fulfillJson(route, {
-        sources: [],
-        destinations: [],
-        brand_profiles: [],
-        prompt_template_versions: [],
-        ai_provider_profiles: [],
-      })
-      return
-    }
-    if (method === "GET" && path === "/content-pack-requests") {
-      await fulfillJson(route, [])
-      return
-    }
-    if (method === "GET" && path === "/calendar") {
-      await fulfillJson(route, { items: [], timezone: url.searchParams.get("timezone") ?? "Asia/Tehran" })
-      return
-    }
-    if (method === "GET" && path === "/diagnostics") {
-      await fulfillJson(route, {
-        status: "ok",
-        checks: { api: "ok", database: "ok", storage: "ok" },
-        source_health: { healthy: 0, partial: 0, failed: 0, unknown: 0 },
-        problem_sources: [],
-      })
-      return
-    }
-
-    const requestLabel = `${method} ${path}${url.search}`
-    unhandledRequests.push(requestLabel)
-    await fulfillJson(route, { detail: `Unhandled deterministic test request: ${requestLabel}` }, 501)
-  })
-
-  return unhandledRequests
-}
-
-async function fulfillJson(route: Route, body: unknown, status = 200) {
-  await route.fulfill({
-    status,
-    contentType: "application/json",
-    body: JSON.stringify(body),
-  })
-}

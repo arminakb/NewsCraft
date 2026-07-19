@@ -68,6 +68,9 @@ def test_ci_uses_frozen_installs_test_database_guard_and_retained_artifacts() ->
     assert "npm audit --audit-level=high" in text
     assert "anchore/sbom-action" in text
     assert text.count("aquasecurity/trivy-action") == 2
+    assert "scripts/export_openapi.py" in text
+    assert "npm run api:generate" in text
+    assert "git diff --exit-code -- contracts/openapi.json frontend/lib/api/generated.ts" in text
     assert (ROOT / "frontend/next-env.d.ts").read_text(encoding="utf-8").splitlines()[2] == (
         'import "./.next/types/routes.d.ts";'
     )

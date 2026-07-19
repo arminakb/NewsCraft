@@ -11,6 +11,7 @@
     "dev": "next dev --port 3000",
     "build": "next build",
     "start": "next start --port 3000",
+    "api:generate": "openapi-typescript ../contracts/openapi.json -o lib/api/generated.ts --alphabetize",
     "test": "vitest run",
     "test:e2e": "playwright test",
     "typecheck": "tsc --noEmit --incremental false"
@@ -39,10 +40,13 @@
     "@types/react": "19.2.17",
     "@types/react-dom": "19.2.3",
     "@vitejs/plugin-react": "6.0.3",
+    "ajv": "8.20.0",
+    "ajv-formats": "3.0.1",
     "jsdom": "29.1.1",
+    "openapi-typescript": "7.13.0",
     "postcss": "8.4.31",
     "tailwindcss": "4.3.2",
-    "typescript": "6.0.3",
+    "typescript": "5.9.3",
     "vitest": "4.1.10"
   }
 }
