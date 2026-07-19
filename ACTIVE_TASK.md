@@ -1,318 +1,581 @@
-You are continuing the NewsCraft Production Hardening project.
+You are continuing the NewsCraft Production Hardening project on a different machine.
 
+Implement **Phase 8 only: Dependency Locking and Reproducible Builds**.
 
-Your task is to **resume, verify, finalize, and commit Phase 8 only: Dependency Locking and Reproducible Builds**.
+There is no previous Phase 8 worktree available on this machine. Do not search for `/home/armin/Documents/newscraft-phase8` or depend on any uncommitted work from another computer.
 
-Do not implement Phase 10, Phase 7 CI, Phase 11, or any other phase.
+Work from the main cloned `newscraft` repository.
 
-## Existing Phase 8 work
+## Repository setup
 
-The existing Phase 8 worktree is expected at:
+Before changing any files:
 
-`/home/armin/Documents/newscraft-phase8`
-
-Expected branch:
-
-`phase-08-dependency-locking`
-
-Phase 8 was already implemented in that worktree, but no commit was created because the previous session ended.
-
-Known reported results:
-
-* Complete `uv.lock` added.
-* Frozen backend runtime and development installs implemented.
-* Backend production packaging changed to non-editable installation.
-* Frontend `latest` declarations replaced with exact existing versions.
-* Python, uv, Node, and PostgreSQL images pinned by patch version and digest.
-* Dependency policy, risk register, locking tests, and Phase 8 report added.
-* Backend: `1,783 passed`.
-* Ruff, compilation, imports, and `pip-audit` passed.
-* Frontend clean `npm ci`, typecheck, and production build passed.
-* Two clean builds per image produced identical dependency-inventory hashes.
-* Six Compose variants rendered.
-* Both production images passed health checks.
-* Temporary Phase 8 resources were reportedly cleaned up.
-
-Previously reported remaining items:
-
-* Phase 8 changes were uncommitted.
-* Full Vitest was `369/370` because of one Story Inbox timeout assigned to Phase 11.
-* Mocked Playwright failures were caused by stale Phase 10 fixtures.
-* Two moderate PostCSS advisory paths were temporarily accepted and documented.
-
-Do not blindly trust this summary. Verify the repository state and evidence yourself.
-
-## Mandatory preflight
-
-Before editing anything:
-
-1. Enter the expected Phase 8 worktree.
+1. Locate the cloned `newscraft` repository.
 2. Run:
 
-   * `pwd`
-   * `git branch --show-current`
-   * `git rev-parse HEAD`
-   * `git status --short`
-   * `git diff --stat`
-3. Confirm that the branch is `phase-08-dependency-locking`.
-4. Confirm that the dirty files correspond to Phase 8.
-5. Read:
+```bash
+pwd
+git remote -v
+git fetch --all --prune
+git branch --show-current
+git rev-parse HEAD
+git status --short
+git log --oneline -15
+```
 
-   * `solutions.md`
-   * `ACTIVE_TASK.md` if present
-   * `docs/implementation-reports/phase-08-dependency-locking.md`
-   * dependency policy and risk-register documents
-6. Do not require `ACTIVE_PHASE.md`; it may not exist.
-7. If the worktree path, branch, or changes do not match the expected Phase 8 state, stop and report the exact mismatch before changing files.
+3. Ensure the local repository contains the latest pushed commits from the project's remote.
+4. Start from the latest intended `main` revision.
+5. The expected completed phases before Phase 8 are:
 
-## Primary objective
+   * Phase 1
+   * Phase 2
+   * Phase 3
+   * Phase 4
+   * Phase 5
+   * Phase 6
+   * Phase 9
+6. Verify those phase commits or reports exist. Do not reimplement them.
+7. The working tree must be clean before Phase 8 starts.
+8. Create and switch to:
 
-Produce a self-contained Phase 8 commit that makes dependency installation and production builds reproducible.
+```bash
+git switch -c phase-08-dependency-locking
+```
 
-The resulting commit must not depend on files outside the Phase 8 worktree or on unstaged local modifications.
+If that branch already exists locally or remotely, inspect it before deciding whether to resume or recreate it.
 
-## Phase 8 scope
+Do not work directly on `main`.
 
-Phase 8 includes only:
+## Authoritative sources
 
-* backend dependency intent and locking
-* frontend dependency declaration normalization
-* frontend lockfile consistency
-* runtime versus development dependency separation
+Read these files if present:
+
+* `solutions.md`
+* `docs/implementation-reports/phase-01-telegram-route-response-boundary.md`
+* `docs/implementation-reports/phase-02-worker-execution-boundary.md`
+* `docs/implementation-reports/phase-03-restart-supervision.md`
+* `docs/implementation-reports/phase-04-outbound-proxy-policy.md`
+* `docs/implementation-reports/phase-05-safe-access-logging.md`
+* `docs/implementation-reports/phase-06-credential-topology.md`
+* Phase 9 implementation report
+* current dependency and deployment documentation
+
+`ACTIVE_TASK.md` may exist, but do not rely on it as the authoritative Phase 8 specification.
+
+`ACTIVE_PHASE.md` may not exist. Its absence is not an error.
+
+If `solutions.md` is absent, use the Phase 8 requirements in this prompt as the authoritative fallback and document that fact in the report.
+
+## Important historical context
+
+Phase 8 was previously implemented on another machine in an uncommitted worktree, but those files were not pushed and are unavailable here.
+
+The previous implementation reported these results:
+
+* complete `uv.lock`
+* frozen backend runtime and development installations
+* non-editable backend production packaging
+* frontend `latest` declarations replaced with exact existing versions
+* Python, uv, Node, and PostgreSQL images pinned by patch version and digest
+* dependency policy and vulnerability-risk register
+* automated dependency-locking tests
+* backend suite: 1,783 passed
+* clean frontend `npm ci`, typecheck, and production build
+* identical dependency-inventory hashes across two clean image builds
+* all six Compose variants rendered
+* production images passed health checks
+
+Treat this only as a target and historical reference. Independently inspect and implement Phase 8 on the current pushed revision.
+
+Do not copy version numbers from this summary without verifying the current lockfiles, installed graph, Dockerfiles, and compatible image digests.
+
+## Scope
+
+Implement only:
+
+* backend dependency locking
+* frozen runtime and development installs
+* runtime/development dependency separation
 * non-editable backend production installation
-* frozen Docker dependency installation
-* reviewed base-image version and digest pins
-* dependency inventory and reproducibility checks
-* dependency-update policy
+* frontend direct dependency pinning
+* frontend lockfile consistency
+* deterministic Docker dependency installation
+* reviewed base-image patch and digest pins
+* dependency inventory checks
+* reproducible-build evidence
+* dependency update policy
 * vulnerability-risk register
-* Phase 8 tests and documentation
-* `docs/implementation-reports/phase-08-dependency-locking.md`
+* Phase 8 tests
+* Phase 8 implementation report
 
-Do not fix:
+Do not implement:
 
-* stale Playwright fixtures
-* frontend/backend contract drift
-* Story Inbox performance
-* CI workflows
-* unrelated formatting backlog
-* unrelated application behavior
+* Phase 7 CI
+* Phase 10 OpenAPI/type generation
+* Playwright fixture repairs
+* Phase 11 Story Inbox performance work
+* unrelated dependency upgrades
+* unrelated formatting cleanup
+* application feature changes
 
-## Verification of implementation
+## Initial inspection
 
-Inspect and verify that the current changes satisfy the following.
+Inspect:
 
-### Backend locking
+* `backend/pyproject.toml`
+* all backend lock, requirements, or constraints files
+* backend Dockerfile
+* backend development/test setup
+* `frontend/package.json`
+* `frontend/package-lock.json`
+* frontend Dockerfile
+* Compose files and image declarations
+* README and installation documentation
+* scripts that install Python or Node dependencies
+* `.python-version`, `.node-version`, `.nvmrc`, or tool-version files if present
+* the currently installed Python, uv, Node, and npm versions
 
-* `pyproject.toml` is the human-edited dependency-intent source.
-* One complete committed lock artifact exists, preferably `uv.lock`.
-* Runtime and development/test dependency groups are explicit.
-* Frozen runtime installation succeeds.
-* Frozen development installation succeeds.
-* Production installation is non-editable.
-* Production installation excludes test and lint tools.
-* Required runtime imports work from the production environment.
-* The supported Python and uv versions are explicit.
+Record the current versions of at least:
 
-### Frontend locking
+* Python
+* uv
+* FastAPI
+* Starlette
+* Pydantic
+* SQLAlchemy
+* asyncpg
+* Uvicorn
+* httpx
+* Telethon
+* Alembic
+* pytest
+* Ruff
+* Node
+* npm
+* Next.js
+* React
+* TypeScript
+* Vitest
+* Playwright
+* Tailwind
+* TanStack Query
+* PostgreSQL
 
-* No direct dependency uses:
+Confirm:
 
-  * `latest`
-  * `*`
-  * an unjustifiably broad unstable range
-* Exact versions correspond to the tested lockfile unless a documented change was required.
-* `npm ci` succeeds from a clean checkout.
-* `npm ci` does not modify `package-lock.json`.
-* Runtime and development dependencies are correctly classified.
-* Node and npm version policy is explicit.
+* whether a backend lock currently exists
+* whether it is complete and current
+* whether production installs resolve dynamically
+* whether production installs development dependencies
+* whether production installation is editable
+* which frontend declarations use `latest`, `*`, or overly broad ranges
+* whether `npm ci` currently succeeds without modifying the lockfile
+* which Docker images are tag-only rather than digest-pinned
 
-### Docker and Compose
+## Implementation requirements
 
-* Backend Docker builds use frozen locked installation.
-* Backend production image does not install development dependencies.
-* Frontend Docker builds use `npm ci`.
-* Lock and intent files are copied before source where appropriate for cache correctness.
-* Builds fail when intent and lock disagree.
-* Python, Node, PostgreSQL, and relevant helper images use reviewed version pins and digests.
-* Base, production, development, test, acceptance, and proxy Compose variants render successfully.
+### 1. Backend locking
 
-### Documentation and security
+Use one authoritative Python dependency workflow.
 
-* Dependency update procedure is documented.
-* Security findings are classified rather than hidden.
-* The PostCSS moderate advisory paths include:
+Preferred structure:
 
-  * package/advisory
-  * severity
-  * project exploitability
-  * temporary acceptance rationale
-  * owner or follow-up action
-  * review or expiry date
-* No credential, local environment value, cache, or build output is included.
+* `backend/pyproject.toml` remains the human-edited dependency-intent source
+* one committed `uv.lock` is the generated lock source
+* runtime and development/test groups are explicit
+* frozen installation is mandatory
 
-## Known non-Phase-8 failures
+Requirements:
 
-Re-run enough tests to verify ownership.
+* lock the complete runtime graph
+* lock the complete development/test graph
+* preserve required platform markers
+* use integrity information supported by the selected locking tool
+* support the project's intended Python version
+* avoid unrelated dependency upgrades
+* document every unavoidable version change
 
-The following may remain outside Phase 8 only if evidence confirms they are unrelated:
+A clean frozen install must fail if `pyproject.toml` and the lock disagree.
 
-### Story Inbox Vitest timeout
+### 2. Runtime versus development separation
 
-Expected ownership:
+Backend production images must exclude development-only packages, including where applicable:
 
-`Phase 11 — Inbox performance`
+* pytest
+* Ruff
+* coverage tooling
+* test plugins
+* development utilities
 
-Do not increase the timeout or optimize Story Inbox as part of Phase 8.
+Production installation must be non-editable.
 
-### Mocked Playwright failures
+Development and test environments may install the explicit development group.
 
-Expected ownership:
+Verify all actual runtime imports remain present in the runtime group.
 
-`Phase 10 — Contract drift and stale fixtures`
+### 3. Frontend dependency declarations
 
-Do not modify Playwright fixtures, OpenAPI generation, frontend wire types, or route mocks as part of Phase 8.
+Replace direct dependency declarations using:
 
-Document these as unrelated downstream blockers, not Phase 8 implementation failures.
+* `latest`
+* `*`
+* unstable or unjustifiably broad ranges
 
-## Clean-snapshot validation
+Use exact reviewed versions matching the currently tested `package-lock.json` graph unless a documented compatibility correction is required.
 
-Before committing, validate the staged Phase 8 snapshot independently from unstaged files.
+Do not perform arbitrary major upgrades.
 
-Use a detached worktree, exported index, or equivalent clean-snapshot method.
+Verify:
 
-At minimum run:
+```bash
+npm ci
+```
+
+succeeds from a clean checkout and does not change:
+
+* `package.json`
+* `package-lock.json`
+
+Keep runtime packages in `dependencies` and test/build tooling in `devDependencies`.
+
+### 4. Toolchain policy
+
+Make these explicit and consistent:
+
+* Python version
+* uv version
+* Node version
+* npm version
+* PostgreSQL version
+* approved lock-generation commands
+* approved clean-install commands
+
+Use repository tool-version files or package-manager metadata where appropriate.
+
+### 5. Docker installation
+
+Update Dockerfiles so that:
+
+* lock and intent files are copied before source where appropriate
+* dependency installation uses frozen mode
+* production backend install is non-editable
+* backend production excludes development dependencies
+* frontend uses `npm ci`
+* mismatched lock and intent files cause build failure
+* dependency installation does not silently resolve newer packages
+* build caching cannot hide lock inconsistencies
+
+### 6. Base-image pinning
+
+Inventory all production-critical base and Compose images.
+
+Pin reviewed patch versions and immutable digests where practical, including:
+
+* Python
+* uv helper image if used
+* Node
+* PostgreSQL
+* other build/runtime helper images already used by the project
+
+Keep readable tags alongside digests where supported.
+
+Do not introduce unrelated operating-system migrations.
+
+Before committing a digest, verify it exists and matches the intended architecture.
+
+### 7. Reproducibility evidence
+
+Build backend and frontend production images twice using clean dependency installation.
+
+Compare at least:
+
+* Python dependency inventory hash
+* Node dependency inventory hash
+* relevant SBOM or package-list output
+* application build success
+* health/import smoke behavior
+
+Do not claim byte-for-byte image reproducibility unless it was directly proven.
+
+Document expected nondeterminism such as timestamps and image metadata.
+
+### 8. Dependency policy
+
+Create or update documentation describing:
+
+1. edit dependency intent
+2. regenerate lock with the approved tool version
+3. inspect the dependency diff
+4. run boundary-sensitive tests
+5. run relevant full suites
+6. run vulnerability audits
+7. build production images
+8. commit intent and lock together
+
+Dependency updates must be isolated, reviewed changes.
+
+Do not enable unreviewed automatic major upgrades.
+
+### 9. Vulnerability review
+
+Run appropriate audits for the locked graphs, including:
+
+* `pip-audit` or an equivalent supported Python audit
+* npm audit or OSV-based frontend audit
+* image/SBOM scan if available
+
+Classify each relevant finding:
+
+* fixed
+* not affected
+* temporarily accepted
+* blocked by compatibility
+* deferred with follow-up
+
+For accepted risks, record:
+
+* package and advisory
+* severity
+* exploitability in NewsCraft
+* rationale
+* owner/follow-up
+* review or expiry date
+
+Do not force broad upgrades merely to make the audit appear green.
+
+## Automated tests
+
+Add or update tests verifying:
 
 ### Backend
 
-* frozen clean runtime installation
-* frozen clean development installation
-* backend production import
-* dependency inventory generation
-* Phase 8 locking-policy tests
-* full backend test suite
-* Ruff lint
-* targeted Ruff formatting checks
-* Python compilation
-* `pip-audit`
+* backend lock exists
+* lock matches dependency intent
+* frozen runtime installation succeeds
+* frozen development installation succeeds
+* deliberately inconsistent intent/lock fails
+* production package inventory excludes development tools
+* runtime imports succeed
+* production installation is non-editable
 
 ### Frontend
 
-* remove or isolate existing `node_modules`
-* clean `npm ci`
-* verify zero package-lock drift
-* TypeScript typecheck
-* production build
-* full Vitest to confirm the exact known timeout ownership
-* frontend dependency inventory
-* npm or OSV audit
+* no direct dependency uses `latest` or wildcard declarations
+* clean `npm ci` succeeds
+* clean `npm ci` leaves no repository drift
+* runtime and development dependency classification is valid
+* typecheck and production build pass
 
 ### Docker and Compose
 
-* clean backend production image build
-* clean frontend production image build
-* backend image import/start smoke
-* frontend image health check
-* render:
+* backend production image builds from frozen runtime dependencies
+* frontend production image builds using the lock
+* production images import/start correctly
+* all supported Compose variants render
+* intended image pins and digests are present
 
-  * base Compose
-  * production Compose
-  * development Compose
-  * test Compose
-  * acceptance Compose
-  * proxy Compose
+### Completed-phase regressions
 
-### Reproducibility
+Run focused tests protecting completed phases, especially:
 
-Build each production image twice with clean dependency installation where feasible.
+* SQLAlchemy transaction behavior
+* worker crash recovery
+* restart and health behavior
+* proxy policy
+* Uvicorn redaction
+* credential capability state
+* operational diagnostics
 
-Compare dependency-inventory hashes.
+## Known downstream failures
 
-Do not claim byte-for-byte image reproducibility unless demonstrated.
+The previous machine observed:
+
+* one Story Inbox Vitest timeout, likely owned by Phase 11
+* stale mocked Playwright fixtures, owned by Phase 10
+* moderate PostCSS advisory paths requiring temporary acceptance
+
+Reproduce and verify ownership.
+
+Do not:
+
+* increase the Story Inbox timeout
+* optimize Story Inbox
+* fix Playwright route mocks
+* generate OpenAPI frontend types
+* start Phase 10
+* remove tests to achieve a green number
+
+Document confirmed downstream failures separately.
+
+## Validation
+
+Perform validation from clean temporary environments.
+
+### Backend
+
+Run:
+
+* frozen clean runtime installation
+* frozen clean development installation
+* full backend suite
+* Ruff lint
+* targeted Ruff formatting checks
+* Python compilation
+* production import check
+* dependency inventory export
+* Python vulnerability audit
+
+### Frontend
+
+Run:
+
+* remove or isolate existing `node_modules`
+* clean `npm ci`
+* verify no lockfile drift
+* full typecheck
+* full Vitest
+* production build
+* frontend dependency inventory
+* frontend vulnerability audit
+
+### Docker and Compose
+
+Build:
+
+* backend production image twice
+* frontend production image twice
+
+Render:
+
+* base Compose
+* production Compose
+* development Compose
+* test Compose
+* acceptance Compose
+* proxy Compose
+
+Verify both production images start or pass their health checks.
 
 ### General
 
 Run:
 
-* `git diff --check`
-* `git diff --cached --check`
-* secret and absolute-path sweep
-* generated-file and temporary-artifact sweep
+```bash
+git diff --check
+```
 
-## Report portability
+Also verify:
 
-Review:
+* no credential values were added
+* no local absolute paths were added to committed documentation
+* no cache, virtual environment, build output, or temporary file is included
+* no unrelated feature was changed
+
+Clean up Phase 8-only:
+
+* virtual environments
+* temporary dependency caches
+* temporary containers
+* temporary images
+* temporary networks
+* generated files not intended for Git
+
+Do not remove shared developer resources that were not created by Phase 8.
+
+## Acceptance criteria
+
+Do not mark Phase 8 complete unless directly verified:
+
+* one authoritative backend dependency-intent source exists
+* a complete backend lock exists
+* frozen backend runtime installation succeeds
+* frozen backend development installation succeeds
+* production backend excludes development tools
+* production backend installation is non-editable
+* frontend direct dependencies contain no `latest` or wildcard declarations
+* `npm ci` succeeds with zero repository drift
+* backend and frontend production images build from frozen graphs
+* Python, uv, Node, npm, and image policies are documented
+* dependency update policy is documented
+* vulnerability audits are executed and findings classified
+* completed phases remain green
+* no unrelated phase is implemented
+* temporary Phase 8 resources are cleaned up
+
+A confirmed Phase 10 fixture failure or Phase 11 performance timeout does not by itself make Phase 8 incomplete, but it must be documented accurately.
+
+## Final report
+
+Create:
 
 `docs/implementation-reports/phase-08-dependency-locking.md`
 
-Remove or normalize non-portable paths such as:
+The report must include:
 
-* `/home/armin/...`
-* random `/tmp/...` paths
+* starting branch and revision
+* confirmed original reproducibility problems
+* selected locking tool and rationale
+* lock artifacts created
+* exact toolchain versions
+* dependency declaration changes
+* production/development separation
+* Docker and image changes
+* exact commands
+* exact test results
+* clean-install evidence
+* image-build evidence
+* dependency-inventory hashes
+* vulnerability findings and classifications
+* downstream Phase 10/11 issues
+* acceptance checklist
+* remaining risks
+* unverified items
+* confirmation that no other phase was implemented
+* strict final status
 
-Commands may be documented using repository-relative paths or placeholders.
+## Commit
 
-Historical local evidence may be retained only when clearly labeled and when the report remains useful from another checkout.
+After all directly applicable Phase 8 criteria pass:
 
-Update the strict status based on verified evidence.
+1. Review every changed and untracked file.
+2. Stage only Phase 8 implementation, tests, locks, Docker changes, policies, risk register, and report.
+3. Exclude:
 
-A suitable status is:
+   * task-control files
+   * credentials
+   * `.env`
+   * local artifacts
+   * caches
+   * build output
+   * unrelated source changes
+4. Run:
 
-`IMPLEMENTATION COMPLETE — DOWNSTREAM PHASE 10/11 REGRESSION GATES REMAIN`
+```bash
+git diff --cached --name-status
+git diff --cached --check
+```
 
-Do not mark a known Phase 10 or Phase 11 issue as a Phase 8 failure.
-
-## Staging and commit
-
-After verification:
-
-1. Classify every changed and untracked file as:
-
-   * Phase 8 implementation
-   * Phase 8 tests/documentation
-   * unrelated
-   * generated/temporary
-2. Stage only Phase 8 files.
-3. Review:
-
-   * `git diff --cached --name-status`
-   * `git diff --cached --stat`
-   * `git diff --cached --check`
-4. Ensure no cache, virtual environment, build output, credential, temporary audit artifact, or task-control file is staged.
 5. Create one commit:
 
-`build: lock dependencies and make production installs reproducible`
+```text
+build: lock dependencies and make production installs reproducible
+```
 
-Do not amend or rewrite earlier completed-phase commits.
-
-## After the commit
-
-Create a clean Phase 10 branch or worktree based exactly on the Phase 8 commit, but do not implement Phase 10.
-
-Preferred branch name:
-
-`phase-10-contract-drift`
-
-Report the exact command used and the resulting path/branch.
+6. Do not push unless explicitly requested.
 
 ## Final response
 
 Report:
 
-* verified starting branch and commit
 * Phase 8 commit hash
-* every file included in the commit
-* lock artifacts
-* exact Python, uv, Node, npm, and image versions
-* clean runtime/dev installation results
-* backend test result
-* frontend typecheck/build/Vitest results
-* Docker and Compose results
-* reproducibility inventory hashes
-* audit findings and temporary acceptances
-* files intentionally excluded
+* included files
+* exact tool and image versions
+* test and build results
+* reproducibility hashes
+* security audit classification
+* remaining known downstream failures
 * remaining dirty files
-* Phase 10 branch/worktree created
-* confirmation that no Phase 10 or other phase was implemented
-* strict Phase 8 status
+* final Git status
+* confirmation that no Phase 7, Phase 10, Phase 11, or other phase was implemented
 
-Stop after committing Phase 8 and preparing the clean Phase 10 branch/worktree.
+Stop after completing and committing Phase 8.
