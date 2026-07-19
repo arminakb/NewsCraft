@@ -362,6 +362,148 @@ async def test_openrouter_revalidates_redacted_output_against_exact_schema():
 
 
 @pytest.mark.parametrize(
+    ("payload", "stage"),
+    [
+        ({}, "choices"),
+        ({"choices": [{}]}, "message"),
+        ({"choices": [{"message": {"content": []}}]}, "content_type"),
+        ({"choices": [{"message": {"content": "private-invalid-value"}}]}, "content_json"),
+        (
+            {"choices": [{"message": {"content": {"parse_mode": "HTML", "buttons": []}}}]},
+            "schema",
+        ),
+        (
+            {
+                "choices": [
+                    {
+                        "message": {
+                            "content": {"body": "<script>x</script>", "parse_mode": "HTML", "buttons": []}
+                        }
+                    }
+                ]
+            },
+            "telegram_schema",
+        ),
+        (
+            {
+                "choices": [
+                    {"message": {"content": {"body": "ok", "parse_mode": "HTML", "buttons": []}}}
+                ],
+                "usage": {"prompt_tokens": "private-invalid-value"},
+            },
+            "usage",
+        ),
+        (
+            {
+                "choices": [
+                    {
+                        "message": {"content": {"body": "ok", "parse_mode": "HTML", "buttons": []}},
+                        "finish_reason": {"private": "value"},
+                    }
+                ]
+            },
+            "finish_reason",
+        ),
+        (
+            {
+                "choices": [
+                    {"message": {"content": {"body": "ok", "parse_mode": "HTML", "buttons": []}}}
+                ],
+                "model": {"private": "value"},
+            },
+            "resolved_model",
+        ),
+    ],
+)
+async def test_openrouter_diagnostics_identify_safe_failure_stage_without_raw_values(payload, stage):
+    provider, _, client = provider_with_response(payload)
+    try:
+        with pytest.raises(OpenRouterNeedsReviewError) as caught:
+            await provider.generate(provider_request())
+    finally:
+        await client.aclose()
+
+    diagnostic = caught.value.diagnostic
+    assert caught.value.code == f"openrouter_output_invalid_{stage}"
+    assert diagnostic["stage"] == stage
+    assert diagnostic["response_bytes"] > 0
+    assert len(diagnostic["response_sha256"]) == 64
+    assert diagnostic["requested_model"] == "openai/gpt-5-mini"
+    assert "private-invalid-value" not in str(diagnostic)
+    assert "test-key" not in str(diagnostic)
+
+
+async def test_openrouter_diagnostic_handles_non_json_body_and_safe_request_id():
+    async def respond(request):
+        return httpx.Response(
+            200,
+            content=b"private-invalid-value",
+            headers={"X-Request-ID": "request-123"},
+            request=request,
+        )
+
+    client = httpx.AsyncClient(transport=httpx.MockTransport(respond))
+    provider = OpenRouterProvider(http_client=client, api_key="test-key")
+    try:
+        with pytest.raises(OpenRouterNeedsReviewError) as caught:
+            await provider.generate(provider_request())
+    finally:
+        await client.aclose()
+    assert caught.value.diagnostic["stage"] == "body_json"
+    assert caught.value.diagnostic["request_id"] == "request-123"
+    assert "private-invalid-value" not in str(caught.value.diagnostic)
+
+
+async def test_openrouter_honors_bounded_retry_after_without_exposing_response():
+    async def respond(request):
+        return httpx.Response(
+            429,
+            json={"error": "private-invalid-value"},
+            headers={"Retry-After": "9999"},
+            request=request,
+        )
+
+    client = httpx.AsyncClient(transport=httpx.MockTransport(respond))
+    provider = OpenRouterProvider(http_client=client, api_key="test-key")
+    try:
+        with pytest.raises(OpenRouterRetryableError) as caught:
+            await provider.generate(provider_request())
+    finally:
+        await client.aclose()
+    assert caught.value.retry_after_seconds == 300
+    assert caught.value.diagnostic["stage"] == "http_status"
+    assert "private-invalid-value" not in str(caught.value.diagnostic)
+
+
+async def test_openrouter_optional_quarantine_receives_invalid_bytes_only_when_configured():
+    stored = []
+
+    class Quarantine:
+        async def store(self, content, **metadata):
+            stored.append((content, metadata))
+
+    async def respond(request):
+        return httpx.Response(200, content=b"invalid-private-output", request=request)
+
+    client = httpx.AsyncClient(transport=httpx.MockTransport(respond))
+    provider = OpenRouterProvider(
+        http_client=client,
+        api_key="test-key",
+        invalid_output_quarantine=Quarantine(),
+    )
+    try:
+        with pytest.raises(OpenRouterNeedsReviewError) as caught:
+            await provider.generate(provider_request())
+    finally:
+        await client.aclose()
+
+    assert stored[0][0] == b"invalid-private-output"
+    assert stored[0][1]["stage"] == "body_json"
+    assert len(stored[0][1]["response_sha256"]) == 64
+    assert "invalid-private-output" not in str(caught.value.diagnostic)
+
+
+@pytest.mark.parametrize(
     ("usage", "finish_reason"),
     [
         ({"prompt_tokens": 1, "completion_tokens": 1, "cost": "1.25"}, "stop"),

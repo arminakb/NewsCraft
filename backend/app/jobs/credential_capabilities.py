@@ -33,6 +33,7 @@ _SAFE_FAILURE_CODES = frozenset(
         "credential_invalid",
         "disabled",
         "executable_unavailable",
+        "generation_profile_unqualified",
         "invalid_configuration",
         "observation_missing",
         "observation_stale",
@@ -100,15 +101,24 @@ def provider_shape_capabilities(profile: AIProviderProfile) -> tuple[dict[str, b
         except ValueError:
             configured = None
             valid_settings = False
-        generation = bool(profile.default_model and profile.secret_ref and valid_settings)
+        base_available = bool(profile.default_model and profile.secret_ref and valid_settings)
+        generation = bool(
+            base_available
+            and configured is not None
+            and configured.pricing is not None
+            and configured.generation_policy is not None
+            and configured.generation_policy.qualification_status == "qualified"
+        )
         research = bool(
-            generation
+            base_available
             and configured is not None
             and configured.pricing is not None
             and configured.research_budgets is not None
         )
-        if not generation:
+        if not base_available:
             codes.append("invalid_configuration")
+        elif not generation:
+            codes.append("generation_profile_unqualified")
         elif not research:
             codes.append("research_configuration_missing")
     else:
@@ -182,12 +192,16 @@ class WorkerCredentialCapabilityObserver:
         if not profile.enabled:
             code = "disabled"
             available = False
-        elif not shaped["generation"]:
+        elif profile.provider_type == "openrouter":
+            if "invalid_configuration" in shape_codes:
+                available = False
+                code = "invalid_configuration"
+            else:
+                available = _secret_value(self.secret_resolver, profile.secret_ref) is not None
+                code = "available" if available else "credential_missing"
+        elif not any(shaped.values()):
             code = "invalid_configuration"
             available = False
-        elif profile.provider_type == "openrouter":
-            available = _secret_value(self.secret_resolver, profile.secret_ref) is not None
-            code = "available" if available else "credential_missing"
         elif profile.provider_type == "codex":
             available = bool(
                 self.config.codex_enabled
@@ -197,9 +211,15 @@ class WorkerCredentialCapabilityObserver:
         else:
             available = True
             code = "available"
-        observations = [
-            _observation("provider", profile.id, "generation", available, code)
-        ]
+        generation_available = available and shaped["generation"]
+        generation_code = (
+            "available"
+            if generation_available
+            else "generation_profile_unqualified"
+            if available and "generation_profile_unqualified" in shape_codes
+            else code
+        )
+        observations = [_observation("provider", profile.id, "generation", generation_available, generation_code)]
         research_available = available and shaped["research"]
         research_code = (
             "available"

@@ -30,6 +30,10 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     VIRTUAL_ENV=/opt/venv \
     PATH=/opt/venv/bin:$PATH
 
+RUN apt-get update \
+    && apt-get install --yes --no-install-recommends age=1.1.1-1+b3 \
+    && rm -rf /var/lib/apt/lists/*
+
 RUN groupadd --gid 10001 newscraft \
     && useradd --uid 10001 --gid 10001 --create-home --shell /usr/sbin/nologin newscraft \
     && mkdir -p /app /data/media /data/exports /data/media-staging \

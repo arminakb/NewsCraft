@@ -1,0 +1,72 @@
+name: Persian generation qualification
+
+on:
+  workflow_dispatch:
+    inputs:
+      provider_profile_id:
+        description: Immutable qualified provider profile ID
+        required: true
+        type: string
+      max_campaign_cost_usd:
+        description: Preapproved maximum campaign cost in USD
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: persian-generation-qualification
+  cancel-in-progress: false
+
+jobs:
+  qualify:
+    environment: persian-generation-evaluation
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+    env:
+      APP_ENV: production
+      DATABASE_URL: ${{ secrets.PERSIAN_EVALUATION_DATABASE_URL }}
+      NEWSCRAFT_PERSIAN_EVALUATION_DATABASE: isolated
+      OPENROUTER_EDITOR_KEY: ${{ secrets.OPENROUTER_EDITOR_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v7
+        with:
+          version: 0.11.29
+          enable-cache: true
+          cache-dependency-glob: backend/uv.lock
+      - uses: actions/setup-python@v6
+        with:
+          python-version: 3.14.6
+      - name: Install locked backend dependencies
+        working-directory: backend
+        run: uv sync --locked
+      - name: Validate migrations
+        working-directory: backend
+        run: uv run alembic upgrade head
+      - name: Run funded qualification campaign
+        working-directory: backend
+        env:
+          WORKER_SECRET_ROOT: ${{ runner.temp }}/newscraft-evaluation-secrets
+        run: |
+          install -d -m 700 "$WORKER_SECRET_ROOT"
+          install -m 600 /dev/null "$WORKER_SECRET_ROOT/OPENROUTER_EDITOR_KEY"
+          printf '%s' "$OPENROUTER_EDITOR_KEY" > "$WORKER_SECRET_ROOT/OPENROUTER_EDITOR_KEY"
+          unset OPENROUTER_EDITOR_KEY
+          PYTHONPATH=. uv run python -m app.jobs.worker --capability generation &
+          worker_pid=$!
+          trap 'kill "$worker_pid" 2>/dev/null || true' EXIT
+          PYTHONPATH=. uv run python -m app.validation.persian_generation \
+            --corpus ../validation/persian-generation/corpus-v1.json \
+            --provider-profile-id '${{ inputs.provider_profile_id }}' \
+            --repeats 2 \
+            --max-campaign-cost-usd '${{ inputs.max_campaign_cost_usd }}' \
+            --confirm-funded-run \
+            --output ../validation/persian-generation/run-v1.json
+      - name: Upload blinded review bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: persian-generation-run-${{ github.run_id }}
+          path: validation/persian-generation/run-v1.json
+          retention-days: 30

@@ -13,8 +13,14 @@ from app.core.codex_exec import CodexExecutor
 from app.core.config import Settings, settings
 from app.core.outbound_proxy import build_outbound_http_client
 from app.core.secrets import SecretResolver
+from app.generation.invalid_output_quarantine import AgeInvalidOutputQuarantine
 from app.generation.models import AIProviderProfile
-from app.generation.provider_settings import OpenRouterProviderSettings
+from app.generation.provider_identity import provider_configuration_identity
+from app.generation.provider_settings import (
+    CodexProviderSettings,
+    OpenRouterProviderSettings,
+    effective_codex_provider_settings,
+)
 from app.generation.providers.base import GenerationProvider
 from app.generation.providers.openrouter import OpenRouterProvider
 from app.generation.providers.registry import ProviderRegistry
@@ -30,6 +36,9 @@ class ResolvedProviderProfile:
     provider_type: str
     model: str
     provider: GenerationProvider = field(repr=False)
+    configuration_revision: str = ""
+    configuration_checksum: str = ""
+    max_output_tokens: int | None = None
 
 
 def _default_http_client_factory(**kwargs) -> httpx.AsyncClient:
@@ -69,10 +78,19 @@ class ProviderProfileResolver:
         if profile.provider_type == "fake":
             if profile.secret_ref is not None or dict(profile.settings or {}):
                 raise ProviderProfileConfigurationError("Fake provider profile has invalid settings")
+            model = model_override or profile.default_model or "fake-v1"
+            identity = provider_configuration_identity(
+                profile_id=profile.id,
+                provider_type="fake",
+                resolved_model=model,
+                safe_settings={},
+            )
             return ResolvedProviderProfile(
                 profile_id=profile.id,
                 provider_type="fake",
-                model=model_override or profile.default_model or "fake-v1",
+                model=model,
+                configuration_revision=identity.revision,
+                configuration_checksum=identity.checksum,
                 provider=self.provider_registry.get("fake"),
             )
         if profile.provider_type == "codex":
@@ -86,6 +104,9 @@ class ProviderProfileResolver:
             if executable is None:
                 raise ProviderProfileConfigurationError("Codex executable is unavailable")
             try:
+                validated_codex = effective_codex_provider_settings(
+                    CodexProviderSettings.model_validate(dict(profile.settings or {}))
+                )
                 provider = self.provider_registry.create(
                     "codex",
                     executor=self.codex_executor_factory(executable),
@@ -93,10 +114,18 @@ class ProviderProfileResolver:
                 )
             except TypeError, ValueError:
                 raise ProviderProfileConfigurationError("Selected provider profile settings are invalid") from None
+            identity = provider_configuration_identity(
+                profile_id=profile.id,
+                provider_type="codex",
+                resolved_model=profile.default_model,
+                safe_settings=validated_codex.model_dump(mode="json"),
+            )
             return ResolvedProviderProfile(
                 profile_id=profile.id,
                 provider_type="codex",
                 model=profile.default_model,
+                configuration_revision=identity.revision,
+                configuration_checksum=identity.checksum,
                 provider=provider,
             )
         if profile.provider_type != "openrouter":
@@ -137,15 +166,40 @@ class ProviderProfileResolver:
             "app_title": validated.app_title,
         }
         client = self.http_client_factory(**http_kwargs)
+        quarantine = None
+        if self.application_settings.generation_invalid_output_quarantine_enabled:
+            try:
+                quarantine = AgeInvalidOutputQuarantine(
+                    root=self.application_settings.generation_invalid_output_quarantine_root,
+                    recipient_file=self.application_settings.generation_invalid_output_quarantine_recipient_file,
+                    max_bytes=self.application_settings.generation_invalid_output_quarantine_max_bytes,
+                    ttl_days=self.application_settings.generation_invalid_output_quarantine_ttl_days,
+                    age_executable=self.application_settings.generation_invalid_output_quarantine_age_executable,
+                )
+            except (OSError, ValueError, RuntimeError):
+                await client.aclose()
+                raise ProviderProfileConfigurationError("Invalid output quarantine is unavailable") from None
         provider = OpenRouterProvider(
             http_client=client,
             api_key=api_key,
+            invalid_output_quarantine=quarantine,
             **http_kwargs,
+        )
+        identity = provider_configuration_identity(
+            profile_id=profile.id,
+            provider_type="openrouter",
+            resolved_model=model,
+            safe_settings=validated.model_dump(mode="json"),
         )
         return ResolvedProviderProfile(
             profile_id=profile.id,
             provider_type="openrouter",
             model=model,
+            configuration_revision=identity.revision,
+            configuration_checksum=identity.checksum,
+            max_output_tokens=(
+                validated.generation_policy.max_output_tokens if validated.generation_policy is not None else None
+            ),
             provider=provider,
         )
 

@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import re
 from collections.abc import Awaitable, Callable
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from types import UnionType
 from typing import Any, Literal, Union, get_args, get_origin
 from uuid import UUID, uuid4
@@ -598,6 +598,8 @@ async def _invoke(
     workflow_job_id: UUID,
     workflow_attempt: int,
     validate_output: Callable[[dict[str, Any]], Any],
+    expected_provider_configuration_revision: str | None = None,
+    expected_provider_configuration_checksum: str | None = None,
     before_provider_call: Callable[[], Awaitable[None]] | None = None,
     fault_injector: FaultInjector | None = None,
 ) -> tuple[GenerationRun, GenerationAttempt, Any]:
@@ -765,6 +767,7 @@ async def _invoke(
             "provider_profile_id": str(profile.id),
             "prompt_template_version_id": str(prompt.id),
             "input_payload": dict(input_payload),
+            "max_output_tokens": getattr(resolved, "max_output_tokens", None),
         },
     )
     provider_completed = False
@@ -774,6 +777,42 @@ async def _invoke(
             # The callback may use SELECT ... FOR UPDATE. Release that read
             # transaction before crossing the provider/network boundary.
             await context.session.commit()
+        if (
+            expected_provider_configuration_revision is not None
+            or expected_provider_configuration_checksum is not None
+        ):
+            await context.session.refresh(profile)
+            try:
+                latest = await profile_resolver.resolve(profile, None)
+            except Exception:
+                old_client = getattr(resolved.provider, "http_client", None)
+                if old_client is not None and hasattr(old_client, "aclose"):
+                    await old_client.aclose()
+                raise PermanentJobError(
+                    code="generation_provider_configuration_changed",
+                    message="Generation provider configuration changed after enqueue",
+                ) from None
+            if (
+                expected_provider_configuration_revision is not None
+                and latest.configuration_revision != expected_provider_configuration_revision
+            ) or (
+                expected_provider_configuration_checksum is not None
+                and latest.configuration_checksum != expected_provider_configuration_checksum
+            ):
+                latest_client = getattr(latest.provider, "http_client", None)
+                if latest_client is not None and hasattr(latest_client, "aclose"):
+                    await latest_client.aclose()
+                old_client = getattr(resolved.provider, "http_client", None)
+                if old_client is not None and hasattr(old_client, "aclose"):
+                    await old_client.aclose()
+                raise PermanentJobError(
+                    code="generation_provider_configuration_changed",
+                    message="Generation provider configuration changed after enqueue",
+                )
+            old_client = getattr(resolved.provider, "http_client", None)
+            if old_client is not None and old_client is not getattr(latest.provider, "http_client", None):
+                await old_client.aclose()
+            resolved = latest
         result = await resolved.provider.generate(request)
         provider_completed = True
         await injector.hit(
@@ -829,9 +868,15 @@ async def _invoke(
             )
             error_class = "permanent"
         else:
+            retry_after_seconds = getattr(exc, "retry_after_seconds", None)
+            if retry_after_seconds is None:
+                base_delay = min(120, 5 * (2 ** max(0, workflow_attempt - 1)))
+                jitter_seed = int.from_bytes(workflow_job_id.bytes[-2:], byteorder="big") / 65_535
+                retry_after_seconds = base_delay + (base_delay * 0.2 * jitter_seed)
             mapped = RetryableJobError(
                 code=provider_code,
                 message="Generation provider call failed",
+                retry_at=datetime.now(UTC) + timedelta(seconds=retry_after_seconds),
             )
             error_class = "retryable"
         async with context.session.begin():
@@ -871,6 +916,8 @@ async def _invoke(
                                 )
                             ]
                         )
+                    elif isinstance(getattr(exc, "diagnostic", None), dict):
+                        current_attempt.validation_errors = _redacted_list([exc.diagnostic])
                     elif isinstance(exc, CitationIntegrityError):
                         current_attempt.validation_errors = _redacted_list(
                             [
@@ -1061,6 +1108,8 @@ def build_canonical_generation_handler(
             input_hash=input_hash,
             workflow_job_id=job.id,
             workflow_attempt=job.attempt_count,
+            expected_provider_configuration_revision=payload.get("generation_provider_configuration_revision"),
+            expected_provider_configuration_checksum=payload.get("generation_provider_configuration_checksum"),
             validate_output=validate_canonical,
             before_provider_call=before_provider_call,
             fault_injector=injector,
@@ -1472,6 +1521,8 @@ def build_pack_generation_handler(
                 input_hash=input_hash,
                 workflow_job_id=job.id,
                 workflow_attempt=job.attempt_count,
+                expected_provider_configuration_revision=payload.get("generation_provider_configuration_revision"),
+                expected_provider_configuration_checksum=payload.get("generation_provider_configuration_checksum"),
                 validate_output=validate_output,
                 before_provider_call=before_provider_call,
                 fault_injector=injector,

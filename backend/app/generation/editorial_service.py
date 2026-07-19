@@ -37,6 +37,11 @@ from app.generation.platform_schemas import (
     XVariantPayload,
 )
 from app.generation.platform_validation import revision_gates_from_issues, validate_platform_payload
+from app.generation.provider_identity import (
+    ProviderConfigurationIdentity,
+    is_qualified_generation_profile,
+    provider_identity_for_profile,
+)
 from app.generation.revision_fence import RegenerationFenceConflict, require_revision_write_allowed
 from app.generation.revision_validation import RevisionValidationError, validate_approvable_revision
 from app.generation.telegram_schema import (
@@ -182,7 +187,7 @@ class EditorialService:
             raise InvalidGenerationRequest(f"requires exactly one active {purpose} prompt version")
         return rows[0]
 
-    async def _require_profile(self, profile_id: UUID) -> AIProviderProfile:
+    async def _require_profile(self, profile_id: UUID) -> tuple[AIProviderProfile, ProviderConfigurationIdentity]:
         profile = await self.session.scalar(
             select(AIProviderProfile).where(AIProviderProfile.id == profile_id).with_for_update()
         )
@@ -196,19 +201,39 @@ class EditorialService:
                 validate = getattr(self.profile_resolver, "validate_availability", None)
                 if validate is None:
                     validate = self.profile_resolver.resolve
-                await validate(profile, None)
+                resolved = await validate(profile, None)
             except Exception:
                 raise InvalidGenerationRequest("generation provider profile is unavailable") from None
-        return profile
+        try:
+            if not is_qualified_generation_profile(profile):
+                raise InvalidGenerationRequest("generation provider profile is not qualified")
+        except ValueError:
+            raise InvalidGenerationRequest("generation provider profile is unavailable") from None
+        if self.profile_resolver is not None:
+            if getattr(resolved, "configuration_checksum", None):
+                return profile, ProviderConfigurationIdentity(
+                    revision=resolved.configuration_revision,
+                    checksum=resolved.configuration_checksum,
+                )
+        try:
+            return profile, provider_identity_for_profile(profile)
+        except ValueError:
+            raise InvalidGenerationRequest("generation provider profile is unavailable") from None
 
-    async def request_content_pack(self, story_id: UUID, request: GeneratePackRequest) -> JobAcceptedOut:
+    async def request_content_pack(
+        self,
+        story_id: UUID,
+        request: GeneratePackRequest,
+        *,
+        evaluation_run_id: UUID | None = None,
+    ) -> JobAcceptedOut:
         platforms = deduplicate_preserving_order(request.platforms)
         canonical = await self.require_active_prompt_version("canonical_story")
         platform_prompts = {
             platform: await self.require_active_prompt_version(PLATFORM_PROMPT_PURPOSE[platform])
             for platform in platforms
         }
-        await self._require_profile(request.generation_provider_profile_id)
+        _profile, provider_identity = await self._require_profile(request.generation_provider_profile_id)
         story = await self.session.scalar(
             select(Story).where(Story.id == story_id, Story.superseded_by_id.is_(None)).with_for_update()
         )
@@ -256,8 +281,14 @@ class EditorialService:
                 "platform_prompt_checksums": {
                     platform: prompt.checksum_sha256 for platform, prompt in platform_prompts.items()
                 },
+                "generation_provider_configuration_revision": provider_identity.revision,
+                "generation_provider_configuration_checksum": provider_identity.checksum,
             }
         )
+        if evaluation_run_id is not None:
+            # This is intentionally an internal-only argument. Public request
+            # schemas cannot bypass production idempotency.
+            payload["evaluation_run_id"] = str(evaluation_run_id)
         digest = hashlib.sha256(json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
         if request.research_mode == "auto_if_incomplete":
             continuation = {
@@ -536,7 +567,7 @@ class EditorialService:
         return revision
 
     async def regenerate_variant(self, variant_id: UUID, request: RegenerateVariantRequest) -> JobAcceptedOut:
-        await self._require_profile(request.generation_provider_profile_id)
+        _profile, provider_identity = await self._require_profile(request.generation_provider_profile_id)
         variant = await self.session.scalar(
             select(PlatformVariant).where(PlatformVariant.id == variant_id).with_for_update()
         )
@@ -563,6 +594,8 @@ class EditorialService:
             "platforms": [variant.platform],
             "platform_prompt_template_version_ids": {variant.platform: str(prompt.id)},
             "platform_prompt_checksums": {variant.platform: prompt.checksum_sha256},
+            "generation_provider_configuration_revision": provider_identity.revision,
+            "generation_provider_configuration_checksum": provider_identity.checksum,
         }
         digest = hashlib.sha256(json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
         result = await self.jobs.enqueue_job(

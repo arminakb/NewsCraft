@@ -1,0 +1,1542 @@
+{
+  "schema_version": "persian-generation-corpus-v1",
+  "description": "Locked synthetic Persian editorial qualification corpus; no production or personal data.",
+  "stories": [
+    {
+      "id": "ef62bb47-e085-5d07-8ec2-19c73ee406d4",
+      "split": "calibration",
+      "source_type": "rss",
+      "length": "short",
+      "category": "hard_news",
+      "flags": [
+        "conflicting_multi_source"
+      ],
+      "title": "نمونه ارزیابی 1: گزارش hard news",
+      "expected_language": "fa",
+      "promotional": false,
+      "title_constraints": {
+        "language": "fa",
+        "must_be_complete": true,
+        "must_not_be_link_only": true,
+        "must_not_be_generic": true
+      },
+      "evidence": [
+        {
+          "id": "ca705a76-a6ab-5766-8c3b-2499e7a02a37",
+          "evidence_key": "corpus:1:1",
+          "title": "نمونه ارزیابی 1: گزارش hard news",
+          "source_url": "https://evaluation.invalid/rss/1/1",
+          "text": "در نمونه 1، منبع اصلی اعلام کرد نسخه AI-1 در ساعت ۱۴:۳۰ منتشر شد. این متن شامل فارسی، English name، عدد 2026 و نیم‌فاصله است.",
+          "sha256": "64c5e6d64bcf01d25f2a6d71f2a59b26a18d137ab2dd5543b9b679683829d5a8"
+        },
+        {
+          "id": "af971f08-5905-593f-ab2d-03cfce887277",
+          "evidence_key": "corpus:1:2",
+          "title": "گزارش تکمیلی نمونه 1",
+          "source_url": "https://evaluation.invalid/rss/1/2",
+          "text": "منبع دوم درباره نمونه 1 زمان انتشار را ۱۵:۰۰ گزارش کرده و تأکید می‌کند قیمت هنوز قطعی نیست.",
+          "sha256": "917b3199f9d86c5131cdc9bb6e568c0bb26e449f71fca8c1be902fbb58ac0944"
+        }
+      ],
+      "expected_claims": [
+        {
+          "id": "claim-1-1",
+          "text": "در نمونه 1، منبع اصلی اعلام کرد نسخه AI-1 در ساعت ۱۴:۳۰ منتشر شد",
+          "evidence_ids": [
+            "ca705a76-a6ab-5766-8c3b-2499e7a02a37"
+          ]
+        }
+      ],
+      "research_enabled": false
+    },
+    {
+      "id": "4337a824-683d-520a-a566-9a0d06dc6c2a",
+      "split": "calibration",
+      "source_type": "rss",
+      "length": "medium",
+      "category": "hard_news",
+      "flags": [
+        "conflicting_multi_source"
+      ],
+      "title": "نمونه ارزیابی 2: گزارش hard news",
+      "expected_language": "fa",
+      "promotional": false,
+      "title_constraints": {
+        "language": "fa",
+        "must_be_complete": true,
+        "must_not_be_link_only": true,
+        "must_not_be_generic": true
+      },
+      "evidence": [
+        {
+          "id": "abff32f3-14bb-5439-a3c7-b6dca08e32ae",
+          "evidence_key": "corpus:2:1",
+          "title": "نمونه ارزیابی 2: گزارش hard news",
+          "source_url": "https://evaluation.invalid/rss/2/1",
+          "text": "در نمونه 2، منبع اصلی اعلام کرد نسخه AI-2 در ساعت ۱۴:۳۰ منتشر شد. این متن شامل فارسی، English name، عدد 2026 و نیم‌فاصله است.",
+          "sha256": "744ab3e39606e79877f71136be19819ba24885e0ca0a84c6a59b40d9066437ba"
+        },
+        {
+          "id": "08f319b4-ffd6-5e5f-894d-815867f5b797",
+          "evidence_key": "corpus:2:2",
+          "title": "گزارش تکمیلی نمونه 2",
+          "source_url": "https://evaluation.invalid/rss/2/2",
+          "text": "منبع دوم درباره نمونه 2 زمان انتشار را ۱۵:۰۰ گزارش کرده و تأکید می‌کند قیمت هنوز قطعی نیست.",
+          "sha256": "aff2174fd9817eae7fd9851e6d5447c468c4adaa374c18bdb8a9364f5ca00ae5"
+        }
+      ],
+      "expected_claims": [
+        {
+          "id": "claim-2-1",
+          "text": "در نمونه 2، منبع اصلی اعلام کرد نسخه AI-2 در ساعت ۱۴:۳۰ منتشر شد",
+          "evidence_ids": [
+            "abff32f3-14bb-5439-a3c7-b6dca08e32ae"
+          ]
+        }
+      ],
+      "research_enabled": false
+    },
+    {
+      "id": "4b0f57ed-809c-5ab7-a00c-793d01f7e477",
+      "split": "calibration",
+      "source_type": "rss",
+      "length": "long",
+      "category": "hard_news",
+      "flags": [
+        "conflicting_multi_source"
+      ],
+      "title": "نمونه ارزیابی 3: گزارش hard news",
+      "expected_language": "fa",
+      "promotional": false,
+      "title_constraints": {
+        "language": "fa",
+        "must_be_complete": true,
+        "must_not_be_link_only": true,
+        "must_not_be_generic": true
+      },
+      "evidence": [
+        {
+          "id": "a6bdf618-9e04-5be1-8934-1c0a5405aae0",
+          "evidence_key": "corpus:3:1",
+          "title": "نمونه ارزیابی 3: گزارش hard news",
+          "source_url": "https://evaluation.invalid/rss/3/1",
+          "text": "در نمونه 3، منبع اصلی اعلام کرد نسخه AI-3 در ساعت ۱۴:۳۰ منتشر شد. این متن شامل فارسی، English name، عدد 2026 و نیم‌فاصله است.",
+          "sha256": "76eeb06527faabaed30b9797f9822f04cd0010c24a08d257a99340fe35bac718"
+        },
+        {
+          "id": "e7d94059-ad8d-566c-9e11-1ad1de7076fb",
+          "evidence_key": "corpus:3:2",
+          "title": "گزارش تکمیلی نمونه 3",
+          "source_url": "https://evaluation.invalid/rss/3/2",
+          "text": "منبع دوم درباره نمونه 3 زمان انتشار را ۱۵:۰۰ گزارش کرده و تأکید می‌کند قیمت هنوز قطعی نیست.",
+          "sha256": "e4ee0dcb746eb55e10de0f7e1b7c25d321091915f56e88e602c7cd8ab5dd731e"
+        }
+      ],
+      "expected_claims": [
+        {
+          "id": "claim-3-1",
+          "text": "در نمونه 3، منبع اصلی اعلام کرد نسخه AI-3 در ساعت ۱۴:۳۰ منتشر شد",
+          "evidence_ids": [
+            "a6bdf618-9e04-5be1-8934-1c0a5405aae0"
+          ]
+        }
+      ],
+      "research_enabled": false
+    },
+    {
+      "id": "3518f6a0-b000-58ae-9118-a5fd105beb74",
+      "split": "calibration",
+      "source_type": "rss",
+      "length": "short",
+      "category": "hard_news",
+      "flags": [
+        "conflicting_multi_source"
+      ],
+      "title": "نمونه ارزیابی 4: گزارش hard news",
+      "expected_language": "fa",
+      "promotional": false,
+      "title_constraints": {
+        "language": "fa",
+        "must_be_complete": true,
+        "must_not_be_link_only": true,
+        "must_not_be_generic": true
+      },
+      "evidence": [
+        {
+          "id": "7f266898-383d-5002-8f3e-470c03947bb6",
+          "evidence_key": "corpus:4:1",
+          "title": "نمونه ارزیابی 4: گزارش hard news",
+          "source_url": "https://evaluation.invalid/rss/4/1",
+          "text": "در نمونه 4، منبع اصلی اعلام کرد نسخه AI-4 در ساعت ۱۴:۳۰ منتشر شد. این متن شامل فارسی، English name، عدد 2026 و نیم‌فاصله است.",
+          "sha256": "878332c9c1eb07a13d63674cf6f15e7dfd8777dd4327b4fa5e0c89d7ed71fd42"
+        },
+        {
+          "id": "ca2f9406-580d-5dfa-bbc9-d17eadd000fb",
+          "evidence_key": "corpus:4:2",
+          "title": "گزارش تکمیلی نمونه 4",
+          "source_url": "https://evaluation.invalid/rss/4/2",
+          "text": "منبع دوم درباره نمونه 4 زمان انتشار را ۱۵:۰۰ گزارش کرده و تأکید می‌کند قیمت هنوز قطعی نیست.",
+          "sha256": "beb3dc9df9cc2549abeeae235bef6bf3e659c45e586fa3724d4e4bcbea6eb866"
+        }
+      ],
+      "expected_claims": [
+        {
+          "id": "claim-4-1",
+          "text": "در نمونه 4، منبع اصلی اعلام کرد نسخه AI-4 در ساعت ۱۴:۳۰ منتشر شد",
+          "evidence_ids": [
+            "7f266898-383d-5002-8f3e-470c03947bb6"
+          ]
+        }
+      ],
+      "research_enabled": false
+    },
+    {
+      "id": "2a9b84ea-97d6-5df1-9511-a9436cab8e3c",
+      "split": "calibration",
+      "source_type": "rss",
+      "length": "medium",
+      "category": "hard_news",
+      "flags": [
+        "conflicting_multi_source"
+      ],
+      "title": "نمونه ارزیابی 5: گزارش hard news",
+      "expected_language": "fa",
+      "promotional": false,
+      "title_constraints": {
+        "language": "fa",
+        "must_be_complete": true,
+        "must_not_be_link_only": true,
+        "must_not_be_generic": true
+      },
+      "evidence": [
+        {
+          "id": "96264768-bc45-5d2b-9bc8-2eccce26fa18",
+          "evidence_key": "corpus:5:1",
+          "title": "نمونه ارزیابی 5: گزارش hard news",
+          "source_url": "https://evaluation.invalid/rss/5/1",
+          "text": "در نمونه 5، منبع اصلی اعلام کرد نسخه AI-5 در ساعت ۱۴:۳۰ منتشر شد. این متن شامل فارسی، English name، عدد 2026 و نیم‌فاصله است.",
+          "sha256": "d86151cac8b0cdccc45a8dc629332a3a022e292f3bcceb7b0f2cbf12f567333f"
+        },
+        {
+          "id": "4cc07343-9298-54a3-873f-4dc3047c3b2d",
+          "evidence_key": "corpus:5:2",
+          "title": "گزارش تکمیلی نمونه 5",
+          "source_url": "https://evaluation.invalid/rss/5/2",
+          "text": "منبع دوم درباره نمونه 5 زمان انتشار را ۱۵:۰۰ گزارش کرده و تأکید می‌کند قیمت هنوز قطعی نیست.",
+          "sha256": "2255ceb69562b4b0911f63659fc88dd32a63c78a4c51a958fd2e392cb1ddce04"
+        }
+      ],
+      "expected_claims": [
+        {
+          "id": "claim-5-1",
+          "text": "در نمونه 5، منبع اصلی اعلام کرد نسخه AI-5 در ساعت ۱۴:۳۰ منتشر شد",
+          "evidence_ids": [
+            "96264768-bc45-5d2b-9bc8-2eccce26fa18"
+          ]
+        }
+      ],
+      "research_enabled": false
+    },
+    {
+      "id": "8518e70e-525f-5b01-9a82-6eaa54b3fe99",
+      "split": "calibration",
+      "source_type": "rss",
+      "length": "long",
+      "category": "hard_news",
+      "flags": [
+        "conflicting_multi_source"
+      ],
+      "title": "نمونه ارزیابی 6: گزارش hard news",
+      "expected_language": "fa",
+      "promotional": false,
+      "title_constraints": {
+        "language": "fa",
+        "must_be_complete": true,
+        "must_not_be_link_only": true,
+        "must_not_be_generic": true
+      },
+      "evidence": [
+        {
+          "id": "90e2b51e-3cbf-55c0-858e-4b6118ba5aba",
+          "evidence_key": "corpus:6:1",
+          "title": "نمونه ارزیابی 6: گزارش hard news",
+          "source_url": "https://evaluation.invalid/rss/6/1",
+          "text": "در نمونه 6، منبع اصلی اعلام کرد نسخه AI-6 در ساعت ۱۴:۳۰ منتشر شد. این متن شامل فارسی، English name، عدد 2026 و نیم‌فاصله است.",
+          "sha256": "ed2f2e9d8353b39df7e9e7ae2d9558e3ee8c2e60816b10632a09000d09d32219"
+        },
+        {
+          "id": "2730313a-6a0e-5359-83c0-ccbf32136182",
+          "evidence_key": "corpus:6:2",
+          "title": "گزارش تکمیلی نمونه 6",
+          "source_url": "https://evaluation.invalid/rss/6/2",
+          "text": "منبع دوم درباره نمونه 6 زمان انتشار را ۱۵:۰۰ گزارش کرده و تأکید می‌کند قیمت هنوز قطعی نیست.",
+          "sha256": "b33248e2db8d442a5a4433406b91ce712e8cf62dcfc43e6d18e86aae31da94c7"
+        }
+      ],
+      "expected_claims": [
+        {
+          "id": "claim-6-1",
+          "text": "در نمونه 6، منبع اصلی اعلام کرد نسخه AI-6 در ساعت ۱۴:۳۰ منتشر شد",
+          "evidence_ids": [
+            "90e2b51e-3cbf-55c0-858e-4b6118ba5aba"
+          ]
+        }
+      ],
+      "research_enabled": false
+    },
+    {
+      "id": "1adc013e-805d-533b-ab71-d02ae7cb587a",
+      "split": "calibration",
+      "source_type": "rss",
+      "length": "short",
+      "category": "tutorial_analysis",
+      "flags": [
+        "conflicting_multi_source"
+      ],
+      "title": "نمونه ارزیابی 7: گزارش tutorial analysis",
+      "expected_language": "fa",
+      "promotional": false,
+      "title_constraints": {
+        "language": "fa",
+        "must_be_complete": true,
+        "must_not_be_link_only": true,
+        "must_not_be_generic": true
+      },
+      "evidence": [
+        {
+          "id": "e883b808-12ed-5873-a50e-935cdf37d57b",
+          "evidence_key": "corpus:7:1",
+          "title": "نمونه ارزیابی 7: گزارش tutorial analysis",
+          "source_url": "https://evaluation.invalid/rss/7/1",
+          "text": "در نمونه 7، منبع اصلی اعلام کرد نسخه AI-7 در ساعت ۱۴:۳۰ منتشر شد. این متن شامل فارسی، English name، عدد 2026 و نیم‌فاصله است.",
+          "sha256": "f4e26f403a85561fe8260f841ee39451236444f1950e2e896cd8ef0163ede3fe"
+        },
+        {
+          "id": "6aada6e8-ce1a-521b-b86a-8766ede87c61",
+          "evidence_key": "corpus:7:2",
+          "title": "گزارش تکمیلی نمونه 7",
+          "source_url": "https://evaluation.invalid/rss/7/2",
+          "text": "منبع دوم درباره نمونه 7 زمان انتشار را ۱۵:۰۰ گزارش کرده و تأکید می‌کند قیمت هنوز قطعی نیست.",
+          "sha256": "4dd8e8aee081b42201c13a6a0de78d4b4532f12640b7ccd81f426bd1c2b97409"
+        }
+      ],
+      "expected_claims": [
+        {
+          "id": "claim-7-1",
+          "text": "در نمونه 7، منبع اصلی اعلام کرد نسخه AI-7 در ساعت ۱۴:۳۰ منتشر شد",
+          "evidence_ids": [
+            "e883b808-12ed-5873-a50e-935cdf37d57b"
+          ]
+        }
+      ],
+      "research_enabled": false
+    },
+    {
+      "id": "2e29e706-8abe-542b-840a-28a08f7a562f",
+      "split": "calibration",
+      "source_type": "rss",
+      "length": "medium",
+      "category": "tutorial_analysis",
+      "flags": [
+        "conflicting_multi_source"
+      ],
+      "title": "نمونه ارزیابی 8: گزارش tutorial analysis",
+      "expected_language": "fa",
+      "promotional": false,
+      "title_constraints": {
+        "language": "fa",
+        "must_be_complete": true,
+        "must_not_be_link_only": true,
+        "must_not_be_generic": true
+      },
+      "evidence": [
+        {
+          "id": "d1a3c7d3-a153-5b48-b1ff-2d6e89e066e0",
+          "evidence_key": "corpus:8:1",
+          "title": "نمونه ارزیابی 8: گزارش tutorial analysis",
+          "source_url": "https://evaluation.invalid/rss/8/1",
+          "text": "در نمونه 8، منبع اصلی اعلام کرد نسخه AI-8 در ساعت ۱۴:۳۰ منتشر شد. این متن شامل فارسی، English name، عدد 2026 و نیم‌فاصله است.",
+          "sha256": "bc573ff59d16e2205392fee72b9f5009959f654924ef801409c720c9e0354cd5"
+        },
+        {
+          "id": "9b2ebaf4-343c-590c-9f0a-9aad6ec77285",
+          "evidence_key": "corpus:8:2",
+          "title": "گزارش تکمیلی نمونه 8",
+          "source_url": "https://evaluation.invalid/rss/8/2",
+          "text": "منبع دوم درباره نمونه 8 زمان انتشار را ۱۵:۰۰ گزارش کرده و تأکید می‌کند قیمت هنوز قطعی نیست.",
+          "sha256": "1404bbded203d503186aaa30f67f9a62ae37db92b62ff727d50ec70e3f5f81e7"
+        }
+      ],
+      "expected_claims": [
+        {
+          "id": "claim-8-1",
+          "text": "در نمونه 8، منبع اصلی اعلام کرد نسخه AI-8 در ساعت ۱۴:۳۰ منتشر شد",
+          "evidence_ids": [
+            "d1a3c7d3-a153-5b48-b1ff-2d6e89e066e0"
+          ]
+        }
+      ],
+      "research_enabled": false
+    },
+    {
+      "id": "b8ad5e75-1158-58c6-a7e2-a82571c5b955",
+      "split": "calibration",
+      "source_type": "rss",
+      "length": "long",
+      "category": "tutorial_analysis",
+      "flags": [
+        "insufficient_evidence"
+      ],
+      "title": "نمونه ارزیابی 9: گزارش tutorial analysis",
+      "expected_language": "fa",
+      "promotional": false,
+      "title_constraints": {
+        "language": "fa",
+        "must_be_complete": true,
+        "must_not_be_link_only": true,
+        "must_not_be_generic": true
+      },
+      "evidence": [
+        {
+          "id": "fc199e21-2476-598d-a25d-be733d1dc226",
+          "evidence_key": "corpus:9:1",
+          "title": "نمونه ارزیابی 9: گزارش tutorial analysis",
+          "source_url": "https://evaluation.invalid/rss/9/1",
+          "text": "منبع 9 فقط از یک رویداد احتمالی خبر می‌دهد و جزئیات تأییدشده ارائه نمی‌کند.",
+          "sha256": "2b10d9b0ca05d31a5682b9c54922e8d557a2297a304a2e7266cf8b8dd0537c5d"
+        },
+        {
+          "id": "87fa5411-80f9-5091-a5d7-2c442972e711",
+          "evidence_key": "corpus:9:2",
+          "title": "گزارش تکمیلی نمونه 9",
+          "source_url": "https://evaluation.invalid/rss/9/2",
+          "text": "منبع دوم درباره نمونه 9 زمان انتشار را ۱۵:۰۰ گزارش کرده و تأکید می‌کند قیمت هنوز قطعی نیست.",
+          "sha256": "2e94de4bb0d56ff84c00ed7b356a288cdb1bcadebc5467fdd7da9275e53f1904"
+        }
+      ],
+      "expected_claims": [
+        {
+          "id": "claim-9-1",
+          "text": "منبع 9 فقط از یک رویداد احتمالی خبر می‌دهد و جزئیات تأییدشده ارائه نمی‌کند",
+          "evidence_ids": [
+            "fc199e21-2476-598d-a25d-be733d1dc226"
+          ]
+        }
+      ],
+      "research_enabled": false
+    },
+    {
+      "id": "b35621bf-c52f-55e6-aad1-6fc2f1c0344a",
+      "split": "calibration",
+      "source_type": "rss",
+      "length": "short",
+      "category": "tutorial_analysis",
+      "flags": [
+        "insufficient_evidence"
+      ],
+      "title": "نمونه ارزیابی 10: گزارش tutorial analysis",
+      "expected_language": "fa",
+      "promotional": false,
+      "title_constraints": {
+        "language": "fa",
+        "must_be_complete": true,
+        "must_not_be_link_only": true,
+        "must_not_be_generic": true
+      },
+      "evidence": [
+        {
+          "id": "ce794cd8-b0eb-58d8-82ad-eb4c60074f0b",
+          "evidence_key": "corpus:10:1",
+          "title": "نمونه ارزیابی 10: گزارش tutorial analysis",
+          "source_url": "https://evaluation.invalid/rss/10/1",
+          "text": "منبع 10 فقط از یک رویداد احتمالی خبر می‌دهد و جزئیات تأییدشده ارائه نمی‌کند.",
+          "sha256": "eea4023d6fd8806e2f76b1f6e23f2be5b0d3ebf18edfbda51767248d2033ea04"
+        }
+      ],
+      "expected_claims": [
+        {
+          "id": "claim-10-1",
+          "text": "منبع 10 فقط از یک رویداد احتمالی خبر می‌دهد و جزئیات تأییدشده ارائه نمی‌کند",
+          "evidence_ids": [
+            "ce794cd8-b0eb-58d8-82ad-eb4c60074f0b"
+          ]
+        }
+      ],
+      "research_enabled": false
+    },
+    {
+      "id": "53fcb75f-26df-5e43-a2ec-1ca1c30f8014",
+      "split": "calibration",
+      "source_type": "rss",
+      "length": "medium",
+      "category": "tutorial_analysis",
+      "flags": [
+        "insufficient_evidence"
+      ],
+      "title": "نمونه ارزیابی 11: گزارش tutorial analysis",
+      "expected_language": "fa",
+      "promotional": false,
+      "title_constraints": {
+        "language": "fa",
+        "must_be_complete": true,
+        "must_not_be_link_only": true,
+        "must_not_be_generic": true
+      },
+      "evidence": [
+        {
+          "id": "2bb9e184-d39d-5fd0-a1b5-3fa02458971d",
+          "evidence_key": "corpus:11:1",
+          "title": "نمونه ارزیابی 11: گزارش tutorial analysis",
+          "source_url": "https://evaluation.invalid/rss/11/1",
+          "text": "منبع 11 فقط از یک رویداد احتمالی خبر می‌دهد و جزئیات تأییدشده ارائه نمی‌کند.",
+          "sha256": "c7fb6cda91f1f46aa376791e3a899c2d45e91b08adc43b23fabd4f43ad153656"
+        }
+      ],
+      "expected_claims": [
+        {
+          "id": "claim-11-1",
+          "text": "منبع 11 فقط از یک رویداد احتمالی خبر می‌دهد و جزئیات تأییدشده ارائه نمی‌کند",
+          "evidence_ids": [
+            "2bb9e184-d39d-5fd0-a1b5-3fa02458971d"
+          ]
+        }
+      ],
+      "research_enabled": false
+    },
+    {
+      "id": "0fa09526-c24d-5082-980d-a01a321ab9f3",
+      "split": "calibration",
+      "source_type": "rss",
+      "length": "long",
+      "category": "tutorial_analysis",
+      "flags": [
+        "insufficient_evidence"
+      ],
+      "title": "نمونه ارزیابی 12: گزارش tutorial analysis",
+      "expected_language": "fa",
+      "promotional": false,
+      "title_constraints": {
+        "language": "fa",
+        "must_be_complete": true,
+        "must_not_be_link_only": true,
+        "must_not_be_generic": true
+      },
+      "evidence": [
+        {
+          "id": "bca6f71f-1e11-54f9-bfb3-acf72d6258b9",
+          "evidence_key": "corpus:12:1",
+          "title": "نمونه ارزیابی 12: گزارش tutorial analysis",
+          "source_url": "https://evaluation.invalid/rss/12/1",
+          "text": "منبع 12 فقط از یک رویداد احتمالی خبر می‌دهد و جزئیات تأییدشده ارائه نمی‌کند.",
+          "sha256": "00babc56610118999d641913fcfe09953c96d1a6e3617b3f961dcedc4b8c45f1"
+        },
+        {
+          "id": "2f115dbb-7534-584f-9603-82dbe5f51cb2",
+          "evidence_key": "corpus:12:2",
+          "title": "گزارش تکمیلی نمونه 12",
+          "source_url": "https://evaluation.invalid/rss/12/2",
+          "text": "منبع دوم درباره نمونه 12 زمان انتشار را ۱۵:۰۰ گزارش کرده و تأکید می‌کند قیمت هنوز قطعی نیست.",
+          "sha256": "e996333209290ca1e53afc00464250d98515124fcd7e9f2b259e2066857b1305"
+        }
+      ],
+      "expected_claims": [
+        {
+          "id": "claim-12-1",
+          "text": "منبع 12 فقط از یک رویداد احتمالی خبر می‌دهد و جزئیات تأییدشده ارائه نمی‌کند",
+          "evidence_ids": [
+            "bca6f71f-1e11-54f9-bfb3-acf72d6258b9"
+          ]
+        }
+      ],
+      "research_enabled": false
+    },
+    {
+      "id": "36fd92cd-3eee-555e-a395-557b50f25c09",
+      "split": "held_out",
+      "source_type": "rss",
+      "length": "short",
+      "category": "research_technical",
+      "flags": [
+        "insufficient_evidence"
+      ],
+      "title": "نمونه ارزیابی 13: گزارش research technical",
+      "expected_language": "fa",
+      "promotional": false,
+      "title_constraints": {
+        "language": "fa",
+        "must_be_complete": true,
+        "must_not_be_link_only": true,
+        "must_not_be_generic": true
+      },
+      "evidence": [
+        {
+          "id": "2ff0889b-c641-5d2d-a312-f083530afe54",
+          "evidence_key": "corpus:13:1",
+          "title": "نمونه ارزیابی 13: گزارش research technical",
+          "source_url": "https://evaluation.invalid/rss/13/1",
+          "text": "منبع 13 فقط از یک رویداد احتمالی خبر می‌دهد و جزئیات تأییدشده ارائه نمی‌کند.",
+          "sha256": "11151eac4fea7c329d3c406037e7f9e15799ef7025ef1c998702aba92201d54e"
+        }
+      ],
+      "expected_claims": [
+        {
+          "id": "claim-13-1",
+          "text": "منبع 13 فقط از یک رویداد احتمالی خبر می‌دهد و جزئیات تأییدشده ارائه نمی‌کند",
+          "evidence_ids": [
+            "2ff0889b-c641-5d2d-a312-f083530afe54"
+          ]
+        }
+      ],
+      "research_enabled": false
+    },
+    {
+      "id": "6b09a831-a2f6-5013-a8dd-c8535f7b2ee7",
+      "split": "held_out",
+      "source_type": "rss",
+      "length": "medium",
+      "category": "research_technical",
+      "flags": [
+        "insufficient_evidence"
+      ],
+      "title": "نمونه ارزیابی 14: گزارش research technical",
+      "expected_language": "fa",
+      "promotional": false,
+      "title_constraints": {
+        "language": "fa",
+        "must_be_complete": true,
+        "must_not_be_link_only": true,
+        "must_not_be_generic": true
+      },
+      "evidence": [
+        {
+          "id": "5c2429a7-d058-5c49-a0ab-876e25da492f",
+          "evidence_key": "corpus:14:1",
+          "title": "نمونه ارزیابی 14: گزارش research technical",
+          "source_url": "https://evaluation.invalid/rss/14/1",
+          "text": "منبع 14 فقط از یک رویداد احتمالی خبر می‌دهد و جزئیات تأییدشده ارائه نمی‌کند.",
+          "sha256": "6c21250729c65b871c383f7eea3b948f8f0e643f0d0904d32b1b4ffd02334e53"
+        }
+      ],
+      "expected_claims": [
+        {
+          "id": "claim-14-1",
+          "text": "منبع 14 فقط از یک رویداد احتمالی خبر می‌دهد و جزئیات تأییدشده ارائه نمی‌کند",
+          "evidence_ids": [
+            "5c2429a7-d058-5c49-a0ab-876e25da492f"
+          ]
+        }
+      ],
+      "research_enabled": false
+    },
+    {
+      "id": "5a5be60c-5f11-5993-9a20-98e044a4cb0d",
+      "split": "held_out",
+      "source_type": "rss",
+      "length": "long",
+      "category": "research_technical",
+      "flags": [
+        "mixed_script"
+      ],
+      "title": "نمونه ارزیابی 15: گزارش research technical",
+      "expected_language": "fa",
+      "promotional": false,
+      "title_constraints": {
+        "language": "fa",
+        "must_be_complete": true,
+        "must_not_be_link_only": true,
+        "must_not_be_generic": true
+      },
+      "evidence": [
+        {
+          "id": "01be6a2d-6a23-5ae4-b85c-a36b17afef45",
+          "evidence_key": "corpus:15:1",
+          "title": "نمونه ارزیابی 15: گزارش research technical",
+          "source_url": "https://evaluation.invalid/rss/15/1",
+          "text": "در نمونه 15، منبع اصلی اعلام کرد نسخه AI-15 در ساعت ۱۴:۳۰ منتشر شد. این متن شامل فارسی، English name، عدد 2026 و نیم‌فاصله است.",
+          "sha256": "91c848304617b944cb20ab38b1d33e05ebeeea50c20d28b8c4869d30dccf893f"
+        },
+        {
+          "id": "e4eb27ee-609c-57d0-ab8d-623c813bb718",
+          "evidence_key": "corpus:15:2",
+          "title": "گزارش تکمیلی نمونه 15",
+          "source_url": "https://evaluation.invalid/rss/15/2",
+          "text": "منبع دوم درباره نمونه 15 زمان انتشار را ۱۵:۰۰ گزارش کرده و تأکید می‌کند قیمت هنوز قطعی نیست.",
+          "sha256": "b1af3332ef79fbf4f0fe8c66bf707399ced4029f1a72e139f6839f44845576fa"
+        }
+      ],
+      "expected_claims": [
+        {
+          "id": "claim-15-1",
+          "text": "در نمونه 15، منبع اصلی اعلام کرد نسخه AI-15 در ساعت ۱۴:۳۰ منتشر شد",
+          "evidence_ids": [
+            "01be6a2d-6a23-5ae4-b85c-a36b17afef45"
+          ]
+        }
+      ],
+      "research_enabled": false
+    },
+    {
+      "id": "9ee7a774-20eb-5c88-b5a6-6848e14ef939",
+      "split": "held_out",
+      "source_type": "rss",
+      "length": "short",
+      "category": "research_technical",
+      "flags": [
+        "mixed_script"
+      ],
+      "title": "نمونه ارزیابی 16: گزارش research technical",
+      "expected_language": "fa",
+      "promotional": false,
+      "title_constraints": {
+        "language": "fa",
+        "must_be_complete": true,
+        "must_not_be_link_only": true,
+        "must_not_be_generic": true
+      },
+      "evidence": [
+        {
+          "id": "c740e09d-a3b5-5262-99d9-0945ac2d8a79",
+          "evidence_key": "corpus:16:1",
+          "title": "نمونه ارزیابی 16: گزارش research technical",
+          "source_url": "https://evaluation.invalid/rss/16/1",
+          "text": "در نمونه 16، منبع اصلی اعلام کرد نسخه AI-16 در ساعت ۱۴:۳۰ منتشر شد. این متن شامل فارسی، English name، عدد 2026 و نیم‌فاصله است.",
+          "sha256": "64fe86516b331364712eeb906c412e31f5c05eea87a6ffdc7535a51023017b4b"
+        }
+      ],
+      "expected_claims": [
+        {
+          "id": "claim-16-1",
+          "text": "در نمونه 16، منبع اصلی اعلام کرد نسخه AI-16 در ساعت ۱۴:۳۰ منتشر شد",
+          "evidence_ids": [
+            "c740e09d-a3b5-5262-99d9-0945ac2d8a79"
+          ]
+        }
+      ],
+      "research_enabled": false
+    },
+    {
+      "id": "d6f78e00-6ec4-54e7-abee-3af1022be7a1",
+      "split": "held_out",
+      "source_type": "rss",
+      "length": "medium",
+      "category": "research_technical",
+      "flags": [
+        "mixed_script"
+      ],
+      "title": "نمونه ارزیابی 17: گزارش research technical",
+      "expected_language": "fa",
+      "promotional": false,
+      "title_constraints": {
+        "language": "fa",
+        "must_be_complete": true,
+        "must_not_be_link_only": true,
+        "must_not_be_generic": true
+      },
+      "evidence": [
+        {
+          "id": "7e215d68-eca2-5cce-bf9b-eb26dfdaa780",
+          "evidence_key": "corpus:17:1",
+          "title": "نمونه ارزیابی 17: گزارش research technical",
+          "source_url": "https://evaluation.invalid/rss/17/1",
+          "text": "در نمونه 17، منبع اصلی اعلام کرد نسخه AI-17 در ساعت ۱۴:۳۰ منتشر شد. این متن شامل فارسی، English name، عدد 2026 و نیم‌فاصله است.",
+          "sha256": "df1df18889f5b04fe6a4d275927d2cdc5377d8027d864a37d781ea23be26ebd6"
+        }
+      ],
+      "expected_claims": [
+        {
+          "id": "claim-17-1",
+          "text": "در نمونه 17، منبع اصلی اعلام کرد نسخه AI-17 در ساعت ۱۴:۳۰ منتشر شد",
+          "evidence_ids": [
+            "7e215d68-eca2-5cce-bf9b-eb26dfdaa780"
+          ]
+        }
+      ],
+      "research_enabled": false
+    },
+    {
+      "id": "810632b4-5bd1-5ba8-b2ba-e809d20386ad",
+      "split": "held_out",
+      "source_type": "rss",
+      "length": "long",
+      "category": "research_technical",
+      "flags": [
+        "mixed_script"
+      ],
+      "title": "نمونه ارزیابی 18: گزارش research technical",
+      "expected_language": "fa",
+      "promotional": false,
+      "title_constraints": {
+        "language": "fa",
+        "must_be_complete": true,
+        "must_not_be_link_only": true,
+        "must_not_be_generic": true
+      },
+      "evidence": [
+        {
+          "id": "f6fa6867-bd75-54e5-af39-c52d816ce9c6",
+          "evidence_key": "corpus:18:1",
+          "title": "نمونه ارزیابی 18: گزارش research technical",
+          "source_url": "https://evaluation.invalid/rss/18/1",
+          "text": "در نمونه 18، منبع اصلی اعلام کرد نسخه AI-18 در ساعت ۱۴:۳۰ منتشر شد. این متن شامل فارسی، English name، عدد 2026 و نیم‌فاصله است.",
+          "sha256": "54430baa10ccb6bb8e633e2be875e5ffe9bf018232b21f80d111c0023af771bb"
+        },
+        {
+          "id": "a1266e52-e578-5455-be82-c1ca22788783",
+          "evidence_key": "corpus:18:2",
+          "title": "گزارش تکمیلی نمونه 18",
+          "source_url": "https://evaluation.invalid/rss/18/2",
+          "text": "منبع دوم درباره نمونه 18 زمان انتشار را ۱۵:۰۰ گزارش کرده و تأکید می‌کند قیمت هنوز قطعی نیست.",
+          "sha256": "bd0d9dd7cb1829ee7cab04d1ac2061448a093ddacceb7a54ea2004b8c315fb26"
+        }
+      ],
+      "expected_claims": [
+        {
+          "id": "claim-18-1",
+          "text": "در نمونه 18، منبع اصلی اعلام کرد نسخه AI-18 در ساعت ۱۴:۳۰ منتشر شد",
+          "evidence_ids": [
+            "f6fa6867-bd75-54e5-af39-c52d816ce9c6"
+          ]
+        }
+      ],
+      "research_enabled": false
+    },
+    {
+      "id": "719d5fc1-b7a8-5ccf-822f-ccb3dd462e68",
+      "split": "held_out",
+      "source_type": "telegram",
+      "length": "short",
+      "category": "product_announcement",
+      "flags": [
+        "mixed_script"
+      ],
+      "title": "نمونه ارزیابی 19: گزارش product announcement",
+      "expected_language": "fa",
+      "promotional": false,
+      "title_constraints": {
+        "language": "fa",
+        "must_be_complete": true,
+        "must_not_be_link_only": true,
+        "must_not_be_generic": true
+      },
+      "evidence": [
+        {
+          "id": "6d1b9fa1-9d5e-5974-afb0-fa1953673db4",
+          "evidence_key": "corpus:19:1",
+          "title": "نمونه ارزیابی 19: گزارش product announcement",
+          "source_url": "https://evaluation.invalid/telegram/19/1",
+          "text": "در نمونه 19، منبع اصلی اعلام کرد نسخه AI-19 در ساعت ۱۴:۳۰ منتشر شد. این متن شامل فارسی، English name، عدد 2026 و نیم‌فاصله است.",
+          "sha256": "17b3a7eed8ea7aa19c1f739c31e45a4399ef7f6c0f490d3139235cd582d2ecbe"
+        }
+      ],
+      "expected_claims": [
+        {
+          "id": "claim-19-1",
+          "text": "در نمونه 19، منبع اصلی اعلام کرد نسخه AI-19 در ساعت ۱۴:۳۰ منتشر شد",
+          "evidence_ids": [
+            "6d1b9fa1-9d5e-5974-afb0-fa1953673db4"
+          ]
+        }
+      ],
+      "research_enabled": false
+    },
+    {
+      "id": "149ccd79-9777-504a-aaba-fb144fb4ba73",
+      "split": "held_out",
+      "source_type": "telegram",
+      "length": "medium",
+      "category": "product_announcement",
+      "flags": [
+        "mixed_script"
+      ],
+      "title": "نمونه ارزیابی 20: گزارش product announcement",
+      "expected_language": "fa",
+      "promotional": false,
+      "title_constraints": {
+        "language": "fa",
+        "must_be_complete": true,
+        "must_not_be_link_only": true,
+        "must_not_be_generic": true
+      },
+      "evidence": [
+        {
+          "id": "0ed21a97-a00b-5732-8076-5e708584bc82",
+          "evidence_key": "corpus:20:1",
+          "title": "نمونه ارزیابی 20: گزارش product announcement",
+          "source_url": "https://evaluation.invalid/telegram/20/1",
+          "text": "در نمونه 20، منبع اصلی اعلام کرد نسخه AI-20 در ساعت ۱۴:۳۰ منتشر شد. این متن شامل فارسی، English name، عدد 2026 و نیم‌فاصله است.",
+          "sha256": "96139534cd4ab44324dde75d66b154d54d9df5ffce160f228edc2d613a5a7731"
+        }
+      ],
+      "expected_claims": [
+        {
+          "id": "claim-20-1",
+          "text": "در نمونه 20، منبع اصلی اعلام کرد نسخه AI-20 در ساعت ۱۴:۳۰ منتشر شد",
+          "evidence_ids": [
+            "0ed21a97-a00b-5732-8076-5e708584bc82"
+          ]
+        }
+      ],
+      "research_enabled": false
+    },
+    {
+      "id": "cd25d33c-8216-502e-bbcb-4f6260be03d9",
+      "split": "held_out",
+      "source_type": "telegram",
+      "length": "long",
+      "category": "product_announcement",
+      "flags": [
+        "mixed_script"
+      ],
+      "title": "نمونه ارزیابی 21: گزارش product announcement",
+      "expected_language": "fa",
+      "promotional": false,
+      "title_constraints": {
+        "language": "fa",
+        "must_be_complete": true,
+        "must_not_be_link_only": true,
+        "must_not_be_generic": true
+      },
+      "evidence": [
+        {
+          "id": "571702f9-4992-5008-bb9d-ffb490f5c713",
+          "evidence_key": "corpus:21:1",
+          "title": "نمونه ارزیابی 21: گزارش product announcement",
+          "source_url": "https://evaluation.invalid/telegram/21/1",
+          "text": "در نمونه 21، منبع اصلی اعلام کرد نسخه AI-21 در ساعت ۱۴:۳۰ منتشر شد. این متن شامل فارسی، English name، عدد 2026 و نیم‌فاصله است.",
+          "sha256": "5935a828af33585e5ec11187bb0d686c00fad81e0396cba01a7ed4c6377cd5ec"
+        },
+        {
+          "id": "cb86dfe6-b071-5ce6-b9cc-c6917cb83cf5",
+          "evidence_key": "corpus:21:2",
+          "title": "گزارش تکمیلی نمونه 21",
+          "source_url": "https://evaluation.invalid/telegram/21/2",
+          "text": "منبع دوم درباره نمونه 21 زمان انتشار را ۱۵:۰۰ گزارش کرده و تأکید می‌کند قیمت هنوز قطعی نیست.",
+          "sha256": "c952a01e98a733bb9146322931ca86e78d3d6b10a30979f92193cf09e308e0a5"
+        }
+      ],
+      "expected_claims": [
+        {
+          "id": "claim-21-1",
+          "text": "در نمونه 21، منبع اصلی اعلام کرد نسخه AI-21 در ساعت ۱۴:۳۰ منتشر شد",
+          "evidence_ids": [
+            "571702f9-4992-5008-bb9d-ffb490f5c713"
+          ]
+        }
+      ],
+      "research_enabled": false
+    },
+    {
+      "id": "81e16a2a-4870-506d-99ae-e5f6f7f8feff",
+      "split": "held_out",
+      "source_type": "telegram",
+      "length": "short",
+      "category": "product_announcement",
+      "flags": [
+        "mixed_script"
+      ],
+      "title": "نمونه ارزیابی 22: گزارش product announcement",
+      "expected_language": "fa",
+      "promotional": false,
+      "title_constraints": {
+        "language": "fa",
+        "must_be_complete": true,
+        "must_not_be_link_only": true,
+        "must_not_be_generic": true
+      },
+      "evidence": [
+        {
+          "id": "5a438bc6-d71d-5d69-8262-384ad14dcc57",
+          "evidence_key": "corpus:22:1",
+          "title": "نمونه ارزیابی 22: گزارش product announcement",
+          "source_url": "https://evaluation.invalid/telegram/22/1",
+          "text": "در نمونه 22، منبع اصلی اعلام کرد نسخه AI-22 در ساعت ۱۴:۳۰ منتشر شد. این متن شامل فارسی، English name، عدد 2026 و نیم‌فاصله است.",
+          "sha256": "68a5f8b2e03d745d9dd146eabb10f5cccf134d3c02f0dde374a16c1f25ddd7f6"
+        }
+      ],
+      "expected_claims": [
+        {
+          "id": "claim-22-1",
+          "text": "در نمونه 22، منبع اصلی اعلام کرد نسخه AI-22 در ساعت ۱۴:۳۰ منتشر شد",
+          "evidence_ids": [
+            "5a438bc6-d71d-5d69-8262-384ad14dcc57"
+          ]
+        }
+      ],
+      "research_enabled": false
+    },
+    {
+      "id": "ccaad1a9-7831-5184-9e0c-c8a77f78a2b6",
+      "split": "held_out",
+      "source_type": "telegram",
+      "length": "medium",
+      "category": "product_announcement",
+      "flags": [
+        "mixed_script"
+      ],
+      "title": "نمونه ارزیابی 23: گزارش product announcement",
+      "expected_language": "fa",
+      "promotional": false,
+      "title_constraints": {
+        "language": "fa",
+        "must_be_complete": true,
+        "must_not_be_link_only": true,
+        "must_not_be_generic": true
+      },
+      "evidence": [
+        {
+          "id": "84818626-5f5e-55ec-83fb-bca486a42727",
+          "evidence_key": "corpus:23:1",
+          "title": "نمونه ارزیابی 23: گزارش product announcement",
+          "source_url": "https://evaluation.invalid/telegram/23/1",
+          "text": "در نمونه 23، منبع اصلی اعلام کرد نسخه AI-23 در ساعت ۱۴:۳۰ منتشر شد. این متن شامل فارسی، English name، عدد 2026 و نیم‌فاصله است.",
+          "sha256": "067ed306103ccb6e1cba19c1e9a7fbd46cec5e2bec89990f410e8668912ff7d1"
+        }
+      ],
+      "expected_claims": [
+        {
+          "id": "claim-23-1",
+          "text": "در نمونه 23، منبع اصلی اعلام کرد نسخه AI-23 در ساعت ۱۴:۳۰ منتشر شد",
+          "evidence_ids": [
+            "84818626-5f5e-55ec-83fb-bca486a42727"
+          ]
+        }
+      ],
+      "research_enabled": false
+    },
+    {
+      "id": "741097cd-5b4f-5eda-872a-d193ea26e0c5",
+      "split": "held_out",
+      "source_type": "telegram",
+      "length": "long",
+      "category": "product_announcement",
+      "flags": [
+        "mixed_script"
+      ],
+      "title": "نمونه ارزیابی 24: گزارش product announcement",
+      "expected_language": "fa",
+      "promotional": false,
+      "title_constraints": {
+        "language": "fa",
+        "must_be_complete": true,
+        "must_not_be_link_only": true,
+        "must_not_be_generic": true
+      },
+      "evidence": [
+        {
+          "id": "65778f5e-b8a6-5ad5-888e-98bab626b6eb",
+          "evidence_key": "corpus:24:1",
+          "title": "نمونه ارزیابی 24: گزارش product announcement",
+          "source_url": "https://evaluation.invalid/telegram/24/1",
+          "text": "در نمونه 24، منبع اصلی اعلام کرد نسخه AI-24 در ساعت ۱۴:۳۰ منتشر شد. این متن شامل فارسی، English name، عدد 2026 و نیم‌فاصله است.",
+          "sha256": "e760f06d8a4b0b3e0ef72cf0e2075e5caa64996f8df5cdf69545304cde585f83"
+        },
+        {
+          "id": "0c0cbdb2-26ef-5ea2-8db9-5d67e60fd5b3",
+          "evidence_key": "corpus:24:2",
+          "title": "گزارش تکمیلی نمونه 24",
+          "source_url": "https://evaluation.invalid/telegram/24/2",
+          "text": "منبع دوم درباره نمونه 24 زمان انتشار را ۱۵:۰۰ گزارش کرده و تأکید می‌کند قیمت هنوز قطعی نیست.",
+          "sha256": "5a8b48e5d04ce5abfce9e18d52e21da04fdba742dae52ee65b0554047efbaf2f"
+        }
+      ],
+      "expected_claims": [
+        {
+          "id": "claim-24-1",
+          "text": "در نمونه 24، منبع اصلی اعلام کرد نسخه AI-24 در ساعت ۱۴:۳۰ منتشر شد",
+          "evidence_ids": [
+            "65778f5e-b8a6-5ad5-888e-98bab626b6eb"
+          ]
+        }
+      ],
+      "research_enabled": false
+    },
+    {
+      "id": "3a3fca14-9566-5119-968f-7da21ba71b0e",
+      "split": "held_out",
+      "source_type": "telegram",
+      "length": "short",
+      "category": "promotion_borderline",
+      "flags": [
+        "language_hint_conflict"
+      ],
+      "title": "نمونه ارزیابی 25: گزارش promotion borderline",
+      "expected_language": "fa",
+      "promotional": false,
+      "title_constraints": {
+        "language": "fa",
+        "must_be_complete": true,
+        "must_not_be_link_only": true,
+        "must_not_be_generic": true
+      },
+      "evidence": [
+        {
+          "id": "2530e635-1b22-544c-be7e-1c36a71d33c4",
+          "evidence_key": "corpus:25:1",
+          "title": "نمونه ارزیابی 25: گزارش promotion borderline",
+          "source_url": "https://evaluation.invalid/telegram/25/1",
+          "text": "در نمونه 25، منبع اصلی اعلام کرد نسخه AI-25 در ساعت ۱۴:۳۰ منتشر شد. این متن شامل فارسی، English name، عدد 2026 و نیم‌فاصله است.",
+          "sha256": "a1544ce03bf8adb5d4b5cc8db6fe1ff33869fcbc8589874a88c3baf263fe8723"
+        }
+      ],
+      "expected_claims": [
+        {
+          "id": "claim-25-1",
+          "text": "در نمونه 25، منبع اصلی اعلام کرد نسخه AI-25 در ساعت ۱۴:۳۰ منتشر شد",
+          "evidence_ids": [
+            "2530e635-1b22-544c-be7e-1c36a71d33c4"
+          ]
+        }
+      ],
+      "research_enabled": false
+    },
+    {
+      "id": "a8f9c422-3b00-5076-8716-c3c801020ac0",
+      "split": "held_out",
+      "source_type": "telegram",
+      "length": "medium",
+      "category": "promotion_borderline",
+      "flags": [
+        "language_hint_conflict"
+      ],
+      "title": "نمونه ارزیابی 26: گزارش promotion borderline",
+      "expected_language": "fa",
+      "promotional": true,
+      "title_constraints": {
+        "language": "fa",
+        "must_be_complete": true,
+        "must_not_be_link_only": true,
+        "must_not_be_generic": true
+      },
+      "evidence": [
+        {
+          "id": "552e1b93-3e1e-5028-b151-d83a0d8cbf68",
+          "evidence_key": "corpus:26:1",
+          "title": "نمونه ارزیابی 26: گزارش promotion borderline",
+          "source_url": "https://evaluation.invalid/telegram/26/1",
+          "text": "در نمونه 26، منبع اصلی اعلام کرد نسخه AI-26 در ساعت ۱۴:۳۰ منتشر شد. این متن شامل فارسی، English name، عدد 2026 و نیم‌فاصله است.",
+          "sha256": "6b2b362ea099a865fbc0e876bd0d816b186999782849e4ac6a6c517bdda3108b"
+        }
+      ],
+      "expected_claims": [
+        {
+          "id": "claim-26-1",
+          "text": "در نمونه 26، منبع اصلی اعلام کرد نسخه AI-26 در ساعت ۱۴:۳۰ منتشر شد",
+          "evidence_ids": [
+            "552e1b93-3e1e-5028-b151-d83a0d8cbf68"
+          ]
+        }
+      ],
+      "research_enabled": false
+    },
+    {
+      "id": "3dee1cf5-5aed-5ef9-ba5f-a684fab29d83",
+      "split": "held_out",
+      "source_type": "telegram",
+      "length": "long",
+      "category": "promotion_borderline",
+      "flags": [
+        "language_hint_conflict"
+      ],
+      "title": "نمونه ارزیابی 27: گزارش promotion borderline",
+      "expected_language": "fa",
+      "promotional": false,
+      "title_constraints": {
+        "language": "fa",
+        "must_be_complete": true,
+        "must_not_be_link_only": true,
+        "must_not_be_generic": true
+      },
+      "evidence": [
+        {
+          "id": "903e16f1-cd96-5ca2-af3f-7d7268c7ea55",
+          "evidence_key": "corpus:27:1",
+          "title": "نمونه ارزیابی 27: گزارش promotion borderline",
+          "source_url": "https://evaluation.invalid/telegram/27/1",
+          "text": "در نمونه 27، منبع اصلی اعلام کرد نسخه AI-27 در ساعت ۱۴:۳۰ منتشر شد. این متن شامل فارسی، English name، عدد 2026 و نیم‌فاصله است.",
+          "sha256": "381df926d4db33d90f91d403635f9213232a434b9d999b747230b36710bf1dac"
+        },
+        {
+          "id": "b54c0629-8044-5990-b451-b838ef0b0949",
+          "evidence_key": "corpus:27:2",
+          "title": "گزارش تکمیلی نمونه 27",
+          "source_url": "https://evaluation.invalid/telegram/27/2",
+          "text": "منبع دوم درباره نمونه 27 زمان انتشار را ۱۵:۰۰ گزارش کرده و تأکید می‌کند قیمت هنوز قطعی نیست.",
+          "sha256": "ffc076c9dd2379b5b085200a59909b452c3bf2d308fd4129c8c5425e96c51212"
+        }
+      ],
+      "expected_claims": [
+        {
+          "id": "claim-27-1",
+          "text": "در نمونه 27، منبع اصلی اعلام کرد نسخه AI-27 در ساعت ۱۴:۳۰ منتشر شد",
+          "evidence_ids": [
+            "903e16f1-cd96-5ca2-af3f-7d7268c7ea55"
+          ]
+        }
+      ],
+      "research_enabled": false
+    },
+    {
+      "id": "4a3babb7-662f-50f3-a199-c83b6948583e",
+      "split": "held_out",
+      "source_type": "telegram",
+      "length": "short",
+      "category": "promotion_borderline",
+      "flags": [
+        "language_hint_conflict"
+      ],
+      "title": "نمونه ارزیابی 28: گزارش promotion borderline",
+      "expected_language": "fa",
+      "promotional": true,
+      "title_constraints": {
+        "language": "fa",
+        "must_be_complete": true,
+        "must_not_be_link_only": true,
+        "must_not_be_generic": true
+      },
+      "evidence": [
+        {
+          "id": "c59bfcb8-2c25-5c4e-9f44-08e03ab6f366",
+          "evidence_key": "corpus:28:1",
+          "title": "نمونه ارزیابی 28: گزارش promotion borderline",
+          "source_url": "https://evaluation.invalid/telegram/28/1",
+          "text": "در نمونه 28، منبع اصلی اعلام کرد نسخه AI-28 در ساعت ۱۴:۳۰ منتشر شد. این متن شامل فارسی، English name، عدد 2026 و نیم‌فاصله است.",
+          "sha256": "1afac85a2414d939dc4ba004c9e07e9cca50037e5afb39f3cdc16a25c5253b4d"
+        }
+      ],
+      "expected_claims": [
+        {
+          "id": "claim-28-1",
+          "text": "در نمونه 28، منبع اصلی اعلام کرد نسخه AI-28 در ساعت ۱۴:۳۰ منتشر شد",
+          "evidence_ids": [
+            "c59bfcb8-2c25-5c4e-9f44-08e03ab6f366"
+          ]
+        }
+      ],
+      "research_enabled": false
+    },
+    {
+      "id": "4668fd8d-932c-5a60-b2e5-f8d3ddecd688",
+      "split": "held_out",
+      "source_type": "telegram",
+      "length": "medium",
+      "category": "promotion_borderline",
+      "flags": [
+        "language_hint_conflict"
+      ],
+      "title": "نمونه ارزیابی 29: گزارش promotion borderline",
+      "expected_language": "fa",
+      "promotional": false,
+      "title_constraints": {
+        "language": "fa",
+        "must_be_complete": true,
+        "must_not_be_link_only": true,
+        "must_not_be_generic": true
+      },
+      "evidence": [
+        {
+          "id": "e8eb3adc-3c5b-5bd6-ad62-daab69ea04d3",
+          "evidence_key": "corpus:29:1",
+          "title": "نمونه ارزیابی 29: گزارش promotion borderline",
+          "source_url": "https://evaluation.invalid/telegram/29/1",
+          "text": "در نمونه 29، منبع اصلی اعلام کرد نسخه AI-29 در ساعت ۱۴:۳۰ منتشر شد. این متن شامل فارسی، English name، عدد 2026 و نیم‌فاصله است.",
+          "sha256": "fe477224f96e08739e577ea6775338249445054bdf15f628cbb66c930fdd3a65"
+        }
+      ],
+      "expected_claims": [
+        {
+          "id": "claim-29-1",
+          "text": "در نمونه 29، منبع اصلی اعلام کرد نسخه AI-29 در ساعت ۱۴:۳۰ منتشر شد",
+          "evidence_ids": [
+            "e8eb3adc-3c5b-5bd6-ad62-daab69ea04d3"
+          ]
+        }
+      ],
+      "research_enabled": false
+    },
+    {
+      "id": "9c04abd4-1c36-5607-94ce-de25fc718871",
+      "split": "held_out",
+      "source_type": "telegram",
+      "length": "long",
+      "category": "promotion_borderline",
+      "flags": [
+        "language_hint_conflict"
+      ],
+      "title": "نمونه ارزیابی 30: گزارش promotion borderline",
+      "expected_language": "fa",
+      "promotional": true,
+      "title_constraints": {
+        "language": "fa",
+        "must_be_complete": true,
+        "must_not_be_link_only": true,
+        "must_not_be_generic": true
+      },
+      "evidence": [
+        {
+          "id": "bcffcd75-c02d-52a4-b52f-e13e96ed92f0",
+          "evidence_key": "corpus:30:1",
+          "title": "نمونه ارزیابی 30: گزارش promotion borderline",
+          "source_url": "https://evaluation.invalid/telegram/30/1",
+          "text": "در نمونه 30، منبع اصلی اعلام کرد نسخه AI-30 در ساعت ۱۴:۳۰ منتشر شد. این متن شامل فارسی، English name، عدد 2026 و نیم‌فاصله است.",
+          "sha256": "01b61b593fa30ef77a39543454ba39b24688241de0bd7c8bd31798ef8175b550"
+        },
+        {
+          "id": "96f702bd-7ba0-534a-8c00-acb89a5c8975",
+          "evidence_key": "corpus:30:2",
+          "title": "گزارش تکمیلی نمونه 30",
+          "source_url": "https://evaluation.invalid/telegram/30/2",
+          "text": "منبع دوم درباره نمونه 30 زمان انتشار را ۱۵:۰۰ گزارش کرده و تأکید می‌کند قیمت هنوز قطعی نیست.",
+          "sha256": "391dbb8152b93686e6ebe5eb2601a781890f61eb58d1f304fccf6b8af3fe7a9f"
+        }
+      ],
+      "expected_claims": [
+        {
+          "id": "claim-30-1",
+          "text": "در نمونه 30، منبع اصلی اعلام کرد نسخه AI-30 در ساعت ۱۴:۳۰ منتشر شد",
+          "evidence_ids": [
+            "bcffcd75-c02d-52a4-b52f-e13e96ed92f0"
+          ]
+        }
+      ],
+      "research_enabled": false
+    },
+    {
+      "id": "07377b17-891e-5fe2-b16e-ca228744860a",
+      "split": "held_out",
+      "source_type": "telegram",
+      "length": "short",
+      "category": "promotion_borderline",
+      "flags": [],
+      "title": "نمونه ارزیابی 31: گزارش promotion borderline",
+      "expected_language": "fa",
+      "promotional": false,
+      "title_constraints": {
+        "language": "fa",
+        "must_be_complete": true,
+        "must_not_be_link_only": true,
+        "must_not_be_generic": true
+      },
+      "evidence": [
+        {
+          "id": "259a081c-77ba-577e-aa8f-2c4ab2ec73a8",
+          "evidence_key": "corpus:31:1",
+          "title": "نمونه ارزیابی 31: گزارش promotion borderline",
+          "source_url": "https://evaluation.invalid/telegram/31/1",
+          "text": "در نمونه 31، منبع اصلی اعلام کرد نسخه AI-31 در ساعت ۱۴:۳۰ منتشر شد. این متن شامل فارسی، English name، عدد 2026 و نیم‌فاصله است.",
+          "sha256": "e807afa4c211bf297fcf32840ea35a180cdd29a0644b4e35d0dd7bcff2f62041"
+        }
+      ],
+      "expected_claims": [
+        {
+          "id": "claim-31-1",
+          "text": "در نمونه 31، منبع اصلی اعلام کرد نسخه AI-31 در ساعت ۱۴:۳۰ منتشر شد",
+          "evidence_ids": [
+            "259a081c-77ba-577e-aa8f-2c4ab2ec73a8"
+          ]
+        }
+      ],
+      "research_enabled": false
+    },
+    {
+      "id": "57bc7b7c-33e1-56d6-b7e6-a855f7a924fb",
+      "split": "held_out",
+      "source_type": "telegram",
+      "length": "medium",
+      "category": "promotion_borderline",
+      "flags": [],
+      "title": "نمونه ارزیابی 32: گزارش promotion borderline",
+      "expected_language": "fa",
+      "promotional": true,
+      "title_constraints": {
+        "language": "fa",
+        "must_be_complete": true,
+        "must_not_be_link_only": true,
+        "must_not_be_generic": true
+      },
+      "evidence": [
+        {
+          "id": "19e2bb3a-644a-54d7-a93d-be462572412d",
+          "evidence_key": "corpus:32:1",
+          "title": "نمونه ارزیابی 32: گزارش promotion borderline",
+          "source_url": "https://evaluation.invalid/telegram/32/1",
+          "text": "در نمونه 32، منبع اصلی اعلام کرد نسخه AI-32 در ساعت ۱۴:۳۰ منتشر شد. این متن شامل فارسی، English name، عدد 2026 و نیم‌فاصله است.",
+          "sha256": "43aa04c254e22f06cbf78c3083a2b8e300dd9851f4027cc5dea629830c6ee1cb"
+        }
+      ],
+      "expected_claims": [
+        {
+          "id": "claim-32-1",
+          "text": "در نمونه 32، منبع اصلی اعلام کرد نسخه AI-32 در ساعت ۱۴:۳۰ منتشر شد",
+          "evidence_ids": [
+            "19e2bb3a-644a-54d7-a93d-be462572412d"
+          ]
+        }
+      ],
+      "research_enabled": false
+    },
+    {
+      "id": "02913b7a-73a3-59a5-9c98-5d576ec9fd59",
+      "split": "held_out",
+      "source_type": "telegram",
+      "length": "long",
+      "category": "promotion_borderline",
+      "flags": [],
+      "title": "نمونه ارزیابی 33: گزارش promotion borderline",
+      "expected_language": "fa",
+      "promotional": false,
+      "title_constraints": {
+        "language": "fa",
+        "must_be_complete": true,
+        "must_not_be_link_only": true,
+        "must_not_be_generic": true
+      },
+      "evidence": [
+        {
+          "id": "bbbc2bee-2bb0-5dcf-a8fd-84c974b2ba0d",
+          "evidence_key": "corpus:33:1",
+          "title": "نمونه ارزیابی 33: گزارش promotion borderline",
+          "source_url": "https://evaluation.invalid/telegram/33/1",
+          "text": "در نمونه 33، منبع اصلی اعلام کرد نسخه AI-33 در ساعت ۱۴:۳۰ منتشر شد. این متن شامل فارسی، English name، عدد 2026 و نیم‌فاصله است.",
+          "sha256": "a3ab7f9630022fc5a3528046862f702465e514f15ebf1855a1f4c2078d0b1a6e"
+        },
+        {
+          "id": "525b2ce8-8ac9-5b5d-a505-92697e850817",
+          "evidence_key": "corpus:33:2",
+          "title": "گزارش تکمیلی نمونه 33",
+          "source_url": "https://evaluation.invalid/telegram/33/2",
+          "text": "منبع دوم درباره نمونه 33 زمان انتشار را ۱۵:۰۰ گزارش کرده و تأکید می‌کند قیمت هنوز قطعی نیست.",
+          "sha256": "e91a0d3ce41601ec12053cc1fc0ed768ff8f2d8aa041d625322aa94914650975"
+        }
+      ],
+      "expected_claims": [
+        {
+          "id": "claim-33-1",
+          "text": "در نمونه 33، منبع اصلی اعلام کرد نسخه AI-33 در ساعت ۱۴:۳۰ منتشر شد",
+          "evidence_ids": [
+            "bbbc2bee-2bb0-5dcf-a8fd-84c974b2ba0d"
+          ]
+        }
+      ],
+      "research_enabled": false
+    },
+    {
+      "id": "8d671bb9-17cb-535b-903d-12dbf77e500c",
+      "split": "held_out",
+      "source_type": "telegram",
+      "length": "short",
+      "category": "promotion_borderline",
+      "flags": [],
+      "title": "نمونه ارزیابی 34: گزارش promotion borderline",
+      "expected_language": "fa",
+      "promotional": true,
+      "title_constraints": {
+        "language": "fa",
+        "must_be_complete": true,
+        "must_not_be_link_only": true,
+        "must_not_be_generic": true
+      },
+      "evidence": [
+        {
+          "id": "57b25139-3acb-5e90-80d0-0e0efb7881a5",
+          "evidence_key": "corpus:34:1",
+          "title": "نمونه ارزیابی 34: گزارش promotion borderline",
+          "source_url": "https://evaluation.invalid/telegram/34/1",
+          "text": "در نمونه 34، منبع اصلی اعلام کرد نسخه AI-34 در ساعت ۱۴:۳۰ منتشر شد. این متن شامل فارسی، English name، عدد 2026 و نیم‌فاصله است.",
+          "sha256": "577024c4a83b07fb508679648184a1978e6b8b56039ae0647ee0ffbb72c16399"
+        }
+      ],
+      "expected_claims": [
+        {
+          "id": "claim-34-1",
+          "text": "در نمونه 34، منبع اصلی اعلام کرد نسخه AI-34 در ساعت ۱۴:۳۰ منتشر شد",
+          "evidence_ids": [
+            "57b25139-3acb-5e90-80d0-0e0efb7881a5"
+          ]
+        }
+      ],
+      "research_enabled": false
+    },
+    {
+      "id": "ca70e1f3-b0dc-50fa-ad9a-928e5eb918f3",
+      "split": "held_out",
+      "source_type": "telegram",
+      "length": "medium",
+      "category": "promotion_borderline",
+      "flags": [],
+      "title": "نمونه ارزیابی 35: گزارش promotion borderline",
+      "expected_language": "fa",
+      "promotional": false,
+      "title_constraints": {
+        "language": "fa",
+        "must_be_complete": true,
+        "must_not_be_link_only": true,
+        "must_not_be_generic": true
+      },
+      "evidence": [
+        {
+          "id": "b17c615e-6fd8-5faa-a0d0-8c5c3f4dc32f",
+          "evidence_key": "corpus:35:1",
+          "title": "نمونه ارزیابی 35: گزارش promotion borderline",
+          "source_url": "https://evaluation.invalid/telegram/35/1",
+          "text": "در نمونه 35، منبع اصلی اعلام کرد نسخه AI-35 در ساعت ۱۴:۳۰ منتشر شد. این متن شامل فارسی، English name، عدد 2026 و نیم‌فاصله است.",
+          "sha256": "78755268c3f1c15f134455b9fd3edd8fa0b67380a4e8cce84f27d42383f26d35"
+        }
+      ],
+      "expected_claims": [
+        {
+          "id": "claim-35-1",
+          "text": "در نمونه 35، منبع اصلی اعلام کرد نسخه AI-35 در ساعت ۱۴:۳۰ منتشر شد",
+          "evidence_ids": [
+            "b17c615e-6fd8-5faa-a0d0-8c5c3f4dc32f"
+          ]
+        }
+      ],
+      "research_enabled": false
+    },
+    {
+      "id": "c8ba2834-907a-5479-8895-20bf799f777c",
+      "split": "held_out",
+      "source_type": "telegram",
+      "length": "long",
+      "category": "promotion_borderline",
+      "flags": [],
+      "title": "نمونه ارزیابی 36: گزارش promotion borderline",
+      "expected_language": "fa",
+      "promotional": true,
+      "title_constraints": {
+        "language": "fa",
+        "must_be_complete": true,
+        "must_not_be_link_only": true,
+        "must_not_be_generic": true
+      },
+      "evidence": [
+        {
+          "id": "f0789887-22ea-56fe-b953-04cf478a4ae4",
+          "evidence_key": "corpus:36:1",
+          "title": "نمونه ارزیابی 36: گزارش promotion borderline",
+          "source_url": "https://evaluation.invalid/telegram/36/1",
+          "text": "در نمونه 36، منبع اصلی اعلام کرد نسخه AI-36 در ساعت ۱۴:۳۰ منتشر شد. این متن شامل فارسی، English name، عدد 2026 و نیم‌فاصله است.",
+          "sha256": "f676dcd6eb1920151faa40f671c1d5ce960e5b35b2c25379fde0fd5d75b9054a"
+        },
+        {
+          "id": "f8ee3394-478e-5c68-9699-467d8ca870b1",
+          "evidence_key": "corpus:36:2",
+          "title": "گزارش تکمیلی نمونه 36",
+          "source_url": "https://evaluation.invalid/telegram/36/2",
+          "text": "منبع دوم درباره نمونه 36 زمان انتشار را ۱۵:۰۰ گزارش کرده و تأکید می‌کند قیمت هنوز قطعی نیست.",
+          "sha256": "2f5478570e5b7accceef7f936c0c29503967e4296e046832da225bdd2a78f66f"
+        }
+      ],
+      "expected_claims": [
+        {
+          "id": "claim-36-1",
+          "text": "در نمونه 36، منبع اصلی اعلام کرد نسخه AI-36 در ساعت ۱۴:۳۰ منتشر شد",
+          "evidence_ids": [
+            "f0789887-22ea-56fe-b953-04cf478a4ae4"
+          ]
+        }
+      ],
+      "research_enabled": false
+    }
+  ]
+}

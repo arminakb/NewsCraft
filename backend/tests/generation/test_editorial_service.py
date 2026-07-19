@@ -57,6 +57,9 @@ class _LifecycleSession:
     async def rollback(self):
         self.rollbacks += 1
 
+    async def refresh(self, value):
+        return None
+
     def begin(self):
         return _Tx()
 
@@ -584,7 +587,10 @@ async def test_request_time_profile_uses_canonical_availability_resolver():
         provider_type="openrouter",
         default_model="model",
         secret_ref="OPENROUTER_API_KEY",
-        settings={},
+        settings={
+            "pricing": {"input_usd_per_million": "1", "output_usd_per_million": "2"},
+            "generation_policy": {"qualification_status": "qualified"},
+        },
         enabled=True,
     )
 
@@ -1124,3 +1130,57 @@ async def test_canonical_handler_rechecks_exact_active_prompt_immediately_before
 
     assert caught.value.code == "generation_canonical_prompt_configuration_invalid"
     assert provider_calls == 0
+@pytest.mark.asyncio
+async def test_generation_rejects_provider_configuration_drift_before_provider_call():
+    from app.generation.handlers import _invoke
+    from app.generation.models import AIProviderProfile
+    from app.jobs.errors import PermanentJobError
+    from app.jobs.registry import JobContext
+
+    session = _LifecycleSession()
+    profile = AIProviderProfile(
+        id=uuid4(),
+        name="Fake",
+        provider_type="fake",
+        default_model="fake-v1",
+        secret_ref=None,
+        settings={},
+        enabled=True,
+    )
+    session.profile = profile
+
+    class Provider:
+        async def generate(self, request):
+            raise AssertionError("drifted provider must not be called")
+
+    checksums = iter(("a" * 64, "b" * 64))
+
+    async def resolve(profile_value, model):
+        checksum = next(checksums)
+        return SimpleNamespace(
+            provider=Provider(),
+            provider_type="fake",
+            model="fake-v1",
+            configuration_revision=checksum[:16],
+            configuration_checksum=checksum,
+        )
+
+    with pytest.raises(PermanentJobError) as caught:
+        await _invoke(
+            JobContext(session=session, providers=SimpleNamespace()),
+            profile_resolver=SimpleNamespace(resolve=resolve),
+            profile_id=profile.id,
+            prompt=_lifecycle_prompt(),
+            purpose="test",
+            story_revision_id=None,
+            input_payload={"value": "executed"},
+            input_hash="a" * 64,
+            workflow_job_id=uuid4(),
+            workflow_attempt=1,
+            validate_output=lambda output: output,
+            expected_provider_configuration_revision="a" * 16,
+            expected_provider_configuration_checksum="a" * 64,
+        )
+
+    assert caught.value.code == "generation_provider_configuration_changed"
+    assert session.attempt.error_class == "permanent"

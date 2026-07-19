@@ -3,7 +3,7 @@ from __future__ import annotations
 from decimal import Decimal
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, HttpUrl
+from pydantic import BaseModel, ConfigDict, Field, HttpUrl, field_validator
 
 
 def merge_provider_settings(base: dict, patch: dict) -> dict:
@@ -46,6 +46,32 @@ class ResearchBudgetsSettings(BaseModel):
     deep: ResearchBudgetSettings
 
 
+class QualifiedGenerationPolicy(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    qualification_status: Literal["unqualified", "qualified"] = "unqualified"
+    max_output_tokens: int = Field(default=12_000, ge=500, le=100_000)
+    max_attempts: int = Field(default=3, ge=1, le=3)
+    max_pack_cost_usd: Decimal = Field(default=Decimal("2.00"), gt=Decimal("0"), le=Decimal("20"))
+    max_elapsed_seconds: int = Field(default=180, ge=30, le=600)
+    retryable_http_statuses: tuple[Literal[408, 429, 500, 502, 503, 504], ...] = (
+        408,
+        429,
+        500,
+        502,
+        503,
+        504,
+    )
+    automatic_model_fallback: Literal[False] = False
+
+    @field_validator("retryable_http_statuses")
+    @classmethod
+    def require_exact_retry_classes(cls, value: tuple[int, ...]) -> tuple[int, ...]:
+        if value != (408, 429, 500, 502, 503, 504):
+            raise ValueError("qualified generation retry statuses are immutable")
+        return value
+
+
 class OpenRouterProviderSettings(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -55,6 +81,7 @@ class OpenRouterProviderSettings(BaseModel):
     app_title: str = Field(default="NewsCraft", min_length=1, max_length=80)
     pricing: ProviderPricingSettings | None = None
     research_budgets: ResearchBudgetsSettings | None = None
+    generation_policy: QualifiedGenerationPolicy | None = None
 
 
 class CodexGenerationLimits(BaseModel):
@@ -122,6 +149,7 @@ __all__ = [
     "CodexProviderSettings",
     "OpenRouterProviderSettings",
     "ProviderPricingSettings",
+    "QualifiedGenerationPolicy",
     "ResearchBudgetSettings",
     "ResearchBudgetsSettings",
     "default_codex_provider_settings",
