@@ -58,6 +58,7 @@ PUBLISHING_WORKER_ENVIRONMENT_NAMES = {
 }
 SCHEDULER_ENVIRONMENT_NAMES = {"NEWSCRAFT_COMPONENT_ID", "DATABASE_URL"}
 ALL_COMPOSE_SERVICES = {
+    "backup",
     "postgres",
     "postgres-test",
     "migrate",
@@ -67,7 +68,7 @@ ALL_COMPOSE_SERVICES = {
     "worker-publishing",
     "scheduler",
 }
-PRODUCTION_LONG_RUNNING_SERVICES = ALL_COMPOSE_SERVICES - {"postgres-test", "migrate"}
+PRODUCTION_LONG_RUNNING_SERVICES = ALL_COMPOSE_SERVICES - {"backup", "postgres-test", "migrate"}
 
 
 def _compose_config(
@@ -131,6 +132,24 @@ def test_compose_defines_exact_normal_runtime_services_and_test_profile():
         "scheduler",
     }
     assert services["postgres-test"]["profiles"] == ["test"]
+    assert services["backup"]["profiles"] == ["operations"]
+
+
+def test_backup_service_is_credential_minimal_and_storage_read_only():
+    service = _compose_yaml()["services"]["backup"]
+
+    assert service["environment"] == {
+        "PGHOST": "postgres",
+        "PGUSER": "newscraft",
+        "PGPASSWORD": "newscraft",
+        "PGDATABASE": "newscraft",
+    }
+    assert service["volumes"] == ["media_data:/data/media:ro", "export_data:/data/exports:ro"]
+    assert not any(
+        marker in name
+        for name in service["environment"]
+        for marker in ("OPENROUTER", "TELEGRAM", "TOKEN", "API_KEY", "SESSION")
+    )
 
 
 def test_worker_and_scheduler_are_long_running_backend_services():
@@ -491,7 +510,7 @@ def test_production_app_processes_run_beneath_docker_init():
         "scheduler",
     ):
         assert services[name]["init"] is True
-    for name in ("postgres", "postgres-test", "migrate"):
+    for name in ("backup", "postgres", "postgres-test", "migrate"):
         assert "init" not in services[name]
 
 

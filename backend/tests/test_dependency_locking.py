@@ -67,15 +67,19 @@ def test_frontend_direct_dependencies_are_exact_and_match_lock_root() -> None:
 def test_production_images_are_patch_and_digest_pinned() -> None:
     backend_dockerfile = (BACKEND / "Dockerfile").read_text(encoding="utf-8")
     frontend_dockerfile = (FRONTEND / "Dockerfile").read_text(encoding="utf-8")
+    backup_dockerfile = (ROOT / "operations/backup.Dockerfile").read_text(encoding="utf-8")
     compose = yaml.safe_load((ROOT / "docker-compose.yml").read_text(encoding="utf-8"))
 
     backend_images = re.findall(r"^ARG \w+_IMAGE=((?:python|ghcr\.io/astral-sh/uv):[^\s]+)$", backend_dockerfile, re.M)
     frontend_images = re.findall(r"^ARG \w+_IMAGE=(node:[^\s]+)$", frontend_dockerfile, re.M)
     postgres_images = [compose["services"][name]["image"] for name in ("postgres", "postgres-test")]
+    backup_images = re.findall(r"^ARG \w+_IMAGE=(postgres:[^\s]+)$", backup_dockerfile, re.M)
 
     assert backend_images and all(DIGEST_PIN.search(image) for image in backend_images)
     assert frontend_images and all(DIGEST_PIN.search(image) for image in frontend_images)
     assert all(DIGEST_PIN.search(image) for image in postgres_images)
+    assert backup_images and all(DIGEST_PIN.search(image) for image in backup_images)
+    assert "age=1.1.1-1+b3" in backup_dockerfile
 
 
 def test_backend_runtime_is_frozen_non_editable_and_excludes_dev_tools() -> None:

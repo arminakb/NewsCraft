@@ -38,6 +38,25 @@ services:
       timeout: 2s
       retries: 30
 
+  backup:
+    build:
+      context: .
+      dockerfile: operations/backup.Dockerfile
+    image: newscraft-backup:local
+    profiles: ["operations"]
+    restart: "no"
+    environment:
+      PGHOST: postgres
+      PGUSER: newscraft
+      PGPASSWORD: newscraft
+      PGDATABASE: newscraft
+    volumes:
+      - media_data:/data/media:ro
+      - export_data:/data/exports:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+
   migrate:
     image: newscraft-backend:local
     build:

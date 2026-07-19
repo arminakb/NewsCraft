@@ -136,8 +136,12 @@ flow plus offline acceptance limitations.
 Create and verify a local database, media, and export backup from the repository root:
 
 ```bash
-python scripts/backup_restore.py backup --output-dir ./backups
-python scripts/backup_restore.py verify ./backups/newscraft-*.newscraft-backup.tar.gz
+python scripts/backup_restore.py backup --output-dir ./backups \
+  --recipient-file /secure/backup-recipient.txt \
+  --identity-file /secure/backup-identity.txt \
+  --staging-dir /run/newscraft-backup
+python scripts/backup_restore.py verify ./backups/newscraft-*.newscraft-backup.tar.gz.age \
+  --identity-file /secure/backup-identity.txt
 ```
 
 Restore is destructive and requires an explicit `--confirm-replace` flag. Read the

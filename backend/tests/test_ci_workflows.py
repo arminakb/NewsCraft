@@ -85,6 +85,9 @@ def test_nightly_has_real_stack_restart_restore_and_large_list_drills() -> None:
     assert "scripts/smoke.py" in text
     assert "kill worker-source-generation" in text
     assert "test_backup_restore_script.py" in text
+    assert "test_restore_drill_script.py" in text
+    assert "restore_drill.py" in text
+    assert "newscraft-restore-drill-nightly-a" in text
     assert "story-inbox.test.tsx" in text
     assert "playwright install --with-deps chromium" in text
     assert "story-inbox-performance.spec.ts" in text

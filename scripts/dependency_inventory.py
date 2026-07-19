@@ -44,7 +44,12 @@ def build_inventory(root: Path = ROOT) -> dict[str, Any]:
 
     image_text = "\n".join(
         (root / path).read_text(encoding="utf-8")
-        for path in ("backend/Dockerfile", "frontend/Dockerfile", "docker-compose.yml")
+        for path in (
+            "backend/Dockerfile",
+            "frontend/Dockerfile",
+            "operations/backup.Dockerfile",
+            "docker-compose.yml",
+        )
     )
     images = sorted(set(IMAGE_PATTERN.findall(image_text)))
 
@@ -57,6 +62,7 @@ def build_inventory(root: Path = ROOT) -> dict[str, Any]:
             "backend/uv.lock": sha256(uv_lock_path),
             "frontend/package.json": sha256(root / "frontend/package.json"),
             "frontend/package-lock.json": sha256(npm_lock_path),
+            "operations/backup.Dockerfile": sha256(root / "operations/backup.Dockerfile"),
         },
         "python": {
             "count": len(python_packages),

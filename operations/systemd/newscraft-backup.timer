@@ -1,0 +1,11 @@
+[Unit]
+Description=Run the NewsCraft encrypted backup every night
+
+[Timer]
+OnCalendar=*-*-* 02:17:00 UTC
+Persistent=true
+RandomizedDelaySec=20m
+Unit=newscraft-backup.service
+
+[Install]
+WantedBy=timers.target
