@@ -33,6 +33,7 @@ dev = [
   "pip-audit>=2.9,<3",
   "pytest>=8.4",
   "pytest-asyncio>=1.0",
+  "pytest-cov>=7,<8",
   "ruff>=0.13",
 ]
 
@@ -58,3 +59,22 @@ target-version = "py314"
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B"]
+
+[tool.mypy]
+python_version = "3.14"
+files = [
+  "app/core/config.py",
+  "app/core/outbound_proxy.py",
+  "app/core/redaction.py",
+  "app/core/secrets.py",
+  "app/jobs/types.py",
+  "../scripts/backup_restore.py",
+  "../scripts/dependency_inventory.py",
+]
+check_untyped_defs = true
+ignore_missing_imports = true
+no_implicit_optional = true
+pretty = true
+show_error_codes = true
+warn_redundant_casts = true
+warn_unused_configs = true

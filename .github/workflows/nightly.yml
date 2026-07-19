@@ -1,0 +1,93 @@
+name: Nightly production drills
+
+on:
+  schedule:
+    - cron: "37 2 * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: nightly-production-drills
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  no-mock-stack:
+    name: Credential-free real-stack smoke
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      APP_ENV: test
+      GENERATION_PROVIDER: fake
+      TELEGRAM_PUBLISH_MODE: dry-run
+      OPENROUTER_API_KEY: ""
+      TELEGRAM_SOURCE_EDITOR_API_ID: ""
+      TELEGRAM_SOURCE_EDITOR_API_HASH: ""
+      TELEGRAM_SOURCE_EDITOR_SESSION: ""
+      TELEGRAM_DESTINATION_NEWS_TOKEN: ""
+      HTTP_PROXY: ""
+      HTTPS_PROXY: ""
+      ALL_PROXY: ""
+    steps:
+      - uses: actions/checkout@v4
+      - name: Start isolated acceptance topology
+        run: docker compose -p newscraft-nightly -f docker-compose.yml -f docker-compose.acceptance.yml up -d --build --wait
+      - name: HTTP acceptance and restart recovery
+        run: |
+          python3 scripts/smoke.py --base-url http://127.0.0.1:8000 --provider fake --telegram-mode dry-run --output-dir reports/smoke
+          docker compose -p newscraft-nightly -f docker-compose.yml -f docker-compose.acceptance.yml kill worker-source-generation
+          docker compose -p newscraft-nightly -f docker-compose.yml -f docker-compose.acceptance.yml up -d --no-deps --wait worker-source-generation
+          docker compose -p newscraft-nightly -f docker-compose.yml -f docker-compose.acceptance.yml ps --format json > reports/compose-after-restart.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: nightly-stack-evidence
+          path: reports/
+          retention-days: 30
+      - name: Cleanup
+        if: always()
+        run: docker compose -p newscraft-nightly -f docker-compose.yml -f docker-compose.acceptance.yml down -v --remove-orphans
+
+  backup-restore-contract:
+    name: Backup and restore contract tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v7
+        with:
+          version: 0.11.29
+          enable-cache: true
+          cache-dependency-glob: backend/uv.lock
+      - uses: actions/setup-python@v6
+        with:
+          python-version: 3.14.6
+      - name: Frozen install and restore safety suite
+        working-directory: backend
+        run: |
+          uv sync --locked
+          uv run pytest -p no:cacheprovider -q tests/operations/test_backup_restore_script.py --junitxml=reports/backup-restore.xml
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: nightly-backup-restore-evidence
+          path: backend/reports/
+          retention-days: 30
+
+  large-list-budget:
+    name: Story inbox performance budget
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 26.4.0
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Frozen install and current inbox regression suite
+        working-directory: frontend
+        run: |
+          npm ci
+          npm test -- --run tests/story-inbox.test.tsx

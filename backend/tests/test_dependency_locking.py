@@ -28,7 +28,7 @@ def test_backend_has_one_current_lock_and_explicit_dev_group() -> None:
     assert project["project"]["requires-python"] == ">=3.14,<3.15"
     assert project["tool"]["uv"]["required-version"] == "==0.11.29"
     assert set(project["dependency-groups"]) == {"dev"}
-    assert {"mypy", "packaging", "pip-audit", "pytest", "pytest-asyncio", "ruff"} <= {
+    assert {"mypy", "packaging", "pip-audit", "pytest", "pytest-asyncio", "pytest-cov", "ruff"} <= {
         requirement.split("<", 1)[0].split(">", 1)[0].split("=", 1)[0]
         for requirement in project["dependency-groups"]["dev"]
     }
