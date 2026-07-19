@@ -1,0 +1,40 @@
+{
+  "cleanup": {
+    "failure_code": null,
+    "status": "succeeded"
+  },
+  "failed": [
+    "configure"
+  ],
+  "finished_at": "2026-07-14T20:35:27.839979Z",
+  "provider": "fake",
+  "run_id": "smoke-20260714T203527258821Z-55fbb26b",
+  "schema_version": "newscraft-smoke-v1",
+  "started_at": "2026-07-14T20:35:27.258821Z",
+  "status": "failed",
+  "steps": [
+    {
+      "duration_ms": 73,
+      "ids": {},
+      "invariants": [
+        "api_health"
+      ],
+      "name": "health",
+      "status": "succeeded",
+      "statuses": {
+        "api": "ok"
+      }
+    },
+    {
+      "duration_ms": 391,
+      "failure_code": "http_status_500",
+      "ids": {},
+      "invariants": [],
+      "name": "configure",
+      "status": "failed",
+      "statuses": {}
+    }
+  ],
+  "telegram_mode": "dry-run",
+  "timeout_seconds": 300
+}
