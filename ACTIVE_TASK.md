@@ -1,6 +1,5 @@
 You are continuing the NewsCraft Production Hardening project.
 
-Use **GPT-5.5 xhigh**.
 
 Your task is to **resume, verify, finalize, and commit Phase 8 only: Dependency Locking and Reproducible Builds**.
 
