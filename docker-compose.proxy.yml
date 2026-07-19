@@ -1,0 +1,15 @@
+services:
+  worker-source-generation:
+    networks:
+      - default
+      - xray_proxy
+
+  worker-publishing:
+    networks:
+      - default
+      - xray_proxy
+
+networks:
+  xray_proxy:
+    external: true
+    name: ${XRAY_PROXY_NETWORK:-contenthub_default}

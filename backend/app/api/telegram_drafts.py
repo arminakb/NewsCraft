@@ -14,6 +14,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.concurrency import run_in_threadpool
 
+from app.api.capabilities import CapabilityStatusDependency
 from app.automations.models import AutomationDispatch, AutomationRoute
 from app.automations.telegram.handlers import (
     enqueue_telegram_publish_intent,
@@ -911,6 +912,7 @@ async def publish_telegram_draft(
     revision_id: UUID,
     body: TelegramContentHashIn,
     session: AsyncSession = SessionDependency,
+    capability_status: CapabilityStatusDependency = None,
 ):
     async with session.begin():
         revision = await _locked_revision(session, revision_id)
@@ -930,6 +932,12 @@ async def publish_telegram_draft(
         )
         if destination is None:
             raise HTTPException(409, "Telegram draft destination is missing")
+        await capability_status.require_available(
+            "destination",
+            destination.id,
+            "publishing",
+            job_type="telegram.publish",
+        )
         publish_job = await enqueue_telegram_publish_intent(
             session,
             revision=revision,
@@ -962,9 +970,16 @@ async def schedule_telegram_revision(
     revision_id: UUID,
     body: ScheduleTelegramIn,
     session: AsyncSession = SessionDependency,
+    capability_status: CapabilityStatusDependency = None,
 ) -> JobAcceptedOut:
     try:
         async with session.begin():
+            await capability_status.require_available(
+                "destination",
+                body.destination_id,
+                "publishing",
+                job_type="telegram.publish",
+            )
             result = await schedule_reviewed_telegram(
                 session,
                 revision_id=revision_id,
@@ -1025,6 +1040,7 @@ async def reconcile_telegram_publish_job(
     body: TelegramReconcileIn,
     response: Response,
     session: AsyncSession = SessionDependency,
+    capability_status: CapabilityStatusDependency = None,
 ):
     async with session.begin():
         publish_job = await session.scalar(select(PublishJob).where(PublishJob.id == publish_job_id).with_for_update())
@@ -1033,6 +1049,13 @@ async def reconcile_telegram_publish_job(
         destination = await session.get(Destination, publish_job.destination_id)
         if destination is None or destination.platform != "telegram":
             raise HTTPException(404, "Telegram publish job not found")
+        if body.outcome == "not_published":
+            await capability_status.require_available(
+                "destination",
+                destination.id,
+                "publishing",
+                job_type="telegram.publish",
+            )
         receipts = list(
             await session.scalars(
                 select(PublishOperationReceipt)

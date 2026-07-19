@@ -66,21 +66,23 @@ The restore verifies the archive and asks `pg_restore --list` to validate the da
 before changing anything. It then stops exactly `api`,
 `worker-source-generation`, `worker-publishing`, `scheduler`, and `frontend`. PostgreSQL stays
 up while the database is recreated and restored. Only after `pg_restore --exit-on-error`
-succeeds does the tool replace the media and export contents, run `alembic upgrade head`, and
-restart those five services. Expect the UI, API, workers, and scheduler to be unavailable for
-the duration.
+succeeds does the tool replace the media and export contents, run the one-shot `migrate`
+service, and restart those five services. `migrate` is not a long-running runtime service and
+must never be added to the stop/start set or given an automatic restart policy. Expect the UI,
+API, workers, and scheduler to be unavailable for the duration.
 
 If any destructive step fails, the tool retries the aggregate stop and then tries each runtime
 service individually if necessary. When it confirms containment, it reports that all five
 runtime services remain stopped and prints this recovery command:
 
 ```bash
-docker compose start api worker-source-generation worker-publishing scheduler frontend
+docker compose up -d --no-deps api worker-source-generation worker-publishing scheduler frontend
 ```
 
 Do not run it until the failure has been understood and the database and both volumes are in
 a consistent state. Re-running restore with the same verified archive is the normal recovery
-path.
+path. `--no-deps` is intentional: restore already ran the one-shot migration, and traversing the
+API dependency graph would run that completed service again.
 
 If the tool instead reports that runtime service stop state could not be confirmed, inspect and
 stop the services explicitly before any recovery work:
@@ -99,7 +101,7 @@ Confirm services and migration state:
 
 ```bash
 docker compose ps
-docker compose run --rm --no-deps api alembic current
+docker compose run --rm --no-deps migrate alembic current
 ```
 
 Record durable row counts for comparison with the pre-backup drill record:

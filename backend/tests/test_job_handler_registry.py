@@ -8,11 +8,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.generation.providers.registry import ProviderRegistry
 from app.jobs.errors import DuplicateJobHandlerError, UnknownJobTypeError
-from app.jobs.models import WorkflowJob
 from app.jobs.registry import JobContext, JobHandlerRegistry, build_default_registry
+from app.jobs.types import JobExecution
 
 
-async def _handler(job: WorkflowJob, context: JobContext) -> dict[str, Any]:
+async def _handler(job: JobExecution, context: JobContext) -> dict[str, Any]:
     return {"job_id": str(job.id), "provider_names": context.providers.names()}
 
 
@@ -57,7 +57,12 @@ def test_job_handler_registry_returns_sorted_job_types():
 def test_default_registry_contains_ingestion_manual_and_story_grouping_handlers():
     registry = build_default_registry()
 
-    assert registry.job_types() == ("ingest.collect", "manual_intake", "story.group_pending")
+    assert registry.job_types() == (
+        "ingest.collect",
+        "manual_intake",
+        "operations.canary.source_generation",
+        "story.group_pending",
+    )
     assert callable(registry.get("ingest.collect"))
     assert callable(registry.get("manual_intake"))
     assert callable(registry.get("story.group_pending"))
@@ -76,6 +81,7 @@ def test_generation_dependency_registers_real_generation_handlers():
         "execute_retention",
         "ingest.collect",
         "manual_intake",
+        "operations.canary.source_generation",
         "story.group_pending",
         "telegram.route.process",
     )
@@ -109,6 +115,7 @@ def test_capabilities_control_the_registry_without_a_static_job_type_switch():
         "execute_retention",
         "ingest.collect",
         "manual_intake",
+        "operations.canary.source_generation",
         "story.group_pending",
         "telegram.route.backfill",
         "telegram.route.dry_run",
@@ -116,4 +123,24 @@ def test_capabilities_control_the_registry_without_a_static_job_type_switch():
         "telegram.route.poll",
         "telegram.route.process",
     )
-    assert publishing.job_types() == ("telegram.destination.check", "telegram.publish")
+    assert publishing.job_types() == (
+        "operations.canary.publishing",
+        "telegram.destination.check",
+        "telegram.publish",
+    )
+
+
+def test_every_registered_handler_accepts_immutable_job_execution():
+    registry = build_default_registry(
+        capabilities=("ingestion", "source", "generation", "publishing"),
+        source_registry=object(),
+        media_stager=object(),
+        profile_resolver=object(),
+        telegram_client=object(),
+        destination_secret_resolver=object(),
+        research_backend_resolver=object(),
+    )
+
+    for job_type in registry.job_types():
+        handler = registry.get(job_type)
+        assert get_type_hints(handler)["job"] is JobExecution, job_type

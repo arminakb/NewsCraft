@@ -6,6 +6,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints, model_validator
 
+from app.jobs.credential_capabilities import CapabilityStatus
 from app.jobs.schemas import JobAcceptedOut
 
 SecretRef = Annotated[str, StringConstraints(pattern=r"^[A-Z][A-Z0-9_]{2,127}$")]
@@ -152,6 +153,7 @@ class TelegramSourceOut(BaseModel):
     access_mode: str
     language_hint: str | None
     configured: bool
+    capability_state: CapabilityStatus
 
 
 class TelegramDestinationOut(BaseModel):
@@ -161,6 +163,7 @@ class TelegramDestinationOut(BaseModel):
     enabled: bool
     health_status: str
     configured: bool
+    capability_state: CapabilityStatus
     settings: dict
 
 

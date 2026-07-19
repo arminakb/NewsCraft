@@ -82,9 +82,7 @@ async def test_initialize_without_boundary_proof_remains_catching_up_and_enqueue
     assert fixture.route.cursor_state.get("last_message_id") is None
     assert_cursor_state_contains_tokens_only(fixture.route.cursor_state)
     assert fixture.media.jobs[0]["job_type"] == "telegram.route.initialize"
-    assert fixture.media.jobs[0]["idempotency_key"].startswith(
-        f"telegram-route-initialize-catch-up:{ROUTE_ID}:"
-    )
+    assert fixture.media.jobs[0]["idempotency_key"].startswith(f"telegram-route-initialize-catch-up:{ROUTE_ID}:")
 
 
 async def test_initialize_resumes_bounded_activation_scan_without_skipping_or_duplicates():
@@ -96,9 +94,7 @@ async def test_initialize_resumes_bounded_activation_scan_without_skipping_or_du
                 page_token="older",
             ),
             fetch_result([envelope(90, second=-1)]),
-            fetch_result(
-                [envelope(93, second=3), envelope(92, second=2), envelope(91, second=1)]
-            ),
+            fetch_result([envelope(93, second=3), envelope(92, second=2), envelope(91, second=1)]),
             fetch_result([]),
         ],
         page_budget=1,
@@ -114,12 +110,8 @@ async def test_initialize_resumes_bounded_activation_scan_without_skipping_or_du
     assert fixture.adapter.requests[1].page_token == "older"
     assert [call.envelope.anchor_message_id for call in fixture.capture.calls] == [91, 92, 93]
     keys = [job["idempotency_key"] for job in fixture.media.jobs]
-    assert keys[0].startswith(
-        f"telegram-route-initialize-catch-up:{ROUTE_ID}:91:activation_scan:"
-    )
-    assert keys[1].startswith(
-        f"telegram-route-initialize-catch-up:{ROUTE_ID}:93:catch_up_cycle:"
-    )
+    assert keys[0].startswith(f"telegram-route-initialize-catch-up:{ROUTE_ID}:91:activation_scan:")
+    assert keys[1].startswith(f"telegram-route-initialize-catch-up:{ROUTE_ID}:93:catch_up_cycle:")
 
 
 async def test_initialize_forward_snapshot_continues_past_page_budget_with_tokens_only():
@@ -134,18 +126,10 @@ async def test_initialize_forward_snapshot_continues_past_page_budget_with_token
         page_budget=1,
     )
 
-    first = await fixture.handlers.initialize(
-        fixture.job(job_type="telegram.route.initialize"), fixture.context()
-    )
-    second = await fixture.handlers.initialize(
-        fixture.job(job_type="telegram.route.initialize"), fixture.context()
-    )
-    third = await fixture.handlers.initialize(
-        fixture.job(job_type="telegram.route.initialize"), fixture.context()
-    )
-    fourth = await fixture.handlers.initialize(
-        fixture.job(job_type="telegram.route.initialize"), fixture.context()
-    )
+    first = await fixture.handlers.initialize(fixture.job(job_type="telegram.route.initialize"), fixture.context())
+    second = await fixture.handlers.initialize(fixture.job(job_type="telegram.route.initialize"), fixture.context())
+    third = await fixture.handlers.initialize(fixture.job(job_type="telegram.route.initialize"), fixture.context())
+    fourth = await fixture.handlers.initialize(fixture.job(job_type="telegram.route.initialize"), fixture.context())
 
     assert first["continuation_enqueued"] is True
     assert second["continuation_enqueued"] is True
@@ -172,9 +156,7 @@ async def test_initialize_forward_scan_and_capture_continuation_keys_never_colli
     )
 
     for _ in range(8):
-        await fixture.handlers.initialize(
-            fixture.job(job_type="telegram.route.initialize"), fixture.context()
-        )
+        await fixture.handlers.initialize(fixture.job(job_type="telegram.route.initialize"), fixture.context())
 
     keys = [item["idempotency_key"] for item in fixture.media.jobs]
     assert len(keys) == len(set(keys)) == 7
@@ -213,14 +195,10 @@ async def test_empty_incomplete_activation_page_retries_without_self_deduplicati
 
 
 async def test_paused_initialization_defers_durably_and_resumes_without_network_while_paused():
-    fixture = HandlerFixture(
-        responses=[fetch_result([envelope(90, second=-1)]), fetch_result([])]
-    )
+    fixture = HandlerFixture(responses=[fetch_result([envelope(90, second=-1)]), fetch_result([])])
     fixture.route.paused_at = NOW
 
-    held = await fixture.handlers.initialize(
-        fixture.job(job_type="telegram.route.initialize"), fixture.context()
-    )
+    held = await fixture.handlers.initialize(fixture.job(job_type="telegram.route.initialize"), fixture.context())
 
     assert held["reason"] == "route_pause"
     assert held["deferred_until"] == (NOW + timedelta(seconds=300)).isoformat()
@@ -229,9 +207,7 @@ async def test_paused_initialization_defers_durably_and_resumes_without_network_
     assert fixture.media.jobs[0]["scheduled_for"] == NOW + timedelta(seconds=300)
 
     fixture.route.paused_at = None
-    resumed = await fixture.handlers.initialize(
-        fixture.job(job_type="telegram.route.initialize"), fixture.context()
-    )
+    resumed = await fixture.handlers.initialize(fixture.job(job_type="telegram.route.initialize"), fixture.context())
     assert resumed["initialized"] is True
 
 
@@ -440,9 +416,7 @@ async def test_edit_lookback_pages_until_newest_fifty_are_collected():
 
 
 async def test_pause_during_forward_fetch_defers_before_locked_capture():
-    fixture = HandlerFixture(
-        responses=[fetch_result([envelope(121)]), fetch_result([])]
-    )
+    fixture = HandlerFixture(responses=[fetch_result([envelope(121)]), fetch_result([])])
     fixture.route.cursor_state = {"status": "ready", "last_message_id": 120}
     fixture.adapter.on_fetch = lambda: setattr(fixture.route, "paused_at", NOW)
 
@@ -454,9 +428,7 @@ async def test_pause_during_forward_fetch_defers_before_locked_capture():
 
 
 async def test_reactivation_identity_change_during_fetch_prevents_locked_capture():
-    fixture = HandlerFixture(
-        responses=[fetch_result([envelope(121)]), fetch_result([])]
-    )
+    fixture = HandlerFixture(responses=[fetch_result([envelope(121)]), fetch_result([])])
     fixture.route.cursor_state = {
         "status": "ready",
         "last_message_id": 120,
@@ -539,9 +511,7 @@ async def test_activation_and_capture_replay_reject_token_or_snapshot_loops():
         page_budget=2,
     )
     with pytest.raises(RetryableJobError):
-        await activation.handlers.initialize(
-            activation.job(job_type="telegram.route.initialize"), activation.context()
-        )
+        await activation.handlers.initialize(activation.job(job_type="telegram.route.initialize"), activation.context())
 
     capture = HandlerFixture(
         responses=[fetch_result([envelope(121)], snapshot="changed")],
@@ -584,9 +554,7 @@ async def test_paused_job_replay_uses_one_stable_successor_key_and_schedule():
 
 @pytest.mark.parametrize("failure", ["state", "repository"])
 async def test_staged_media_is_cleaned_after_locked_state_or_repository_failure(failure):
-    fixture = HandlerFixture(
-        responses=[fetch_result([envelope(121)]), fetch_result([])]
-    )
+    fixture = HandlerFixture(responses=[fetch_result([envelope(121)]), fetch_result([])])
     fixture.route.cursor_state = {
         "status": "ready",
         "last_message_id": 120,
@@ -685,6 +653,7 @@ def test_default_registry_adds_only_source_handlers_when_dependencies_are_suppli
     assert registry.job_types() == (
         "ingest.collect",
         "manual_intake",
+        "operations.canary.source_generation",
         "story.group_pending",
         "telegram.route.backfill",
         "telegram.route.dry_run",
@@ -811,9 +780,12 @@ class HandlerFixture:
 
 class FakeSession:
     def __init__(self, route, source, config, control):
-        self.values = {(AutomationRoute, route.id): route, (Source, source.id): source,
-                       (TelegramSourceConfig, config.source_id): config,
-                       (AutomationControl, "global"): control}
+        self.values = {
+            (AutomationRoute, route.id): route,
+            (Source, source.id): source,
+            (TelegramSourceConfig, config.source_id): config,
+            (AutomationControl, "global"): control,
+        }
 
     async def get(self, model, identifier):
         return self.values.get((model, identifier))
@@ -864,9 +836,7 @@ class FakeCapture:
             recent[str(call.envelope.anchor_message_id)] = fingerprint
             state["recent_fingerprints"] = recent
             if call.dispatch_kind == "live":
-                state["last_message_id"] = max(
-                    int(state.get("last_message_id") or 0), call.envelope.anchor_message_id
-                )
+                state["last_message_id"] = max(int(state.get("last_message_id") or 0), call.envelope.anchor_message_id)
             self.route.cursor_state = state
         return SimpleNamespace(id=uuid4(), status="captured")
 
@@ -892,11 +862,7 @@ class FakeMediaStager:
 
     async def enqueue_job(self, **kwargs):
         existing = next(
-            (
-                item
-                for item in self.jobs
-                if item["idempotency_key"] == kwargs["idempotency_key"]
-            ),
+            (item for item in self.jobs if item["idempotency_key"] == kwargs["idempotency_key"]),
             None,
         )
         if existing is not None:

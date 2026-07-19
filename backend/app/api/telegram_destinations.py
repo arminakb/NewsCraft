@@ -8,13 +8,14 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.capabilities import CapabilityStatusDependency
 from app.api.telegram_schemas import (
     TelegramDestinationAcceptedOut,
     TelegramDestinationCreate,
     TelegramDestinationOut,
 )
-from app.core.secrets import EnvironmentSecretResolver, SecretResolver
 from app.db.session import get_session
+from app.jobs.credential_capabilities import CapabilityStatusService
 from app.jobs.repository import JobRepository
 from app.jobs.schemas import JobAcceptedOut
 from app.jobs.types import JobOrigin
@@ -28,22 +29,22 @@ def get_job_repository(session: AsyncSession = SessionDependency) -> JobReposito
     return JobRepository(session)
 
 
-def get_secret_resolver() -> SecretResolver:
-    return EnvironmentSecretResolver()
-
-
 JobRepositoryDependency = Annotated[JobRepository, Depends(get_job_repository)]
-SecretResolverDependency = Annotated[SecretResolver, Depends(get_secret_resolver)]
 
 
-def _destination_out(destination: Destination, secrets: SecretResolver) -> TelegramDestinationOut:
+async def _destination_out(
+    destination: Destination,
+    capability_status: CapabilityStatusService,
+) -> TelegramDestinationOut:
+    state = await capability_status.get("destination", destination.id, "publishing")
     return TelegramDestinationOut(
         id=destination.id,
         name=destination.name,
         target_ref=destination.target_ref,
         enabled=destination.enabled,
         health_status=destination.health_status,
-        configured=secrets.configured(destination.secret_ref),
+        configured=state.available,
+        capability_state=state,
         settings=dict(destination.settings or {}),
     )
 
@@ -59,14 +60,14 @@ def _destination_matches(destination: Destination, body: TelegramDestinationCrea
 @router.get("", response_model=list[TelegramDestinationOut])
 async def list_telegram_destinations(
     session: AsyncSession = SessionDependency,
-    secrets: SecretResolverDependency = None,
+    capability_status: CapabilityStatusDependency = None,
 ):
     rows = list(
         await session.scalars(
             select(Destination).where(Destination.platform == "telegram").order_by(Destination.name)
         )
     )
-    return [_destination_out(row, secrets) for row in rows]
+    return [await _destination_out(row, capability_status) for row in rows]
 
 
 @router.post("", response_model=TelegramDestinationAcceptedOut, status_code=202)
@@ -74,7 +75,7 @@ async def create_telegram_destination(
     body: TelegramDestinationCreate,
     session: AsyncSession = SessionDependency,
     jobs: JobRepositoryDependency = None,
-    secrets: SecretResolverDependency = None,
+    capability_status: CapabilityStatusDependency = None,
 ):
     destination = await session.scalar(
         select(Destination).where(
@@ -119,7 +120,7 @@ async def create_telegram_destination(
     )
     await session.commit()
     return TelegramDestinationAcceptedOut(
-        destination=_destination_out(destination, secrets),
+        destination=await _destination_out(destination, capability_status),
         job=JobAcceptedOut(
             job_id=result.job.id,
             status=result.job.status,

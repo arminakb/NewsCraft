@@ -20,6 +20,7 @@ from app.jobs.errors import NeedsReviewJobError, PermanentJobError, RetryableJob
 from app.jobs.events import redact_event_data
 from app.jobs.models import WorkflowEvent, WorkflowJob
 from app.jobs.registry import JobContext, JobHandler
+from app.jobs.types import JobExecution, job_payload_copy
 from app.research.base import ResearchBackend, ResearchBudgetExceeded, ResearchRequest
 from app.research.citations import CitationIntegrityError, resolve_candidate_brief
 from app.research.continuations import (
@@ -165,10 +166,10 @@ def build_research_story_handler(
 ) -> JobHandler:
     injector = fault_injector if fault_injector is not None else NoopFaultInjector()
 
-    async def handle(job: WorkflowJob, context: JobContext) -> dict[str, Any]:
+    async def handle(job: JobExecution, context: JobContext) -> dict[str, Any]:
         session = context.session
         workflow_job_id = job.id
-        payload = dict(job.payload or {})
+        payload = job_payload_copy(job)
         try:
             run_id = UUID(str(payload["run_id"]))
             story_id = UUID(str(payload["story_id"]))

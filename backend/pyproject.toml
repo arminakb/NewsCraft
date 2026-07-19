@@ -17,6 +17,7 @@ dependencies = [
   "markdown>=3.8",
   "nh3>=0.3",
   "pydantic-settings>=2.10",
+  "python-socks[asyncio]>=2.7,<3",
   "python-dateutil>=2.9",
   "sqlalchemy>=2.0",
   "telethon>=1.40,<2",

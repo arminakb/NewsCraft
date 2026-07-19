@@ -11,6 +11,7 @@ from fastapi import HTTPException
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import select
 
+from app.api.capabilities import get_capability_status_service
 from app.api.content_packs import get_variant_revision
 from app.api.telegram_drafts import (
     TelegramContentHashIn,
@@ -49,6 +50,7 @@ from app.jobs.types import JobOrigin
 from app.main import app
 from app.publishing.models import Destination, PublishJob
 from app.stories.models import Story, StoryEvidenceLink, StoryEvidenceSnapshot, StoryRevision
+from tests.capability_fakes import AVAILABLE_CAPABILITIES
 
 
 class FakeProfileResolver:
@@ -1169,6 +1171,7 @@ async def test_manual_child_approval_and_publish_bind_exact_hash_and_route_ances
             child_id,
             TelegramContentHashIn(content_hash=child_hash),
             session,
+            AVAILABLE_CAPABILITIES,
         )
         publish_job_id = published["job"]["publish_job_id"]
 
@@ -1177,6 +1180,7 @@ async def test_manual_child_approval_and_publish_bind_exact_hash_and_route_ances
             child_id,
             TelegramContentHashIn(content_hash=child_hash),
             session,
+            AVAILABLE_CAPABILITIES,
         )
         assert replayed["job"]["publish_job_id"] == publish_job_id
         dispatch = await session.get(AutomationDispatch, dispatch_id)
@@ -1234,6 +1238,7 @@ async def test_draft_http_contract_enforces_states_filters_and_telegram_platform
             yield session
 
     app.dependency_overrides[get_session] = override_session
+    app.dependency_overrides[get_capability_status_service] = lambda: AVAILABLE_CAPABILITIES
     try:
         async with AsyncClient(
             transport=ASGITransport(app=app),

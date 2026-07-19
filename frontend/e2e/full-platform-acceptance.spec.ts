@@ -1052,6 +1052,13 @@ function diagnosticsWire(state: BackendState) {
       scheduler: { status: "healthy", observed_at: "2026-07-13T08:05:10Z", last_success_at: "2026-07-13T08:04:40Z", message: "Scheduler heartbeat persisted.", action_url: "/automations" },
     },
     queue_counts: { queued: state.retryRequested ? 1 : 0, failed: state.retryRequested ? 0 : 1 },
+    outbound_proxy: {
+      mode: "direct",
+      scheme: null,
+      bypass_rule_count: 0,
+      last_connectivity_status: "ok",
+      configuration_error_code: null,
+    },
     attention: [{ id: ids.failedJob, severity: "warning", kind: "job", title: "پژوهش نیازمند بررسی است", occurred_at: "2026-07-13T08:02:00Z", action_url: "/jobs" }],
   }
 }

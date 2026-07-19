@@ -9,7 +9,10 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy import select
 
+from app.core.faults import FaultInjector, NoopFaultInjector
 from app.jobs.errors import NeedsReviewJobError, PermanentJobError, RetryableJobError
+from app.jobs.registry import JobContext
+from app.jobs.types import JobExecution, job_payload_copy
 from app.publishing.models import Destination
 from app.publishing.telegram.client import (
     TelegramAmbiguousError,
@@ -63,10 +66,17 @@ async def _resolve_secret(resolver: Any, secret_ref: str) -> str:
     return value
 
 
-def build_telegram_publish_handlers(client: Any, secret_resolver: Any) -> TelegramPublishHandlers:
-    async def publish(job: Any, context: Any) -> dict[str, Any]:
+def build_telegram_publish_handlers(
+    client: Any,
+    secret_resolver: Any,
+    *,
+    fault_injector: FaultInjector | None = None,
+) -> TelegramPublishHandlers:
+    injector = fault_injector if fault_injector is not None else NoopFaultInjector()
+
+    async def publish(job: JobExecution, context: JobContext) -> dict[str, Any]:
         try:
-            payload = _PublishPayload.model_validate(job.payload)
+            payload = _PublishPayload.model_validate(job_payload_copy(job))
         except Exception:
             raise PermanentJobError(
                 code="telegram_publish_payload_invalid",
@@ -77,11 +87,12 @@ def build_telegram_publish_handlers(client: Any, secret_resolver: Any) -> Telegr
             publish_job_id=payload.publish_job_id,
             client=client,
             secret_resolver=secret_resolver,
+            fault_injector=injector,
         )
 
-    async def destination_check(job: Any, context: Any) -> dict[str, Any]:
+    async def destination_check(job: JobExecution, context: JobContext) -> dict[str, Any]:
         try:
-            payload = _DestinationPayload.model_validate(job.payload)
+            payload = _DestinationPayload.model_validate(job_payload_copy(job))
         except Exception:
             raise PermanentJobError(
                 code="telegram_destination_payload_invalid", message="Destination check payload is invalid"
@@ -123,9 +134,7 @@ def build_telegram_publish_handlers(client: Any, secret_resolver: Any) -> Telegr
             configuration_changed = False
             async with context.session.begin():
                 destination = await context.session.scalar(
-                    select(Destination)
-                    .where(Destination.id == payload.destination_id)
-                    .with_for_update()
+                    select(Destination).where(Destination.id == payload.destination_id).with_for_update()
                 )
                 configuration_changed = destination is None
                 if destination is not None:
@@ -145,9 +154,7 @@ def build_telegram_publish_handlers(client: Any, secret_resolver: Any) -> Telegr
         configuration_changed = False
         async with context.session.begin():
             destination = await context.session.scalar(
-                select(Destination)
-                .where(Destination.id == payload.destination_id)
-                .with_for_update()
+                select(Destination).where(Destination.id == payload.destination_id).with_for_update()
             )
             configuration_changed = destination is None
             if destination is not None:

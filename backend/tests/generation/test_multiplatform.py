@@ -2332,7 +2332,14 @@ async def test_durable_success_revalidation_failure_is_sanitized_needs_review_wi
 async def test_regeneration_idempotency_is_bound_to_locked_current_revision():
     from app.generation.editorial_service import EditorialService, RegenerateVariantRequest
 
-    profile = SimpleNamespace(id=uuid4(), enabled=True, default_model="fake-v1")
+    profile = SimpleNamespace(
+        id=uuid4(),
+        enabled=True,
+        default_model="fake-v1",
+        provider_type="fake",
+        secret_ref=None,
+        settings={},
+    )
     variant = SimpleNamespace(id=uuid4(), platform="instagram")
     prompt = SimpleNamespace(id=uuid4(), checksum_sha256="a" * 64)
     first_revision = SimpleNamespace(id=uuid4(), content_hash="b" * 64)

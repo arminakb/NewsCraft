@@ -17,6 +17,7 @@ from app.db.models import Source
 from app.jobs.repository import EnqueueJobResult
 from app.jobs.types import JobStatus
 from app.publishing.models import Destination
+from tests.capability_fakes import AVAILABLE_CAPABILITIES
 
 
 def test_public_source_rejects_every_mtproto_reference():
@@ -83,7 +84,7 @@ async def test_source_create_persists_transport_config_but_returns_no_secret_ref
         }
     )
 
-    result = await create_telegram_source(body, session)
+    result = await create_telegram_source(body, session, AVAILABLE_CAPABILITIES)
 
     source = session.one(Source)
     config = session.one(TelegramSourceConfig)
@@ -91,14 +92,13 @@ async def test_source_create_persists_transport_config_but_returns_no_secret_ref
     assert config.source_id == source.id
     assert config.access_mode == "mtproto_user"
     assert config.session_secret_ref == "TELEGRAM_EDITOR_SESSION"
+    assert result.capability_state.status == "available"
     assert "secret" not in str(result).lower()
 
 
 async def test_destination_create_stores_reference_enqueues_check_and_returns_safe_output():
     session = MemorySession()
     jobs = FakeJobs()
-    secrets = SimpleNamespace(configured=lambda reference: reference == "TELEGRAM_DESTINATION_NEWS_TOKEN")
-
     result = await create_telegram_destination(
         TelegramDestinationCreate.model_validate(
             {
@@ -110,7 +110,7 @@ async def test_destination_create_stores_reference_enqueues_check_and_returns_sa
         ),
         session,
         jobs,
-        secrets,
+        AVAILABLE_CAPABILITIES,
     )
 
     destination = session.one(Destination)
@@ -125,20 +125,20 @@ async def test_destination_create_stores_reference_enqueues_check_and_returns_sa
 async def test_conflicting_duplicate_source_and_destination_creates_return_409():
     source_session = MemorySession()
     public = TelegramSourceCreate(name="Public", channel_ref="public_channel")
-    first_source = await create_telegram_source(public, source_session)
-    same_source = await create_telegram_source(public, source_session)
+    first_source = await create_telegram_source(public, source_session, AVAILABLE_CAPABILITIES)
+    same_source = await create_telegram_source(public, source_session, AVAILABLE_CAPABILITIES)
     assert same_source.id == first_source.id
     with pytest.raises(HTTPException) as source_conflict:
         await create_telegram_source(
             TelegramSourceCreate(name="Conflicting name", channel_ref="public_channel"),
             source_session,
+            AVAILABLE_CAPABILITIES,
         )
     assert source_conflict.value.status_code == 409
     assert source_session.nested_count == 1
 
     destination_session = MemorySession()
     jobs = FakeJobs()
-    secrets = SimpleNamespace(configured=lambda reference: True)
     destination = TelegramDestinationCreate(
         name="News",
         target_ref="@news",
@@ -146,10 +146,10 @@ async def test_conflicting_duplicate_source_and_destination_creates_return_409()
         allow_auto_publish=False,
     )
     first_destination = await create_telegram_destination(
-        destination, destination_session, jobs, secrets
+        destination, destination_session, jobs, AVAILABLE_CAPABILITIES
     )
     same_destination = await create_telegram_destination(
-        destination, destination_session, jobs, secrets
+        destination, destination_session, jobs, AVAILABLE_CAPABILITIES
     )
     assert same_destination.destination.id == first_destination.destination.id
     with pytest.raises(HTTPException) as destination_conflict:
@@ -161,7 +161,7 @@ async def test_conflicting_duplicate_source_and_destination_creates_return_409()
             ),
             destination_session,
             jobs,
-            secrets,
+            AVAILABLE_CAPABILITIES,
         )
     assert destination_conflict.value.status_code == 409
     assert destination_session.nested_count == 1
@@ -184,14 +184,16 @@ async def test_source_savepoint_race_reuses_matching_winner_and_rejects_conflict
     body = TelegramSourceCreate(name="Public", channel_ref="public_channel")
 
     matching = SavepointRaceSession(winner, related=winner_config)
-    reused = await create_telegram_source(body, matching)
+    reused = await create_telegram_source(body, matching, AVAILABLE_CAPABILITIES)
     assert reused.id == winner.id
     assert matching.integrity_errors == 1
 
     conflicting = SavepointRaceSession(winner, related=winner_config)
     with pytest.raises(HTTPException) as error:
         await create_telegram_source(
-            TelegramSourceCreate(name="Different", channel_ref="public_channel"), conflicting
+            TelegramSourceCreate(name="Different", channel_ref="public_channel"),
+            conflicting,
+            AVAILABLE_CAPABILITIES,
         )
     assert error.value.status_code == 409
     assert conflicting.integrity_errors == 1
@@ -213,10 +215,10 @@ async def test_destination_savepoint_race_reuses_matching_winner_and_rejects_con
         name="News", target_ref="@news", secret_ref="TELEGRAM_NEWS_TOKEN"
     )
     jobs = FakeJobs()
-    secrets = SimpleNamespace(configured=lambda reference: True)
-
     matching = SavepointRaceSession(winner)
-    reused = await create_telegram_destination(body, matching, jobs, secrets)
+    reused = await create_telegram_destination(
+        body, matching, jobs, AVAILABLE_CAPABILITIES
+    )
     assert reused.destination.id == winner.id
     assert matching.integrity_errors == 1
 
@@ -228,7 +230,7 @@ async def test_destination_savepoint_race_reuses_matching_winner_and_rejects_con
             ),
             conflicting,
             jobs,
-            secrets,
+            AVAILABLE_CAPABILITIES,
         )
     assert error.value.status_code == 409
     assert conflicting.integrity_errors == 1

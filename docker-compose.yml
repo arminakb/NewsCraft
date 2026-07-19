@@ -1,6 +1,7 @@
 services:
   postgres:
     image: postgres:18
+    restart: "no"
     environment:
       POSTGRES_USER: newscraft
       POSTGRES_PASSWORD: newscraft
@@ -21,6 +22,7 @@ services:
 
   postgres-test:
     image: postgres:18
+    restart: "no"
     profiles: ["test"]
     environment:
       POSTGRES_USER: newscraft
@@ -36,41 +38,42 @@ services:
       timeout: 2s
       retries: 30
 
+  migrate:
+    image: newscraft-backend:local
+    build:
+      context: ./backend
+    restart: "no"
+    command: alembic upgrade head
+    environment:
+      DATABASE_URL: postgresql+asyncpg://newscraft:newscraft@newscraft-postgres:5432/newscraft
+    depends_on:
+      postgres:
+        condition: service_healthy
+
   api:
     image: newscraft-backend:local
     build:
       context: ./backend
-    command: sh -c "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000"
+    restart: "no"
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000
     environment:
       DATABASE_URL: postgresql+asyncpg://newscraft:newscraft@newscraft-postgres:5432/newscraft
-      HTTP_PROXY: ${HTTP_PROXY:-http://xray-proxy:10808}
-      HTTPS_PROXY: ${HTTPS_PROXY:-http://xray-proxy:10808}
-      ALL_PROXY: ${ALL_PROXY:-http://xray-proxy:10808}
-      NO_PROXY: ${NO_PROXY:-newscraft-postgres,postgres,localhost,127.0.0.1}
       MEDIA_ROOT: /data/media
       EXPORT_ROOT: /data/exports
-      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
-      OPENROUTER_BASE_URL: ${OPENROUTER_BASE_URL:-https://openrouter.ai/api/v1}
-      TELEGRAM_SOURCE_EDITOR_API_ID: ${TELEGRAM_SOURCE_EDITOR_API_ID:-}
-      TELEGRAM_SOURCE_EDITOR_API_HASH: ${TELEGRAM_SOURCE_EDITOR_API_HASH:-}
-      TELEGRAM_SOURCE_EDITOR_SESSION: ${TELEGRAM_SOURCE_EDITOR_SESSION:-}
-      TELEGRAM_DESTINATION_NEWS_TOKEN: ${TELEGRAM_DESTINATION_NEWS_TOKEN:-}
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
+      READINESS_REQUIRED_CAPABILITIES: ${READINESS_REQUIRED_CAPABILITIES:-}
+      CAPABILITY_QUEUE_CEILING: ${CAPABILITY_QUEUE_CEILING:-1000}
+      CAPABILITY_RETRY_AFTER_SECONDS: ${CAPABILITY_RETRY_AFTER_SECONDS:-5}
+      CAPABILITY_OBSERVATION_TTL_SECONDS: ${CAPABILITY_OBSERVATION_TTL_SECONDS:-120}
     ports:
       - "127.0.0.1:8000:8000"
     volumes:
-      - media_data:/data/media
-      - export_data:/data/exports
-      - .:/workspace
-    networks:
-      - default
-      - xray_proxy
+      - media_data:/data/media:ro
+      - export_data:/data/exports:ro
     depends_on:
-      postgres:
-        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=2).close()"]
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health/ready', timeout=2).close()"]
       interval: 5s
       timeout: 5s
       retries: 20
@@ -79,25 +82,34 @@ services:
   frontend:
     build:
       context: ./frontend
+    restart: "no"
     environment:
       API_INTERNAL_BASE_URL: http://api:8000
     ports:
       - "127.0.0.1:3000:3000"
     depends_on:
-      - api
+      api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/health').then(response => process.exit(response.ok ? 0 : 1)).catch(() => process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 4
+      start_period: 15s
 
   worker-source-generation:
     image: newscraft-backend:local
     build:
       context: ./backend
+    restart: "no"
     command: python -m app.jobs.worker --capability ingestion --capability source --capability generation
     environment:
       NEWSCRAFT_COMPONENT_ID: worker-source-generation
       DATABASE_URL: postgresql+asyncpg://newscraft:newscraft@newscraft-postgres:5432/newscraft
-      HTTP_PROXY: ${HTTP_PROXY:-http://xray-proxy:10808}
-      HTTPS_PROXY: ${HTTPS_PROXY:-http://xray-proxy:10808}
-      ALL_PROXY: ${ALL_PROXY:-http://xray-proxy:10808}
-      NO_PROXY: ${NO_PROXY:-newscraft-postgres,postgres,localhost,127.0.0.1}
+      HTTP_PROXY: ${HTTP_PROXY-}
+      HTTPS_PROXY: ${HTTPS_PROXY-}
+      ALL_PROXY: ${ALL_PROXY-}
+      NO_PROXY: ${NO_PROXY-}
       MEDIA_ROOT: /data/media
       EXPORT_ROOT: /data/exports
       TELEGRAM_MEDIA_STAGING_ROOT: /data/media-staging
@@ -112,78 +124,72 @@ services:
       - media_data:/data/media
       - export_data:/data/exports
       - media_staging:/data/media-staging
-    networks:
-      - default
-      - xray_proxy
     depends_on:
       postgres:
         condition: service_healthy
       api:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-m", "app.jobs.healthcheck", "--component-id", "worker-source-generation", "--component-type", "worker", "--expected-capabilities", "generation,ingestion,source", "--expected-job-types", "build_export,content_pack.generate,content_pack.generate_telegram,content_pack.regenerate,execute_retention,ingest.collect,manual_intake,operations.canary.source_generation,research_story,story.group_pending,telegram.route.backfill,telegram.route.dry_run,telegram.route.initialize,telegram.route.poll,telegram.route.process", "--max-age-seconds", "120"]
+      interval: 15s
+      timeout: 5s
+      retries: 4
+      start_period: 15s
 
   worker-publishing:
     image: newscraft-backend:local
     build:
       context: ./backend
+    restart: "no"
     command: python -m app.jobs.worker --capability publishing
     environment:
       NEWSCRAFT_COMPONENT_ID: worker-publishing
       DATABASE_URL: postgresql+asyncpg://newscraft:newscraft@newscraft-postgres:5432/newscraft
-      HTTP_PROXY: ${HTTP_PROXY:-http://xray-proxy:10808}
-      HTTPS_PROXY: ${HTTPS_PROXY:-http://xray-proxy:10808}
-      ALL_PROXY: ${ALL_PROXY:-http://xray-proxy:10808}
-      NO_PROXY: ${NO_PROXY:-newscraft-postgres,postgres,localhost,127.0.0.1}
+      HTTP_PROXY: ${HTTP_PROXY-}
+      HTTPS_PROXY: ${HTTPS_PROXY-}
+      ALL_PROXY: ${ALL_PROXY-}
+      NO_PROXY: ${NO_PROXY-}
       MEDIA_ROOT: /data/media
-      TELEGRAM_MEDIA_STAGING_ROOT: /data/media-staging
       TELEGRAM_DESTINATION_NEWS_TOKEN: ${TELEGRAM_DESTINATION_NEWS_TOKEN:-}
     extra_hosts:
       - "host.docker.internal:host-gateway"
     volumes:
-      - media_data:/data/media
-      - media_staging:/data/media-staging
-    networks:
-      - default
-      - xray_proxy
+      - media_data:/data/media:ro
     depends_on:
       postgres:
         condition: service_healthy
       api:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-m", "app.jobs.healthcheck", "--component-id", "worker-publishing", "--component-type", "worker", "--expected-capabilities", "publishing", "--expected-job-types", "operations.canary.publishing,telegram.destination.check,telegram.publish", "--max-age-seconds", "120"]
+      interval: 15s
+      timeout: 5s
+      retries: 4
+      start_period: 15s
 
   scheduler:
     image: newscraft-backend:local
     build:
       context: ./backend
+    restart: "no"
     command: python -m app.jobs.scheduler
     environment:
       NEWSCRAFT_COMPONENT_ID: scheduler
       DATABASE_URL: postgresql+asyncpg://newscraft:newscraft@newscraft-postgres:5432/newscraft
-      HTTP_PROXY: ${HTTP_PROXY:-http://xray-proxy:10808}
-      HTTPS_PROXY: ${HTTPS_PROXY:-http://xray-proxy:10808}
-      ALL_PROXY: ${ALL_PROXY:-http://xray-proxy:10808}
-      NO_PROXY: ${NO_PROXY:-newscraft-postgres,postgres,localhost,127.0.0.1}
-      MEDIA_ROOT: /data/media
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
-    volumes:
-      - media_data:/data/media
-      - media_staging:/data/media-staging
-    networks:
-      - default
-      - xray_proxy
     depends_on:
       postgres:
         condition: service_healthy
       api:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-m", "app.jobs.healthcheck", "--component-id", "scheduler", "--component-type", "scheduler", "--expected-capabilities", "scheduling", "--expected-job-types", "", "--max-age-seconds", "90"]
+      interval: 15s
+      timeout: 5s
+      retries: 4
+      start_period: 15s
 
 volumes:
   postgres_data:
   media_data:
   export_data:
   media_staging:
-
-networks:
-  xray_proxy:
-    external: true
-    name: ${XRAY_PROXY_NETWORK:-contenthub_default}

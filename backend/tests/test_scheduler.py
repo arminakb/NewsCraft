@@ -93,6 +93,9 @@ class MemoryScheduler(SchedulerService):
             and route.next_poll_at <= now
         ]
 
+    async def _route_capabilities_available(self, route, observed_at):
+        return True
+
 
 def _source(*, minutes=1440, active=True, last_fetch_at=None):
     return SimpleNamespace(

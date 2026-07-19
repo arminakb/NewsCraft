@@ -1,3 +1,4 @@
+import asyncio
 import os
 from collections.abc import AsyncIterator
 from datetime import UTC, datetime
@@ -10,6 +11,8 @@ from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from sqlalchemy.pool import NullPool
 
+from app.core.outbound_proxy import ProxyDiagnostics
+from app.jobs import scheduler as scheduler_module
 from app.jobs.models import RuntimeHeartbeat
 from app.jobs.registry import JobHandlerRegistry
 from app.jobs.runtime import RuntimeHeartbeatService, build_component_id
@@ -156,8 +159,70 @@ async def test_repeated_component_heartbeat_updates_in_place(heartbeat_db_sessio
 
 
 @pytest.mark.asyncio
-async def test_two_worker_heartbeats_report_exact_capabilities_registry_jobs_and_supplied_time():
+async def test_process_instance_changes_accumulate_bounded_restart_history(
+    heartbeat_db_session,
+):
+    service = RuntimeHeartbeatService(heartbeat_db_session)
+    first = datetime(2026, 7, 11, 8, 0, tzinfo=UTC)
+    second = datetime(2026, 7, 11, 8, 1, tzinfo=UTC)
+    third = datetime(2026, 7, 11, 8, 2, tzinfo=UTC)
+
+    await service.record(
+        "worker-source-generation",
+        "worker",
+        ("ingestion",),
+        first,
+        {
+            "process_instance_id": "instance-a",
+            "process_started_at": first.isoformat(),
+        },
+    )
+    await heartbeat_db_session.commit()
+    await service.record(
+        "worker-source-generation",
+        "worker",
+        ("ingestion",),
+        second,
+        {
+            "process_instance_id": "instance-b",
+            "process_started_at": second.isoformat(),
+        },
+    )
+    await heartbeat_db_session.commit()
+    await service.record(
+        "worker-source-generation",
+        "worker",
+        ("ingestion",),
+        third,
+        {
+            "process_instance_id": "instance-c",
+            "process_started_at": third.isoformat(),
+        },
+    )
+    await heartbeat_db_session.commit()
+
+    row = (await service.list_recent())[0]
+    assert row.runtime_metadata["restart_observed_at"] == [
+        second.isoformat(),
+        third.isoformat(),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_two_worker_heartbeats_report_exact_capabilities_registry_jobs_and_supplied_time(monkeypatch):
     records = []
+    monkeypatch.setattr(
+        "app.jobs.worker.safe_proxy_diagnostics",
+        lambda: ProxyDiagnostics(
+            mode="direct",
+            bypass_rule_count=0,
+            last_connectivity_status="not_checked",
+        ),
+    )
+    monkeypatch.setattr(
+        "app.jobs.worker.uuid4",
+        lambda: type("ProcessInstance", (), {"hex": "process-instance"})(),
+    )
 
     class SessionContext(FakeSession):
         async def __aenter__(self):
@@ -207,16 +272,81 @@ async def test_two_worker_heartbeats_report_exact_capabilities_registry_jobs_and
             "component_type": "worker",
             "capabilities": ("generation", "ingestion", "source"),
             "observed_at": observed_at,
-            "metadata": {"job_types": ["telegram.route.poll", "telegram.route.process"]},
+            "metadata": {
+                "job_types": ["telegram.route.poll", "telegram.route.process"],
+                "state": "idle",
+                "active_work_type": None,
+                "active_work_started_at": None,
+                "last_success_at": None,
+                "process_instance_id": "process-instance",
+                "process_started_at": observed_at.isoformat(),
+                "outbound_proxy": {
+                    "mode": "direct",
+                    "scheme": None,
+                    "bypass_rule_count": 0,
+                    "last_connectivity_status": "not_checked",
+                    "configuration_error_code": None,
+                },
+            },
         },
         {
             "component_id": "worker-publishing",
             "component_type": "worker",
             "capabilities": ("publishing",),
             "observed_at": observed_at,
-            "metadata": {"job_types": ["telegram.publish"]},
+            "metadata": {
+                "job_types": ["telegram.publish"],
+                "state": "idle",
+                "active_work_type": None,
+                "active_work_started_at": None,
+                "last_success_at": None,
+                "process_instance_id": "process-instance",
+                "process_started_at": observed_at.isoformat(),
+                "outbound_proxy": {
+                    "mode": "direct",
+                    "scheme": None,
+                    "bypass_rule_count": 0,
+                    "last_connectivity_status": "not_checked",
+                    "configuration_error_code": None,
+                },
+            },
         },
     ]
+
+
+def test_worker_heartbeat_proxy_projection_never_persists_proxy_credentials(monkeypatch):
+    for name in (
+        "HTTP_PROXY",
+        "HTTPS_PROXY",
+        "ALL_PROXY",
+        "NO_PROXY",
+        "http_proxy",
+        "https_proxy",
+        "all_proxy",
+        "no_proxy",
+    ):
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setenv(
+        "ALL_PROXY",
+        "http://heartbeat-user-canary:heartbeat-password-canary@heartbeat-host-canary.example:8080",
+    )
+    runner = WorkerRunner(
+        session_factory=lambda: FakeSession(),
+        handler_registry=JobHandlerRegistry(),
+        worker_id="worker-source-generation",
+        capabilities=("ingestion",),
+    )
+
+    metadata = runner._runtime_metadata()
+
+    assert metadata["outbound_proxy"] == {
+        "mode": "proxy",
+        "scheme": "http",
+        "bypass_rule_count": 0,
+        "last_connectivity_status": metadata["outbound_proxy"]["last_connectivity_status"],
+        "configuration_error_code": None,
+    }
+    assert "canary" not in repr(metadata)
 
 
 @pytest.mark.asyncio
@@ -239,3 +369,55 @@ async def test_scheduler_heartbeat_has_own_identity_type_and_no_secret_metadata(
     assert params["capabilities"] == ["scheduling"]
     assert params["observed_at"] == observed_at
     assert params["metadata"] == {}
+
+
+@pytest.mark.asyncio
+async def test_scheduler_runtime_heartbeat_is_independent_and_allowlisted(monkeypatch):
+    records = []
+
+    class SessionContext:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return None
+
+        async def commit(self):
+            return None
+
+    class Recorder:
+        def __init__(self, _session):
+            pass
+
+        async def record(self, **kwargs):
+            records.append(kwargs)
+
+    monkeypatch.setattr(scheduler_module, "async_session", lambda: SessionContext())
+    monkeypatch.setattr(scheduler_module, "RuntimeHeartbeatService", Recorder)
+    runtime_state = {
+        "state": "ticking",
+        "active_work_started_at": "2026-07-17T08:30:00+00:00",
+        "last_success_at": "2026-07-17T08:29:45+00:00",
+        "last_duration_ms": 12,
+        "last_result": {"enqueued": 1},
+    }
+    stop = asyncio.Event()
+    started = asyncio.Event()
+
+    task = asyncio.create_task(
+        scheduler_module._scheduler_runtime_heartbeat_loop(
+            component_id="scheduler",
+            runtime_state=runtime_state,
+            stop=stop,
+            started=started,
+        )
+    )
+    await asyncio.wait_for(started.wait(), timeout=1)
+    stop.set()
+    await asyncio.wait_for(task, timeout=1)
+
+    assert len(records) == 1
+    assert records[0]["component_id"] == "scheduler"
+    assert records[0]["component_type"] == "scheduler"
+    assert records[0]["capabilities"] == ("scheduling",)
+    assert records[0]["metadata"] == runtime_state

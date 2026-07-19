@@ -12,6 +12,7 @@ from typing import Any
 import httpx
 
 from app.core.config import settings
+from app.core.outbound_proxy import build_outbound_http_client
 from app.core.redaction import redact_string
 from app.daily_bundle.date_range import default_yesterday, parse_date_range
 from app.daily_bundle.exporter import export_daily_bundle
@@ -199,15 +200,7 @@ def _resolve_date_range(args: argparse.Namespace, deps: DailyBundleDependencies)
 
 
 def _build_http_client() -> httpx.AsyncClient:
-    proxy = _configured_proxy()
-    return httpx.AsyncClient(timeout=30.0, proxy=proxy, trust_env=True)
-
-
-def _configured_proxy() -> str | None:
-    for value in (settings.all_proxy, settings.https_proxy, settings.http_proxy):
-        if value and value.strip():
-            return value
-    return None
+    return build_outbound_http_client(timeout=30.0)
 
 
 def _failed_extraction(item: DiscoveryItem, exc: Exception) -> ExtractedArticle:

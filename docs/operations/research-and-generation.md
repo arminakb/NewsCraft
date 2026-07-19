@@ -51,7 +51,8 @@ services:
 
 Keep the override and authentication directory out of version control. Leave
 `CODEX_ENABLED=false` when the executable/auth boundary is not configured. Restart only the
-API and source/generation worker after changing it.
+source/generation worker after changing it; the API owns neither the executable nor its
+authentication state.
 
 ## Validated provider profiles
 
@@ -71,9 +72,11 @@ validated `AIProviderProfile.settings`; there are no flat environment aliases fo
   sandbox, a strict JSON schema, an allowlisted environment, bounded output, and a hard
   deadline. Research may use constrained browser search; generation cannot browse.
 
-Provider availability in Settings is authoritative. An unavailable or disabled profile is
-rejected before a job is accepted. Never test availability by placing a credential value in
-a profile, request, log, event, or diagnostic payload.
+Provider configuration shape is validated by the API. Availability in Settings is a
+time-bounded observation produced by the source/generation worker and can be `available`,
+`unavailable`, `unknown`, or `stale`. Only a fresh `available` observation permits execution;
+profiles remain editable while a worker or credential is unavailable. Never test availability
+by placing a credential value in a profile, request, log, event, or diagnostic payload.
 
 ## Operator flow
 

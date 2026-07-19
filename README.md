@@ -67,11 +67,13 @@ docker compose up -d postgres
 docker compose up api
 ```
 
-The API service runs Alembic migrations before Uvicorn starts.
+Compose runs Alembic through the one-shot `migrate` service. The API starts Uvicorn only after
+that service completes successfully; a failed migration remains exited and does not enter an
+API restart loop.
 
 ## Workflow runtime
 
-`docker compose up --build` starts PostgreSQL, API, frontend, capability-separated leased workers, and a scheduler. The source/generation worker cannot publish, and the publishing worker cannot construct source or AI dependencies. The scheduler creates source collection jobs; API mutation endpoints enqueue jobs and return immediately.
+`docker compose up --build` starts PostgreSQL, API, frontend, capability-separated leased workers, and a scheduler. The API receives no provider, Telegram, or authenticated-proxy credentials. The source/generation worker cannot publish, and the publishing worker cannot construct source or AI dependencies. The scheduler creates source collection jobs; API mutation endpoints enqueue jobs and return immediately.
 
 - Newsroom: http://127.0.0.1:3000
 - API: http://127.0.0.1:8000
@@ -85,9 +87,9 @@ The API service runs Alembic migrations before Uvicorn starts.
 3. Activate the route to record a gap-free new-only boundary; activation does not backfill older messages.
 4. Select the fake provider and start a dry run. A dry run is always review-only and cannot publish.
 5. Open the generated draft, compare its source evidence, and review the exact revision.
-6. Only after the fake-provider review succeeds should an operator opt in to real credentials by filling the referenced environment variables, then restart the API and only the relevant worker.
+6. Only after the fake-provider review succeeds should an operator opt in to real credentials by filling the relevant worker-scoped environment variables, then restart only the relevant worker. An API restart is unnecessary.
 
-Source access uses `TELEGRAM_SOURCE_EDITOR_API_ID`, `TELEGRAM_SOURCE_EDITOR_API_HASH`, and `TELEGRAM_SOURCE_EDITOR_SESSION`. Generation uses `OPENROUTER_API_KEY` only when an enabled OpenRouter profile references it. Publishing alone receives `TELEGRAM_DESTINATION_NEWS_TOKEN`. The scheduler receives none of these values.
+Source access uses `TELEGRAM_SOURCE_EDITOR_API_ID`, `TELEGRAM_SOURCE_EDITOR_API_HASH`, and `TELEGRAM_SOURCE_EDITOR_SESSION`. Generation uses `OPENROUTER_API_KEY` only when an enabled OpenRouter profile references it. Publishing alone receives `TELEGRAM_DESTINATION_NEWS_TOKEN`. The API, scheduler, and frontend receive none of these values. The UI reports time-bounded capability observations from the owning workers; `unknown` and `stale` never mean configured. See the [credential topology and rotation runbook](docs/operations/credential-topology.md).
 
 ### Deterministic release acceptance
 
@@ -175,12 +177,14 @@ curl -X POST http://localhost:8000/sources/seed
 Export a date-range daily news bundle for the writing agent:
 
 ```bash
-docker compose run --rm api python -m app.daily_bundle \
+docker compose run --rm \
+  --volume "$PWD/today-news:/output/today-news" \
+  worker-source-generation python -m app.daily_bundle \
   --start 2026-07-05 \
   --end 2026-07-06 \
   --topic "AI" \
   --topic "economy" \
-  --output /workspace/today-news/2026-07-05 \
+  --output /output/today-news/2026-07-05 \
   --download-media
 ```
 
@@ -277,19 +281,44 @@ ALL_PROXY=
 NO_PROXY=postgres,localhost,127.0.0.1
 ```
 
-If your network needs a proxy, export it before running Compose:
+Unset, empty, and whitespace-only proxy values mean direct networking. The base Compose stack has no proxy fallback and requires no external proxy network. If your network needs a proxy, export it before running Compose:
 
 ```bash
 export ALL_PROXY=socks5h://host.docker.internal:10808
 ```
 
-Use `127.0.0.1` only for backend commands that run directly on the host. Docker containers need `host.docker.internal` to reach a proxy bound to the host loopback interface.
+Use `127.0.0.1` only for backend commands that run directly on the host. Docker containers need `host.docker.internal` to reach a proxy bound to the host loopback interface. If the proxy is instead reachable only through an external Docker network, opt in explicitly:
+
+```bash
+XRAY_PROXY_NETWORK=contenthub_default \
+docker compose -f docker-compose.yml -f docker-compose.proxy.yml up -d
+```
+
+NewsCraft validates uppercase and legacy lowercase variables centrally, rejects conflicting or malformed configuration, disables library environment inheritance, and never falls back to direct access after an explicitly configured proxy fails. See the [outbound proxy policy](docs/operations/outbound-proxy-policy.md) for precedence, `NO_PROXY`, MTProto limitations, diagnostics, and the SSRF-safe exception.
+
+Production uses read-only, worker-only secret files instead of credential values in container environments:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.production.yml config --quiet
+docker compose -f docker-compose.yml -f docker-compose.production.yml up -d
+```
+
+Prepare every referenced file with restrictive permissions, including empty proxy files when direct mode is intended. File locations can be changed with the `*_FILE` variables in `.env.example`. Never mount the repository root or a shared secret directory into the API.
+
+The base, development, test, and acceptance configurations explicitly use `restart: "no"`.
+The production override uses `unless-stopped` only for PostgreSQL, API, frontend, both workers,
+and scheduler; migration and test services remain non-restarting. See the
+[restart supervision runbook](docs/operations/restart-supervision.md) before kill drills,
+manual stops, rollback, or backup/restore work.
 
 ## Documentation
 
 - Release 5 acceptance: [evidence and rerun checklist](docs/operations/release-acceptance.md)
 - Multi-platform manual publishing: [operator runbook](docs/operations/manual-publishing-packages.md)
 - Research and generation: [operator runbook](docs/operations/research-and-generation.md)
+- Outbound networking: [proxy policy and operations](docs/operations/outbound-proxy-policy.md)
+- Credentials: [service topology, worker observations, and rotation](docs/operations/credential-topology.md)
+- Restart supervision: [policies, recovery drills, poison jobs, and rollback](docs/operations/restart-supervision.md)
 - Backend ingestion details: `docs/ingestion-backend.md`
 - Source catalog notes: `docs/ingestion-source-catalog.md`
 - Selective integration audit: `docs/armin-selective-audit.md`

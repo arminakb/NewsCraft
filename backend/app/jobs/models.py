@@ -53,6 +53,7 @@ class WorkflowJob(Base):
         ),
         Index("ix_workflow_jobs_lease_expiry", "status", "lease_expires_at"),
         Index("ix_workflow_jobs_attention", "status", "error_class", updated_at.desc()),
+        Index("ix_workflow_jobs_operational_health", "job_type", "status", "scheduled_for"),
     )
 
 

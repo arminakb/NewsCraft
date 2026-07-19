@@ -9,6 +9,8 @@ import httpx
 import pytest
 
 from app.automations.telegram.contracts import TelegramFetchRequest
+from app.core.outbound_proxy import OutboundProxyPolicy, ProxyConfigurationError
+from app.core.secrets import EnvironmentSecretResolver
 from app.generation.providers.registry import build_default_provider_registry
 from app.jobs import worker as worker_module
 from app.jobs.errors import NeedsReviewJobError, PermanentJobError, RetryableJobError
@@ -19,29 +21,43 @@ from app.jobs.worker import WorkerRunner
 
 
 class FakeSession:
-    def __init__(self, events):
+    def __init__(self, events, *, fail_commit=False):
         self.events = events
+        self.tracked_job = None
+        self.fail_commit = fail_commit
 
     async def __aenter__(self):
         return self
 
     async def __aexit__(self, exc_type, exc, tb):
+        if exc_type is not None:
+            await self.rollback()
         return None
 
     async def commit(self):
         self.events.append(("commit", id(self)))
+        if self.fail_commit:
+            raise RuntimeError("commit failed")
 
     async def rollback(self):
         self.events.append(("rollback", id(self)))
+
+    def expire_all(self):
+        if self.tracked_job is not None and hasattr(self.tracked_job, "expire"):
+            self.tracked_job.expire()
 
 
 class SessionFactory:
     def __init__(self, events):
         self.events = events
         self.sessions = []
+        self.fail_commit_on_session = None
 
     def __call__(self):
-        session = FakeSession(self.events)
+        session = FakeSession(
+            self.events,
+            fail_commit=len(self.sessions) == self.fail_commit_on_session,
+        )
         self.sessions.append(session)
         return session
 
@@ -52,8 +68,11 @@ class SharedRepositoryState:
         self.claim_allowed = None
         self.claim_session = None
         self.heartbeat_sessions = []
+        self.heartbeat_failure = None
         self.finished = []
+        self.finish_sessions = []
         self.failed = []
+        self.fail_sessions = []
 
 
 class FakeRepository:
@@ -65,16 +84,21 @@ class FakeRepository:
         self.state.claim_allowed = allowed_job_types
         self.state.claim_session = self.session
         job, self.state.job = self.state.job, None
+        self.session.tracked_job = job
         return job
 
     async def heartbeat_job(self, **kwargs):
         self.state.heartbeat_sessions.append(self.session)
+        if self.state.heartbeat_failure is not None:
+            raise self.state.heartbeat_failure
         return True
 
     async def finish_job(self, **kwargs):
+        self.state.finish_sessions.append(self.session)
         self.state.finished.append(kwargs)
 
     async def fail_job(self, **kwargs):
+        self.state.fail_sessions.append(self.session)
         self.state.failed.append(kwargs)
 
 
@@ -94,7 +118,39 @@ def _job(job_type="ingest.collect", payload=None):
         payload=payload or {},
         attempt_count=1,
         max_attempts=3,
+        origin=JobOrigin.AUTOMATION,
+        lease_owner="worker-test",
+        created_at=datetime(2026, 7, 11, 7, 0, tzinfo=UTC),
+        scheduled_for=datetime(2026, 7, 11, 8, 0, tzinfo=UTC),
+        priority=0,
+        pause_sensitive=True,
     )
+
+
+class ExpirableJob(SimpleNamespace):
+    _execution_fields = frozenset(
+        {
+            "id",
+            "job_type",
+            "payload",
+            "attempt_count",
+            "max_attempts",
+            "origin",
+            "lease_owner",
+            "created_at",
+            "scheduled_for",
+            "priority",
+            "pause_sensitive",
+        }
+    )
+
+    def expire(self):
+        object.__setattr__(self, "_expired", True)
+
+    def __getattribute__(self, name):
+        if name in object.__getattribute__(self, "_execution_fields") and object.__getattribute__(self, "_expired"):
+            raise RuntimeError(f"expired workflow job attribute accessed: {name}")
+        return super().__getattribute__(name)
 
 
 def _runner(job, handler=None):
@@ -135,16 +191,172 @@ async def test_claim_commits_before_handler_and_lease_heartbeat_uses_independent
     observed = {}
 
     async def handler(claimed, context):
-        observed["commit_seen"] = ("commit", id(context.session)) in events
+        observed["claim_commit_seen"] = ("commit", id(state.claim_session)) in events
+        observed["handler_session"] = context.session
         return {"checked": 1}
 
     runner, state, _, events, _ = _runner(job, handler)
 
     assert await runner.run_once() is True
-    assert observed["commit_seen"] is True
+    assert observed["claim_commit_seen"] is True
+    assert observed["handler_session"] is not state.claim_session
     assert state.heartbeat_sessions
     assert all(session is not state.claim_session for session in state.heartbeat_sessions)
+    assert all(session is not observed["handler_session"] for session in state.heartbeat_sessions)
+    assert state.finish_sessions[0] is not state.claim_session
+    assert state.finish_sessions[0] is not observed["handler_session"]
+    assert state.finish_sessions[0] not in state.heartbeat_sessions
     assert state.finished[0]["result"] == {"checked": 1}
+
+
+@pytest.mark.asyncio
+async def test_runtime_heartbeat_remains_fresh_while_handler_is_blocked():
+    handler_started = asyncio.Event()
+    release_handler = asyncio.Event()
+    stop = asyncio.Event()
+
+    async def handler(execution, context):
+        handler_started.set()
+        await release_handler.wait()
+        return {"checked": 1}
+
+    runner, state, _, _, runtime = _runner(_job(), handler)
+    runner.heartbeat_seconds = 0.01
+    task = asyncio.create_task(runner.run_forever(stop=stop))
+    await asyncio.wait_for(handler_started.wait(), timeout=1)
+    for _ in range(100):
+        if any(record[2]["metadata"]["state"] == "working" for record in runtime):
+            break
+        await asyncio.sleep(0.005)
+
+    working = [record[2] for record in runtime if record[2]["metadata"]["state"] == "working"]
+    assert working
+    assert working[-1]["metadata"]["active_work_type"] == "ingest.collect"
+    assert working[-1]["metadata"]["active_work_started_at"] is not None
+    assert "job_id" not in working[-1]["metadata"]
+
+    release_handler.set()
+    for _ in range(100):
+        if state.finished:
+            break
+        await asyncio.sleep(0.005)
+    stop.set()
+    await asyncio.wait_for(task, timeout=1)
+    assert state.finished
+
+
+@pytest.mark.asyncio
+async def test_handler_expire_all_cannot_invalidate_worker_terminal_bookkeeping():
+    job = ExpirableJob(
+        id=uuid4(),
+        job_type="ingest.collect",
+        payload={"source_ids": ["source-1"]},
+        attempt_count=1,
+        max_attempts=3,
+        origin=JobOrigin.AUTOMATION,
+        lease_owner="worker-test",
+        created_at=datetime(2026, 7, 11, 7, 0, tzinfo=UTC),
+        scheduled_for=datetime(2026, 7, 11, 8, 0, tzinfo=UTC),
+        priority=0,
+        pause_sensitive=True,
+        _expired=False,
+    )
+
+    async def handler(execution, context):
+        assert execution.id == job.id
+        context.session.expire_all()
+        return {"checked": 1}
+
+    runner, state, _, _, _ = _runner(job, handler)
+
+    assert await runner.run_once() is True
+    assert state.finished[0]["job_id"] == job.id
+    assert state.finished[0]["result"] == {"checked": 1}
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("handler_action", ["commit", "rollback"])
+async def test_handler_commit_or_rollback_cannot_affect_terminal_session(handler_action):
+    async def handler(execution, context):
+        await getattr(context.session, handler_action)()
+        return {"action": handler_action}
+
+    runner, state, _, _, _ = _runner(_job(), handler)
+
+    assert await runner.run_once() is True
+    assert state.finished[0]["result"] == {"action": handler_action}
+    assert state.finish_sessions[0] is not state.claim_session
+
+
+@pytest.mark.asyncio
+async def test_heartbeat_session_failure_does_not_poison_handler_or_terminal_scope():
+    async def handler(execution, context):
+        return {"checked": 1}
+
+    runner, state, _, _, _ = _runner(_job(), handler)
+    state.heartbeat_failure = RuntimeError("heartbeat transaction failed")
+
+    assert await runner.run_once() is True
+    assert state.finished[0]["result"] == {"checked": 1}
+    assert state.heartbeat_sessions
+    assert state.finish_sessions[0] not in state.heartbeat_sessions
+
+
+@pytest.mark.asyncio
+async def test_failed_handler_transaction_is_rolled_back_before_fresh_failure_transition():
+    async def handler(execution, context):
+        context.session.fail_commit = True
+        return {"must_not_finish": True}
+
+    runner, state, _, events, _ = _runner(_job(), handler)
+
+    assert await runner.run_once() is True
+    assert state.finished == []
+    assert state.failed[0]["error_code"] == "unhandled_exception"
+    assert state.fail_sessions[0] is not state.claim_session
+    assert any(event[0] == "rollback" for event in events)
+
+
+@pytest.mark.asyncio
+async def test_terminal_commit_failure_propagates_and_rolls_back_terminal_scope():
+    async def handler(execution, context):
+        return {"checked": 1}
+
+    runner, state, sessions, events, _ = _runner(_job(), handler)
+    sessions.fail_commit_on_session = 4
+
+    with pytest.raises(RuntimeError, match="commit failed"):
+        await runner.run_once()
+
+    assert len(state.finished) == 1
+    assert ("rollback", id(state.finish_sessions[0])) in events
+
+
+@pytest.mark.asyncio
+async def test_unsafe_claim_payload_is_failed_without_invoking_handler():
+    invoked = False
+
+    async def handler(execution, context):
+        nonlocal invoked
+        invoked = True
+        return {}
+
+    runner, state, _, _, _ = _runner(_job(payload={"api_key": "secret-canary"}), handler)
+
+    assert await runner.run_once() is True
+    assert invoked is False
+    assert state.failed[0]["error_class"] == JobErrorClass.PERMANENT
+    assert state.failed[0]["error_code"] == "job_execution_invalid"
+
+
+@pytest.mark.asyncio
+async def test_invalid_claim_never_uses_untrusted_orm_lease_owner_for_terminal_fence():
+    job = _job()
+    job.lease_owner = "another-worker"
+    runner, state, _, _, _ = _runner(job, handler=lambda *_: pytest.fail("handler invoked"))
+
+    assert await runner.run_once() is True
+    assert state.failed[0]["worker_id"] == "worker-test"
 
 
 @pytest.mark.asyncio
@@ -297,14 +509,12 @@ def test_cli_accepts_repeatable_semantic_capabilities():
         (("publishing",), ("publishing",)),
     ],
 )
-def test_each_capability_constructs_only_its_permitted_dependency_bundle(
-    monkeypatch, capabilities, expected_builders
-):
+def test_each_capability_constructs_only_its_permitted_dependency_bundle(monkeypatch, capabilities, expected_builders):
     constructed = []
     captured = {}
 
     def bundle(name, values):
-        def build(owner):
+        def build(owner, secrets):
             constructed.append(name)
             return values
 
@@ -342,15 +552,18 @@ def test_each_capability_constructs_only_its_permitted_dependency_bundle(
 def test_publishing_never_constructs_source_or_openrouter_dependencies(monkeypatch):
     monkeypatch.setattr(
         "app.jobs.worker._build_source_dependencies",
-        lambda owner: pytest.fail("MTProto constructed"),
+        lambda owner, secrets: pytest.fail("MTProto constructed"),
     )
     monkeypatch.setattr(
         "app.jobs.worker._build_generation_dependencies",
-        lambda owner: pytest.fail("OpenRouter constructed"),
+        lambda owner, secrets: pytest.fail("OpenRouter constructed"),
     )
     monkeypatch.setattr(
         "app.jobs.worker._build_publishing_dependencies",
-        lambda owner: {"telegram_client": object(), "destination_secret_resolver": object()},
+        lambda owner, secrets: {
+            "telegram_client": object(),
+            "destination_secret_resolver": object(),
+        },
     )
     monkeypatch.setattr("app.jobs.worker.build_default_registry", lambda **kwargs: JobHandlerRegistry())
 
@@ -359,6 +572,9 @@ def test_publishing_never_constructs_source_or_openrouter_dependencies(monkeypat
 
 def test_publishing_never_resolves_export_root(monkeypatch):
     class PublishingSettings:
+        app_env = "test"
+        worker_secret_root = "/run/secrets"
+
         @property
         def export_root(self):
             pytest.fail("publishing must not resolve EXPORT_ROOT")
@@ -366,7 +582,10 @@ def test_publishing_never_resolves_export_root(monkeypatch):
     monkeypatch.setattr(worker_module, "settings", PublishingSettings())
     monkeypatch.setattr(
         "app.jobs.worker._build_publishing_dependencies",
-        lambda owner: {"telegram_client": object(), "destination_secret_resolver": object()},
+        lambda owner, secrets: {
+            "telegram_client": object(),
+            "destination_secret_resolver": object(),
+        },
     )
     monkeypatch.setattr("app.jobs.worker.build_default_registry", lambda **kwargs: JobHandlerRegistry())
 
@@ -377,15 +596,15 @@ def test_source_generation_never_constructs_bot_api_or_resolves_destination_toke
     monkeypatch.setenv("TELEGRAM_DESTINATION_NEWS_TOKEN", "must-not-be-read")
     monkeypatch.setattr(
         "app.jobs.worker._build_publishing_dependencies",
-        lambda owner: pytest.fail("Bot API constructed"),
+        lambda owner, secrets: pytest.fail("Bot API constructed"),
     )
     monkeypatch.setattr(
         "app.jobs.worker._build_source_dependencies",
-        lambda owner: {"source_registry": object(), "media_stager": object()},
+        lambda owner, secrets: {"source_registry": object(), "media_stager": object()},
     )
     monkeypatch.setattr(
         "app.jobs.worker._build_generation_dependencies",
-        lambda owner: {"profile_resolver": object()},
+        lambda owner, secrets: {"profile_resolver": object()},
     )
     monkeypatch.setattr("app.jobs.worker.build_default_registry", lambda **kwargs: JobHandlerRegistry())
 
@@ -428,9 +647,7 @@ def test_main_builds_worker_from_cli_capabilities(monkeypatch):
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("failure", [RuntimeError("transport failed"), asyncio.CancelledError()])
-async def test_media_stager_removes_partial_tree_when_materialization_raises(
-    monkeypatch, tmp_path, failure
-):
+async def test_media_stager_removes_partial_tree_when_materialization_raises(monkeypatch, tmp_path, failure):
     monkeypatch.setattr(
         worker_module,
         "settings",
@@ -559,7 +776,7 @@ async def test_run_worker_closes_owner_when_dependency_construction_fails(monkey
     assert events == ["close"]
 
 
-def test_source_generation_real_builders_never_resolve_destination_secret(monkeypatch):
+def test_source_generation_real_builders_never_resolve_destination_secret():
     secret_calls = []
 
     class SpyResolver:
@@ -575,10 +792,9 @@ def test_source_generation_real_builders_never_resolve_destination_secret(monkey
         def get(self, *args, **kwargs):
             return object()
 
-    monkeypatch.setattr("app.core.secrets.EnvironmentSecretResolver", SpyResolver)
-
-    worker_module._build_source_dependencies(FakeOwner())
-    worker_module._build_generation_dependencies(FakeOwner())
+    resolver = SpyResolver()
+    worker_module._build_source_dependencies(FakeOwner(), resolver)
+    worker_module._build_generation_dependencies(FakeOwner(), resolver)
 
     assert secret_calls == []
 
@@ -599,7 +815,9 @@ async def test_source_builder_uses_explicit_test_only_telegram_fixture(monkeypat
         str(Path("tests/fixtures/telegram_public_album.html")),
     )
 
-    dependencies = worker_module._build_source_dependencies(FakeOwner())
+    dependencies = worker_module._build_source_dependencies(
+        FakeOwner(), EnvironmentSecretResolver({})
+    )
     adapter = dependencies["source_registry"].get("public_html")
     result = await adapter.fetch(
         TelegramFetchRequest(
@@ -613,3 +831,51 @@ async def test_source_builder_uses_explicit_test_only_telegram_fixture(monkeypat
     assert [item.message_ids for item in result.envelopes] == [(42, 43, 44)]
     for client in clients:
         await client.aclose()
+
+
+def test_source_builder_passes_normalized_proxy_to_telethon(monkeypatch):
+    configurations: list[dict[str, object]] = []
+
+    class FakeTelegramClient:
+        def __init__(self, **configuration):
+            configurations.append(configuration)
+
+    class FakeOwner:
+        proxy_policy = OutboundProxyPolicy.from_environment(
+            {"ALL_PROXY": "socks5h://user-canary:password-canary@proxy.example:1080"}
+        )
+
+        def get(self, purpose, **configuration):
+            return object()
+
+    monkeypatch.setattr("telethon.TelegramClient", FakeTelegramClient)
+    adapter = worker_module._build_source_dependencies(
+        FakeOwner(), EnvironmentSecretResolver({})
+    )["source_registry"].get("mtproto_user")
+
+    adapter.client_factory(api_id=123, api_hash="hash-canary", session="session-canary")
+
+    assert configurations[0]["proxy"] == {
+        "proxy_type": "socks5",
+        "addr": "proxy.example",
+        "port": 1080,
+        "rdns": True,
+        "username": "user-canary",
+        "password": "password-canary",
+    }
+
+
+def test_source_builder_fails_safely_when_mtproto_cannot_use_proxy(monkeypatch):
+    class FakeOwner:
+        proxy_policy = OutboundProxyPolicy.from_environment(
+            {"ALL_PROXY": "https://user-canary:password-canary@proxy-canary.example:8443"}
+        )
+
+        def get(self, purpose, **configuration):
+            raise AssertionError("clients must not be constructed after unsafe MTProto configuration")
+
+    with pytest.raises(ProxyConfigurationError) as caught:
+        worker_module._build_source_dependencies(FakeOwner(), EnvironmentSecretResolver({}))
+
+    assert caught.value.code == "proxy_mtproto_scheme_unsupported"
+    assert "canary" not in repr(caught.value)

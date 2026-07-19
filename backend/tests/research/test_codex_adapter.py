@@ -17,6 +17,7 @@ from app.core.codex_exec import (
     _default_process_runner,
     build_codex_environment,
 )
+from app.core.outbound_proxy import ProxyConfigurationError
 from app.normalization.urls import normalize_url
 from app.research.base import ResearchRequest
 from app.research.codex_adapter import CodexResearchBackend, ResearchBackendError
@@ -87,9 +88,7 @@ class RecordingRunner:
         self.output = output or _raw_output()
         self.usage = usage or {"input_tokens": 100, "output_tokens": 50}
         self.calls = []
-        self.stdout = (
-            '{"type":"turn.completed","usage":{"input_tokens":100,"output_tokens":50}}\n'
-        )
+        self.stdout = '{"type":"turn.completed","usage":{"input_tokens":100,"output_tokens":50}}\n'
 
     async def __call__(self, **kwargs):
         self.calls.append(kwargs)
@@ -109,9 +108,7 @@ class FakeFetcher:
         text = "safe fetched body with verified excerpt"
         digest = sha256(text.encode()).hexdigest()
         return DiscoveredSourcePayload(
-            evidence_key=build_evidence_key(
-                content_item_id=None, source_url=url, content_sha256=digest
-            ),
+            evidence_key=build_evidence_key(content_item_id=None, source_url=url, content_sha256=digest),
             url=url,
             title="Safely fetched",
             publisher="Example",
@@ -394,6 +391,29 @@ def test_codex_environment_uses_temporary_home_and_exact_auth_allowlist(tmp_path
     }
 
 
+def test_codex_environment_normalizes_lowercase_proxy_and_rejects_conflicts(tmp_path):
+    env = build_codex_environment(
+        {
+            "PATH": "/usr/bin",
+            "https_proxy": " socks5h://proxy.example:1080 ",
+            "no_proxy": "localhost,.internal.example",
+        },
+        work_dir=tmp_path,
+    )
+
+    assert env["HTTPS_PROXY"] == "socks5h://proxy.example:1080"
+    assert env["NO_PROXY"] == "localhost,.internal.example"
+    assert "https_proxy" not in env
+    with pytest.raises(ProxyConfigurationError, match="proxy_environment_conflict"):
+        build_codex_environment(
+            {
+                "HTTP_PROXY": "http://one.example:8080",
+                "http_proxy": "http://two.example:8080",
+            },
+            work_dir=tmp_path,
+        )
+
+
 async def test_codex_materializes_urls_and_rewrites_exact_quote_to_evidence_key():
     result = await CodexResearchBackend(
         executor=CodexExecutor(process_runner=RecordingRunner(), executable="codex"),
@@ -402,9 +422,7 @@ async def test_codex_materializes_urls_and_rewrites_exact_quote_to_evidence_key(
 
     source = result.output.sources[0]
     citation = result.output.brief.verified_facts[0].citations[0]
-    assert source.evidence_key == (
-        f"url:{normalize_url(str(source.url))}:{source.content_sha256}"
-    )
+    assert source.evidence_key == (f"url:{normalize_url(str(source.url))}:{source.content_sha256}")
     assert citation.evidence_key == source.evidence_key
     assert citation.locator == "chars:23-39"
     assert citation.excerpt_sha256 == sha256(b"verified excerpt").hexdigest()
@@ -416,11 +434,7 @@ async def test_codex_materializes_urls_and_rewrites_exact_quote_to_evidence_key(
 async def test_codex_research_success_reports_total_executor_and_fetch_elapsed():
     clock = ManualClock()
     request = _request().model_copy(
-        update={
-            "budget": _request().budget.model_copy(
-                update={"max_elapsed_seconds": 1.0}
-            )
-        }
+        update={"budget": _request().budget.model_copy(update={"max_elapsed_seconds": 1.0})}
     )
     result = await CodexResearchBackend(
         executor=AdvancingExecutor(clock, 0.01),
@@ -438,11 +452,7 @@ async def test_codex_research_success_reports_total_executor_and_fetch_elapsed()
 
 async def test_codex_research_total_deadline_cancels_slow_fetch_after_executor_time():
     request = _request().model_copy(
-        update={
-            "budget": _request().budget.model_copy(
-                update={"max_elapsed_seconds": 0.1}
-            )
-        }
+        update={"budget": _request().budget.model_copy(update={"max_elapsed_seconds": 0.1})}
     )
     fetcher = CancellableFetcher()
     with pytest.raises(ResearchBackendError) as error:
@@ -472,19 +482,13 @@ async def test_codex_research_deadline_covers_repeated_claim_quote_scans():
         }
     )
     request = _request().model_copy(
-        update={
-            "budget": _request().budget.model_copy(
-                update={"max_elapsed_seconds": 1.0}
-            )
-        }
+        update={"budget": _request().budget.model_copy(update={"max_elapsed_seconds": 1.0})}
     )
     clock = CrossingClock(cross_on_call=6, before=0.0, after=1.01)
 
     with pytest.raises(ResearchBackendError) as error:
         await CodexResearchBackend(
-            executor=CodexExecutor(
-                process_runner=RecordingRunner(output=output), executable="codex"
-            ),
+            executor=CodexExecutor(process_runner=RecordingRunner(output=output), executable="codex"),
             fetcher=FakeFetcher(),
             monotonic=clock,
         ).research(request)
@@ -497,11 +501,7 @@ async def test_codex_research_deadline_covers_repeated_claim_quote_scans():
 
 async def test_codex_research_succeeds_immediately_below_final_deadline():
     request = _request().model_copy(
-        update={
-            "budget": _request().budget.model_copy(
-                update={"max_elapsed_seconds": 10.0}
-            )
-        }
+        update={"budget": _request().budget.model_copy(update={"max_elapsed_seconds": 10.0})}
     )
     clock = BoundaryClock(9.9)
 
@@ -522,11 +522,7 @@ async def test_codex_research_rejects_deadline_crossed_during_result_constructio
 
     clock = ManualClock()
     request = _request().model_copy(
-        update={
-            "budget": _request().budget.model_copy(
-                update={"max_elapsed_seconds": 1.0}
-            )
-        }
+        update={"budget": _request().budget.model_copy(update={"max_elapsed_seconds": 1.0})}
     )
     real_result = module.ResearchResult
 
@@ -553,11 +549,7 @@ async def test_codex_research_elapsed_and_total_event_use_same_post_construction
 
     clock = ManualClock()
     request = _request().model_copy(
-        update={
-            "budget": _request().budget.model_copy(
-                update={"max_elapsed_seconds": 1.0}
-            )
-        }
+        update={"budget": _request().budget.model_copy(update={"max_elapsed_seconds": 1.0})}
     )
     real_result = module.ResearchResult
 
@@ -593,18 +585,12 @@ async def test_codex_evidence_errors_include_only_sanitized_total_metadata(failu
     clock = ManualClock()
     clock.value = 0.25
     request = _request().model_copy(
-        update={
-            "budget": _request().budget.model_copy(
-                update={"max_elapsed_seconds": 1.0}
-            )
-        }
+        update={"budget": _request().budget.model_copy(update={"max_elapsed_seconds": 1.0})}
     )
 
     with pytest.raises(ResearchBackendError) as error:
         await CodexResearchBackend(
-            executor=CodexExecutor(
-                process_runner=RecordingRunner(output=output), executable="codex"
-            ),
+            executor=CodexExecutor(process_runner=RecordingRunner(output=output), executable="codex"),
             fetcher=fetcher,
             monotonic=clock,
         ).research(request)
@@ -622,9 +608,7 @@ async def test_codex_rejects_distinct_candidates_redirecting_to_same_final_sourc
     output["sources"].append({"url": "https://other.example/redirect"})
     with pytest.raises(CodexExecutionError) as error:
         await CodexResearchBackend(
-            executor=CodexExecutor(
-                process_runner=RecordingRunner(output=output), executable="codex"
-            ),
+            executor=CodexExecutor(process_runner=RecordingRunner(output=output), executable="codex"),
             fetcher=RedirectingFetcher(),
         ).research(_request())
     assert error.value.classification == "needs_review"
@@ -774,9 +758,7 @@ async def test_default_runner_cancellation_kills_and_awaits_exec_child(monkeypat
         return next(processes)
 
     monkeypatch.setattr(asyncio, "create_subprocess_exec", create_process)
-    task = asyncio.create_task(
-        _default_process_runner(**{**_runner_kwargs(), "timeout_seconds": 10})
-    )
+    task = asyncio.create_task(_default_process_runner(**{**_runner_kwargs(), "timeout_seconds": 10}))
     await asyncio.sleep(0)
     await asyncio.sleep(0)
     task.cancel()
@@ -788,12 +770,7 @@ async def test_default_runner_cancellation_kills_and_awaits_exec_child(monkeypat
 
 async def test_default_runner_stream_overage_reports_safe_process_metadata(monkeypatch):
     version = FakeProcess()
-    execute = FakeProcess(
-        stdout_value=(
-            b'{"type":"turn.completed","usage":'
-            b'{"input_tokens":101,"output_tokens":1}}\n'
-        )
-    )
+    execute = FakeProcess(stdout_value=(b'{"type":"turn.completed","usage":{"input_tokens":101,"output_tokens":1}}\n'))
     processes = iter([version, execute])
 
     async def create_process(*args, **kwargs):

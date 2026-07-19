@@ -271,12 +271,8 @@ async def test_production_transport_pins_validated_ip_and_preserves_host_and_tls
 
     backend = RecordingNetworkBackend(
         {
-            "93.184.216.34": (
-                b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok"
-            ),
-            "127.0.0.1": (
-                b"HTTP/1.1 200 OK\r\nContent-Length: 7\r\nConnection: close\r\n\r\nprivate"
-            ),
+            "93.184.216.34": (b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok"),
+            "127.0.0.1": (b"HTTP/1.1 200 OK\r\nContent-Length: 7\r\nConnection: close\r\n\r\nprivate"),
         }
     )
     monkeypatch.setenv("ALL_PROXY", "http://127.0.0.1:9999")
@@ -287,6 +283,7 @@ async def test_production_transport_pins_validated_ip_and_preserves_host_and_tls
     ) as client:
         response = await client.get("https://public.example/report")
         assert client._client._trust_env is False
+        assert client.network_policy == "direct_pinned_ssrf"
 
     request_bytes = b"".join(backend.observations["writes"])
     assert response.text == "ok"
@@ -310,9 +307,7 @@ async def test_public_redirect_revalidates_and_pins_each_original_hostname():
                 b"HTTP/1.1 302 Found\r\nContent-Length: 0\r\nConnection: close\r\n"
                 b"Location: https://second.example/final\r\n\r\n"
             ),
-            "1.1.1.1": (
-                b"HTTP/1.1 200 OK\r\nContent-Length: 4\r\nConnection: close\r\n\r\ndone"
-            ),
+            "1.1.1.1": (b"HTTP/1.1 200 OK\r\nContent-Length: 4\r\nConnection: close\r\n\r\ndone"),
         }
     )
 

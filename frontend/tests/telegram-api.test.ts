@@ -34,6 +34,21 @@ const ids = {
   publishJob: "88888888-8888-4888-8888-888888888888",
 }
 
+const backendAvailableState = {
+  status: "available",
+  owner: "worker-source-generation",
+  observed_at: "2026-07-18T08:00:00Z",
+  expires_at: "2026-07-18T08:02:00Z",
+  failure_code: "available",
+}
+const availableState = {
+  status: "available",
+  owner: "worker-source-generation",
+  observedAt: "2026-07-18T08:00:00Z",
+  expiresAt: "2026-07-18T08:02:00Z",
+  failureCode: "available",
+}
+
 const backendRoute = {
   id: ids.route,
   name: "Public to newsroom",
@@ -69,27 +84,27 @@ describe("Telegram automation API", () => {
 
   it("maps safe automation options without inventing secret references", async () => {
     const fetchSpy = stubFetch({
-      sources: [{ id: ids.source, name: "Wire", access_mode: "public_html" }],
+      sources: [{ id: ids.source, name: "Wire", access_mode: "public_html", capability_state: backendAvailableState }],
       destinations: [
-        { id: ids.destination, name: "Newsroom", health_status: "healthy", allow_auto_publish: false },
+        { id: ids.destination, name: "Newsroom", health_status: "healthy", allow_auto_publish: false, capability_state: backendAvailableState },
       ],
       brand_profiles: [{ id: ids.brand, name: "Main" }],
       prompt_template_versions: [{ id: ids.prompt, version: 2 }],
       ai_provider_profiles: [
-        { id: ids.provider, name: "OpenRouter", provider_type: "openrouter", default_model: "openai/gpt", configured: true, capabilities: { generation: true, research: true } },
+        { id: ids.provider, name: "OpenRouter", provider_type: "openrouter", default_model: "openai/gpt", configured: true, capabilities: { generation: true, research: true }, capability_states: { generation: backendAvailableState, research: backendAvailableState } },
       ],
       secret_ref: "MUST_NOT_CROSS_BOUNDARY",
     })
 
     await expect(getTelegramAutomationOptions()).resolves.toEqual({
-      sources: [{ id: ids.source, name: "Wire", accessMode: "public_html" }],
+      sources: [{ id: ids.source, name: "Wire", accessMode: "public_html", capabilityState: availableState }],
       destinations: [
-        { id: ids.destination, name: "Newsroom", healthStatus: "healthy", allowAutoPublish: false },
+        { id: ids.destination, name: "Newsroom", healthStatus: "healthy", allowAutoPublish: false, capabilityState: availableState },
       ],
       brandProfiles: [{ id: ids.brand, name: "Main" }],
       promptTemplateVersions: [{ id: ids.prompt, version: 2 }],
       aiProviderProfiles: [
-        { id: ids.provider, name: "OpenRouter", providerType: "openrouter", defaultModel: "openai/gpt", configured: true, capabilities: { generation: true, research: true } },
+        { id: ids.provider, name: "OpenRouter", providerType: "openrouter", defaultModel: "openai/gpt", configured: true, capabilities: { generation: true, research: true }, capabilityStates: { generation: availableState, research: availableState } },
       ],
     })
     expect(fetchSpy).toHaveBeenCalledWith("/api/backend/telegram/automations/options", undefined)
@@ -97,9 +112,9 @@ describe("Telegram automation API", () => {
 
   it("creates source, destination, and fully mapped route with exact snake-case requests", async () => {
     const fetchSpy = stubFetchSequence(
-      { id: ids.source, name: "Wire", channel_ref: "@wire", access_mode: "mtproto_user", language_hint: "fa", configured: true },
+      { id: ids.source, name: "Wire", channel_ref: "@wire", access_mode: "mtproto_user", language_hint: "fa", configured: true, capability_state: backendAvailableState },
       {
-        destination: { id: ids.destination, name: "Newsroom", target_ref: "@news", enabled: true, health_status: "unknown", configured: true, settings: { allow_auto_publish: false } },
+        destination: { id: ids.destination, name: "Newsroom", target_ref: "@news", enabled: true, health_status: "unknown", configured: true, capability_state: backendAvailableState, settings: { allow_auto_publish: false } },
         job: { job_id: ids.publishJob, status: "queued", deduplicated: false },
       },
       backendRoute

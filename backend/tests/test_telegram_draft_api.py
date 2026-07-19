@@ -23,6 +23,7 @@ from app.generation.models import PlatformVariant, PlatformVariantRevision
 from app.jobs.types import JobStatus
 from app.main import app
 from app.publishing.telegram.service import ReviewedTelegramScheduleError
+from tests.capability_fakes import AVAILABLE_CAPABILITIES
 
 
 def _parent(*, approval_state: str = "pending_review", dry_run: bool = False):
@@ -268,7 +269,12 @@ async def test_reviewed_schedule_endpoint_returns_job_accepted_and_exact_replay_
 
     monkeypatch.setattr("app.api.telegram_drafts.schedule_reviewed_telegram", schedule)
 
-    output = await schedule_telegram_revision(revision_id, payload, session=session)
+    output = await schedule_telegram_revision(
+        revision_id,
+        payload,
+        session=session,
+        capability_status=AVAILABLE_CAPABILITIES,
+    )
 
     assert output.job_id == workflow_id
     assert output.status == JobStatus.QUEUED
@@ -291,7 +297,12 @@ async def test_reviewed_schedule_endpoint_maps_domain_conflicts_to_http_409(monk
     monkeypatch.setattr("app.api.telegram_drafts.schedule_reviewed_telegram", conflict)
 
     with pytest.raises(HTTPException) as caught:
-        await schedule_telegram_revision(uuid4(), payload, session=_ApiSession())
+        await schedule_telegram_revision(
+            uuid4(),
+            payload,
+            session=_ApiSession(),
+            capability_status=AVAILABLE_CAPABILITIES,
+        )
 
     assert caught.value.status_code == 409
     assert caught.value.detail == "Schedule conflicts"

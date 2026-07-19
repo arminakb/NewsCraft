@@ -87,7 +87,7 @@ from app.generation.telegram_schema import TelegramRewriteOutput, assemble_teleg
 from app.jobs.errors import NeedsReviewJobError, PermanentJobError, RetryableJobError
 from app.jobs.registry import JobContext
 from app.jobs.repository import JobRepository
-from app.jobs.types import JobOrigin
+from app.jobs.types import JobExecution, JobOrigin, job_payload_copy
 from app.research.citations import CitationIntegrityError, validate_citations
 from app.research.models import ResearchRun
 from app.research.schemas import CitationRef, Claim
@@ -521,13 +521,39 @@ def _required_uuid(payload: dict[str, Any], key: str) -> UUID:
         ) from None
 
 
-def _job_payload(job: Any) -> dict[str, Any]:
-    if not isinstance(job.payload, dict):
+def _job_payload(job: JobExecution | object) -> dict[str, Any]:
+    try:
+        return job_payload_copy(job)
+    except TypeError:
         raise PermanentJobError(
             code="generation_job_payload_invalid",
             message="Generation job payload is invalid",
+        ) from None
+
+
+async def _checkpoint_execution(
+    job: JobExecution | object,
+    context: JobContext,
+    *,
+    payload: dict[str, Any] | None = None,
+    result: dict[str, Any] | None = None,
+) -> JobExecution | object:
+    if isinstance(job, JobExecution):
+        await JobRepository(context.session).checkpoint_job(
+            job_id=job.id,
+            worker_id=job.lease_owner,
+            payload=payload,
+            result=result,
         )
-    return dict(job.payload)
+        return job.with_payload(payload) if payload is not None else job
+    # Direct handler unit tests use lightweight doubles. Production handlers
+    # receive JobExecution exclusively through JobHandlerRegistry.
+    legacy_job: Any = job
+    if payload is not None:
+        legacy_job.payload = payload
+    if result is not None:
+        legacy_job.result = result
+    return job
 
 
 def render_prompt_messages(
@@ -905,7 +931,7 @@ def build_canonical_generation_handler(
 ):
     injector = fault_injector if fault_injector is not None else NoopFaultInjector()
 
-    async def handle(job, context: JobContext) -> dict[str, Any]:
+    async def handle(job: JobExecution, context: JobContext) -> dict[str, Any]:
         payload = _job_payload(job)
         story_id = _required_uuid(payload, "story_id")
         prompt_id = _required_uuid(payload, "canonical_prompt_template_version_id")
@@ -1237,7 +1263,7 @@ def build_pack_generation_handler(
 ):
     injector = fault_injector if fault_injector is not None else NoopFaultInjector()
 
-    async def handle(job, context: JobContext) -> dict[str, Any]:
+    async def handle(job: JobExecution, context: JobContext) -> dict[str, Any]:
         payload = _job_payload(job)
         revision_id = _required_uuid(payload, "story_revision_id")
         brand_id = _required_uuid(payload, "brand_profile_id")
@@ -1537,7 +1563,11 @@ def build_pack_generation_handler(
                 pack = await context.session.get(ContentPack, UUID(str(artifact["content_pack_id"])))
                 assert pack is not None
                 completed_platforms.append(platform)
-                job.result = _pack_job_result(pack.id, completed_platforms, results)
+                await _checkpoint_execution(
+                    job,
+                    context,
+                    result=_pack_job_result(pack.id, completed_platforms, results),
+                )
                 await context.session.commit()
                 continue
 
@@ -1695,13 +1725,17 @@ def build_pack_generation_handler(
             )
             results.append({"variant_id": str(variant.id), "revision_id": str(existing_revision.id)})
             completed_platforms.append(platform)
-            job.result = _pack_job_result(pack.id, completed_platforms, results)
+            await _checkpoint_execution(
+                job,
+                context,
+                result=_pack_job_result(pack.id, completed_platforms, results),
+            )
             await context.session.commit()
 
         assert pack is not None
         result = _pack_job_result(pack.id, completed_platforms, results)
         if has_errors:
-            job.result = result
+            await _checkpoint_execution(job, context, result=result)
             raise NeedsReviewJobError(
                 code="platform_validation_failed",
                 message="Generated platform package requires operator review",
@@ -1716,7 +1750,7 @@ def build_regenerate_handler(
     *,
     fault_injector: FaultInjector | None = None,
 ):
-    async def handle(job, context: JobContext) -> dict[str, Any]:
+    async def handle(job: JobExecution, context: JobContext) -> dict[str, Any]:
         payload = _job_payload(job)
         variant_id = _required_uuid(payload, "variant_id")
         variant = await context.session.scalar(
@@ -1814,7 +1848,7 @@ def build_regenerate_handler(
         payload.update(
             {"story_revision_id": str(pack.story_revision_id), "brand_profile_id": str(pack.brand_profile_id)}
         )
-        job.payload = payload
+        delegated_job = await _checkpoint_execution(job, context, payload=payload)
         fence_owner = None
         if (
             isinstance(getattr(job, "attempt_count", None), int)
@@ -1836,7 +1870,7 @@ def build_regenerate_handler(
                     fault_injector=fault_injector,
                 )
             )
-            return await pack_handler(job, context)
+            return await pack_handler(delegated_job, context)
         except Exception:
             if fence_owner is not None:
                 await context.session.rollback()

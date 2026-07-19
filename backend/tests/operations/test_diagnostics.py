@@ -171,6 +171,26 @@ async def test_snapshot_uses_exact_heartbeat_thresholds_and_expected_persisted_u
 
 
 @pytest.mark.asyncio
+async def test_snapshot_timestamp_covers_heartbeat_committed_during_observation():
+    """A heartbeat committed after the request starts must not postdate its snapshot."""
+    heartbeat_committed_during_query = _heartbeat(
+        "worker-source-generation",
+        NOW + timedelta(microseconds=1),
+    )
+    session = FakeSession(heartbeats=[heartbeat_committed_during_query])
+
+    snapshot = await OperationsDiagnostics(
+        session,
+        clock=FrozenClock(),
+        expected_runtime_component_ids="worker-source-generation",
+    ).snapshot()
+
+    component = snapshot.components["worker-source-generation"]
+    assert component.observed_at == heartbeat_committed_during_query.observed_at
+    assert snapshot.generated_at >= component.observed_at
+
+
+@pytest.mark.asyncio
 async def test_snapshot_reads_control_queue_and_newest_attention_without_writes_or_secrets():
     newer = _job(
         RESEARCH_JOB_ID,

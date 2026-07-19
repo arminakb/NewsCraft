@@ -1,0 +1,103 @@
+services:
+  postgres:
+    restart: unless-stopped
+
+  postgres-test:
+    restart: "no"
+
+  migrate:
+    restart: "no"
+
+  api:
+    init: true
+    restart: unless-stopped
+
+  frontend:
+    init: true
+    restart: unless-stopped
+
+  worker-source-generation:
+    init: true
+    restart: unless-stopped
+    environment:
+      APP_ENV: production
+      OPENROUTER_API_KEY: ""
+      TELEGRAM_SOURCE_EDITOR_API_ID: ""
+      TELEGRAM_SOURCE_EDITOR_API_HASH: ""
+      TELEGRAM_SOURCE_EDITOR_SESSION: ""
+      HTTP_PROXY: ""
+      HTTPS_PROXY: ""
+      ALL_PROXY: ""
+    secrets:
+      - source: openrouter_api_key
+        target: OPENROUTER_API_KEY
+        mode: 0400
+      - source: telegram_source_editor_api_id
+        target: TELEGRAM_SOURCE_EDITOR_API_ID
+        mode: 0400
+      - source: telegram_source_editor_api_hash
+        target: TELEGRAM_SOURCE_EDITOR_API_HASH
+        mode: 0400
+      - source: telegram_source_editor_session
+        target: TELEGRAM_SOURCE_EDITOR_SESSION
+        mode: 0400
+      - source: source_http_proxy
+        target: HTTP_PROXY
+        mode: 0400
+      - source: source_https_proxy
+        target: HTTPS_PROXY
+        mode: 0400
+      - source: source_all_proxy
+        target: ALL_PROXY
+        mode: 0400
+
+  worker-publishing:
+    init: true
+    restart: unless-stopped
+    environment:
+      APP_ENV: production
+      TELEGRAM_DESTINATION_NEWS_TOKEN: ""
+      HTTP_PROXY: ""
+      HTTPS_PROXY: ""
+      ALL_PROXY: ""
+    secrets:
+      - source: telegram_destination_news_token
+        target: TELEGRAM_DESTINATION_NEWS_TOKEN
+        mode: 0400
+      - source: publishing_http_proxy
+        target: HTTP_PROXY
+        mode: 0400
+      - source: publishing_https_proxy
+        target: HTTPS_PROXY
+        mode: 0400
+      - source: publishing_all_proxy
+        target: ALL_PROXY
+        mode: 0400
+
+  scheduler:
+    init: true
+    restart: unless-stopped
+
+secrets:
+  openrouter_api_key:
+    file: ${OPENROUTER_API_KEY_FILE:-./secrets/OPENROUTER_API_KEY}
+  telegram_source_editor_api_id:
+    file: ${TELEGRAM_SOURCE_EDITOR_API_ID_FILE:-./secrets/TELEGRAM_SOURCE_EDITOR_API_ID}
+  telegram_source_editor_api_hash:
+    file: ${TELEGRAM_SOURCE_EDITOR_API_HASH_FILE:-./secrets/TELEGRAM_SOURCE_EDITOR_API_HASH}
+  telegram_source_editor_session:
+    file: ${TELEGRAM_SOURCE_EDITOR_SESSION_FILE:-./secrets/TELEGRAM_SOURCE_EDITOR_SESSION}
+  telegram_destination_news_token:
+    file: ${TELEGRAM_DESTINATION_NEWS_TOKEN_FILE:-./secrets/TELEGRAM_DESTINATION_NEWS_TOKEN}
+  source_http_proxy:
+    file: ${SOURCE_HTTP_PROXY_FILE:-./secrets/source/HTTP_PROXY}
+  source_https_proxy:
+    file: ${SOURCE_HTTPS_PROXY_FILE:-./secrets/source/HTTPS_PROXY}
+  source_all_proxy:
+    file: ${SOURCE_ALL_PROXY_FILE:-./secrets/source/ALL_PROXY}
+  publishing_http_proxy:
+    file: ${PUBLISHING_HTTP_PROXY_FILE:-./secrets/publishing/HTTP_PROXY}
+  publishing_https_proxy:
+    file: ${PUBLISHING_HTTPS_PROXY_FILE:-./secrets/publishing/HTTPS_PROXY}
+  publishing_all_proxy:
+    file: ${PUBLISHING_ALL_PROXY_FILE:-./secrets/publishing/ALL_PROXY}

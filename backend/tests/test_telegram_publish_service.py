@@ -299,6 +299,8 @@ def test_registry_registers_publish_capability_only_with_complete_dependency_bun
     assert registry.job_types() == (
         "ingest.collect",
         "manual_intake",
+        "operations.canary.publishing",
+        "operations.canary.source_generation",
         "story.group_pending",
         "telegram.destination.check",
         "telegram.publish",

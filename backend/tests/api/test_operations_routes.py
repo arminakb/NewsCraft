@@ -9,6 +9,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 import app.api.operations as operations_api
+from app.core.outbound_proxy import ProxyDiagnostics
 from app.db.session import get_session
 from app.main import app
 from app.operations.diagnostics import (
@@ -107,7 +108,9 @@ def test_real_application_registers_diagnostics_history_and_retention_routes():
 
     assert operations == {
         ("/operations/diagnostics", "GET"),
+        ("/operations/health", "GET"),
         ("/operations/history", "GET"),
+        ("/operations/metrics", "GET"),
         ("/operations/retention-policy", "GET"),
         ("/operations/retention-policy", "PUT"),
         ("/operations/retention-preview", "POST"),
@@ -151,6 +154,13 @@ def test_diagnostics_route_returns_the_strict_snapshot_without_writes(api_client
                         action_url="/jobs",
                     )
                 ],
+                outbound_proxy=ProxyDiagnostics(
+                    mode="direct",
+                    scheme=None,
+                    bypass_rule_count=0,
+                    last_connectivity_status="not_checked",
+                    configuration_error_code=None,
+                ),
             )
 
     monkeypatch.setattr(operations_api, "OperationsDiagnostics", FakeDiagnostics, raising=False)
@@ -182,6 +192,13 @@ def test_diagnostics_route_returns_the_strict_snapshot_without_writes(api_client
                 "action_url": "/jobs",
             }
         ],
+        "outbound_proxy": {
+            "mode": "direct",
+            "scheme": None,
+            "bypass_rule_count": 0,
+            "last_connectivity_status": "not_checked",
+            "configuration_error_code": None,
+        },
     }
     assert seen == {"session": session, "snapshot_calls": 1}
     assert session.commits == 0

@@ -1,13 +1,20 @@
 from __future__ import annotations
 
 import logging
+import re
 from collections.abc import Mapping
 
-from app.core.redaction import redact_secrets, redact_string
+from uvicorn.logging import AccessFormatter
 
-_FILTER_MARKER = "_newscraft_redacting_filter"
+from app.core.redaction import redact_request_target, redact_secrets, redact_string
+
+_DEFAULT_LOG_FORMAT = "%(asctime)s %(levelname)s %(name)s %(message)s"
+_ACCESS_LOG_FORMAT = '%(levelprefix)s %(client_addr)s - "%(request_line)s" %(status_code)s'
+_FORMAT_FAILED = "[LOG_FORMAT_FAILED]"
 _LOGGER_CLASS_MARKER = "_newscraft_redacting_logger_class"
+_LEGACY_FILTER_MARKER = "_newscraft_redacting_filter"
 _TRUNCATED = "[TRUNCATED]"
+_SAFE_LABEL = re.compile(r"[^A-Za-z0-9_.-]+")
 _STANDARD_RECORD_KEYS = frozenset(
     logging.LogRecord(
         name="",
@@ -21,6 +28,10 @@ _STANDARD_RECORD_KEYS = frozenset(
 ) | {"asctime", "message"}
 
 
+def _clone_record(record: logging.LogRecord) -> logging.LogRecord:
+    return logging.makeLogRecord(record.__dict__.copy())
+
+
 def _safe_log_arguments(arguments: object) -> object:
     if isinstance(arguments, tuple):
         return tuple(redact_secrets(argument) for argument in arguments)
@@ -29,27 +40,20 @@ def _safe_log_arguments(arguments: object) -> object:
     return redact_secrets(arguments)
 
 
-def _render_safe_message(record: logging.LogRecord) -> str:
-    message = record.msg
-    if not isinstance(message, str):
-        message = redact_secrets(message)
-    arguments = _safe_log_arguments(record.args)
+def _render_safe_message(record: logging.LogRecord) -> None:
+    message = record.msg if isinstance(record.msg, str) else redact_secrets(record.msg)
     record.msg = message
-    record.args = arguments  # type: ignore[assignment]
-    try:
-        rendered = record.getMessage()
-    except Exception:
-        rendered = f"{message} {arguments}"
+    record.args = _safe_log_arguments(record.args)  # type: ignore[assignment]
+    rendered = record.getMessage()
     record.msg = redact_string(rendered)
     record.args = ()
-    return str(record.msg)
 
 
 def _render_safe_exception(record: logging.LogRecord) -> None:
     if record.exc_info is not None:
         try:
             exception_text = logging.Formatter().formatException(record.exc_info)
-        except Exception:
+        except BaseException:
             exception_text = "[Exception]"
         record.exc_text = redact_string(exception_text)
         record.exc_info = None
@@ -74,22 +78,105 @@ def _redact_extras(record: logging.LogRecord) -> None:
             record.__dict__[key] = value
 
 
-class _RedactingFilter(logging.Filter):
-    _newscraft_redacting_filter = True
+def _sanitize_generic_record(record: logging.LogRecord) -> logging.LogRecord:
+    cloned = _clone_record(record)
+    _redact_extras(cloned)
+    _render_safe_message(cloned)
+    _render_safe_exception(cloned)
+    return cloned
 
-    def filter(self, record: logging.LogRecord) -> bool:
+
+def _sanitize_access_record(record: logging.LogRecord) -> logging.LogRecord:
+    cloned = _clone_record(record)
+    _redact_extras(cloned)
+    if not isinstance(cloned.msg, str):
+        raise TypeError("access log message must be a string")
+    if not isinstance(cloned.args, tuple) or len(cloned.args) != 5:
+        raise ValueError("access log arguments must be a five-element tuple")
+    client_addr, method, target, http_version, status_code = cloned.args
+    if not all(isinstance(value, str) for value in (client_addr, method, target, http_version)):
+        raise TypeError("access log string fields are invalid")
+    if type(status_code) is not int:
+        raise TypeError("access log status must be an integer")
+    cloned.msg = redact_string(cloned.msg)
+    cloned.args = (
+        redact_string(client_addr),
+        redact_string(method),
+        redact_request_target(target),
+        redact_string(http_version),
+        status_code,
+    )
+    _render_safe_exception(cloned)
+    return cloned
+
+
+def _safe_label(value: object, *, default: str) -> str:
+    if not isinstance(value, str):
+        return default
+    redacted = redact_string(value)
+    sanitized = _SAFE_LABEL.sub("_", redacted).strip("_")[:128]
+    return sanitized or default
+
+
+def _format_failed(record: logging.LogRecord) -> str:
+    try:
+        logger_name = _safe_label(record.__dict__.get("name"), default="unknown")
+        level_name = _safe_label(record.__dict__.get("levelname"), default="UNKNOWN")
+    except BaseException:
+        logger_name = "unknown"
+        level_name = "UNKNOWN"
+    return f"{_FORMAT_FAILED} logger={logger_name} level={level_name}"
+
+
+class RedactingFormatter(logging.Formatter):
+    """Format a sanitized clone of a generic record without touching the shared original."""
+
+    def __init__(
+        self,
+        fmt: str | None = None,
+        datefmt: str | None = None,
+        style: str = "%",
+        validate: bool = True,
+        *,
+        defaults: Mapping[str, object] | None = None,
+        delegate: logging.Formatter | None = None,
+    ) -> None:
+        super().__init__(fmt=fmt, datefmt=datefmt, style=style, validate=validate, defaults=defaults)
+        self._delegate = delegate
+
+    def format(self, record: logging.LogRecord) -> str:
         try:
-            _redact_extras(record)
-            _render_safe_message(record)
-            _render_safe_exception(record)
-        except Exception:
-            _redact_extras(record)
-            record.msg = "[LOG_REDACTION_FAILED]"
-            record.args = ()
-            record.exc_info = None
-            record.exc_text = None
-            record.stack_info = None
-        return True
+            cloned = _sanitize_generic_record(record)
+            if self._delegate is not None:
+                return self._delegate.format(cloned)
+            return super().format(cloned)
+        except BaseException:
+            return _format_failed(record)
+
+
+class RedactingAccessFormatter(AccessFormatter):
+    """Preserve Uvicorn's access tuple while formatting a sanitized record clone."""
+
+    def __init__(
+        self,
+        fmt: str | None = None,
+        datefmt: str | None = None,
+        style: str = "%",
+        use_colors: bool | None = None,
+        *,
+        delegate: logging.Formatter | None = None,
+    ) -> None:
+        super().__init__(fmt=fmt, datefmt=datefmt, style=style, use_colors=use_colors)
+        self._delegate = delegate
+
+    def format(self, record: logging.LogRecord) -> str:
+        try:
+            cloned = _sanitize_access_record(record)
+            if self._delegate is not None:
+                return self._delegate.format(cloned)
+            return super().format(cloned)
+        except BaseException:
+            return _format_failed(record)
 
 
 def _configured_loggers() -> list[logging.Logger]:
@@ -111,37 +198,84 @@ def _configured_handlers(loggers: list[logging.Logger]) -> list[logging.Handler]
     return handlers
 
 
-def _ensure_redacting_filter(target: logging.Filterer) -> None:
-    if not any(getattr(item, _FILTER_MARKER, False) for item in target.filters):
-        target.addFilter(_RedactingFilter())
+def _install_generic_formatter(handler: logging.Handler) -> None:
+    current = handler.formatter
+    if isinstance(current, (RedactingFormatter, RedactingAccessFormatter)):
+        return
+    if current is None:
+        handler.setFormatter(RedactingFormatter(_DEFAULT_LOG_FORMAT))
+    else:
+        handler.setFormatter(RedactingFormatter(delegate=current))
 
 
-def _install_future_logger_class() -> None:
+def _install_access_formatter(handler: logging.Handler) -> None:
+    current = handler.formatter
+    if isinstance(current, RedactingAccessFormatter):
+        return
+    if isinstance(current, AccessFormatter):
+        handler.setFormatter(RedactingAccessFormatter(delegate=current))
+    else:
+        handler.setFormatter(RedactingAccessFormatter(fmt=_ACCESS_LOG_FORMAT, use_colors=False))
+
+
+def _remove_legacy_filter(target: logging.Filterer) -> None:
+    target.filters[:] = [item for item in target.filters if not getattr(item, _LEGACY_FILTER_MARKER, False)]
+
+
+def _install_future_logger_class() -> type[logging.Logger]:
     logger_class = logging.getLoggerClass()
     if getattr(logger_class, _LOGGER_CLASS_MARKER, False):
-        return
+        return logger_class
 
     class RedactingLogger(logger_class):  # type: ignore[valid-type, misc]
         _newscraft_redacting_logger_class = True
 
-        def __init__(self, *args: object, **kwargs: object) -> None:
-            super().__init__(*args, **kwargs)
-            _ensure_redacting_filter(self)
+        def addHandler(self, handler: logging.Handler) -> None:
+            if self.name == "uvicorn.access":
+                _install_access_formatter(handler)
+            else:
+                _install_generic_formatter(handler)
+            super().addHandler(handler)
+
+        def __setattr__(self, name: str, value: object) -> None:
+            if name == "handlers" and isinstance(value, list):
+                logger_name = self.__dict__.get("name")
+                for handler in value:
+                    if not isinstance(handler, logging.Handler):
+                        continue
+                    if logger_name == "uvicorn.access":
+                        _install_access_formatter(handler)
+                    else:
+                        _install_generic_formatter(handler)
+            super().__setattr__(name, value)
 
     RedactingLogger.__name__ = f"Redacting{logger_class.__name__}"
     logging.setLoggerClass(RedactingLogger)
+    return RedactingLogger
 
 
 def configure_logging() -> None:
-    """Configure application logging and sanitize every configured handler."""
+    """Install fail-closed clone-based formatters on app and Uvicorn handlers."""
 
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s %(levelname)s %(name)s %(message)s",
-    )
+    logging.basicConfig(level=logging.INFO, format=_DEFAULT_LOG_FORMAT)
     loggers = _configured_loggers()
+    access_handler_ids = {id(handler) for handler in logging.getLogger("uvicorn.access").handlers}
     for logger in loggers:
-        _ensure_redacting_filter(logger)
+        _remove_legacy_filter(logger)
     for handler in _configured_handlers(loggers):
-        _ensure_redacting_filter(handler)
-    _install_future_logger_class()
+        _remove_legacy_filter(handler)
+        if id(handler) in access_handler_ids:
+            _install_access_formatter(handler)
+        else:
+            _install_generic_formatter(handler)
+    protected_logger_class = _install_future_logger_class()
+    root = logging.getLogger()
+    for logger in loggers:
+        if logger is root or isinstance(logger, protected_logger_class):
+            continue
+        try:
+            logger.__class__ = protected_logger_class
+        except TypeError:
+            # A third-party Logger subclass with a different memory layout is
+            # still protected by every handler present at configuration time.
+            continue

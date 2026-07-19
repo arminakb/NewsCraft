@@ -30,6 +30,7 @@ from app.publishing.telegram.service import (
     ReconciliationOperationSummary,
     validate_reconciliation,
 )
+from tests.capability_fakes import AVAILABLE_CAPABILITIES
 
 
 def _receipt(index: int, status: str):
@@ -512,6 +513,7 @@ async def test_published_exact_decision_replay_reuses_immutable_publication():
         ),
         Response(),
         session,
+        AVAILABLE_CAPABILITIES,
     )
 
     assert result == _publication_out(publication)
@@ -554,6 +556,7 @@ async def test_not_published_exact_replay_returns_same_queued_job():
         TelegramReconcileIn(outcome="not_published", operator_note=note),
         response,
         session,
+        AVAILABLE_CAPABILITIES,
     )
 
     assert response.status_code == 202
@@ -603,6 +606,7 @@ async def test_same_generation_conflict_uses_raw_note_hash_not_redacted_note():
             ),
             Response(),
             session,
+            AVAILABLE_CAPABILITIES,
         )
 
     assert error.value.status_code == 409
@@ -662,6 +666,7 @@ async def test_new_ambiguity_generation_can_be_decided_and_records_complete_reda
         TelegramReconcileIn(outcome="not_published", operator_note=new_note),
         response,
         session,
+        AVAILABLE_CAPABILITIES,
     )
 
     assert response.status_code == 202
@@ -744,6 +749,7 @@ async def test_stale_exact_decision_from_older_generation_is_rejected(monkeypatc
             TelegramReconcileIn(outcome="not_published", operator_note=note),
             Response(),
             session,
+            AVAILABLE_CAPABILITIES,
         )
 
     assert error.value.status_code == 409
@@ -780,6 +786,7 @@ async def test_published_decision_uses_receipt_semantics_without_publish_attempt
         ),
         Response(),
         session,
+        AVAILABLE_CAPABILITIES,
     )
 
     assert result["remote_message_ids"] == [700, 701, 702]

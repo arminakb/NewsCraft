@@ -13,7 +13,6 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import Settings, settings
-from app.core.secrets import EnvironmentSecretResolver, SecretResolver
 from app.generation.canonical import CanonicalStoryOutput
 from app.generation.models import AIProviderProfile, BrandProfile, PromptTemplate, PromptTemplateVersion
 from app.generation.platform_schemas import BlogVariantPayload, InstagramVariantPayload, XVariantPayload
@@ -364,7 +363,6 @@ class DefaultTelegramConfiguration:
 async def seed_default_telegram_configuration(
     session: AsyncSession,
     *,
-    secret_resolver: SecretResolver | None = None,
     openrouter_available: bool | None = None,
     application_settings: Settings = settings,
 ) -> DefaultTelegramConfiguration:
@@ -407,9 +405,6 @@ async def seed_default_telegram_configuration(
             select(AIProviderProfile).where(AIProviderProfile.name == "Deterministic Fake"),
         )
         profiles.append(fake)
-    if openrouter_available is None:
-        resolver = secret_resolver or EnvironmentSecretResolver()
-        openrouter_available = resolver.configured("OPENROUTER_API_KEY")
     openrouter = next((item for item in profiles if item.name == "OpenRouter"), None)
     if openrouter is None:
         openrouter = AIProviderProfile(
@@ -424,7 +419,7 @@ async def seed_default_telegram_configuration(
                 "http_referer": None,
                 "app_title": "NewsCraft",
             },
-            enabled=bool(openrouter_available),
+            enabled=bool(openrouter_available) if openrouter_available is not None else False,
         )
         openrouter = await _add_with_conflict_reload(
             session,
@@ -432,7 +427,7 @@ async def seed_default_telegram_configuration(
             select(AIProviderProfile).where(AIProviderProfile.name == "OpenRouter"),
         )
         profiles.append(openrouter)
-    else:
+    elif openrouter_available is not None:
         openrouter.enabled = bool(openrouter_available)
     await session.flush()
     return DefaultTelegramConfiguration(brand=brand, providers=(fake, openrouter))

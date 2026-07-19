@@ -2,8 +2,6 @@ from __future__ import annotations
 
 import hashlib
 import json
-import shutil
-from collections.abc import Callable
 from datetime import UTC, datetime
 from typing import Annotated
 from uuid import UUID
@@ -12,10 +10,9 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.generation_settings import provider_capabilities
+from app.api.capabilities import CapabilityStatusDependency
 from app.api.telegram_destinations import (
     get_job_repository,
-    get_secret_resolver,
 )
 from app.api.telegram_schemas import (
     TelegramAutomationOptionsOut,
@@ -28,11 +25,11 @@ from app.api.telegram_schemas import (
 )
 from app.automations.models import AutomationDispatch, AutomationRoute, TelegramSourceConfig
 from app.core.redaction import redact_string
-from app.core.secrets import SecretResolver
 from app.db.models import Source
 from app.db.session import get_session
 from app.generation.models import AIProviderProfile, BrandProfile, PromptTemplate, PromptTemplateVersion
-from app.jobs.repository import JobRepository
+from app.jobs.credential_capabilities import CapabilityStatusService, provider_shape_capabilities
+from app.jobs.repository import EnqueueJobResult, JobRepository
 from app.jobs.schemas import JobAcceptedOut
 from app.jobs.types import JobOrigin
 from app.publishing.models import Destination
@@ -41,36 +38,26 @@ from app.stories.models import StoryRevision
 router = APIRouter(prefix="/telegram/automations", tags=["telegram"])
 SessionDependency = Depends(get_session)
 JobRepositoryDependency = Annotated[JobRepository, Depends(get_job_repository)]
-SecretResolverDependency = Annotated[SecretResolver, Depends(get_secret_resolver)]
-type ExecutableResolver = Callable[[str], str | None]
-
-
-def get_executable_resolver() -> ExecutableResolver:
-    return shutil.which
-
-
-ExecutableResolverDependency = Annotated[ExecutableResolver, Depends(get_executable_resolver)]
 
 
 def _provider_is_configured(
     profile: AIProviderProfile,
-    secrets: SecretResolver,
-    executable_resolver: ExecutableResolver,
 ) -> bool:
-    capabilities, _codes = provider_capabilities(profile, secrets, executable_resolver)
+    capabilities, _codes = provider_shape_capabilities(profile)
     return capabilities["generation"]
 
 
 def _provider_supports_research(
     profile: AIProviderProfile,
-    secrets: SecretResolver,
-    executable_resolver: ExecutableResolver,
 ) -> bool:
-    capabilities, _codes = provider_capabilities(profile, secrets, executable_resolver)
+    capabilities, _codes = provider_shape_capabilities(profile)
     return capabilities["research"]
 
 
-def _job_out(result) -> JobAcceptedOut:
+_ROUTE_RESPONSE_ATTRIBUTES = tuple(TelegramRouteOut.model_fields)
+
+
+def _job_out(result: EnqueueJobResult) -> JobAcceptedOut:
     return JobAcceptedOut(
         job_id=result.job.id,
         status=result.job.status,
@@ -78,11 +65,68 @@ def _job_out(result) -> JobAcceptedOut:
     )
 
 
+async def _materialize_route_out(
+    session: AsyncSession,
+    route: AutomationRoute,
+) -> TelegramRouteOut:
+    """Copy every public route scalar while async ORM access is still safe."""
+    await session.flush()
+    await session.refresh(route, attribute_names=list(_ROUTE_RESPONSE_ATTRIBUTES))
+    return TelegramRouteOut.model_validate(route)
+
+
 async def _route_or_404(session: AsyncSession, route_id: UUID) -> AutomationRoute:
     route = await session.get(AutomationRoute, route_id)
     if route is None:
         raise HTTPException(404, "Telegram automation route not found")
     return route
+
+
+async def _require_route_capabilities(
+    route: AutomationRoute,
+    capability_status: CapabilityStatusService,
+    *,
+    job_type: str,
+) -> None:
+    await capability_status.require_available(
+        "source",
+        route.source_id,
+        "source",
+        job_type=job_type,
+    )
+    await capability_status.require_available(
+        "provider",
+        route.ai_provider_profile_id,
+        "generation",
+        job_type=job_type,
+    )
+    research_profile_id = (route.content_filters or {}).get(
+        "research_provider_profile_id"
+    )
+    if route.research_mode != "off" and research_profile_id is not None:
+        try:
+            research_id = UUID(str(research_profile_id))
+        except ValueError:
+            from app.jobs.errors import JobCapabilityUnavailable
+
+            raise JobCapabilityUnavailable(
+                code="job_capability_unknown",
+                job_type=job_type,
+                retry_after_seconds=capability_status.config.capability_retry_after_seconds,
+            ) from None
+        await capability_status.require_available(
+            "provider",
+            research_id,
+            "research",
+            job_type=job_type,
+        )
+    if route.publishing_policy == "auto_publish":
+        await capability_status.require_available(
+            "destination",
+            route.destination_id,
+            "publishing",
+            job_type=job_type,
+        )
 
 
 @router.get("", response_model=list[TelegramRouteOut])
@@ -93,8 +137,7 @@ async def list_routes(session: AsyncSession = SessionDependency):
 @router.get("/options", response_model=TelegramAutomationOptionsOut)
 async def automation_options(
     session: AsyncSession = SessionDependency,
-    secrets: SecretResolverDependency = None,
-    executable_resolver: ExecutableResolverDependency = shutil.which,
+    capability_status: CapabilityStatusDependency = None,
 ):
     sources = list(await session.scalars(select(Source).where(Source.platform == "telegram_public")))
     source_configs = list(await session.scalars(select(TelegramSourceConfig)))
@@ -115,37 +158,59 @@ async def automation_options(
     profiles = list(await session.scalars(select(AIProviderProfile).where(AIProviderProfile.enabled.is_(True))))
     safe_profiles = []
     for profile in profiles:
-        capabilities, _codes = provider_capabilities(profile, secrets, executable_resolver)
-        if capabilities["generation"]:
+        shaped, _codes = provider_shape_capabilities(profile)
+        if shaped["generation"]:
+            capability_states = {
+                "generation": await capability_status.get(
+                    "provider", profile.id, "generation"
+                ),
+                "research": await capability_status.get(
+                    "provider", profile.id, "research"
+                ),
+            }
+            capabilities = {
+                name: shaped[name] and state.available
+                for name, state in capability_states.items()
+            }
             safe_profiles.append(
                 {
                     "id": profile.id,
                     "name": profile.name,
                     "provider_type": profile.provider_type,
                     "default_model": profile.default_model,
-                    "configured": True,
+                    "configured": capabilities["generation"],
                     "capabilities": capabilities,
+                    "capability_states": capability_states,
                 }
             )
-    return TelegramAutomationOptionsOut(
-        sources=[
+    safe_sources = []
+    for item in sources:
+        if item.id not in configs_by_source:
+            continue
+        state = await capability_status.get("source", item.id, "source")
+        safe_sources.append(
             {
                 "id": item.id,
                 "name": item.name,
                 "access_mode": configs_by_source[item.id].access_mode,
+                "capability_state": state,
             }
-            for item in sources
-            if item.id in configs_by_source
-        ],
-        destinations=[
+        )
+    safe_destinations = []
+    for item in destinations:
+        state = await capability_status.get("destination", item.id, "publishing")
+        safe_destinations.append(
             {
                 "id": item.id,
                 "name": item.name,
                 "health_status": item.health_status,
                 "allow_auto_publish": bool((item.settings or {}).get("allow_auto_publish")),
+                "capability_state": state,
             }
-            for item in destinations
-        ],
+        )
+    return TelegramAutomationOptionsOut(
+        sources=safe_sources,
+        destinations=safe_destinations,
         brand_profiles=[{"id": item.id, "name": item.name} for item in brands],
         prompt_template_versions=[
             {"id": item.id, "version": item.version} for item in versions if item.prompt_template_id in template_ids
@@ -158,8 +223,6 @@ async def automation_options(
 async def create_route(
     body: TelegramRouteCreate,
     session: AsyncSession = SessionDependency,
-    secrets: SecretResolverDependency = None,
-    executable_resolver: ExecutableResolverDependency = shutil.which,
 ):
     source = await session.scalar(select(Source).where(Source.id == body.source_id).with_for_update())
     source_config = await session.get(TelegramSourceConfig, body.source_id)
@@ -176,15 +239,15 @@ async def create_route(
         raise HTTPException(422, "Telegram destination is not enabled")
     if prompt is None or prompt.purpose_key != "telegram_rewrite" or not prompt_version.is_active:
         raise HTTPException(422, "Route requires an active telegram_rewrite prompt")
-    if not _provider_is_configured(profile, secrets, executable_resolver):
-        raise HTTPException(422, "AI provider profile is not configured")
+    if not _provider_is_configured(profile):
+        raise HTTPException(422, "AI provider profile configuration is invalid")
     if body.content_filters.model is None and profile.default_model is None:
         raise HTTPException(422, "Route requires a model override or provider default model")
     research_profile_id = body.content_filters.research_provider_profile_id
     if research_profile_id is not None:
         research_profile = await session.get(AIProviderProfile, research_profile_id)
-        if research_profile is None or not _provider_supports_research(research_profile, secrets, executable_resolver):
-            raise HTTPException(422, "Research provider profile is not configured")
+        if research_profile is None or not _provider_supports_research(research_profile):
+            raise HTTPException(422, "Research provider profile configuration is invalid")
     if body.publishing_policy == "auto_publish" and not bool((destination.settings or {}).get("allow_auto_publish")):
         raise HTTPException(422, "Destination does not allow auto publishing")
     existing = await session.scalar(
@@ -211,7 +274,9 @@ async def create_route(
             "retry_policy": body.retry_policy.model_dump(mode="json"),
         }
         if all(getattr(existing, key) == value for key, value in expected.items()):
-            return existing
+            response = await _materialize_route_out(session, existing)
+            await session.commit()
+            return response
         raise HTTPException(409, "Telegram automation route already exists with different configuration")
     route = AutomationRoute(
         name=body.name,
@@ -237,9 +302,9 @@ async def create_route(
         backfill_since=None,
     )
     session.add(route)
-    await session.flush()
+    response = await _materialize_route_out(session, route)
     await session.commit()
-    return route
+    return response
 
 
 @router.get("/{route_id}", response_model=TelegramRouteOut)
@@ -252,16 +317,14 @@ async def update_research_policy(
     route_id: UUID,
     body: TelegramResearchPolicyInput,
     session: AsyncSession = SessionDependency,
-    secrets: SecretResolverDependency = None,
-    executable_resolver: ExecutableResolverDependency = shutil.which,
 ):
     route = await session.scalar(select(AutomationRoute).where(AutomationRoute.id == route_id).with_for_update())
     if route is None:
         raise HTTPException(404, "Telegram automation route not found")
     if body.research_provider_profile_id is not None:
         profile = await session.get(AIProviderProfile, body.research_provider_profile_id)
-        if profile is None or not _provider_supports_research(profile, secrets, executable_resolver):
-            raise HTTPException(422, "Research provider profile is not configured")
+        if profile is None or not _provider_supports_research(profile):
+            raise HTTPException(422, "Research provider profile configuration is invalid")
     filters = dict(route.content_filters or {})
     filters.pop("research_backend", None)
     if body.research_provider_profile_id is None:
@@ -270,8 +333,9 @@ async def update_research_policy(
         filters["research_provider_profile_id"] = str(body.research_provider_profile_id)
     route.research_mode = body.research_mode
     route.content_filters = filters
+    response = await _materialize_route_out(session, route)
     await session.commit()
-    return route
+    return response
 
 
 @router.post("/{route_id}/activate", response_model=TelegramRouteAcceptedOut, status_code=202)
@@ -279,10 +343,16 @@ async def activate_route(
     route_id: UUID,
     session: AsyncSession = SessionDependency,
     jobs: JobRepositoryDependency = None,
+    capability_status: CapabilityStatusDependency = None,
 ):
     route = await session.scalar(select(AutomationRoute).where(AutomationRoute.id == route_id).with_for_update())
     if route is None:
         raise HTTPException(404, "Telegram automation route not found")
+    await _require_route_capabilities(
+        route,
+        capability_status,
+        job_type="telegram.route.initialize",
+    )
     state = route.cursor_state or {}
     replaying_initialization = (
         route.enabled and state.get("status") == "initializing" and bool(state.get("activation_requested_at"))
@@ -308,24 +378,39 @@ async def activate_route(
         idempotency_key=f"telegram-route-initialize:{route.id}:{requested_at}",
         origin=JobOrigin.AUTOMATION,
     )
+    response = TelegramRouteAcceptedOut(
+        route=await _materialize_route_out(session, route),
+        job=_job_out(result),
+    )
     await session.commit()
-    return TelegramRouteAcceptedOut(route=route, job=_job_out(result))
+    return response
 
 
 @router.post("/{route_id}/pause", response_model=TelegramRouteOut)
 async def pause_route(route_id: UUID, session: AsyncSession = SessionDependency):
     route = await _route_or_404(session, route_id)
     route.paused_at = datetime.now(UTC)
+    response = await _materialize_route_out(session, route)
     await session.commit()
-    return route
+    return response
 
 
 @router.post("/{route_id}/resume", response_model=TelegramRouteOut)
-async def resume_route(route_id: UUID, session: AsyncSession = SessionDependency):
+async def resume_route(
+    route_id: UUID,
+    session: AsyncSession = SessionDependency,
+    capability_status: CapabilityStatusDependency = None,
+):
     route = await _route_or_404(session, route_id)
+    await _require_route_capabilities(
+        route,
+        capability_status,
+        job_type="telegram.route.poll",
+    )
     route.paused_at = None
+    response = await _materialize_route_out(session, route)
     await session.commit()
-    return route
+    return response
 
 
 @router.post("/{route_id}/dry-run", response_model=TelegramRouteAcceptedOut, status_code=202)
@@ -334,8 +419,14 @@ async def dry_run_route(
     body: TelegramRouteDryRunIn,
     session: AsyncSession = SessionDependency,
     jobs: JobRepositoryDependency = None,
+    capability_status: CapabilityStatusDependency = None,
 ):
     route = await _route_or_404(session, route_id)
+    await _require_route_capabilities(
+        route,
+        capability_status,
+        job_type="telegram.route.dry_run",
+    )
     payload = {
         "route_id": str(route.id),
         "source_message_id": body.source_message_id,
@@ -348,8 +439,12 @@ async def dry_run_route(
         idempotency_key=f"telegram-route-dry-run:{route.id}:{request_hash}",
         origin=JobOrigin.MANUAL,
     )
+    response = TelegramRouteAcceptedOut(
+        route=await _materialize_route_out(session, route),
+        job=_job_out(result),
+    )
     await session.commit()
-    return TelegramRouteAcceptedOut(route=route, job=_job_out(result))
+    return response
 
 
 @router.post("/{route_id}/backfill", response_model=TelegramRouteAcceptedOut, status_code=202)
@@ -358,8 +453,14 @@ async def backfill_route(
     body: TelegramRouteBackfillIn,
     session: AsyncSession = SessionDependency,
     jobs: JobRepositoryDependency = None,
+    capability_status: CapabilityStatusDependency = None,
 ):
     route = await _route_or_404(session, route_id)
+    await _require_route_capabilities(
+        route,
+        capability_status,
+        job_type="telegram.route.backfill",
+    )
     bounds = body.model_dump(mode="json", exclude_none=True)
     bounds_hash = hashlib.sha256(json.dumps(bounds, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
     result = await jobs.enqueue_job(
@@ -368,8 +469,12 @@ async def backfill_route(
         idempotency_key=f"telegram-route-backfill:{route.id}:{bounds_hash}",
         origin=JobOrigin.MANUAL,
     )
+    response = TelegramRouteAcceptedOut(
+        route=await _materialize_route_out(session, route),
+        job=_job_out(result),
+    )
     await session.commit()
-    return TelegramRouteAcceptedOut(route=route, job=_job_out(result))
+    return response
 
 
 @router.get("/{route_id}/dispatches")

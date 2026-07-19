@@ -139,6 +139,8 @@ class _PinnedAsyncTransport(httpx.AsyncBaseTransport):
 
 
 class SafeHttpClient:
+    network_policy = "direct_pinned_ssrf"
+
     def __init__(
         self,
         *,

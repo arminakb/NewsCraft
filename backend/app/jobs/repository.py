@@ -11,6 +11,7 @@ from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.redaction import redact_secrets
+from app.jobs.capability_gate import api_capability_gate_enabled, require_available_job_type
 from app.jobs.errors import InvalidJobTransition
 from app.jobs.events import redact_event_data
 from app.jobs.models import AutomationControl, WorkflowEvent, WorkflowJob
@@ -397,6 +398,16 @@ class JobRepository:
     ) -> EnqueueJobResult:
         effective_scheduled_for = _now(scheduled_for)
         safe_payload = _redact_job_payload(job_type, payload)
+        if api_capability_gate_enabled(self.session):
+            existing = await self.session.scalar(
+                select(WorkflowJob).where(WorkflowJob.idempotency_key == idempotency_key)
+            )
+            if existing is not None:
+                if existing.scheduled_for is None:
+                    existing.scheduled_for = effective_scheduled_for
+                    await self.session.flush()
+                return EnqueueJobResult(job=existing, created=False)
+            await require_available_job_type(self.session, job_type)
         statement = (
             insert(WorkflowJob)
             .values(
@@ -550,6 +561,35 @@ class JobRepository:
         await self.session.flush()
         return True
 
+    async def checkpoint_job(
+        self,
+        *,
+        job_id: UUID,
+        worker_id: str,
+        payload: dict[str, Any] | None = None,
+        result: dict[str, Any] | None = None,
+        now: datetime | None = None,
+    ) -> None:
+        """Persist handler checkpoints without exposing a WorkflowJob instance."""
+
+        if payload is None and result is None:
+            raise ValueError("a job checkpoint requires payload or result")
+        observed_at = _now(now)
+        job = await self._locked_job(job_id)
+        if job is None or not self._has_active_lease(job, worker_id=worker_id, now=observed_at):
+            raise self._invalid(job_id, action="checkpoint", job=job)
+        if payload is not None:
+            safe_payload = _redact_job_payload(job.job_type, payload)
+            if safe_payload != payload:
+                raise ValueError("job checkpoint payload contains a secret value")
+            job.payload = safe_payload
+        if result is not None:
+            safe_result = redact_secrets(result)
+            if not isinstance(safe_result, dict):  # pragma: no cover - dict input contract
+                raise TypeError("job checkpoint result must be a mapping")
+            job.result = safe_result
+        await self.session.flush()
+
     async def finish_job(
         self,
         *,
@@ -645,6 +685,8 @@ class JobRepository:
         job = await self._locked_job(job_id)
         if job is None or job.status not in (JobStatus.FAILED, JobStatus.NEEDS_REVIEW):
             raise self._invalid(job_id, action="retry", job=job)
+
+        await require_available_job_type(self.session, str(job.job_type))
 
         previous_status = str(job.status)
         observed_at = _now(now)

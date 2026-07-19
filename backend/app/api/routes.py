@@ -7,6 +7,7 @@ from app.api.control import router as control_router
 from app.api.diagnostics import router as diagnostics_router
 from app.api.exports import router as exports_router
 from app.api.generation_settings import router as generation_settings_router
+from app.api.health import router as health_router
 from app.api.ingest import router as ingest_router
 from app.api.jobs import router as jobs_router
 from app.api.library import router as library_router
@@ -20,6 +21,7 @@ from app.api.telegram_drafts import router as telegram_drafts_router
 from app.api.telegram_sources import router as telegram_sources_router
 
 router = APIRouter()
+router.include_router(health_router)
 router.include_router(sources_router)
 router.include_router(stories_router)
 router.include_router(ingest_router)

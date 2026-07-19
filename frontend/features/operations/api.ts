@@ -52,6 +52,13 @@ type BackendOperationsSnapshot = {
   components: Record<string, BackendOperationComponentHealth>
   queue_counts: Record<string, number>
   attention: BackendOperationAttentionItem[]
+  outbound_proxy: {
+    mode: "direct" | "proxy"
+    scheme: string | null
+    bypass_rule_count: number
+    last_connectivity_status: "not_checked" | "ok" | "failed"
+    configuration_error_code: string | null
+  }
 }
 
 type BackendHistoryEntry = {
@@ -296,6 +303,13 @@ function mapOperationsSnapshot(row: BackendOperationsSnapshot): OperationsSnapsh
     components,
     queueCounts: row.queue_counts,
     attention: row.attention.map(mapAttentionItem),
+    outboundProxy: {
+      mode: row.outbound_proxy.mode,
+      scheme: row.outbound_proxy.scheme,
+      bypassRuleCount: row.outbound_proxy.bypass_rule_count,
+      lastConnectivityStatus: row.outbound_proxy.last_connectivity_status,
+      configurationErrorCode: row.outbound_proxy.configuration_error_code,
+    },
   }
 }
 

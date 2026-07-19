@@ -2,11 +2,13 @@ from __future__ import annotations
 
 import asyncio
 import math
+import os
 from typing import Any
 
 from ddgs import DDGS
 from pydantic import BaseModel, ConfigDict, Field, HttpUrl
 
+from app.core.outbound_proxy import OutboundProxyPolicy, ProxyConfigurationError
 from app.normalization.urls import normalize_url
 
 
@@ -19,8 +21,16 @@ class SearchResult(BaseModel):
 
 
 class DuckDuckGoSearchClient:
-    def __init__(self, *, max_timeout_seconds: float = 30.0) -> None:
+    def __init__(
+        self,
+        *,
+        max_timeout_seconds: float = 30.0,
+        proxy_policy: OutboundProxyPolicy | None = None,
+    ) -> None:
         self.max_timeout_seconds = _finite_positive_timeout(max_timeout_seconds)
+        if os.environ.get("DDGS_PROXY", "").strip():
+            raise ProxyConfigurationError("proxy_environment_unsupported")
+        self.proxy_policy = proxy_policy or OutboundProxyPolicy.from_environment()
 
     async def search(
         self,
@@ -38,7 +48,10 @@ class DuckDuckGoSearchClient:
             )
         raw_results = await asyncio.to_thread(
             lambda: list(
-                DDGS(timeout=transport_timeout).text(
+                DDGS(
+                    proxy=self.proxy_policy.explicit_proxy_url("https://duckduckgo.com"),
+                    timeout=transport_timeout,
+                ).text(
                     normalized_query,
                     backend="duckduckgo",
                     max_results=limit,

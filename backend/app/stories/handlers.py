@@ -8,10 +8,10 @@ from pydantic import TypeAdapter
 from sqlalchemy import select
 
 from app.jobs.errors import NeedsReviewJobError, RetryableJobError
-from app.jobs.models import WorkflowEvent, WorkflowJob
+from app.jobs.models import WorkflowEvent
 from app.jobs.registry import JobContext
 from app.jobs.repository import JobRepository
-from app.jobs.types import JobOrigin
+from app.jobs.types import JobExecution, JobOrigin, job_payload_copy
 from app.stories import manual_intake
 from app.stories.evidence import EvidenceInput
 from app.stories.grouping import GroupingInput, decide_group
@@ -23,8 +23,8 @@ def _build_job_repository(session):
     return JobRepository(session)
 
 
-async def handle_manual_intake(job: WorkflowJob, context: JobContext) -> dict[str, object]:
-    request = TypeAdapter(ManualIntakeRequest).validate_python(job.payload)
+async def handle_manual_intake(job: JobExecution, context: JobContext) -> dict[str, object]:
+    request = TypeAdapter(ManualIntakeRequest).validate_python(job_payload_copy(job))
     if request.kind == "url":
         await context.session.commit()
         try:
@@ -119,8 +119,8 @@ def _group_components(items: list[Any]) -> list[list[Any]]:
     return list(components.values())
 
 
-async def group_pending_content(job: WorkflowJob, context: JobContext) -> dict[str, Any]:
-    payload = GroupPendingPayload.model_validate(job.payload)
+async def group_pending_content(job: JobExecution, context: JobContext) -> dict[str, Any]:
+    payload = GroupPendingPayload.model_validate(job_payload_copy(job))
     repository = StoryRepository(context.session)
     items = await repository.list_pending_content_items(limit=payload.limit, cursor=payload.cursor)
     evidence_ids = set()

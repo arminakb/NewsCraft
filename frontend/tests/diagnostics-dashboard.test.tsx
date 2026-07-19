@@ -40,6 +40,13 @@ describe("DiagnosticsDashboard", () => {
           },
           queueCounts: { queued: 4, running: 1, failed: 2 },
           attention: [],
+          outboundProxy: {
+            mode: "direct",
+            scheme: null,
+            bypassRuleCount: 0,
+            lastConnectivityStatus: "not_checked",
+            configurationErrorCode: null,
+          },
         }}
       />,
     )
@@ -53,6 +60,7 @@ describe("DiagnosticsDashboard", () => {
       "/jobs?status=running",
     )
     expect(screen.getByText("Dry run enabled")).toBeInTheDocument()
+    expect(screen.getByText("Direct · 0 bypass rules · not checked")).toBeInTheDocument()
     expect(screen.queryByText("Healthy")).not.toBeInTheDocument()
   })
 
@@ -75,6 +83,13 @@ describe("DiagnosticsDashboard", () => {
               actionUrl: "/jobs?status=needs_review",
             },
           ],
+          outboundProxy: {
+            mode: "proxy",
+            scheme: "socks5h",
+            bypassRuleCount: 2,
+            lastConnectivityStatus: "failed",
+            configurationErrorCode: "proxy_connectivity_failed",
+          },
         }}
       />,
     )
@@ -83,6 +98,7 @@ describe("DiagnosticsDashboard", () => {
     expect(title.closest("[dir]")).toHaveAttribute("dir", "auto")
     expect(screen.getByText("Jul 11, 2026, 11:32 AM")).toBeInTheDocument()
     expect(screen.getByText("Operations paused")).toBeInTheDocument()
+    expect(screen.getByText("Configuration error: proxy_connectivity_failed")).toBeInTheDocument()
     expect(screen.getByRole("link", { name: "Review تولید محتوا نیاز به بررسی دارد" })).toHaveAttribute(
       "href",
       "/jobs?status=needs_review",

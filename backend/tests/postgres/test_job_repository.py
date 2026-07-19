@@ -526,6 +526,75 @@ async def test_expired_lease_owner_cannot_fail(job_repository: JobRepository):
     assert claimed.status == JobStatus.RUNNING
 
 
+async def test_checkpoint_requires_live_owner_and_persists_redacted_handler_state(
+    job_repository: JobRepository,
+):
+    claimed = await enqueue_claimed_job(job_repository, key="checkpoint", now=NOW)
+
+    with pytest.raises(InvalidJobTransition):
+        await job_repository.checkpoint_job(
+            job_id=claimed.id,
+            worker_id="wrong-worker",
+            result={"ignored": True},
+            now=NOW + timedelta(seconds=1),
+        )
+    await job_repository.checkpoint_job(
+        job_id=claimed.id,
+        worker_id="worker-1",
+        payload={"normalized": True},
+        result={"completed": ["instagram"], "token": "secret-canary"},
+        now=NOW + timedelta(seconds=1),
+    )
+
+    assert claimed.payload == {"normalized": True}
+    assert claimed.result == {"completed": ["instagram"], "token": "[REDACTED]"}
+    with pytest.raises(InvalidJobTransition):
+        await job_repository.checkpoint_job(
+            job_id=claimed.id,
+            worker_id="worker-1",
+            result={"stale": True},
+            now=NOW + timedelta(seconds=121),
+        )
+
+
+async def test_released_owner_cannot_finish_or_fail_new_owner_lease(job_repository: JobRepository):
+    first_claim = await enqueue_claimed_job(job_repository, key="re-leased-owner", now=NOW)
+    assert await job_repository.requeue_expired_leases(now=NOW + timedelta(seconds=121)) == 1
+    second_claim = await job_repository.claim_next_job(
+        worker_id="worker-2",
+        lease_seconds=120,
+        now=NOW + timedelta(seconds=121),
+    )
+    assert second_claim is not None
+    assert second_claim.id == first_claim.id
+
+    with pytest.raises(InvalidJobTransition):
+        await job_repository.finish_job(
+            job_id=first_claim.id,
+            worker_id="worker-1",
+            result={"stale": True},
+            now=NOW + timedelta(seconds=122),
+        )
+    with pytest.raises(InvalidJobTransition):
+        await job_repository.fail_job(
+            job_id=first_claim.id,
+            worker_id="worker-1",
+            error_class=JobErrorClass.RETRYABLE,
+            error_code="stale_worker",
+            error_message="Stale worker result",
+            now=NOW + timedelta(seconds=122),
+        )
+
+    finished = await job_repository.finish_job(
+        job_id=second_claim.id,
+        worker_id="worker-2",
+        result={"owner": "worker-2"},
+        now=NOW + timedelta(seconds=122),
+    )
+    assert finished.status == JobStatus.SUCCEEDED
+    assert finished.result == {"owner": "worker-2"}
+
+
 async def test_finish_requires_owner_stores_result_clears_lease_and_sanitizes_event(
     job_repository: JobRepository,
     db_session: AsyncSession,

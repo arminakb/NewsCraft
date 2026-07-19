@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import hashlib
 import json
-import shutil
 from dataclasses import dataclass
 from typing import Literal
 from uuid import UUID
@@ -11,9 +10,7 @@ from pydantic import BaseModel, ConfigDict
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.config import settings
 from app.core.redaction import redact_secrets, redact_string
-from app.core.secrets import EnvironmentSecretResolver
 from app.generation.models import AIProviderProfile
 from app.generation.provider_settings import (
     CodexProviderSettings,
@@ -22,6 +19,8 @@ from app.generation.provider_settings import (
     default_research_budgets,
     effective_codex_provider_settings,
 )
+from app.jobs.capability_gate import api_capability_gate_enabled
+from app.jobs.credential_capabilities import CapabilityStatusService, provider_shape_capabilities
 from app.jobs.models import WorkflowEvent, WorkflowJob
 from app.jobs.repository import JobRepository
 from app.jobs.types import JobOrigin
@@ -118,6 +117,9 @@ class ResearchService:
         profile = await self.session.get(AIProviderProfile, profile_id)
         if profile is None or not profile.enabled:
             raise ResearchRequestError("Selected research provider profile is unavailable")
+        shaped, _codes = provider_shape_capabilities(profile)
+        if not shaped["research"]:
+            raise ResearchRequestError("Selected research provider profile is invalid")
         model = profile.default_model
         if profile.provider_type == "fake":
             if profile.secret_ref is not None or dict(profile.settings or {}):
@@ -133,8 +135,6 @@ class ResearchService:
                 )
             except ValueError:
                 raise ResearchRequestError("Selected research provider profile is invalid") from None
-            if not settings.codex_enabled or shutil.which(settings.codex_executable) is None:
-                raise ResearchRequestError("Selected research provider profile is unavailable")
             assert configured.research_budgets is not None
             selected = getattr(configured.research_budgets, depth)
         elif profile.provider_type == "openrouter":
@@ -145,12 +145,6 @@ class ResearchService:
             except ValueError:
                 raise ResearchRequestError("Selected research provider profile is invalid") from None
             if configured_or.pricing is None or configured_or.research_budgets is None:
-                raise ResearchRequestError("Selected research provider profile is unavailable")
-            try:
-                secret_available = EnvironmentSecretResolver().configured(profile.secret_ref)
-            except Exception:
-                secret_available = False
-            if not secret_available:
                 raise ResearchRequestError("Selected research provider profile is unavailable")
             selected = getattr(configured_or.research_budgets, depth)
         else:
@@ -250,6 +244,13 @@ class ResearchService:
                 run_id=None,
                 job_id=None,
                 completeness=completeness,
+            )
+        if api_capability_gate_enabled(self.session):
+            await CapabilityStatusService(self.session).require_available(
+                "provider",
+                resolved.profile.id,
+                "research",
+                job_type="research_story",
             )
         if not snapshots:
             raise ResearchRequestError("Story has no persisted evidence")
