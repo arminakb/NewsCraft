@@ -17,6 +17,8 @@ const VIEWPORTS = [
   { label: "mobile", width: 390, height: 844 },
 ] as const
 
+const THEMES = ["light", "dark"] as const
+
 const MOBILE_ACTION_STORY = {
   id: "story-mobile-actions",
   title: "Election timeline",
@@ -31,31 +33,36 @@ const MOBILE_ACTION_STORY = {
 } satisfies MockStory
 
 for (const viewport of VIEWPORTS) {
-  test.describe(`${viewport.label} accessibility`, () => {
-    for (const route of ROUTES) {
-      test(`${route.name} has no serious or critical axe violations`, async ({ page }) => {
-        const unhandledRequests = await installMockBackend(page)
-        await page.setViewportSize(viewport)
-        await page.goto(route.path)
+  for (const theme of THEMES) {
+    test.describe(`${viewport.label} ${theme} accessibility`, () => {
+      for (const route of ROUTES) {
+        test(`${route.name} has no serious or critical axe violations`, async ({ page }) => {
+          const unhandledRequests = await installMockBackend(page)
+          await page.setViewportSize(viewport)
+          await page.goto(route.path)
+          await page.evaluate((selectedTheme) => {
+            document.documentElement.classList.toggle("dark", selectedTheme === "dark")
+          }, theme)
 
-        await expect(page.getByRole("heading", { name: route.name, exact: true }).first()).toBeVisible()
-        await expect(page.getByText(route.readyText, { exact: true }).first()).toBeVisible()
-        expect(unhandledRequests, `Unhandled backend requests on ${route.path}`).toEqual([])
+          await expect(page.getByRole("heading", { name: route.name, exact: true }).first()).toBeVisible()
+          await expect(page.getByText(route.readyText, { exact: true }).first()).toBeVisible()
+          expect(unhandledRequests, `Unhandled backend requests on ${route.path}`).toEqual([])
 
-        const results = await new AxeBuilder({ page }).analyze()
-        const violations = results.violations
-          .filter((violation) => violation.impact === "serious" || violation.impact === "critical")
-          .map((violation) => ({
-            id: violation.id,
-            impact: violation.impact,
-            help: violation.help,
-            targets: violation.nodes.flatMap((node) => node.target),
-          }))
+          const results = await new AxeBuilder({ page }).analyze()
+          const violations = results.violations
+            .filter((violation) => violation.impact === "serious" || violation.impact === "critical")
+            .map((violation) => ({
+              id: violation.id,
+              impact: violation.impact,
+              help: violation.help,
+              targets: violation.nodes.flatMap((node) => node.target),
+            }))
 
-        expect(violations).toEqual([])
-      })
-    }
-  })
+          expect(violations).toEqual([])
+        })
+      }
+    })
+  }
 }
 
 test("responsive shell switches at 900px and exposes one skip target", async ({ page }) => {

@@ -14,11 +14,14 @@ const componentNames: Record<string, string> = {
 }
 
 const statusPresentation = {
-  healthy: { Icon: CheckCircle2, className: "border-emerald-300 text-emerald-800" },
-  degraded: { Icon: AlertTriangle, className: "border-amber-300 text-amber-800" },
-  down: { Icon: OctagonX, className: "border-red-300 text-red-800" },
-  unknown: { Icon: CircleHelp, className: "border-slate-300 text-slate-700" },
-} satisfies Record<OperationComponentHealth["status"], { Icon: typeof CircleHelp; className: string }>
+  healthy: { Icon: CheckCircle2, variant: "success" },
+  degraded: { Icon: AlertTriangle, variant: "warning" },
+  down: { Icon: OctagonX, variant: "error" },
+  unknown: { Icon: CircleHelp, variant: "neutral" },
+} as const satisfies Record<
+  OperationComponentHealth["status"],
+  { Icon: typeof CircleHelp; variant: "success" | "warning" | "error" | "neutral" }
+>
 
 export function DiagnosticsDashboard({ snapshot }: { snapshot: OperationsSnapshot }) {
   const components = Object.entries(snapshot.components)
@@ -85,7 +88,7 @@ export function DiagnosticsDashboard({ snapshot }: { snapshot: OperationsSnapsho
                   <li className="flex flex-wrap items-start justify-between gap-3 px-3 py-3" key={item.id}>
                     <div className="min-w-0 space-y-1">
                       <div className="flex flex-wrap items-center gap-2">
-                        <Badge variant={item.severity === "error" ? "destructive" : "outline"}>
+                        <Badge variant={item.severity === "error" ? "error" : "warning"}>
                           {item.severity}
                         </Badge>
                         <span className="text-xs capitalize text-muted-foreground">{humanize(item.kind)}</span>
@@ -135,7 +138,7 @@ function RuntimeComponent({ componentId, value }: { componentId: string; value: 
       <div className="min-w-0 space-y-1">
         <h3 className="font-medium">{label}</h3>
         <p className="text-xs text-muted-foreground">Component ID: {componentId}</p>
-        <Badge className={presentation.className} variant="outline">
+        <Badge variant={presentation.variant}>
           <Icon aria-hidden="true" className="size-3" />
           {value.status}
         </Badge>

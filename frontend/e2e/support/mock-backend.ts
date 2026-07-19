@@ -42,7 +42,16 @@ export const OPERATIONS_FIXTURE = {
   dry_run: true,
   components: {},
   queue_counts: {},
-  attention: [],
+  attention: [
+    {
+      id: "job:contract-error",
+      severity: "error",
+      kind: "generation",
+      title: "Generation requires review",
+      occurred_at: "2026-07-13T07:59:00Z",
+      action_url: "/jobs?status=needs_review",
+    },
+  ],
   outbound_proxy: {
     mode: "direct",
     scheme: null,
