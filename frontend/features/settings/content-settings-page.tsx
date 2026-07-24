@@ -125,17 +125,20 @@ export function ContentSettingsPage() {
   const connections = useQuery({
     queryKey: queryKeys.codexConnections,
     queryFn: getCodexConnections,
-    refetchInterval: 20_000,
+    refetchInterval: (query) => query.state.error ? false : 20_000,
   })
   const activity = useQuery({
     queryKey: queryKeys.codexActivity,
     queryFn: () => getCodexActivity(),
-    refetchInterval: 20_000,
+    refetchInterval: (query) => query.state.error ? false : 20_000,
   })
-  const queries = [brands, templates, providers, destinations, proxies, connections, activity]
+  const requiredQueries = [brands, templates, providers, destinations, proxies]
+  const codexError = connections.error ?? activity.error
+  const codexPending = connections.isPending || activity.isPending
+  const codexRefreshing = connections.isFetching || activity.isFetching
 
-  if (queries.some((query) => query.isPending)) return <SettingsSkeleton />
-  const failed = queries.filter((query) => query.isError)
+  if (requiredQueries.some((query) => query.isPending)) return <SettingsSkeleton />
+  const failed = requiredQueries.filter((query) => query.isError)
   if (failed.length) {
     return (
       <section className="space-y-4 p-4 md:p-6" aria-labelledby="content-settings-error">
@@ -143,7 +146,7 @@ export function ContentSettingsPage() {
         <p role="alert" dir="auto" className="text-sm text-red-700 dark:text-red-300">
           {getApiErrorMessage(failed[0].error, "Content settings could not be loaded.")}
         </p>
-        <Button variant="outline" onClick={() => void Promise.all(queries.map((query) => query.refetch()))}>
+        <Button variant="outline" onClick={() => void Promise.all(requiredQueries.map((query) => query.refetch()))}>
           <RefreshCw aria-hidden="true" /> Retry settings
         </Button>
       </section>
@@ -154,6 +157,13 @@ export function ContentSettingsPage() {
   const healthyDestinations = destinations.data?.filter((item) => item.healthStatus === "healthy") ?? []
   const greenConnections = connections.data?.filter((item) => item.status === "green") ?? []
   const activePrompts = templates.data?.length ?? 0
+  const codexSummary = codexError
+    ? "Authentication required"
+    : codexPending
+      ? "Checking"
+      : greenConnections.length
+        ? `${greenConnections.length} connected`
+        : "No live heartbeat"
 
   return (
     <section className="min-w-0 space-y-6 p-4 md:p-6" aria-labelledby="content-settings-heading">
@@ -171,7 +181,7 @@ export function ContentSettingsPage() {
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4" aria-label="Content readiness summary">
         <SummaryCard icon={BrainCircuit} label="LLM providers" value={`${enabledProviders.length} enabled`} ready={enabledProviders.some((item) => item.generationReady)} />
         <SummaryCard icon={Bot} label="Telegram" value={`${healthyDestinations.length}/${destinations.data?.length ?? 0} healthy`} ready={healthyDestinations.length > 0} />
-        <SummaryCard icon={ShieldCheck} label="Codex" value={greenConnections.length ? `${greenConnections.length} connected` : "No live heartbeat"} ready={greenConnections.length > 0} />
+        <SummaryCard icon={ShieldCheck} label="Codex" value={codexSummary} ready={!codexError && greenConnections.length > 0} />
         <SummaryCard icon={Activity} label="Prompt purposes" value={`${activePrompts} configured`} ready={activePrompts > 0} />
       </div>
 
@@ -191,7 +201,14 @@ export function ContentSettingsPage() {
 
       <EditorialProfilesSection profiles={brands.data ?? []} />
       <LLMProvidersSection providers={providers.data ?? []} />
-      <CodexSection connections={connections.data ?? []} activity={activity.data ?? []} />
+      <CodexSection
+        connections={connections.data ?? []}
+        activity={activity.data ?? []}
+        error={codexError ? getApiErrorMessage(codexError, "Codex settings could not be loaded.") : null}
+        loading={codexPending}
+        refreshing={codexRefreshing}
+        onRetry={() => void Promise.all([connections.refetch(), activity.refetch()])}
+      />
       <TelegramSection destinations={destinations.data ?? []} proxies={proxies.data ?? []} />
       <PromptGovernanceSection templates={templates.data ?? []} />
     </section>
@@ -524,9 +541,17 @@ function ProviderDialog({ provider, onClose }: { provider: LLMProvider | null; o
 function CodexSection({
   connections,
   activity,
+  error,
+  loading,
+  refreshing,
+  onRetry,
 }: {
   connections: CodexConnection[]
   activity: Array<{ id: string; action: string; outcome: string; reasonCode: string | null; createdAt: string }>
+  error: string | null
+  loading: boolean
+  refreshing: boolean
+  onRetry: () => void
 }) {
   const queryClient = useQueryClient()
   const { pushNotice } = useNotices()
@@ -564,9 +589,25 @@ function CodexSection({
       icon={ShieldCheck}
       title="Codex connection"
       description="Paired, scoped access. Green requires a recent authenticated heartbeat."
-      action={<Button onClick={() => setPairing(true)}><Plus aria-hidden="true" /> Pair Codex</Button>}
+      action={!error && !loading ? <Button onClick={() => setPairing(true)}><Plus aria-hidden="true" /> Pair Codex</Button> : undefined}
     >
-      {connections.length ? <div className="grid gap-3">
+      {error ? (
+        <div role="alert" className="flex flex-col gap-3 rounded-xl border border-amber-300 bg-amber-50 p-4 text-amber-950 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-100 sm:flex-row sm:items-center">
+          <CircleAlert className="size-5 shrink-0" aria-hidden="true" />
+          <div className="min-w-0 flex-1">
+            <h3 className="font-semibold">Codex management unavailable</h3>
+            <p dir="auto" className="mt-1 text-sm">{error}</p>
+          </div>
+          <Button variant="outline" disabled={refreshing} onClick={onRetry}>
+            <RefreshCw className={refreshing ? "animate-spin" : undefined} aria-hidden="true" />
+            {refreshing ? "Retrying" : "Retry Codex"}
+          </Button>
+        </div>
+      ) : loading ? (
+        <div role="status" className="flex min-h-24 items-center justify-center gap-2 rounded-xl border text-sm text-muted-foreground">
+          <LoaderCircle className="animate-spin" aria-hidden="true" /> Checking Codex access
+        </div>
+      ) : connections.length ? <div className="grid gap-3">
         {connections.map((connection) => (
           <article key={connection.id} className="rounded-xl border bg-background p-4">
             <div className="flex flex-col gap-4 xl:flex-row xl:items-center">
@@ -593,7 +634,7 @@ function CodexSection({
           </article>
         ))}
       </div> : <EmptyState title="No Codex connection" detail="Pair a device with least-privilege read scopes." />}
-      <div className="grid gap-4 lg:grid-cols-[1fr_auto]">
+      {!error && !loading ? <div className="grid gap-4 lg:grid-cols-[1fr_auto]">
         <div className="rounded-xl border bg-muted/40 p-4">
           <h3 className="font-semibold">Recent safe activity</h3>
           {activity.length ? <ol className="mt-3 divide-y">
@@ -608,7 +649,7 @@ function CodexSection({
         <a className="inline-flex min-h-11 items-center justify-center gap-2 rounded-lg border px-3 text-sm font-medium hover:bg-muted" href="https://github.com/arminakb/NewsCraft/blob/main/docs/codex/skill.md" target="_blank" rel="noreferrer">
           Open skill.md <ExternalLink aria-hidden="true" />
         </a>
-      </div>
+      </div> : null}
       {pairing ? <CodexPairingDialog onClose={() => setPairing(false)} onIssued={(result) => { setPairing(false); setIssued(result); void refresh() }} /> : null}
       {issued ? <OneTimeSecretDialog {...issued} onClose={() => setIssued(null)} /> : null}
     </SettingsSection>

@@ -22,6 +22,7 @@ import {
   getTelegramProxies,
 } from "@/features/settings/content-settings-api"
 import { ContentSettingsPage } from "@/features/settings/content-settings-page"
+import { ApiError } from "@/lib/http"
 
 vi.mock("@/features/automations/telegram-api", () => ({
   activatePromptVersion: vi.fn(),
@@ -212,6 +213,24 @@ describe("ContentSettingsPage", () => {
     expect(screen.getByText(/@newscraft_bot/)).toBeInTheDocument()
     expect(screen.queryByText(/bot token/i)).not.toBeInTheDocument()
     expect(screen.queryByText(/api key/i)).not.toHaveTextContent("sk-")
+  })
+
+  it("keeps non-Codex settings available when Codex requires authentication", async () => {
+    const authenticationRequired = new ApiError(
+      "Unauthorized",
+      401,
+      JSON.stringify({ detail: { code: "authentication_required" } })
+    )
+    vi.mocked(getCodexConnections).mockRejectedValue(authenticationRequired)
+    vi.mocked(getCodexActivity).mockRejectedValue(authenticationRequired)
+
+    renderSettings()
+
+    expect(await screen.findByRole("heading", { name: "Content settings" })).toBeInTheDocument()
+    expect(screen.queryByRole("heading", { name: "Content settings unavailable" })).not.toBeInTheDocument()
+    expect(screen.getByRole("heading", { name: "LLM providers" })).toBeInTheDocument()
+    expect(screen.getByRole("heading", { name: "Telegram destinations" })).toBeInTheDocument()
+    expect(screen.getByRole("alert")).toHaveTextContent("authentication required")
   })
 
   it("creates a generic provider through one write-only form and resets dirty values", async () => {
