@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Mapping
 from datetime import datetime
 from decimal import Decimal
 from typing import Literal
@@ -37,6 +38,18 @@ class LLMProviderSettings(BaseModel):
     research_budgets: ResearchBudgetsSettings = Field(default_factory=default_research_budgets)
     pricing: ProviderPricingSettings = Field(default_factory=_zero_pricing)
     attribution_headers: AttributionHeaders = Field(default_factory=AttributionHeaders)
+
+
+def effective_llm_provider_settings(value: Mapping[str, object]) -> LLMProviderSettings:
+    """Apply current defaults to legacy persisted settings that stored JSON nulls."""
+
+    normalized = dict(value)
+    defaults = LLMProviderSettings()
+    if normalized.get("research_budgets") is None:
+        normalized["research_budgets"] = defaults.research_budgets.model_dump(mode="json")
+    if normalized.get("pricing") is None:
+        normalized["pricing"] = defaults.pricing.model_dump(mode="json")
+    return LLMProviderSettings.model_validate(normalized)
 
 
 class LLMProviderCreate(BaseModel):
@@ -129,4 +142,5 @@ __all__ = [
     "LLMProviderOut",
     "LLMProviderPatch",
     "LLMProviderSettings",
+    "effective_llm_provider_settings",
 ]

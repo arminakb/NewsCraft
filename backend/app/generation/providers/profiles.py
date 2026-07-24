@@ -20,7 +20,7 @@ from app.generation.providers.openai_compatible import OpenAICompatibleProvider
 from app.generation.providers.openrouter import OpenRouterProvider
 from app.generation.providers.registry import ProviderRegistry
 from app.llm_providers.models import LLMProvider
-from app.llm_providers.schemas import LLMProviderSettings
+from app.llm_providers.schemas import effective_llm_provider_settings
 from app.security.auth import SecurityPrincipal
 from app.security.models import EncryptedSecret
 from app.security.scopes import parse_scopes
@@ -192,7 +192,7 @@ class ProviderProfileResolver:
         if generic.protocol != "openai_compatible" or generic.secret_id is None or generic.base_url is None:
             raise ProviderProfileConfigurationError("Selected provider type is unsupported")
         try:
-            configured = LLMProviderSettings.model_validate(generic.settings)
+            configured = effective_llm_provider_settings(generic.settings)
             secret = await session.get(EncryptedSecret, generic.secret_id)
             if secret is None:
                 raise ProviderProfileConfigurationError("Selected provider profile secret is unavailable")

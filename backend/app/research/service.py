@@ -118,7 +118,7 @@ class ResearchService:
         if profile is None or not profile.enabled:
             raise ResearchRequestError("Selected research provider profile is unavailable")
         from app.llm_providers.models import LLMProvider
-        from app.llm_providers.schemas import LLMProviderSettings
+        from app.llm_providers.schemas import effective_llm_provider_settings
 
         generic = (
             await self.session.get(LLMProvider, profile_id)
@@ -132,7 +132,7 @@ class ResearchService:
                 selected = getattr(default_research_budgets(), depth)
             elif generic.protocol == "openai_compatible":
                 try:
-                    configured_generic = LLMProviderSettings.model_validate(generic.settings)
+                    configured_generic = effective_llm_provider_settings(generic.settings)
                 except ValueError:
                     raise ResearchRequestError("Selected research provider profile is invalid") from None
                 selected = getattr(configured_generic.research_budgets, depth)

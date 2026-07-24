@@ -60,6 +60,12 @@ class LLMProvider(Base):
             "(protocol = 'openai_compatible' AND base_url IS NOT NULL)",
             name="ck_llm_providers_protocol_shape",
         ),
+        CheckConstraint(
+            "protocol != 'openai_compatible' OR ("
+            "COALESCE(jsonb_typeof(settings->'pricing') = 'object', false) AND "
+            "COALESCE(jsonb_typeof(settings->'research_budgets') = 'object', false))",
+            name="ck_llm_providers_required_settings",
+        ),
         Index("ix_llm_providers_enabled_name", "enabled", "name"),
     )
 

@@ -24,6 +24,7 @@ from app.llm_providers.schemas import (
     LLMProviderOut,
     LLMProviderPatch,
     LLMProviderSettings,
+    effective_llm_provider_settings,
 )
 from app.research.models import ResearchRun
 from app.security.auth import SecurityPrincipal
@@ -51,7 +52,7 @@ def _settings(value: LLMProviderSettings | Mapping[str, Any]) -> dict[str, Any]:
 def _legacy_settings(provider: LLMProvider) -> dict[str, Any]:
     if provider.protocol == "fake":
         return {}
-    configured = LLMProviderSettings.model_validate(provider.settings)
+    configured = effective_llm_provider_settings(provider.settings)
     attribution = configured.attribution_headers
     return {
         "base_url": provider.base_url,
@@ -208,7 +209,8 @@ class LLMProviderService:
                 raise ValueError("fake provider forbids base_url")
             provider.base_url = _base_url(patch["base_url"])
         if "settings" in patch:
-            provider.settings = _settings(merge_provider_settings(dict(provider.settings), patch["settings"]))
+            current = effective_llm_provider_settings(provider.settings).model_dump(mode="json")
+            provider.settings = _settings(merge_provider_settings(current, patch["settings"]))
         if patch:
             provider.health_status = "unchecked"
             provider.generation_capability = "unknown"
@@ -263,7 +265,7 @@ class LLMProviderService:
             provider.failure_code = None
             return provider
         try:
-            configured = LLMProviderSettings.model_validate(provider.settings)
+            configured = effective_llm_provider_settings(provider.settings)
             if provider.secret_id is None:
                 raise RuntimeError("credential_missing")
             secret = await self.session.get(EncryptedSecret, provider.secret_id)
@@ -363,7 +365,7 @@ class LLMProviderService:
 
 def provider_out(provider: LLMProvider) -> LLMProviderOut:
     configured = provider.protocol == "fake" or provider.secret_id is not None
-    settings_value = LLMProviderSettings.model_validate(provider.settings)
+    settings_value = effective_llm_provider_settings(provider.settings)
     return LLMProviderOut(
         id=provider.id,
         name=provider.name,

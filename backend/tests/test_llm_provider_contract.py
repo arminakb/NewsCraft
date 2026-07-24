@@ -1,7 +1,12 @@
+from datetime import UTC, datetime
+from uuid import uuid4
+
 import pytest
 from pydantic import ValidationError
 
+from app.llm_providers.models import LLMProvider
 from app.llm_providers.schemas import LLMProviderCreate, LLMProviderSettings
+from app.llm_providers.service import provider_out
 
 
 def test_simple_connection_defaults_are_research_ready_and_secret_is_write_only():
@@ -50,3 +55,30 @@ def test_contract_rejects_codex_and_unsafe_base_urls(payload):
 def test_advanced_settings_reject_unknown_fields():
     with pytest.raises(ValidationError):
         LLMProviderSettings.model_validate({"api_key": "never-store-here"})
+
+
+def test_provider_output_recovers_legacy_null_advanced_settings():
+    now = datetime.now(UTC)
+    provider = LLMProvider(
+        id=uuid4(),
+        name="Legacy OpenRouter",
+        protocol="openai_compatible",
+        base_url="https://openrouter.ai/api/v1",
+        default_model="openai/model",
+        enabled=False,
+        secret_id=None,
+        settings={"pricing": None, "research_budgets": None},
+        health_status="unchecked",
+        generation_capability="unavailable",
+        research_capability="unavailable",
+        failure_code="credential_import_required",
+        last_checked_at=None,
+        ownership="operator_managed",
+        created_at=now,
+        updated_at=now,
+    )
+
+    output = provider_out(provider)
+
+    assert output.settings.pricing.input_usd_per_million == 0
+    assert output.settings.research_budgets.standard.max_model_calls >= 1
