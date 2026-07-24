@@ -32,7 +32,7 @@ class FakeSession:
         return None
 
 
-async def test_default_prompt_seed_is_idempotent_and_versions_content(monkeypatch):
+async def test_default_prompt_seed_is_idempotent_and_never_replaces_operator_activation(monkeypatch):
     session = FakeSession()
     first = await seed_default_telegram_prompt(session)
     second = await seed_default_telegram_prompt(session)
@@ -64,8 +64,8 @@ async def test_default_prompt_seed_is_idempotent_and_versions_content(monkeypatc
         DEFAULT_TELEGRAM_SYSTEM_TEMPLATE + "\nUse short paragraphs.",
     )
     changed = await seed_default_telegram_prompt(session)
-    assert changed.version == 2
-    assert changed.id != first.id
+    assert changed.version == 1
+    assert changed.id == first.id
     assert first.system_template == DEFAULT_TELEGRAM_SYSTEM_TEMPLATE
     assert first.user_template == DEFAULT_TELEGRAM_USER_TEMPLATE
 
@@ -74,10 +74,9 @@ async def test_default_prompt_seed_is_idempotent_and_versions_content(monkeypatc
         DEFAULT_TELEGRAM_SYSTEM_TEMPLATE,
     )
     progressed = await seed_default_telegram_prompt(session)
-    assert progressed.id == changed.id
-    assert progressed.version == 2
-    assert changed.is_active is True
-    assert first.is_active is False
+    assert progressed.id == first.id
+    assert progressed.version == 1
+    assert first.is_active is True
 
 
 async def test_default_brand_and_provider_profiles_make_a_clean_install_usable():
@@ -133,10 +132,10 @@ async def test_editorial_seed_never_reactivates_an_old_default_over_custom_activ
     session.add(custom)
     repaired = await seed_default_editorial_prompts(session)
     replay = await seed_default_editorial_prompts(session)
-    assert repaired.canonical_story.version == 3
+    assert repaired.canonical_story.version == 2
     assert repaired.canonical_story.id == replay.canonical_story.id
     assert repaired.canonical_story.is_active is True
-    assert custom.is_active is False
+    assert custom.is_active is True
 
 
 async def test_application_lifespan_seeds_defaults_in_one_transaction(monkeypatch):

@@ -94,6 +94,10 @@ const promptVersion = {
   outputSchema: {},
   checksumSha256: "a".repeat(64),
   isActive: true,
+  activatedAt: "2026-07-20T08:00:00Z",
+  activatedByType: "human_admin",
+  activatedById: "operator",
+  activationReason: "Approved newsroom baseline",
   createdAt: "2026-07-20T08:00:00Z",
 }
 
@@ -320,11 +324,11 @@ describe("ContentSettingsPage", () => {
     const article = purpose.closest("article")
     expect(article).not.toBeNull()
     fireEvent.click(within(article!).getByRole("button", { name: "Manage" }))
-    const userTemplate = within(article!).getByLabelText("User template")
+    const userTemplate = within(article!).getByLabelText(/^User template/)
     expect(userTemplate).toHaveAttribute("dir", "auto")
     fireEvent.click(within(article!).getByText("Inspect raw template"))
-    expect(within(article!).getByText(/Use evidence only/)).toHaveAttribute("dir", "auto")
-    expect(within(article!).getByRole("button", { name: "Activate" })).toBeDisabled()
+    expect(within(article!).getByText(/Use evidence only/, { selector: "pre" })).toHaveAttribute("dir", "auto")
+    expect(within(article!).getByRole("button", { name: "Review activation" })).toBeDisabled()
   })
 })
 

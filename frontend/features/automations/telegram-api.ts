@@ -41,6 +41,7 @@ type BackendJobAccepted = { job_id: string; status: JobAccepted["status"]; dedup
 type BackendTelegramRoute = {
   id: string; name: string; source_id: string; destination_id: string; brand_profile_id: string
   prompt_template_version_id: string; ai_provider_profile_id: string; access_mode: TelegramRoute["accessMode"]
+  prompt_policy: TelegramRoute["promptPolicy"]
   research_mode: TelegramRoute["researchMode"]; content_filters: Record<string, unknown>
   media_policy: TelegramRoute["mediaPolicy"]; attribution_policy: TelegramRoute["attributionPolicy"]
   custom_footer: string | null; publishing_policy: TelegramRoute["publishingPolicy"]
@@ -90,14 +91,19 @@ export async function getTelegramAutomationOptions(): Promise<TelegramAutomation
     sources: Array<{ id: string; name: string; access_mode: TelegramRoute["accessMode"]; capability_state: unknown }>
     destinations: Array<{ id: string; name: string; health_status: TelegramDestination["healthStatus"]; allow_auto_publish: boolean; capability_state: unknown }>
     brand_profiles: Array<{ id: string; name: string }>
-    prompt_template_versions: Array<{ id: string; version: number }>
+    prompt_template_versions: Array<{ id: string; version: number; is_active: boolean; checksum_sha256: string }>
     ai_provider_profiles: Array<{ id: string; name: string; provider_type: "fake" | "openrouter" | "codex"; default_model: string | null; configured: boolean; capabilities: { generation: boolean; research: boolean }; capability_states: { generation?: unknown; research?: unknown } }>
   }>("/telegram/automations/options")
   return {
     sources: row.sources.map((item) => ({ id: item.id, name: item.name, accessMode: item.access_mode, capabilityState: mapCredentialCapabilityState(item.capability_state) })),
     destinations: row.destinations.map((item) => ({ id: item.id, name: item.name, healthStatus: item.health_status, allowAutoPublish: item.allow_auto_publish, capabilityState: mapCredentialCapabilityState(item.capability_state) })),
     brandProfiles: row.brand_profiles,
-    promptTemplateVersions: row.prompt_template_versions,
+    promptTemplateVersions: row.prompt_template_versions.map((item) => ({
+      id: item.id,
+      version: item.version,
+      isActive: item.is_active,
+      checksumSha256: item.checksum_sha256,
+    })),
     aiProviderProfiles: row.ai_provider_profiles.map((item) => ({ id: item.id, name: item.name, providerType: item.provider_type, defaultModel: item.default_model, configured: item.configured, capabilities: item.capabilities, capabilityStates: { generation: mapCredentialCapabilityState(item.capability_states?.generation), research: mapCredentialCapabilityState(item.capability_states?.research) } })),
   }
 }
@@ -140,6 +146,7 @@ export async function createTelegramRoute(input: TelegramRouteInput): Promise<Te
   const row = await apiRequest<BackendTelegramRoute>("/telegram/automations", json("POST", defined({
     name: input.name, source_id: input.sourceId, destination_id: input.destinationId,
     brand_profile_id: input.brandProfileId, prompt_template_version_id: input.promptTemplateVersionId,
+    prompt_policy: input.promptPolicy,
     ai_provider_profile_id: input.aiProviderProfileId, access_mode: input.accessMode,
     research_mode: input.researchMode, content_filters: contentFilters ? defined({
       model: contentFilters.model, include_terms: contentFilters.includeTerms, exclude_terms: contentFilters.excludeTerms,
@@ -158,6 +165,24 @@ export async function createTelegramRoute(input: TelegramRouteInput): Promise<Te
 export const activateTelegramRoute = (id: string) => routeAccepted(id, "activate")
 export const pauseTelegramRoute = (id: string) => routeTransition(id, "pause")
 export const resumeTelegramRoute = (id: string) => routeTransition(id, "resume")
+
+export async function updateTelegramRoutePromptPolicy(
+  id: string,
+  input: {
+    promptPolicy: TelegramRoute["promptPolicy"]
+    promptTemplateVersionId?: string | null
+    confirmChange: boolean
+  },
+): Promise<TelegramRoute> {
+  return mapTelegramRoute(await apiRequest<BackendTelegramRoute>(
+    `/telegram/automations/${encodeURIComponent(id)}/prompt-policy`,
+    json("PATCH", {
+      prompt_policy: input.promptPolicy,
+      prompt_template_version_id: input.promptTemplateVersionId ?? null,
+      confirm_change: input.confirmChange,
+    }),
+  ))
+}
 
 export async function dryRunTelegramRoute(id: string, input: TelegramRouteDryRunInput = {}): Promise<TelegramRouteAccepted> {
   const row = await apiRequest<{ route: BackendTelegramRoute; job: BackendJobAccepted }>(
@@ -264,8 +289,8 @@ export async function getPromptVersions(templateId: string): Promise<PromptVersi
 export async function createPromptVersion(templateId: string, input: PromptVersionInput): Promise<PromptVersion> {
   return mapPromptVersion(await apiRequest<Record<string, unknown>>(`/prompt-templates/${encodeURIComponent(templateId)}/versions`, json("POST", { system_template: input.systemTemplate, user_template: input.userTemplate })))
 }
-export async function activatePromptVersion(versionId: string): Promise<PromptVersion> {
-  return mapPromptVersion(await apiRequest<Record<string, unknown>>(`/prompt-template-versions/${encodeURIComponent(versionId)}/activate`, { method: "POST" }))
+export async function activatePromptVersion(versionId: string, reason: string): Promise<PromptVersion> {
+  return mapPromptVersion(await apiRequest<Record<string, unknown>>(`/prompt-template-versions/${encodeURIComponent(versionId)}/activate`, json("POST", { reason })))
 }
 
 export async function getAIProviderProfiles(): Promise<AIProviderProfile[]> {
@@ -289,6 +314,7 @@ export function mapTelegramRoute(row: BackendTelegramRoute): TelegramRoute {
   return {
     id: row.id, name: row.name, sourceId: row.source_id, destinationId: row.destination_id,
     brandProfileId: row.brand_profile_id, promptTemplateVersionId: row.prompt_template_version_id,
+    promptPolicy: row.prompt_policy,
     aiProviderProfileId: row.ai_provider_profile_id, accessMode: row.access_mode, researchMode: row.research_mode,
     contentFilters: { model: filters.model as string | null | undefined, includeTerms: filters.include_terms as string[] | undefined, excludeTerms: filters.exclude_terms as string[] | undefined, minTextCharacters: filters.min_text_characters as number | undefined, requireMedia: filters.require_media as boolean | undefined, researchProviderProfileId: filters.research_provider_profile_id as string | undefined },
     mediaPolicy: row.media_policy, attributionPolicy: row.attribution_policy, customFooter: row.custom_footer,
@@ -348,7 +374,7 @@ async function draftHashMutation(id: string, transition: "approve" | "reject", b
 function brandBody(input: BrandProfileInput | BrandProfilePatch) { return defined({ name: input.name, output_language: input.outputLanguage, tone: input.tone, editorial_rules: input.editorialRules, attribution_rules: input.attributionRules, default_hashtags: input.defaultHashtags, platform_preferences: input.platformPreferences, is_default: input.isDefault }) }
 function mapBrandProfile(row: Record<string, unknown>): BrandProfile { return { id: row.id as string, name: row.name as string, outputLanguage: row.output_language as string, tone: row.tone as string, editorialRules: row.editorial_rules as string[], attributionRules: row.attribution_rules as Record<string, unknown>, defaultHashtags: row.default_hashtags as string[], platformPreferences: row.platform_preferences as Record<string, unknown>, isDefault: row.is_default as boolean } }
 function mapPromptTemplate(row: Record<string, unknown>): PromptTemplate { return { id: row.id as string, purposeKey: row.purpose_key as string, name: row.name as string, description: row.description as string | null } }
-function mapPromptVersion(row: Record<string, unknown>): PromptVersion { return { id: row.id as string, promptTemplateId: row.prompt_template_id as string, version: row.version as number, systemTemplate: row.system_template as string, userTemplate: row.user_template as string, outputSchemaVersion: row.output_schema_version as string, outputSchema: row.output_schema as Record<string, unknown>, checksumSha256: row.checksum_sha256 as string, isActive: row.is_active as boolean, createdAt: row.created_at as string } }
+function mapPromptVersion(row: Record<string, unknown>): PromptVersion { return { id: row.id as string, promptTemplateId: row.prompt_template_id as string, version: row.version as number, systemTemplate: row.system_template as string, userTemplate: row.user_template as string, outputSchemaVersion: row.output_schema_version as string, outputSchema: row.output_schema as Record<string, unknown>, checksumSha256: row.checksum_sha256 as string, isActive: row.is_active as boolean, activatedAt: row.activated_at as string | null, activatedByType: row.activated_by_type as string | null, activatedById: row.activated_by_id as string | null, activationReason: row.activation_reason as string | null, createdAt: row.created_at as string } }
 function providerBody(input: AIProviderProfileInput | AIProviderProfilePatch) { return defined({ name: input.name, provider_type: "providerType" in input ? input.providerType : undefined, default_model: input.defaultModel, secret_ref: input.secretRef, settings: input.settings, enabled: input.enabled }) }
 function mapAIProviderProfile(row: Record<string, unknown>): AIProviderProfile { const capabilities = row.capabilities as Record<string, unknown>; const states = row.capability_states as Record<string, unknown> | undefined; return { id: row.id as string, name: row.name as string, providerType: row.provider_type as AIProviderProfile["providerType"], defaultModel: row.default_model as string | null, settings: row.settings as Record<string, unknown>, enabled: row.enabled as boolean, configured: row.configured as boolean, capabilities: { generation: capabilities?.generation === true, research: capabilities?.research === true }, capabilityStates: { generation: mapCredentialCapabilityState(states?.generation), research: mapCredentialCapabilityState(states?.research) }, unavailabilityCodes: Array.isArray(row.unavailability_codes) ? row.unavailability_codes.filter((item): item is string => typeof item === "string") : [] } }
 

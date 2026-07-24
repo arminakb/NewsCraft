@@ -195,6 +195,7 @@ def _route_payload(configuration: RouteConfiguration) -> dict[str, str | dict[st
         "destination_id": str(configuration.destination_id),
         "brand_profile_id": str(configuration.brand_profile_id),
         "prompt_template_version_id": str(configuration.prompt_template_version_id),
+        "prompt_policy": "pinned",
         "ai_provider_profile_id": str(configuration.provider_profile_id),
         "access_mode": "public_html",
         "content_filters": {"model": "fake-v1"},

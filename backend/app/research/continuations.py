@@ -20,6 +20,14 @@ class TelegramContinuationPayload(BaseModel):
 
     dispatch_id: UUID
     force_review: bool = False
+    prompt_template_version_id: UUID | None = None
+    prompt_checksum: str | None = Field(default=None, min_length=64, max_length=64)
+
+    @model_validator(mode="after")
+    def validate_prompt_snapshot(self):
+        if (self.prompt_template_version_id is None) != (self.prompt_checksum is None):
+            raise ValueError("prompt version and checksum must be supplied together")
+        return self
 
 
 class TelegramResearchContinuation(BaseModel):

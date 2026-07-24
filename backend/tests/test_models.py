@@ -76,6 +76,10 @@ PLATFORM_SPINE_COLUMNS = {
         "output_schema",
         "checksum_sha256",
         "is_active",
+        "activated_at",
+        "activated_by_type",
+        "activated_by_id",
+        "activation_reason",
         "created_at",
     },
     "ai_provider_profiles": {
@@ -231,6 +235,7 @@ PLATFORM_SPINE_COLUMNS = {
         "destination_id",
         "brand_profile_id",
         "prompt_template_version_id",
+        "prompt_policy",
         "ai_provider_profile_id",
         "access_mode",
         "research_mode",

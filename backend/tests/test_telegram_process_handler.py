@@ -10,6 +10,8 @@ import pytest
 
 from app.automations.models import AutomationDispatch, AutomationRoute
 from app.automations.telegram.handlers import (
+    ProcessDispatchPayload,
+    _resolve_process_prompt,
     build_evidence_map,
     build_telegram_process_handler,
     sha256_canonical,
@@ -21,12 +23,14 @@ from app.generation.models import (
     AIProviderProfile,
     BrandProfile,
     GenerationAttempt,
+    PromptTemplate,
     PromptTemplateVersion,
 )
 from app.generation.provider_settings import default_codex_provider_settings
 from app.generation.providers.codex import CodexGenerationProvider
 from app.generation.providers.profiles import ResolvedProviderProfile
 from app.generation.telegram_schema import TelegramRewriteOutput
+from app.jobs.models import WorkflowJob
 from app.jobs.registry import JobContext
 from app.publishing.models import Destination
 from app.research.models import ResearchRun
@@ -44,6 +48,87 @@ def valid_gate_input() -> dict:
         "evidence_ready": True,
         "media_ready": True,
     }
+
+
+async def test_follow_active_resolves_once_and_persists_exact_job_prompt_snapshot():
+    template = PromptTemplate(
+        id=uuid4(),
+        purpose_key="telegram_rewrite",
+        name="Rewrite",
+    )
+    pinned = PromptTemplateVersion(
+        id=uuid4(),
+        prompt_template_id=template.id,
+        version=1,
+        system_template="one",
+        user_template="one",
+        output_schema_version="telegram_rewrite.v1",
+        output_schema={},
+        checksum_sha256="a" * 64,
+        is_active=False,
+    )
+    active = PromptTemplateVersion(
+        id=uuid4(),
+        prompt_template_id=template.id,
+        version=2,
+        system_template="two",
+        user_template="two",
+        output_schema_version="telegram_rewrite.v1",
+        output_schema={},
+        checksum_sha256="b" * 64,
+        is_active=True,
+    )
+    route = AutomationRoute(
+        id=uuid4(),
+        prompt_policy="follow_active",
+        prompt_template_version_id=pinned.id,
+    )
+    workflow_job = SimpleNamespace(id=uuid4(), payload={"dispatch_id": str(uuid4())})
+
+    class Session:
+        async def get(self, model, identifier):
+            if model is WorkflowJob and identifier == workflow_job.id:
+                return workflow_job
+            return next(
+                (
+                    item
+                    for item in (template, pinned, active)
+                    if isinstance(item, model) and item.id == identifier
+                ),
+                None,
+            )
+
+        async def scalars(self, statement):
+            entity = statement.column_descriptions[0].get("entity")
+            return [
+                item
+                for item in (template, pinned, active)
+                if isinstance(item, entity)
+            ]
+
+    session = Session()
+    resolved = await _resolve_process_prompt(
+        session,
+        route=route,
+        payload=ProcessDispatchPayload(dispatch_id=uuid4()),
+        workflow_job_id=workflow_job.id,
+    )
+    assert resolved.id == active.id
+    assert workflow_job.payload["prompt_template_version_id"] == str(active.id)
+    assert workflow_job.payload["prompt_checksum"] == active.checksum_sha256
+
+    active.is_active = False
+    replay = await _resolve_process_prompt(
+        session,
+        route=route,
+        payload=ProcessDispatchPayload(
+            dispatch_id=uuid4(),
+            prompt_template_version_id=active.id,
+            prompt_checksum=active.checksum_sha256,
+        ),
+        workflow_job_id=workflow_job.id,
+    )
+    assert replay.id == active.id
 
 
 @pytest.mark.parametrize(

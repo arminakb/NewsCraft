@@ -55,6 +55,7 @@ def test_route_accepts_profile_id_and_never_accepts_backend_literal():
             "name": "Research route", "source_id": str(uuid4()),
             "destination_id": str(uuid4()), "brand_profile_id": str(uuid4()),
             "prompt_template_version_id": str(uuid4()), "ai_provider_profile_id": str(uuid4()),
+            "prompt_policy": "pinned",
             "access_mode": "public_html", "research_mode": "manual",
             "content_filters": {"research_provider_profile_id": str(profile_id)},
         }

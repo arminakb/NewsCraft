@@ -36,6 +36,7 @@ class AutomationRoute(Base):
     prompt_template_version_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("prompt_template_versions.id"), nullable=False
     )
+    prompt_policy: Mapped[str] = mapped_column(Text, nullable=False, server_default="pinned")
     ai_provider_profile_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("ai_provider_profiles.id"), nullable=False
     )
@@ -61,7 +62,13 @@ class AutomationRoute(Base):
         DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now()
     )
 
-    __table_args__ = (Index("ix_automation_routes_enabled_next_poll", "enabled", "next_poll_at"),)
+    __table_args__ = (
+        CheckConstraint(
+            "prompt_policy IN ('pinned', 'follow_active')",
+            name="ck_automation_routes_prompt_policy",
+        ),
+        Index("ix_automation_routes_enabled_next_poll", "enabled", "next_poll_at"),
+    )
 
 
 class TelegramSourceConfig(Base):

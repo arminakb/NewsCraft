@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+from datetime import UTC, datetime
+from typing import Annotated
 from uuid import UUID, uuid4
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import ValidationError
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
@@ -16,14 +18,20 @@ from app.api.generation_schemas import (
     BrandProfileCreate,
     BrandProfileOut,
     BrandProfilePatch,
+    PromptActivationCreate,
     PromptTemplateCreate,
     PromptTemplateVersionCreate,
     PromptTemplateVersionOut,
 )
 from app.db.session import get_session
 from app.generation.canonical import CanonicalStoryOutput
-from app.generation.default_prompts import prompt_checksum, validate_prompt_template_fields
+from app.generation.default_prompts import (
+    manual_generation_provider_schema,
+    prompt_checksum,
+    validate_prompt_template_fields,
+)
 from app.generation.models import AIProviderProfile, BrandProfile, PromptTemplate, PromptTemplateVersion
+from app.generation.platform_schemas import BlogVariantPayload, InstagramVariantPayload, XVariantPayload
 from app.generation.provider_settings import (
     CodexProviderSettings,
     OpenRouterProviderSettings,
@@ -32,9 +40,20 @@ from app.generation.provider_settings import (
 )
 from app.generation.telegram_schema import TelegramRewriteOutput
 from app.jobs.credential_capabilities import CapabilityStatusService, provider_shape_capabilities
+from app.security.auth import SecurityPrincipal
 
 router = APIRouter(tags=["generation-settings"])
 SessionDependency = Depends(get_session)
+
+
+def _security_principal(request: Request) -> SecurityPrincipal:
+    principal = getattr(request.state, "security_principal", None)
+    if not isinstance(principal, SecurityPrincipal):
+        raise HTTPException(401, {"code": "authentication_required"})
+    return principal
+
+
+PrincipalDependency = Annotated[SecurityPrincipal, Depends(_security_principal)]
 
 _TELEGRAM_REWRITE_VARIABLES = (
     "source_text",
@@ -45,28 +64,6 @@ _TELEGRAM_REWRITE_VARIABLES = (
     "attribution_policy",
     "custom_footer",
 )
-_TELEGRAM_REWRITE_SCHEMA = {
-    "type": "object",
-    "additionalProperties": False,
-    "required": ["body", "parse_mode", "buttons"],
-    "properties": {
-        "body": {"type": "string", "minLength": 1, "maxLength": 4096},
-        "parse_mode": {"const": "HTML"},
-        "buttons": {
-            "type": "array",
-            "maxItems": 8,
-            "items": {
-                "type": "object",
-                "additionalProperties": False,
-                "required": ["text", "url"],
-                "properties": {
-                    "text": {"type": "string", "minLength": 1, "maxLength": 64},
-                    "url": {"type": "string", "format": "uri"},
-                },
-            },
-        },
-    },
-}
 _EDITORIAL_PROMPT_CONTRACTS = {
     "canonical_story": (
         ("story_title", "evidence_json"),
@@ -78,7 +75,60 @@ _EDITORIAL_PROMPT_CONTRACTS = {
         "telegram_pack.v1",
         TelegramRewriteOutput.model_json_schema(),
     ),
+    "instagram_pack": (
+        (
+            "canonical_story_json",
+            "brand_profile_json",
+            "platform_limits_json",
+            "source_media_json",
+            "instruction",
+        ),
+        "instagram_pack.v1",
+        manual_generation_provider_schema(InstagramVariantPayload),
+    ),
+    "x_pack": (
+        (
+            "canonical_story_json",
+            "brand_profile_json",
+            "platform_limits_json",
+            "source_media_json",
+            "instruction",
+        ),
+        "x_pack.v1",
+        manual_generation_provider_schema(XVariantPayload),
+    ),
+    "blog_pack": (
+        (
+            "canonical_story_json",
+            "brand_profile_json",
+            "platform_limits_json",
+            "source_media_json",
+            "instruction",
+        ),
+        "blog_pack.v1",
+        manual_generation_provider_schema(BlogVariantPayload),
+    ),
 }
+
+
+def _validate_prompt_variables(
+    system_template: str,
+    user_template: str,
+    *,
+    required: tuple[str, ...],
+) -> None:
+    validate_prompt_template_fields(system_template, required=(), allowed=required)
+    validate_prompt_template_fields(user_template, required=required)
+
+
+def _prompt_validation_error(exc: ValueError) -> HTTPException:
+    return HTTPException(
+        422,
+        {
+            "code": "prompt_template_invalid",
+            "message": str(exc),
+        },
+    )
 
 
 async def _profile_out(
@@ -256,20 +306,25 @@ async def create_prompt_version(
         raise HTTPException(404, "Prompt template not found")
     if template.purpose_key == "telegram_rewrite":
         try:
-            validate_prompt_template_fields(
+            _validate_prompt_variables(
+                body.system_template,
                 body.user_template,
                 required=_TELEGRAM_REWRITE_VARIABLES,
             )
         except ValueError as exc:
-            raise HTTPException(422, str(exc)) from None
-        output_schema = _TELEGRAM_REWRITE_SCHEMA
+            raise _prompt_validation_error(exc) from None
+        output_schema = TelegramRewriteOutput.model_json_schema()
         output_schema_version = "telegram_rewrite.v1"
     elif template.purpose_key in _EDITORIAL_PROMPT_CONTRACTS:
         variables, output_schema_version, output_schema = _EDITORIAL_PROMPT_CONTRACTS[template.purpose_key]
         try:
-            validate_prompt_template_fields(body.user_template, required=variables)
+            _validate_prompt_variables(
+                body.system_template,
+                body.user_template,
+                required=variables,
+            )
         except ValueError as exc:
-            raise HTTPException(422, str(exc)) from None
+            raise _prompt_validation_error(exc) from None
     else:
         output_schema = {}
         output_schema_version = f"{template.purpose_key}.v1"
@@ -318,20 +373,46 @@ async def list_prompt_versions(
     )
 
 
-@router.post("/prompt-template-versions/{version_id}/activate")
-async def activate_prompt_version(version_id: UUID, session: AsyncSession = SessionDependency):
-    version = await session.get(PromptTemplateVersion, version_id)
-    if version is None:
+@router.post(
+    "/prompt-template-versions/{version_id}/activate",
+    response_model=PromptTemplateVersionOut,
+)
+async def activate_prompt_version(
+    version_id: UUID,
+    body: PromptActivationCreate,
+    principal: PrincipalDependency,
+    session: AsyncSession = SessionDependency,
+):
+    candidate = await session.get(PromptTemplateVersion, version_id)
+    if candidate is None:
         raise HTTPException(404, "Prompt template version not found")
+    template = await session.scalar(
+        select(PromptTemplate)
+        .where(PromptTemplate.id == candidate.prompt_template_id)
+        .with_for_update()
+    )
+    if template is None:
+        raise HTTPException(404, "Prompt template not found")
     siblings = list(
         await session.scalars(
             select(PromptTemplateVersion)
-            .where(PromptTemplateVersion.prompt_template_id == version.prompt_template_id)
+            .where(PromptTemplateVersion.prompt_template_id == template.id)
+            .order_by(PromptTemplateVersion.id)
             .with_for_update()
         )
     )
+    version = next((item for item in siblings if item.id == version_id), None)
+    if version is None:
+        raise HTTPException(404, "Prompt template version not found")
     for sibling in siblings:
-        sibling.is_active = sibling.id == version.id
+        sibling.is_active = False
+    await session.flush()
+    version.is_active = True
+    version.activated_at = datetime.now(UTC)
+    version.activated_by_type = principal.principal_type
+    version.activated_by_id = principal.principal_id
+    version.activation_reason = body.reason
+    await session.flush()
     await session.commit()
     return version
 

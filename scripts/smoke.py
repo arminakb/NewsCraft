@@ -625,6 +625,7 @@ class SmokeDriver:
                     "destination_id": destination_id,
                     "brand_profile_id": brand_id,
                     "prompt_template_version_id": prompt_id,
+                    "prompt_policy": "pinned",
                     "ai_provider_profile_id": provider_id,
                     "access_mode": "public_html",
                     "research_mode": "off",

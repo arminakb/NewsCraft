@@ -33,6 +33,7 @@ from app.generation.models import (
     GenerationRun,
     PlatformVariant,
     PlatformVariantRevision,
+    PromptTemplate,
     PromptTemplateVersion,
 )
 from app.generation.providers.base import GenerationProviderRequest, ProviderMessage
@@ -52,7 +53,7 @@ from app.generation.telegram_schema import (
 )
 from app.jobs.errors import NeedsReviewJobError, PermanentJobError, RetryableJobError
 from app.jobs.events import redact_event_data
-from app.jobs.models import AutomationControl, WorkflowEvent
+from app.jobs.models import AutomationControl, WorkflowEvent, WorkflowJob
 from app.jobs.registry import JobContext, JobHandler
 from app.jobs.repository import JobRepository
 from app.jobs.types import JobExecution, JobOrigin, job_payload_copy
@@ -126,6 +127,14 @@ class ProcessDispatchPayload(BaseModel):
     dispatch_id: UUID
     force_review: bool = False
     completed_research_run_id: UUID | None = None
+    prompt_template_version_id: UUID | None = None
+    prompt_checksum: str | None = Field(default=None, min_length=64, max_length=64)
+
+    @model_validator(mode="after")
+    def validate_prompt_snapshot(self):
+        if (self.prompt_template_version_id is None) != (self.prompt_checksum is None):
+            raise ValueError("prompt version and checksum must be supplied together")
+        return self
 
 
 class InitializeJobPayload(RouteJobPayload):
@@ -1735,6 +1744,80 @@ def _generation_error(exc: Exception, route: AutomationRoute, job: JobExecution)
     return exc
 
 
+async def _resolve_process_prompt(
+    session: Any,
+    *,
+    route: AutomationRoute,
+    payload: ProcessDispatchPayload,
+    workflow_job_id: UUID,
+) -> PromptTemplateVersion:
+    if payload.prompt_template_version_id is not None:
+        prompt = await session.get(
+            PromptTemplateVersion,
+            payload.prompt_template_version_id,
+        )
+        if (
+            prompt is None
+            or prompt.checksum_sha256 != payload.prompt_checksum
+            or (
+                route.prompt_policy != "follow_active"
+                and prompt.id != route.prompt_template_version_id
+            )
+        ):
+            raise NeedsReviewJobError(
+                code="telegram_prompt_snapshot_invalid",
+                message="Telegram prompt snapshot is missing or changed",
+            )
+    elif route.prompt_policy == "follow_active":
+        templates = list(
+            await session.scalars(
+                select(PromptTemplate).where(
+                    PromptTemplate.purpose_key == "telegram_rewrite"
+                )
+            )
+        )
+        template_ids = {item.id for item in templates}
+        candidates = list(
+            await session.scalars(
+                select(PromptTemplateVersion).where(
+                    PromptTemplateVersion.prompt_template_id.in_(template_ids),
+                    PromptTemplateVersion.is_active.is_(True),
+                )
+            )
+        )
+        active = [
+            item
+            for item in candidates
+            if item.prompt_template_id in template_ids and item.is_active
+        ]
+        if len(active) != 1:
+            raise NeedsReviewJobError(
+                code="telegram_active_prompt_invalid",
+                message="Telegram active prompt configuration is invalid",
+            )
+        prompt = active[0]
+    else:
+        prompt = await session.get(
+            PromptTemplateVersion,
+            route.prompt_template_version_id,
+        )
+        if prompt is None:
+            raise PermanentJobError(
+                code="telegram_prompt_missing",
+                message="Pinned Telegram prompt version was not found",
+            )
+
+    if payload.prompt_template_version_id is None:
+        stored_job = await session.get(WorkflowJob, workflow_job_id)
+        if stored_job is not None:
+            stored_job.payload = {
+                **dict(stored_job.payload or {}),
+                "prompt_template_version_id": str(prompt.id),
+                "prompt_checksum": prompt.checksum_sha256,
+            }
+    return prompt
+
+
 def build_telegram_process_handler(
     profile_resolver: Any,
     *,
@@ -1846,6 +1929,12 @@ def build_telegram_process_handler(
                 dispatch.error_code = None
                 dispatch.error_message = None
                 story_revision = selected_revision
+            prompt = await _resolve_process_prompt(
+                session,
+                route=route,
+                payload=payload,
+                workflow_job_id=workflow_job_id,
+            )
             if payload.completed_research_run_id is None and route.research_mode == "auto_if_incomplete":
                 from app.research.service import ResearchRequestError, ResearchService
 
@@ -1862,6 +1951,8 @@ def build_telegram_process_handler(
                     "payload": {
                         "dispatch_id": str(dispatch.id),
                         "force_review": payload.force_review,
+                        "prompt_template_version_id": str(prompt.id),
+                        "prompt_checksum": prompt.checksum_sha256,
                     },
                     "idempotency_prefix": (f"telegram-route-process-after-research:{dispatch.id}"),
                     "subscriber_id": f"telegram-dispatch:{dispatch.id}",
@@ -1900,7 +1991,6 @@ def build_telegram_process_handler(
                 source_item,
                 lock_for_revision=False,
             )
-            prompt = await session.get(PromptTemplateVersion, route.prompt_template_version_id)
             brand = await session.get(BrandProfile, route.brand_profile_id)
             profile = await session.get(AIProviderProfile, route.ai_provider_profile_id)
             destination = await session.get(Destination, route.destination_id)

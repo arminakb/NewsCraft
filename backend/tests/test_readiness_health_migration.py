@@ -4,7 +4,7 @@ from app.db.model_registry import Base
 from app.db.schema import SCHEMA_HEAD
 
 READINESS_MIGRATION = Path("alembic/versions/0010_readiness_health_indexes.py")
-SCHEMA_HEAD_MIGRATION = Path("alembic/versions/0016_llm_provider_settings.py")
+SCHEMA_HEAD_MIGRATION = Path("alembic/versions/0017_prompt_governance.py")
 
 
 def test_phase_9_migration_is_single_head_and_adds_bounded_queue_index():
@@ -19,9 +19,9 @@ def test_phase_9_migration_is_single_head_and_adds_bounded_queue_index():
 def test_application_schema_head_matches_latest_migration():
     source = SCHEMA_HEAD_MIGRATION.read_text(encoding="utf-8")
 
-    assert SCHEMA_HEAD == "0016_llm_provider_settings"
-    assert 'revision: str = "0016_llm_provider_settings"' in source
-    assert 'down_revision: str | None = "0015_codex_gateway"' in source
+    assert SCHEMA_HEAD == "0017_prompt_governance"
+    assert 'revision: str = "0017_prompt_governance"' in source
+    assert 'down_revision: str | None = "0016_llm_provider_settings"' in source
 
 
 def test_phase_9_operational_health_index_matches_model_metadata():

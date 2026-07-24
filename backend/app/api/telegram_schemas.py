@@ -158,6 +158,7 @@ class TelegramRouteCreate(BaseModel):
     destination_id: UUID
     brand_profile_id: UUID
     prompt_template_version_id: UUID
+    prompt_policy: Literal["pinned", "follow_active"]
     ai_provider_profile_id: UUID
     access_mode: Literal["public_html", "mtproto_user"]
     research_mode: Literal["off", "manual", "auto_if_incomplete"] = "off"
@@ -196,6 +197,22 @@ class TelegramResearchPolicyInput(BaseModel):
             raise ValueError("off research mode requires a null research provider profile")
         if self.research_mode != "off" and self.research_provider_profile_id is None:
             raise ValueError("manual and automatic research require a research provider profile")
+        return self
+
+
+class TelegramPromptPolicyInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    prompt_policy: Literal["pinned", "follow_active"]
+    prompt_template_version_id: UUID | None = None
+    confirm_change: bool
+
+    @model_validator(mode="after")
+    def validate_policy_change(self):
+        if not self.confirm_change:
+            raise ValueError("prompt policy change requires confirm_change=true")
+        if self.prompt_policy == "pinned" and self.prompt_template_version_id is None:
+            raise ValueError("pinned prompt policy requires a prompt template version")
         return self
 
 
@@ -308,6 +325,7 @@ class TelegramRouteOut(BaseModel):
     destination_id: UUID
     brand_profile_id: UUID
     prompt_template_version_id: UUID
+    prompt_policy: Literal["pinned", "follow_active"]
     ai_provider_profile_id: UUID
     access_mode: str
     research_mode: str

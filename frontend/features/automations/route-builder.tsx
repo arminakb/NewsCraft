@@ -27,6 +27,7 @@ type FormState = {
   targetRef: string
   botTokenRef: string
   brandProfileId: string
+  promptPolicy: "" | "pinned" | "follow_active"
   promptTemplateVersionId: string
   aiProviderProfileId: string
   researchMode: "off" | "manual" | "auto_if_incomplete"
@@ -49,6 +50,7 @@ const initialForm: FormState = {
   targetRef: "",
   botTokenRef: "",
   brandProfileId: "",
+  promptPolicy: "",
   promptTemplateVersionId: "",
   aiProviderProfileId: "",
   researchMode: "off",
@@ -74,9 +76,11 @@ export function RouteBuilder({ onCreated }: { onCreated?: (routeId: string) => v
   const generationProfiles = options?.aiProviderProfiles.filter((item) => item.capabilities.generation) ?? []
   const researchProfiles = options?.aiProviderProfiles.filter((item) => item.capabilities.research) ?? []
   const choose = (value: string, fallback: string | undefined) => value || fallback || ""
+  const activePrompt = options?.promptTemplateVersions.find((item) => item.isActive)
 
   const mutation = useMutation({
     mutationFn: async () => {
+      if (!form.promptPolicy) throw new Error("Choose how this route follows prompt changes.")
       const source = await createTelegramSource({
         name: form.sourceName,
         channelRef: form.channelRef,
@@ -100,7 +104,10 @@ export function RouteBuilder({ onCreated }: { onCreated?: (routeId: string) => v
         sourceId: source.id,
         destinationId: destination.id,
         brandProfileId: choose(form.brandProfileId, options?.brandProfiles[0]?.id),
-        promptTemplateVersionId: choose(form.promptTemplateVersionId, options?.promptTemplateVersions[0]?.id),
+        promptTemplateVersionId: form.promptPolicy === "follow_active"
+          ? (activePrompt?.id ?? "")
+          : choose(form.promptTemplateVersionId, options?.promptTemplateVersions[0]?.id),
+        promptPolicy: form.promptPolicy,
         aiProviderProfileId: choose(form.aiProviderProfileId, generationProfiles[0]?.id),
         accessMode: form.accessMode,
         researchMode: form.researchMode,
@@ -133,6 +140,7 @@ export function RouteBuilder({ onCreated }: { onCreated?: (routeId: string) => v
   const mtprotoIncomplete = form.accessMode === "mtproto_user" && !(form.apiIdRef && form.apiHashRef && form.sessionRef)
   const optionsIncomplete = !options?.brandProfiles.length || !options.promptTemplateVersions.length || !generationProfiles.length
   const researchProfileMissing = form.researchMode !== "off" && !choose(form.researchProviderProfileId, researchProfiles[0]?.id)
+  const promptPolicyMissing = !form.promptPolicy || (form.promptPolicy === "follow_active" && !activePrompt)
 
   return (
     <section className="mx-auto w-full max-w-4xl space-y-4 p-4 md:p-6" aria-labelledby="route-builder-heading">
@@ -172,7 +180,30 @@ export function RouteBuilder({ onCreated }: { onCreated?: (routeId: string) => v
             <CardHeader><CardTitle>Editorial policy</CardTitle></CardHeader>
             <CardContent className="grid gap-4 md:grid-cols-2">
               <Field label="Brand"><select className={fieldClass} value={choose(form.brandProfileId, options.brandProfiles[0]?.id)} onChange={(e) => setForm({ ...form, brandProfileId: e.target.value })}>{options.brandProfiles.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></Field>
-              <Field label="Prompt version"><select className={fieldClass} value={choose(form.promptTemplateVersionId, options.promptTemplateVersions[0]?.id)} onChange={(e) => setForm({ ...form, promptTemplateVersionId: e.target.value })}>{options.promptTemplateVersions.map((item) => <option key={item.id} value={item.id}>Prompt version {item.version}</option>)}</select></Field>
+              <Field label="Prompt update policy">
+                <select required className={fieldClass} value={form.promptPolicy} onChange={(e) => setForm({ ...form, promptPolicy: e.target.value as FormState["promptPolicy"], promptTemplateVersionId: "" })}>
+                  <option value="">Choose a policy</option>
+                  <option value="follow_active">Follow active prompt</option>
+                  <option value="pinned">Pin one immutable version</option>
+                </select>
+              </Field>
+              <Field label="Prompt version">
+                <select
+                  className={fieldClass}
+                  disabled={form.promptPolicy !== "pinned"}
+                  value={form.promptPolicy === "follow_active" ? (activePrompt?.id ?? "") : choose(form.promptTemplateVersionId, options.promptTemplateVersions[0]?.id)}
+                  onChange={(e) => setForm({ ...form, promptTemplateVersionId: e.target.value })}
+                >
+                  {options.promptTemplateVersions.map((item) => <option key={item.id} value={item.id}>Prompt version {item.version}{item.isActive ? " · active" : ""}</option>)}
+                </select>
+                <span className="text-xs font-normal text-muted-foreground">
+                  {form.promptPolicy === "follow_active"
+                    ? "Each new job resolves the active version once and stores its exact checksum."
+                    : form.promptPolicy === "pinned"
+                      ? "Jobs keep using this version after another version becomes active."
+                      : "Choose whether future jobs follow activations or remain pinned."}
+                </span>
+              </Field>
               <Field label="AI provider"><select className={fieldClass} value={choose(form.aiProviderProfileId, generationProfiles[0]?.id)} onChange={(e) => setForm({ ...form, aiProviderProfileId: e.target.value })}>{generationProfiles.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></Field>
               <Field label="Research mode"><select className={fieldClass} value={form.researchMode} onChange={(e) => setForm({ ...form, researchMode: e.target.value as FormState["researchMode"], researchProviderProfileId: e.target.value === "off" ? "" : form.researchProviderProfileId })}><option value="off">Off</option><option value="manual">Manual</option><option value="auto_if_incomplete">Automatic if incomplete</option></select></Field>
               {form.researchMode !== "off" ? <Field label="Research provider"><select className={fieldClass} value={choose(form.researchProviderProfileId, researchProfiles[0]?.id)} onChange={(e) => setForm({ ...form, researchProviderProfileId: e.target.value })}><option value="">Select an available research profile</option>{researchProfiles.map((item) => <option key={item.id} value={item.id}>{item.name} · {item.providerType} · {item.defaultModel ?? "default model"}</option>)}</select></Field> : null}
@@ -186,7 +217,7 @@ export function RouteBuilder({ onCreated }: { onCreated?: (routeId: string) => v
           </Card>
           {mutation.isError ? <div role="alert" dir="auto" className="text-red-700">{getApiErrorMessage(mutation.error)}</div> : null}
           {outcome ? <div role="status" aria-label="Automation creation outcome" className="text-green-700">{outcome}</div> : null}
-          <Button size="lg" type="submit" disabled={mutation.isPending || autoUnconfirmed || mtprotoIncomplete || optionsIncomplete || researchProfileMissing}>{mutation.isPending ? "Creating" : "Create automation"}</Button>
+          <Button size="lg" type="submit" disabled={mutation.isPending || autoUnconfirmed || mtprotoIncomplete || optionsIncomplete || researchProfileMissing || promptPolicyMissing}>{mutation.isPending ? "Creating" : "Create automation"}</Button>
         </form>
       ) : null}
     </section>

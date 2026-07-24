@@ -60,9 +60,26 @@ class PromptTemplateVersion(Base):
     output_schema: Mapped[dict] = mapped_column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
     checksum_sha256: Mapped[str] = mapped_column(Text, nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="false")
+    activated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    activated_by_type: Mapped[str | None] = mapped_column(Text, nullable=True)
+    activated_by_id: Mapped[str | None] = mapped_column(Text, nullable=True)
+    activation_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = timestamp_now()
 
-    __table_args__ = (UniqueConstraint("prompt_template_id", "version", name="uq_prompt_template_version"),)
+    __table_args__ = (
+        UniqueConstraint("prompt_template_id", "version", name="uq_prompt_template_version"),
+        Index(
+            "uq_prompt_template_versions_one_active",
+            "prompt_template_id",
+            unique=True,
+            postgresql_where=text("is_active"),
+        ),
+        CheckConstraint(
+            "NOT is_active OR (activated_at IS NOT NULL AND activated_by_type IS NOT NULL "
+            "AND activated_by_id IS NOT NULL AND activation_reason IS NOT NULL)",
+            name="ck_prompt_template_versions_active_metadata",
+        ),
+    )
 
 
 class AIProviderProfile(Base):

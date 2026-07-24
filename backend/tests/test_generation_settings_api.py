@@ -16,6 +16,7 @@ from app.api.generation_schemas import (
     AIProviderProfilePatch,
     BrandProfileCreate,
     BrandProfilePatch,
+    PromptActivationCreate,
     PromptTemplateCreate,
     PromptTemplateVersionCreate,
 )
@@ -45,6 +46,7 @@ from app.generation.provider_settings import (
     effective_codex_provider_settings,
 )
 from app.main import app
+from app.security.auth import TEST_ADMIN
 from tests.capability_fakes import AVAILABLE_CAPABILITIES, StaticCapabilityStatusService
 
 
@@ -130,6 +132,24 @@ def test_codex_runtime_settings_have_safe_disabled_defaults():
         AIProviderProfileCreate.model_validate({"name": "Codex CLI", "provider_type": "codex"})
 
 
+def test_prompt_versions_enforce_individual_and_combined_size_limits():
+    with pytest.raises(ValidationError, match="20000"):
+        PromptTemplateVersionCreate(
+            system_template="s" * 20_001,
+            user_template="user",
+        )
+    with pytest.raises(ValidationError, match="40000"):
+        PromptTemplateVersionCreate(
+            system_template="system",
+            user_template="u" * 40_001,
+        )
+    with pytest.raises(ValidationError, match="combined"):
+        PromptTemplateVersionCreate(
+            system_template="s" * 20_000,
+            user_template="u" * 30_001,
+        )
+
+
 async def test_editorial_prompt_versions_keep_the_stage_schema():
     session = GenerationSession()
     template = PromptTemplate(id=uuid4(), purpose_key="canonical_story", name="Canonical", description=None)
@@ -144,6 +164,41 @@ async def test_editorial_prompt_versions_keep_the_stage_schema():
     )
     assert created.output_schema_version == "canonical_story.v1"
     assert created.output_schema == CanonicalStoryOutput.model_json_schema()
+
+
+@pytest.mark.parametrize("purpose", ["instagram_pack", "x_pack", "blog_pack"])
+async def test_manual_prompt_purposes_share_required_variable_validation(purpose):
+    session = GenerationSession()
+    template = PromptTemplate(id=uuid4(), purpose_key=purpose, name=purpose, description=None)
+    session.values.append(template)
+    variables = (
+        "canonical_story_json",
+        "brand_profile_json",
+        "platform_limits_json",
+        "source_media_json",
+        "instruction",
+    )
+    created = await create_prompt_version(
+        template.id,
+        PromptTemplateVersionCreate(
+            system_template="Use evidence only",
+            user_template=" ".join(f"{{{name}}}" for name in variables),
+        ),
+        session,
+    )
+    assert created.output_schema_version == f"{purpose}.v1"
+
+    with pytest.raises(HTTPException) as error:
+        await create_prompt_version(
+            template.id,
+            PromptTemplateVersionCreate(
+                system_template="Use evidence only",
+                user_template=" ".join(f"{{{name}}}" for name in variables[:-1]),
+            ),
+            session,
+        )
+    assert error.value.status_code == 422
+    assert error.value.detail["code"] == "prompt_template_invalid"
 
 
 @pytest.mark.parametrize(
@@ -448,15 +503,24 @@ async def test_prompt_edits_create_immutable_versions_and_activation_selects_exa
         session,
     )
 
-    await activate_prompt_version(first.id, session)
+    await activate_prompt_version(
+        first.id,
+        PromptActivationCreate(reason="Approved for newsroom use"),
+        TEST_ADMIN,
+        session,
+    )
 
     assert first.version == 1
     assert first.system_template == "System one"
     assert second.version == 2
     assert first.is_active is True
     assert second.is_active is False
+    assert first.activated_by_type == "test_harness"
+    assert first.activated_by_id == "pytest"
+    assert first.activation_reason == "Approved for newsroom use"
+    assert first.activated_at is not None
     assert first.output_schema_version == "telegram_rewrite.v1"
-    assert session.prompt_lock_count == 2
+    assert session.prompt_lock_count == 3
 
 
 async def test_prompt_version_history_returns_newest_first_with_immutable_safe_fields():
@@ -512,6 +576,10 @@ async def test_prompt_version_history_returns_newest_first_with_immutable_safe_f
         "output_schema": {"type": "object", "required": ["body"]},
         "checksum_sha256": "b" * 64,
         "is_active": True,
+        "activated_at": None,
+        "activated_by_type": None,
+        "activated_by_id": None,
+        "activation_reason": None,
         "created_at": now.isoformat().replace("+00:00", "Z"),
     }
     assert "secret" not in response.text.lower()

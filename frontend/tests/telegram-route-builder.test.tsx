@@ -21,7 +21,7 @@ const options: TelegramAutomationOptions = {
   sources: [],
   destinations: [],
   brandProfiles: [{ id: "brand-1", name: "Persian newsroom" }],
-  promptTemplateVersions: [{ id: "prompt-1", version: 3 }],
+  promptTemplateVersions: [{ id: "prompt-1", version: 3, isActive: true, checksumSha256: "a".repeat(64) }],
   aiProviderProfiles: [{ id: "provider-1", name: "Editorial AI", providerType: "openrouter", defaultModel: "model", configured: true, capabilities: { generation: true, research: true }, capabilityStates: { generation: availableState(), research: availableState() } }],
 }
 
@@ -38,7 +38,8 @@ describe("RouteBuilder", () => {
     renderBuilder()
 
     expect(await screen.findByRole("option", { name: "Persian newsroom" })).toBeInTheDocument()
-    expect(screen.getByRole("option", { name: "Prompt version 3" })).toBeInTheDocument()
+    expect(screen.getByRole("option", { name: "Prompt version 3 · active" })).toBeInTheDocument()
+    expect(screen.getByLabelText("Prompt update policy")).toHaveValue("")
     expect(screen.getByRole("option", { name: "Editorial AI" })).toBeInTheDocument()
     expect(screen.getByLabelText("Access mode")).toHaveValue("public_html")
     expect(screen.getByLabelText("Research mode")).toHaveValue("off")
@@ -63,6 +64,7 @@ describe("RouteBuilder", () => {
     fireEvent.change(screen.getByLabelText("Session environment variable"), { target: { value: "TELEGRAM_SESSION" } })
 
     fireEvent.change(screen.getByLabelText("Publishing policy"), { target: { value: "auto_publish" } })
+    fireEvent.change(screen.getByLabelText("Prompt update policy"), { target: { value: "follow_active" } })
     const submit = screen.getByRole("button", { name: "Create automation" })
     expect(screen.getByRole("checkbox", { name: /confirm automatic publishing/i })).not.toBeChecked()
     expect(submit).toBeDisabled()
@@ -84,6 +86,7 @@ describe("RouteBuilder", () => {
     fireEvent.change(screen.getByLabelText("Destination name"), { target: { value: "Main channel" } })
     fireEvent.change(screen.getByLabelText("Destination target"), { target: { value: "@main" } })
     fireEvent.change(screen.getByLabelText("Bot token environment variable"), { target: { value: "TELEGRAM_MAIN_BOT_TOKEN" } })
+    fireEvent.change(screen.getByLabelText("Prompt update policy"), { target: { value: "follow_active" } })
     fireEvent.click(screen.getByRole("button", { name: "Create automation" }))
 
     await waitFor(() => expect(order).toEqual(["source", "destination", "route"]))
@@ -134,6 +137,7 @@ describe("RouteBuilder", () => {
 })
 
 function fillRequiredConnectionFields() {
+  fireEvent.change(screen.getByLabelText("Prompt update policy"), { target: { value: "follow_active" } })
   fireEvent.change(screen.getByLabelText("Source channel"), { target: { value: "channel" } })
   fireEvent.change(screen.getByLabelText("Destination name"), { target: { value: "Destination" } })
   fireEvent.change(screen.getByLabelText("Destination target"), { target: { value: "@target" } })

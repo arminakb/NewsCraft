@@ -17,8 +17,14 @@ from app.api.telegram_automations import (
     dry_run_route,
     pause_route,
     resume_route,
+    update_prompt_policy,
 )
-from app.api.telegram_schemas import TelegramRouteBackfillIn, TelegramRouteCreate, TelegramRouteOut
+from app.api.telegram_schemas import (
+    TelegramPromptPolicyInput,
+    TelegramRouteBackfillIn,
+    TelegramRouteCreate,
+    TelegramRouteOut,
+)
 from app.automations.models import AutomationRoute, TelegramSourceConfig
 from app.db.models import Source
 from app.generation.models import AIProviderProfile, BrandProfile, PromptTemplate, PromptTemplateVersion
@@ -37,6 +43,7 @@ def valid_route_payload() -> dict:
         "destination_id": uuid4(),
         "brand_profile_id": uuid4(),
         "prompt_template_version_id": uuid4(),
+        "prompt_policy": "pinned",
         "ai_provider_profile_id": uuid4(),
         "access_mode": "public_html",
         "content_filters": {"model": "openai/gpt-5-mini"},
@@ -51,6 +58,15 @@ def test_route_defaults_to_new_only_review_preserve_and_research_off():
     assert value.publishing_policy == "review_required"
     assert value.poll_interval_seconds == 300
     assert value.confirm_auto_publish is False
+    assert value.prompt_policy == "pinned"
+
+
+def test_new_route_requires_explicit_prompt_policy():
+    payload = valid_route_payload()
+    payload.pop("prompt_policy")
+
+    with pytest.raises(ValidationError):
+        TelegramRouteCreate.model_validate(payload)
 
 
 def test_route_output_exposes_poll_and_resource_timestamps():
@@ -337,6 +353,66 @@ async def test_route_create_validates_references_and_options_omit_all_secret_ref
     assert session.source_lock_count == 3
 
 
+async def test_prompt_policy_switch_requires_confirmation_and_tracks_active_or_pinned_version():
+    route = saved_route()
+    template = PromptTemplate(
+        id=uuid4(),
+        purpose_key="telegram_rewrite",
+        name="Rewrite",
+    )
+    pinned = PromptTemplateVersion(
+        id=route.prompt_template_version_id,
+        prompt_template_id=template.id,
+        version=1,
+        system_template="system one",
+        user_template="user one",
+        output_schema_version="telegram_rewrite.v1",
+        output_schema={},
+        checksum_sha256="a" * 64,
+        is_active=False,
+    )
+    active = PromptTemplateVersion(
+        id=uuid4(),
+        prompt_template_id=template.id,
+        version=2,
+        system_template="system two",
+        user_template="user two",
+        output_schema_version="telegram_rewrite.v1",
+        output_schema={},
+        checksum_sha256="b" * 64,
+        is_active=True,
+    )
+    session = ConfigurationSession([route, template, pinned, active])
+
+    with pytest.raises(ValidationError, match="confirm_change"):
+        TelegramPromptPolicyInput.model_validate(
+            {"prompt_policy": "follow_active", "confirm_change": False}
+        )
+
+    followed = await update_prompt_policy(
+        route.id,
+        TelegramPromptPolicyInput(
+            prompt_policy="follow_active",
+            confirm_change=True,
+        ),
+        session,
+    )
+    assert followed.prompt_policy == "follow_active"
+    assert followed.prompt_template_version_id == active.id
+
+    repinned = await update_prompt_policy(
+        route.id,
+        TelegramPromptPolicyInput(
+            prompt_policy="pinned",
+            prompt_template_version_id=pinned.id,
+            confirm_change=True,
+        ),
+        session,
+    )
+    assert repinned.prompt_policy == "pinned"
+    assert repinned.prompt_template_version_id == pinned.id
+
+
 def codex_route_configuration():
     source = Source(id=uuid4(), platform="telegram_public", name="Source", source_group="telegram")
     config = TelegramSourceConfig(
@@ -541,6 +617,7 @@ def saved_route() -> AutomationRoute:
         destination_id=uuid4(),
         brand_profile_id=uuid4(),
         prompt_template_version_id=uuid4(),
+        prompt_policy="pinned",
         ai_provider_profile_id=uuid4(),
         access_mode="public_html",
         research_mode="off",

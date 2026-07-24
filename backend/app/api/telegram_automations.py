@@ -16,6 +16,7 @@ from app.api.telegram_destinations import (
 )
 from app.api.telegram_schemas import (
     TelegramAutomationOptionsOut,
+    TelegramPromptPolicyInput,
     TelegramResearchPolicyInput,
     TelegramRouteAcceptedOut,
     TelegramRouteBackfillIn,
@@ -80,6 +81,68 @@ async def _route_or_404(session: AsyncSession, route_id: UUID) -> AutomationRout
     if route is None:
         raise HTTPException(404, "Telegram automation route not found")
     return route
+
+
+async def _telegram_prompt_or_422(
+    session: AsyncSession,
+    version_id: UUID,
+    *,
+    require_active: bool,
+) -> PromptTemplateVersion:
+    version = await session.get(PromptTemplateVersion, version_id)
+    template = (
+        await session.get(PromptTemplate, version.prompt_template_id)
+        if version is not None
+        else None
+    )
+    if (
+        version is None
+        or template is None
+        or template.purpose_key != "telegram_rewrite"
+        or (require_active and not version.is_active)
+    ):
+        state = "active " if require_active else ""
+        raise HTTPException(
+            422,
+            {
+                "code": "telegram_prompt_policy_invalid",
+                "message": f"Route requires an {state}telegram_rewrite prompt version",
+            },
+        )
+    return version
+
+
+async def _active_telegram_prompt(session: AsyncSession) -> PromptTemplateVersion:
+    templates = list(
+        await session.scalars(
+            select(PromptTemplate).where(
+                PromptTemplate.purpose_key == "telegram_rewrite"
+            )
+        )
+    )
+    template_ids = {item.id for item in templates}
+    versions = list(
+        await session.scalars(
+            select(PromptTemplateVersion).where(
+                PromptTemplateVersion.prompt_template_id.in_(template_ids),
+                PromptTemplateVersion.is_active.is_(True),
+            )
+        )
+    )
+    active = [
+        item
+        for item in versions
+        if item.prompt_template_id in template_ids and item.is_active
+    ]
+    if len(active) != 1:
+        raise HTTPException(
+            422,
+            {
+                "code": "telegram_active_prompt_invalid",
+                "message": "Exactly one active telegram_rewrite prompt is required",
+            },
+        )
+    return active[0]
 
 
 async def _require_route_capabilities(
@@ -158,7 +221,11 @@ async def automation_options(
     )
     template_ids = {item.id for item in templates}
     versions = list(
-        await session.scalars(select(PromptTemplateVersion).where(PromptTemplateVersion.is_active.is_(True)))
+        await session.scalars(
+            select(PromptTemplateVersion).order_by(
+                PromptTemplateVersion.version.desc()
+            )
+        )
     )
     profiles = list(await session.scalars(select(AIProviderProfile).where(AIProviderProfile.enabled.is_(True))))
     safe_profiles = []
@@ -217,7 +284,14 @@ async def automation_options(
         destinations=safe_destinations,
         brand_profiles=[{"id": item.id, "name": item.name} for item in brands],
         prompt_template_versions=[
-            {"id": item.id, "version": item.version} for item in versions if item.prompt_template_id in template_ids
+            {
+                "id": item.id,
+                "version": item.version,
+                "is_active": item.is_active,
+                "checksum_sha256": item.checksum_sha256,
+            }
+            for item in versions
+            if item.prompt_template_id in template_ids
         ],
         ai_provider_profiles=safe_profiles,
     )
@@ -232,11 +306,14 @@ async def create_route(
     source_config = await session.get(TelegramSourceConfig, body.source_id)
     destination = await session.get(Destination, body.destination_id)
     brand = await session.get(BrandProfile, body.brand_profile_id)
-    prompt_version = await session.get(PromptTemplateVersion, body.prompt_template_version_id)
+    prompt_version = await _telegram_prompt_or_422(
+        session,
+        body.prompt_template_version_id,
+        require_active=body.prompt_policy == "follow_active",
+    )
     profile = await session.get(AIProviderProfile, body.ai_provider_profile_id)
     if None in (source, source_config, destination, brand, prompt_version, profile):
         raise HTTPException(422, "Referenced Telegram route configuration is missing")
-    prompt = await session.get(PromptTemplate, prompt_version.prompt_template_id)
     if source.platform != "telegram_public" or source_config.access_mode != body.access_mode:
         raise HTTPException(422, "Route source and access mode do not match")
     if (
@@ -246,8 +323,6 @@ async def create_route(
         or destination.administrator_status != "administrator"
     ):
         raise HTTPException(422, "Telegram destination is not ready")
-    if prompt is None or prompt.purpose_key != "telegram_rewrite" or not prompt_version.is_active:
-        raise HTTPException(422, "Route requires an active telegram_rewrite prompt")
     if not _provider_is_configured(profile):
         raise HTTPException(422, "AI provider profile configuration is invalid")
     if body.content_filters.model is None and profile.default_model is None:
@@ -268,6 +343,7 @@ async def create_route(
         expected = {
             "brand_profile_id": body.brand_profile_id,
             "prompt_template_version_id": body.prompt_template_version_id,
+            "prompt_policy": body.prompt_policy,
             "ai_provider_profile_id": body.ai_provider_profile_id,
             "access_mode": body.access_mode,
             "research_mode": body.research_mode,
@@ -291,6 +367,7 @@ async def create_route(
         destination_id=body.destination_id,
         brand_profile_id=body.brand_profile_id,
         prompt_template_version_id=body.prompt_template_version_id,
+        prompt_policy=body.prompt_policy,
         ai_provider_profile_id=body.ai_provider_profile_id,
         access_mode=body.access_mode,
         research_mode=body.research_mode,
@@ -309,6 +386,34 @@ async def create_route(
         backfill_since=None,
     )
     session.add(route)
+    response = await _materialize_route_out(session, route)
+    await session.commit()
+    return response
+
+
+@router.patch("/{route_id}/prompt-policy", response_model=TelegramRouteOut)
+async def update_prompt_policy(
+    route_id: UUID,
+    body: TelegramPromptPolicyInput,
+    session: AsyncSession = SessionDependency,
+):
+    route = await session.scalar(
+        select(AutomationRoute)
+        .where(AutomationRoute.id == route_id)
+        .with_for_update()
+    )
+    if route is None:
+        raise HTTPException(404, "Telegram automation route not found")
+    if body.prompt_policy == "follow_active":
+        version = await _active_telegram_prompt(session)
+    else:
+        version = await _telegram_prompt_or_422(
+            session,
+            body.prompt_template_version_id,
+            require_active=False,
+        )
+    route.prompt_policy = body.prompt_policy
+    route.prompt_template_version_id = version.id
     response = await _materialize_route_out(session, route)
     await session.commit()
     return response

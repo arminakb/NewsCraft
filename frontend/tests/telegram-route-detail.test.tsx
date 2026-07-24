@@ -9,6 +9,7 @@ import {
   getTelegramRoute,
   pauseTelegramRoute,
   resumeTelegramRoute,
+  updateTelegramRoutePromptPolicy,
 } from "@/features/automations/telegram-api"
 import { RouteDetail } from "@/features/automations/route-detail"
 
@@ -20,6 +21,7 @@ vi.mock("@/features/automations/telegram-api", () => ({
   getTelegramRoute: vi.fn(),
   pauseTelegramRoute: vi.fn(),
   resumeTelegramRoute: vi.fn(),
+  updateTelegramRoutePromptPolicy: vi.fn(),
 }))
 
 const route = {
@@ -29,6 +31,7 @@ const route = {
   destinationId: "destination-1",
   brandProfileId: "brand-1",
   promptTemplateVersionId: "prompt-1",
+  promptPolicy: "pinned",
   aiProviderProfileId: "provider-1",
   accessMode: "public_html",
   researchMode: "off",
@@ -64,13 +67,14 @@ describe("RouteDetail", () => {
     vi.mocked(getTelegramAutomationOptions).mockResolvedValue({
       sources: [{ id: "source-1", name: "Wire", accessMode: "public_html", capabilityState: availableState }],
       destinations: [{ id: "destination-1", name: "News", healthStatus: "healthy", allowAutoPublish: false, capabilityState: availableState }],
-      brandProfiles: [], promptTemplateVersions: [], aiProviderProfiles: [],
+      brandProfiles: [], promptTemplateVersions: [{ id: "prompt-1", version: 1, isActive: true, checksumSha256: "a".repeat(64) }], aiProviderProfiles: [],
     })
     vi.mocked(getTelegramDispatches).mockResolvedValue([
       { id: "dispatch-1", sourceMessageIds: [91], status: "review_required", errorMessage: "Global pause", variantRevisionId: "revision-9", publishJobId: "job-9", createdAt: "2026-07-12T08:02:00Z" },
     ] as never)
     vi.mocked(pauseTelegramRoute).mockResolvedValue({ ...route, pausedAt: "2026-07-12T08:03:00Z" } as never)
     vi.mocked(resumeTelegramRoute).mockResolvedValue(route as never)
+    vi.mocked(updateTelegramRoutePromptPolicy).mockResolvedValue(route as never)
     vi.mocked(dryRunTelegramRoute).mockResolvedValue({ route, job: { jobId: "job-dry", status: "queued", deduplicated: false } } as never)
     vi.mocked(backfillTelegramRoute).mockResolvedValue({ route, job: { jobId: "job-backfill", status: "queued", deduplicated: false } } as never)
   })

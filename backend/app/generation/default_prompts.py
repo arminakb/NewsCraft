@@ -4,6 +4,7 @@ import hashlib
 import json
 from copy import deepcopy
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from string import Formatter
 from typing import Any
 from uuid import uuid4
@@ -99,6 +100,12 @@ _SEED_LOCK_KEY = int.from_bytes(
     byteorder="big",
     signed=True,
 )
+
+_SYSTEM_ACTIVATION = {
+    "activated_by_type": "system",
+    "activated_by_id": "startup",
+    "activation_reason": "Created missing system default",
+}
 
 
 async def _lock_seed_transaction(session: AsyncSession) -> None:
@@ -209,12 +216,10 @@ async def seed_default_telegram_prompt(session: AsyncSession) -> PromptTemplateV
         if item.prompt_template_id == template.id
     ]
     active = max((item for item in versions if item.is_active), key=lambda item: item.version, default=None)
-    if active is not None and active.checksum_sha256 == checksum:
+    if active is not None:
         return active
-    if active is not None and any(item.checksum_sha256 == checksum for item in versions):
-        return active
-    for item in versions:
-        item.is_active = False
+    if versions:
+        return max(versions, key=lambda item: item.version)
     version = PromptTemplateVersion(
         id=uuid4(),
         prompt_template_id=template.id,
@@ -225,6 +230,8 @@ async def seed_default_telegram_prompt(session: AsyncSession) -> PromptTemplateV
         output_schema=output_schema,
         checksum_sha256=checksum,
         is_active=True,
+        activated_at=datetime.now(UTC),
+        **_SYSTEM_ACTIVATION,
     )
     return await _add_with_conflict_reload(
         session,
@@ -275,11 +282,13 @@ async def _seed_prompt_version(
         key=lambda item: item.version,
         default=None,
     )
-    if active is not None and active.checksum_sha256 == checksum:
+    if active is not None:
         active.prompt_template = template
         return active
-    for item in versions:
-        item.is_active = False
+    if versions:
+        latest = max(versions, key=lambda item: item.version)
+        latest.prompt_template = template
+        return latest
     created = await _add_with_conflict_reload(
         session,
         PromptTemplateVersion(
@@ -292,6 +301,8 @@ async def _seed_prompt_version(
             output_schema=output_schema,
             checksum_sha256=checksum,
             is_active=True,
+            activated_at=datetime.now(UTC),
+            **_SYSTEM_ACTIVATION,
         ),
         select(PromptTemplateVersion).where(
             PromptTemplateVersion.prompt_template_id == template.id,

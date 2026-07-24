@@ -9,8 +9,9 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import {
   backfillTelegramRoute, dryRunTelegramRoute, getTelegramAutomationOptions, getTelegramDispatches,
-  getTelegramRoute, pauseTelegramRoute, resumeTelegramRoute,
+  getTelegramRoute, pauseTelegramRoute, resumeTelegramRoute, updateTelegramRoutePromptPolicy,
 } from "@/features/automations/telegram-api"
+import type { TelegramAutomationOptions, TelegramRoute } from "@/features/automations/telegram-types"
 import { getApiErrorMessage } from "@/lib/http"
 import { queryKeys } from "@/lib/query-keys"
 import { DispatchResearchOutcome } from "@/features/automations/research-outcome"
@@ -89,9 +90,21 @@ export function RouteDetail({ routeId }: { routeId: string }) {
       </div>
       <div className="grid gap-4 lg:grid-cols-3">
         <Card><CardHeader><CardTitle>Cursor and schedule</CardTitle></CardHeader><CardContent className="space-y-2"><Badge>{labelValue(cursorStatus)}</Badge><p>{route.cursorState.lastMessageId == null ? "Last message not available" : `Last message ${route.cursorState.lastMessageId}`}</p><KeyValue label="Next poll" value={route.nextPollAt ? formatDate(route.nextPollAt) : "Not scheduled"} /><KeyValue label="Last poll" value={route.lastPolledAt ? formatDate(route.lastPolledAt) : "Not polled"} /></CardContent></Card>
-        <Card><CardHeader><CardTitle>Policy</CardTitle></CardHeader><CardContent className="space-y-2"><KeyValue label="Publishing" value={labelValue(route.publishingPolicy)} /><KeyValue label="Research" value={labelValue(route.researchMode)} /><KeyValue label="Research provider" value={route.contentFilters.researchProviderProfileId ? optionsQuery.data?.aiProviderProfiles.find((item) => item.id === route.contentFilters.researchProviderProfileId)?.name ?? "Configured profile" : "Not selected"} />{route.researchMode === "manual" ? <Link href="/inbox" className="inline-flex text-primary underline">Research more</Link> : null}<KeyValue label="Access" value={labelValue(route.accessMode)} /><KeyValue label="Media" value={labelValue(route.mediaPolicy)} /><KeyValue label="Polling" value={`${route.pollIntervalSeconds} seconds`} /><KeyValue label="Retry limit" value={`${route.retryPolicy.maxAttempts} attempts`} /><KeyValue label="Quiet hours" value={route.quietHours ? `${route.quietHours.start}–${route.quietHours.end} (${route.quietHours.timezone})` : "Not configured"} /></CardContent></Card>
+        <Card><CardHeader><CardTitle>Policy</CardTitle></CardHeader><CardContent className="space-y-2"><KeyValue label="Prompt updates" value={labelValue(route.promptPolicy)} /><KeyValue label="Publishing" value={labelValue(route.publishingPolicy)} /><KeyValue label="Research" value={labelValue(route.researchMode)} /><KeyValue label="Research provider" value={route.contentFilters.researchProviderProfileId ? optionsQuery.data?.aiProviderProfiles.find((item) => item.id === route.contentFilters.researchProviderProfileId)?.name ?? "Configured profile" : "Not selected"} /><KeyValue label="Access" value={labelValue(route.accessMode)} /><KeyValue label="Media" value={labelValue(route.mediaPolicy)} /><KeyValue label="Polling" value={`${route.pollIntervalSeconds} seconds`} /><KeyValue label="Retry limit" value={`${route.retryPolicy.maxAttempts} attempts`} /><KeyValue label="Quiet hours" value={route.quietHours ? `${route.quietHours.start}–${route.quietHours.end} (${route.quietHours.timezone})` : "Not configured"} /></CardContent></Card>
         <Card><CardHeader><CardTitle>Destination health</CardTitle></CardHeader><CardContent className="space-y-2">{optionsQuery.isError ? <><div role="alert" dir="auto" className="text-red-700">Destination health request failed: {getApiErrorMessage(optionsQuery.error)}</div><Button variant="outline" onClick={() => void optionsQuery.refetch()}>Retry destination health</Button></> : <><p>{destination ? labelValue(destination.healthStatus) : optionsQuery.isPending ? "Checking" : "Destination not configured"}</p><p className="text-muted-foreground">{destination?.name ?? "Destination details unavailable"}</p></>}</CardContent></Card>
       </div>
+
+      {optionsQuery.data ? (
+        <PromptPolicyControl
+          key={`${route.promptPolicy}:${route.promptTemplateVersionId}`}
+          route={route}
+          options={optionsQuery.data}
+          onUpdated={(updated) => {
+            updateRouteTruth(updated)
+            setActionState({ tone: "success", message: "Prompt update policy changed." })
+          }}
+        />
+      ) : null}
 
       <div className="grid gap-4 lg:grid-cols-2">
         <Card><CardHeader><CardTitle>Dry run</CardTitle></CardHeader><CardContent className="space-y-3"><label className="grid gap-1"><span>Source message ID (optional)</span><input className={inputClass} type="number" min={1} step={1} value={sourceMessageId} onChange={(e) => setSourceMessageId(e.target.value)} aria-invalid={!sourceMessageValid} /></label>{!sourceMessageValid ? <div role="alert" className="text-red-700">Source message ID must be a positive integer.</div> : null}<p className="text-sm text-muted-foreground">Dry runs always force review and never auto-publish.</p><Button disabled={actionPending || !sourceMessageValid} onClick={() => dryRunMutation.mutate()}>Run dry run</Button></CardContent></Card>
@@ -101,6 +114,57 @@ export function RouteDetail({ routeId }: { routeId: string }) {
 
       <Card><CardHeader><CardTitle>Dispatch history</CardTitle></CardHeader><CardContent className="px-0"><div className="overflow-x-auto"><table className="w-full min-w-[760px] text-start text-sm"><thead><tr className="border-b"><th className="p-3 text-start">Message</th><th className="p-3 text-start">Status</th><th className="p-3 text-start">Research</th><th className="p-3 text-start">Failure</th><th className="p-3 text-start">Revision / publish job</th></tr></thead><tbody>{dispatchesQuery.data?.map((dispatch) => <tr key={dispatch.id} className="border-b last:border-0"><td className="p-3">{dispatch.sourceMessageIds.length ? dispatch.sourceMessageIds.join(", ") : "—"}</td><td className="p-3">{labelValue(dispatch.status)}</td><td className="p-3"><DispatchResearchOutcome dispatch={dispatch} researchMode={route.researchMode} /></td><td className="p-3" dir="auto">{dispatch.errorMessage ?? "—"}</td><td className="p-3">{dispatch.variantRevisionId ? <Link className="underline" href={`/review/${dispatch.variantRevisionId}`}>Review revision {dispatch.variantRevisionId}</Link> : dispatch.publishJobId ? <span className="break-all">Publish job {dispatch.publishJobId}</span> : "—"}</td></tr>)}</tbody></table></div>{dispatchesQuery.isPending ? <div role="status" className="p-4">Loading dispatch history</div> : null}{dispatchesQuery.isError ? <div role="alert" dir="auto" className="p-4">{getApiErrorMessage(dispatchesQuery.error)}</div> : null}{dispatchesQuery.isSuccess && !dispatchesQuery.data.length ? <p className="p-4 text-muted-foreground">No dispatches yet</p> : null}</CardContent></Card>
     </section>
+  )
+}
+
+function PromptPolicyControl({
+  route,
+  options,
+  onUpdated,
+}: {
+  route: TelegramRoute
+  options: TelegramAutomationOptions
+  onUpdated: (route: TelegramRoute) => void
+}) {
+  const [policy, setPolicy] = useState(route.promptPolicy)
+  const [versionId, setVersionId] = useState(route.promptTemplateVersionId)
+  const [confirmed, setConfirmed] = useState(false)
+  const mutation = useMutation({
+    mutationFn: () => updateTelegramRoutePromptPolicy(route.id, {
+      promptPolicy: policy,
+      promptTemplateVersionId: policy === "pinned" ? versionId : null,
+      confirmChange: confirmed,
+    }),
+    onSuccess: onUpdated,
+  })
+  const changed = policy !== route.promptPolicy || (policy === "pinned" && versionId !== route.promptTemplateVersionId)
+  return (
+    <Card>
+      <CardHeader><CardTitle>Prompt update policy</CardTitle></CardHeader>
+      <CardContent className="grid gap-3 md:grid-cols-2">
+        <label className="grid gap-1 text-sm font-medium">
+          <span>Mode</span>
+          <select className={inputClass} value={policy} disabled={mutation.isPending} onChange={(event) => { setPolicy(event.target.value as TelegramRoute["promptPolicy"]); setConfirmed(false) }}>
+            <option value="follow_active">Follow active prompt</option>
+            <option value="pinned">Pinned version</option>
+          </select>
+        </label>
+        <label className="grid gap-1 text-sm font-medium">
+          <span>Pinned version</span>
+          <select className={inputClass} value={versionId} disabled={mutation.isPending || policy !== "pinned"} onChange={(event) => { setVersionId(event.target.value); setConfirmed(false) }}>
+            {options.promptTemplateVersions.map((item) => <option key={item.id} value={item.id}>Version {item.version}{item.isActive ? " · active" : ""}</option>)}
+          </select>
+        </label>
+        <p className="text-sm text-muted-foreground md:col-span-2">
+          Follow active resolves once per job. Pinned keeps exact selected version. Existing queued jobs retain stored version and checksum.
+        </p>
+        {changed ? <label className="flex min-h-11 items-center gap-2 rounded-lg border px-3 text-sm md:col-span-2"><input type="checkbox" checked={confirmed} disabled={mutation.isPending} onChange={(event) => setConfirmed(event.target.checked)} />Confirm this changes prompt selection for future jobs</label> : null}
+        {mutation.isError ? <div role="alert" dir="auto" className="text-red-700 md:col-span-2">{getApiErrorMessage(mutation.error)}</div> : null}
+        <Button className="w-fit" disabled={!changed || !confirmed || mutation.isPending || (policy === "pinned" && !versionId)} onClick={() => mutation.mutate()}>
+          {mutation.isPending ? "Saving policy" : "Save prompt policy"}
+        </Button>
+      </CardContent>
+    </Card>
   )
 }
 

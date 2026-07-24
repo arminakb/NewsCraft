@@ -58,8 +58,18 @@ class PromptTemplateCreate(BaseModel):
 
 
 class PromptTemplateVersionCreate(BaseModel):
-    system_template: str = Field(min_length=1)
-    user_template: str = Field(min_length=1)
+    system_template: str = Field(min_length=1, max_length=20_000)
+    user_template: str = Field(min_length=1, max_length=40_000)
+
+    @model_validator(mode="after")
+    def validate_combined_size(self):
+        if len(self.system_template) + len(self.user_template) > 50_000:
+            raise ValueError("combined prompt template size cannot exceed 50000 characters")
+        return self
+
+
+class PromptActivationCreate(BaseModel):
+    reason: str = Field(min_length=3, max_length=500)
 
 
 class PromptTemplateVersionOut(BaseModel):
@@ -74,6 +84,10 @@ class PromptTemplateVersionOut(BaseModel):
     output_schema: dict
     checksum_sha256: str
     is_active: bool
+    activated_at: datetime | None
+    activated_by_type: str | None
+    activated_by_id: str | None
+    activation_reason: str | None
     created_at: datetime
 
 
@@ -141,6 +155,7 @@ __all__ = [
     "CodexProviderSettings",
     "OpenRouterProviderSettings",
     "PromptTemplateVersionOut",
+    "PromptActivationCreate",
     "ProviderPricingSettings",
     "ResearchBudgetSettings",
     "ResearchBudgetsSettings",

@@ -46,7 +46,7 @@ import {
   getPromptVersions,
   updateBrandProfile,
 } from "@/features/automations/telegram-api"
-import type { BrandProfile } from "@/features/automations/telegram-types"
+import type { BrandProfile, PromptVersion } from "@/features/automations/telegram-types"
 import {
   createCodexPairingSession,
   createLLMProvider,
@@ -90,12 +90,42 @@ import { queryKeys } from "@/lib/query-keys"
 const fieldClass =
   "min-h-11 w-full rounded-lg border bg-background px-3 py-2 text-base outline-none transition-colors focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/30 disabled:bg-muted disabled:text-muted-foreground"
 const promptPurposes = [
-  ["canonical_story", "Canonical Story"],
-  ["telegram_rewrite", "Telegram Automation Rewrite"],
-  ["telegram_pack", "Telegram Pack"],
-  ["instagram_pack", "Instagram Pack"],
-  ["x_pack", "X Pack"],
-  ["blog_pack", "Blog Pack"],
+  {
+    purpose: "canonical_story",
+    label: "Canonical Story",
+    pipeline: "Turns persisted evidence into the grounded canonical story used by every platform pack.",
+    requiredVariables: ["story_title", "evidence_json"],
+  },
+  {
+    purpose: "telegram_rewrite",
+    label: "Telegram Automation Rewrite",
+    pipeline: "Rewrites captured Telegram source material for Automation routes.",
+    requiredVariables: ["source_text", "source_url", "source_channel", "language", "direction", "attribution_policy", "custom_footer"],
+  },
+  {
+    purpose: "telegram_pack",
+    label: "Telegram Pack",
+    pipeline: "Builds operator-reviewed Telegram output from a locked canonical story.",
+    requiredVariables: ["canonical_story_json", "brand_profile_json", "direction", "instruction"],
+  },
+  {
+    purpose: "instagram_pack",
+    label: "Instagram Pack",
+    pipeline: "Builds the manual Instagram publishing package from canonical story evidence.",
+    requiredVariables: ["canonical_story_json", "brand_profile_json", "platform_limits_json", "source_media_json", "instruction"],
+  },
+  {
+    purpose: "x_pack",
+    label: "X Pack",
+    pipeline: "Builds the manual X publishing package from canonical story evidence.",
+    requiredVariables: ["canonical_story_json", "brand_profile_json", "platform_limits_json", "source_media_json", "instruction"],
+  },
+  {
+    purpose: "blog_pack",
+    label: "Blog Pack",
+    pipeline: "Builds the manual blog publishing package from canonical story evidence.",
+    requiredVariables: ["canonical_story_json", "brand_profile_json", "platform_limits_json", "source_media_json", "instruction"],
+  },
 ] as const
 const readScopes = [
   "settings:read",
@@ -1025,8 +1055,8 @@ function PromptGovernanceSection({ templates }: { templates: Array<{ id: string;
       description="Purpose, active version, status, impact, and immutable history."
     >
       <div className="grid gap-3">
-        {promptPurposes.map(([purpose, label]) => (
-          <PromptPurpose key={purpose} purpose={purpose} label={label} template={templates.find((item) => item.purposeKey === purpose)} />
+        {promptPurposes.map((meta) => (
+          <PromptPurpose key={meta.purpose} meta={meta} template={templates.find((item) => item.purposeKey === meta.purpose)} />
         ))}
       </div>
     </SettingsSection>
@@ -1034,19 +1064,17 @@ function PromptGovernanceSection({ templates }: { templates: Array<{ id: string;
 }
 
 function PromptPurpose({
-  purpose,
-  label,
+  meta,
   template,
 }: {
-  purpose: string
-  label: string
+  meta: (typeof promptPurposes)[number]
   template?: { id: string; purposeKey: string; name: string; description: string | null }
 }) {
   const queryClient = useQueryClient()
   const { pushNotice } = useNotices()
   const [editing, setEditing] = useState(false)
   const versions = useQuery({
-    queryKey: template ? queryKeys.promptVersions(template.id) : ["settings", "prompt-purpose", purpose, "missing"],
+    queryKey: template ? queryKeys.promptVersions(template.id) : ["settings", "prompt-purpose", meta.purpose, "missing"],
     queryFn: () => getPromptVersions(template!.id),
     enabled: Boolean(template),
   })
@@ -1056,12 +1084,16 @@ function PromptPurpose({
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
-            <h3 className="font-semibold">{label}</h3>
+            <h3 className="font-semibold">{meta.label}</h3>
             <StatusBadge value={!template ? "not configured" : active ? "active" : "inactive"} />
           </div>
+          <p className="mt-1 text-sm">{meta.pipeline}</p>
           <p className="mt-1 text-sm text-muted-foreground">
-            {!template ? "No template configured." : active ? `Version ${active.version} · ${active.checksumSha256.slice(0, 12)} · New jobs use this exact version.` : `${versions.data?.length ?? 0} immutable versions · no active version.`}
+            {!template ? "No template configured." : active ? `Version ${active.version} · ${active.checksumSha256.slice(0, 12)} · Follow-active jobs resolve this version; pinned jobs retain their selection.` : `${versions.data?.length ?? 0} immutable versions · no active version.`}
           </p>
+          <div className="mt-2 flex flex-wrap gap-1.5" aria-label={`${meta.label} required variables`}>
+            {meta.requiredVariables.map((variable) => <Badge key={variable} variant="secondary">{`{${variable}}`}</Badge>)}
+          </div>
         </div>
         {template ? <Button variant="outline" onClick={() => setEditing((value) => !value)}>{editing ? <X aria-hidden="true" /> : <Pencil aria-hidden="true" />}{editing ? "Close" : "Manage"}</Button> : null}
       </div>
@@ -1069,9 +1101,15 @@ function PromptPurpose({
         <PromptAdvancedManager
           template={template}
           versions={versions.data ?? []}
+          requiredVariables={[...meta.requiredVariables]}
+          label={meta.label}
           onChanged={async () => {
-            await queryClient.invalidateQueries({ queryKey: queryKeys.promptVersions(template.id) })
-            pushNotice({ tone: "success", title: "Prompt governance updated", message: label })
+            await Promise.all([
+              queryClient.invalidateQueries({ queryKey: ["settings", "prompt-templates"] }),
+              queryClient.invalidateQueries({ queryKey: queryKeys.telegramOptions }),
+              queryClient.invalidateQueries({ queryKey: queryKeys.editorialPromptOptions }),
+            ])
+            pushNotice({ tone: "success", title: "Prompt governance updated", message: meta.label })
           }}
         />
       ) : null}
@@ -1082,49 +1120,98 @@ function PromptPurpose({
 function PromptAdvancedManager({
   template,
   versions,
+  requiredVariables,
+  label,
   onChanged,
 }: {
   template: { id: string; purposeKey: string }
-  versions: Array<{ id: string; version: number; systemTemplate: string; userTemplate: string; checksumSha256: string; isActive: boolean }>
+  versions: PromptVersion[]
+  requiredVariables: string[]
+  label: string
   onChanged: () => Promise<void>
 }) {
   const { pushNotice } = useNotices()
-  const [systemTemplate, setSystemTemplate] = useState("")
-  const [userTemplate, setUserTemplate] = useState("")
+  const active = versions.find((version) => version.isActive)
+  const [systemTemplate, setSystemTemplate] = useState(active?.systemTemplate ?? "")
+  const [userTemplate, setUserTemplate] = useState(active?.userTemplate ?? "")
+  const [activationTarget, setActivationTarget] = useState<string | null>(null)
+  const [activationReason, setActivationReason] = useState("")
   const [confirmed, setConfirmed] = useState(false)
+  const draftError = validatePromptDraft(systemTemplate, userTemplate, requiredVariables)
+  const changedFromActive = Boolean(active) && (active!.systemTemplate !== systemTemplate || active!.userTemplate !== userTemplate)
+  const target = versions.find((version) => version.id === activationTarget)
   const create = useMutation({
     mutationFn: () => createPromptVersion(template.id, { systemTemplate, userTemplate }),
-    onSuccess: async () => { setSystemTemplate(""); setUserTemplate(""); await onChanged() },
+    onSuccess: async (created) => {
+      setActivationTarget(created.id)
+      setConfirmed(false)
+      setActivationReason("")
+      await onChanged()
+    },
     onError: (cause) => pushNotice({ tone: "error", title: "Prompt version failed", message: getApiErrorMessage(cause) }),
   })
   const activate = useMutation({
-    mutationFn: (versionId: string) => activatePromptVersion(versionId),
-    onSuccess: async () => { setConfirmed(false); await onChanged() },
+    mutationFn: () => activatePromptVersion(activationTarget!, activationReason.trim()),
+    onSuccess: async (version) => {
+      setConfirmed(false)
+      setActivationTarget(null)
+      setActivationReason("")
+      setSystemTemplate(version.systemTemplate)
+      setUserTemplate(version.userTemplate)
+      await onChanged()
+      pushNotice({ tone: "success", title: `${label} activated`, message: `Version ${version.version} is active for future follow-active jobs.` })
+    },
     onError: (cause) => pushNotice({ tone: "error", title: "Prompt activation failed", message: getApiErrorMessage(cause) }),
   })
-  const dirty = Boolean(systemTemplate || userTemplate)
+  const dirty = changedFromActive
   useDirtyNavigation(dirty, "Discard unsaved prompt changes?")
+  const resetDraft = () => {
+    setSystemTemplate(active?.systemTemplate ?? "")
+    setUserTemplate(active?.userTemplate ?? "")
+  }
   return (
     <div className="mt-4 space-y-4 border-t pt-4">
-      <details open className="rounded-lg bg-muted/50 p-3">
-        <summary className="cursor-pointer font-medium">Raw templates and immutable history</summary>
+      <details className="rounded-lg bg-muted/50 p-3">
+        <summary className="cursor-pointer font-medium">Advanced: raw templates and immutable history</summary>
         <div className="mt-4 grid gap-4">
-          <Field label="System template"><DirectionBoundary as="textarea" language={null} className={fieldClass} rows={4} value={systemTemplate} onChange={(event) => setSystemTemplate(event.target.value)} /></Field>
-          <Field label="User template"><DirectionBoundary as="textarea" language={null} className={`${fieldClass} font-mono text-sm`} rows={6} value={userTemplate} onChange={(event) => setUserTemplate(event.target.value)} /></Field>
+          <Field label="System template" hint={`${systemTemplate.length}/20,000 characters`} error={draftError?.field === "system" ? draftError.message : null}><DirectionBoundary as="textarea" language={null} className={fieldClass} rows={4} maxLength={20_000} value={systemTemplate} onBlur={() => undefined} onChange={(event) => setSystemTemplate(event.target.value)} /></Field>
+          <Field label="User template" hint={`${userTemplate.length}/40,000 characters`} error={draftError?.field === "user" ? draftError.message : null}><DirectionBoundary as="textarea" language={null} className={`${fieldClass} font-mono text-sm`} rows={6} maxLength={40_000} value={userTemplate} onBlur={() => undefined} onChange={(event) => setUserTemplate(event.target.value)} /></Field>
+          {changedFromActive && active ? <PromptDiff before={active} systemTemplate={systemTemplate} userTemplate={userTemplate} /> : null}
           <div className="flex flex-wrap gap-2">
-            <Button disabled={!systemTemplate.trim() || !userTemplate.trim() || create.isPending} onClick={() => create.mutate()}>{create.isPending ? <LoaderCircle className="animate-spin" aria-hidden="true" /> : <Plus aria-hidden="true" />}Create immutable version</Button>
-            <Button variant="outline" disabled={!dirty || create.isPending} onClick={() => { setSystemTemplate(""); setUserTemplate("") }}>Reset</Button>
+            <Button disabled={!changedFromActive || Boolean(draftError) || create.isPending} onClick={() => create.mutate()}>{create.isPending ? <LoaderCircle className="animate-spin" aria-hidden="true" /> : <Plus aria-hidden="true" />}Create immutable version</Button>
+            <Button variant="outline" disabled={!dirty || create.isPending} onClick={resetDraft}>Reset</Button>
           </div>
-          <label className="flex min-h-11 items-center gap-2 rounded-lg border bg-background px-3 text-sm">
-            <input type="checkbox" checked={confirmed} onChange={(event) => setConfirmed(event.target.checked)} />
-            Confirm activation changes which prompt new jobs use
-          </label>
+          {target && !target.isActive ? (
+            <div className="space-y-3 rounded-lg border border-amber-300 bg-amber-50 p-3 text-amber-950 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-100">
+              <div><strong>Activate version {target.version}?</strong><p className="text-sm">Follow-active routes and new editorial jobs will resolve this version. Pinned routes and existing revisions remain unchanged.</p></div>
+              {active ? <PromptDiff before={active} systemTemplate={target.systemTemplate} userTemplate={target.userTemplate} /> : null}
+              <Field label="Activation reason" required error={activationReason.length > 0 && activationReason.trim().length < 3 ? "Enter at least 3 characters." : null}>
+                <input className={fieldClass} maxLength={500} value={activationReason} onChange={(event) => setActivationReason(event.target.value)} />
+              </Field>
+              <label className="flex min-h-11 items-center gap-2 rounded-lg border bg-background px-3 text-sm">
+                <input type="checkbox" checked={confirmed} onChange={(event) => setConfirmed(event.target.checked)} />
+                Confirm activation changes prompt selection for future jobs
+              </label>
+              <div className="flex flex-wrap gap-2">
+                <Button disabled={!confirmed || activationReason.trim().length < 3 || activate.isPending} onClick={() => activate.mutate()}>{activate.isPending ? "Activating" : `Activate version ${target.version}`}</Button>
+                <Button variant="outline" disabled={activate.isPending} onClick={() => { setActivationTarget(null); setConfirmed(false); setActivationReason("") }}>Cancel</Button>
+              </div>
+            </div>
+          ) : null}
           <ol className="space-y-2" aria-label={`${template.purposeKey} immutable history`}>
             {versions.map((version) => (
               <li key={version.id} className="rounded-lg border bg-background p-3">
                 <div className="flex flex-wrap items-center justify-between gap-3">
-                  <div><strong>Version {version.version}</strong><div className="text-xs text-muted-foreground">{version.checksumSha256} · {version.isActive ? "Active" : "Inactive"}</div></div>
-                  <Button variant="outline" disabled={version.isActive || !confirmed || activate.isPending} onClick={() => activate.mutate(version.id)}>Activate</Button>
+                  <div>
+                    <strong>Version {version.version}</strong>
+                    <div className="break-all text-xs text-muted-foreground">{version.checksumSha256} · {version.isActive ? "Active" : "Inactive"}</div>
+                    {version.activationReason ? (
+                      <div className="mt-1 text-xs text-muted-foreground">
+                        Activated {formatDate(version.activatedAt)} by {version.activatedByType} {version.activatedById} · {version.activationReason}
+                      </div>
+                    ) : null}
+                  </div>
+                  <Button variant="outline" disabled={version.isActive || activate.isPending} onClick={() => { setActivationTarget(version.id); setConfirmed(false); setActivationReason("") }}>Review activation</Button>
                 </div>
                 <details className="mt-2"><summary className="cursor-pointer text-sm">Inspect raw template</summary><DirectionBoundary as="pre" language={null} className="mt-2 max-h-64 overflow-auto whitespace-pre-wrap break-words rounded bg-muted p-3 text-xs">{version.systemTemplate}{"\n\n"}{version.userTemplate}</DirectionBoundary></details>
               </li>
@@ -1134,6 +1221,30 @@ function PromptAdvancedManager({
       </details>
     </div>
   )
+}
+
+function PromptDiff({ before, systemTemplate, userTemplate }: { before: PromptVersion; systemTemplate: string; userTemplate: string }) {
+  return (
+    <div className="grid gap-2 rounded-lg border bg-background p-3 text-xs md:grid-cols-2" aria-label={`Diff from version ${before.version}`}>
+      <div><strong>Current version {before.version}</strong><pre className="mt-2 max-h-40 overflow-auto whitespace-pre-wrap break-words rounded bg-red-50 p-2 text-red-950 dark:bg-red-950/30 dark:text-red-100">{before.systemTemplate}{"\n\n"}{before.userTemplate}</pre></div>
+      <div><strong>Proposed version</strong><pre className="mt-2 max-h-40 overflow-auto whitespace-pre-wrap break-words rounded bg-emerald-50 p-2 text-emerald-950 dark:bg-emerald-950/30 dark:text-emerald-100">{systemTemplate}{"\n\n"}{userTemplate}</pre></div>
+    </div>
+  )
+}
+
+function validatePromptDraft(systemTemplate: string, userTemplate: string, requiredVariables: string[]) {
+  if (!systemTemplate.trim()) return { field: "system" as const, message: "System template is required." }
+  if (!userTemplate.trim()) return { field: "user" as const, message: "User template is required." }
+  if (systemTemplate.length > 20_000) return { field: "system" as const, message: "System template exceeds 20,000 characters." }
+  if (userTemplate.length > 40_000) return { field: "user" as const, message: "User template exceeds 40,000 characters." }
+  if (systemTemplate.length + userTemplate.length > 50_000) return { field: "user" as const, message: "Combined templates exceed 50,000 characters." }
+  const normalized = `${systemTemplate}\n${userTemplate}`.replaceAll("{{", "").replaceAll("}}", "")
+  const variables = [...normalized.matchAll(/\{([^{}]+)\}/g)].map((match) => match[1])
+  const unsupported = variables.filter((variable) => !requiredVariables.includes(variable))
+  if (unsupported.length) return { field: "user" as const, message: `Unsupported variables: ${unsupported.join(", ")}.` }
+  const missing = requiredVariables.filter((variable) => !variables.includes(variable))
+  if (missing.length) return { field: "user" as const, message: `Missing required variables: ${missing.join(", ")}.` }
+  return null
 }
 
 function SettingsSection({

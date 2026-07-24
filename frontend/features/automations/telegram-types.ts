@@ -5,6 +5,7 @@ export type TelegramResearchMode = "off" | "manual" | "auto_if_incomplete"
 export type TelegramMediaPolicy = "preserve" | "omit" | "replace_manually"
 export type TelegramAttributionPolicy = "preserve" | "remove" | "custom"
 export type TelegramPublishingPolicy = "review_required" | "auto_publish"
+export type TelegramPromptPolicy = "pinned" | "follow_active"
 export type TelegramApprovalState = "draft" | "pending_review" | "approved" | "rejected"
 export type TelegramDirection = "ltr" | "rtl"
 export type TelegramParseMode = "HTML"
@@ -108,6 +109,7 @@ export type TelegramRoute = {
   destinationId: string
   brandProfileId: string
   promptTemplateVersionId: string
+  promptPolicy: TelegramPromptPolicy
   aiProviderProfileId: string
   accessMode: TelegramAccessMode
   researchMode: TelegramResearchMode
@@ -134,6 +136,7 @@ export type TelegramRouteInput = {
   destinationId: string
   brandProfileId: string
   promptTemplateVersionId: string
+  promptPolicy: TelegramPromptPolicy
   aiProviderProfileId: string
   accessMode: TelegramAccessMode
   researchMode?: TelegramResearchMode
@@ -180,7 +183,7 @@ export type TelegramAutomationOptions = {
   sources: Array<TelegramOption & { accessMode: TelegramAccessMode; capabilityState: CredentialCapabilityState }>
   destinations: Array<TelegramOption & { healthStatus: TelegramDestinationHealth; allowAutoPublish: boolean; capabilityState: CredentialCapabilityState }>
   brandProfiles: TelegramOption[]
-  promptTemplateVersions: Array<{ id: string; version: number }>
+  promptTemplateVersions: Array<{ id: string; version: number; isActive: boolean; checksumSha256: string }>
   aiProviderProfiles: Array<
     TelegramOption & { providerType: "fake" | "openrouter" | "codex"; defaultModel: string | null; configured: boolean; capabilities: { generation: boolean; research: boolean }; capabilityStates: { generation: CredentialCapabilityState; research: CredentialCapabilityState } }
   >
@@ -338,6 +341,10 @@ export type PromptVersion = {
   outputSchema: Record<string, unknown>
   checksumSha256: string
   isActive: boolean
+  activatedAt: string | null
+  activatedByType: string | null
+  activatedById: string | null
+  activationReason: string | null
   createdAt: string
 }
 export type PromptVersionInput = { systemTemplate: string; userTemplate: string }
