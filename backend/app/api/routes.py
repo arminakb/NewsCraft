@@ -2,6 +2,7 @@ from fastapi import APIRouter
 
 from app.api.calendar import router as calendar_router
 from app.api.codex_gateway import router as codex_gateway_router
+from app.api.codex_tools import router as codex_tools_router
 from app.api.content import router as content_router
 from app.api.content_packs import router as content_packs_router
 from app.api.control import router as control_router
@@ -35,6 +36,7 @@ router.include_router(diagnostics_router)
 router.include_router(exports_router)
 router.include_router(calendar_router)
 router.include_router(codex_gateway_router)
+router.include_router(codex_tools_router)
 router.include_router(jobs_router)
 router.include_router(library_router)
 router.include_router(llm_providers_router)

@@ -1,0 +1,130 @@
+{
+  "schema_version": 1,
+  "name": "newscraft",
+  "transport": {
+    "type": "stdio",
+    "module": "app.codex_gateway.mcp_server"
+  },
+  "canonical_api": "rest",
+  "tools": [
+    {
+      "name": "newscraft_get_status",
+      "required_scope": null,
+      "method": "GET",
+      "path": "/codex-gateway/tools/status",
+      "input_schema": {
+        "type": "object",
+        "properties": {},
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "newscraft_get_content_settings_summary",
+      "required_scope": "settings:read",
+      "method": "GET",
+      "path": "/codex-gateway/tools/content-settings-summary",
+      "input_schema": {
+        "type": "object",
+        "properties": {},
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "newscraft_list_llm_providers",
+      "required_scope": "providers:read",
+      "method": "GET",
+      "path": "/codex-gateway/tools/llm-providers",
+      "input_schema": {
+        "type": "object",
+        "properties": {},
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "newscraft_get_llm_provider_status",
+      "required_scope": "providers:read",
+      "method": "GET",
+      "path": "/codex-gateway/tools/llm-providers/{provider_id}",
+      "input_schema": {
+        "type": "object",
+        "required": [
+          "provider_id"
+        ],
+        "properties": {
+          "provider_id": {
+            "type": "string",
+            "format": "uuid"
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "newscraft_list_telegram_destinations",
+      "required_scope": "destinations:read",
+      "method": "GET",
+      "path": "/codex-gateway/tools/telegram-destinations",
+      "input_schema": {
+        "type": "object",
+        "properties": {},
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "newscraft_get_telegram_destination_status",
+      "required_scope": "destinations:read",
+      "method": "GET",
+      "path": "/codex-gateway/tools/telegram-destinations/{destination_id}",
+      "input_schema": {
+        "type": "object",
+        "required": [
+          "destination_id"
+        ],
+        "properties": {
+          "destination_id": {
+            "type": "string",
+            "format": "uuid"
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "newscraft_list_automations",
+      "required_scope": "automations:read",
+      "method": "GET",
+      "path": "/codex-gateway/tools/automations",
+      "input_schema": {
+        "type": "object",
+        "properties": {},
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "newscraft_get_job_status",
+      "required_scope": "jobs:read",
+      "method": "GET",
+      "path": "/codex-gateway/tools/jobs/{job_id}",
+      "input_schema": {
+        "type": "object",
+        "required": [
+          "job_id"
+        ],
+        "properties": {
+          "job_id": {
+            "type": "string",
+            "format": "uuid"
+          }
+        },
+        "additionalProperties": false
+      }
+    }
+  ],
+  "annotations": {
+    "readOnlyHint": true,
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": false
+  },
+  "secret_returning_tools": false
+}

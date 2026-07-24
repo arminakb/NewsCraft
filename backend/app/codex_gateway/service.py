@@ -425,6 +425,27 @@ class CodexGatewayService:
         )
         raise GatewayError("scope_denied", 403)
 
+    def record_tool_call(
+        self,
+        connection: CodexConnection,
+        principal: SecurityPrincipal,
+        *,
+        capability: str,
+        outcome: str,
+        required_scope: str | None,
+        reason_code: str | None = None,
+    ) -> None:
+        self._audit(
+            principal=principal,
+            action="codex_gateway.tool_call",
+            outcome=outcome,
+            resource_type="codex_connection",
+            resource_id=connection.id,
+            required_scope=required_scope,
+            reason_code=reason_code,
+            metadata={"capability": capability},
+        )
+
     async def list_connections(self) -> list[CodexConnection]:
         return list(
             await self.session.scalars(
