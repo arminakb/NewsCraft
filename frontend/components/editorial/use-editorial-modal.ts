@@ -33,7 +33,12 @@ export function useEditorialModal({
   useEffect(() => {
     if (!open) return
     openerRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null
-    const focusInitial = () => (initialFocusRef.current ?? focusable(containerRef.current)[0] ?? containerRef.current)?.focus()
+    const focusInitial = () => (
+      initialFocusRef.current
+      ?? containerRef.current?.querySelector<HTMLElement>("[autofocus]")
+      ?? focusable(containerRef.current)[0]
+      ?? containerRef.current
+    )?.focus()
     queueMicrotask(focusInitial)
 
     const onKeyDown = (event: KeyboardEvent) => {

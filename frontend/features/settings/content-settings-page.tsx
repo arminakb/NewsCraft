@@ -1,371 +1,1301 @@
 "use client"
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { useState } from "react"
+import {
+  Activity,
+  Bot,
+  BrainCircuit,
+  CheckCircle2,
+  CircleAlert,
+  CircleDashed,
+  ExternalLink,
+  KeyRound,
+  LoaderCircle,
+  Pencil,
+  Plus,
+  RefreshCw,
+  RotateCw,
+  Route,
+  ShieldCheck,
+  Trash2,
+  UserRound,
+  X,
+} from "lucide-react"
+import { cloneElement, isValidElement, useId, useRef, useState } from "react"
 
+import { DirectionBoundary } from "@/components/newsroom/direction-boundary"
 import { useNotices } from "@/components/providers/notice-provider"
+import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import {
+  Card,
+  CardAction,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card"
+import { useDirtyNavigation } from "@/components/editorial/use-dirty-navigation"
+import { useEditorialModal } from "@/components/editorial/use-editorial-modal"
 import {
   activatePromptVersion,
-  createAIProviderProfile,
   createBrandProfile,
-  createPromptTemplate,
   createPromptVersion,
-  createTelegramDestination,
-  getAIProviderProfiles,
   getBrandProfiles,
   getPromptTemplates,
   getPromptVersions,
-  getTelegramDestinations,
-  updateAIProviderProfile,
   updateBrandProfile,
 } from "@/features/automations/telegram-api"
-import type { AIProviderProfile, BrandProfile, CredentialCapabilityState } from "@/features/automations/telegram-types"
+import type { BrandProfile } from "@/features/automations/telegram-types"
+import {
+  createCodexPairingSession,
+  createLLMProvider,
+  createTelegramDestination,
+  createTelegramProxy,
+  deleteLLMProvider,
+  deleteTelegramDestination,
+  deleteTelegramProxy,
+  getCodexActivity,
+  getCodexConnections,
+  getLLMProviderDependencies,
+  getLLMProviders,
+  getTelegramDestinationDependencies,
+  getTelegramDestinations,
+  getTelegramProxies,
+  getTelegramProxyDependencies,
+  recheckTelegramDestination,
+  recheckTelegramProxy,
+  revokeCodexConnection,
+  rotateCodexConnection,
+  rotateLLMProviderKey,
+  rotateTelegramToken,
+  rotateTelegramProxyCredentials,
+  setLLMProviderEnabled,
+  setTelegramDestinationEnabled,
+  setTelegramProxyEnabled,
+  testLLMProvider,
+  updateLLMProvider,
+  updateTelegramDestination,
+  updateTelegramProxy,
+} from "./content-settings-api"
+import type {
+  CodexConnection,
+  LLMProvider,
+  TelegramDestination,
+  TelegramProxy,
+} from "./content-settings-api"
 import { getApiErrorMessage } from "@/lib/http"
 import { queryKeys } from "@/lib/query-keys"
-import { DirectionBoundary } from "@/components/newsroom/direction-boundary"
 
-const telegramPromptBody = [
-  "Source text: {source_text}",
-  "Source URL: {source_url}",
-  "Source channel: {source_channel}",
-  "Language: {language}",
-  "Direction: {direction}",
-  "Attribution policy: {attribution_policy}",
-  "Footer: {custom_footer}",
-].join("\n")
-const requiredTelegramPlaceholders = [
-  "source_text",
-  "source_url",
-  "source_channel",
-  "language",
-  "direction",
-  "attribution_policy",
-  "custom_footer",
+const fieldClass =
+  "min-h-11 w-full rounded-lg border bg-background px-3 py-2 text-base outline-none transition-colors focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/30 disabled:bg-muted disabled:text-muted-foreground"
+const promptPurposes = [
+  ["canonical_story", "Canonical Story"],
+  ["telegram_rewrite", "Telegram Automation Rewrite"],
+  ["telegram_pack", "Telegram Pack"],
+  ["instagram_pack", "Instagram Pack"],
+  ["x_pack", "X Pack"],
+  ["blog_pack", "Blog Pack"],
 ] as const
-const environmentNamePattern = "[A-Z][A-Z0-9_]{2,127}"
-const environmentNameRegex = /^[A-Z][A-Z0-9_]{2,127}$/
-
-const fieldClass = "min-h-10 w-full rounded-lg border bg-background px-3 py-2"
+const readScopes = [
+  "settings:read",
+  "providers:read",
+  "destinations:read",
+  "prompts:read",
+  "automations:read",
+  "jobs:read",
+]
 
 export function ContentSettingsPage() {
-  const queryClient = useQueryClient()
-  const { pushNotice } = useNotices()
   const brands = useQuery({ queryKey: queryKeys.brandProfiles, queryFn: getBrandProfiles })
   const templates = useQuery({ queryKey: queryKeys.promptTemplates, queryFn: getPromptTemplates })
-  const providers = useQuery({ queryKey: queryKeys.aiProviderProfiles, queryFn: getAIProviderProfiles })
-  const destinations = useQuery({ queryKey: queryKeys.telegramDestinations, queryFn: getTelegramDestinations })
-  const telegramTemplate = templates.data?.find((item) => item.purposeKey === "telegram_rewrite")
-  const versions = useQuery({
-    queryKey: telegramTemplate ? queryKeys.promptVersions(telegramTemplate.id) : ["prompt-versions", "none"],
-    queryFn: () => getPromptVersions(telegramTemplate!.id),
-    enabled: Boolean(telegramTemplate),
+  const providers = useQuery({ queryKey: queryKeys.llmProviders, queryFn: getLLMProviders })
+  const destinations = useQuery({
+    queryKey: queryKeys.telegramDestinations,
+    queryFn: getTelegramDestinations,
+    refetchInterval: (query) => query.state.data?.some((item) =>
+      [item.healthStatus, item.proxyHealthStatus, item.telegramHealthStatus].includes("checking")
+    ) ? 3_000 : false,
   })
+  const proxies = useQuery({
+    queryKey: queryKeys.telegramProxies,
+    queryFn: getTelegramProxies,
+    refetchInterval: (query) => query.state.data?.some((item) => item.reachabilityStatus === "checking") ? 3_000 : false,
+  })
+  const connections = useQuery({
+    queryKey: queryKeys.codexConnections,
+    queryFn: getCodexConnections,
+    refetchInterval: 20_000,
+  })
+  const activity = useQuery({
+    queryKey: queryKeys.codexActivity,
+    queryFn: () => getCodexActivity(),
+    refetchInterval: 20_000,
+  })
+  const queries = [brands, templates, providers, destinations, proxies, connections, activity]
 
-  const [brandName, setBrandName] = useState("")
-  const [instructions, setInstructions] = useState("Rewrite faithfully using only verified evidence")
-  const [userTemplate, setUserTemplate] = useState(telegramPromptBody)
-  const [activationConfirmed, setActivationConfirmed] = useState(false)
-  const [providerName, setProviderName] = useState("")
-  const [providerModel, setProviderModel] = useState("openai/gpt-5-mini")
-  const [providerEnv, setProviderEnv] = useState("")
-  const [destinationName, setDestinationName] = useState("")
-  const [targetRef, setTargetRef] = useState("")
-  const [destinationEnv, setDestinationEnv] = useState("")
-  const [allowAutoPublish, setAllowAutoPublish] = useState(false)
-
-  const fail = (title: string) => (error: unknown) =>
-    pushNotice({ tone: "error", title, message: getApiErrorMessage(error) })
-
-  const createBrand = useMutation({
-    mutationFn: () =>
-      createBrandProfile({
-        name: brandName.trim(),
-        outputLanguage: "fa",
-        tone: "neutral",
-        editorialRules: [],
-        attributionRules: {},
-        defaultHashtags: [],
-        platformPreferences: {},
-        isDefault: false,
-      }),
-    onSuccess: async () => {
-      setBrandName("")
-      await Promise.all([
-        queryClient.invalidateQueries({ queryKey: queryKeys.brandProfiles }),
-        queryClient.invalidateQueries({ queryKey: queryKeys.telegramOptions }),
-      ])
-      pushNotice({ tone: "success", title: "Brand created", message: "The brand profile is now available." })
-    },
-    onError: fail("Brand creation failed"),
-  })
-  const createTemplate = useMutation({
-    mutationFn: () =>
-      createPromptTemplate({ purposeKey: "telegram_rewrite", name: "Telegram rewrite", description: "Telegram newsroom rewrite" }),
-    onSuccess: async () => { await Promise.all([
-      queryClient.invalidateQueries({ queryKey: queryKeys.promptTemplates }),
-      queryClient.invalidateQueries({ queryKey: queryKeys.telegramOptions }),
-    ]) },
-    onError: fail("Prompt initialization failed"),
-  })
-  const addVersion = useMutation({
-    mutationFn: () => createPromptVersion(telegramTemplate!.id, { systemTemplate: instructions, userTemplate }),
-    onSuccess: async () => {
-      await Promise.all([
-        queryClient.invalidateQueries({ queryKey: queryKeys.promptVersions(telegramTemplate!.id) }),
-        queryClient.invalidateQueries({ queryKey: queryKeys.editorialPromptOptions }),
-        queryClient.invalidateQueries({ queryKey: queryKeys.telegramOptions }),
-      ])
-      pushNotice({ tone: "success", title: "Prompt version created", message: "The immutable version is inactive until confirmed." })
-    },
-    onError: fail("Prompt version creation failed"),
-  })
-  const activate = useMutation({
-    mutationFn: (versionId: string) => activatePromptVersion(versionId),
-    onSuccess: async () => {
-      setActivationConfirmed(false)
-      await Promise.all([
-        queryClient.invalidateQueries({ queryKey: queryKeys.promptVersions(telegramTemplate!.id) }),
-        queryClient.invalidateQueries({ queryKey: queryKeys.editorialPromptOptions }),
-        queryClient.invalidateQueries({ queryKey: queryKeys.telegramOptions }),
-      ])
-      pushNotice({ tone: "success", title: "Prompt activated", message: "New jobs will use the selected exact version." })
-    },
-    onError: fail("Prompt activation failed"),
-  })
-  const createProvider = useMutation({
-    mutationFn: () =>
-      createAIProviderProfile({
-        name: providerName.trim(),
-        providerType: "openrouter",
-        defaultModel: providerModel.trim() || null,
-        secretRef: providerEnv.trim(),
-        settings: {},
-        enabled: true,
-      }),
-    onSuccess: async () => {
-      setProviderEnv("")
-      await Promise.all([
-        queryClient.invalidateQueries({ queryKey: queryKeys.aiProviderProfiles }),
-        queryClient.invalidateQueries({ queryKey: queryKeys.telegramOptions }),
-      ])
-      pushNotice({ tone: "success", title: "Provider saved", message: "Only configuration availability is displayed." })
-    },
-    onError: fail("Provider creation failed"),
-  })
-  const createDestination = useMutation({
-    mutationFn: () =>
-      createTelegramDestination({
-        name: destinationName.trim(),
-        targetRef: targetRef.trim(),
-        secretRef: destinationEnv.trim(),
-        allowAutoPublish,
-      }),
-    onSuccess: async () => {
-      setDestinationEnv("")
-      await Promise.all([
-        queryClient.invalidateQueries({ queryKey: queryKeys.telegramDestinations }),
-        queryClient.invalidateQueries({ queryKey: queryKeys.telegramOptions }),
-      ])
-      pushNotice({ tone: "success", title: "Destination accepted", message: "Health will reflect the backend check." })
-    },
-    onError: fail("Destination creation failed"),
-  })
-
-  const queries = [brands, templates, providers, destinations]
-  const missingPlaceholders = requiredTelegramPlaceholders.filter(
-    (placeholder) => !userTemplate.includes(`{${placeholder}}`)
-  )
-  if (queries.some((query) => query.isPending)) {
-    return <section className="p-4 md:p-6" role="status" aria-label="Loading content settings">Loading content settings</section>
-  }
-  const queryError = queries.find((query) => query.isError)?.error
-  if (queryError) {
+  if (queries.some((query) => query.isPending)) return <SettingsSkeleton />
+  const failed = queries.filter((query) => query.isError)
+  if (failed.length) {
     return (
-      <section className="space-y-3 p-4 md:p-6">
-        <div role="alert" dir="auto" className="text-red-700">{getApiErrorMessage(queryError, "Content settings request failed")}</div>
-        <Button variant="outline" onClick={() => void Promise.all(queries.map((query) => query.refetch()))}>Retry settings</Button>
+      <section className="space-y-4 p-4 md:p-6" aria-labelledby="content-settings-error">
+        <h1 id="content-settings-error" className="text-xl font-semibold">Content settings unavailable</h1>
+        <p role="alert" dir="auto" className="text-sm text-red-700 dark:text-red-300">
+          {getApiErrorMessage(failed[0].error, "Content settings could not be loaded.")}
+        </p>
+        <Button variant="outline" onClick={() => void Promise.all(queries.map((query) => query.refetch()))}>
+          <RefreshCw aria-hidden="true" /> Retry settings
+        </Button>
       </section>
     )
   }
 
+  const enabledProviders = providers.data?.filter((item) => item.enabled) ?? []
+  const healthyDestinations = destinations.data?.filter((item) => item.healthStatus === "healthy") ?? []
+  const greenConnections = connections.data?.filter((item) => item.status === "green") ?? []
+  const activePrompts = templates.data?.length ?? 0
+
   return (
     <section className="min-w-0 space-y-6 p-4 md:p-6" aria-labelledby="content-settings-heading">
-      <header>
-        <h1 id="content-settings-heading" className="text-2xl font-semibold">Content settings</h1>
-        <p className="text-muted-foreground">Manage live editorial configuration without exposing credential values or secret references.</p>
+      <header className="max-w-3xl">
+        <p className="text-xs font-semibold uppercase tracking-[0.18em] text-primary">Configuration</p>
+        <h1 id="content-settings-heading" className="mt-1 text-2xl font-semibold tracking-tight md:text-3xl">
+          Content settings
+        </h1>
+        <p className="mt-2 text-sm leading-6 text-muted-foreground">
+          Manage editorial behavior, model connections, Codex access, publishing destinations, and prompt history.
+          Secrets stay write-only.
+        </p>
       </header>
 
-      <section className="grid min-w-0 gap-6 xl:grid-cols-2">
-        <Card>
-          <CardHeader><CardTitle>Brands</CardTitle><CardDescription>Reusable editorial voice and language profiles.</CardDescription></CardHeader>
-          <CardContent className="space-y-4">
-            <form className="grid gap-3 sm:grid-cols-[1fr_auto]" onSubmit={(event) => { event.preventDefault(); createBrand.mutate() }}>
-              <Field label="New brand name"><input className={fieldClass} value={brandName} onChange={(event) => setBrandName(event.target.value)} required /></Field>
-              <Button className="self-end" type="submit" disabled={createBrand.isPending || !brandName.trim()}>Create brand</Button>
-            </form>
-            {brands.data?.length ? brands.data.map((brand) => <BrandEditor key={brand.id} brand={brand} />) : <Empty>No brand profiles configured</Empty>}
-          </CardContent>
-        </Card>
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4" aria-label="Content readiness summary">
+        <SummaryCard icon={BrainCircuit} label="LLM providers" value={`${enabledProviders.length} enabled`} ready={enabledProviders.some((item) => item.generationReady)} />
+        <SummaryCard icon={Bot} label="Telegram" value={`${healthyDestinations.length}/${destinations.data?.length ?? 0} healthy`} ready={healthyDestinations.length > 0} />
+        <SummaryCard icon={ShieldCheck} label="Codex" value={greenConnections.length ? `${greenConnections.length} connected` : "No live heartbeat"} ready={greenConnections.length > 0} />
+        <SummaryCard icon={Activity} label="Prompt purposes" value={`${activePrompts} configured`} ready={activePrompts > 0} />
+      </div>
 
-        <PromptPurposeHistory title="Canonical story prompts" purpose="canonical_story" templates={templates.data ?? []} />
-        <PromptPurposeHistory title="Telegram pack prompts" purpose="telegram_pack" templates={templates.data ?? []} />
+      <nav className="sticky top-0 z-20 -mx-4 flex gap-1 overflow-x-auto border-y bg-background/95 px-4 py-2 backdrop-blur md:-mx-6 md:px-6" aria-label="Content settings sections">
+        {[
+          ["editorial-profiles", "Editorial profiles"],
+          ["llm-providers", "LLM providers"],
+          ["codex-connection", "Codex"],
+          ["telegram-destinations", "Telegram"],
+          ["prompt-governance", "Prompts"],
+        ].map(([href, label]) => (
+          <a key={href} className="min-h-10 shrink-0 rounded-lg px-3 py-2 text-sm font-medium text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring" href={`#${href}`}>
+            {label}
+          </a>
+        ))}
+      </nav>
 
-        <Card>
-          <CardHeader><CardTitle>Telegram prompt versions</CardTitle><CardDescription>History is read-only. Every edit creates a new immutable version.</CardDescription></CardHeader>
-          <CardContent className="space-y-4">
-            {!telegramTemplate ? (
-              <Button onClick={() => createTemplate.mutate()} disabled={createTemplate.isPending}>Initialize Telegram prompt</Button>
-            ) : (
-              <>
-                <div className="grid gap-3">
-                  <Field label="Custom instructions"><DirectionBoundary as="textarea" language={null} className={fieldClass} rows={3} value={instructions} onChange={(event) => setInstructions(event.target.value)} /></Field>
-                  <Field label="User template"><DirectionBoundary as="textarea" language={null} className={`${fieldClass} font-mono text-xs`} rows={9} value={userTemplate} onChange={(event) => setUserTemplate(event.target.value)} /></Field>
-                  {missingPlaceholders.length ? <div role="alert" className="text-amber-800">Required placeholders missing: {missingPlaceholders.join(", ")}</div> : null}
-                  <Button className="justify-self-start" onClick={() => addVersion.mutate()} disabled={addVersion.isPending || missingPlaceholders.length > 0}>Create prompt version</Button>
-                </div>
-                <label className="flex min-h-11 items-center gap-2 rounded-lg border p-3">
-                  <input type="checkbox" checked={activationConfirmed} onChange={(event) => setActivationConfirmed(event.target.checked)} />
-                  <span>Confirm prompt activation</span>
-                </label>
-                {versions.isPending ? <div role="status">Loading prompt history</div> : versions.isError ? <div role="alert">{getApiErrorMessage(versions.error)}</div> : versions.data?.length ? (
-                  <ol className="space-y-2" aria-label="Immutable prompt history">
-                    {versions.data.map((version) => (
-                      <li key={version.id} className="flex flex-wrap items-center justify-between gap-3 rounded-lg border p-3">
-                        <div className="min-w-0 flex-1">
-                          <div className="font-medium">Version {version.version}</div>
-                          <div className="text-xs text-muted-foreground">{version.isActive ? "Active" : "Inactive"} · {version.checksumSha256.slice(0, 12)}</div>
-                          <details className="mt-2">
-                            <summary className="cursor-pointer">Inspect immutable templates</summary>
-                            <DirectionBoundary as="pre" language={null} className="mt-2 max-h-48 overflow-auto whitespace-pre-wrap break-words rounded bg-muted p-2 text-xs">{version.systemTemplate}{"\n\n"}{version.userTemplate}</DirectionBoundary>
-                          </details>
-                        </div>
-                        <Button variant="outline" disabled={!activationConfirmed || activate.isPending || version.isActive} onClick={() => activate.mutate(version.id)}>Activate version {version.version}</Button>
-                      </li>
-                    ))}
-                  </ol>
-                ) : <Empty>No prompt versions</Empty>}
-              </>
-            )}
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader><CardTitle>AI providers</CardTitle><CardDescription>Enter only a credential reference. The generation worker—not this API—reports whether it is usable.</CardDescription></CardHeader>
-          <CardContent className="space-y-4">
-            <form className="grid gap-3" onSubmit={(event) => { event.preventDefault(); createProvider.mutate() }}>
-              <div className="grid gap-3 sm:grid-cols-2">
-                <Field label="Provider profile name"><input className={fieldClass} value={providerName} onChange={(event) => setProviderName(event.target.value)} required /></Field>
-                <Field label="Default model"><input className={fieldClass} value={providerModel} onChange={(event) => setProviderModel(event.target.value)} /></Field>
-              </div>
-              <Field label="Provider environment variable name"><input className={fieldClass} pattern={environmentNamePattern} autoComplete="off" value={providerEnv} onChange={(event) => setProviderEnv(event.target.value)} required /></Field>
-              <Button className="justify-self-start" type="submit" disabled={createProvider.isPending}>Create OpenRouter profile</Button>
-            </form>
-            {providers.data?.length ? providers.data.map((provider) => <ProviderEditor key={provider.id} provider={provider} />) : <Empty>No AI providers configured</Empty>}
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader><CardTitle>Telegram destinations</CardTitle><CardDescription>Health and auto-publish policy come directly from the backend.</CardDescription></CardHeader>
-          <CardContent className="space-y-4">
-            <form className="grid gap-3" onSubmit={(event) => { event.preventDefault(); createDestination.mutate() }}>
-              <div className="grid gap-3 sm:grid-cols-2">
-                <Field label="Destination name"><input className={fieldClass} value={destinationName} onChange={(event) => setDestinationName(event.target.value)} required /></Field>
-                <Field label="Telegram channel reference"><input className={fieldClass} placeholder="@channel" value={targetRef} onChange={(event) => setTargetRef(event.target.value)} required /></Field>
-              </div>
-              <Field label="Destination environment variable name"><input className={fieldClass} pattern={environmentNamePattern} autoComplete="off" value={destinationEnv} onChange={(event) => setDestinationEnv(event.target.value)} required /></Field>
-              <label className="flex min-h-11 items-center gap-2"><input type="checkbox" checked={allowAutoPublish} onChange={(event) => setAllowAutoPublish(event.target.checked)} /> Allow automatic publishing</label>
-              <Button className="justify-self-start" type="submit" disabled={createDestination.isPending}>Create destination</Button>
-            </form>
-            {destinations.data?.length ? destinations.data.map((destination) => (
-              <div key={destination.id} role="group" aria-label={`Destination ${destination.name}`} className="space-y-1 rounded-lg border p-3">
-                <div className="flex flex-wrap items-center justify-between gap-2"><strong>{destination.name}</strong><span>{healthLabel(destination.healthStatus)}</span></div>
-                <div className="text-sm text-muted-foreground">{destination.targetRef} · {destination.settings.allowAutoPublish ? "Auto-publish enabled" : "Auto-publish disabled"}</div>
-                <div className="text-xs text-muted-foreground">Publishing worker: {capabilityLabel(destination.capabilityState)}</div>
-              </div>
-            )) : <Empty>No Telegram destinations configured</Empty>}
-          </CardContent>
-        </Card>
-      </section>
+      <EditorialProfilesSection profiles={brands.data ?? []} />
+      <LLMProvidersSection providers={providers.data ?? []} />
+      <CodexSection connections={connections.data ?? []} activity={activity.data ?? []} />
+      <TelegramSection destinations={destinations.data ?? []} proxies={proxies.data ?? []} />
+      <PromptGovernanceSection templates={templates.data ?? []} />
     </section>
   )
 }
 
-function BrandEditor({ brand }: { brand: BrandProfile }) {
-  const queryClient = useQueryClient()
-  const { pushNotice } = useNotices()
-  const [name, setName] = useState(brand.name)
-  const [tone, setTone] = useState(brand.tone)
-  const mutation = useMutation({
-    mutationFn: () => updateBrandProfile(brand.id, { name, tone }),
-    onSuccess: async () => { await Promise.all([queryClient.invalidateQueries({ queryKey: queryKeys.brandProfiles }), queryClient.invalidateQueries({ queryKey: queryKeys.telegramOptions })]); pushNotice({ tone: "success", title: "Brand updated", message: "The live profile was saved." }) },
-    onError: (error) => pushNotice({ tone: "error", title: "Brand update failed", message: getApiErrorMessage(error) }),
-  })
+function SummaryCard({
+  icon: Icon,
+  label,
+  value,
+  ready,
+}: {
+  icon: typeof Activity
+  label: string
+  value: string
+  ready: boolean
+}) {
   return (
-    <fieldset role="group" aria-label={`Brand ${brand.name}`} className="grid gap-3 rounded-lg border p-3 sm:grid-cols-[1fr_1fr_auto]">
-      <Field label="Name"><input className={fieldClass} value={name} onChange={(event) => setName(event.target.value)} /></Field>
-      <Field label="Tone"><input className={fieldClass} value={tone} onChange={(event) => setTone(event.target.value)} /></Field>
-      <Button className="self-end" variant="outline" disabled={mutation.isPending} onClick={() => mutation.mutate()}>Save brand</Button>
-    </fieldset>
-  )
-}
-
-function ProviderEditor({ provider }: { provider: AIProviderProfile }) {
-  const queryClient = useQueryClient()
-  const { pushNotice } = useNotices()
-  const [model, setModel] = useState(provider.defaultModel ?? "")
-  const [environmentName, setEnvironmentName] = useState("")
-  const environmentNameIsValid = !environmentName || environmentNameRegex.test(environmentName)
-  const mutation = useMutation({
-    mutationFn: () => updateAIProviderProfile(provider.id, { defaultModel: model || null, ...(environmentName ? { secretRef: environmentName } : {}) }),
-    onSuccess: async () => { setEnvironmentName(""); await Promise.all([queryClient.invalidateQueries({ queryKey: queryKeys.aiProviderProfiles }), queryClient.invalidateQueries({ queryKey: queryKeys.telegramOptions })]); pushNotice({ tone: "success", title: "Provider updated", message: "Configuration availability was refreshed." }) },
-    onError: (error) => pushNotice({ tone: "error", title: "Provider update failed", message: getApiErrorMessage(error) }),
-  })
-  return (
-    <fieldset role="group" aria-label={`Provider ${provider.name}`} className="grid gap-3 rounded-lg border p-3">
-      <div className="flex flex-wrap items-center justify-between gap-2"><strong>{provider.name}</strong><span>Generation: {capabilityLabel(provider.capabilityStates.generation)}</span></div>
-      <div className="text-sm text-muted-foreground">{provider.providerType} · {provider.defaultModel ?? "default model"} · Research: {capabilityLabel(provider.capabilityStates.research)}</div>
-      {provider.unavailabilityCodes.length ? <div role="status" className="text-sm text-amber-800">Unavailable: {provider.unavailabilityCodes.map((code) => code.replaceAll("_", " ")).join(", ")}</div> : null}
-      <div className="grid gap-3 sm:grid-cols-2">
-        <Field label="Provider model"><input className={fieldClass} value={model} onChange={(event) => setModel(event.target.value)} /></Field>
-        {provider.providerType !== "codex" ? <Field label="Replacement environment variable name"><input className={fieldClass} pattern={environmentNamePattern} aria-invalid={!environmentNameIsValid} aria-describedby={!environmentNameIsValid ? `provider-environment-error-${provider.id}` : undefined} autoComplete="off" value={environmentName} onChange={(event) => setEnvironmentName(event.target.value)} /></Field> : <div className="self-end text-sm text-muted-foreground">Codex CLI uses the configured local executable and has no secret field.</div>}
+    <div className="flex items-center gap-3 rounded-xl border bg-card p-4 shadow-sm">
+      <span className="grid size-10 shrink-0 place-items-center rounded-lg bg-muted text-primary">
+        <Icon className="size-5" aria-hidden="true" />
+      </span>
+      <div className="min-w-0">
+        <div className="text-xs font-medium text-muted-foreground">{label}</div>
+        <div className="truncate font-semibold">{value}</div>
       </div>
-      {!environmentNameIsValid ? <div id={`provider-environment-error-${provider.id}`} role="alert" className="text-sm text-destructive">Use 3–128 characters: start with A–Z, then only A–Z, 0–9, or underscore.</div> : null}
-      <Button className="justify-self-start" variant="outline" disabled={mutation.isPending || !environmentNameIsValid || !provider.enabled} onClick={() => mutation.mutate()}>Save provider</Button>
-    </fieldset>
+      <span className={`ml-auto size-2.5 shrink-0 rounded-full ${ready ? "bg-emerald-600" : "bg-slate-400"}`} aria-label={ready ? "Ready" : "Needs attention"} />
+    </div>
   )
 }
 
-function capabilityLabel(state: CredentialCapabilityState) {
-  if (state.status === "available") return "Available"
-  if (state.status === "unavailable") return "Unavailable"
-  if (state.status === "stale") return "Observation stale"
-  return "Awaiting worker observation"
+function EditorialProfilesSection({ profiles }: { profiles: BrandProfile[] }) {
+  const [editing, setEditing] = useState<BrandProfile | "new" | null>(null)
+  return (
+    <SettingsSection
+      id="editorial-profiles"
+      icon={UserRound}
+      title="Editorial profiles"
+      description="Reusable language, tone, attribution, and platform defaults."
+      action={<Button onClick={() => setEditing("new")}><Plus aria-hidden="true" /> New profile</Button>}
+    >
+      {profiles.length ? (
+        <div className="grid gap-3 lg:grid-cols-2">
+          {profiles.map((profile) => (
+            <article key={profile.id} className="rounded-xl border bg-background p-4">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <h3 className="font-semibold">{profile.name}</h3>
+                    {profile.isDefault ? <Badge variant="secondary">Default</Badge> : null}
+                  </div>
+                  <p className="mt-1 text-sm text-muted-foreground">{profile.outputLanguage.toUpperCase()} · {profile.tone}</p>
+                </div>
+                <Button variant="outline" size="sm" onClick={() => setEditing(profile)}>
+                  <Pencil aria-hidden="true" /> Edit
+                </Button>
+              </div>
+              <details className="mt-3 rounded-lg bg-muted/60 p-3 text-sm">
+                <summary className="cursor-pointer font-medium">Advanced profile details</summary>
+                <dl className="mt-3 grid gap-2 text-muted-foreground">
+                  <div><dt className="font-medium text-foreground">Editorial rules</dt><dd>{profile.editorialRules.length ? profile.editorialRules.join(" · ") : "None"}</dd></div>
+                  <div><dt className="font-medium text-foreground">Default hashtags</dt><dd>{profile.defaultHashtags.length ? profile.defaultHashtags.join(" ") : "None"}</dd></div>
+                </dl>
+              </details>
+            </article>
+          ))}
+        </div>
+      ) : <EmptyState title="No editorial profiles" detail="Create one to set output language and editorial voice." />}
+      {editing ? <EditorialProfileDialog profile={editing === "new" ? null : editing} onClose={() => setEditing(null)} /> : null}
+    </SettingsSection>
+  )
 }
 
-function PromptPurposeHistory({ title, purpose, templates }: { title: string; purpose: string; templates: Array<{ id: string; purposeKey: string }> }) {
+function EditorialProfileDialog({ profile, onClose }: { profile: BrandProfile | null; onClose: () => void }) {
   const queryClient = useQueryClient()
-  const template = templates.find((item) => item.purposeKey === purpose)
-  const versions = useQuery({ queryKey: template ? queryKeys.promptVersions(template.id) : ["prompt-purpose", purpose, "none"], queryFn: () => getPromptVersions(template!.id), enabled: Boolean(template) })
+  const { pushNotice } = useNotices()
+  const initial = {
+    name: profile?.name ?? "",
+    outputLanguage: profile?.outputLanguage ?? "fa",
+    tone: profile?.tone ?? "neutral",
+    editorialRules: profile?.editorialRules.join("\n") ?? "",
+    defaultHashtags: profile?.defaultHashtags.join(" ") ?? "",
+    isDefault: profile?.isDefault ?? false,
+  }
+  const [form, setForm] = useState(initial)
+  const [touched, setTouched] = useState(false)
+  const dirty = JSON.stringify(form) !== JSON.stringify(initial)
+  const error = !form.name.trim() ? "Enter a profile name." : !form.outputLanguage.trim() ? "Enter an output language." : !form.tone.trim() ? "Enter a tone." : null
+  const mutation = useMutation({
+    mutationFn: () => {
+      const body = {
+        name: form.name.trim(),
+        outputLanguage: form.outputLanguage.trim(),
+        tone: form.tone.trim(),
+        editorialRules: lines(form.editorialRules),
+        attributionRules: profile?.attributionRules ?? {},
+        defaultHashtags: words(form.defaultHashtags),
+        platformPreferences: profile?.platformPreferences ?? {},
+        isDefault: form.isDefault,
+      }
+      return profile ? updateBrandProfile(profile.id, body) : createBrandProfile(body)
+    },
+    onSuccess: async () => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: queryKeys.brandProfiles }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.telegramOptions }),
+      ])
+      pushNotice({ tone: "success", title: profile ? "Profile updated" : "Profile created", message: "Editorial settings are ready to reuse." })
+      onClose()
+    },
+    onError: (cause) => pushNotice({ tone: "error", title: "Profile could not be saved", message: getApiErrorMessage(cause) }),
+  })
+  return (
+    <SettingsDialog
+      title={profile ? `Edit ${profile.name}` : "New editorial profile"}
+      description="Primary editorial defaults stay visible; detailed rules remain optional."
+      dirty={dirty}
+      pending={mutation.isPending}
+      submitDisabled={Boolean(error)}
+      onClose={onClose}
+      onReset={() => setForm(initial)}
+      onSubmit={() => { setTouched(true); if (!error) mutation.mutate() }}
+      submitLabel={profile ? "Save profile" : "Create profile"}
+    >
+      <div className="grid gap-4 sm:grid-cols-2">
+        <Field label="Profile name" required error={touched && !form.name.trim() ? error : null}>
+          <input autoFocus className={fieldClass} value={form.name} disabled={mutation.isPending} onBlur={() => setTouched(true)} onChange={(event) => setForm({ ...form, name: event.target.value })} />
+        </Field>
+        <Field label="Output language" required>
+          <input className={fieldClass} value={form.outputLanguage} disabled={mutation.isPending} onChange={(event) => setForm({ ...form, outputLanguage: event.target.value })} />
+        </Field>
+        <Field label="Tone" required>
+          <input className={fieldClass} value={form.tone} disabled={mutation.isPending} onChange={(event) => setForm({ ...form, tone: event.target.value })} />
+        </Field>
+        <label className="flex min-h-11 items-center gap-2 self-end rounded-lg border px-3 text-sm">
+          <input type="checkbox" checked={form.isDefault} disabled={mutation.isPending} onChange={(event) => setForm({ ...form, isDefault: event.target.checked })} />
+          Default editorial profile
+        </label>
+      </div>
+      <details className="rounded-lg border p-3">
+        <summary className="cursor-pointer font-medium">Advanced editorial rules</summary>
+        <div className="mt-4 grid gap-4">
+          <Field label="Editorial rules" hint="One rule per line">
+            <textarea className={fieldClass} rows={5} value={form.editorialRules} disabled={mutation.isPending} onChange={(event) => setForm({ ...form, editorialRules: event.target.value })} />
+          </Field>
+          <Field label="Default hashtags" hint="Separated by spaces">
+            <input className={fieldClass} value={form.defaultHashtags} disabled={mutation.isPending} onChange={(event) => setForm({ ...form, defaultHashtags: event.target.value })} />
+          </Field>
+        </div>
+      </details>
+    </SettingsDialog>
+  )
+}
+
+function LLMProvidersSection({ providers }: { providers: LLMProvider[] }) {
+  const queryClient = useQueryClient()
+  const { pushNotice } = useNotices()
+  const [editing, setEditing] = useState<LLMProvider | "new" | null>(null)
+  const [rotating, setRotating] = useState<LLMProvider | null>(null)
+  const [busy, setBusy] = useState<string | null>(null)
+  const refresh = () => queryClient.invalidateQueries({ queryKey: queryKeys.llmProviders })
+  const run = async (provider: LLMProvider, action: "test" | "toggle" | "dependencies" | "delete") => {
+    setBusy(`${provider.id}:${action}`)
+    try {
+      if (action === "test") {
+        await testLLMProvider(provider.id)
+        pushNotice({ tone: "success", title: "Connection tested", message: `${provider.name} diagnostics refreshed.` })
+      } else if (action === "toggle") {
+        await setLLMProviderEnabled(provider.id, !provider.enabled)
+        pushNotice({ tone: "success", title: provider.enabled ? "Provider disabled" : "Provider enabled", message: provider.name })
+      } else {
+        const dependencies = await getLLMProviderDependencies(provider.id)
+        const summary = `${dependencies.automations} automations, ${dependencies.generationRuns} generation runs, ${dependencies.researchRuns} research runs, ${dependencies.activeJobs} active jobs`
+        if (action === "dependencies") {
+          pushNotice({ tone: dependencies.blocked ? "error" : "success", title: "Provider dependencies", message: summary })
+        } else if (!dependencies.blocked && window.confirm(`Delete ${provider.name}? This cannot be undone.`)) {
+          await deleteLLMProvider(provider.id)
+          pushNotice({ tone: "success", title: "Provider deleted", message: provider.name })
+        } else if (dependencies.blocked) {
+          pushNotice({ tone: "error", title: "Provider cannot be deleted", message: summary })
+        }
+      }
+      await refresh()
+    } catch (cause) {
+      pushNotice({ tone: "error", title: "Provider action failed", message: getApiErrorMessage(cause) })
+    } finally {
+      setBusy(null)
+    }
+  }
+  return (
+    <SettingsSection
+      id="llm-providers"
+      icon={BrainCircuit}
+      title="LLM providers"
+      description="OpenAI-compatible connections with separate generation and research readiness."
+      action={<Button onClick={() => setEditing("new")}><Plus aria-hidden="true" /> Add provider</Button>}
+    >
+      {providers.length ? <div className="grid gap-3">
+        {providers.filter((provider) => provider.protocol !== "fake").map((provider) => (
+          <article key={provider.id} className="rounded-xl border bg-background p-4">
+            <div className="flex flex-col gap-4 xl:flex-row xl:items-center">
+              <div className="min-w-0 flex-1">
+                <div className="flex flex-wrap items-center gap-2">
+                  <h3 className="font-semibold">{provider.name}</h3>
+                  <StatusBadge value={provider.enabled ? "enabled" : "disabled"} />
+                  <StatusBadge value={provider.healthStatus} />
+                </div>
+                <p className="mt-1 truncate text-sm text-muted-foreground">{provider.defaultModel} · {provider.baseUrl}</p>
+                <div className="mt-3 flex flex-wrap gap-2 text-xs">
+                  <ReadinessLabel label="Generation" ready={provider.generationReady} value={provider.generationCapability} />
+                  <ReadinessLabel label="Research" ready={provider.researchReady} value={provider.researchCapability} />
+                  <span className="rounded-full bg-muted px-2.5 py-1">{provider.configured ? "API key configured" : "API key missing"}</span>
+                  <span className="rounded-full bg-muted px-2.5 py-1">{formatDate(provider.lastCheckedAt, "Never checked")}</span>
+                </div>
+                {provider.failureCode ? <p className="mt-2 text-sm text-amber-800 dark:text-amber-300" role="status">{safeCode(provider.failureCode)}</p> : null}
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <ActionButton label="Test" busy={busy === `${provider.id}:test`} onClick={() => void run(provider, "test")} icon={RefreshCw} />
+                <ActionButton label="Edit" onClick={() => setEditing(provider)} icon={Pencil} />
+                <ActionButton label="Rotate key" onClick={() => setRotating(provider)} icon={KeyRound} />
+                <ActionButton label={provider.enabled ? "Disable" : "Enable"} busy={busy === `${provider.id}:toggle`} onClick={() => void run(provider, "toggle")} icon={ShieldCheck} />
+                <ActionButton label="Dependencies" busy={busy === `${provider.id}:dependencies`} onClick={() => void run(provider, "dependencies")} icon={Route} />
+                <ActionButton label="Delete" busy={busy === `${provider.id}:delete`} onClick={() => void run(provider, "delete")} icon={Trash2} destructive />
+              </div>
+            </div>
+            <details className="mt-3 rounded-lg bg-muted/60 p-3 text-sm">
+              <summary className="cursor-pointer font-medium">Advanced diagnostics</summary>
+              <dl className="mt-3 grid gap-2 sm:grid-cols-3">
+                <Metric label="Timeout" value={`${provider.settings.timeoutSeconds}s`} />
+                <Metric label="Max input" value={provider.settings.maxInputTokens.toLocaleString()} />
+                <Metric label="Max output" value={provider.settings.maxOutputTokens.toLocaleString()} />
+              </dl>
+            </details>
+          </article>
+        ))}
+      </div> : <EmptyState title="No LLM providers" detail="Add an OpenAI-compatible endpoint to begin generation." />}
+      {editing ? <ProviderDialog provider={editing === "new" ? null : editing} onClose={() => setEditing(null)} /> : null}
+      {rotating ? (
+        <SecretDialog
+          title={`Rotate key for ${rotating.name}`}
+          label="New API key"
+          onClose={() => setRotating(null)}
+          onSave={async (secret) => {
+            await rotateLLMProviderKey(rotating.id, secret)
+            await refresh()
+            pushNotice({ tone: "success", title: "API key rotated", message: "Secret field was cleared." })
+          }}
+        />
+      ) : null}
+    </SettingsSection>
+  )
+}
+
+function ProviderDialog({ provider, onClose }: { provider: LLMProvider | null; onClose: () => void }) {
+  const queryClient = useQueryClient()
+  const { pushNotice } = useNotices()
+  const initial = {
+    name: provider?.name ?? "",
+    baseUrl: provider?.baseUrl ?? "https://api.openai.com/v1",
+    model: provider?.defaultModel ?? "",
+    apiKey: "",
+    timeout: provider?.settings.timeoutSeconds ?? 60,
+    maxInput: provider?.settings.maxInputTokens ?? 60_000,
+    maxOutput: provider?.settings.maxOutputTokens ?? 12_000,
+  }
+  const [form, setForm] = useState(initial)
+  const [touched, setTouched] = useState(false)
+  const dirty = JSON.stringify(form) !== JSON.stringify(initial)
+  const urlValid = /^https:\/\/[^?\s#]+$/i.test(form.baseUrl)
+  const error = !form.name.trim() ? "Enter a connection name." : !urlValid ? "Use a credential-free HTTPS base URL." : !form.model.trim() ? "Enter a model name." : !provider && !form.apiKey ? "Enter an API key." : null
+  const mutation = useMutation({
+    mutationFn: () => provider
+      ? updateLLMProvider(provider.id, {
+        name: form.name.trim(),
+        baseUrl: form.baseUrl.trim(),
+        defaultModel: form.model.trim(),
+        settings: { timeoutSeconds: form.timeout, maxInputTokens: form.maxInput, maxOutputTokens: form.maxOutput },
+      })
+      : createLLMProvider({
+        name: form.name.trim(),
+        baseUrl: form.baseUrl.trim(),
+        defaultModel: form.model.trim(),
+        apiKey: form.apiKey,
+        settings: { timeoutSeconds: form.timeout, maxInputTokens: form.maxInput, maxOutputTokens: form.maxOutput },
+      }),
+    onSuccess: async () => {
+      setForm({ ...form, apiKey: "" })
+      await queryClient.invalidateQueries({ queryKey: queryKeys.llmProviders })
+      pushNotice({ tone: "success", title: provider ? "Provider updated" : "Provider created", message: "Connection saved. Test it before enabling." })
+      onClose()
+    },
+    onError: (cause) => pushNotice({ tone: "error", title: "Provider could not be saved", message: getApiErrorMessage(cause) }),
+  })
+  return (
+    <SettingsDialog
+      title={provider ? `Edit ${provider.name}` : "Add LLM provider"}
+      description="Generic OpenAI-compatible connection. API keys are accepted once and never repopulated."
+      dirty={dirty}
+      pending={mutation.isPending}
+      submitDisabled={Boolean(error)}
+      onClose={onClose}
+      onReset={() => setForm(initial)}
+      onSubmit={() => { setTouched(true); if (!error) mutation.mutate() }}
+      submitLabel={provider ? "Save provider" : "Add provider"}
+    >
+      <div className="grid gap-4 sm:grid-cols-2">
+        <Field label="Connection name" required error={touched && !form.name.trim() ? error : null}>
+          <input autoFocus className={fieldClass} value={form.name} disabled={mutation.isPending} onBlur={() => setTouched(true)} onChange={(event) => setForm({ ...form, name: event.target.value })} />
+        </Field>
+        <Field label="Model name" required>
+          <input className={fieldClass} value={form.model} disabled={mutation.isPending} onChange={(event) => setForm({ ...form, model: event.target.value })} />
+        </Field>
+      </div>
+      <Field label="Base URL" required error={touched && !urlValid ? "Use a credential-free HTTPS base URL." : null}>
+        <input type="url" className={fieldClass} value={form.baseUrl} disabled={mutation.isPending} onBlur={() => setTouched(true)} onChange={(event) => setForm({ ...form, baseUrl: event.target.value })} />
+      </Field>
+      {!provider ? <Field label="API key" required hint="Write-only. Cleared after save."><input type="password" autoComplete="new-password" className={fieldClass} value={form.apiKey} disabled={mutation.isPending} onChange={(event) => setForm({ ...form, apiKey: event.target.value })} /></Field> : null}
+      <details className="rounded-lg border p-3">
+        <summary className="cursor-pointer font-medium">Advanced limits</summary>
+        <div className="mt-4 grid gap-4 sm:grid-cols-3">
+          <NumberField label="Timeout (seconds)" value={form.timeout} min={1} max={300} onChange={(timeout) => setForm({ ...form, timeout })} />
+          <NumberField label="Max input tokens" value={form.maxInput} min={1000} max={500000} onChange={(maxInput) => setForm({ ...form, maxInput })} />
+          <NumberField label="Max output tokens" value={form.maxOutput} min={500} max={100000} onChange={(maxOutput) => setForm({ ...form, maxOutput })} />
+        </div>
+      </details>
+    </SettingsDialog>
+  )
+}
+
+function CodexSection({
+  connections,
+  activity,
+}: {
+  connections: CodexConnection[]
+  activity: Array<{ id: string; action: string; outcome: string; reasonCode: string | null; createdAt: string }>
+}) {
+  const queryClient = useQueryClient()
+  const { pushNotice } = useNotices()
+  const [pairing, setPairing] = useState(false)
+  const [issued, setIssued] = useState<{ title: string; secret: string; command?: string } | null>(null)
+  const [busy, setBusy] = useState<string | null>(null)
+  const refresh = () => Promise.all([
+    queryClient.invalidateQueries({ queryKey: queryKeys.codexConnections }),
+    queryClient.invalidateQueries({ queryKey: queryKeys.codexActivity }),
+  ])
+  const rotate = async (connection: CodexConnection) => {
+    setBusy(`${connection.id}:rotate`)
+    try {
+      const result = await rotateCodexConnection(connection.id)
+      setIssued({ title: `Rotated credential for ${connection.deviceName}`, secret: result.credential })
+      await refresh()
+    } catch (cause) {
+      pushNotice({ tone: "error", title: "Credential rotation failed", message: getApiErrorMessage(cause) })
+    } finally { setBusy(null) }
+  }
+  const revoke = async (connection: CodexConnection) => {
+    if (!window.confirm(`Revoke ${connection.deviceName}? Access stops immediately.`)) return
+    setBusy(`${connection.id}:revoke`)
+    try {
+      await revokeCodexConnection(connection.id)
+      await refresh()
+      pushNotice({ tone: "success", title: "Codex connection revoked", message: connection.deviceName })
+    } catch (cause) {
+      pushNotice({ tone: "error", title: "Revocation failed", message: getApiErrorMessage(cause) })
+    } finally { setBusy(null) }
+  }
+  return (
+    <SettingsSection
+      id="codex-connection"
+      icon={ShieldCheck}
+      title="Codex connection"
+      description="Paired, scoped access. Green requires a recent authenticated heartbeat."
+      action={<Button onClick={() => setPairing(true)}><Plus aria-hidden="true" /> Pair Codex</Button>}
+    >
+      {connections.length ? <div className="grid gap-3">
+        {connections.map((connection) => (
+          <article key={connection.id} className="rounded-xl border bg-background p-4">
+            <div className="flex flex-col gap-4 xl:flex-row xl:items-center">
+              <div className="min-w-0 flex-1">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className={`size-2.5 rounded-full ${connectionColor(connection.status)}`} aria-hidden="true" />
+                  <h3 className="font-semibold">{connection.deviceName}</h3>
+                  <StatusBadge value={connection.connectionState} />
+                  <StatusBadge value={connection.status} />
+                </div>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  Last seen {formatDate(connection.lastHeartbeatAt, "never")} · Expires {formatDate(connection.expiresAt)}
+                </p>
+                <div className="mt-3 flex flex-wrap gap-1.5">
+                  {connection.scopes.map((scope) => <Badge key={scope} variant="outline">{scope}</Badge>)}
+                </div>
+                {connection.failureCode ? <p className="mt-2 text-sm text-amber-800 dark:text-amber-300">{safeCode(connection.failureCode)}</p> : null}
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <ActionButton label="Rotate" icon={RotateCw} busy={busy === `${connection.id}:rotate`} onClick={() => void rotate(connection)} />
+                <ActionButton label="Revoke" icon={Trash2} destructive busy={busy === `${connection.id}:revoke`} onClick={() => void revoke(connection)} />
+              </div>
+            </div>
+          </article>
+        ))}
+      </div> : <EmptyState title="No Codex connection" detail="Pair a device with least-privilege read scopes." />}
+      <div className="grid gap-4 lg:grid-cols-[1fr_auto]">
+        <div className="rounded-xl border bg-muted/40 p-4">
+          <h3 className="font-semibold">Recent safe activity</h3>
+          {activity.length ? <ol className="mt-3 divide-y">
+            {activity.map((event) => (
+              <li key={event.id} className="flex flex-wrap items-center justify-between gap-2 py-2 text-sm">
+                <span>{safeCode(event.action)} · {safeCode(event.outcome)}</span>
+                <time className="text-muted-foreground">{formatDate(event.createdAt)}</time>
+              </li>
+            ))}
+          </ol> : <p className="mt-2 text-sm text-muted-foreground">No recent gateway activity.</p>}
+        </div>
+        <a className="inline-flex min-h-11 items-center justify-center gap-2 rounded-lg border px-3 text-sm font-medium hover:bg-muted" href="https://github.com/arminakb/NewsCraft/blob/main/docs/codex/skill.md" target="_blank" rel="noreferrer">
+          Open skill.md <ExternalLink aria-hidden="true" />
+        </a>
+      </div>
+      {pairing ? <CodexPairingDialog onClose={() => setPairing(false)} onIssued={(result) => { setPairing(false); setIssued(result); void refresh() }} /> : null}
+      {issued ? <OneTimeSecretDialog {...issued} onClose={() => setIssued(null)} /> : null}
+    </SettingsSection>
+  )
+}
+
+function CodexPairingDialog({ onClose, onIssued }: { onClose: () => void; onIssued: (result: { title: string; secret: string; command?: string }) => void }) {
+  const { pushNotice } = useNotices()
+  const initial = { deviceName: "", scopes: readScopes }
+  const [form, setForm] = useState(initial)
+  const [touched, setTouched] = useState(false)
+  const dirty = form.deviceName !== "" || form.scopes.length !== readScopes.length
+  const mutation = useMutation({
+    mutationFn: () => createCodexPairingSession(form.deviceName.trim(), form.scopes),
+    onSuccess: (session) => onIssued({ title: `Pair ${session.deviceName}`, secret: session.pairingCode, command: session.localCommand }),
+    onError: (cause) => pushNotice({ tone: "error", title: "Pairing session failed", message: getApiErrorMessage(cause) }),
+  })
+  return (
+    <SettingsDialog
+      title="Pair Codex"
+      description="Create a five-minute, one-time pairing code. Start with least-privilege read scopes."
+      dirty={dirty}
+      pending={mutation.isPending}
+      submitDisabled={!form.deviceName.trim() || !form.scopes.length}
+      onClose={onClose}
+      onReset={() => setForm(initial)}
+      onSubmit={() => { setTouched(true); if (form.deviceName.trim() && form.scopes.length) mutation.mutate() }}
+      submitLabel="Create pairing code"
+    >
+      <Field label="Agent or device name" required error={touched && !form.deviceName.trim() ? "Enter a device name." : null}>
+        <input autoFocus className={fieldClass} value={form.deviceName} disabled={mutation.isPending} onBlur={() => setTouched(true)} onChange={(event) => setForm({ ...form, deviceName: event.target.value })} />
+      </Field>
+      <fieldset className="rounded-lg border p-3">
+        <legend className="px-1 text-sm font-medium">Granted read scopes</legend>
+        <div className="mt-2 grid gap-2 sm:grid-cols-2">
+          {readScopes.map((scope) => (
+            <label key={scope} className="flex min-h-10 items-center gap-2 rounded-md px-2 hover:bg-muted">
+              <input type="checkbox" checked={form.scopes.includes(scope)} disabled={mutation.isPending} onChange={(event) => setForm({ ...form, scopes: event.target.checked ? [...form.scopes, scope] : form.scopes.filter((item) => item !== scope) })} />
+              <span className="text-sm">{scope}</span>
+            </label>
+          ))}
+        </div>
+      </fieldset>
+    </SettingsDialog>
+  )
+}
+
+function TelegramSection({ destinations, proxies }: { destinations: TelegramDestination[]; proxies: TelegramProxy[] }) {
+  const queryClient = useQueryClient()
+  const { pushNotice } = useNotices()
+  const [editing, setEditing] = useState<TelegramDestination | "new" | null>(null)
+  const [rotating, setRotating] = useState<TelegramDestination | null>(null)
+  const [proxyEditing, setProxyEditing] = useState<TelegramProxy | "new" | null>(null)
+  const [proxyRotating, setProxyRotating] = useState<TelegramProxy | null>(null)
+  const [busy, setBusy] = useState<string | null>(null)
+  const refresh = () => Promise.all([
+    queryClient.invalidateQueries({ queryKey: queryKeys.telegramDestinations }),
+    queryClient.invalidateQueries({ queryKey: queryKeys.telegramProxies }),
+    queryClient.invalidateQueries({ queryKey: queryKeys.telegramOptions }),
+  ])
+  const destinationAction = async (destination: TelegramDestination, action: "recheck" | "toggle" | "dependencies" | "delete") => {
+    setBusy(`${destination.id}:${action}`)
+    try {
+      if (action === "recheck") {
+        await recheckTelegramDestination(destination.id)
+        pushNotice({ tone: "success", title: "Destination check queued", message: "Health updates automatically." })
+      } else if (action === "toggle") {
+        await setTelegramDestinationEnabled(destination.id, !destination.enabled)
+      } else {
+        const deps = await getTelegramDestinationDependencies(destination.id)
+        const summary = `${deps.automations} automations, ${deps.publishJobs} publish jobs, ${deps.publications} publications, ${deps.activeJobs} active jobs`
+        if (action === "dependencies") pushNotice({ tone: deps.blocked ? "error" : "success", title: "Destination dependencies", message: summary })
+        else if (!deps.blocked && window.confirm(`Delete ${destination.name}? This cannot be undone.`)) await deleteTelegramDestination(destination.id)
+        else if (deps.blocked) pushNotice({ tone: "error", title: "Destination cannot be deleted", message: summary })
+      }
+      await refresh()
+    } catch (cause) {
+      pushNotice({ tone: "error", title: "Destination action failed", message: getApiErrorMessage(cause) })
+    } finally { setBusy(null) }
+  }
+  const proxyAction = async (proxy: TelegramProxy, action: "recheck" | "toggle" | "delete") => {
+    setBusy(`${proxy.id}:${action}`)
+    try {
+      if (action === "recheck") await recheckTelegramProxy(proxy.id)
+      else if (action === "toggle") await setTelegramProxyEnabled(proxy.id, !proxy.enabled)
+      else {
+        const deps = await getTelegramProxyDependencies(proxy.id)
+        if (deps.blocked) pushNotice({ tone: "error", title: "Proxy cannot be deleted", message: `Assigned to ${deps.destinations} destinations.` })
+        else if (window.confirm(`Delete ${proxy.name}?`)) await deleteTelegramProxy(proxy.id)
+      }
+      await refresh()
+    } catch (cause) {
+      pushNotice({ tone: "error", title: "Proxy action failed", message: getApiErrorMessage(cause) })
+    } finally { setBusy(null) }
+  }
+  return (
+    <SettingsSection
+      id="telegram-destinations"
+      icon={Bot}
+      title="Telegram destinations"
+      description="Bot API destinations and reusable direct or proxy connection routes."
+      action={<Button onClick={() => setEditing("new")}><Plus aria-hidden="true" /> Add destination</Button>}
+    >
+      {destinations.length ? <div className="grid gap-3">
+        {destinations.map((destination) => (
+          <article key={destination.id} className="rounded-xl border bg-background p-4">
+            <div className="flex flex-col gap-4 xl:flex-row xl:items-start">
+              <div className="min-w-0 flex-1">
+                <div className="flex flex-wrap items-center gap-2">
+                  <h3 className="font-semibold">{destination.name}</h3>
+                  <StatusBadge value={destination.enabled ? "enabled" : "disabled"} />
+                  <StatusBadge value={destination.healthStatus} />
+                </div>
+                <p className="mt-1 text-sm text-muted-foreground">{destination.canonicalTarget} · {destination.connectionRoute}</p>
+                <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-5">
+                  <HealthStage label="Proxy" value={destination.proxyHealthStatus} />
+                  <HealthStage label="Telegram API" value={destination.telegramHealthStatus} />
+                  <HealthStage label="Bot" value={destination.botHealthStatus} />
+                  <HealthStage label="Target" value={destination.targetHealthStatus} />
+                  <HealthStage label="Administrator" value={destination.administratorStatus} />
+                </div>
+                <p className="mt-3 text-xs text-muted-foreground">
+                  {destination.verifiedChatTitle ?? "Target not verified"} · {destination.verifiedBotUsername ? `@${destination.verifiedBotUsername}` : "Bot not verified"} · {formatDate(destination.lastCheckedAt, "Never checked")}
+                </p>
+                {destination.failureCode ? <p className="mt-2 text-sm text-amber-800 dark:text-amber-300">{safeCode(destination.failureCode)}</p> : null}
+              </div>
+              <div className="flex flex-wrap gap-2 xl:max-w-md xl:justify-end">
+                <ActionButton label="Edit" icon={Pencil} onClick={() => setEditing(destination)} />
+                <ActionButton label="Rotate token" icon={KeyRound} onClick={() => setRotating(destination)} />
+                <ActionButton label="Recheck" icon={RefreshCw} busy={busy === `${destination.id}:recheck`} onClick={() => void destinationAction(destination, "recheck")} />
+                <ActionButton label={destination.enabled ? "Disable" : "Enable"} icon={ShieldCheck} busy={busy === `${destination.id}:toggle`} onClick={() => void destinationAction(destination, "toggle")} />
+                <ActionButton label="Dependencies" icon={Route} busy={busy === `${destination.id}:dependencies`} onClick={() => void destinationAction(destination, "dependencies")} />
+                <ActionButton label="Delete" icon={Trash2} destructive busy={busy === `${destination.id}:delete`} onClick={() => void destinationAction(destination, "delete")} />
+              </div>
+            </div>
+          </article>
+        ))}
+      </div> : <EmptyState title="No Telegram destinations" detail="Add a bot token and channel or group identifier." />}
+
+      <details className="rounded-xl border bg-muted/30 p-4">
+        <summary className="cursor-pointer font-semibold">Manage proxy profiles ({proxies.length})</summary>
+        <div className="mt-4 space-y-3">
+          <Button variant="outline" onClick={() => setProxyEditing("new")}><Plus aria-hidden="true" /> New proxy profile</Button>
+          {proxies.map((proxy) => (
+            <div key={proxy.id} className="flex flex-col gap-3 rounded-lg border bg-background p-3 lg:flex-row lg:items-center">
+              <div className="min-w-0 flex-1">
+                <div className="flex flex-wrap items-center gap-2"><strong>{proxy.name}</strong><StatusBadge value={proxy.enabled ? "enabled" : "disabled"} /><StatusBadge value={proxy.reachabilityStatus} /></div>
+                <div className="mt-1 text-sm text-muted-foreground">{proxy.proxyType === "http_connect" ? "HTTP CONNECT" : "SOCKS5"} · {proxy.host}:{proxy.port} · {proxy.credentialsConfigured ? "Credentials configured" : "No credentials"}</div>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <ActionButton label="Edit" icon={Pencil} onClick={() => setProxyEditing(proxy)} />
+                <ActionButton label="Credentials" icon={KeyRound} onClick={() => setProxyRotating(proxy)} />
+                <ActionButton label="Test" icon={RefreshCw} busy={busy === `${proxy.id}:recheck`} onClick={() => void proxyAction(proxy, "recheck")} />
+                <ActionButton label={proxy.enabled ? "Disable" : "Enable"} icon={ShieldCheck} busy={busy === `${proxy.id}:toggle`} onClick={() => void proxyAction(proxy, "toggle")} />
+                <ActionButton label="Delete" icon={Trash2} destructive busy={busy === `${proxy.id}:delete`} onClick={() => void proxyAction(proxy, "delete")} />
+              </div>
+            </div>
+          ))}
+        </div>
+      </details>
+      {editing ? <DestinationDialog destination={editing === "new" ? null : editing} proxies={proxies} onClose={() => setEditing(null)} /> : null}
+      {proxyEditing ? <ProxyDialog proxy={proxyEditing === "new" ? null : proxyEditing} onClose={() => setProxyEditing(null)} /> : null}
+      {proxyRotating ? <ProxyCredentialsDialog proxy={proxyRotating} onClose={() => setProxyRotating(null)} /> : null}
+      {rotating ? <SecretDialog title={`Rotate token for ${rotating.name}`} label="New bot token" onClose={() => setRotating(null)} onSave={async (secret) => { await rotateTelegramToken(rotating.id, secret); await refresh(); pushNotice({ tone: "success", title: "Bot token rotated", message: "Destination check queued." }) }} /> : null}
+    </SettingsSection>
+  )
+}
+
+function DestinationDialog({
+  destination,
+  proxies,
+  onClose,
+}: {
+  destination: TelegramDestination | null
+  proxies: TelegramProxy[]
+  onClose: () => void
+}) {
+  const queryClient = useQueryClient()
+  const { pushNotice } = useNotices()
+  const initial = { name: destination?.name ?? "", target: destination?.targetRef ?? "", botToken: "", proxyProfileId: destination?.proxyProfileId ?? "" }
+  const [form, setForm] = useState(initial)
+  const [showProxyCreate, setShowProxyCreate] = useState(false)
+  const [newProxy, setNewProxy] = useState({
+    name: "",
+    proxyType: "http_connect" as TelegramProxy["proxyType"],
+    host: "",
+    port: 8080,
+    username: "",
+    password: "",
+  })
+  const [touched, setTouched] = useState(false)
+  const dirty = JSON.stringify(form) !== JSON.stringify(initial) || showProxyCreate
+  const error = !form.name.trim() ? "Enter a destination name." : !form.target.trim() ? "Enter a channel or group identifier." : !destination && !form.botToken ? "Enter a bot token." : null
+  const mutation = useMutation({
+    mutationFn: () => destination
+      ? updateTelegramDestination(destination.id, { name: form.name.trim(), target: form.target.trim(), proxyProfileId: form.proxyProfileId || null })
+      : createTelegramDestination({ name: form.name.trim(), target: form.target.trim(), botToken: form.botToken, proxyProfileId: form.proxyProfileId || null }),
+    onSuccess: async () => {
+      setForm({ ...form, botToken: "" })
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: queryKeys.telegramDestinations }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.telegramOptions }),
+      ])
+      pushNotice({ tone: "success", title: destination ? "Destination updated" : "Destination created", message: "Route-specific health check queued." })
+      onClose()
+    },
+    onError: (cause) => pushNotice({ tone: "error", title: "Destination could not be saved", message: getApiErrorMessage(cause) }),
+  })
+  const createProxy = useMutation({
+    mutationFn: () => createTelegramProxy({
+      name: newProxy.name.trim(),
+      proxyType: newProxy.proxyType,
+      host: newProxy.host.trim(),
+      port: newProxy.port,
+      ...(newProxy.username ? { username: newProxy.username, password: newProxy.password } : {}),
+    }),
+    onSuccess: async (result) => {
+      setForm((current) => ({ ...current, proxyProfileId: result.proxy.id }))
+      setShowProxyCreate(false)
+      setNewProxy({ name: "", proxyType: "http_connect", host: "", port: 8080, username: "", password: "" })
+      await queryClient.invalidateQueries({ queryKey: queryKeys.telegramProxies })
+      pushNotice({ tone: "success", title: "Proxy profile created", message: "Selected for this destination. Reachability check queued." })
+    },
+    onError: (cause) => pushNotice({ tone: "error", title: "Proxy could not be created", message: getApiErrorMessage(cause) }),
+  })
+  const proxyCredentialsInvalid = Boolean(newProxy.username) !== Boolean(newProxy.password)
+  const proxyInvalid = !newProxy.name.trim() || !newProxy.host.trim() || newProxy.host.includes("://") || proxyCredentialsInvalid
+  return (
+    <SettingsDialog
+      title={destination ? `Edit ${destination.name}` : "Add Telegram destination"}
+      description="The same selected route is used for health checks and every publish request."
+      dirty={dirty}
+      pending={mutation.isPending || createProxy.isPending}
+      submitDisabled={Boolean(error) || showProxyCreate}
+      onClose={onClose}
+      onReset={() => { setForm(initial); setShowProxyCreate(false) }}
+      onSubmit={() => { setTouched(true); if (!error) mutation.mutate() }}
+      submitLabel={destination ? "Save destination" : "Add destination"}
+    >
+      <div className="grid gap-4 sm:grid-cols-2">
+        <Field label="Destination name" required error={touched && !form.name.trim() ? error : null}>
+          <input autoFocus className={fieldClass} value={form.name} disabled={mutation.isPending} onBlur={() => setTouched(true)} onChange={(event) => setForm({ ...form, name: event.target.value })} />
+        </Field>
+        <Field label="Channel or group identifier" required hint="@channel or numeric ID">
+          <input className={fieldClass} value={form.target} disabled={mutation.isPending} onChange={(event) => setForm({ ...form, target: event.target.value })} />
+        </Field>
+      </div>
+      {!destination ? <Field label="Bot token" required hint="Write-only. Never shown again."><input type="password" autoComplete="new-password" className={fieldClass} value={form.botToken} disabled={mutation.isPending} onChange={(event) => setForm({ ...form, botToken: event.target.value })} /></Field> : null}
+      <Field label="Connection route">
+        <div className="flex gap-2">
+          <select className={fieldClass} value={form.proxyProfileId} disabled={mutation.isPending} onChange={(event) => setForm({ ...form, proxyProfileId: event.target.value })}>
+            <option value="">Direct connection</option>
+            {proxies.filter((proxy) => proxy.enabled).map((proxy) => <option key={proxy.id} value={proxy.id}>{proxy.name} · {proxy.proxyType === "http_connect" ? "HTTP CONNECT" : "SOCKS5"}</option>)}
+          </select>
+          <Button type="button" variant="outline" onClick={() => setShowProxyCreate((value) => !value)}>{showProxyCreate ? "Cancel proxy" : "New proxy"}</Button>
+        </div>
+      </Field>
+      {showProxyCreate ? (
+        <fieldset className="space-y-4 rounded-lg border bg-muted/30 p-4">
+          <legend className="px-1 font-medium">Create proxy inline</legend>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <Field label="Proxy name" required><input className={fieldClass} value={newProxy.name} disabled={createProxy.isPending} onChange={(event) => setNewProxy({ ...newProxy, name: event.target.value })} /></Field>
+            <Field label="Proxy type"><select className={fieldClass} value={newProxy.proxyType} disabled={createProxy.isPending} onChange={(event) => setNewProxy({ ...newProxy, proxyType: event.target.value as TelegramProxy["proxyType"] })}><option value="http_connect">HTTP CONNECT</option><option value="socks5">SOCKS5</option></select></Field>
+            <Field label="Host" required error={newProxy.host.includes("://") ? "Use a plain host without a scheme." : null}><input className={fieldClass} value={newProxy.host} disabled={createProxy.isPending} onChange={(event) => setNewProxy({ ...newProxy, host: event.target.value })} /></Field>
+            <NumberField label="Port" value={newProxy.port} min={1} max={65535} onChange={(port) => setNewProxy({ ...newProxy, port })} />
+            <Field label="Username" error={proxyCredentialsInvalid ? "Username and password must be supplied together." : null}><input className={fieldClass} autoComplete="off" value={newProxy.username} disabled={createProxy.isPending} onChange={(event) => setNewProxy({ ...newProxy, username: event.target.value })} /></Field>
+            <Field label="Password"><input type="password" className={fieldClass} autoComplete="new-password" value={newProxy.password} disabled={createProxy.isPending} onChange={(event) => setNewProxy({ ...newProxy, password: event.target.value })} /></Field>
+          </div>
+          <Button type="button" disabled={proxyInvalid || createProxy.isPending} onClick={() => createProxy.mutate()}>{createProxy.isPending ? <LoaderCircle className="animate-spin" aria-hidden="true" /> : <Plus aria-hidden="true" />}Create and select proxy</Button>
+        </fieldset>
+      ) : null}
+    </SettingsDialog>
+  )
+}
+
+function ProxyDialog({ proxy, onClose }: { proxy: TelegramProxy | null; onClose: () => void }) {
+  const queryClient = useQueryClient()
+  const { pushNotice } = useNotices()
+  const initial = { name: proxy?.name ?? "", proxyType: proxy?.proxyType ?? "http_connect" as const, host: proxy?.host ?? "", port: proxy?.port ?? 8080, username: "", password: "" }
+  const [form, setForm] = useState(initial)
+  const [touched, setTouched] = useState(false)
+  const dirty = JSON.stringify(form) !== JSON.stringify(initial)
+  const credentialsInvalid = Boolean(form.username) !== Boolean(form.password)
+  const error = !form.name.trim() ? "Enter a proxy name." : !form.host.trim() ? "Enter a plain hostname." : form.host.includes("://") ? "Host must not include a scheme." : credentialsInvalid ? "Username and password must be supplied together." : null
+  const mutation = useMutation({
+    mutationFn: () => proxy
+      ? updateTelegramProxy(proxy.id, { name: form.name.trim(), proxyType: form.proxyType, host: form.host.trim(), port: form.port })
+      : createTelegramProxy({ name: form.name.trim(), proxyType: form.proxyType, host: form.host.trim(), port: form.port, ...(form.username ? { username: form.username, password: form.password } : {}) }),
+    onSuccess: async () => {
+      setForm({ ...form, username: "", password: "" })
+      await queryClient.invalidateQueries({ queryKey: queryKeys.telegramProxies })
+      pushNotice({ tone: "success", title: proxy ? "Proxy updated" : "Proxy created", message: "Reachability check queued." })
+      onClose()
+    },
+    onError: (cause) => pushNotice({ tone: "error", title: "Proxy could not be saved", message: getApiErrorMessage(cause) }),
+  })
+  return (
+    <SettingsDialog
+      title={proxy ? `Edit ${proxy.name}` : "New proxy profile"}
+      description="Supported transport: HTTP/HTTPS CONNECT or SOCKS5. MTProto is not supported."
+      dirty={dirty}
+      pending={mutation.isPending}
+      submitDisabled={Boolean(error)}
+      onClose={onClose}
+      onReset={() => setForm(initial)}
+      onSubmit={() => { setTouched(true); if (!error) mutation.mutate() }}
+      submitLabel={proxy ? "Save proxy" : "Create proxy"}
+    >
+      <div className="grid gap-4 sm:grid-cols-2">
+        <Field label="Profile name" required error={touched && error?.includes("name") ? error : null}><input autoFocus className={fieldClass} value={form.name} disabled={mutation.isPending} onBlur={() => setTouched(true)} onChange={(event) => setForm({ ...form, name: event.target.value })} /></Field>
+        <Field label="Proxy type"><select className={fieldClass} value={form.proxyType} disabled={mutation.isPending} onChange={(event) => setForm({ ...form, proxyType: event.target.value as "http_connect" | "socks5" })}><option value="http_connect">HTTP CONNECT</option><option value="socks5">SOCKS5</option></select></Field>
+        <Field label="Host" required error={touched && (form.host.includes("://") || !form.host.trim()) ? error : null}><input className={fieldClass} value={form.host} disabled={mutation.isPending} onBlur={() => setTouched(true)} onChange={(event) => setForm({ ...form, host: event.target.value })} /></Field>
+        <NumberField label="Port" value={form.port} min={1} max={65535} onChange={(port) => setForm({ ...form, port })} />
+      </div>
+      {!proxy ? <details className="rounded-lg border p-3"><summary className="cursor-pointer font-medium">Optional proxy credentials</summary><div className="mt-4 grid gap-4 sm:grid-cols-2"><Field label="Username" error={touched && credentialsInvalid ? error : null}><input className={fieldClass} autoComplete="off" value={form.username} disabled={mutation.isPending} onChange={(event) => setForm({ ...form, username: event.target.value })} /></Field><Field label="Password"><input type="password" autoComplete="new-password" className={fieldClass} value={form.password} disabled={mutation.isPending} onChange={(event) => setForm({ ...form, password: event.target.value })} /></Field></div></details> : null}
+    </SettingsDialog>
+  )
+}
+
+function ProxyCredentialsDialog({ proxy, onClose }: { proxy: TelegramProxy; onClose: () => void }) {
+  const queryClient = useQueryClient()
+  const { pushNotice } = useNotices()
+  const [username, setUsername] = useState("")
+  const [password, setPassword] = useState("")
+  const [remove, setRemove] = useState(false)
+  const [pending, setPending] = useState(false)
+  const dirty = Boolean(username || password || remove)
+  const invalid = Boolean(username) !== Boolean(password)
+  return (
+    <SettingsDialog
+      title={`Proxy credentials for ${proxy.name}`}
+      description="Submit both values to rotate credentials, or leave both blank and save to remove them."
+      dirty={dirty}
+      pending={pending}
+      submitDisabled={invalid}
+      onClose={onClose}
+      onReset={() => { setUsername(""); setPassword(""); setRemove(false) }}
+      onSubmit={() => {
+        if (invalid) return
+        setPending(true)
+        void rotateTelegramProxyCredentials(proxy.id, remove ? undefined : username || undefined, remove ? undefined : password || undefined)
+          .then(async () => {
+            setUsername("")
+            setPassword("")
+            await queryClient.invalidateQueries({ queryKey: queryKeys.telegramProxies })
+            pushNotice({ tone: "success", title: "Proxy credentials updated", message: "Reachability check queued." })
+            onClose()
+          })
+          .catch((cause) => pushNotice({ tone: "error", title: "Credential rotation failed", message: getApiErrorMessage(cause) }))
+          .finally(() => setPending(false))
+      }}
+      submitLabel={remove ? "Remove credentials" : "Rotate credentials"}
+    >
+      <div className="grid gap-4 sm:grid-cols-2">
+        <Field label="Username" error={invalid ? "Username and password must be supplied together." : null}>
+          <input autoFocus className={fieldClass} autoComplete="off" value={username} disabled={pending || remove} onChange={(event) => setUsername(event.target.value)} />
+        </Field>
+        <Field label="Password">
+          <input type="password" className={fieldClass} autoComplete="new-password" value={password} disabled={pending || remove} onChange={(event) => setPassword(event.target.value)} />
+        </Field>
+      </div>
+      {proxy.credentialsConfigured ? <label className="flex min-h-11 items-center gap-2 rounded-lg border px-3 text-sm"><input type="checkbox" checked={remove} disabled={pending} onChange={(event) => { setRemove(event.target.checked); if (event.target.checked) { setUsername(""); setPassword("") } }} />Remove configured credentials</label> : null}
+    </SettingsDialog>
+  )
+}
+
+function PromptGovernanceSection({ templates }: { templates: Array<{ id: string; purposeKey: string; name: string; description: string | null }> }) {
+  return (
+    <SettingsSection
+      id="prompt-governance"
+      icon={Activity}
+      title="Prompt governance"
+      description="Purpose, active version, status, impact, and immutable history."
+    >
+      <div className="grid gap-3">
+        {promptPurposes.map(([purpose, label]) => (
+          <PromptPurpose key={purpose} purpose={purpose} label={label} template={templates.find((item) => item.purposeKey === purpose)} />
+        ))}
+      </div>
+    </SettingsSection>
+  )
+}
+
+function PromptPurpose({
+  purpose,
+  label,
+  template,
+}: {
+  purpose: string
+  label: string
+  template?: { id: string; purposeKey: string; name: string; description: string | null }
+}) {
+  const queryClient = useQueryClient()
+  const { pushNotice } = useNotices()
+  const [editing, setEditing] = useState(false)
+  const versions = useQuery({
+    queryKey: template ? queryKeys.promptVersions(template.id) : ["settings", "prompt-purpose", purpose, "missing"],
+    queryFn: () => getPromptVersions(template!.id),
+    enabled: Boolean(template),
+  })
+  const active = versions.data?.find((version) => version.isActive)
+  return (
+    <article className="rounded-xl border bg-background p-4">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center gap-2">
+            <h3 className="font-semibold">{label}</h3>
+            <StatusBadge value={!template ? "not configured" : active ? "active" : "inactive"} />
+          </div>
+          <p className="mt-1 text-sm text-muted-foreground">
+            {!template ? "No template configured." : active ? `Version ${active.version} · ${active.checksumSha256.slice(0, 12)} · New jobs use this exact version.` : `${versions.data?.length ?? 0} immutable versions · no active version.`}
+          </p>
+        </div>
+        {template ? <Button variant="outline" onClick={() => setEditing((value) => !value)}>{editing ? <X aria-hidden="true" /> : <Pencil aria-hidden="true" />}{editing ? "Close" : "Manage"}</Button> : null}
+      </div>
+      {editing && template ? (
+        <PromptAdvancedManager
+          template={template}
+          versions={versions.data ?? []}
+          onChanged={async () => {
+            await queryClient.invalidateQueries({ queryKey: queryKeys.promptVersions(template.id) })
+            pushNotice({ tone: "success", title: "Prompt governance updated", message: label })
+          }}
+        />
+      ) : null}
+    </article>
+  )
+}
+
+function PromptAdvancedManager({
+  template,
+  versions,
+  onChanged,
+}: {
+  template: { id: string; purposeKey: string }
+  versions: Array<{ id: string; version: number; systemTemplate: string; userTemplate: string; checksumSha256: string; isActive: boolean }>
+  onChanged: () => Promise<void>
+}) {
+  const { pushNotice } = useNotices()
   const [systemTemplate, setSystemTemplate] = useState("")
-  const [userTemplateValue, setUserTemplateValue] = useState("")
-  const [confirmActivation, setConfirmActivation] = useState(false)
-  const create = useMutation({ mutationFn: () => createPromptVersion(template!.id, { systemTemplate, userTemplate: userTemplateValue }), onSuccess: async () => { setSystemTemplate(""); setUserTemplateValue(""); await queryClient.invalidateQueries({ queryKey: queryKeys.promptVersions(template!.id) }) } })
-  const activatePurposeVersion = useMutation({ mutationFn: (id: string) => activatePromptVersion(id), onSuccess: async () => { setConfirmActivation(false); await Promise.all([queryClient.invalidateQueries({ queryKey: queryKeys.promptVersions(template!.id) }), queryClient.invalidateQueries({ queryKey: queryKeys.editorialPromptOptions })]) } })
-  return <Card><CardHeader><CardTitle>{title}</CardTitle><CardDescription>Immutable version history; activation selects an exact version and never edits one in place.</CardDescription></CardHeader><CardContent className="space-y-3">{!template ? <Empty>No prompt template configured</Empty> : <>{versions.isPending ? <div role="status">Loading immutable versions</div> : versions.isError ? <div role="alert">{getApiErrorMessage(versions.error)}</div> : <ol className="space-y-2">{versions.data?.map((version) => <li key={version.id} className="rounded border p-3"><strong>{version.isActive ? `Active version ${version.version}` : `Version ${version.version}`}</strong><div className="break-all text-xs text-muted-foreground">{version.checksumSha256}</div><Button variant="outline" className="mt-2" disabled={version.isActive || !confirmActivation || activatePurposeVersion.isPending} onClick={() => activatePurposeVersion.mutate(version.id)}>Activate {purpose} version {version.version}</Button></li>)}</ol>}<label className="flex gap-2"><input type="checkbox" checked={confirmActivation} onChange={(event) => setConfirmActivation(event.target.checked)} />Confirm {purpose} activation</label><details><summary>Create immutable {purpose} version</summary><div className="mt-2 grid gap-2"><Field label={`${purpose} system template`}><DirectionBoundary as="textarea" language={null} className={fieldClass} value={systemTemplate} onChange={(event) => setSystemTemplate(event.target.value)} /></Field><Field label={`${purpose} user template`}><DirectionBoundary as="textarea" language={null} className={fieldClass} value={userTemplateValue} onChange={(event) => setUserTemplateValue(event.target.value)} /></Field><Button disabled={!systemTemplate.trim() || !userTemplateValue.trim() || create.isPending} onClick={() => create.mutate()}>Create {purpose} version</Button>{create.isError ? <div role="alert">{getApiErrorMessage(create.error)}</div> : null}</div></details></>}</CardContent></Card>
+  const [userTemplate, setUserTemplate] = useState("")
+  const [confirmed, setConfirmed] = useState(false)
+  const create = useMutation({
+    mutationFn: () => createPromptVersion(template.id, { systemTemplate, userTemplate }),
+    onSuccess: async () => { setSystemTemplate(""); setUserTemplate(""); await onChanged() },
+    onError: (cause) => pushNotice({ tone: "error", title: "Prompt version failed", message: getApiErrorMessage(cause) }),
+  })
+  const activate = useMutation({
+    mutationFn: (versionId: string) => activatePromptVersion(versionId),
+    onSuccess: async () => { setConfirmed(false); await onChanged() },
+    onError: (cause) => pushNotice({ tone: "error", title: "Prompt activation failed", message: getApiErrorMessage(cause) }),
+  })
+  const dirty = Boolean(systemTemplate || userTemplate)
+  useDirtyNavigation(dirty, "Discard unsaved prompt changes?")
+  return (
+    <div className="mt-4 space-y-4 border-t pt-4">
+      <details open className="rounded-lg bg-muted/50 p-3">
+        <summary className="cursor-pointer font-medium">Raw templates and immutable history</summary>
+        <div className="mt-4 grid gap-4">
+          <Field label="System template"><DirectionBoundary as="textarea" language={null} className={fieldClass} rows={4} value={systemTemplate} onChange={(event) => setSystemTemplate(event.target.value)} /></Field>
+          <Field label="User template"><DirectionBoundary as="textarea" language={null} className={`${fieldClass} font-mono text-sm`} rows={6} value={userTemplate} onChange={(event) => setUserTemplate(event.target.value)} /></Field>
+          <div className="flex flex-wrap gap-2">
+            <Button disabled={!systemTemplate.trim() || !userTemplate.trim() || create.isPending} onClick={() => create.mutate()}>{create.isPending ? <LoaderCircle className="animate-spin" aria-hidden="true" /> : <Plus aria-hidden="true" />}Create immutable version</Button>
+            <Button variant="outline" disabled={!dirty || create.isPending} onClick={() => { setSystemTemplate(""); setUserTemplate("") }}>Reset</Button>
+          </div>
+          <label className="flex min-h-11 items-center gap-2 rounded-lg border bg-background px-3 text-sm">
+            <input type="checkbox" checked={confirmed} onChange={(event) => setConfirmed(event.target.checked)} />
+            Confirm activation changes which prompt new jobs use
+          </label>
+          <ol className="space-y-2" aria-label={`${template.purposeKey} immutable history`}>
+            {versions.map((version) => (
+              <li key={version.id} className="rounded-lg border bg-background p-3">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div><strong>Version {version.version}</strong><div className="text-xs text-muted-foreground">{version.checksumSha256} · {version.isActive ? "Active" : "Inactive"}</div></div>
+                  <Button variant="outline" disabled={version.isActive || !confirmed || activate.isPending} onClick={() => activate.mutate(version.id)}>Activate</Button>
+                </div>
+                <details className="mt-2"><summary className="cursor-pointer text-sm">Inspect raw template</summary><DirectionBoundary as="pre" language={null} className="mt-2 max-h-64 overflow-auto whitespace-pre-wrap break-words rounded bg-muted p-3 text-xs">{version.systemTemplate}{"\n\n"}{version.userTemplate}</DirectionBoundary></details>
+              </li>
+            ))}
+          </ol>
+        </div>
+      </details>
+    </div>
+  )
 }
 
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
-  return <label className="grid gap-1 text-sm"><span>{label}</span>{children}</label>
+function SettingsSection({
+  id,
+  icon: Icon,
+  title,
+  description,
+  action,
+  children,
+}: {
+  id: string
+  icon: typeof Activity
+  title: string
+  description: string
+  action?: React.ReactNode
+  children: React.ReactNode
+}) {
+  return (
+    <Card id={id} className="scroll-mt-20">
+      <CardHeader className="border-b">
+        <div className="flex items-start gap-3">
+          <span className="grid size-10 shrink-0 place-items-center rounded-lg bg-accent text-accent-foreground"><Icon className="size-5" aria-hidden="true" /></span>
+          <div><CardTitle className="text-lg"><h2 className="text-lg font-semibold">{title}</h2></CardTitle><CardDescription className="mt-1">{description}</CardDescription></div>
+        </div>
+        {action ? <CardAction>{action}</CardAction> : null}
+      </CardHeader>
+      <CardContent className="space-y-4">{children}</CardContent>
+    </Card>
+  )
 }
 
-function Empty({ children }: { children: React.ReactNode }) {
-  return <div className="rounded-lg border border-dashed p-4 text-center text-muted-foreground">{children}</div>
+function SettingsDialog({
+  title,
+  description,
+  dirty,
+  pending,
+  submitLabel,
+  submitDisabled = false,
+  onClose,
+  onReset,
+  onSubmit,
+  children,
+}: {
+  title: string
+  description: string
+  dirty: boolean
+  pending: boolean
+  submitLabel: string
+  submitDisabled?: boolean
+  onClose: () => void
+  onReset: () => void
+  onSubmit: () => void
+  children: React.ReactNode
+}) {
+  const titleId = useId()
+  const descriptionId = useId()
+  const dialogRef = useRef<HTMLDivElement>(null)
+  const initialRef = useRef<HTMLElement>(null)
+  const releaseDirty = useDirtyNavigation(dirty, "Discard unsaved settings changes?")
+  const close = () => {
+    if (pending) return
+    if (!dirty || window.confirm("Discard unsaved settings changes?")) {
+      releaseDirty()
+      onClose()
+    }
+  }
+  useEditorialModal({ open: true, containerRef: dialogRef, initialFocusRef: initialRef, onClose: close, canClose: !pending })
+  return (
+    <div ref={dialogRef} role="dialog" aria-modal="true" aria-labelledby={titleId} aria-describedby={descriptionId} tabIndex={-1} className="fixed inset-0 z-50 grid place-items-center overflow-y-auto bg-slate-950/50 p-4" onMouseDown={(event) => { if (event.target === event.currentTarget) close() }}>
+      <form className="my-auto w-full max-w-2xl space-y-5 rounded-xl border bg-background p-5 shadow-2xl" onSubmit={(event) => { event.preventDefault(); onSubmit() }}>
+        <div className="flex items-start justify-between gap-4">
+          <div><h2 id={titleId} className="text-xl font-semibold">{title}</h2><p id={descriptionId} className="mt-1 text-sm leading-6 text-muted-foreground">{description}</p></div>
+          <Button type="button" size="icon" variant="ghost" aria-label="Close dialog" disabled={pending} onClick={close}><X aria-hidden="true" /></Button>
+        </div>
+        {children}
+        <div className="flex flex-wrap items-center justify-between gap-3 border-t pt-4">
+          <span className="text-xs text-muted-foreground">{dirty ? "Unsaved changes" : "No unsaved changes"}</span>
+          <div className="flex gap-2">
+            <Button type="button" variant="ghost" disabled={!dirty || pending} onClick={onReset}>Reset</Button>
+            <Button type="button" variant="outline" disabled={pending} onClick={close}>Cancel</Button>
+            <Button type="submit" disabled={!dirty || pending || submitDisabled}>{pending ? <LoaderCircle className="animate-spin" aria-hidden="true" /> : null}{pending ? "Saving…" : submitLabel}</Button>
+          </div>
+        </div>
+      </form>
+    </div>
+  )
 }
 
-function healthLabel(value: string) {
-  if (value === "healthy") return "Healthy"
-  if (value === "unhealthy") return "Unhealthy"
-  return "Unknown"
+function SecretDialog({ title, label, onClose, onSave }: { title: string; label: string; onClose: () => void; onSave: (secret: string) => Promise<void> }) {
+  const { pushNotice } = useNotices()
+  const [secret, setSecret] = useState("")
+  const [pending, setPending] = useState(false)
+  return (
+    <SettingsDialog
+      title={title}
+      description="Write-only secret. It is cleared immediately after the mutation."
+      dirty={Boolean(secret)}
+      pending={pending}
+      onClose={onClose}
+      onReset={() => setSecret("")}
+      onSubmit={() => {
+        if (!secret) return
+        setPending(true)
+        void onSave(secret).then(() => { setSecret(""); onClose() }).catch((cause) => pushNotice({ tone: "error", title: "Secret rotation failed", message: getApiErrorMessage(cause) })).finally(() => setPending(false))
+      }}
+      submitLabel="Rotate secret"
+    >
+      <Field label={label} required><input autoFocus type="password" autoComplete="new-password" className={fieldClass} value={secret} disabled={pending} onChange={(event) => setSecret(event.target.value)} /></Field>
+    </SettingsDialog>
+  )
+}
+
+function OneTimeSecretDialog({ title, secret, command, onClose }: { title: string; secret: string; command?: string; onClose: () => void }) {
+  const titleId = useId()
+  const dialogRef = useRef<HTMLDivElement>(null)
+  const closeRef = useRef<HTMLButtonElement>(null)
+  useEditorialModal({ open: true, containerRef: dialogRef, initialFocusRef: closeRef, onClose })
+  return (
+    <div ref={dialogRef} role="dialog" aria-modal="true" aria-labelledby={titleId} tabIndex={-1} className="fixed inset-0 z-50 grid place-items-center bg-slate-950/50 p-4">
+      <div className="w-full max-w-2xl space-y-4 rounded-xl border bg-background p-5 shadow-2xl">
+        <div><h2 id={titleId} className="text-xl font-semibold">{title}</h2><p className="mt-1 text-sm text-amber-800 dark:text-amber-300">Shown once. Store it safely; never paste it into chat, logs, or Git.</p></div>
+        <Field label="One-time pairing code or credential"><DirectionBoundary as="textarea" language="en" readOnly className={`${fieldClass} font-mono`} rows={3} value={secret} /></Field>
+        {command ? <Field label="Local exchange command"><DirectionBoundary as="textarea" language="en" readOnly className={`${fieldClass} font-mono text-sm`} rows={5} value={command} /></Field> : null}
+        <div className="flex justify-end"><Button ref={closeRef} onClick={onClose}>I stored it safely</Button></div>
+      </div>
+    </div>
+  )
+}
+
+function Field({ label, hint, error, required, children }: { label: string; hint?: string; error?: string | null; required?: boolean; children: React.ReactNode }) {
+  const messageId = useId()
+  const control = isValidElement<Record<string, unknown>>(children)
+    ? cloneElement(children, {
+      ...(error ? { "aria-invalid": true } : {}),
+      ...((error || hint) ? { "aria-describedby": messageId } : {}),
+    })
+    : children
+  return (
+    <label className="grid gap-1.5 text-sm font-medium">
+      <span>{label}{required ? <span className="text-red-700 dark:text-red-300" aria-hidden="true"> *</span> : null}</span>
+      {control}
+      {error ? <span id={messageId} className="text-sm font-normal text-red-700 dark:text-red-300" role="alert">{error}</span> : hint ? <span id={messageId} className="text-xs font-normal text-muted-foreground">{hint}</span> : null}
+    </label>
+  )
+}
+
+function NumberField({ label, value, min, max, onChange }: { label: string; value: number; min: number; max: number; onChange: (value: number) => void }) {
+  return <Field label={label}><input type="number" className={fieldClass} value={value} min={min} max={max} onChange={(event) => onChange(Number(event.target.value))} /></Field>
+}
+
+function ActionButton({ label, icon: Icon, busy, destructive, onClick }: { label: string; icon: typeof Activity; busy?: boolean; destructive?: boolean; onClick: () => void }) {
+  return <Button size="sm" variant={destructive ? "destructive" : "outline"} disabled={busy} onClick={onClick}>{busy ? <LoaderCircle className="animate-spin" aria-hidden="true" /> : <Icon aria-hidden="true" />}{label}</Button>
+}
+
+function StatusBadge({ value }: { value: string }) {
+  const normalized = value.toLowerCase()
+  const bad = ["unhealthy", "unavailable", "red", "revoked", "disabled", "failed", "not configured"].includes(normalized)
+  const good = ["healthy", "ready", "green", "active", "enabled", "reachable", "verified", "administrator"].includes(normalized)
+  return <Badge variant={bad ? "destructive" : good ? "secondary" : "outline"}>{safeCode(value)}</Badge>
+}
+
+function ReadinessLabel({ label, ready, value }: { label: string; ready: boolean; value: string }) {
+  return <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 ${ready ? "bg-emerald-50 text-emerald-800 dark:bg-emerald-950/50 dark:text-emerald-300" : "bg-amber-50 text-amber-900 dark:bg-amber-950/50 dark:text-amber-200"}`}>{ready ? <CheckCircle2 className="size-3.5" aria-hidden="true" /> : <CircleAlert className="size-3.5" aria-hidden="true" />}{label}: {safeCode(value)}</span>
+}
+
+function HealthStage({ label, value }: { label: string; value: string }) {
+  const healthy = ["healthy", "reachable", "authenticated", "resolved", "administrator", "ready", "direct"].includes(value)
+  return <div className="rounded-lg bg-muted/60 p-2 text-xs"><div className="font-medium">{label}</div><div className={`mt-1 flex items-center gap-1 ${healthy ? "text-emerald-800 dark:text-emerald-300" : "text-muted-foreground"}`}>{healthy ? <CheckCircle2 className="size-3.5" aria-hidden="true" /> : <CircleDashed className="size-3.5" aria-hidden="true" />}{safeCode(value)}</div></div>
+}
+
+function Metric({ label, value }: { label: string; value: string }) {
+  return <div><dt className="text-xs text-muted-foreground">{label}</dt><dd className="font-medium">{value}</dd></div>
+}
+
+function EmptyState({ title, detail }: { title: string; detail: string }) {
+  return <div className="rounded-xl border border-dashed p-8 text-center"><h3 className="font-semibold">{title}</h3><p className="mt-1 text-sm text-muted-foreground">{detail}</p></div>
+}
+
+function SettingsSkeleton() {
+  return <section className="space-y-5 p-4 md:p-6" role="status" aria-label="Loading content settings"><div className="h-9 w-64 animate-pulse rounded bg-muted" /><div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">{Array.from({ length: 4 }, (_, index) => <div key={index} className="h-20 animate-pulse rounded-xl bg-muted" />)}</div><div className="h-72 animate-pulse rounded-xl bg-muted" /><span className="sr-only">Loading content settings</span></section>
+}
+
+function safeCode(value: string) {
+  return value.replaceAll("_", " ")
+}
+
+function formatDate(value: string | null, fallback = "Unknown") {
+  if (!value) return fallback
+  const parsed = new Date(value)
+  return Number.isNaN(parsed.valueOf()) ? fallback : new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" }).format(parsed)
+}
+
+function connectionColor(status: CodexConnection["status"]) {
+  if (status === "green") return "bg-emerald-600"
+  if (status === "yellow") return "bg-amber-500"
+  if (status === "red") return "bg-red-600"
+  return "bg-slate-400"
+}
+
+function lines(value: string) {
+  return value.split("\n").map((item) => item.trim()).filter(Boolean)
+}
+
+function words(value: string) {
+  return value.split(/\s+/).map((item) => item.trim()).filter(Boolean)
 }

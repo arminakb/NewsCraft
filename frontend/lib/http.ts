@@ -22,8 +22,17 @@ export async function apiRequest<T>(path: string, init?: RequestInit): Promise<T
 export function getApiErrorMessage(error: unknown, fallback = "Request failed") {
   if (error instanceof ApiError && error.body) {
     try {
-      const parsed = JSON.parse(error.body) as { detail?: unknown }
+      const parsed = JSON.parse(error.body) as {
+        detail?: unknown
+      }
       if (typeof parsed.detail === "string" && parsed.detail.trim()) return parsed.detail
+      if (parsed.detail && typeof parsed.detail === "object") {
+        const detail = parsed.detail as { code?: unknown; message?: unknown }
+        if (typeof detail.message === "string" && detail.message.trim()) return detail.message
+        if (typeof detail.code === "string" && detail.code.trim()) {
+          return detail.code.replaceAll("_", " ")
+        }
+      }
     } catch {
       if (!error.body.trimStart().startsWith("<") && error.body.trim()) return error.body.trim()
     }
