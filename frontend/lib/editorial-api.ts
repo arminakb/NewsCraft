@@ -64,16 +64,17 @@ export async function getPromptVersionOptions(): Promise<PromptVersionOption[]> 
   })))
   return versions.flatMap(({ purpose, rows }) => rows.map((row) => ({ id: row.id, purpose, version: row.version, checksumSha256: row.checksum_sha256, active: row.is_active })))
 }
-type ContentPackRequestBase = { brandProfileId: string; generationProviderProfileId: string; researchMode?: "off" | "manual" | "auto_if_incomplete"; researchProviderProfileId?: string | null; researchRunId?: string | null }
+type ContentPackRequestBase = { brandProfileId?: string; generationProviderProfileId: string; researchMode?: "off" | "manual" | "auto_if_incomplete"; researchProviderProfileId?: string | null; researchRunId?: string | null }
 export type RequestContentPackInput = ContentPackRequestBase & (
   | { platforms: Platform[]; canonicalPromptTemplateVersionId?: never; platformPromptTemplateVersionId?: never }
   | { platforms?: never; canonicalPromptTemplateVersionId: string; platformPromptTemplateVersionId: string }
 )
 export async function requestContentPack(storyId: string, input: RequestContentPackInput): Promise<JobAccepted> {
   const research = { research_mode: input.researchMode ?? "off", research_provider_profile_id: input.researchProviderProfileId ?? null, research_run_id: input.researchRunId ?? null }
+  const profile = input.brandProfileId ? { brand_profile_id: input.brandProfileId } : {}
   const body = "platforms" in input && input.platforms
-    ? { brand_profile_id: input.brandProfileId, platforms: input.platforms, generation_provider_profile_id: input.generationProviderProfileId, ...research }
-    : { brand_profile_id: input.brandProfileId, platform: "telegram", generation_provider_profile_id: input.generationProviderProfileId, canonical_prompt_template_version_id: input.canonicalPromptTemplateVersionId, platform_prompt_template_version_id: input.platformPromptTemplateVersionId, ...research }
+    ? { ...profile, platforms: input.platforms, generation_provider_profile_id: input.generationProviderProfileId, ...research }
+    : { ...profile, platform: "telegram", generation_provider_profile_id: input.generationProviderProfileId, canonical_prompt_template_version_id: input.canonicalPromptTemplateVersionId, platform_prompt_template_version_id: input.platformPromptTemplateVersionId, ...research }
   const row = await jsonPost<{ job_id: string; status: string; deduplicated: boolean }>(`/stories/${storyId}/content-packs`, body)
   return mapJob(row)
 }

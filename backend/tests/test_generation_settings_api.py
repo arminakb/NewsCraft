@@ -27,6 +27,7 @@ from app.api.generation_settings import (
     create_prompt_version,
     create_provider_profile,
     list_prompt_versions,
+    patch_brand_profile,
     patch_provider_profile,
     seed_codex_provider_profile,
 )
@@ -382,6 +383,35 @@ async def test_brand_patch_rejects_explicit_null_with_422_and_no_mutation(field)
 
     assert response.status_code == 422
     assert {name: getattr(brand, name) for name in BrandProfilePatch.model_fields} == before
+
+
+async def test_setting_default_brand_profile_clears_the_previous_default():
+    session = GenerationSession()
+    previous = BrandProfile(
+        id=uuid4(),
+        name="Previous",
+        output_language="fa",
+        tone="neutral",
+        is_default=True,
+    )
+    selected = BrandProfile(
+        id=uuid4(),
+        name="Selected",
+        output_language="en",
+        tone="analytical",
+        is_default=False,
+    )
+    session.values.extend([previous, selected])
+
+    result = await patch_brand_profile(
+        selected.id,
+        BrandProfilePatch(is_default=True),
+        session,
+    )
+
+    assert result is selected
+    assert selected.is_default is True
+    assert previous.is_default is False
 
 
 async def test_provider_patch_recursively_preserves_pricing_and_both_research_budgets():

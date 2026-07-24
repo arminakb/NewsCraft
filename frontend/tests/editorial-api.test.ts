@@ -70,6 +70,20 @@ describe("editorial API", () => {
     }))
   })
 
+  it("lets the backend resolve the default editorial profile when omitted", async () => {
+    const fetchSpy = stubFetch({ job_id: "job-pack", status: "queued", deduplicated: false }, 202)
+    await requestContentPack("story-1", {
+      generationProviderProfileId: "provider-1",
+      platforms: ["telegram"],
+    })
+    const body = JSON.parse(String((fetchSpy.mock.calls[0][1] as RequestInit).body))
+    expect(body).not.toHaveProperty("brand_profile_id")
+    expect(body).toMatchObject({
+      platforms: ["telegram"],
+      generation_provider_profile_id: "provider-1",
+    })
+  })
+
   it("maps content-pack variants for all supported platforms", async () => {
     stubFetch([{
       id: "pack-1",

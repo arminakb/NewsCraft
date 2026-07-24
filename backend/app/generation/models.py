@@ -28,7 +28,15 @@ class BrandProfile(Base):
         DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now()
     )
 
-    __table_args__ = (UniqueConstraint("name", name="uq_brand_profiles_name"),)
+    __table_args__ = (
+        UniqueConstraint("name", name="uq_brand_profiles_name"),
+        Index(
+            "uq_brand_profiles_one_default",
+            "is_default",
+            unique=True,
+            postgresql_where=text("is_default"),
+        ),
+    )
 
 
 class PromptTemplate(Base):

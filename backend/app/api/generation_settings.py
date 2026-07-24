@@ -172,6 +172,31 @@ def _brand_matches(profile: BrandProfile, body: BrandProfileCreate) -> bool:
     return all(getattr(profile, key) == value for key, value in _brand_values(body).items())
 
 
+def _brand_conflict() -> HTTPException:
+    return HTTPException(
+        409,
+        {
+            "code": "editorial_profile_conflict",
+            "message": "Editorial profile name or default selection conflicts with another profile.",
+        },
+    )
+
+
+async def _clear_other_default_profiles(
+    session: AsyncSession,
+    *,
+    keep_id: UUID | None = None,
+) -> None:
+    profiles = list(
+        await session.scalars(
+            select(BrandProfile).where(BrandProfile.is_default.is_(True)).with_for_update()
+        )
+    )
+    for profile in profiles:
+        if profile.id != keep_id:
+            profile.is_default = False
+
+
 def _template_matches(template: PromptTemplate, body: PromptTemplateCreate) -> bool:
     return template.name == body.name and template.description == body.description
 
@@ -225,7 +250,11 @@ async def seed_codex_provider_profile(
 
 @router.get("/brand-profiles", response_model=list[BrandProfileOut])
 async def list_brand_profiles(session: AsyncSession = SessionDependency):
-    return list(await session.scalars(select(BrandProfile).order_by(BrandProfile.name)))
+    return list(
+        await session.scalars(
+            select(BrandProfile).order_by(BrandProfile.is_default.desc(), BrandProfile.name)
+        )
+    )
 
 
 @router.post("/brand-profiles", response_model=BrandProfileOut, status_code=201)
@@ -234,16 +263,18 @@ async def create_brand_profile(body: BrandProfileCreate, session: AsyncSession =
     if existing is not None:
         if _brand_matches(existing, body):
             return existing
-        raise HTTPException(409, "Brand profile already exists with different configuration")
+        raise _brand_conflict()
     profile = BrandProfile(**_brand_values(body))
     try:
         async with session.begin_nested():
+            if body.is_default:
+                await _clear_other_default_profiles(session)
             session.add(profile)
             await session.flush()
     except IntegrityError:
         existing = await session.scalar(select(BrandProfile).where(BrandProfile.name == body.name))
         if existing is None or not _brand_matches(existing, body):
-            raise HTTPException(409, "Brand profile already exists with different configuration") from None
+            raise _brand_conflict() from None
         return existing
     await session.commit()
     return profile
@@ -257,10 +288,23 @@ async def patch_brand_profile(
 ):
     profile = await session.get(BrandProfile, brand_profile_id)
     if profile is None:
-        raise HTTPException(404, "Brand profile not found")
-    for key, value in body.model_dump(exclude_unset=True).items():
+        raise HTTPException(
+            404,
+            {
+                "code": "editorial_profile_not_found",
+                "message": "Editorial profile was not found.",
+            },
+        )
+    changes = body.model_dump(exclude_unset=True)
+    if changes.get("is_default") is True:
+        await _clear_other_default_profiles(session, keep_id=profile.id)
+    for key, value in changes.items():
         setattr(profile, key, value)
-    await session.commit()
+    try:
+        await session.commit()
+    except IntegrityError:
+        await session.rollback()
+        raise _brand_conflict() from None
     return profile
 
 

@@ -23,6 +23,7 @@ import {
 } from "@/features/settings/content-settings-api"
 import { ContentSettingsPage } from "@/features/settings/content-settings-page"
 import { ApiError } from "@/lib/http"
+import { queryKeys } from "@/lib/query-keys"
 
 vi.mock("@/features/automations/telegram-api", () => ({
   activatePromptVersion: vi.fn(),
@@ -329,6 +330,70 @@ describe("ContentSettingsPage", () => {
     fireEvent.click(within(article!).getByText("Inspect raw template"))
     expect(within(article!).getByText(/Use evidence only/, { selector: "pre" })).toHaveAttribute("dir", "auto")
     expect(within(article!).getByRole("button", { name: "Review activation" })).toBeDisabled()
+  })
+
+  it("edits complete editorial policy, validates JSON, and refreshes every profile selector", async () => {
+    vi.mocked(updateBrandProfile).mockResolvedValue({
+      ...profile,
+      tone: "analytical",
+      attributionRules: { preserveSources: true },
+      platformPreferences: { telegram: { direction: "rtl" } },
+    })
+    const { queryClient } = renderSettings()
+    queryClient.setQueryData(queryKeys.editorialBrandOptions, [{ id: profile.id, name: profile.name }])
+
+    const profileHeading = await screen.findByRole("heading", { name: profile.name })
+    fireEvent.click(within(profileHeading.closest("article")!).getByRole("button", { name: "Edit" }))
+    const dialog = screen.getByRole("dialog", { name: `Edit ${profile.name}` })
+    fireEvent.change(within(dialog).getByLabelText(/Editorial tone/), { target: { value: "analytical" } })
+    const attribution = within(dialog).getByLabelText(/Attribution policy/)
+    fireEvent.change(attribution, { target: { value: "[" } })
+    fireEvent.blur(attribution)
+    expect(within(dialog).getByRole("alert")).toHaveTextContent("valid JSON")
+    expect(within(dialog).getByRole("button", { name: "Save profile" })).toBeDisabled()
+
+    fireEvent.change(attribution, { target: { value: '{"preserveSources":true}' } })
+    fireEvent.change(within(dialog).getByLabelText(/Per-platform preferences/), {
+      target: { value: '{"telegram":{"direction":"rtl"}}' },
+    })
+    fireEvent.click(within(dialog).getByRole("button", { name: "Save profile" }))
+
+    await waitFor(() => expect(updateBrandProfile).toHaveBeenCalledWith(
+      profile.id,
+      expect.objectContaining({
+        tone: "analytical",
+        attributionRules: { preserveSources: true },
+        platformPreferences: { telegram: { direction: "rtl" } },
+        isDefault: true,
+      }),
+    ))
+    expect(queryClient.getQueryState(queryKeys.editorialBrandOptions)?.isInvalidated).toBe(true)
+    expect(screen.getByText(/existing revisions remain unchanged/i)).toBeInTheDocument()
+  })
+
+  it("protects, resets, and cancels unsaved editorial profile changes", async () => {
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(false)
+    renderSettings()
+
+    const profileHeading = await screen.findByRole("heading", { name: profile.name })
+    fireEvent.click(within(profileHeading.closest("article")!).getByRole("button", { name: "Edit" }))
+    const dialog = screen.getByRole("dialog", { name: `Edit ${profile.name}` })
+    const tone = within(dialog).getByLabelText(/Editorial tone/)
+    fireEvent.change(tone, { target: { value: "direct" } })
+    expect(within(dialog).getByText("Unsaved changes")).toBeInTheDocument()
+
+    fireEvent.click(within(dialog).getByRole("button", { name: "Cancel" }))
+    expect(confirm).toHaveBeenCalledWith("Discard unsaved settings changes?")
+    expect(dialog).toBeInTheDocument()
+
+    fireEvent.click(within(dialog).getByRole("button", { name: "Reset" }))
+    expect(tone).toHaveValue("neutral")
+    expect(within(dialog).getByText("No unsaved changes")).toBeInTheDocument()
+
+    fireEvent.change(tone, { target: { value: "analytical" } })
+    confirm.mockReturnValue(true)
+    fireEvent.click(within(dialog).getByRole("button", { name: "Cancel" }))
+    expect(screen.queryByRole("dialog", { name: `Edit ${profile.name}` })).not.toBeInTheDocument()
   })
 })
 

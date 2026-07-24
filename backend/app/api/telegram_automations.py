@@ -215,7 +215,11 @@ async def automation_options(
             )
         )
     )
-    brands = list(await session.scalars(select(BrandProfile).order_by(BrandProfile.name)))
+    brands = list(
+        await session.scalars(
+            select(BrandProfile).order_by(BrandProfile.is_default.desc(), BrandProfile.name)
+        )
+    )
     templates = list(
         await session.scalars(select(PromptTemplate).where(PromptTemplate.purpose_key == "telegram_rewrite"))
     )

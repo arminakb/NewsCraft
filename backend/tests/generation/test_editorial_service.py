@@ -919,6 +919,77 @@ async def test_request_content_pack_binds_only_a_succeeded_same_story_research_r
 
 
 @pytest.mark.asyncio
+async def test_request_content_pack_resolves_and_snapshots_default_editorial_profile():
+    from app.generation.editorial_service import EditorialService, GeneratePackRequest
+    from app.generation.models import AIProviderProfile, BrandProfile
+    from app.jobs.types import JobStatus
+    from app.stories.models import Story
+
+    prompts = [
+        SimpleNamespace(id=uuid4(), checksum_sha256="a" * 64),
+        SimpleNamespace(id=uuid4(), checksum_sha256="b" * 64),
+    ]
+    profile = AIProviderProfile(
+        id=uuid4(),
+        name="Fake",
+        provider_type="fake",
+        default_model="fake-v1",
+        secret_ref=None,
+        settings={},
+        enabled=True,
+    )
+    story = Story(id=uuid4(), title="Story", status="inbox", primary_language="en")
+    default_brand = BrandProfile(
+        id=uuid4(),
+        name="Default newsroom",
+        output_language="en",
+        tone="analytical",
+        editorial_rules=[],
+        attribution_rules={},
+        default_hashtags=[],
+        platform_preferences={},
+        is_default=True,
+    )
+
+    class Session:
+        def __init__(self):
+            self.values = [*prompts, profile, story, default_brand]
+
+        async def scalars(self, statement):
+            return [self.values.pop(0)]
+
+        async def scalar(self, statement):
+            return self.values.pop(0)
+
+        async def get(self, model, identifier):
+            raise AssertionError("an omitted profile must resolve through the default query")
+
+        async def flush(self):
+            return None
+
+    class Jobs:
+        kwargs = None
+
+        async def enqueue_job(self, **kwargs):
+            self.kwargs = kwargs
+            return SimpleNamespace(
+                job=SimpleNamespace(id=uuid4(), status=JobStatus.QUEUED),
+                created=True,
+            )
+
+    jobs = Jobs()
+    await EditorialService(Session(), jobs=jobs).request_content_pack(
+        story.id,
+        GeneratePackRequest(
+            platforms=["telegram"],
+            generation_provider_profile_id=profile.id,
+        ),
+    )
+
+    assert jobs.kwargs["payload"]["brand_profile_id"] == str(default_brand.id)
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("failure", ["failed", "cross_story"])
 async def test_request_content_pack_rejects_failed_or_cross_story_research_run(failure):
     from app.generation.editorial_service import EditorialService, GeneratePackRequest, InvalidGenerationRequest

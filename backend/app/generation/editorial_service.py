@@ -71,7 +71,7 @@ class RevisionConflict(ValueError):
 
 class GeneratePackRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    brand_profile_id: UUID
+    brand_profile_id: UUID | None = None
     platforms: list[Platform] = Field(min_length=1)
     generation_provider_profile_id: UUID
     research_mode: Literal["off", "manual", "auto_if_incomplete"] = "off"
@@ -232,8 +232,22 @@ class EditorialService:
         )
         if story is None:
             raise InvalidGenerationRequest("active story not found")
-        if await self.session.get(BrandProfile, request.brand_profile_id) is None:
-            raise InvalidGenerationRequest("brand profile not found")
+        brand = (
+            await self.session.get(BrandProfile, request.brand_profile_id)
+            if request.brand_profile_id is not None
+            else await self.session.scalar(
+                select(BrandProfile)
+                .where(BrandProfile.is_default.is_(True))
+                .with_for_update()
+            )
+        )
+        if brand is None:
+            message = (
+                "brand profile not found"
+                if request.brand_profile_id is not None
+                else "default editorial profile is not configured"
+            )
+            raise InvalidGenerationRequest(message, code="editorial_profile_unavailable")
         if request.research_mode == "auto_if_incomplete" and request.research_provider_profile_id is None:
             raise InvalidGenerationRequest("auto research requires research_provider_profile_id")
         if request.research_run_id is not None and (
@@ -261,10 +275,14 @@ class EditorialService:
                 "research_result_story_revision_id": str(result_revision.id),
             }
         payload = (
-            request.model_dump(mode="json", exclude={"research_run_id"})
+            request.model_dump(
+                mode="json",
+                exclude={"research_run_id", "brand_profile_id"},
+            )
             | bound_payload
             | {
                 "story_id": str(story_id),
+                "brand_profile_id": str(brand.id),
                 "platforms": platforms,
                 "canonical_prompt_template_version_id": str(canonical.id),
                 "platform_prompt_template_version_ids": {

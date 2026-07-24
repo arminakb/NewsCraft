@@ -272,6 +272,7 @@ function SummaryCard({
 
 function EditorialProfilesSection({ profiles }: { profiles: BrandProfile[] }) {
   const [editing, setEditing] = useState<BrandProfile | "new" | null>(null)
+  const defaultProfile = profiles.find((profile) => profile.isDefault)
   return (
     <SettingsSection
       id="editorial-profiles"
@@ -280,6 +281,11 @@ function EditorialProfilesSection({ profiles }: { profiles: BrandProfile[] }) {
       description="Reusable language, tone, attribution, and platform defaults."
       action={<Button onClick={() => setEditing("new")}><Plus aria-hidden="true" /> New profile</Button>}
     >
+      <div className="rounded-lg border border-blue-200 bg-blue-50 p-3 text-sm leading-6 text-blue-950 dark:border-blue-900 dark:bg-blue-950/30 dark:text-blue-100" role="note">
+        <strong>{defaultProfile ? `${defaultProfile.name} is the default.` : "No default profile is selected."}</strong>{" "}
+        Requests that omit a profile use this default. Profile edits can affect queued jobs that have not executed;
+        existing revisions remain unchanged.
+      </div>
       {profiles.length ? (
         <div className="grid gap-3 lg:grid-cols-2">
           {profiles.map((profile) => (
@@ -300,7 +306,9 @@ function EditorialProfilesSection({ profiles }: { profiles: BrandProfile[] }) {
                 <summary className="cursor-pointer font-medium">Advanced profile details</summary>
                 <dl className="mt-3 grid gap-2 text-muted-foreground">
                   <div><dt className="font-medium text-foreground">Editorial rules</dt><dd>{profile.editorialRules.length ? profile.editorialRules.join(" · ") : "None"}</dd></div>
+                  <div><dt className="font-medium text-foreground">Attribution policy</dt><dd className="break-words font-mono text-xs">{compactJson(profile.attributionRules)}</dd></div>
                   <div><dt className="font-medium text-foreground">Default hashtags</dt><dd>{profile.defaultHashtags.length ? profile.defaultHashtags.join(" ") : "None"}</dd></div>
+                  <div><dt className="font-medium text-foreground">Per-platform preferences</dt><dd className="break-words font-mono text-xs">{compactJson(profile.platformPreferences)}</dd></div>
                 </dl>
               </details>
             </article>
@@ -320,13 +328,24 @@ function EditorialProfileDialog({ profile, onClose }: { profile: BrandProfile | 
     outputLanguage: profile?.outputLanguage ?? "fa",
     tone: profile?.tone ?? "neutral",
     editorialRules: profile?.editorialRules.join("\n") ?? "",
+    attributionRules: formatJsonObject(profile?.attributionRules ?? {}),
     defaultHashtags: profile?.defaultHashtags.join(" ") ?? "",
+    platformPreferences: formatJsonObject(profile?.platformPreferences ?? {}),
     isDefault: profile?.isDefault ?? false,
   }
   const [form, setForm] = useState(initial)
   const [touched, setTouched] = useState(false)
+  const [jsonTouched, setJsonTouched] = useState({ attribution: false, platforms: false })
   const dirty = JSON.stringify(form) !== JSON.stringify(initial)
-  const error = !form.name.trim() ? "Enter a profile name." : !form.outputLanguage.trim() ? "Enter an output language." : !form.tone.trim() ? "Enter a tone." : null
+  const attribution = parseJsonObject(form.attributionRules)
+  const platformPreferences = parseJsonObject(form.platformPreferences)
+  const error = !form.name.trim()
+    ? "Enter a profile name."
+    : !form.outputLanguage.trim()
+      ? "Enter an output language."
+      : !form.tone.trim()
+        ? "Enter an editorial tone."
+        : attribution.error ?? platformPreferences.error
   const mutation = useMutation({
     mutationFn: () => {
       const body = {
@@ -334,9 +353,9 @@ function EditorialProfileDialog({ profile, onClose }: { profile: BrandProfile | 
         outputLanguage: form.outputLanguage.trim(),
         tone: form.tone.trim(),
         editorialRules: lines(form.editorialRules),
-        attributionRules: profile?.attributionRules ?? {},
+        attributionRules: attribution.value,
         defaultHashtags: words(form.defaultHashtags),
-        platformPreferences: profile?.platformPreferences ?? {},
+        platformPreferences: platformPreferences.value,
         isDefault: form.isDefault,
       }
       return profile ? updateBrandProfile(profile.id, body) : createBrandProfile(body)
@@ -345,8 +364,13 @@ function EditorialProfileDialog({ profile, onClose }: { profile: BrandProfile | 
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: queryKeys.brandProfiles }),
         queryClient.invalidateQueries({ queryKey: queryKeys.telegramOptions }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.editorialBrandOptions }),
       ])
-      pushNotice({ tone: "success", title: profile ? "Profile updated" : "Profile created", message: "Editorial settings are ready to reuse." })
+      pushNotice({
+        tone: "success",
+        title: profile ? "Profile updated" : "Profile created",
+        message: "Future jobs will use the saved profile. Existing revisions were not changed.",
+      })
       onClose()
     },
     onError: (cause) => pushNotice({ tone: "error", title: "Profile could not be saved", message: getApiErrorMessage(cause) }),
@@ -359,33 +383,77 @@ function EditorialProfileDialog({ profile, onClose }: { profile: BrandProfile | 
       pending={mutation.isPending}
       submitDisabled={Boolean(error)}
       onClose={onClose}
-      onReset={() => setForm(initial)}
-      onSubmit={() => { setTouched(true); if (!error) mutation.mutate() }}
+      onReset={() => {
+        setForm(initial)
+        setTouched(false)
+        setJsonTouched({ attribution: false, platforms: false })
+      }}
+      onSubmit={() => {
+        setTouched(true)
+        setJsonTouched({ attribution: true, platforms: true })
+        if (!error) mutation.mutate()
+      }}
       submitLabel={profile ? "Save profile" : "Create profile"}
     >
       <div className="grid gap-4 sm:grid-cols-2">
         <Field label="Profile name" required error={touched && !form.name.trim() ? error : null}>
           <input autoFocus className={fieldClass} value={form.name} disabled={mutation.isPending} onBlur={() => setTouched(true)} onChange={(event) => setForm({ ...form, name: event.target.value })} />
         </Field>
-        <Field label="Output language" required>
-          <input className={fieldClass} value={form.outputLanguage} disabled={mutation.isPending} onChange={(event) => setForm({ ...form, outputLanguage: event.target.value })} />
+        <Field label="Output language" required hint="BCP 47 language code, such as fa, en, or en-GB.">
+          <input className={fieldClass} maxLength={12} autoCapitalize="none" value={form.outputLanguage} disabled={mutation.isPending} onChange={(event) => setForm({ ...form, outputLanguage: event.target.value })} />
         </Field>
-        <Field label="Tone" required>
-          <input className={fieldClass} value={form.tone} disabled={mutation.isPending} onChange={(event) => setForm({ ...form, tone: event.target.value })} />
+        <Field label="Editorial tone" required hint="Short voice direction, such as neutral, direct, or analytical.">
+          <input className={fieldClass} maxLength={120} value={form.tone} disabled={mutation.isPending} onChange={(event) => setForm({ ...form, tone: event.target.value })} />
         </Field>
         <label className="flex min-h-11 items-center gap-2 self-end rounded-lg border px-3 text-sm">
           <input type="checkbox" checked={form.isDefault} disabled={mutation.isPending} onChange={(event) => setForm({ ...form, isDefault: event.target.checked })} />
           Default editorial profile
         </label>
       </div>
+      <p className="rounded-lg bg-muted/60 p-3 text-sm leading-6 text-muted-foreground">
+        Selecting a default changes profile resolution for future requests that do not choose one explicitly.
+        Automation routes keep their selected profile. Saved revisions are immutable.
+      </p>
       <details className="rounded-lg border p-3">
-        <summary className="cursor-pointer font-medium">Advanced editorial rules</summary>
+        <summary className="cursor-pointer font-medium">Advanced policies and platform preferences</summary>
         <div className="mt-4 grid gap-4">
           <Field label="Editorial rules" hint="One rule per line">
             <textarea className={fieldClass} rows={5} value={form.editorialRules} disabled={mutation.isPending} onChange={(event) => setForm({ ...form, editorialRules: event.target.value })} />
           </Field>
           <Field label="Default hashtags" hint="Separated by spaces">
             <input className={fieldClass} value={form.defaultHashtags} disabled={mutation.isPending} onChange={(event) => setForm({ ...form, defaultHashtags: event.target.value })} />
+          </Field>
+          <Field
+            label="Attribution policy (JSON)"
+            hint="Structured source-credit rules passed to future generation jobs."
+            error={jsonTouched.attribution ? attribution.error : null}
+          >
+            <textarea
+              className={`${fieldClass} font-mono text-sm`}
+              rows={5}
+              dir="ltr"
+              spellCheck={false}
+              value={form.attributionRules}
+              disabled={mutation.isPending}
+              onBlur={() => setJsonTouched({ ...jsonTouched, attribution: true })}
+              onChange={(event) => setForm({ ...form, attributionRules: event.target.value })}
+            />
+          </Field>
+          <Field
+            label="Per-platform preferences (JSON)"
+            hint='Advanced generation preferences keyed by platform, for example {"telegram":{"direction":"rtl"}}.'
+            error={jsonTouched.platforms ? platformPreferences.error : null}
+          >
+            <textarea
+              className={`${fieldClass} font-mono text-sm`}
+              rows={6}
+              dir="ltr"
+              spellCheck={false}
+              value={form.platformPreferences}
+              disabled={mutation.isPending}
+              onBlur={() => setJsonTouched({ ...jsonTouched, platforms: true })}
+              onChange={(event) => setForm({ ...form, platformPreferences: event.target.value })}
+            />
           </Field>
         </div>
       </details>
@@ -399,7 +467,10 @@ function LLMProvidersSection({ providers }: { providers: LLMProvider[] }) {
   const [editing, setEditing] = useState<LLMProvider | "new" | null>(null)
   const [rotating, setRotating] = useState<LLMProvider | null>(null)
   const [busy, setBusy] = useState<string | null>(null)
-  const refresh = () => queryClient.invalidateQueries({ queryKey: queryKeys.llmProviders })
+  const refresh = () => Promise.all([
+    queryClient.invalidateQueries({ queryKey: queryKeys.llmProviders }),
+    queryClient.invalidateQueries({ queryKey: queryKeys.editorialProviderOptions }),
+  ])
   const run = async (provider: LLMProvider, action: "test" | "toggle" | "dependencies" | "delete") => {
     setBusy(`${provider.id}:${action}`)
     try {
@@ -526,7 +597,10 @@ function ProviderDialog({ provider, onClose }: { provider: LLMProvider | null; o
       }),
     onSuccess: async () => {
       setForm({ ...form, apiKey: "" })
-      await queryClient.invalidateQueries({ queryKey: queryKeys.llmProviders })
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: queryKeys.llmProviders }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.editorialProviderOptions }),
+      ])
       pushNotice({ tone: "success", title: provider ? "Provider updated" : "Provider created", message: "Connection saved. Test it before enabling." })
       onClose()
     },
@@ -1450,4 +1524,25 @@ function lines(value: string) {
 
 function words(value: string) {
   return value.split(/\s+/).map((item) => item.trim()).filter(Boolean)
+}
+
+function parseJsonObject(value: string): { value: Record<string, unknown>; error: string | null } {
+  if (!value.trim()) return { value: {}, error: null }
+  try {
+    const parsed: unknown = JSON.parse(value)
+    if (!parsed || Array.isArray(parsed) || typeof parsed !== "object") {
+      return { value: {}, error: "Enter a JSON object using braces." }
+    }
+    return { value: parsed as Record<string, unknown>, error: null }
+  } catch {
+    return { value: {}, error: "Enter valid JSON with quoted keys and values." }
+  }
+}
+
+function formatJsonObject(value: Record<string, unknown>) {
+  return JSON.stringify(value, null, 2)
+}
+
+function compactJson(value: Record<string, unknown>) {
+  return Object.keys(value).length ? JSON.stringify(value) : "None"
 }
