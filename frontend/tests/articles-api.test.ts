@@ -1,0 +1,283 @@
+import {
+  createArticleCollection,
+  deleteArticleCollection,
+  decodeArticleCollections,
+  decodeArticleFacets,
+  decodeArticlePage,
+  getArticleCollections,
+  getArticleFacets,
+  getArticles,
+  removeArticleFromCollection,
+  renameArticleCollection,
+  saveArticleToCollection,
+} from "@/features/articles/api"
+
+const articleId = "11111111-1111-4111-8111-111111111111"
+
+describe("Articles API", () => {
+  afterEach(() => vi.unstubAllGlobals())
+
+  it("decodes exact summary contract and maps backend names", () => {
+    const page = decodeArticlePage(articlePage())
+
+    expect(page).toMatchObject({ nextCursor: "next-page", resultCount: 12 })
+    expect(page.items[0]).toMatchObject({
+      id: articleId,
+      source: { name: "Wire Desk", platform: "rss" },
+      displayAt: "2026-07-21T08:00:00Z",
+      dateBasis: "published",
+      coverage: { state: "complete" },
+      image: { altText: "Newsroom" },
+      hasImage: true,
+      marked: false,
+      markedAt: null,
+      saved: false,
+      savedCollectionIds: [],
+    })
+  })
+
+  it("rejects extra raw metadata and inconsistent image state", () => {
+    const extra = articlePage()
+    Object.assign(extra.items[0], { metrics: { raw: true } })
+    expect(() => decodeArticlePage(extra)).toThrow("Invalid Articles response")
+
+    const inconsistent = articlePage()
+    inconsistent.items[0].has_image = false
+    expect(() => decodeArticlePage(inconsistent)).toThrow("Invalid Articles response")
+  })
+
+  it("requests only Articles endpoint with sort, limit, and cursor", async () => {
+    const request = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify(articlePage()), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      }),
+    )
+    vi.stubGlobal("fetch", request)
+
+    await getArticles({ sort: "score", cursor: "cursor/value", limit: 25 })
+
+    expect(request).toHaveBeenCalledWith(
+      "/api/backend/articles?sort=score&limit=25&cursor=cursor%2Fvalue",
+      undefined,
+    )
+  })
+
+  it("serializes title search with collection and cursor state", async () => {
+    const request = vi.fn().mockResolvedValue(new Response(JSON.stringify(articlePage()), {
+      status: 200, headers: { "content-type": "application/json" },
+    }))
+    vi.stubGlobal("fetch", request)
+
+    await getArticles({
+      sort: "newest",
+      query: "گزارش فناوری",
+      collectionId,
+      cursor: "page-2",
+      limit: 50,
+    })
+
+    expect(request).toHaveBeenCalledWith(
+      `/api/backend/articles?sort=newest&limit=50&q=${new URLSearchParams({ q: "گزارش فناوری" }).toString().slice(2)}&collection_id=${collectionId}&cursor=page-2`,
+      undefined,
+    )
+  })
+
+  it("serializes collection selection with cursor pagination", async () => {
+    const request = vi.fn().mockResolvedValue(new Response(JSON.stringify(articlePage()), {
+      status: 200, headers: { "content-type": "application/json" },
+    }))
+    vi.stubGlobal("fetch", request)
+    await getArticles({ sort: "newest", collectionId, cursor: "page-2", limit: 50 })
+    expect(request).toHaveBeenCalledWith(
+      `/api/backend/articles?sort=newest&limit=50&collection_id=${collectionId}&cursor=page-2`,
+      undefined,
+    )
+  })
+
+  it("serializes repeated and bounded filters for server-side filtering", async () => {
+    const request = vi.fn().mockResolvedValue(new Response(JSON.stringify(articlePage()), {
+      status: 200, headers: { "content-type": "application/json" },
+    }))
+    vi.stubGlobal("fetch", request)
+    await getArticles({
+      sort: "newest",
+      filters: {
+        languages: ["en"], topics: ["AI", "Tech"], contentTypes: ["news"],
+        sourceIds: ["22222222-2222-4222-8222-222222222222"], coverage: ["complete", "ungrouped"],
+        hasImage: true, scoreMin: 20, scoreMax: 80, dateFrom: "2026-07-01", dateTo: "2026-07-21",
+      },
+      limit: 50,
+    })
+    expect(request).toHaveBeenCalledWith(
+      "/api/backend/articles?sort=newest&limit=50&language=en&topic=AI&topic=Tech&content_type=news&source_id=22222222-2222-4222-8222-222222222222&coverage=complete&coverage=ungrouped&has_image=true&score_min=20&score_max=80&date_from=2026-07-01T00%3A00%3A00Z&date_to=2026-07-22T00%3A00%3A00Z",
+      undefined,
+    )
+  })
+
+  it("fetches and strictly decodes facet values", async () => {
+    const payload = facetPayload()
+    const request = vi.fn().mockResolvedValue(new Response(JSON.stringify(payload), {
+      status: 200, headers: { "content-type": "application/json" },
+    }))
+    vi.stubGlobal("fetch", request)
+    await expect(getArticleFacets()).resolves.toEqual({
+      languages: [{ value: "en", count: 2 }], topics: [{ value: "AI", count: 1 }],
+      contentTypes: [{ value: "news", count: 2 }],
+      sources: [{ id: "22222222-2222-4222-8222-222222222222", name: "Wire Desk", platform: "rss", count: 2 }],
+      coverage: [{ value: "complete", count: 1 }],
+    })
+    expect(request).toHaveBeenCalledWith("/api/backend/articles/facets", undefined)
+    expect(() => decodeArticleFacets({ ...payload, extra: true })).toThrow("Invalid Article facets response")
+  })
+
+  it("strictly decodes, lists, and creates article collections", async () => {
+    const payload = collectionPayload()
+    const request = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify([payload]), {
+        status: 200, headers: { "content-type": "application/json" },
+      }))
+      .mockResolvedValueOnce(new Response(JSON.stringify(payload), {
+        status: 201, headers: { "content-type": "application/json" },
+      }))
+    vi.stubGlobal("fetch", request)
+
+    await expect(getArticleCollections()).resolves.toEqual([{
+      id: collectionId,
+      name: "Research",
+      articleCount: 3,
+      createdAt: "2026-07-21T08:00:00Z",
+      updatedAt: "2026-07-21T09:00:00Z",
+    }])
+    await expect(createArticleCollection("Research")).resolves.toMatchObject({ id: collectionId, name: "Research" })
+    expect(request).toHaveBeenNthCalledWith(1, "/api/backend/article-collections", undefined)
+    expect(request).toHaveBeenNthCalledWith(2, "/api/backend/article-collections", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ name: "Research" }),
+    })
+
+    expect(() => decodeArticleCollections([{ ...payload, extra: true }])).toThrow("Invalid Article collections response")
+    expect(() => decodeArticleCollections([{ ...payload, name: " Research " }])).toThrow("Invalid Article collections response")
+  })
+
+  it("adds and removes collection membership through idempotent 204 endpoints", async () => {
+    const request = vi.fn()
+      .mockResolvedValueOnce(new Response(null, { status: 204 }))
+      .mockResolvedValueOnce(new Response(null, { status: 204 }))
+    vi.stubGlobal("fetch", request)
+
+    await saveArticleToCollection(collectionId, articleId)
+    await removeArticleFromCollection(collectionId, articleId)
+
+    expect(request).toHaveBeenNthCalledWith(
+      1,
+      `/api/backend/article-collections/${collectionId}/articles/${articleId}`,
+      { method: "PUT" },
+    )
+    expect(request).toHaveBeenNthCalledWith(
+      2,
+      `/api/backend/article-collections/${collectionId}/articles/${articleId}`,
+      { method: "DELETE" },
+    )
+  })
+
+  it("renames and deletes collections through existing management endpoints", async () => {
+    const payload = { ...collectionPayload(), name: "Archive" }
+    const request = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify(payload), {
+        status: 200, headers: { "content-type": "application/json" },
+      }))
+      .mockResolvedValueOnce(new Response(null, { status: 204 }))
+    vi.stubGlobal("fetch", request)
+
+    await expect(renameArticleCollection(collectionId, "Archive")).resolves.toMatchObject({ name: "Archive" })
+    await deleteArticleCollection(collectionId)
+
+    expect(request).toHaveBeenNthCalledWith(1, `/api/backend/article-collections/${collectionId}`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ name: "Archive" }),
+    })
+    expect(request).toHaveBeenNthCalledWith(2, `/api/backend/article-collections/${collectionId}`, {
+      method: "DELETE",
+    })
+  })
+})
+
+const collectionId = "cccccccc-cccc-4ccc-8ccc-cccccccccccc"
+
+function collectionPayload() {
+  return {
+    id: collectionId,
+    name: "Research",
+    article_count: 3,
+    created_at: "2026-07-21T08:00:00Z",
+    updated_at: "2026-07-21T09:00:00Z",
+  }
+}
+
+function facetPayload() {
+  return {
+    languages: [{ value: "en", count: 2 }],
+    topics: [{ value: "AI", count: 1 }],
+    content_types: [{ value: "news", count: 2 }],
+    sources: [{ id: "22222222-2222-4222-8222-222222222222", name: "Wire Desk", platform: "rss", count: 2 }],
+    coverage: [{ value: "complete", count: 1 }],
+  }
+}
+
+function articlePage() {
+  return {
+    items: [{
+      id: articleId,
+      title: "Editorial report",
+      summary: "Short summary",
+      excerpt: null,
+      source: {
+        id: "22222222-2222-4222-8222-222222222222",
+        name: "Wire Desk",
+        platform: "rss",
+        homepage_url: "https://wire.example",
+      },
+      canonical_url: "https://wire.example/report",
+      published_at: "2026-07-21T08:00:00Z",
+      sort_at: "2026-07-21T08:01:00Z",
+      display_at: "2026-07-21T08:00:00Z",
+      date_basis: "published",
+      score: 72,
+      content_type: "news",
+      topic: "AI",
+      domain: "wire.example",
+      language: "en",
+      direction: "ltr",
+      coverage: {
+        state: "complete",
+        stories: [{
+          id: "33333333-3333-4333-8333-333333333333",
+          title: "Story",
+          editorial_state: "inbox",
+          complete: true,
+          score: 100,
+        }],
+      },
+      article_readiness: { ready: true },
+      image: {
+        id: "44444444-4444-4444-8444-444444444444",
+        url: "https://media.example/image.jpg",
+        kind: "image",
+        width: 1200,
+        height: 675,
+        alt_text: "Newsroom",
+        fetch_status: "remote_only",
+      },
+      has_image: true,
+      marked: false,
+      marked_at: null,
+      saved: false,
+      saved_collection_ids: [],
+    }],
+    next_cursor: "next-page",
+    result_count: 12,
+  }
+}

@@ -438,7 +438,5 @@ async def seed_default_telegram_configuration(
             select(AIProviderProfile).where(AIProviderProfile.name == "OpenRouter"),
         )
         profiles.append(openrouter)
-    elif openrouter_available is not None:
-        openrouter.enabled = bool(openrouter_available)
     await session.flush()
     return DefaultTelegramConfiguration(brand=brand, providers=(fake, openrouter))

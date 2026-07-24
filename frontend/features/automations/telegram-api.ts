@@ -1,9 +1,6 @@
 import { apiRequest } from "@/lib/http"
 
 import type {
-  AIProviderProfile,
-  AIProviderProfileInput,
-  AIProviderProfilePatch,
   AutomationControl,
   BrandProfile,
   BrandProfileInput,
@@ -16,8 +13,6 @@ import type {
   PromptVersionInput,
   TelegramAutomationOptions,
   TelegramDestination,
-  TelegramDestinationAccepted,
-  TelegramDestinationInput,
   TelegramDispatch,
   TelegramDraft,
   TelegramDraftEditInput,
@@ -89,14 +84,14 @@ const defined = (value: Record<string, unknown>) =>
 export async function getTelegramAutomationOptions(): Promise<TelegramAutomationOptions> {
   const row = await apiRequest<{
     sources: Array<{ id: string; name: string; access_mode: TelegramRoute["accessMode"]; capability_state: unknown }>
-    destinations: Array<{ id: string; name: string; health_status: TelegramDestination["healthStatus"]; allow_auto_publish: boolean; capability_state: unknown }>
+    destinations: Array<{ id: string; name: string; health_status: TelegramDestination["healthStatus"]; capability_state: unknown }>
     brand_profiles: Array<{ id: string; name: string }>
     prompt_template_versions: Array<{ id: string; version: number; is_active: boolean; checksum_sha256: string }>
     ai_provider_profiles: Array<{ id: string; name: string; provider_type: "fake" | "openrouter" | "codex"; default_model: string | null; configured: boolean; capabilities: { generation: boolean; research: boolean }; capability_states: { generation?: unknown; research?: unknown } }>
   }>("/telegram/automations/options")
   return {
     sources: row.sources.map((item) => ({ id: item.id, name: item.name, accessMode: item.access_mode, capabilityState: mapCredentialCapabilityState(item.capability_state) })),
-    destinations: row.destinations.map((item) => ({ id: item.id, name: item.name, healthStatus: item.health_status, allowAutoPublish: item.allow_auto_publish, capabilityState: mapCredentialCapabilityState(item.capability_state) })),
+    destinations: row.destinations.map((item) => ({ id: item.id, name: item.name, healthStatus: item.health_status, capabilityState: mapCredentialCapabilityState(item.capability_state) })),
     brandProfiles: row.brand_profiles,
     promptTemplateVersions: row.prompt_template_versions.map((item) => ({
       id: item.id,
@@ -123,14 +118,6 @@ export async function createTelegramSource(input: TelegramSourceInput): Promise<
 
 export async function getTelegramDestinations(): Promise<TelegramDestination[]> {
   return (await apiRequest<Array<Record<string, unknown>>>("/telegram/destinations")).map(mapTelegramDestination)
-}
-
-export async function createTelegramDestination(input: TelegramDestinationInput): Promise<TelegramDestinationAccepted> {
-  const row = await apiRequest<{ destination: Record<string, unknown>; job: BackendJobAccepted }>(
-    "/telegram/destinations",
-    json("POST", { name: input.name, target_ref: input.targetRef, secret_ref: input.secretRef, allow_auto_publish: input.allowAutoPublish ?? false })
-  )
-  return { destination: mapTelegramDestination(row.destination), job: mapJobAccepted(row.job) }
 }
 
 export async function getTelegramRoutes(): Promise<TelegramRoute[]> {
@@ -293,16 +280,6 @@ export async function activatePromptVersion(versionId: string, reason: string): 
   return mapPromptVersion(await apiRequest<Record<string, unknown>>(`/prompt-template-versions/${encodeURIComponent(versionId)}/activate`, json("POST", { reason })))
 }
 
-export async function getAIProviderProfiles(): Promise<AIProviderProfile[]> {
-  return (await apiRequest<Array<Record<string, unknown>>>("/ai-provider-profiles")).map(mapAIProviderProfile)
-}
-export async function createAIProviderProfile(input: AIProviderProfileInput): Promise<AIProviderProfile> {
-  return mapAIProviderProfile(await apiRequest<Record<string, unknown>>("/ai-provider-profiles", json("POST", providerBody(input))))
-}
-export async function updateAIProviderProfile(id: string, input: AIProviderProfilePatch): Promise<AIProviderProfile> {
-  return mapAIProviderProfile(await apiRequest<Record<string, unknown>>(`/ai-provider-profiles/${encodeURIComponent(id)}`, json("PATCH", providerBody(input))))
-}
-
 export function mapAutomationControl(row: Record<string, unknown>): AutomationControl {
   return { globalPause: row.global_pause as boolean, dryRun: row.dry_run as boolean, pauseReason: row.pause_reason as string | null, pausedAt: row.paused_at as string | null, updatedAt: row.updated_at as string }
 }
@@ -352,9 +329,7 @@ function mapTelegramSource(row: Record<string, unknown>): TelegramSource {
   return { id: row.id as string, name: row.name as string, channelRef: row.channel_ref as string, accessMode: row.access_mode as TelegramSource["accessMode"], languageHint: row.language_hint as string | null, configured: row.configured as boolean, capabilityState: mapCredentialCapabilityState(row.capability_state) }
 }
 function mapTelegramDestination(row: Record<string, unknown>): TelegramDestination {
-  const settings = (row.settings ?? {}) as Record<string, unknown>
-  const { allow_auto_publish: allowAutoPublish, ...safeSettings } = settings
-  return { id: row.id as string, name: row.name as string, targetRef: row.target_ref as string, enabled: row.enabled as boolean, healthStatus: row.health_status as TelegramDestination["healthStatus"], configured: row.configured as boolean, capabilityState: mapCredentialCapabilityState(row.capability_state), settings: { ...safeSettings, allowAutoPublish: allowAutoPublish as boolean | undefined } }
+  return { id: row.id as string, name: row.name as string, targetRef: row.target_ref as string, enabled: row.enabled as boolean, healthStatus: row.health_status as TelegramDestination["healthStatus"], configured: row.configured as boolean, capabilityState: mapCredentialCapabilityState(row.capability_state) }
 }
 function mapTelegramDispatch(row: Record<string, unknown>): TelegramDispatch {
   return { id: row.id as string, routeId: row.route_id as string, sourceItemId: row.source_item_id as string, storyId: row.story_id as string, storyRevisionId: row.story_revision_id as string, sourceKey: row.source_key as string, sourceFingerprint: row.source_fingerprint as string, sourceMessageIds: row.source_message_ids as number[], dispatchKind: row.dispatch_kind as TelegramDispatch["dispatchKind"], status: row.status as string, generationRunId: row.generation_run_id as string | null, variantRevisionId: row.variant_revision_id as string | null, publishJobId: row.publish_job_id as string | null, errorCode: row.error_code as string | null, errorMessage: row.error_message as string | null, createdAt: row.created_at as string, updatedAt: row.updated_at as string }
@@ -375,8 +350,6 @@ function brandBody(input: BrandProfileInput | BrandProfilePatch) { return define
 function mapBrandProfile(row: Record<string, unknown>): BrandProfile { return { id: row.id as string, name: row.name as string, outputLanguage: row.output_language as string, tone: row.tone as string, editorialRules: row.editorial_rules as string[], attributionRules: row.attribution_rules as Record<string, unknown>, defaultHashtags: row.default_hashtags as string[], platformPreferences: row.platform_preferences as Record<string, unknown>, isDefault: row.is_default as boolean } }
 function mapPromptTemplate(row: Record<string, unknown>): PromptTemplate { return { id: row.id as string, purposeKey: row.purpose_key as string, name: row.name as string, description: row.description as string | null } }
 function mapPromptVersion(row: Record<string, unknown>): PromptVersion { return { id: row.id as string, promptTemplateId: row.prompt_template_id as string, version: row.version as number, systemTemplate: row.system_template as string, userTemplate: row.user_template as string, outputSchemaVersion: row.output_schema_version as string, outputSchema: row.output_schema as Record<string, unknown>, checksumSha256: row.checksum_sha256 as string, isActive: row.is_active as boolean, activatedAt: row.activated_at as string | null, activatedByType: row.activated_by_type as string | null, activatedById: row.activated_by_id as string | null, activationReason: row.activation_reason as string | null, createdAt: row.created_at as string } }
-function providerBody(input: AIProviderProfileInput | AIProviderProfilePatch) { return defined({ name: input.name, provider_type: "providerType" in input ? input.providerType : undefined, default_model: input.defaultModel, secret_ref: input.secretRef, settings: input.settings, enabled: input.enabled }) }
-function mapAIProviderProfile(row: Record<string, unknown>): AIProviderProfile { const capabilities = row.capabilities as Record<string, unknown>; const states = row.capability_states as Record<string, unknown> | undefined; return { id: row.id as string, name: row.name as string, providerType: row.provider_type as AIProviderProfile["providerType"], defaultModel: row.default_model as string | null, settings: row.settings as Record<string, unknown>, enabled: row.enabled as boolean, configured: row.configured as boolean, capabilities: { generation: capabilities?.generation === true, research: capabilities?.research === true }, capabilityStates: { generation: mapCredentialCapabilityState(states?.generation), research: mapCredentialCapabilityState(states?.research) }, unavailabilityCodes: Array.isArray(row.unavailability_codes) ? row.unavailability_codes.filter((item): item is string => typeof item === "string") : [] } }
 
 function mapCredentialCapabilityState(value: unknown): CredentialCapabilityState {
   const row = value && typeof value === "object" ? value as Record<string, unknown> : {}

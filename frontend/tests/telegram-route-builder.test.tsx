@@ -2,7 +2,6 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { fireEvent, render, screen, waitFor } from "@testing-library/react"
 
 import {
-  createTelegramDestination,
   createTelegramRoute,
   createTelegramSource,
   getTelegramAutomationOptions,
@@ -11,7 +10,6 @@ import { RouteBuilder } from "@/features/automations/route-builder"
 import type { TelegramAutomationOptions } from "@/features/automations/telegram-types"
 
 vi.mock("@/features/automations/telegram-api", () => ({
-  createTelegramDestination: vi.fn(),
   createTelegramRoute: vi.fn(),
   createTelegramSource: vi.fn(),
   getTelegramAutomationOptions: vi.fn(),
@@ -19,7 +17,7 @@ vi.mock("@/features/automations/telegram-api", () => ({
 
 const options: TelegramAutomationOptions = {
   sources: [],
-  destinations: [],
+  destinations: [{ id: "destination-1", name: "Main newsroom", healthStatus: "healthy", capabilityState: availableState() }],
   brandProfiles: [{ id: "brand-1", name: "Persian newsroom" }],
   promptTemplateVersions: [{ id: "prompt-1", version: 3, isActive: true, checksumSha256: "a".repeat(64) }],
   aiProviderProfiles: [{ id: "provider-1", name: "Editorial AI", providerType: "openrouter", defaultModel: "model", configured: true, capabilities: { generation: true, research: true }, capabilityStates: { generation: availableState(), research: availableState() } }],
@@ -30,7 +28,6 @@ describe("RouteBuilder", () => {
     vi.resetAllMocks()
     vi.mocked(getTelegramAutomationOptions).mockResolvedValue(options)
     vi.mocked(createTelegramSource).mockResolvedValue({ id: "source-1" } as never)
-    vi.mocked(createTelegramDestination).mockResolvedValue({ destination: { id: "destination-1" } } as never)
     vi.mocked(createTelegramRoute).mockResolvedValue({ id: "route-1", name: "Morning route" } as never)
   })
 
@@ -41,6 +38,11 @@ describe("RouteBuilder", () => {
     expect(screen.getByRole("option", { name: "Prompt version 3 · active" })).toBeInTheDocument()
     expect(screen.getByLabelText("Prompt update policy")).toHaveValue("")
     expect(screen.getByRole("option", { name: "Editorial AI" })).toBeInTheDocument()
+    expect(screen.getByLabelText("Telegram destination")).toHaveValue("destination-1")
+    expect(screen.getByRole("link", { name: "Manage destinations" })).toHaveAttribute(
+      "href",
+      "/settings/content#telegram-destinations",
+    )
     expect(screen.getByLabelText("Access mode")).toHaveValue("public_html")
     expect(screen.getByLabelText("Research mode")).toHaveValue("off")
     expect(screen.getByLabelText("Media policy")).toHaveValue("preserve")
@@ -48,6 +50,19 @@ describe("RouteBuilder", () => {
     expect(screen.getByLabelText("Poll interval in seconds")).toHaveValue(300)
     expect(document.querySelector('input[type="password"]')).not.toBeInTheDocument()
     expect(screen.queryByText(/secret[_ -]?ref/i)).not.toBeInTheDocument()
+  })
+
+  it("blocks creation and links to destination management when no destination is ready", async () => {
+    vi.mocked(getTelegramAutomationOptions).mockResolvedValue({ ...options, destinations: [] })
+    renderBuilder()
+
+    expect(await screen.findByRole("option", { name: "No ready destinations" })).toBeInTheDocument()
+    expect(screen.getByText("Create and verify a destination before building an automation.")).toBeInTheDocument()
+    expect(screen.getByRole("link", { name: "Manage destinations" })).toHaveAttribute(
+      "href",
+      "/settings/content#telegram-destinations",
+    )
+    expect(screen.getByRole("button", { name: "Create automation" })).toBeDisabled()
   })
 
   it("reveals three environment-name fields for MTProto and requires explicit auto-publish confirmation", async () => {
@@ -75,7 +90,6 @@ describe("RouteBuilder", () => {
   it("creates configuration without activating before workers observe credentials", async () => {
     const order: string[] = []
     vi.mocked(createTelegramSource).mockImplementation(async () => { order.push("source"); return { id: "source-1" } as never })
-    vi.mocked(createTelegramDestination).mockImplementation(async () => { order.push("destination"); return { destination: { id: "destination-1" } } as never })
     vi.mocked(createTelegramRoute).mockImplementation(async () => { order.push("route"); return { id: "route-1" } as never })
     renderBuilder()
     await screen.findByRole("option", { name: "Persian newsroom" })
@@ -83,13 +97,10 @@ describe("RouteBuilder", () => {
     fireEvent.change(screen.getByLabelText("Automation name"), { target: { value: "Morning route" } })
     fireEvent.change(screen.getByLabelText("Source name"), { target: { value: "Tehran feed" } })
     fireEvent.change(screen.getByLabelText("Source channel"), { target: { value: "tehran_feed" } })
-    fireEvent.change(screen.getByLabelText("Destination name"), { target: { value: "Main channel" } })
-    fireEvent.change(screen.getByLabelText("Destination target"), { target: { value: "@main" } })
-    fireEvent.change(screen.getByLabelText("Bot token environment variable"), { target: { value: "TELEGRAM_MAIN_BOT_TOKEN" } })
     fireEvent.change(screen.getByLabelText("Prompt update policy"), { target: { value: "follow_active" } })
     fireEvent.click(screen.getByRole("button", { name: "Create automation" }))
 
-    await waitFor(() => expect(order).toEqual(["source", "destination", "route"]))
+    await waitFor(() => expect(order).toEqual(["source", "route"]))
     expect(createTelegramRoute).toHaveBeenCalledWith(expect.objectContaining({
       accessMode: "public_html",
       researchMode: "off",
@@ -121,7 +132,7 @@ describe("RouteBuilder", () => {
   })
 
   it("keeps entered values and exposes the server error", async () => {
-    vi.mocked(createTelegramDestination).mockRejectedValue(new Error("Destination health check unavailable"))
+    vi.mocked(createTelegramRoute).mockRejectedValue(new Error("Destination health check unavailable"))
     renderBuilder()
     await screen.findByRole("option", { name: "Persian newsroom" })
 
@@ -139,9 +150,6 @@ describe("RouteBuilder", () => {
 function fillRequiredConnectionFields() {
   fireEvent.change(screen.getByLabelText("Prompt update policy"), { target: { value: "follow_active" } })
   fireEvent.change(screen.getByLabelText("Source channel"), { target: { value: "channel" } })
-  fireEvent.change(screen.getByLabelText("Destination name"), { target: { value: "Destination" } })
-  fireEvent.change(screen.getByLabelText("Destination target"), { target: { value: "@target" } })
-  fireEvent.change(screen.getByLabelText("Bot token environment variable"), { target: { value: "TELEGRAM_BOT_TOKEN" } })
 }
 
 function availableState() {

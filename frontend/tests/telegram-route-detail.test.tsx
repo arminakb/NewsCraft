@@ -66,7 +66,7 @@ describe("RouteDetail", () => {
     vi.mocked(getTelegramRoute).mockResolvedValue(route as never)
     vi.mocked(getTelegramAutomationOptions).mockResolvedValue({
       sources: [{ id: "source-1", name: "Wire", accessMode: "public_html", capabilityState: availableState }],
-      destinations: [{ id: "destination-1", name: "News", healthStatus: "healthy", allowAutoPublish: false, capabilityState: availableState }],
+      destinations: [{ id: "destination-1", name: "News", healthStatus: "healthy", capabilityState: availableState }],
       brandProfiles: [], promptTemplateVersions: [{ id: "prompt-1", version: 1, isActive: true, checksumSha256: "a".repeat(64) }], aiProviderProfiles: [],
     })
     vi.mocked(getTelegramDispatches).mockResolvedValue([

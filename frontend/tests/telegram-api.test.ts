@@ -3,10 +3,8 @@ import {
   activateTelegramRoute,
   approveTelegramDraft,
   backfillTelegramRoute,
-  createAIProviderProfile,
   createBrandProfile,
   createPromptVersion,
-  createTelegramDestination,
   createTelegramRoute,
   createTelegramSource,
   dryRunTelegramRoute,
@@ -87,7 +85,7 @@ describe("Telegram automation API", () => {
     const fetchSpy = stubFetch({
       sources: [{ id: ids.source, name: "Wire", access_mode: "public_html", capability_state: backendAvailableState }],
       destinations: [
-        { id: ids.destination, name: "Newsroom", health_status: "healthy", allow_auto_publish: false, capability_state: backendAvailableState },
+        { id: ids.destination, name: "Newsroom", health_status: "healthy", capability_state: backendAvailableState },
       ],
       brand_profiles: [{ id: ids.brand, name: "Main" }],
       prompt_template_versions: [{ id: ids.prompt, version: 2, is_active: true, checksum_sha256: "a".repeat(64) }],
@@ -100,7 +98,7 @@ describe("Telegram automation API", () => {
     await expect(getTelegramAutomationOptions()).resolves.toEqual({
       sources: [{ id: ids.source, name: "Wire", accessMode: "public_html", capabilityState: availableState }],
       destinations: [
-        { id: ids.destination, name: "Newsroom", healthStatus: "healthy", allowAutoPublish: false, capabilityState: availableState },
+        { id: ids.destination, name: "Newsroom", healthStatus: "healthy", capabilityState: availableState },
       ],
       brandProfiles: [{ id: ids.brand, name: "Main" }],
       promptTemplateVersions: [{ id: ids.prompt, version: 2, isActive: true, checksumSha256: "a".repeat(64) }],
@@ -111,13 +109,9 @@ describe("Telegram automation API", () => {
     expect(fetchSpy).toHaveBeenCalledWith("/api/backend/telegram/automations/options", undefined)
   })
 
-  it("creates source, destination, and fully mapped route with exact snake-case requests", async () => {
+  it("creates a source and route using an existing destination with exact snake-case requests", async () => {
     const fetchSpy = stubFetchSequence(
       { id: ids.source, name: "Wire", channel_ref: "@wire", access_mode: "mtproto_user", language_hint: "fa", configured: true, capability_state: backendAvailableState },
-      {
-        destination: { id: ids.destination, name: "Newsroom", target_ref: "@news", enabled: true, health_status: "unknown", configured: true, capability_state: backendAvailableState, settings: { allow_auto_publish: false } },
-        job: { job_id: ids.publishJob, status: "queued", deduplicated: false },
-      },
       backendRoute
     )
 
@@ -125,7 +119,6 @@ describe("Telegram automation API", () => {
       name: "Wire", channelRef: "@wire", accessMode: "mtproto_user", languageHint: "fa",
       apiIdSecretRef: "TELEGRAM_API_ID", apiHashSecretRef: "TELEGRAM_API_HASH", sessionSecretRef: "TELEGRAM_SESSION",
     })
-    await createTelegramDestination({ name: "Newsroom", targetRef: "@news", secretRef: "TELEGRAM_BOT_TOKEN", allowAutoPublish: false })
     const route = await createTelegramRoute({
       name: "Public to newsroom", sourceId: ids.source, destinationId: ids.destination,
       brandProfileId: ids.brand, promptTemplateVersionId: ids.prompt, promptPolicy: "pinned", aiProviderProfileId: ids.provider,
@@ -142,7 +135,6 @@ describe("Telegram automation API", () => {
     }))
     expect(fetchSpy.mock.calls.map(([path, init]) => [path, init && { ...init, body: JSON.parse(init.body as string) }])).toEqual([
       ["/api/backend/telegram/sources", { ...jsonPost({}), body: { name: "Wire", channel_ref: "@wire", access_mode: "mtproto_user", language_hint: "fa", api_id_secret_ref: "TELEGRAM_API_ID", api_hash_secret_ref: "TELEGRAM_API_HASH", session_secret_ref: "TELEGRAM_SESSION" } }],
-      ["/api/backend/telegram/destinations", { ...jsonPost({}), body: { name: "Newsroom", target_ref: "@news", secret_ref: "TELEGRAM_BOT_TOKEN", allow_auto_publish: false } }],
       ["/api/backend/telegram/automations", { ...jsonPost({}), body: { name: "Public to newsroom", source_id: ids.source, destination_id: ids.destination, brand_profile_id: ids.brand, prompt_template_version_id: ids.prompt, prompt_policy: "pinned", ai_provider_profile_id: ids.provider, access_mode: "public_html", research_mode: "off", content_filters: { include_terms: ["news"] }, media_policy: "preserve", attribution_policy: "custom", custom_footer: "Source", publishing_policy: "review_required", poll_interval_seconds: 300, retry_policy: { max_attempts: 3, base_delay_seconds: 30, max_delay_seconds: 1800 }, confirm_auto_publish: false } }],
     ])
   })
@@ -231,21 +223,18 @@ describe("Telegram automation API", () => {
       { id: ids.prompt, prompt_template_id: ids.brand, version: 2, system_template: "system", user_template: "user", output_schema_version: "telegram_rewrite.v1", output_schema: {}, checksum_sha256: "b".repeat(64), is_active: false, created_at: "2026-07-12T10:00:00Z" },
       [{ id: ids.prompt, prompt_template_id: ids.brand, version: 2, system_template: "system", user_template: "user", output_schema_version: "telegram_rewrite.v1", output_schema: {}, checksum_sha256: "b".repeat(64), is_active: false, created_at: "2026-07-12T10:00:00Z" }],
       { id: ids.prompt, prompt_template_id: ids.brand, version: 2, system_template: "system", user_template: "user", output_schema_version: "telegram_rewrite.v1", output_schema: {}, checksum_sha256: "b".repeat(64), is_active: true, created_at: "2026-07-12T10:00:00Z" },
-      { id: ids.provider, name: "OpenRouter", provider_type: "openrouter", default_model: "openai/gpt", settings: {}, enabled: true, configured: false }
     )
 
     await createBrandProfile({ name: "Main", outputLanguage: "fa", tone: "direct", editorialRules: [], attributionRules: {}, defaultHashtags: [], platformPreferences: {}, isDefault: true })
     await createPromptVersion(ids.brand, { systemTemplate: "system", userTemplate: "user" })
     await getPromptVersions(ids.brand)
     await activatePromptVersion(ids.prompt, "Editorial approval")
-    await createAIProviderProfile({ name: "OpenRouter", providerType: "openrouter", defaultModel: "openai/gpt", secretRef: "OPENROUTER_API_KEY", enabled: true })
 
     expect(fetchSpy.mock.calls).toEqual([
       ["/api/backend/brand-profiles", jsonPost({ name: "Main", output_language: "fa", tone: "direct", editorial_rules: [], attribution_rules: {}, default_hashtags: [], platform_preferences: {}, is_default: true })],
       [`/api/backend/prompt-templates/${ids.brand}/versions`, jsonPost({ system_template: "system", user_template: "user" })],
       [`/api/backend/prompt-templates/${ids.brand}/versions`, undefined],
       [`/api/backend/prompt-template-versions/${ids.prompt}/activate`, jsonPost({ reason: "Editorial approval" })],
-      ["/api/backend/ai-provider-profiles", jsonPost({ name: "OpenRouter", provider_type: "openrouter", default_model: "openai/gpt", secret_ref: "OPENROUTER_API_KEY", enabled: true })],
     ])
   })
 

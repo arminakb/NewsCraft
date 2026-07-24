@@ -1,12 +1,12 @@
 "use client"
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import Link from "next/link"
 import { useState } from "react"
 
-import { Button } from "@/components/ui/button"
+import { Button, buttonVariants } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import {
-  createTelegramDestination,
   createTelegramRoute,
   createTelegramSource,
   getTelegramAutomationOptions,
@@ -23,9 +23,7 @@ type FormState = {
   apiIdRef: string
   apiHashRef: string
   sessionRef: string
-  destinationName: string
-  targetRef: string
-  botTokenRef: string
+  destinationId: string
   brandProfileId: string
   promptPolicy: "" | "pinned" | "follow_active"
   promptTemplateVersionId: string
@@ -46,9 +44,7 @@ const initialForm: FormState = {
   apiIdRef: "",
   apiHashRef: "",
   sessionRef: "",
-  destinationName: "",
-  targetRef: "",
-  botTokenRef: "",
+  destinationId: "",
   brandProfileId: "",
   promptPolicy: "",
   promptTemplateVersionId: "",
@@ -92,17 +88,10 @@ export function RouteBuilder({ onCreated }: { onCreated?: (routeId: string) => v
           sessionSecretRef: form.sessionRef,
         } : {}),
       })
-      const destinationResult = await createTelegramDestination({
-        name: form.destinationName,
-        targetRef: form.targetRef,
-        secretRef: form.botTokenRef,
-        allowAutoPublish: form.publishingPolicy === "auto_publish",
-      })
-      const destination = destinationResult.destination
       const routeInput: TelegramRouteInput = {
         name: form.name,
         sourceId: source.id,
-        destinationId: destination.id,
+        destinationId: choose(form.destinationId, options?.destinations[0]?.id),
         brandProfileId: choose(form.brandProfileId, options?.brandProfiles[0]?.id),
         promptTemplateVersionId: form.promptPolicy === "follow_active"
           ? (activePrompt?.id ?? "")
@@ -127,7 +116,6 @@ export function RouteBuilder({ onCreated }: { onCreated?: (routeId: string) => v
     onSuccess: async (route) => {
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: queryKeys.telegramSources }),
-        queryClient.invalidateQueries({ queryKey: queryKeys.telegramDestinations }),
         queryClient.invalidateQueries({ queryKey: queryKeys.telegramRoutes, exact: true }),
         queryClient.invalidateQueries({ queryKey: queryKeys.telegramOptions }),
       ])
@@ -138,7 +126,7 @@ export function RouteBuilder({ onCreated }: { onCreated?: (routeId: string) => v
 
   const autoUnconfirmed = form.publishingPolicy === "auto_publish" && !form.confirmAutoPublish
   const mtprotoIncomplete = form.accessMode === "mtproto_user" && !(form.apiIdRef && form.apiHashRef && form.sessionRef)
-  const optionsIncomplete = !options?.brandProfiles.length || !options.promptTemplateVersions.length || !generationProfiles.length
+  const optionsIncomplete = !options?.destinations.length || !options.brandProfiles.length || !options.promptTemplateVersions.length || !generationProfiles.length
   const researchProfileMissing = form.researchMode !== "off" && !choose(form.researchProviderProfileId, researchProfiles[0]?.id)
   const promptPolicyMissing = !form.promptPolicy || (form.promptPolicy === "follow_active" && !activePrompt)
 
@@ -170,9 +158,34 @@ export function RouteBuilder({ onCreated }: { onCreated?: (routeId: string) => v
                   <EnvironmentField label="Session environment variable" value={form.sessionRef} onChange={(sessionRef) => setForm({ ...form, sessionRef })} />
                 </div>
               ) : null}
-              <Field label="Destination name"><input required className={fieldClass} value={form.destinationName} onChange={(e) => setForm({ ...form, destinationName: e.target.value })} /></Field>
-              <Field label="Destination target"><input required className={fieldClass} value={form.targetRef} onChange={(e) => setForm({ ...form, targetRef: e.target.value })} /></Field>
-              <EnvironmentField label="Bot token environment variable" value={form.botTokenRef} onChange={(botTokenRef) => setForm({ ...form, botTokenRef })} />
+              <div className="grid gap-2 md:col-span-2">
+                <Field label="Telegram destination">
+                  <select
+                    required
+                    className={fieldClass}
+                    value={choose(form.destinationId, options.destinations[0]?.id)}
+                    onChange={(event) => setForm({ ...form, destinationId: event.target.value })}
+                  >
+                    {options.destinations.length ? null : <option value="">No ready destinations</option>}
+                    {options.destinations.map((item) => (
+                      <option key={item.id} value={item.id}>{item.name}</option>
+                    ))}
+                  </select>
+                </Field>
+                <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border bg-muted/40 p-3 text-sm text-muted-foreground">
+                  <span>
+                    {options.destinations.length
+                      ? "Only enabled, healthy destinations with administrator access are available."
+                      : "Create and verify a destination before building an automation."}
+                  </span>
+                  <Link
+                    className={buttonVariants({ variant: "outline", size: "sm" })}
+                    href="/settings/content#telegram-destinations"
+                  >
+                    Manage destinations
+                  </Link>
+                </div>
+              </div>
             </CardContent>
           </Card>
 
@@ -206,7 +219,7 @@ export function RouteBuilder({ onCreated }: { onCreated?: (routeId: string) => v
               </Field>
               <Field label="AI provider"><select className={fieldClass} value={choose(form.aiProviderProfileId, generationProfiles[0]?.id)} onChange={(e) => setForm({ ...form, aiProviderProfileId: e.target.value })}>{generationProfiles.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></Field>
               <Field label="Research mode"><select className={fieldClass} value={form.researchMode} onChange={(e) => setForm({ ...form, researchMode: e.target.value as FormState["researchMode"], researchProviderProfileId: e.target.value === "off" ? "" : form.researchProviderProfileId })}><option value="off">Off</option><option value="manual">Manual</option><option value="auto_if_incomplete">Automatic if incomplete</option></select></Field>
-              {form.researchMode !== "off" ? <Field label="Research provider"><select className={fieldClass} value={choose(form.researchProviderProfileId, researchProfiles[0]?.id)} onChange={(e) => setForm({ ...form, researchProviderProfileId: e.target.value })}><option value="">Select an available research profile</option>{researchProfiles.map((item) => <option key={item.id} value={item.id}>{item.name} · {item.providerType} · {item.defaultModel ?? "default model"}</option>)}</select></Field> : null}
+              {form.researchMode !== "off" ? <Field label="Research provider"><select className={fieldClass} value={choose(form.researchProviderProfileId, researchProfiles[0]?.id)} onChange={(e) => setForm({ ...form, researchProviderProfileId: e.target.value })}><option value="">Select an available research profile</option>{researchProfiles.map((item) => <option key={item.id} value={item.id}>{item.name} · {item.defaultModel ?? "default model"}</option>)}</select></Field> : null}
               <Field label="Media policy"><select className={fieldClass} value={form.mediaPolicy} onChange={(e) => setForm({ ...form, mediaPolicy: e.target.value as FormState["mediaPolicy"] })}><option value="preserve">Preserve</option><option value="omit">Omit</option><option value="replace_manually">Replace manually</option></select></Field>
               <Field label="Publishing policy"><select className={fieldClass} value={form.publishingPolicy} onChange={(e) => setForm({ ...form, publishingPolicy: e.target.value as FormState["publishingPolicy"], confirmAutoPublish: false })}><option value="review_required">Review required</option><option value="auto_publish">Automatic publish</option></select></Field>
               <Field label="Poll interval in seconds"><input required min={60} max={86400} type="number" className={fieldClass} value={form.pollIntervalSeconds} onChange={(e) => setForm({ ...form, pollIntervalSeconds: Number(e.target.value) })} /></Field>

@@ -3,9 +3,8 @@ import { expect, test, type Page, type Route } from "@playwright/test"
 
 const ROUTES = [
   { path: "/", name: "Today", readyText: "No workflow jobs yet" },
-  { path: "/inbox", name: "Editorial Inbox", readyText: "No grouped stories match these filters." },
   { path: "/automations", name: "Telegram automations", readyText: "No Telegram automations yet" },
-  { path: "/drafts", name: "Drafts", readyText: "No durable generation requests yet. Generate a Telegram draft from the Inbox." },
+  { path: "/drafts", name: "Drafts", readyText: "No durable generation requests yet." },
   { path: "/calendar", name: "Publication calendar", readyText: "No publication events in this calendar window." },
   { path: "/diagnostics", name: "Diagnostics", readyText: "System checks" },
 ] as const
@@ -14,19 +13,6 @@ const VIEWPORTS = [
   { label: "desktop", width: 1440, height: 1000 },
   { label: "mobile", width: 390, height: 844 },
 ] as const
-
-const MOBILE_ACTION_STORY = {
-  id: "story-mobile-actions",
-  title: "Election timeline",
-  status: "inbox",
-  primary_language: "en",
-  evidence_count: 2,
-  latest_evidence_at: "2026-07-13T08:00:00Z",
-  completeness: { complete: false, score: 40, reasons: ["More sources needed"] },
-  evidence_set_hash: "a".repeat(64),
-  created_at: "2026-07-13T07:00:00Z",
-  updated_at: "2026-07-13T08:00:00Z",
-}
 
 for (const viewport of VIEWPORTS) {
   test.describe(`${viewport.label} accessibility`, () => {
@@ -82,35 +68,8 @@ test("responsive shell switches at 900px and exposes one skip target", async ({ 
   expect(unhandledRequests, "Unhandled backend requests in responsive shell test").toEqual([])
 })
 
-test("primary Inbox actions provide 44 by 44 pixel touch targets on mobile", async ({ page }) => {
-  const unhandledRequests = await installOfflineBackend(page, { stories: [MOBILE_ACTION_STORY] })
-
-  await page.setViewportSize({ width: 390, height: 844 })
-  await page.goto("/inbox")
-  await expect(page.getByText("Election timeline", { exact: true })).toBeVisible()
-
-  const targets = [
-    page.getByRole("button", { name: "Group pending content", exact: true }),
-    page.getByRole("button", { name: "Add story", exact: true }),
-    page.getByRole("button", { name: "Open Election timeline", exact: true }),
-    page.getByRole("button", { name: "Shortlist", exact: true }),
-    page.getByRole("button", { name: "Reject", exact: true }),
-    page.getByRole("button", { name: "Research more", exact: true }),
-    page.getByRole("link", { name: "Open editorial studio", exact: true }),
-  ]
-
-  for (const target of targets) {
-    const box = await target.boundingBox()
-    expect(box, `Missing rendered target for ${await target.getAttribute("aria-label") ?? await target.textContent()}`).not.toBeNull()
-    expect(box!.width).toBeGreaterThanOrEqual(44)
-    expect(box!.height).toBeGreaterThanOrEqual(44)
-  }
-  expect(unhandledRequests, "Unhandled backend requests in mobile target test").toEqual([])
-})
-
 async function installOfflineBackend(
   page: Page,
-  options: { stories?: Array<typeof MOBILE_ACTION_STORY> } = {},
 ): Promise<string[]> {
   const unhandledRequests: string[] = []
 
@@ -140,10 +99,6 @@ async function installOfflineBackend(
     }
     if (method === "GET" && path === "/telegram/drafts") {
       await fulfillJson(route, [])
-      return
-    }
-    if (method === "GET" && path === "/stories") {
-      await fulfillJson(route, { items: options.stories ?? [], next_cursor: null })
       return
     }
     if (method === "GET" && path === "/telegram/automations") {

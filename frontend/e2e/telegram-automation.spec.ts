@@ -32,25 +32,11 @@ for (const viewport of [
       output_schema_version: "telegram_rewrite.v1",
       checksum_sha256: "b".repeat(64),
     })
+    backend.prompt2Created = true
+    backend.prompt2Active = true
     await page.setViewportSize(viewport)
 
-    await page.goto("/settings/content")
-    await expect(page.getByRole("heading", { name: "Content settings" })).toBeVisible()
-    await expectNoHorizontalOverflow(page)
-    await page.getByLabel("Custom instructions").fill("Preserve verified facts and write concise Persian copy")
-    await page.getByRole("button", { name: "Create prompt version" }).click()
-    await expect(page.getByText("Version 2", { exact: true })).toBeVisible()
-    await page.getByRole("checkbox", { name: "Confirm prompt activation" }).check()
-    await page.getByRole("button", { name: "Activate version 2" }).click()
-    await expect(page.getByRole("list", { name: "Immutable prompt history" }).getByRole("listitem").filter({ hasText: "Version 2" })).toContainText("Active ·")
-    expect(backend.requests.promptVersion).toMatchObject({
-      system_template: "Preserve verified facts and write concise Persian copy",
-    })
-    for (const placeholder of [
-      "source_text", "source_url", "source_channel", "language", "direction", "attribution_policy", "custom_footer",
-    ]) expect(backend.requests.promptVersion.user_template).toContain(`{${placeholder}}`)
-
-    await navigate(page, "Automations", viewport.name === "mobile")
+    await page.goto("/automations")
     await page.getByRole("link", { name: "New automation" }).click()
     await expect(page.getByRole("heading", { name: "New Telegram automation" })).toBeVisible()
     await expectNoHorizontalOverflow(page)
@@ -63,16 +49,15 @@ for (const viewport of [
     await page.getByLabel("Automation name").fill("Persian breaking route")
     await page.getByLabel("Source name").fill("Source newsroom")
     await page.getByLabel("Source channel").fill("source_newsroom")
-    await page.getByLabel("Destination name").fill("Main newsroom")
-    await page.getByLabel("Destination target").fill("@newscraft")
-    await page.getByLabel("Bot token environment variable").fill("TELEGRAM_BOT_TOKEN")
+    await expect(page.getByLabel("Telegram destination")).toHaveValue(ids.destination)
+    await page.getByLabel("Prompt update policy").selectOption("follow_active")
     await page.getByLabel("Publishing policy").selectOption("auto_publish")
     await page.getByRole("checkbox", { name: "Confirm automatic publishing" }).check()
-    await page.getByRole("button", { name: "Create and activate" }).click()
+    await page.getByRole("button", { name: "Create automation" }).click()
     await expect(page).toHaveURL(new RegExp(`/automations/${ids.route}$`))
     await expect(page.getByRole("heading", { name: "Persian breaking route" })).toBeVisible()
     expect(backend.requests.source).toMatchObject({ access_mode: "public_html", channel_ref: "source_newsroom" })
-    expect(backend.requests.destination).toMatchObject({ secret_ref: "TELEGRAM_BOT_TOKEN", allow_auto_publish: true })
+    expect(backend.requests.destination).toBeUndefined()
     expect(backend.requests.route).toMatchObject({
       prompt_template_version_id: ids.prompt2,
       publishing_policy: "auto_publish",
@@ -162,16 +147,23 @@ test("ambiguous Telegram delivery requires operator reconciliation and has no ge
 
   const outcomes = page.getByRole("region", { name: "Telegram publication outcomes" })
   await expect(outcomes.getByText("Reconciliation required", { exact: true }).first()).toBeVisible()
-  await expect(outcomes).toContainText("Automatic retry is disabled")
+  await expect(outcomes).toContainText("Automatic retry is blocked")
   await expect(outcomes.getByRole("button", { name: /retry/i })).toHaveCount(0)
+  await outcomes.getByRole("button", { name: "Confirm published", exact: true }).click()
   const remoteIds = outcomes.getByLabel("Verified remote message IDs")
   await remoteIds.fill("501, bad, 502")
-  await expect(outcomes.getByRole("button", { name: "Confirm published IDs" })).toBeDisabled()
-  await expect(outcomes.getByRole("alert")).toContainText("positive, unique message IDs")
+  await outcomes.getByLabel("Verification note").fill("Verified in the destination channel")
+  await expect(outcomes.getByRole("button", { name: "Confirm published messages" })).toBeDisabled()
+  await expect(outcomes.getByRole("alert")).toContainText("positive, unique integers")
   await remoteIds.fill("501, 502")
-  await outcomes.getByRole("button", { name: "Confirm published IDs" }).click()
+  await outcomes.getByRole("button", { name: "Confirm published messages" }).click()
   await expect(outcomes).toContainText("Remote IDs: 501, 502")
-  expect(backend.requests.reconcile).toEqual({ outcome: "published", remote_message_ids: [501, 502] })
+  expect(backend.requests.reconcile).toEqual({
+    outcome: "published",
+    remote_message_ids: [501, 502],
+    permalink: null,
+    operator_note: "Verified in the destination channel",
+  })
 })
 
 type BackendState = {
@@ -271,13 +263,7 @@ async function installTelegramBackend(page: Page, options: { reconciliation?: bo
       state.requests.source = body
       return json(route, source(), 201)
     }
-    if (path === "/telegram/destinations") {
-      if (method === "POST") {
-        state.requests.destination = body
-        return json(route, { destination: destination(), job: accepted("telegram.destination.check") }, 202)
-      }
-      return json(route, [destination()])
-    }
+    if (path === "/telegram/destinations") return json(route, [destination()])
     if (path === "/telegram/automations/options") return json(route, automationOptions(state))
     if (path === "/telegram/automations") {
       if (method === "POST") {
@@ -350,6 +336,9 @@ async function installTelegramBackend(page: Page, options: { reconciliation?: bo
       if (state.publishQueued && !state.published) state.published = true
       return json(route, result)
     }
+    if (path === "/telegram/reconciliation" && method === "GET") {
+      return json(route, state.reconciliation && !state.reconciled ? [reconciliationCase()] : [])
+    }
     if (path === `/telegram/publish-jobs/${ids.publishJob}/reconcile`) {
       state.requests.reconcile = body
       state.reconciled = true
@@ -370,7 +359,13 @@ async function navigate(page: Page, label: string, mobile: boolean) {
     await expectNoHorizontalOverflow(page)
     await dialog.getByRole("link", { name: label, exact: true }).click()
   } else {
-    await page.getByRole("navigation", { name: "Newsroom navigation" }).getByRole("link", { name: label, exact: true }).click()
+    const primary = page.getByRole("navigation", { name: "Newsroom navigation" }).getByRole("link", { name: label, exact: true })
+    if (await primary.count()) {
+      await primary.click()
+    } else {
+      await page.getByRole("button", { name: /Advanced navigation/ }).click()
+      await page.getByRole("dialog", { name: "Advanced navigation" }).getByRole("link", { name: label, exact: true }).click()
+    }
   }
   const expectedPath = label === "Today" ? "/" : label === "Automations" ? "/automations" : label === "Drafts" ? "/drafts" : null
   if (expectedPath) await page.waitForURL((url) => url.pathname === expectedPath)
@@ -445,16 +440,21 @@ function source() {
 function destination() {
   return {
     id: ids.destination, name: "Main newsroom", target_ref: "@newscraft", enabled: true,
-    health_status: "healthy", configured: true, settings: { allow_auto_publish: true },
+    health_status: "healthy", configured: true, settings: {},
   }
 }
 
 function automationOptions(state: BackendState) {
   return {
     sources: [],
-    destinations: [{ id: ids.destination, name: "Main newsroom", health_status: "healthy", allow_auto_publish: true }],
+    destinations: [{ id: ids.destination, name: "Main newsroom", health_status: "healthy" }],
     brand_profiles: [{ id: ids.brand, name: "Persian newsroom" }],
-    prompt_template_versions: [{ id: state.prompt2Active ? ids.prompt2 : ids.prompt1, version: state.prompt2Active ? 2 : 1 }],
+    prompt_template_versions: [{
+      id: state.prompt2Active ? ids.prompt2 : ids.prompt1,
+      version: state.prompt2Active ? 2 : 1,
+      is_active: true,
+      checksum_sha256: (state.prompt2Active ? "b" : "a").repeat(64),
+    }],
     ai_provider_profiles: [{
       id: ids.provider, name: "OpenRouter newsroom", provider_type: "openrouter",
       default_model: "openai/gpt-5-mini", configured: true,
@@ -478,6 +478,7 @@ function telegramRoute(
     destination_id: ids.destination,
     brand_profile_id: ids.brand,
     prompt_template_version_id: ids.prompt2,
+    prompt_policy: "follow_active",
     ai_provider_profile_id: ids.provider,
     access_mode: "public_html",
     research_mode: "off",
@@ -501,6 +502,30 @@ function telegramRoute(
 
 function accepted(kind: string) {
   return { job_id: ids.workflowJob, status: "queued", deduplicated: false, kind }
+}
+
+function reconciliationCase() {
+  return {
+    publish_job_id: ids.publishJob,
+    status: "pending",
+    publish_status: "reconciliation_required",
+    workflow_job_id: ids.workflowJob,
+    platform_variant_revision_id: ids.draft1,
+    destination: { id: ids.destination, name: "Main newsroom", target_ref: "@newscraft" },
+    operations: [{
+      operation_index: 0,
+      operation_key: "telegram:media-group:0",
+      method: "sendMediaGroup",
+      request_hash: "f".repeat(64),
+      status: "ambiguous",
+      attempt_count: 1,
+      remote_message_ids: [],
+      sent_at: "2026-07-12T09:00:00Z",
+    }],
+    ambiguous_operation_key: "telegram:media-group:0",
+    ambiguous_at: "2026-07-12T09:00:05Z",
+    ambiguity_reason: "Telegram response was not received after the request was sent.",
+  }
 }
 
 function dispatches(state: BackendState) {

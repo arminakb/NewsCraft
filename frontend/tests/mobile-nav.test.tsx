@@ -22,14 +22,23 @@ describe("mobile newsroom navigation", () => {
   })
 
   it("is an aria-modal drawer with initial focus and current-page state", async () => {
-    pathname = "/inbox"
+    pathname = "/feed"
     render(<MobileNewsroomNav />)
 
     fireEvent.click(screen.getByRole("button", { name: "Open navigation" }))
 
     const dialog = screen.getByRole("dialog", { name: "Newsroom navigation" })
     expect(dialog).toHaveAttribute("aria-modal", "true")
-    expect(within(dialog).getByRole("link", { name: "Inbox" })).toHaveAttribute("aria-current", "page")
+    expect(within(dialog).getByText("Workflow")).toBeInTheDocument()
+    expect(within(dialog).getByText("Advanced")).toBeInTheDocument()
+    expect(within(dialog).getByText("Automation")).toBeInTheDocument()
+    expect(within(dialog).getByText("Collection")).toBeInTheDocument()
+    expect(within(dialog).getByText("System")).toBeInTheDocument()
+    expect(within(dialog).getByRole("link", { name: "Feed" })).toHaveAttribute("aria-current", "page")
+    expect(within(dialog).queryByRole("link", { name: "Inbox" })).not.toBeInTheDocument()
+    expect(within(dialog).queryByRole("link", { name: /^Content$/ })).not.toBeInTheDocument()
+    expect(within(dialog).queryByRole("link", { name: "Library" })).not.toBeInTheDocument()
+    expect(within(dialog).queryByRole("link", { name: "Media" })).not.toBeInTheDocument()
     await waitFor(() => expect(within(dialog).getByRole("link", { name: "Today" })).toHaveFocus())
   })
 
@@ -94,7 +103,7 @@ describe("mobile newsroom navigation", () => {
 
     const dialog = screen.getByRole("dialog", { name: "Newsroom navigation" })
     window.addEventListener("click", (event) => event.preventDefault(), { capture: true, once: true })
-    fireEvent.click(within(dialog).getByRole("link", { name: "Inbox" }))
+    fireEvent.click(within(dialog).getByRole("link", { name: "Feed" }))
 
     expect(screen.queryByRole("dialog", { name: "Newsroom navigation" })).not.toBeInTheDocument()
     expect(trigger).toHaveFocus()
@@ -141,7 +150,8 @@ describe("mobile newsroom navigation", () => {
     )
     expect(within(header as HTMLElement).getByText("Newsroom Command Center")).toHaveClass("min-[900px]:hidden")
     expect(within(header as HTMLElement).getByText("NewsCraft")).toHaveClass("min-[900px]:text-lg")
-    expect(within(sidebar as HTMLElement).getByText("Newsroom Command Center")).toHaveClass("text-slate-600")
+    expect(within(sidebar as HTMLElement).getByRole("img", { name: "NewsCraft" })).toBeInTheDocument()
+    expect(within(sidebar as HTMLElement).queryByText("Newsroom Command Center")).not.toBeInTheDocument()
   })
 
   it("keeps every primary mobile navigation target at least 44 by 44 pixels", () => {
@@ -151,6 +161,20 @@ describe("mobile newsroom navigation", () => {
     for (const target of mobileNavigation.querySelectorAll("a, button")) {
       expect(target).toHaveClass("min-h-11", "min-w-11")
     }
+  })
+
+  it("puts Feed after Today in mobile workflow navigation", () => {
+    render(<MobileNewsroomNav />)
+
+    const mobileNavigation = screen.getByRole("navigation", { name: "Mobile newsroom navigation" })
+    expect(within(mobileNavigation).getAllByRole("link").map((link) => link.textContent)).toEqual([
+      "Today",
+      "Feed",
+    ])
+    expect(within(mobileNavigation).getByRole("link", { name: "Feed" })).toHaveAttribute(
+      "href",
+      "/feed",
+    )
   })
 })
 
@@ -179,6 +203,9 @@ describe("global shell accessibility", () => {
     expect(css).toMatch(/\.skip-link\s*{/)
     expect(css).toMatch(/\.skip-link:focus-visible\s*{[^}]*transform:\s*translateY\(0\);/s)
     expect(css).toMatch(/@media\s*\(max-width:\s*899px\)/)
+    expect(css).toMatch(/@media\s*\(min-width:\s*900px\)\s*{[^}]*\.newsroom-scroll\s*{[^}]*scrollbar-width:\s*none;/s)
+    expect(css).toMatch(/\.newsroom-scroll::\-webkit-scrollbar\s*{[^}]*display:\s*none;/s)
+    expect(css).not.toMatch(/body\s*{[^}]*overflow:\s*hidden;/s)
     expect(css).toMatch(/@media\s*\(prefers-reduced-motion:\s*reduce\)/)
     expect(css).toMatch(/animation-duration:\s*0\.01ms\s*!important;/)
     expect(css).toMatch(/transition-duration:\s*0\.01ms\s*!important;/)

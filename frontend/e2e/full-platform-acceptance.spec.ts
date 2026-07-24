@@ -110,12 +110,6 @@ for (const viewport of viewports) {
     await expect(page.getByRole("heading", { name: "Today", exact: true })).toBeVisible()
     await expect(page.getByRole("region", { name: "Telegram publication outcomes" })).toBeVisible()
 
-    await page.goto("/inbox")
-    const persianStory = page.getByText("گزارش امروز", { exact: true }).first()
-    await expect(persianStory).toBeVisible()
-    await expect(persianStory).toHaveAttribute("dir", "rtl")
-    await expect(persianStory).toHaveAttribute("lang", "fa")
-
     await page.goto(`/review/${ids.revisions.telegram}`)
     const telegramMessage = page.getByLabel("Telegram message").first()
     await expect(telegramMessage).toHaveAttribute("dir", "rtl")
@@ -147,7 +141,7 @@ test("review-first route preserves manual research, dry-run review, and durable 
   await fillRouteIdentity(page, "مسیر بررسی خبر")
   await page.getByLabel("Research mode").selectOption("manual")
   await expect(page.getByLabel("Publishing policy")).toHaveValue("review_required")
-  await page.getByRole("button", { name: "Create and activate" }).click()
+  await page.getByRole("button", { name: "Create automation" }).click()
 
   await expect(page).toHaveURL(new RegExp(`/automations/${ids.route}$`))
   await expect(page.getByRole("heading", { name: "مسیر بررسی خبر" })).toBeVisible()
@@ -157,7 +151,7 @@ test("review-first route preserves manual research, dry-run review, and durable 
     confirm_auto_publish: false,
   })
   await expect(page.getByText("Manual", { exact: true })).toBeVisible()
-  await expect(page.getByRole("link", { name: "Research more" })).toBeVisible()
+  await expect(page.getByRole("link", { name: "Research more" })).toHaveCount(0)
 
   await page.getByLabel("Source message ID (optional)").fill("91")
   await page.getByRole("button", { name: "Run dry run" }).click()
@@ -179,7 +173,7 @@ test("automatic route requires explicit confirmation and exposes auto research o
   await fillRouteIdentity(page, "مسیر خودکار خبر")
   await page.getByLabel("Research mode").selectOption("auto_if_incomplete")
   await page.getByLabel("Publishing policy").selectOption("auto_publish")
-  const create = page.getByRole("button", { name: "Create and activate" })
+  const create = page.getByRole("button", { name: "Create automation" })
   await expect(create).toBeDisabled()
   await page.getByRole("checkbox", { name: "Confirm automatic publishing" }).check()
   await expect(create).toBeEnabled()
@@ -195,49 +189,6 @@ test("automatic route requires explicit confirmation and exposes auto research o
   await expect(page.getByText("Auto If Incomplete", { exact: true })).toBeVisible()
   await expect(page.getByText(/Research succeeded/)).toBeVisible()
   await expect(page.getByText("Fake acceptance provider · fake", { exact: true })).toBeVisible()
-  expect(backend.unhandled).toEqual([])
-})
-
-test("manual URL and text intake support standard and deep research without credentials", async ({ page }) => {
-  const backend = await installAcceptanceBackend(page)
-  await page.setViewportSize(viewports[0])
-  await page.goto("/inbox")
-
-  await page.getByRole("button", { name: "Add story" }).click()
-  await page.getByLabel("Story URL").fill(evidenceUrl)
-  await page.getByLabel("Story title (optional)").fill("گزارش ورودی URL")
-  await page.getByRole("dialog", { name: "Add story manually" }).getByRole("button", { name: "Add story" }).click()
-  await expect(page.getByText("Intake queued", { exact: false })).toBeVisible()
-
-  await page.getByRole("button", { name: "Add story" }).click()
-  await page.getByRole("tab", { name: "Text" }).click()
-  await page.getByLabel("Story title", { exact: true }).fill("گزارش ورودی متن")
-  await page.getByLabel("Source label").fill("میز خبر")
-  await page.getByLabel("Story text").fill("این متن فارسیِ تأییدشده برای ورود دستی و نگهداری شواهد کافی است.")
-  await page.getByRole("dialog", { name: "Add story manually" }).getByRole("button", { name: "Add story" }).click()
-
-  expect(backend.intakeRequests).toEqual([
-    { kind: "url", url: evidenceUrl, title: "گزارش ورودی URL" },
-    {
-      kind: "text",
-      title: "گزارش ورودی متن",
-      text: "این متن فارسیِ تأییدشده برای ورود دستی و نگهداری شواهد کافی است.",
-      source_label: "میز خبر",
-      source_url: null,
-    },
-  ])
-
-  await page.getByRole("button", { name: "Research more" }).first().click()
-  const research = page.getByRole("dialog", { name: "Research story" })
-  await research.getByLabel("Research note (optional)").fill("شواهد رسمی را بررسی کن")
-  await research.getByRole("button", { name: "Research more" }).click()
-  await expect(research.getByText("Research completed")).toBeVisible()
-  await research.getByRole("button", { name: "Deep research" }).click()
-  await expect.poll(() => backend.researchRequests.length).toBe(2)
-  expect(backend.researchRequests).toEqual([
-    { mode: "manual", depth: "standard", provider_profile_id: ids.provider, query_hint: "شواهد رسمی را بررسی کن" },
-    { mode: "manual", depth: "deep", provider_profile_id: ids.provider, query_hint: "شواهد رسمی را بررسی کن" },
-  ])
   expect(backend.unhandled).toEqual([])
 })
 
@@ -333,7 +284,7 @@ test("all exact copy actions and export formats stay bound to the four approved 
   expect(backend.unhandled).toEqual([])
 })
 
-test("mobile navigation reaches the complete newsroom without horizontal overflow", async ({ page }) => {
+test("mobile navigation omits legacy surfaces and reaches surviving routes without horizontal overflow", async ({ page }) => {
   const backend = await installAcceptanceBackend(page)
   await page.setViewportSize(viewports[1])
   await page.goto("/")
@@ -341,9 +292,13 @@ test("mobile navigation reaches the complete newsroom without horizontal overflo
   await page.getByRole("button", { name: "Open navigation" }).click()
   const navigation = page.getByRole("dialog", { name: "Newsroom navigation" })
   await expect(navigation).toBeVisible()
-  await navigation.getByRole("link", { name: "Inbox", exact: true }).click()
-  await expect(page).toHaveURL(/\/inbox$/)
-  await expect(page.getByRole("heading", { name: "Editorial Inbox" })).toBeVisible()
+  await expect(navigation.getByRole("link", { name: "Inbox", exact: true })).toHaveCount(0)
+  await expect(navigation.getByRole("link", { name: "Content", exact: true })).toHaveCount(0)
+  await expect(navigation.getByRole("link", { name: "Library", exact: true })).toHaveCount(0)
+  await expect(navigation.getByRole("link", { name: "Media", exact: true })).toHaveCount(0)
+  await navigation.getByRole("link", { name: "Drafts", exact: true }).click()
+  await expect(page).toHaveURL(/\/drafts$/)
+  await expect(page.getByRole("heading", { name: "Drafts" })).toBeVisible()
   await expectNoHorizontalOverflow(page)
 
   await page.getByRole("button", { name: "Open navigation" }).click()
@@ -387,7 +342,7 @@ for (const viewport of viewports) {
   test(`${viewport.name} critical paths have no serious or critical axe violations`, async ({ page }) => {
     const backend = await installAcceptanceBackend(page, { allApproved: true })
     await page.setViewportSize(viewport)
-    for (const route of ["/", "/inbox", "/automations", "/drafts", `/drafts/${ids.contentPack}`, "/calendar", "/diagnostics", "/settings/retention"]) {
+    for (const route of ["/", "/automations", "/drafts", `/drafts/${ids.contentPack}`, "/calendar", "/diagnostics", "/settings/retention"]) {
       await page.goto(route)
       await expect(page.getByRole("main")).toBeVisible()
       const results = await new AxeBuilder({ page }).analyze()
@@ -408,9 +363,7 @@ async function fillRouteIdentity(page: Page, name: string) {
   await page.getByLabel("Automation name").fill(name)
   await page.getByLabel("Source name").fill("منبع خبر")
   await page.getByLabel("Source channel").fill("source_newsroom")
-  await page.getByLabel("Destination name").fill("اتاق خبر")
-  await page.getByLabel("Destination target").fill("@newscraft")
-  await page.getByLabel("Bot token environment variable").fill("TELEGRAM_BOT_TOKEN")
+  await expect(page.getByLabel("Telegram destination")).toHaveValue(ids.destination)
 }
 
 async function installClipboardCapture(page: Page) {
@@ -580,9 +533,6 @@ async function installAcceptanceBackend(page: Page, options: BackendOptions = {}
 
     if (path === "/telegram/automations/options" && method === "GET") return json(route, automationOptionsWire())
     if (path === "/telegram/sources" && method === "POST") return json(route, sourceWire(), 201)
-    if (path === "/telegram/destinations" && method === "POST") {
-      return json(route, { destination: destinationWire(), job: accepted(ids.routeJob) }, 202)
-    }
     if (path === "/telegram/destinations" && method === "GET") return json(route, [destinationWire()])
     if (path === "/telegram/automations" && method === "POST" && body) {
       state.routeCreated = true
@@ -882,7 +832,7 @@ function hashFor(platform: Platform) {
 function automationOptionsWire() {
   return {
     sources: [{ id: ids.source, name: "منبع خبر", access_mode: "public_html" }],
-    destinations: [{ id: ids.destination, name: "اتاق خبر", health_status: "healthy", allow_auto_publish: true }],
+    destinations: [{ id: ids.destination, name: "اتاق خبر", health_status: "healthy" }],
     brand_profiles: [{ id: ids.brand, name: "اتاق خبر فارسی" }],
     prompt_template_versions: [{ id: ids.telegramPrompt, version: 1 }],
     ai_provider_profiles: [{
@@ -902,7 +852,7 @@ function sourceWire() {
 }
 
 function destinationWire() {
-  return { id: ids.destination, name: "اتاق خبر", target_ref: "@newscraft", enabled: true, health_status: "healthy", configured: true, settings: { allow_auto_publish: true } }
+  return { id: ids.destination, name: "اتاق خبر", target_ref: "@newscraft", enabled: true, health_status: "healthy", configured: true, settings: {} }
 }
 
 function routeWire(state: BackendState) {
