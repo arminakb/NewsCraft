@@ -100,13 +100,13 @@ class TelegramBotClient:
                 response = await self._post_multipart(url, operation)
             else:
                 response = await self._http.post(url, json=operation.fields)
-        except (httpx.ConnectError, httpx.ConnectTimeout, httpx.PoolTimeout) as exc:
-            metadata = _safe_metadata({"description": str(exc)}, token)
+        except (httpx.ConnectError, httpx.ConnectTimeout, httpx.PoolTimeout):
+            metadata = _safe_metadata({"description": "telegram_connect_failed"}, token)
             raise TelegramRetryableBeforeDispatch(
                 "Telegram connection failed before dispatch", metadata=metadata
             ) from None
-        except httpx.TransportError as exc:
-            metadata = _safe_metadata({"description": str(exc)}, token)
+        except httpx.TransportError:
+            metadata = _safe_metadata({"description": "telegram_transport_failed"}, token)
             raise TelegramAmbiguousError("Telegram response timed out after dispatch", metadata=metadata) from None
 
         payload = self._response_payload(response)
@@ -142,19 +142,45 @@ class TelegramBotClient:
         }
         return TelegramOperationResult(remote_ids, success_metadata)
 
+    async def get_me(self, token: str) -> dict[str, Any]:
+        result = await self._check_method("getMe", token, {})
+        bot_id = result.get("id")
+        username = result.get("username")
+        if (
+            not isinstance(bot_id, int)
+            or isinstance(bot_id, bool)
+            or bot_id <= 0
+            or not isinstance(username, str)
+            or not username
+            or result.get("is_bot") is not True
+        ):
+            raise TelegramAmbiguousError("Telegram returned an invalid bot identity")
+        return _safe_result({"id": bot_id, "username": username}, token)
+
+    async def get_chat_member(self, target_ref: str, user_id: int, token: str) -> dict[str, Any]:
+        result = await self._check_method(
+            "getChatMember",
+            token,
+            {"chat_id": target_ref, "user_id": user_id},
+        )
+        status = result.get("status")
+        if status not in {"creator", "administrator", "member", "restricted", "left", "kicked"}:
+            raise TelegramAmbiguousError("Telegram returned an invalid administrator response")
+        return {"status": status, "administrator": status in {"creator", "administrator"}}
+
     async def get_chat(self, target_ref: str, token: str) -> dict[str, Any]:
         """Resolve destination health without exposing the Bot API token."""
 
         url = f"{self._base_url}/bot{token}/getChat"
         try:
             response = await self._http.post(url, json={"chat_id": target_ref})
-        except (httpx.ConnectError, httpx.ConnectTimeout, httpx.PoolTimeout) as exc:
-            metadata = _safe_metadata({"description": str(exc)}, token)
+        except (httpx.ConnectError, httpx.ConnectTimeout, httpx.PoolTimeout):
+            metadata = _safe_metadata({"description": "telegram_connect_failed"}, token)
             raise TelegramRetryableBeforeDispatch(
                 "Telegram connection failed before dispatch", metadata=metadata
             ) from None
-        except httpx.TransportError as exc:
-            metadata = _safe_metadata({"description": str(exc)}, token)
+        except httpx.TransportError:
+            metadata = _safe_metadata({"description": "telegram_transport_failed"}, token)
             raise TelegramAmbiguousError("Telegram response failed after dispatch", metadata=metadata) from None
         payload = self._response_payload(response)
         metadata = _safe_metadata(payload, token, status=response.status_code)
@@ -180,6 +206,31 @@ class TelegramBotClient:
             {key: result[key] for key in ("id", "type", "username", "title") if key in result},
             token,
         )
+
+    async def _check_method(self, method: str, token: str, fields: dict[str, Any]) -> dict[str, Any]:
+        url = f"{self._base_url}/bot{token}/{method}"
+        try:
+            response = await self._http.post(url, json=fields)
+        except (httpx.ConnectError, httpx.ConnectTimeout, httpx.PoolTimeout):
+            metadata = _safe_metadata({"description": "telegram_connect_failed"}, token)
+            raise TelegramRetryableBeforeDispatch(
+                "Telegram connection failed before dispatch", metadata=metadata
+            ) from None
+        except httpx.TransportError:
+            metadata = _safe_metadata({"description": "telegram_transport_failed"}, token)
+            raise TelegramAmbiguousError("Telegram response failed after dispatch", metadata=metadata) from None
+        payload = self._response_payload(response)
+        metadata = _safe_metadata(payload, token, status=response.status_code)
+        if response.status_code == 429 or (isinstance(payload, dict) and payload.get("error_code") == 429):
+            raise TelegramRateLimited(retry_after=_retry_after(payload), metadata=metadata)
+        if response.status_code >= 500 or _bot_server_error(payload) or not isinstance(payload, dict):
+            raise TelegramAmbiguousError("Telegram returned an invalid health response", metadata=metadata)
+        if response.status_code >= 400 or payload.get("ok") is not True:
+            raise TelegramPermanentError("Telegram rejected the health check", metadata=metadata)
+        result = payload.get("result")
+        if not isinstance(result, dict):
+            raise TelegramAmbiguousError("Telegram returned an invalid health response", metadata=metadata)
+        return result
 
     async def _post_multipart(self, url: str, operation: TelegramPublishOperation) -> httpx.Response:
         with ExitStack() as stack:

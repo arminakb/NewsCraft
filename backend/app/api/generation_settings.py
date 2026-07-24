@@ -170,12 +170,6 @@ async def seed_codex_provider_profile(
         )
         session.add(profile)
         await session.flush()
-    else:
-        profile.provider_type = "codex"
-        profile.default_model = model
-        profile.secret_ref = None
-        profile.settings = default_codex_provider_settings().model_dump(mode="json")
-        profile.enabled = enabled
     return profile
 
 

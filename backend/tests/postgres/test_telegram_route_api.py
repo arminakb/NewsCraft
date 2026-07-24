@@ -174,7 +174,8 @@ async def _seed_route_configuration(
             secret_ref="PHASE_ONE_DESTINATION_CANARY",
             enabled=True,
             health_status="healthy",
-            settings={"allow_auto_publish": False},
+            administrator_status="administrator",
+            settings={},
         )
         session.add_all((source_config, destination))
         await session.commit()

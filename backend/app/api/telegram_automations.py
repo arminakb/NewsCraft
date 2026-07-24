@@ -144,7 +144,12 @@ async def automation_options(
     configs_by_source = {item.source_id: item for item in source_configs}
     destinations = list(
         await session.scalars(
-            select(Destination).where(Destination.platform == "telegram", Destination.enabled.is_(True))
+            select(Destination).where(
+                Destination.platform == "telegram",
+                Destination.enabled.is_(True),
+                Destination.health_status == "healthy",
+                Destination.administrator_status == "administrator",
+            )
         )
     )
     brands = list(await session.scalars(select(BrandProfile).order_by(BrandProfile.name)))
@@ -204,7 +209,6 @@ async def automation_options(
                 "id": item.id,
                 "name": item.name,
                 "health_status": item.health_status,
-                "allow_auto_publish": bool((item.settings or {}).get("allow_auto_publish")),
                 "capability_state": state,
             }
         )
@@ -235,8 +239,13 @@ async def create_route(
     prompt = await session.get(PromptTemplate, prompt_version.prompt_template_id)
     if source.platform != "telegram_public" or source_config.access_mode != body.access_mode:
         raise HTTPException(422, "Route source and access mode do not match")
-    if destination.platform != "telegram" or not destination.enabled:
-        raise HTTPException(422, "Telegram destination is not enabled")
+    if (
+        destination.platform != "telegram"
+        or not destination.enabled
+        or destination.health_status != "healthy"
+        or destination.administrator_status != "administrator"
+    ):
+        raise HTTPException(422, "Telegram destination is not ready")
     if prompt is None or prompt.purpose_key != "telegram_rewrite" or not prompt_version.is_active:
         raise HTTPException(422, "Route requires an active telegram_rewrite prompt")
     if not _provider_is_configured(profile):
@@ -248,8 +257,6 @@ async def create_route(
         research_profile = await session.get(AIProviderProfile, research_profile_id)
         if research_profile is None or not _provider_supports_research(research_profile):
             raise HTTPException(422, "Research provider profile configuration is invalid")
-    if body.publishing_policy == "auto_publish" and not bool((destination.settings or {}).get("allow_auto_publish")):
-        raise HTTPException(422, "Destination does not allow auto publishing")
     existing = await session.scalar(
         select(AutomationRoute).where(
             AutomationRoute.name == body.name,

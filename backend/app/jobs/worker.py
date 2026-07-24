@@ -208,6 +208,14 @@ def _build_generation_dependencies(owner: HttpClientOwner, secrets: SecretResolv
 
 def _build_publishing_dependencies(owner: HttpClientOwner, secrets: SecretResolver) -> dict[str, Any]:
     from app.publishing.telegram.client import TelegramBotClient
+    from app.publishing.telegram.routing import TelegramRouteResolver
+    from app.security.auth import SecurityPrincipal
+    from app.security.secret_store import MasterKeyRing, SecretStoreError
+
+    try:
+        key_ring = MasterKeyRing.from_settings(settings)
+    except SecretStoreError:
+        key_ring = None
 
     return {
         "telegram_client": TelegramBotClient(
@@ -218,6 +226,15 @@ def _build_publishing_dependencies(owner: HttpClientOwner, secrets: SecretResolv
             )
         ),
         "destination_secret_resolver": secrets,
+        "telegram_route_resolver": TelegramRouteResolver(
+            key_ring=key_ring,
+            principal=SecurityPrincipal(
+                "internal_service",
+                "worker-publishing",
+                frozenset({"destinations:read"}),
+            ),
+            config=settings,
+        ),
     }
 
 

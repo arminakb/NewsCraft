@@ -57,6 +57,7 @@ def build_default_registry(
     profile_resolver: Any | None = None,
     telegram_client: Any | None = None,
     destination_secret_resolver: Any | None = None,
+    telegram_route_resolver: Any | None = None,
     research_backend_resolver: Any | None = None,
     export_root: str | Path = "/data/exports",
     media_root: str | Path = "/data/media",
@@ -143,8 +144,13 @@ def build_default_registry(
         from app.jobs.canary import PUBLISHING_CANARY, handle_worker_canary
         from app.publishing.telegram.handlers import build_telegram_publish_handlers
 
-        handlers = build_telegram_publish_handlers(telegram_client, destination_secret_resolver)
+        handlers = build_telegram_publish_handlers(
+            telegram_client,
+            destination_secret_resolver,
+            route_resolver=telegram_route_resolver,
+        )
         registry.register(PUBLISHING_CANARY, handle_worker_canary)
         registry.register("telegram.destination.check", handlers.destination_check)
+        registry.register("telegram.proxy.check", handlers.proxy_check)
         registry.register("telegram.publish", handlers.publish)
     return registry

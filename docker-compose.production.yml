@@ -11,6 +11,25 @@ services:
   api:
     init: true
     restart: unless-stopped
+    environment:
+      APP_ENV: production
+      SECURITY_ADMIN_TOKEN: null
+      CODEX_GATEWAY_HASH_KEY: null
+      SECRET_MASTER_KEY: null
+      SECRET_PREVIOUS_KEYS: null
+    secrets:
+      - source: security_admin_token
+        target: SECURITY_ADMIN_TOKEN
+        mode: 0400
+      - source: codex_gateway_hash_key
+        target: CODEX_GATEWAY_HASH_KEY
+        mode: 0400
+      - source: secret_master_key
+        target: SECRET_MASTER_KEY
+        mode: 0400
+      - source: secret_previous_keys
+        target: SECRET_PREVIOUS_KEYS
+        mode: 0400
 
   frontend:
     init: true
@@ -28,7 +47,15 @@ services:
       HTTP_PROXY: ""
       HTTPS_PROXY: ""
       ALL_PROXY: ""
+      SECRET_MASTER_KEY: null
+      SECRET_PREVIOUS_KEYS: null
     secrets:
+      - source: secret_master_key
+        target: SECRET_MASTER_KEY
+        mode: 0400
+      - source: secret_previous_keys
+        target: SECRET_PREVIOUS_KEYS
+        mode: 0400
       - source: openrouter_api_key
         target: OPENROUTER_API_KEY
         mode: 0400
@@ -56,11 +83,19 @@ services:
     restart: unless-stopped
     environment:
       APP_ENV: production
+      SECRET_MASTER_KEY: null
+      SECRET_PREVIOUS_KEYS: null
       TELEGRAM_DESTINATION_NEWS_TOKEN: ""
       HTTP_PROXY: ""
       HTTPS_PROXY: ""
       ALL_PROXY: ""
     secrets:
+      - source: secret_master_key
+        target: SECRET_MASTER_KEY
+        mode: 0400
+      - source: secret_previous_keys
+        target: SECRET_PREVIOUS_KEYS
+        mode: 0400
       - source: telegram_destination_news_token
         target: TELEGRAM_DESTINATION_NEWS_TOKEN
         mode: 0400
@@ -79,6 +114,14 @@ services:
     restart: unless-stopped
 
 secrets:
+  security_admin_token:
+    file: ${SECURITY_ADMIN_TOKEN_FILE:-./secrets/SECURITY_ADMIN_TOKEN}
+  codex_gateway_hash_key:
+    file: ${CODEX_GATEWAY_HASH_KEY_FILE:-./secrets/CODEX_GATEWAY_HASH_KEY}
+  secret_master_key:
+    file: ${SECRET_MASTER_KEY_FILE:-./secrets/SECRET_MASTER_KEY}
+  secret_previous_keys:
+    file: ${SECRET_PREVIOUS_KEYS_FILE:-./secrets/SECRET_PREVIOUS_KEYS}
   openrouter_api_key:
     file: ${OPENROUTER_API_KEY_FILE:-./secrets/OPENROUTER_API_KEY}
   telegram_source_editor_api_id:

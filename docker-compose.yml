@@ -64,6 +64,12 @@ services:
       CAPABILITY_QUEUE_CEILING: ${CAPABILITY_QUEUE_CEILING:-1000}
       CAPABILITY_RETRY_AFTER_SECONDS: ${CAPABILITY_RETRY_AFTER_SECONDS:-5}
       CAPABILITY_OBSERVATION_TTL_SECONDS: ${CAPABILITY_OBSERVATION_TTL_SECONDS:-120}
+      SECURITY_ADMIN_TOKEN: ${SECURITY_ADMIN_TOKEN:-}
+      CODEX_GATEWAY_HASH_KEY: ${CODEX_GATEWAY_HASH_KEY:-}
+      CODEX_GATEWAY_PUBLIC_URL: ${CODEX_GATEWAY_PUBLIC_URL:-http://localhost:8000}
+      SECRET_KEY_VERSION: ${SECRET_KEY_VERSION:-v1}
+      SECRET_MASTER_KEY: ${SECRET_MASTER_KEY:-}
+      SECRET_PREVIOUS_KEYS: ${SECRET_PREVIOUS_KEYS:-}
     ports:
       - "127.0.0.1:8000:8000"
     volumes:
@@ -115,6 +121,10 @@ services:
       TELEGRAM_MEDIA_STAGING_ROOT: /data/media-staging
       OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
       OPENROUTER_BASE_URL: ${OPENROUTER_BASE_URL:-https://openrouter.ai/api/v1}
+      SECRET_KEY_VERSION: ${SECRET_KEY_VERSION:-v1}
+      SECRET_MASTER_KEY: ${SECRET_MASTER_KEY:-}
+      SECRET_PREVIOUS_KEYS: ${SECRET_PREVIOUS_KEYS:-}
+      SECURITY_INTERNAL_SCOPES: ${SECURITY_INTERNAL_SCOPES:-jobs:read,jobs:write,providers:read,destinations:read}
       TELEGRAM_SOURCE_EDITOR_API_ID: ${TELEGRAM_SOURCE_EDITOR_API_ID:-}
       TELEGRAM_SOURCE_EDITOR_API_HASH: ${TELEGRAM_SOURCE_EDITOR_API_HASH:-}
       TELEGRAM_SOURCE_EDITOR_SESSION: ${TELEGRAM_SOURCE_EDITOR_SESSION:-}
@@ -150,6 +160,13 @@ services:
       ALL_PROXY: ${ALL_PROXY-}
       NO_PROXY: ${NO_PROXY-}
       MEDIA_ROOT: /data/media
+      SECRET_KEY_VERSION: ${SECRET_KEY_VERSION:-v1}
+      SECRET_MASTER_KEY: ${SECRET_MASTER_KEY:-}
+      SECRET_PREVIOUS_KEYS: ${SECRET_PREVIOUS_KEYS:-}
+      SECURITY_INTERNAL_SCOPES: ${SECURITY_INTERNAL_SCOPES:-jobs:read,jobs:write,providers:read,destinations:read}
+      TELEGRAM_PROXY_ALLOWED_PORTS: ${TELEGRAM_PROXY_ALLOWED_PORTS:-80,443,1080,3128,8080,8443}
+      TELEGRAM_PROXY_CONNECT_TIMEOUT_SECONDS: ${TELEGRAM_PROXY_CONNECT_TIMEOUT_SECONDS:-10}
+      TELEGRAM_API_READ_TIMEOUT_SECONDS: ${TELEGRAM_API_READ_TIMEOUT_SECONDS:-30}
       TELEGRAM_DESTINATION_NEWS_TOKEN: ${TELEGRAM_DESTINATION_NEWS_TOKEN:-}
     extra_hosts:
       - "host.docker.internal:host-gateway"
@@ -161,7 +178,7 @@ services:
       api:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "python", "-m", "app.jobs.healthcheck", "--component-id", "worker-publishing", "--component-type", "worker", "--expected-capabilities", "publishing", "--expected-job-types", "operations.canary.publishing,telegram.destination.check,telegram.publish", "--max-age-seconds", "120"]
+      test: ["CMD", "python", "-m", "app.jobs.healthcheck", "--component-id", "worker-publishing", "--component-type", "worker", "--expected-capabilities", "publishing", "--expected-job-types", "operations.canary.publishing,telegram.destination.check,telegram.proxy.check,telegram.publish", "--max-age-seconds", "120"]
       interval: 15s
       timeout: 5s
       retries: 4

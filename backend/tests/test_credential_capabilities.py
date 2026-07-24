@@ -14,6 +14,7 @@ from app.jobs.credential_capabilities import (
     project_capability_status,
 )
 from app.jobs.models import RuntimeHeartbeat
+from app.llm_providers.models import LLMProvider
 from app.publishing.models import Destination
 
 NOW = datetime(2026, 7, 18, 12, 0, tzinfo=UTC)
@@ -135,7 +136,34 @@ def test_provider_observation_contains_no_value_or_reference():
     assert "secret_ref" not in encoded
 
 
-def test_revoking_provider_credential_does_not_change_source_or_publishing_observations():
+async def test_generic_fake_provider_observation_uses_persisted_capabilities():
+    profile = LLMProvider(
+        id=uuid4(),
+        name="Development Fake",
+        protocol="fake",
+        base_url=None,
+        default_model="fake-v1",
+        enabled=True,
+        secret_id=None,
+        settings={},
+        health_status="healthy",
+        generation_capability="ready",
+        research_capability="ready",
+    )
+    observer = WorkerCredentialCapabilityObserver(
+        SimpleNamespace(),
+        secret_resolver=EnvironmentSecretResolver({}),
+        config=Settings(_env_file=None),
+    )
+
+    observations = await observer._generic_provider(profile)
+
+    assert [item.capability for item in observations] == ["generation", "research"]
+    assert all(item.state == "available" for item in observations)
+    assert all(item.failure_code == "available" for item in observations)
+
+
+async def test_revoking_provider_credential_does_not_change_source_or_publishing_observations():
     provider = AIProviderProfile(
         id=uuid4(),
         name="OpenRouter",
@@ -160,7 +188,7 @@ def test_revoking_provider_credential_does_not_change_source_or_publishing_obser
         target_ref="@destination",
         secret_ref="TELEGRAM_DESTINATION_NEWS_TOKEN",
         enabled=True,
-        health_status="unknown",
+        health_status="healthy",
         settings={},
     )
     remaining = {
@@ -177,7 +205,7 @@ def test_revoking_provider_credential_does_not_change_source_or_publishing_obser
 
     provider_observations = observer._provider(provider)
     source_observation = observer._source(source)
-    destination_observation = observer._destination(destination)
+    destination_observation = await observer._destination(destination)
     encoded = str(
         [
             *(item.model_dump(mode="json") for item in provider_observations),

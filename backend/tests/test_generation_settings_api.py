@@ -263,7 +263,7 @@ async def test_codex_profile_seed_is_idempotent_and_has_no_secret():
     assert settings.research_budgets.deep.max_model_calls == 1
 
 
-async def test_codex_profile_seed_repairs_drift_to_canonical_safe_configuration():
+async def test_codex_profile_seed_never_overwrites_operator_configuration():
     session = GenerationSession()
     drifted = AIProviderProfile(
         id=uuid4(),
@@ -276,14 +276,14 @@ async def test_codex_profile_seed_repairs_drift_to_canonical_safe_configuration(
     )
     session.values.append(drifted)
 
-    repaired = await seed_codex_provider_profile(session, enabled=True, model="gpt-5.4")
+    preserved = await seed_codex_provider_profile(session, enabled=True, model="gpt-5.4")
 
-    assert repaired is drifted
-    assert repaired.provider_type == "codex"
-    assert repaired.default_model == "gpt-5.4"
-    assert repaired.secret_ref is None
-    assert repaired.settings == default_codex_provider_settings().model_dump(mode="json")
-    assert repaired.enabled is True
+    assert preserved is drifted
+    assert preserved.provider_type == "openrouter"
+    assert preserved.default_model == "wrong-model"
+    assert preserved.secret_ref == "OPENROUTER_API_KEY"
+    assert preserved.settings == {"base_url": "https://example.com"}
+    assert preserved.enabled is False
 
 
 @pytest.mark.parametrize(

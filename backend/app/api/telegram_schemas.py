@@ -4,7 +4,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Annotated, Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, StringConstraints, model_validator
+from pydantic import BaseModel, ConfigDict, Field, SecretStr, StringConstraints, field_validator, model_validator
 
 from app.jobs.credential_capabilities import CapabilityStatus
 from app.jobs.schemas import JobAcceptedOut
@@ -34,10 +34,83 @@ class TelegramSourceCreate(BaseModel):
 
 
 class TelegramDestinationCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     name: str = Field(min_length=1, max_length=120)
-    target_ref: str = Field(min_length=1, max_length=255)
-    secret_ref: SecretRef
-    allow_auto_publish: bool = False
+    target: str = Field(min_length=1, max_length=255)
+    bot_token: SecretStr = Field(min_length=1, max_length=4096)
+    proxy_profile_id: UUID | None = None
+
+    @field_validator("name")
+    @classmethod
+    def strip_name(cls, value: str) -> str:
+        stripped = value.strip()
+        if not stripped:
+            raise ValueError("name must not be blank")
+        return stripped
+
+
+class TelegramDestinationPatch(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: str | None = Field(default=None, min_length=1, max_length=120)
+    target: str | None = Field(default=None, min_length=1, max_length=255)
+    proxy_profile_id: UUID | None = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def reject_nulls_except_route(cls, value):
+        if isinstance(value, dict) and any(
+            item is None for key, item in value.items() if key != "proxy_profile_id"
+        ):
+            raise ValueError("destination patch fields cannot be null")
+        return value
+
+
+class TelegramProxyCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: str = Field(min_length=1, max_length=120)
+    proxy_type: Literal["http_connect", "socks5"]
+    host: str = Field(min_length=1, max_length=253)
+    port: int = Field(ge=1, le=65_535)
+    username: SecretStr | None = Field(default=None, min_length=1, max_length=1024)
+    password: SecretStr | None = Field(default=None, min_length=1, max_length=4096)
+
+    @model_validator(mode="after")
+    def validate_credentials(self):
+        if (self.username is None) != (self.password is None):
+            raise ValueError("proxy username and password must be supplied together")
+        return self
+
+
+class TelegramProxyPatch(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: str | None = Field(default=None, min_length=1, max_length=120)
+    proxy_type: Literal["http_connect", "socks5"] | None = None
+    host: str | None = Field(default=None, min_length=1, max_length=253)
+    port: int | None = Field(default=None, ge=1, le=65_535)
+
+    @model_validator(mode="before")
+    @classmethod
+    def reject_nulls(cls, value):
+        if isinstance(value, dict) and any(item is None for item in value.values()):
+            raise ValueError("proxy patch fields cannot be null")
+        return value
+
+
+class TelegramProxyCredentialsIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    username: SecretStr | None = Field(default=None, min_length=1, max_length=1024)
+    password: SecretStr | None = Field(default=None, min_length=1, max_length=4096)
+
+    @model_validator(mode="after")
+    def validate_credentials(self):
+        if (self.username is None) != (self.password is None):
+            raise ValueError("proxy username and password must be supplied together")
+        return self
 
 
 class TelegramContentFilters(BaseModel):
@@ -160,11 +233,70 @@ class TelegramDestinationOut(BaseModel):
     id: UUID
     name: str
     target_ref: str
+    canonical_target: str
+    target_type: Literal["username", "numeric_id", "legacy"]
     enabled: bool
     health_status: str
     configured: bool
-    capability_state: CapabilityStatus
-    settings: dict
+    proxy_profile_id: UUID | None
+    connection_route: str
+    proxy_health_status: str
+    telegram_health_status: str
+    bot_health_status: str
+    target_health_status: str
+    administrator_status: str
+    failure_code: str | None
+    verified_bot_id: int | None
+    verified_bot_username: str | None
+    verified_chat_id: int | None
+    verified_chat_title: str | None
+    verified_chat_type: str | None
+    last_checked_at: datetime | None
+    last_rotated_at: datetime | None
+    created_at: datetime
+    updated_at: datetime
+
+
+class TelegramProxyOut(BaseModel):
+    id: UUID
+    name: str
+    proxy_type: Literal["http_connect", "socks5"]
+    host: str
+    port: int
+    enabled: bool
+    credentials_configured: bool
+    reachability_status: str
+    failure_code: str | None
+    last_checked_at: datetime | None
+    last_rotated_at: datetime | None
+    created_at: datetime
+    updated_at: datetime
+
+
+class TelegramDestinationDependenciesOut(BaseModel):
+    automations: int
+    publish_jobs: int
+    publications: int
+    active_jobs: int
+    blocked: bool
+
+
+class TelegramProxyDependenciesOut(BaseModel):
+    destinations: int
+    blocked: bool
+
+
+class TelegramCheckOut(BaseModel):
+    job_id: UUID
+    resource_type: Literal["destination", "proxy"]
+    resource_id: UUID
+    status: str
+    progress: int
+    progress_message: str | None
+    error_code: str | None
+    result: dict
+    created_at: datetime
+    updated_at: datetime
 
 
 class TelegramRouteOut(BaseModel):
@@ -198,6 +330,11 @@ class TelegramRouteOut(BaseModel):
 
 class TelegramDestinationAcceptedOut(BaseModel):
     destination: TelegramDestinationOut
+    job: JobAcceptedOut
+
+
+class TelegramProxyAcceptedOut(BaseModel):
+    proxy: TelegramProxyOut
     job: JobAcceptedOut
 
 

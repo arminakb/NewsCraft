@@ -266,7 +266,8 @@ async def test_route_create_validates_references_and_options_omit_all_secret_ref
         secret_ref="TELEGRAM_DESTINATION_TOKEN",
         enabled=True,
         health_status="healthy",
-        settings={"allow_auto_publish": False},
+        administrator_status="administrator",
+        settings={},
     )
     brand = BrandProfile(
         id=uuid4(),
@@ -349,7 +350,8 @@ def codex_route_configuration():
         secret_ref="TELEGRAM_DESTINATION_TOKEN",
         enabled=True,
         health_status="healthy",
-        settings={"allow_auto_publish": False},
+        administrator_status="administrator",
+        settings={},
     )
     brand = BrandProfile(id=uuid4(), name="Brand", output_language="fa", tone="neutral")
     prompt = PromptTemplate(id=uuid4(), purpose_key="telegram_rewrite", name="Rewrite")
@@ -478,7 +480,7 @@ async def test_telegram_rejects_drifted_fake_and_openrouter_profiles(
     assert error.value.status_code == 422
 
 
-async def test_auto_route_is_rejected_when_destination_disallows_auto_publish():
+async def test_auto_route_uses_route_level_confirmation_without_destination_permission():
     source = Source(id=uuid4(), platform="telegram_public", name="Source", source_group="telegram")
     config = TelegramSourceConfig(
         source_id=source.id, access_mode="public_html", channel_ref="source_channel"
@@ -491,7 +493,8 @@ async def test_auto_route_is_rejected_when_destination_disallows_auto_publish():
         secret_ref="DESTINATION_TOKEN",
         enabled=True,
         health_status="healthy",
-        settings={"allow_auto_publish": False},
+        administrator_status="administrator",
+        settings={},
     )
     brand = BrandProfile(id=uuid4(), name="Brand", output_language="fa", tone="neutral")
     prompt = PromptTemplate(id=uuid4(), purpose_key="telegram_rewrite", name="Rewrite")
@@ -525,11 +528,8 @@ async def test_auto_route_is_rejected_when_destination_disallows_auto_publish():
         "confirm_auto_publish": True,
     }
 
-    with pytest.raises(Exception, match="does not allow auto publishing"):
-        await create_route(
-            TelegramRouteCreate.model_validate(payload),
-            session,
-        )
+    route = await create_route(TelegramRouteCreate.model_validate(payload), session)
+    assert route.publishing_policy == "auto_publish"
 
 
 def saved_route() -> AutomationRoute:

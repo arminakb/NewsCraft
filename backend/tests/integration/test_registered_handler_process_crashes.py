@@ -42,6 +42,7 @@ REGISTERED_JOB_TYPES = (
     "research_story",
     "operations.canary.publishing",
     "telegram.destination.check",
+    "telegram.proxy.check",
     "telegram.publish",
 )
 
@@ -178,7 +179,7 @@ def test_literal_process_matrix_matches_all_default_registry_keys(tmp_path: Path
         destination_secret_resolver=object(),
     )
 
-    assert len(REGISTERED_JOB_TYPES) == 18
+    assert len(REGISTERED_JOB_TYPES) == 19
     assert set(REGISTERED_JOB_TYPES) == set(registry.job_types())
 
 

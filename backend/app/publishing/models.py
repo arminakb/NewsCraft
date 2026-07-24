@@ -3,12 +3,59 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 
-from sqlalchemy import BigInteger, Boolean, DateTime, ForeignKey, Index, Integer, Text, UniqueConstraint, text
+from sqlalchemy import (
+    BigInteger,
+    Boolean,
+    CheckConstraint,
+    DateTime,
+    ForeignKey,
+    Index,
+    Integer,
+    Text,
+    UniqueConstraint,
+    text,
+)
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.sql import func
 
 from app.db.base import Base, timestamp_now, uuid_pk
+
+
+class TelegramProxyProfile(Base):
+    __tablename__ = "telegram_proxy_profiles"
+
+    id: Mapped[uuid.UUID] = uuid_pk()
+    name: Mapped[str] = mapped_column(Text, nullable=False)
+    proxy_type: Mapped[str] = mapped_column(Text, nullable=False)
+    host: Mapped[str] = mapped_column(Text, nullable=False)
+    port: Mapped[int] = mapped_column(Integer, nullable=False)
+    username_secret_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("encrypted_secrets.id", ondelete="RESTRICT"), nullable=True
+    )
+    password_secret_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("encrypted_secrets.id", ondelete="RESTRICT"), nullable=True
+    )
+    enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="false")
+    reachability_status: Mapped[str] = mapped_column(Text, nullable=False, server_default="unchecked")
+    failure_code: Mapped[str | None] = mapped_column(Text, nullable=True)
+    last_checked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = timestamp_now()
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now()
+    )
+
+    __table_args__ = (
+        CheckConstraint("proxy_type IN ('http_connect', 'socks5')", name="ck_telegram_proxy_type"),
+        CheckConstraint("port BETWEEN 1 AND 65535", name="ck_telegram_proxy_port"),
+        CheckConstraint(
+            "reachability_status IN ('unchecked', 'checking', 'healthy', 'unhealthy')",
+            name="ck_telegram_proxy_reachability",
+        ),
+        UniqueConstraint("name", name="uq_telegram_proxy_profiles_name"),
+        UniqueConstraint("username_secret_id", name="uq_telegram_proxy_username_secret"),
+        UniqueConstraint("password_secret_id", name="uq_telegram_proxy_password_secret"),
+    )
 
 
 class Destination(Base):
@@ -19,16 +66,69 @@ class Destination(Base):
     platform: Mapped[str] = mapped_column(Text, nullable=False)
     target_ref: Mapped[str] = mapped_column(Text, nullable=False)
     secret_ref: Mapped[str] = mapped_column(Text, nullable=False)
+    canonical_target: Mapped[str | None] = mapped_column(Text, nullable=True)
+    target_type: Mapped[str | None] = mapped_column(Text, nullable=True)
+    secret_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("encrypted_secrets.id", ondelete="RESTRICT"), nullable=True
+    )
+    proxy_profile_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("telegram_proxy_profiles.id", ondelete="RESTRICT"), nullable=True
+    )
     enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="false")
     health_status: Mapped[str] = mapped_column(Text, nullable=False, server_default="unknown")
     last_health_check_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    proxy_health_status: Mapped[str] = mapped_column(Text, nullable=False, server_default="unchecked")
+    telegram_health_status: Mapped[str] = mapped_column(Text, nullable=False, server_default="unchecked")
+    bot_health_status: Mapped[str] = mapped_column(Text, nullable=False, server_default="unchecked")
+    target_health_status: Mapped[str] = mapped_column(Text, nullable=False, server_default="unchecked")
+    administrator_status: Mapped[str] = mapped_column(Text, nullable=False, server_default="unchecked")
+    failure_code: Mapped[str | None] = mapped_column(Text, nullable=True)
+    verified_bot_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    verified_bot_username: Mapped[str | None] = mapped_column(Text, nullable=True)
+    verified_chat_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    verified_chat_title: Mapped[str | None] = mapped_column(Text, nullable=True)
+    verified_chat_type: Mapped[str | None] = mapped_column(Text, nullable=True)
+    ownership: Mapped[str] = mapped_column(Text, nullable=False, server_default="operator_managed")
     settings: Mapped[dict] = mapped_column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
     created_at: Mapped[datetime] = timestamp_now()
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now()
     )
 
-    __table_args__ = (UniqueConstraint("platform", "target_ref", name="uq_destination_platform_target"),)
+    __table_args__ = (
+        CheckConstraint(
+            "target_type IS NULL OR target_type IN ('username', 'numeric_id', 'legacy')",
+            name="ck_destination_target_type",
+        ),
+        CheckConstraint(
+            "proxy_health_status IN ('unchecked', 'checking', 'healthy', 'unhealthy', 'direct')",
+            name="ck_destination_proxy_health",
+        ),
+        CheckConstraint(
+            "telegram_health_status IN ('unchecked', 'checking', 'healthy', 'unhealthy')",
+            name="ck_destination_telegram_health",
+        ),
+        CheckConstraint(
+            "bot_health_status IN ('unchecked', 'checking', 'healthy', 'unhealthy')",
+            name="ck_destination_bot_health",
+        ),
+        CheckConstraint(
+            "target_health_status IN ('unchecked', 'checking', 'healthy', 'unhealthy')",
+            name="ck_destination_target_health",
+        ),
+        CheckConstraint(
+            "administrator_status IN ('unchecked', 'checking', 'administrator', 'not_administrator')",
+            name="ck_destination_administrator_status",
+        ),
+        CheckConstraint(
+            "ownership IN ('system_managed', 'operator_managed')",
+            name="ck_destination_ownership",
+        ),
+        UniqueConstraint("platform", "target_ref", name="uq_destination_platform_target"),
+        UniqueConstraint("platform", "canonical_target", name="uq_destination_platform_canonical_target"),
+        UniqueConstraint("secret_id", name="uq_destination_secret_id"),
+        Index("ix_destinations_proxy_profile_id", "proxy_profile_id"),
+    )
 
 
 class PublishJob(Base):

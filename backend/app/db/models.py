@@ -4,7 +4,19 @@ import uuid
 from datetime import datetime
 from decimal import Decimal
 
-from sqlalchemy import BigInteger, Boolean, DateTime, ForeignKey, Index, Integer, Numeric, Text, UniqueConstraint, text
+from sqlalchemy import (
+    BigInteger,
+    Boolean,
+    CheckConstraint,
+    DateTime,
+    ForeignKey,
+    Index,
+    Integer,
+    Numeric,
+    Text,
+    UniqueConstraint,
+    text,
+)
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB, UUID
 from sqlalchemy.orm import Mapped, foreign, mapped_column, relationship
 from sqlalchemy.sql import func
@@ -143,6 +155,48 @@ class ContentItem(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now()
     )
+
+
+class ArticleCollection(Base):
+    __tablename__ = "article_collections"
+
+    id: Mapped[uuid.UUID] = uuid_pk()
+    name: Mapped[str] = mapped_column(Text, nullable=False)
+    normalized_name: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = timestamp_now()
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now()
+    )
+    items: Mapped[list[ArticleCollectionItem]] = relationship(
+        "ArticleCollectionItem",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )
+
+    __table_args__ = (
+        CheckConstraint(
+            "name = btrim(name) AND char_length(name) BETWEEN 1 AND 60",
+            name="ck_article_collections_name",
+        ),
+        UniqueConstraint(
+            "normalized_name",
+            name="uq_article_collections_normalized_name",
+        ),
+    )
+
+
+class ArticleCollectionItem(Base):
+    __tablename__ = "article_collection_items"
+
+    collection_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("article_collections.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    content_item_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("content_items.id", ondelete="RESTRICT"),
+        primary_key=True,
+    )
+    saved_at: Mapped[datetime] = timestamp_now()
 
 
 class SourceItem(Base):

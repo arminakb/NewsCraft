@@ -201,9 +201,25 @@ PLATFORM_SPINE_COLUMNS = {
         "platform",
         "target_ref",
         "secret_ref",
+        "canonical_target",
+        "target_type",
+        "secret_id",
+        "proxy_profile_id",
         "enabled",
         "health_status",
         "last_health_check_at",
+        "proxy_health_status",
+        "telegram_health_status",
+        "bot_health_status",
+        "target_health_status",
+        "administrator_status",
+        "failure_code",
+        "verified_bot_id",
+        "verified_bot_username",
+        "verified_chat_id",
+        "verified_chat_title",
+        "verified_chat_type",
+        "ownership",
         "settings",
         "created_at",
         "updated_at",
@@ -290,7 +306,11 @@ PLATFORM_SPINE_UNIQUE_CONSTRAINTS = {
     "content_packs": {"uq_content_pack_story_brand"},
     "platform_variants": {"uq_platform_variant_platform"},
     "platform_variant_revisions": {"uq_platform_variant_revision_number"},
-    "destinations": {"uq_destination_platform_target"},
+    "destinations": {
+        "uq_destination_platform_target",
+        "uq_destination_platform_canonical_target",
+        "uq_destination_secret_id",
+    },
     "publish_jobs": {"uq_publish_jobs_idempotency_key"},
     "publish_attempts": {"uq_publish_attempt_number"},
     "publications": {
@@ -409,12 +429,53 @@ def test_platform_revision_approval_states_are_locked():
     assert "ck_platform_variant_revision_approval_state" in names
 
 
-def test_destination_stores_a_secret_reference_not_a_secret_value():
+def test_destination_uses_encrypted_secret_fk_and_stores_no_token_value():
     columns = set(Base.metadata.tables["destinations"].columns.keys())
 
-    assert "secret_ref" in columns
+    assert "secret_id" in columns
     assert "token" not in columns
     assert "api_key" not in columns
+
+
+def test_telegram_proxy_profiles_are_registered_with_encrypted_credentials():
+    table = Base.metadata.tables["telegram_proxy_profiles"]
+
+    assert {
+        "id",
+        "name",
+        "proxy_type",
+        "host",
+        "port",
+        "username_secret_id",
+        "password_secret_id",
+        "enabled",
+        "reachability_status",
+        "failure_code",
+        "last_checked_at",
+        "created_at",
+        "updated_at",
+    } == set(table.columns.keys())
+
+
+def test_codex_gateway_models_store_hashes_and_safe_connection_metadata_only():
+    pairing = Base.metadata.tables["codex_pairing_sessions"]
+    connection = Base.metadata.tables["codex_connections"]
+
+    assert "code_hash" in pairing.c
+    assert "pairing_code" not in pairing.c
+    assert "credential_hash" in connection.c
+    assert "credential" not in connection.c
+    assert {
+        "device_name",
+        "credential_prefix",
+        "credential_fingerprint",
+        "scopes",
+        "expires_at",
+        "last_heartbeat_at",
+        "last_error_code",
+        "revoked_at",
+        "last_rotated_at",
+    }.issubset(connection.c.keys())
 
 
 def test_evidence_supports_operator_text_and_deterministic_identity():

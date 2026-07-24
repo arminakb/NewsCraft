@@ -188,15 +188,33 @@ class EditorialService:
         )
         if profile is None or not profile.enabled or not profile.default_model:
             raise InvalidGenerationRequest("generation provider profile is unavailable")
-        shaped, _codes = provider_shape_capabilities(profile)
-        if not shaped["generation"]:
+        from app.llm_providers.models import LLMProvider
+
+        generic = (
+            await self.session.get(LLMProvider, profile_id)
+            if isinstance(self.session, AsyncSession)
+            else None
+        )
+        if generic is None:
+            shaped, _codes = provider_shape_capabilities(profile)
+            if not shaped["generation"]:
+                raise InvalidGenerationRequest("generation provider profile is unavailable")
+        elif not generic.enabled or generic.generation_capability != "ready":
             raise InvalidGenerationRequest("generation provider profile is unavailable")
         if self.profile_resolver is not None:
             try:
-                validate = getattr(self.profile_resolver, "validate_availability", None)
-                if validate is None:
-                    validate = self.profile_resolver.resolve
-                await validate(profile, None)
+                validate_with_session = getattr(
+                    self.profile_resolver,
+                    "validate_availability_with_session",
+                    None,
+                )
+                if validate_with_session is not None:
+                    await validate_with_session(profile, None, session=self.session)
+                else:
+                    validate = getattr(self.profile_resolver, "validate_availability", None)
+                    if validate is None:
+                        validate = self.profile_resolver.resolve
+                    await validate(profile, None)
             except Exception:
                 raise InvalidGenerationRequest("generation provider profile is unavailable") from None
         return profile

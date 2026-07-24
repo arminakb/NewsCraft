@@ -135,7 +135,7 @@ _GENERATION_JOB_TYPES = (
     "telegram.route.process",
 )
 # Destination health checks are publishing readiness in the locked history taxonomy.
-_PUBLISH_JOB_TYPES = ("telegram.destination.check", "telegram.publish")
+_PUBLISH_JOB_TYPES = ("telegram.destination.check", "telegram.proxy.check", "telegram.publish")
 
 
 class HistoryEntry(BaseModel):

@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime
-from types import SimpleNamespace
 from uuid import uuid4
 
 import pytest
@@ -9,14 +7,10 @@ from fastapi import HTTPException
 from pydantic import ValidationError
 from sqlalchemy.exc import IntegrityError
 
-from app.api.telegram_destinations import create_telegram_destination
-from app.api.telegram_schemas import TelegramDestinationCreate, TelegramSourceCreate
+from app.api.telegram_schemas import TelegramSourceCreate
 from app.api.telegram_sources import create_telegram_source
 from app.automations.models import TelegramSourceConfig
 from app.db.models import Source
-from app.jobs.repository import EnqueueJobResult
-from app.jobs.types import JobStatus
-from app.publishing.models import Destination
 from tests.capability_fakes import AVAILABLE_CAPABILITIES
 
 
@@ -55,22 +49,6 @@ def test_mtproto_source_requires_three_uppercase_secret_references():
         )
 
 
-def test_destination_accepts_reference_name_but_rejects_token_value():
-    value = TelegramDestinationCreate.model_validate(
-        {
-            "name": "News",
-            "target_ref": "@news",
-            "secret_ref": "TELEGRAM_NEWS_TOKEN",
-        }
-    )
-    assert value.secret_ref == "TELEGRAM_NEWS_TOKEN"
-
-    with pytest.raises(ValidationError):
-        TelegramDestinationCreate.model_validate(
-            {"name": "News", "target_ref": "@news", "secret_ref": "123456:bot-token-value"}
-        )
-
-
 async def test_source_create_persists_transport_config_but_returns_no_secret_references():
     session = MemorySession()
     body = TelegramSourceCreate.model_validate(
@@ -96,33 +74,7 @@ async def test_source_create_persists_transport_config_but_returns_no_secret_ref
     assert "secret" not in str(result).lower()
 
 
-async def test_destination_create_stores_reference_enqueues_check_and_returns_safe_output():
-    session = MemorySession()
-    jobs = FakeJobs()
-    result = await create_telegram_destination(
-        TelegramDestinationCreate.model_validate(
-            {
-                "name": "News channel",
-                "target_ref": "@news_target",
-                "secret_ref": "TELEGRAM_DESTINATION_NEWS_TOKEN",
-                "allow_auto_publish": False,
-            }
-        ),
-        session,
-        jobs,
-        AVAILABLE_CAPABILITIES,
-    )
-
-    destination = session.one(Destination)
-    assert destination.secret_ref == "TELEGRAM_DESTINATION_NEWS_TOKEN"
-    assert result.destination.configured is True
-    assert result.destination.settings == {"allow_auto_publish": False}
-    assert not hasattr(result.destination, "secret_ref")
-    assert jobs.enqueued[0]["job_type"] == "telegram.destination.check"
-    assert result.job.deduplicated is False
-
-
-async def test_conflicting_duplicate_source_and_destination_creates_return_409():
+async def test_conflicting_duplicate_source_creates_return_409():
     source_session = MemorySession()
     public = TelegramSourceCreate(name="Public", channel_ref="public_channel")
     first_source = await create_telegram_source(public, source_session, AVAILABLE_CAPABILITIES)
@@ -136,36 +88,6 @@ async def test_conflicting_duplicate_source_and_destination_creates_return_409()
         )
     assert source_conflict.value.status_code == 409
     assert source_session.nested_count == 1
-
-    destination_session = MemorySession()
-    jobs = FakeJobs()
-    destination = TelegramDestinationCreate(
-        name="News",
-        target_ref="@news",
-        secret_ref="TELEGRAM_NEWS_TOKEN",
-        allow_auto_publish=False,
-    )
-    first_destination = await create_telegram_destination(
-        destination, destination_session, jobs, AVAILABLE_CAPABILITIES
-    )
-    same_destination = await create_telegram_destination(
-        destination, destination_session, jobs, AVAILABLE_CAPABILITIES
-    )
-    assert same_destination.destination.id == first_destination.destination.id
-    with pytest.raises(HTTPException) as destination_conflict:
-        await create_telegram_destination(
-            TelegramDestinationCreate(
-                name="News",
-                target_ref="@news",
-                secret_ref="DIFFERENT_TOKEN_REF",
-            ),
-            destination_session,
-            jobs,
-            AVAILABLE_CAPABILITIES,
-        )
-    assert destination_conflict.value.status_code == 409
-    assert destination_session.nested_count == 1
-
 
 async def test_source_savepoint_race_reuses_matching_winner_and_rejects_conflict():
     winner = Source(
@@ -199,43 +121,6 @@ async def test_source_savepoint_race_reuses_matching_winner_and_rejects_conflict
     assert conflicting.integrity_errors == 1
 
 
-async def test_destination_savepoint_race_reuses_matching_winner_and_rejects_conflict():
-    winner = Destination(
-        id=uuid4(),
-        name="News",
-        platform="telegram",
-        target_ref="@news",
-        secret_ref="TELEGRAM_NEWS_TOKEN",
-        enabled=True,
-        health_status="unknown",
-        settings={"allow_auto_publish": False},
-        updated_at=datetime.now(UTC),
-    )
-    body = TelegramDestinationCreate(
-        name="News", target_ref="@news", secret_ref="TELEGRAM_NEWS_TOKEN"
-    )
-    jobs = FakeJobs()
-    matching = SavepointRaceSession(winner)
-    reused = await create_telegram_destination(
-        body, matching, jobs, AVAILABLE_CAPABILITIES
-    )
-    assert reused.destination.id == winner.id
-    assert matching.integrity_errors == 1
-
-    conflicting = SavepointRaceSession(winner)
-    with pytest.raises(HTTPException) as error:
-        await create_telegram_destination(
-            TelegramDestinationCreate(
-                name="News", target_ref="@news", secret_ref="DIFFERENT_TOKEN"
-            ),
-            conflicting,
-            jobs,
-            AVAILABLE_CAPABILITIES,
-        )
-    assert error.value.status_code == 409
-    assert conflicting.integrity_errors == 1
-
-
 class MemorySession:
     def __init__(self):
         self.values = []
@@ -251,7 +136,6 @@ class MemorySession:
 
     async def commit(self):
         return None
-
     async def scalar(self, statement):
         entity = statement.column_descriptions[0].get("entity")
         return next((value for value in self.values if isinstance(value, entity)), None)
@@ -323,15 +207,3 @@ class SavepointRaceSession:
 
     async def commit(self):
         return None
-
-
-class FakeJobs:
-    def __init__(self):
-        self.enqueued = []
-
-    async def enqueue_job(self, **kwargs):
-        self.enqueued.append(kwargs)
-        return EnqueueJobResult(
-            job=SimpleNamespace(id=uuid4(), status=JobStatus.QUEUED),
-            created=True,
-        )

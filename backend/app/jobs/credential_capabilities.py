@@ -18,7 +18,17 @@ from app.generation.models import AIProviderProfile
 from app.generation.provider_settings import CodexProviderSettings, OpenRouterProviderSettings
 from app.jobs.errors import JobCapabilityUnavailable
 from app.jobs.models import RuntimeHeartbeat
+from app.llm_providers.models import LLMProvider
 from app.publishing.models import Destination
+from app.security.auth import SecurityPrincipal
+from app.security.models import EncryptedSecret
+from app.security.scopes import parse_scopes
+from app.security.secret_store import (
+    EncryptedSecretStore,
+    MasterKeyRing,
+    SecretDecryptionFailed,
+    SecretKeyUnavailable,
+)
 
 type ResourceType = Literal["provider", "source", "destination"]
 type ResourceCapability = Literal["generation", "research", "source", "publishing"]
@@ -33,6 +43,7 @@ _SAFE_FAILURE_CODES = frozenset(
         "credential_invalid",
         "disabled",
         "executable_unavailable",
+        "health_check_failed",
         "invalid_configuration",
         "observation_missing",
         "observation_stale",
@@ -162,9 +173,19 @@ class WorkerCredentialCapabilityObserver:
         owned = set(capabilities)
         observations: list[CapabilityObservation] = []
         if "generation" in owned:
+            generic_profiles = {
+                profile.id: profile
+                for profile in await self.session.scalars(select(LLMProvider))
+            }
             profiles = list(await self.session.scalars(select(AIProviderProfile)))
             for profile in profiles:
-                observations.extend(self._provider(profile))
+                generic = generic_profiles.pop(profile.id, None)
+                if generic is None:
+                    observations.extend(self._provider(profile))
+                else:
+                    observations.extend(await self._generic_provider(generic))
+            for generic in generic_profiles.values():
+                observations.extend(await self._generic_provider(generic))
         if "source" in owned:
             sources = list(await self.session.scalars(select(TelegramSourceConfig)))
             observations.extend(self._source(source) for source in sources)
@@ -174,8 +195,74 @@ class WorkerCredentialCapabilityObserver:
                     select(Destination).where(Destination.platform == "telegram")
                 )
             )
-            observations.extend(self._destination(destination) for destination in destinations)
+            for destination in destinations:
+                observations.append(await self._destination(destination))
         return observations
+
+    async def _generic_provider(self, profile: LLMProvider) -> list[CapabilityObservation]:
+        if not profile.enabled:
+            generation_available = research_available = False
+            generation_code = research_code = "disabled"
+        elif profile.protocol == "fake":
+            valid = profile.base_url is None and profile.secret_id is None
+            generation_available = valid and profile.generation_capability == "ready"
+            research_available = valid and profile.research_capability == "ready"
+            generation_code = "available" if generation_available else "invalid_configuration"
+            research_code = "available" if research_available else "research_configuration_missing"
+        elif profile.protocol != "openai_compatible" or profile.secret_id is None:
+            generation_available = research_available = False
+            generation_code = research_code = "invalid_configuration"
+        else:
+            secret = await self.session.get(EncryptedSecret, profile.secret_id)
+            credential_available = secret is not None
+            credential_code = "credential_missing"
+            if secret is not None:
+                try:
+                    EncryptedSecretStore(
+                        self.session,
+                        MasterKeyRing.from_settings(self.config),
+                    ).decrypt(
+                        secret,
+                        principal=SecurityPrincipal(
+                            "internal_service",
+                            "generation-worker",
+                            parse_scopes(self.config.security_internal_scopes),
+                        ),
+                        required_scope="providers:read",
+                    )
+                    credential_code = "available"
+                except SecretKeyUnavailable:
+                    credential_available = False
+                except SecretDecryptionFailed:
+                    credential_available = False
+                    credential_code = "credential_invalid"
+                except Exception:
+                    credential_available = False
+                    credential_code = "invalid_configuration"
+            generation_available = (
+                credential_available and profile.generation_capability == "ready"
+            )
+            research_available = credential_available and profile.research_capability == "ready"
+            generation_code = (
+                "available"
+                if generation_available
+                else credential_code
+                if not credential_available
+                else profile.failure_code or "invalid_configuration"
+            )
+            research_code = (
+                "available"
+                if research_available
+                else credential_code
+                if not credential_available
+                else profile.failure_code or "research_configuration_missing"
+            )
+        return [
+            _observation(
+                "provider", profile.id, "generation", generation_available, generation_code
+            ),
+            _observation("provider", profile.id, "research", research_available, research_code),
+        ]
 
     def _provider(self, profile: AIProviderProfile) -> list[CapabilityObservation]:
         shaped, shape_codes = provider_shape_capabilities(profile)
@@ -239,14 +326,44 @@ class WorkerCredentialCapabilityObserver:
             "available" if valid_api_id else "credential_invalid",
         )
 
-    def _destination(self, destination: Destination) -> CapabilityObservation:
-        available = _secret_value(self.secret_resolver, destination.secret_ref) is not None
+    async def _destination(self, destination: Destination) -> CapabilityObservation:
+        credential_available = False
+        if destination.secret_id is not None:
+            secret = await self.session.get(EncryptedSecret, destination.secret_id)
+            if secret is not None:
+                try:
+                    EncryptedSecretStore(
+                        self.session,
+                        MasterKeyRing.from_settings(self.config),
+                    ).decrypt(
+                        secret,
+                        principal=SecurityPrincipal(
+                            "internal_service",
+                            "publishing-worker",
+                            parse_scopes(self.config.security_internal_scopes),
+                        ),
+                        required_scope="destinations:read",
+                    )
+                    credential_available = True
+                except Exception:
+                    credential_available = False
+        else:
+            credential_available = _secret_value(self.secret_resolver, destination.secret_ref) is not None
+        available = credential_available and destination.enabled and destination.health_status == "healthy"
+        if not credential_available:
+            failure_code = "credential_missing"
+        elif not destination.enabled:
+            failure_code = "disabled"
+        elif destination.health_status != "healthy":
+            failure_code = "health_check_failed"
+        else:
+            failure_code = "available"
         return _observation(
             "destination",
             destination.id,
             "publishing",
             available,
-            "available" if available else "credential_missing",
+            failure_code,
         )
 
 

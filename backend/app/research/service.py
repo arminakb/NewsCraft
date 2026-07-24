@@ -117,6 +117,28 @@ class ResearchService:
         profile = await self.session.get(AIProviderProfile, profile_id)
         if profile is None or not profile.enabled:
             raise ResearchRequestError("Selected research provider profile is unavailable")
+        from app.llm_providers.models import LLMProvider
+        from app.llm_providers.schemas import LLMProviderSettings
+
+        generic = (
+            await self.session.get(LLMProvider, profile_id)
+            if isinstance(self.session, AsyncSession)
+            else None
+        )
+        if generic is not None:
+            if not generic.enabled or generic.research_capability != "ready":
+                raise ResearchRequestError("Selected research provider profile is unavailable")
+            if generic.protocol == "fake":
+                selected = getattr(default_research_budgets(), depth)
+            elif generic.protocol == "openai_compatible":
+                try:
+                    configured_generic = LLMProviderSettings.model_validate(generic.settings)
+                except ValueError:
+                    raise ResearchRequestError("Selected research provider profile is invalid") from None
+                selected = getattr(configured_generic.research_budgets, depth)
+            else:  # pragma: no cover - database constraint
+                raise ResearchRequestError("Selected research provider profile is unsupported")
+            return ResolvedResearchProfile(profile=profile, model=generic.default_model, budget=_budget(selected))
         shaped, _codes = provider_shape_capabilities(profile)
         if not shaped["research"]:
             raise ResearchRequestError("Selected research provider profile is invalid")

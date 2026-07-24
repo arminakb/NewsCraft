@@ -16,8 +16,15 @@ from app.core.secrets import SecretResolver
 from app.generation.models import AIProviderProfile
 from app.generation.provider_settings import OpenRouterProviderSettings
 from app.generation.providers.base import GenerationProvider
+from app.generation.providers.openai_compatible import OpenAICompatibleProvider
 from app.generation.providers.openrouter import OpenRouterProvider
 from app.generation.providers.registry import ProviderRegistry
+from app.llm_providers.models import LLMProvider
+from app.llm_providers.schemas import LLMProviderSettings
+from app.security.auth import SecurityPrincipal
+from app.security.models import EncryptedSecret
+from app.security.scopes import parse_scopes
+from app.security.secret_store import EncryptedSecretStore, MasterKeyRing
 
 
 class ProviderProfileConfigurationError(ValueError):
@@ -156,6 +163,79 @@ class ProviderProfileResolver:
     ) -> ResolvedProviderProfile:
         """Resolve the canonical profile contract without retaining request resources."""
         resolved = await self.resolve(profile, model_override)
+        client = getattr(resolved.provider, "http_client", None)
+        if client is not None and hasattr(client, "aclose"):
+            await client.aclose()
+        return resolved
+
+    async def resolve_with_session(
+        self,
+        profile: AIProviderProfile,
+        model_override: str | None,
+        *,
+        session: Any,
+    ) -> ResolvedProviderProfile:
+        generic = await session.get(LLMProvider, profile.id)
+        if generic is None:
+            return await self.resolve(profile, model_override)
+        if not generic.enabled or generic.generation_capability != "ready":
+            raise ProviderProfileConfigurationError("Selected provider profile is unavailable")
+        if generic.protocol == "fake":
+            if generic.secret_id is not None or generic.base_url is not None:
+                raise ProviderProfileConfigurationError("Fake provider profile has invalid settings")
+            return ResolvedProviderProfile(
+                profile_id=generic.id,
+                provider_type="fake",
+                model=model_override or generic.default_model,
+                provider=self.provider_registry.get("fake"),
+            )
+        if generic.protocol != "openai_compatible" or generic.secret_id is None or generic.base_url is None:
+            raise ProviderProfileConfigurationError("Selected provider type is unsupported")
+        try:
+            configured = LLMProviderSettings.model_validate(generic.settings)
+            secret = await session.get(EncryptedSecret, generic.secret_id)
+            if secret is None:
+                raise ProviderProfileConfigurationError("Selected provider profile secret is unavailable")
+            principal = SecurityPrincipal(
+                "internal_service",
+                "generation-worker",
+                parse_scopes(self.application_settings.security_internal_scopes),
+            )
+            api_key = EncryptedSecretStore(
+                session,
+                MasterKeyRing.from_settings(self.application_settings),
+            ).decrypt(
+                secret,
+                principal=principal,
+                required_scope="providers:read",
+            )
+        except ProviderProfileConfigurationError:
+            raise
+        except Exception:
+            raise ProviderProfileConfigurationError("Selected provider profile is unavailable") from None
+        attribution = configured.attribution_headers
+        http_kwargs = {
+            "base_url": generic.base_url,
+            "timeout_seconds": configured.timeout_seconds,
+            "http_referer": str(attribution.http_referer) if attribution.http_referer else None,
+            "app_title": attribution.app_title,
+        }
+        client = self.http_client_factory(**http_kwargs)
+        return ResolvedProviderProfile(
+            profile_id=generic.id,
+            provider_type="openai_compatible",
+            model=model_override or generic.default_model,
+            provider=OpenAICompatibleProvider(http_client=client, api_key=api_key, **http_kwargs),
+        )
+
+    async def validate_availability_with_session(
+        self,
+        profile: AIProviderProfile,
+        model_override: str | None,
+        *,
+        session: Any,
+    ) -> ResolvedProviderProfile:
+        resolved = await self.resolve_with_session(profile, model_override, session=session)
         client = getattr(resolved.provider, "http_client", None)
         if client is not None and hasattr(client, "aclose"):
             await client.aclose()

@@ -69,6 +69,28 @@ class DefaultResearchBackendResolver:
             )
         raise ValueError("Research provider profile is unsupported")
 
+    async def resolve_with_session(self, profile: AIProviderProfile, *, session: Any) -> ResearchBackend:
+        from app.llm_providers.models import LLMProvider
+        from app.research.duckduckgo import DuckDuckGoSearchClient
+        from app.research.fake import EvidenceGroundedFakeResearchBackend
+        from app.research.openrouter_loop import OpenRouterResearchBackend
+        from app.research.safe_fetch import SafeArticleFetcher
+
+        generic = await session.get(LLMProvider, profile.id)
+        if generic is None:
+            return await self(profile)
+        if generic.protocol == "fake":
+            return EvidenceGroundedFakeResearchBackend()
+        if generic.protocol != "openai_compatible":
+            raise ValueError("Research provider profile is unsupported")
+        resolved = await self.profile_resolver.resolve_with_session(profile, None, session=session)
+        return OpenRouterResearchBackend(
+            model=resolved.provider,
+            search_client=DuckDuckGoSearchClient(),
+            fetcher=SafeArticleFetcher(),
+            profile=profile,
+        )
+
 
 def _evidence(snapshot: StoryEvidenceSnapshot) -> EvidenceRecord:
     return EvidenceRecord(
@@ -269,7 +291,12 @@ def build_research_story_handler(
                 raise preparation_error
             if request is None:  # pragma: no cover - guarded by preparation validation
                 raise ResearchRequestError("Research request preparation failed")
-            resolved = backend_resolver(profile)
+            resolve_with_session = getattr(backend_resolver, "resolve_with_session", None)
+            resolved = (
+                resolve_with_session(profile, session=session)
+                if resolve_with_session is not None
+                else backend_resolver(profile)
+            )
             backend = await resolved if inspect.isawaitable(resolved) else resolved
             result = await backend.research(request)
             await injector.hit(

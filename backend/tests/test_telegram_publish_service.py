@@ -303,6 +303,7 @@ def test_registry_registers_publish_capability_only_with_complete_dependency_bun
         "operations.canary.source_generation",
         "story.group_pending",
         "telegram.destination.check",
+        "telegram.proxy.check",
         "telegram.publish",
     )
     with pytest.raises(ValueError, match="supplied together"):

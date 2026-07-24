@@ -171,7 +171,6 @@ async def seed_dispatch(
     *,
     route_name: str = "Route",
     publishing_policy: str = "review_required",
-    allow_auto: bool = False,
     shared: dict | None = None,
 ):
     shared = shared or {}
@@ -188,7 +187,7 @@ async def seed_dispatch(
         secret_ref="TELEGRAM_DESTINATION_TOKEN",
         enabled=True,
         health_status="healthy",
-        settings={"allow_auto_publish": allow_auto},
+        settings={},
     )
     brand = shared.get("brand") or BrandProfile(
         name="Brand",
@@ -469,7 +468,6 @@ async def test_auto_publish_creates_one_durable_intent_without_remote_call(sessi
             dispatch, job, _ = await seed_dispatch(
                 session,
                 publishing_policy="auto_publish",
-                allow_auto=True,
             )
         dispatch_id = dispatch.id
         job_id = job.id
@@ -502,7 +500,6 @@ async def test_auto_gate_reloads_global_pause_after_provider_call(session_factor
             dispatch, job, _ = await seed_dispatch(
                 session,
                 publishing_policy="auto_publish",
-                allow_auto=True,
             )
         dispatch_id = dispatch.id
         job_id = job.id

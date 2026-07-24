@@ -45,6 +45,7 @@ class JobType(StrEnum):
     TELEGRAM_ROUTE_DRY_RUN = "telegram.route.dry_run"
     TELEGRAM_ROUTE_PROCESS = "telegram.route.process"
     TELEGRAM_DESTINATION_CHECK = "telegram.destination.check"
+    TELEGRAM_PROXY_CHECK = "telegram.proxy.check"
     TELEGRAM_PUBLISH = "telegram.publish"
 
 

@@ -29,6 +29,12 @@ API_ENVIRONMENT_NAMES = {
     "CAPABILITY_QUEUE_CEILING",
     "CAPABILITY_RETRY_AFTER_SECONDS",
     "CAPABILITY_OBSERVATION_TTL_SECONDS",
+    "SECURITY_ADMIN_TOKEN",
+    "CODEX_GATEWAY_HASH_KEY",
+    "CODEX_GATEWAY_PUBLIC_URL",
+    "SECRET_KEY_VERSION",
+    "SECRET_MASTER_KEY",
+    "SECRET_PREVIOUS_KEYS",
 }
 SOURCE_WORKER_ENVIRONMENT_NAMES = {
     "NEWSCRAFT_COMPONENT_ID",
@@ -42,6 +48,10 @@ SOURCE_WORKER_ENVIRONMENT_NAMES = {
     "TELEGRAM_MEDIA_STAGING_ROOT",
     "OPENROUTER_API_KEY",
     "OPENROUTER_BASE_URL",
+    "SECRET_KEY_VERSION",
+    "SECRET_MASTER_KEY",
+    "SECRET_PREVIOUS_KEYS",
+    "SECURITY_INTERNAL_SCOPES",
     "TELEGRAM_SOURCE_EDITOR_API_ID",
     "TELEGRAM_SOURCE_EDITOR_API_HASH",
     "TELEGRAM_SOURCE_EDITOR_SESSION",
@@ -54,6 +64,13 @@ PUBLISHING_WORKER_ENVIRONMENT_NAMES = {
     "ALL_PROXY",
     "NO_PROXY",
     "MEDIA_ROOT",
+    "SECRET_KEY_VERSION",
+    "SECRET_MASTER_KEY",
+    "SECRET_PREVIOUS_KEYS",
+    "SECURITY_INTERNAL_SCOPES",
+    "TELEGRAM_PROXY_ALLOWED_PORTS",
+    "TELEGRAM_PROXY_CONNECT_TIMEOUT_SECONDS",
+    "TELEGRAM_API_READ_TIMEOUT_SECONDS",
     "TELEGRAM_DESTINATION_NEWS_TOKEN",
 }
 SCHEDULER_ENVIRONMENT_NAMES = {"NEWSCRAFT_COMPONENT_ID", "DATABASE_URL"}
@@ -249,14 +266,23 @@ def test_phase_six_base_compose_mounts_only_role_owned_storage():
     assert all(mount != ".:/workspace" for service in services.values() for mount in service.get("volumes", []) or [])
 
 
-def test_phase_six_production_secrets_are_worker_only_read_only_files():
+def test_production_secrets_are_role_owned_read_only_files():
     production = yaml.safe_load((ROOT / "docker-compose.production.yml").read_text(encoding="utf-8"))
     services = production["services"]
 
     assert set(services) == ALL_COMPOSE_SERVICES
+    api_targets = {item["target"] for item in services["api"]["secrets"]}
     source_targets = {item["target"] for item in services["worker-source-generation"]["secrets"]}
     publishing_targets = {item["target"] for item in services["worker-publishing"]["secrets"]}
+    assert api_targets == {
+        "SECURITY_ADMIN_TOKEN",
+        "CODEX_GATEWAY_HASH_KEY",
+        "SECRET_MASTER_KEY",
+        "SECRET_PREVIOUS_KEYS",
+    }
     assert source_targets == {
+        "SECRET_MASTER_KEY",
+        "SECRET_PREVIOUS_KEYS",
         "OPENROUTER_API_KEY",
         "TELEGRAM_SOURCE_EDITOR_API_ID",
         "TELEGRAM_SOURCE_EDITOR_API_HASH",
@@ -266,12 +292,14 @@ def test_phase_six_production_secrets_are_worker_only_read_only_files():
         "ALL_PROXY",
     }
     assert publishing_targets == {
+        "SECRET_MASTER_KEY",
+        "SECRET_PREVIOUS_KEYS",
         "TELEGRAM_DESTINATION_NEWS_TOKEN",
         "HTTP_PROXY",
         "HTTPS_PROXY",
         "ALL_PROXY",
     }
-    for service_name in ("worker-source-generation", "worker-publishing"):
+    for service_name in ("api", "worker-source-generation", "worker-publishing"):
         assert services[service_name]["environment"]["APP_ENV"] == "production"
         for mounted_secret in services[service_name]["secrets"]:
             assert mounted_secret["mode"] == 0o400
@@ -354,7 +382,9 @@ def test_worker_and_scheduler_healthchecks_verify_identity_capability_and_job_co
             "--component-id": "worker-publishing",
             "--component-type": "worker",
             "--expected-capabilities": "publishing",
-            "--expected-job-types": ("operations.canary.publishing,telegram.destination.check,telegram.publish"),
+            "--expected-job-types": (
+                "operations.canary.publishing,telegram.destination.check,telegram.proxy.check,telegram.publish"
+            ),
             "--max-age-seconds": "120",
         },
         "scheduler": {

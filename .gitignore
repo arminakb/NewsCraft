@@ -41,6 +41,9 @@ secrets/
 .idea/
 .vscode/
 
+# foglamp scan (holds edit token secret)
+.foglamp/
+
 # Generated analysis artifacts
 graphify-out/
 validation/content-intelligence-report.md

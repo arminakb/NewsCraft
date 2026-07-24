@@ -1,6 +1,14 @@
 from app.automations.models import AutomationRoute
+from app.codex_gateway.models import (
+    CodexConnection,
+    CodexIdempotencyRecord,
+    CodexPairingSession,
+    CodexRateLimitBucket,
+)
 from app.db.base import Base
 from app.db.models import (
+    ArticleCollection,
+    ArticleCollectionItem,
     ContentDraft,
     ContentItem,
     IngestRun,
@@ -24,14 +32,22 @@ from app.generation.models import (
     PromptTemplateVersion,
 )
 from app.jobs.models import AutomationControl, RuntimeHeartbeat, WorkflowEvent, WorkflowJob, WorkflowSchedule
+from app.llm_providers.models import LLMProvider
 from app.manual_publication.models import ManualPublicationPlan
-from app.publishing.models import Destination, Publication, PublishAttempt, PublishJob
+from app.publishing.models import Destination, Publication, PublishAttempt, PublishJob, TelegramProxyProfile
 from app.research.models import ResearchAttempt, ResearchRun, ResearchSource
 from app.retention.models import RetentionPolicy, RetentionRun
+from app.security.models import EncryptedSecret, SecurityAuditEvent
 from app.stories.models import Story, StoryEvidenceLink, StoryEvidenceSnapshot, StoryRevision
 
 _MAPPED_CLASSES = (
     AutomationRoute,
+    CodexConnection,
+    CodexIdempotencyRecord,
+    CodexPairingSession,
+    CodexRateLimitBucket,
+    ArticleCollection,
+    ArticleCollectionItem,
     ContentDraft,
     ContentItem,
     IngestRun,
@@ -56,13 +72,17 @@ _MAPPED_CLASSES = (
     WorkflowEvent,
     WorkflowJob,
     WorkflowSchedule,
+    LLMProvider,
     ManualPublicationPlan,
     Destination,
+    TelegramProxyProfile,
     Publication,
     PublishAttempt,
     PublishJob,
     RetentionPolicy,
     RetentionRun,
+    EncryptedSecret,
+    SecurityAuditEvent,
     ResearchAttempt,
     ResearchRun,
     ResearchSource,

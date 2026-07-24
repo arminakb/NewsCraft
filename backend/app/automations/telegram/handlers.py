@@ -2473,7 +2473,6 @@ def build_telegram_process_handler(
                 route_paused=route.paused_at is not None,
                 destination_enabled=destination.enabled,
                 destination_health=destination.health_status,
-                destination_allows_auto=bool((destination.settings or {}).get("allow_auto_publish")),
                 validation_ok=True,
                 evidence_ready=True,
                 media_ready=media_ready,

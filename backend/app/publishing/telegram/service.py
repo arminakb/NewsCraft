@@ -744,6 +744,7 @@ class _PublishContext:
     publish_job_id: UUID
     destination_id: UUID
     destination_secret_ref: str
+    proxy_profile_id: UUID | None
     target_ref: str
     revision_id: UUID
     dispatch_id: UUID | None
@@ -782,7 +783,15 @@ async def _close_running_publish_attempts(
         attempt.finished_at = finished_at
 
 
-async def _load_context(session: Any, publish_job_id: UUID, observed_at: datetime) -> _PublishContext | dict:
+_ROUTE_UNSET = object()
+
+
+async def _load_context(
+    session: Any,
+    publish_job_id: UUID,
+    observed_at: datetime,
+    expected_proxy_profile_id: UUID | None | object = _ROUTE_UNSET,
+) -> _PublishContext | dict:
     revision_id = await session.scalar(
         select(PublishJob.platform_variant_revision_id).where(PublishJob.id == publish_job_id)
     )
@@ -900,6 +909,11 @@ async def _load_context(session: Any, publish_job_id: UUID, observed_at: datetim
         raise PermanentJobError(
             code="telegram_publish_context_missing",
             message="Telegram publish context is incomplete",
+        )
+    if expected_proxy_profile_id is not _ROUTE_UNSET and destination.proxy_profile_id != expected_proxy_profile_id:
+        raise NeedsReviewJobError(
+            code="telegram_publish_route_changed",
+            message="Telegram destination route changed before dispatch",
         )
     if route is None or route.destination_id != destination.id:
         raise NeedsReviewJobError(
@@ -1099,6 +1113,7 @@ async def _load_context(session: Any, publish_job_id: UUID, observed_at: datetim
         publish_job_id=publish_job.id,
         destination_id=destination.id,
         destination_secret_ref=destination.secret_ref,
+        proxy_profile_id=destination.proxy_profile_id,
         target_ref=destination.target_ref,
         revision_id=revision.id,
         dispatch_id=dispatch.id,
@@ -1183,6 +1198,7 @@ async def _revalidate_claim(session: Any, context: _PublishContext) -> PublishJo
         or not destination.enabled
         or destination.health_status != "healthy"
         or destination.secret_ref != context.destination_secret_ref
+        or destination.proxy_profile_id != context.proxy_profile_id
         or destination.target_ref != context.target_ref
         or publish_job.platform_variant_revision_id != revision.id
         or publish_job.destination_id != destination.id
@@ -1410,6 +1426,7 @@ async def publish_telegram(
     publish_job_id: UUID,
     client: Any,
     secret_resolver: Any,
+    expected_proxy_profile_id: UUID | None | object = _ROUTE_UNSET,
     now: Any | None = None,
     fault_injector: FaultInjector | None = None,
 ) -> dict[str, Any]:
@@ -1418,7 +1435,12 @@ async def publish_telegram(
     observed_at = clock()
     try:
         async with session.begin():
-            prepared = await _load_context(session, publish_job_id, observed_at)
+            prepared = await _load_context(
+                session,
+                publish_job_id,
+                observed_at,
+                expected_proxy_profile_id=expected_proxy_profile_id,
+            )
     except (NeedsReviewJobError, PermanentJobError) as exc:
         async with session.begin():
             publish_job = await session.scalar(

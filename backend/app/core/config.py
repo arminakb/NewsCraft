@@ -1,13 +1,22 @@
 from datetime import datetime
+from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from pydantic import Field, field_validator, model_validator
+from pydantic import Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict, SettingsError
+
+_SECRET_SETTINGS_DIR = "/run/secrets" if Path("/run/secrets").is_dir() else None
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        env_file_encoding="utf-8",
+        secrets_dir=_SECRET_SETTINGS_DIR,
+        extra="ignore",
+    )
 
     app_name: str = "NewsCraft Backend"
     app_env: str = "development"
@@ -49,8 +58,34 @@ class Settings(BaseSettings):
     telegram_media_staging_root: str = "/data/telegram-staging"
     telegram_max_photo_bytes: int = Field(default=10_000_000, gt=0)
     telegram_max_file_bytes: int = Field(default=49_000_000, gt=0)
+    telegram_proxy_allowed_ports: str = "80,443,1080,3128,8080,8443"
+    telegram_proxy_connect_timeout_seconds: float = Field(default=10.0, gt=0, le=60)
+    telegram_api_read_timeout_seconds: float = Field(default=30.0, gt=0, le=120)
     telegram_acceptance_fixture_path: str | None = None
     worker_secret_root: str = "/run/secrets"
+    security_admin_token: SecretStr | None = None
+    security_codex_token: SecretStr | None = None
+    security_codex_scopes: str = (
+        "settings:read,providers:read,destinations:read,prompts:read,automations:read,jobs:read"
+    )
+    security_internal_token: SecretStr | None = None
+    security_internal_scopes: str = "jobs:read,jobs:write,providers:read,destinations:read"
+    security_audit_enabled: bool = True
+    codex_gateway_hash_key: SecretStr | None = None
+    codex_gateway_public_url: str = "http://localhost:8000"
+    codex_gateway_pairing_ttl_seconds: int = Field(default=300, ge=60, le=900)
+    codex_gateway_credential_ttl_seconds: int = Field(default=2_592_000, ge=300, le=31_536_000)
+    codex_gateway_heartbeat_interval_seconds: int = Field(default=30, ge=5, le=300)
+    codex_gateway_heartbeat_fresh_seconds: int = Field(default=90, ge=10, le=3600)
+    codex_gateway_heartbeat_stale_seconds: int = Field(default=300, ge=30, le=86_400)
+    codex_gateway_rate_window_seconds: int = Field(default=60, ge=1, le=3600)
+    codex_gateway_pairing_create_limit: int = Field(default=10, ge=1, le=1000)
+    codex_gateway_pair_exchange_limit: int = Field(default=20, ge=1, le=1000)
+    codex_gateway_heartbeat_limit: int = Field(default=120, ge=1, le=10_000)
+    codex_gateway_capability_limit: int = Field(default=120, ge=1, le=10_000)
+    secret_key_version: str = "v1"
+    secret_master_key: SecretStr | None = None
+    secret_previous_keys: SecretStr | None = None
 
     def __init__(self, **values: Any) -> None:
         super().__init__(**values)
@@ -94,7 +129,42 @@ class Settings(BaseSettings):
             raise ValueError("worker unavailable threshold must exceed its fresh threshold")
         if self.scheduler_health_unavailable_seconds <= self.scheduler_health_fresh_seconds:
             raise ValueError("scheduler unavailable threshold must exceed its fresh threshold")
+        if self.codex_gateway_heartbeat_stale_seconds <= self.codex_gateway_heartbeat_fresh_seconds:
+            raise ValueError("Codex stale heartbeat threshold must exceed fresh threshold")
+        gateway_url = urlsplit(self.codex_gateway_public_url)
+        if (
+            gateway_url.scheme not in {"http", "https"}
+            or not gateway_url.hostname
+            or gateway_url.username is not None
+            or gateway_url.password is not None
+            or gateway_url.query
+            or gateway_url.fragment
+        ):
+            raise ValueError("Codex Gateway public URL must be a safe HTTP(S) base URL")
+        if (
+            self.app_env == "production"
+            and gateway_url.scheme != "https"
+            and gateway_url.hostname not in {"localhost", "127.0.0.1", "::1"}
+        ):
+            raise ValueError("production Codex Gateway public URL must use HTTPS")
         return self
+
+    @field_validator("security_codex_scopes", "security_internal_scopes")
+    @classmethod
+    def validate_security_scopes(cls, value: str) -> str:
+        from app.security.scopes import ALL_SCOPES
+
+        configured = {part.strip().casefold() for part in value.split(",") if part.strip()}
+        if configured - ALL_SCOPES:
+            raise ValueError("security scopes contain unsupported values")
+        return ",".join(sorted(configured))
+
+    @field_validator("secret_key_version")
+    @classmethod
+    def validate_secret_key_version(cls, value: str) -> str:
+        if not value or len(value) > 32 or not value.replace("-", "").replace("_", "").isalnum():
+            raise ValueError("secret_key_version must be a short identifier")
+        return value
 
 
 settings = Settings()

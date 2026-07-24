@@ -126,6 +126,7 @@ def test_capabilities_control_the_registry_without_a_static_job_type_switch():
     assert publishing.job_types() == (
         "operations.canary.publishing",
         "telegram.destination.check",
+        "telegram.proxy.check",
         "telegram.publish",
     )
 

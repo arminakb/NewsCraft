@@ -609,7 +609,12 @@ async def _invoke(
             message="Generation provider profile was not found",
         )
     try:
-        resolved = await profile_resolver.resolve(profile, None)
+        resolve_with_session = getattr(profile_resolver, "resolve_with_session", None)
+        resolved = (
+            await resolve_with_session(profile, None, session=context.session)
+            if resolve_with_session is not None
+            else await profile_resolver.resolve(profile, None)
+        )
     except Exception:
         raise PermanentJobError(
             code="generation_profile_unavailable",

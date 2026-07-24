@@ -3,17 +3,25 @@ from pathlib import Path
 from app.db.model_registry import Base
 from app.db.schema import SCHEMA_HEAD
 
-MIGRATION = Path("alembic/versions/0010_readiness_health_indexes.py")
+READINESS_MIGRATION = Path("alembic/versions/0010_readiness_health_indexes.py")
+SCHEMA_HEAD_MIGRATION = Path("alembic/versions/0015_codex_gateway.py")
 
 
 def test_phase_9_migration_is_single_head_and_adds_bounded_queue_index():
-    source = MIGRATION.read_text(encoding="utf-8")
+    source = READINESS_MIGRATION.read_text(encoding="utf-8")
 
-    assert SCHEMA_HEAD == "0010_readiness_health_indexes"
     assert 'revision: str = "0010_readiness_health_indexes"' in source
     assert 'down_revision: str | None = "0009_operational_retention"' in source
     assert '"ix_workflow_jobs_operational_health"' in source
     assert '["job_type", "status", "scheduled_for"]' in source
+
+
+def test_application_schema_head_matches_latest_migration():
+    source = SCHEMA_HEAD_MIGRATION.read_text(encoding="utf-8")
+
+    assert SCHEMA_HEAD == "0015_codex_gateway"
+    assert 'revision: str = "0015_codex_gateway"' in source
+    assert 'down_revision: str | None = "0014_telegram_destination_lifecycle"' in source
 
 
 def test_phase_9_operational_health_index_matches_model_metadata():
