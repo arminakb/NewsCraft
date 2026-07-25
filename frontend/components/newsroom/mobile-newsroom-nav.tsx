@@ -5,7 +5,12 @@ import { usePathname } from "next/navigation"
 import { Menu, X } from "lucide-react"
 import { useCallback, useEffect, useRef, useState } from "react"
 
-import { isCurrentPath, newsroomNavItems } from "@/components/newsroom/newsroom-sidebar"
+import {
+  advancedNavSections,
+  isCurrentPath,
+  newsroomNavItems,
+  workflowNavItems,
+} from "@/components/newsroom/newsroom-sidebar"
 import { cn } from "@/lib/utils"
 
 export function MobileNewsroomNav() {
@@ -96,27 +101,61 @@ export function MobileNewsroomNav() {
                 <X className="size-5" aria-hidden="true" />
               </button>
             </div>
-            <nav aria-label="Mobile navigation panel" className="space-y-1">
-              {newsroomNavItems.map((item, index) => {
-                const Icon = item.icon
-                const active = isCurrentPath(pathname, "activeHref" in item ? item.activeHref : item.href)
-                return (
-                  <Link
-                    key={item.href}
-                    ref={index === 0 ? firstLinkRef : undefined}
-                    href={item.href}
-                    aria-current={active ? "page" : undefined}
-                    className={cn(
-                      "flex min-h-11 min-w-11 items-center gap-3 rounded-md px-3 text-sm font-medium",
-                      active ? "bg-accent text-accent-foreground" : "hover:bg-muted"
-                    )}
-                    onClick={closeAndRestore}
-                  >
-                    <Icon className="size-5" aria-hidden="true" />
-                    {item.label}
-                  </Link>
-                )
-              })}
+            <nav aria-label="Mobile navigation panel">
+              <MobileGroupLabel>Workflow</MobileGroupLabel>
+              <div className="space-y-1">
+                {workflowNavItems.map((item, index) => {
+                  const Icon = item.icon
+                  const active = isCurrentPath(pathname, "activeHref" in item ? item.activeHref : item.href)
+                  return (
+                    <Link
+                      key={item.href}
+                      ref={index === 0 ? firstLinkRef : undefined}
+                      href={item.href}
+                      aria-current={active ? "page" : undefined}
+                      className={cn(
+                        "flex min-h-11 min-w-11 items-center gap-3 rounded-md px-3 text-sm font-medium",
+                        active ? "bg-accent text-accent-foreground" : "hover:bg-muted"
+                      )}
+                      onClick={closeAndRestore}
+                    >
+                      <Icon className="size-5" aria-hidden="true" />
+                      {item.label}
+                    </Link>
+                  )
+                })}
+              </div>
+
+              <div className="my-3 border-t" />
+              <MobileGroupLabel>Advanced</MobileGroupLabel>
+              <div className="space-y-4 pt-1">
+                {advancedNavSections.map((section) => (
+                  <div key={section.label}>
+                    <div className="px-3 pb-1 text-xs font-medium text-slate-600">{section.label}</div>
+                    <div className="space-y-1">
+                      {section.items.map((item) => {
+                        const Icon = item.icon
+                        const active = isCurrentPath(pathname, item.href)
+                        return (
+                          <Link
+                            key={item.href}
+                            href={item.href}
+                            aria-current={active ? "page" : undefined}
+                            className={cn(
+                              "flex min-h-11 min-w-11 items-center gap-3 rounded-md px-3 text-sm font-medium",
+                              active ? "bg-accent text-accent-foreground" : "hover:bg-muted"
+                            )}
+                            onClick={closeAndRestore}
+                          >
+                            <Icon className="size-5" aria-hidden="true" />
+                            {item.label}
+                          </Link>
+                        )
+                      })}
+                    </div>
+                  </div>
+                ))}
+              </div>
             </nav>
           </div>
         </div>
@@ -159,5 +198,13 @@ export function MobileNewsroomNav() {
         </button>
       </nav>
     </>
+  )
+}
+
+function MobileGroupLabel({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="px-3 pb-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-600">
+      {children}
+    </div>
   )
 }

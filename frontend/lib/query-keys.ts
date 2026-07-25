@@ -9,7 +9,6 @@ export const queryKeys = {
   source: (id: string) => ["sources", id] as const,
   runs: ["ingest-runs"] as const,
   contentItems: ["content-items"] as const,
-  media: ["media-assets"] as const,
   dashboardSnapshot: ["dashboard-snapshot"] as const,
   diagnostics: ["diagnostics"] as const,
   jobs: (filters: JobFilters = {}) => ["jobs", filters] as const,

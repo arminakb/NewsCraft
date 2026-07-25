@@ -16,7 +16,7 @@ export default function DraftsPage() {
       {requests.isPending ? <div role="status">Loading durable draft requests…</div> : null}
       {requests.isError ? <div role="alert" className="text-red-700">{getApiErrorMessage(requests.error, "Draft requests could not be loaded")}</div> : null}
       {requests.isSuccess && requests.data.length ? <ul className="grid gap-3">{requests.data.map((request) => <li key={request.id} className="rounded-lg border p-4"><div className="font-medium">{request.pack ? "Telegram content pack" : "Telegram generation request"}</div><div className="text-sm text-muted-foreground">{request.status.replaceAll("_", " ")} · updated {new Date(request.updatedAt).toLocaleString()}</div>{request.jobId ? <div className="text-xs text-muted-foreground">Job {request.jobId}</div> : null}{request.lastFailure ? <div role="alert" className="text-sm text-red-700">Last failure: {request.lastFailure}</div> : null}{request.pack ? <Link href={`/drafts/${request.pack.id}`} className="mt-2 inline-flex text-primary underline">Open editorial studio</Link> : <div role="status" className="mt-2 text-sm">{["failed", "needs_review"].includes(request.status) ? "Review required before a pack can be created." : "Generation has not created a pack yet."}</div>}</li>)}</ul> : null}
-      {requests.isSuccess && !requests.data.length ? <p>No durable generation requests yet. Generate a Telegram draft from the Inbox.</p> : null}
+      {requests.isSuccess && !requests.data.length ? <p>No durable generation requests yet.</p> : null}
     </section>
     <TelegramDraftList />
   </section>

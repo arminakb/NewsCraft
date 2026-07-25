@@ -1,6 +1,7 @@
 @import "tailwindcss";
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
+@source "../features/articles";
 
 @custom-variant dark (&:is(.dark *));
 
@@ -74,6 +75,46 @@ input,
 select,
 textarea {
   font: inherit;
+}
+
+.feed-card-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  align-items: stretch;
+  gap: 1rem;
+}
+
+@container (min-width: 30rem) {
+  .feed-card-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@container (min-width: 46rem) {
+  .feed-card-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+@container (min-width: 68rem) {
+  .feed-card-grid {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+
+.feed-content {
+  container-type: inline-size;
+}
+
+@media (min-width: 900px) {
+  .newsroom-scroll {
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+  }
+
+  .newsroom-scroll::-webkit-scrollbar {
+    display: none;
+  }
 }
 
 :focus-visible {

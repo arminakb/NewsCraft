@@ -79,7 +79,7 @@ async def test_default_prompt_seed_is_idempotent_and_never_replaces_operator_act
     assert first.is_active is True
 
 
-async def test_default_brand_and_provider_profiles_make_a_clean_install_usable():
+async def test_default_brand_and_provider_profiles_make_a_clean_install_usable_without_overwriting_operator_state():
     session = FakeSession()
     result = await seed_default_telegram_configuration(session, openrouter_available=True)
     replay = await seed_default_telegram_configuration(session, openrouter_available=True)
@@ -96,10 +96,13 @@ async def test_default_brand_and_provider_profiles_make_a_clean_install_usable()
     assert len([row for row in session.rows if isinstance(row, PromptTemplate)]) == 0
     assert len([row for row in session.rows if isinstance(row, PromptTemplateVersion)]) == 0
 
-    unavailable = await seed_default_telegram_configuration(session, openrouter_available=False)
+    result.provider("openrouter").enabled = False
+    unavailable = await seed_default_telegram_configuration(session, openrouter_available=True)
     assert unavailable.provider("openrouter").enabled is False
-    available_again = await seed_default_telegram_configuration(session, openrouter_available=True)
-    assert available_again.provider("openrouter").enabled is True
+    unavailable.provider("openrouter").default_model = "operator/model"
+    available_again = await seed_default_telegram_configuration(session, openrouter_available=False)
+    assert available_again.provider("openrouter").enabled is False
+    assert available_again.provider("openrouter").default_model == "operator/model"
 
 
 async def test_editorial_prompt_seed_is_idempotent_and_keeps_two_active_purposes():

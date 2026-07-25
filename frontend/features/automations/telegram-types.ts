@@ -64,19 +64,6 @@ export type TelegramDestination = {
   healthStatus: TelegramDestinationHealth
   configured: boolean
   capabilityState: CredentialCapabilityState
-  settings: { allowAutoPublish?: boolean } & Record<string, unknown>
-}
-
-export type TelegramDestinationInput = {
-  name: string
-  targetRef: string
-  secretRef: string
-  allowAutoPublish?: boolean
-}
-
-export type TelegramDestinationAccepted = {
-  destination: TelegramDestination
-  job: JobAccepted
 }
 
 export type TelegramContentFilters = {
@@ -181,7 +168,7 @@ export type TelegramDispatch = {
 export type TelegramOption = { id: string; name: string }
 export type TelegramAutomationOptions = {
   sources: Array<TelegramOption & { accessMode: TelegramAccessMode; capabilityState: CredentialCapabilityState }>
-  destinations: Array<TelegramOption & { healthStatus: TelegramDestinationHealth; allowAutoPublish: boolean; capabilityState: CredentialCapabilityState }>
+  destinations: Array<TelegramOption & { healthStatus: TelegramDestinationHealth; capabilityState: CredentialCapabilityState }>
   brandProfiles: TelegramOption[]
   promptTemplateVersions: Array<{ id: string; version: number; isActive: boolean; checksumSha256: string }>
   aiProviderProfiles: Array<
@@ -348,25 +335,3 @@ export type PromptVersion = {
   createdAt: string
 }
 export type PromptVersionInput = { systemTemplate: string; userTemplate: string }
-
-export type AIProviderProfile = {
-  id: string
-  name: string
-  providerType: "fake" | "openrouter" | "codex"
-  defaultModel: string | null
-  settings: Record<string, unknown>
-  enabled: boolean
-  configured: boolean
-  capabilities: { generation: boolean; research: boolean }
-  capabilityStates: { generation: CredentialCapabilityState; research: CredentialCapabilityState }
-  unavailabilityCodes: string[]
-}
-export type AIProviderProfileInput = {
-  name: string
-  providerType: "fake" | "openrouter" | "codex"
-  defaultModel?: string | null
-  secretRef?: string | null
-  settings?: Record<string, unknown> | null
-  enabled?: boolean
-}
-export type AIProviderProfilePatch = Omit<Partial<AIProviderProfileInput>, "providerType">

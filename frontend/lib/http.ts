@@ -19,6 +19,13 @@ export async function apiRequest<T>(path: string, init?: RequestInit): Promise<T
   return response.json() as Promise<T>
 }
 
+export async function apiRequestVoid(path: string, init?: RequestInit): Promise<void> {
+  const response = await fetch(`${API_BASE_URL}${path}`, init)
+  if (!response.ok) {
+    throw new ApiError(response.statusText || "Request failed", response.status, await response.text())
+  }
+}
+
 export function getApiErrorMessage(error: unknown, fallback = "Request failed") {
   if (error instanceof ApiError && error.body) {
     try {

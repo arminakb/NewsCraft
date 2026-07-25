@@ -545,6 +545,8 @@ class RetentionService:
 
     async def _referenced_media_ids(self) -> set[UUID]:
         referenced = set(await self.session.scalars(select(ItemMedia.media_asset_id)))
+        # Existing broad protection covers every primary image, including those
+        # referenced by ContentItems saved in one or more collections.
         referenced.update(
             value
             for value in await self.session.scalars(

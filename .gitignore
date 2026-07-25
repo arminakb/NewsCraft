@@ -54,6 +54,10 @@ validation/content-intelligence-report.md
 # Generated docs/articles
 today-news/
 articles/
+!frontend/app/articles/
+!frontend/app/articles/**
+!frontend/features/articles/
+!frontend/features/articles/**
 generated-docs/
 docs/generated/
 docs/articles/

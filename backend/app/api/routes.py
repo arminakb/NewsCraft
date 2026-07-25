@@ -1,5 +1,7 @@
 from fastapi import APIRouter
 
+from app.api.article_collections import router as article_collections_router
+from app.api.articles import router as articles_router
 from app.api.calendar import router as calendar_router
 from app.api.codex_gateway import router as codex_gateway_router
 from app.api.codex_tools import router as codex_tools_router
@@ -26,6 +28,8 @@ from app.api.telegram_sources import router as telegram_sources_router
 router = APIRouter()
 router.include_router(health_router)
 router.include_router(sources_router)
+router.include_router(article_collections_router)
+router.include_router(articles_router)
 router.include_router(stories_router)
 router.include_router(ingest_router)
 router.include_router(content_router)
