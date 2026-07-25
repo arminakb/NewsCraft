@@ -16,6 +16,13 @@ describe("DiagnosticsDashboard", () => {
           globalPaused: false,
           dryRun: true,
           components: {
+            scheduler: {
+              status: "healthy",
+              observedAt: "2026-07-11T08:04:00Z",
+              lastSuccessAt: "2026-07-11T08:04:00Z",
+              message: "Scheduler heartbeat is current.",
+              actionUrl: null,
+            },
             "worker-source-generation": {
               status: "unknown",
               observedAt: null,
@@ -61,7 +68,10 @@ describe("DiagnosticsDashboard", () => {
     )
     expect(screen.getByText("Dry run enabled")).toBeInTheDocument()
     expect(screen.getByText("Direct · 0 bypass rules · not checked")).toBeInTheDocument()
-    expect(screen.queryByText("Healthy")).not.toBeInTheDocument()
+    expect(screen.getByText("healthy", { exact: true }).closest("span")).toHaveClass("bg-emerald-100")
+    expect(screen.getByText("degraded", { exact: true }).closest("span")).toHaveClass("bg-amber-100")
+    expect(screen.getByText("down", { exact: true }).closest("span")).toHaveClass("bg-red-100")
+    expect(screen.getByText("unknown", { exact: true }).closest("span")).toHaveClass("bg-slate-100")
   })
 
   it("shows persisted attention with exact time, action URL, and RTL-safe prose", () => {
@@ -103,6 +113,8 @@ describe("DiagnosticsDashboard", () => {
       "href",
       "/jobs?status=needs_review",
     )
+    expect(screen.getByText("error", { exact: true }).closest("span")).toHaveClass("bg-red-100", "text-red-900")
+    expect(title.closest("li")?.querySelector("svg")).toHaveAttribute("aria-hidden", "true")
   })
 
   it("preserves API error direction on the diagnostics route", async () => {

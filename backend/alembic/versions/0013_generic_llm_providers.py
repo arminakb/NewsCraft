@@ -40,7 +40,9 @@ def upgrade() -> None:
         sa.Column("default_model", sa.Text(), nullable=False),
         sa.Column("enabled", sa.Boolean(), server_default="false", nullable=False),
         sa.Column("secret_id", postgresql.UUID(as_uuid=True), nullable=True),
-        sa.Column("settings", postgresql.JSONB(astext_type=sa.Text()), server_default=sa.text("'{}'::jsonb"), nullable=False),  # noqa: E501
+        sa.Column(
+            "settings", postgresql.JSONB(astext_type=sa.Text()), server_default=sa.text("'{}'::jsonb"), nullable=False
+        ),  # noqa: E501
         sa.Column("health_status", sa.Text(), server_default="unchecked", nullable=False),
         sa.Column("generation_capability", sa.Text(), server_default="unknown", nullable=False),
         sa.Column("research_capability", sa.Text(), server_default="unknown", nullable=False),
@@ -93,7 +95,10 @@ def upgrade() -> None:
                 CASE WHEN provider_type = 'fake' THEN 'fake' ELSE 'openai_compatible' END,
                 CASE WHEN provider_type = 'fake' THEN NULL
                      ELSE rtrim(COALESCE(settings->>'base_url', 'https://openrouter.ai/api/v1'), '/') END,
-                COALESCE(NULLIF(default_model, ''), CASE WHEN provider_type = 'fake' THEN 'fake-v1' ELSE 'unconfigured' END),
+                COALESCE(
+                    NULLIF(default_model, ''),
+                    CASE WHEN provider_type = 'fake' THEN 'fake-v1' ELSE 'unconfigured' END
+                ),
                 CASE WHEN provider_type = 'fake' THEN enabled ELSE false END,
                 NULL,
                 CASE WHEN provider_type = 'fake' THEN '{{}}'::jsonb ELSE
@@ -101,7 +106,10 @@ def upgrade() -> None:
                         'timeout_seconds', COALESCE((settings->>'timeout_seconds')::integer, 60),
                         'max_input_tokens', 60000,
                         'max_output_tokens', 12000,
-                        'pricing', COALESCE(settings->'pricing', '{{"input_usd_per_million":"0","output_usd_per_million":"0"}}'::jsonb),  # noqa
+                        'pricing', COALESCE(
+                            settings->'pricing',
+                            '{{"input_usd_per_million":"0","output_usd_per_million":"0"}}'::jsonb
+                        ),
                         'research_budgets', COALESCE(settings->'research_budgets', '{budgets}'::jsonb),
                         'attribution_headers', jsonb_build_object(
                             'http_referer', settings->'http_referer',

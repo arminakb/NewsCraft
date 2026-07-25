@@ -385,9 +385,7 @@ async def test_manual_edit_rejects_deterministic_platform_errors_without_creatin
 async def test_manual_edit_rejects_stale_base_platform_conflict_and_mismatched_evidence_without_child():
     payload, citation, story_revision, pack, variant, parent, snapshot = _service_fixture()
     stale = _Session(scalar_values=[variant, parent], objects={}, snapshots=[])
-    stale_request = _edit_request(parent, payload, citation).model_copy(
-        update={"base_content_hash": "c" * 64}
-    )
+    stale_request = _edit_request(parent, payload, citation).model_copy(update={"base_content_hash": "c" * 64})
     with pytest.raises(RevisionConflict, match="stale"):
         await EditorialService(stale).edit_manual_platform_variant(variant.id, stale_request)
     assert stale.added == []
@@ -421,9 +419,7 @@ async def test_approval_revalidates_stored_manual_citations_before_state_transit
     payload, citation, story_revision, pack, variant, parent, snapshot = _service_fixture()
     parent.approval_state = "pending_review"
     parent.evidence_map = [citation.model_copy(update={"excerpt_sha256": "f" * 64}).model_dump(mode="json")]
-    parent.content_hash = sha256_canonical(
-        {"content": parent.content, "evidence_map": parent.evidence_map}
-    )
+    parent.content_hash = sha256_canonical({"content": parent.content, "evidence_map": parent.evidence_map})
     session = _Session(
         scalar_values=[parent],
         objects={
@@ -498,9 +494,7 @@ async def test_approval_rechecks_media_authorization_before_state_transition():
     assigned = _payload_with_media(payload, uuid4())
     parent.content = assigned.model_dump(mode="json")
     parent.evidence_map = [citation.model_dump(mode="json")]
-    parent.content_hash = sha256_canonical(
-        {"content": parent.content, "evidence_map": parent.evidence_map}
-    )
+    parent.content_hash = sha256_canonical({"content": parent.content, "evidence_map": parent.evidence_map})
     session = _Session(
         scalar_values=[parent],
         objects={
@@ -582,9 +576,7 @@ async def test_approval_rejects_matching_content_and_evidence_fabrication_agains
     raw["citations"] = [tampered.model_dump(mode="json")]
     parent.content = InstagramVariantPayload.model_validate(raw).model_dump(mode="json")
     parent.evidence_map = [tampered.model_dump(mode="json")]
-    parent.content_hash = sha256_canonical(
-        {"content": parent.content, "evidence_map": parent.evidence_map}
-    )
+    parent.content_hash = sha256_canonical({"content": parent.content, "evidence_map": parent.evidence_map})
     parent.approval_state = "pending_review"
     session = _Session(
         scalar_values=[parent],
@@ -756,9 +748,7 @@ async def test_telegram_approval_rejects_fabricated_but_syntactically_valid_evid
             excerpt_sha256="f" * 64,
         ).model_dump(mode="json")
     ]
-    revision.content_hash = sha256_canonical(
-        {"content": revision.content, "evidence_map": revision.evidence_map}
-    )
+    revision.content_hash = sha256_canonical({"content": revision.content, "evidence_map": revision.evidence_map})
 
     with pytest.raises(InvalidGenerationRequest) as caught:
         await EditorialService(session).approve_revision(
@@ -798,12 +788,8 @@ async def test_legacy_telegram_approval_route_rejects_strict_integrity_failures(
             **revision.evidence_map[0],
             "evidence_key": "evidence:tampered",
         }
-    revision.validation_results = [
-        {"gate": "telegram_schema", "ok": True, "reason": None}
-    ]
-    revision.content_hash = sha256_canonical(
-        {"content": revision.content, "evidence_map": revision.evidence_map}
-    )
+    revision.validation_results = [{"gate": "telegram_schema", "ok": True, "reason": None}]
+    revision.content_hash = sha256_canonical({"content": revision.content, "evidence_map": revision.evidence_map})
 
     async def draft_out(session_value, approved):
         return {"id": approved.id, "approval_state": approved.approval_state}
@@ -847,8 +833,7 @@ async def test_legacy_telegram_approval_route_preserves_valid_response_and_event
 
     assert response == {"id": revision.id, "approval_state": "approved"}
     locked_revision.assert_awaited_once_with(session, revision.id)
-    assert [
-        event.event_type
-        for event in session.added
-        if isinstance(event, WorkflowEvent)
-    ] == ["content_pack.revision.approved", "telegram.revision.approved"]
+    assert [event.event_type for event in session.added if isinstance(event, WorkflowEvent)] == [
+        "content_pack.revision.approved",
+        "telegram.revision.approved",
+    ]

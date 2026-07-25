@@ -39,9 +39,7 @@ def _operation(method: str, tmp_path: Path | None = None) -> TelegramPublishOper
             TelegramUploadMetadata(
                 "file0", "upload-0.jpg", "image/jpeg", "photo", hashlib.sha256(b"photo").hexdigest()
             ),
-            TelegramUploadMetadata(
-                "file1", "upload-1.mp4", "video/mp4", "video", hashlib.sha256(b"video").hexdigest()
-            ),
+            TelegramUploadMetadata("file1", "upload-1.mp4", "video/mp4", "video", hashlib.sha256(b"video").hexdigest()),
         )
     else:
         assert tmp_path is not None
@@ -98,11 +96,7 @@ async def test_multipart_uses_safe_deterministic_upload_metadata(tmp_path):
         {"chat_id": "@target", "photo": "attach://file0"},
         (path,),
         "a" * 64,
-        (
-            TelegramUploadMetadata(
-                "file0", "upload-0.png", "image/png", "photo", hashlib.sha256(b"photo").hexdigest()
-            ),
-        ),
+        (TelegramUploadMetadata("file0", "upload-0.png", "image/png", "photo", hashlib.sha256(b"photo").hexdigest()),),
     )
 
     def handler(request: httpx.Request) -> httpx.Response:

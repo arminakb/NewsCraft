@@ -106,11 +106,7 @@ def test_runtime_heartbeat_supports_multiple_capability_workers():
 
 
 def test_job_engine_metadata_has_locked_indexes_and_constraints():
-    index_names = {
-        index.name
-        for table in Base.metadata.tables.values()
-        for index in table.indexes
-    }
+    index_names = {index.name for table in Base.metadata.tables.values() for index in table.indexes}
     assert {
         "ix_workflow_jobs_claim",
         "ix_workflow_jobs_lease_expiry",

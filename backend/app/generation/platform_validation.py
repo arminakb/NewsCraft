@@ -165,9 +165,7 @@ def _validate_instagram(payload: InstagramVariantPayload) -> list[ValidationIssu
             )
         )
     if not payload.alt_text.strip():
-        issues.append(
-            _issue("instagram_missing_alt_text", "alt_text", "Instagram package requires alt text")
-        )
+        issues.append(_issue("instagram_missing_alt_text", "alt_text", "Instagram package requires alt text"))
     if len(payload.alt_text) > MEDIA_ALT_TEXT_MAX:
         issues.append(
             _issue(
@@ -300,9 +298,7 @@ def _validate_x(payload: XVariantPayload) -> list[ValidationIssue]:
             )
         )
     if payload.mode == "single" and len(payload.posts) != 1:
-        issues.append(
-            _issue("x_single_requires_one_post", "posts", "Single-post mode requires exactly one post")
-        )
+        issues.append(_issue("x_single_requires_one_post", "posts", "Single-post mode requires exactly one post"))
     if not _sequential(post.order for post in payload.posts):
         issues.append(_issue("x_post_order_invalid", "posts", "Post order must be sequential from 1"))
 
@@ -317,9 +313,7 @@ def _validate_x(payload: XVariantPayload) -> list[ValidationIssue]:
         )
     for post_index, post in enumerate(payload.posts):
         if not post.text:
-            issues.append(
-                _issue("x_post_empty", f"posts.{post_index}.text", f"Post {post.order} must not be empty")
-            )
+            issues.append(_issue("x_post_empty", f"posts.{post_index}.text", f"Post {post.order} must not be empty"))
         weighted = x_weighted_length(post.text)
         if weighted > X_POST_WEIGHT_MAX:
             issues.append(
@@ -490,9 +484,7 @@ def _validate_blog(payload: BlogVariantPayload) -> list[ValidationIssue]:
                 )
             )
         if payload.hero_media.role != "hero":
-            issues.append(
-                _issue("blog_hero_role_invalid", "hero_media.role", "Hero media must use the hero role")
-            )
+            issues.append(_issue("blog_hero_role_invalid", "hero_media.role", "Hero media must use the hero role"))
         issues.extend(_media_length_issues("blog", "hero_media", payload.hero_media))
     issues.extend(_empty_checklist_issues("blog", payload.manual_checklist))
     return issues

@@ -90,11 +90,7 @@ async def _telegram_prompt_or_422(
     require_active: bool,
 ) -> PromptTemplateVersion:
     version = await session.get(PromptTemplateVersion, version_id)
-    template = (
-        await session.get(PromptTemplate, version.prompt_template_id)
-        if version is not None
-        else None
-    )
+    template = await session.get(PromptTemplate, version.prompt_template_id) if version is not None else None
     if (
         version is None
         or template is None
@@ -114,11 +110,7 @@ async def _telegram_prompt_or_422(
 
 async def _active_telegram_prompt(session: AsyncSession) -> PromptTemplateVersion:
     templates = list(
-        await session.scalars(
-            select(PromptTemplate).where(
-                PromptTemplate.purpose_key == "telegram_rewrite"
-            )
-        )
+        await session.scalars(select(PromptTemplate).where(PromptTemplate.purpose_key == "telegram_rewrite"))
     )
     template_ids = {item.id for item in templates}
     versions = list(
@@ -129,11 +121,7 @@ async def _active_telegram_prompt(session: AsyncSession) -> PromptTemplateVersio
             )
         )
     )
-    active = [
-        item
-        for item in versions
-        if item.prompt_template_id in template_ids and item.is_active
-    ]
+    active = [item for item in versions if item.prompt_template_id in template_ids and item.is_active]
     if len(active) != 1:
         raise HTTPException(
             422,
@@ -163,9 +151,7 @@ async def _require_route_capabilities(
         "generation",
         job_type=job_type,
     )
-    research_profile_id = (route.content_filters or {}).get(
-        "research_provider_profile_id"
-    )
+    research_profile_id = (route.content_filters or {}).get("research_provider_profile_id")
     if route.research_mode != "off" and research_profile_id is not None:
         try:
             research_id = UUID(str(research_profile_id))
@@ -216,38 +202,23 @@ async def automation_options(
         )
     )
     brands = list(
-        await session.scalars(
-            select(BrandProfile).order_by(BrandProfile.is_default.desc(), BrandProfile.name)
-        )
+        await session.scalars(select(BrandProfile).order_by(BrandProfile.is_default.desc(), BrandProfile.name))
     )
     templates = list(
         await session.scalars(select(PromptTemplate).where(PromptTemplate.purpose_key == "telegram_rewrite"))
     )
     template_ids = {item.id for item in templates}
-    versions = list(
-        await session.scalars(
-            select(PromptTemplateVersion).order_by(
-                PromptTemplateVersion.version.desc()
-            )
-        )
-    )
+    versions = list(await session.scalars(select(PromptTemplateVersion).order_by(PromptTemplateVersion.version.desc())))
     profiles = list(await session.scalars(select(AIProviderProfile).where(AIProviderProfile.enabled.is_(True))))
     safe_profiles = []
     for profile in profiles:
         shaped, _codes = provider_shape_capabilities(profile)
         if shaped["generation"]:
             capability_states = {
-                "generation": await capability_status.get(
-                    "provider", profile.id, "generation"
-                ),
-                "research": await capability_status.get(
-                    "provider", profile.id, "research"
-                ),
+                "generation": await capability_status.get("provider", profile.id, "generation"),
+                "research": await capability_status.get("provider", profile.id, "research"),
             }
-            capabilities = {
-                name: shaped[name] and state.available
-                for name, state in capability_states.items()
-            }
+            capabilities = {name: shaped[name] and state.available for name, state in capability_states.items()}
             safe_profiles.append(
                 {
                     "id": profile.id,
@@ -401,11 +372,7 @@ async def update_prompt_policy(
     body: TelegramPromptPolicyInput,
     session: AsyncSession = SessionDependency,
 ):
-    route = await session.scalar(
-        select(AutomationRoute)
-        .where(AutomationRoute.id == route_id)
-        .with_for_update()
-    )
+    route = await session.scalar(select(AutomationRoute).where(AutomationRoute.id == route_id).with_for_update())
     if route is None:
         raise HTTPException(404, "Telegram automation route not found")
     if body.prompt_policy == "follow_active":

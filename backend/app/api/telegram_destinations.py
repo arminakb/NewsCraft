@@ -324,7 +324,7 @@ async def get_telegram_check(job_id: UUID, session: AsyncSession = SessionDepend
     key = f"{resource_type}_id"
     try:
         resource_id = UUID(str(job.payload[key]))
-    except (KeyError, TypeError, ValueError):
+    except KeyError, TypeError, ValueError:
         raise HTTPException(409, detail={"code": "telegram_check_payload_invalid"}) from None
     return TelegramCheckOut(
         job_id=job.id,

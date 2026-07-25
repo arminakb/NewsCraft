@@ -37,14 +37,11 @@ async def postgres_engine() -> AsyncIterator[AsyncEngine]:
 @pytest_asyncio.fixture(autouse=True)
 async def reset_postgres(postgres_engine: AsyncEngine) -> AsyncIterator[None]:
     table_names = [
-        postgres_engine.dialect.identifier_preparer.quote(table.name)
-        for table in Base.metadata.sorted_tables
+        postgres_engine.dialect.identifier_preparer.quote(table.name) for table in Base.metadata.sorted_tables
     ]
     async with postgres_engine.begin() as connection:
         await connection.execute(text(f"TRUNCATE TABLE {', '.join(table_names)} RESTART IDENTITY CASCADE"))
-        await connection.execute(
-            insert(AutomationControl).values(id="global", global_pause=False, dry_run=False)
-        )
+        await connection.execute(insert(AutomationControl).values(id="global", global_pause=False, dry_run=False))
     yield
 
 

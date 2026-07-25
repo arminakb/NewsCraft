@@ -1,4 +1,6 @@
 services:
+  backup:
+    restart: "no"
   postgres:
     restart: unless-stopped
 

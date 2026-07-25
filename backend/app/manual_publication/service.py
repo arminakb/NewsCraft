@@ -77,10 +77,7 @@ _CHECKLISTS: dict[str, tuple[ManualChecklistItem, ...]] = {
     ),
 }
 
-if {
-    platform: tuple(item.id for item in items)
-    for platform, items in _CHECKLISTS.items()
-} != CHECKLIST_IDS_BY_PLATFORM:
+if {platform: tuple(item.id for item in items) for platform, items in _CHECKLISTS.items()} != CHECKLIST_IDS_BY_PLATFORM:
     raise RuntimeError("manual checklist model and service contracts diverged")
 
 
@@ -242,9 +239,7 @@ class ManualPublicationService:
                 code="manual_revision_not_approved",
                 status_code=409,
             )
-        expected_hash = sha256_canonical(
-            {"content": revision.content, "evidence_map": revision.evidence_map}
-        )
+        expected_hash = sha256_canonical({"content": revision.content, "evidence_map": revision.evidence_map})
         if revision.content_hash != expected_hash:
             raise ManualPublicationError(
                 "revision content hash is invalid",
@@ -373,7 +368,7 @@ class ManualPublicationService:
         normalized_schedule = scheduled_for.astimezone(UTC)
         try:
             ZoneInfo(display_timezone)
-        except (OSError, ZoneInfoNotFoundError, ValueError):
+        except OSError, ZoneInfoNotFoundError, ValueError:
             raise ManualPublicationError(
                 "display_timezone must be a valid IANA timezone",
                 code="manual_timezone_invalid",
@@ -468,9 +463,7 @@ class ManualPublicationService:
         if updated == current and plan.status == next_status:
             return plan
         observed_at = self._observed_at()
-        changed_ids = sorted(
-            key for key in updated if current.get(key) != updated.get(key)
-        )
+        changed_ids = sorted(key for key in updated if current.get(key) != updated.get(key))
         plan.checklist_state = updated
         plan.status = next_status
         plan.updated_at = observed_at

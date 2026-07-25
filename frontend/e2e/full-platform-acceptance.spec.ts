@@ -1,6 +1,8 @@
 import AxeBuilder from "@axe-core/playwright"
 import { expect, test, type Locator, type Page, type Route } from "@playwright/test"
 
+import { AVAILABLE_CAPABILITY_FIXTURE, fulfillMockJson } from "./support/mock-backend"
+
 type Platform = "telegram" | "instagram" | "x" | "blog"
 
 const platforms = ["telegram", "instagram", "x", "blog"] as const
@@ -298,7 +300,7 @@ test("mobile navigation omits legacy surfaces and reaches surviving routes witho
   await expect(navigation.getByRole("link", { name: "Media", exact: true })).toHaveCount(0)
   await navigation.getByRole("link", { name: "Drafts", exact: true }).click()
   await expect(page).toHaveURL(/\/drafts$/)
-  await expect(page.getByRole("heading", { name: "Drafts" })).toBeVisible()
+  await expect(page.getByRole("heading", { name: "Drafts", exact: true })).toBeVisible()
   await expectNoHorizontalOverflow(page)
 
   await page.getByRole("button", { name: "Open navigation" }).click()
@@ -364,6 +366,7 @@ async function fillRouteIdentity(page: Page, name: string) {
   await page.getByLabel("Source name").fill("منبع خبر")
   await page.getByLabel("Source channel").fill("source_newsroom")
   await expect(page.getByLabel("Telegram destination")).toHaveValue(ids.destination)
+  await page.getByLabel("Prompt update policy").selectOption("pinned")
 }
 
 async function installClipboardCapture(page: Page) {
@@ -483,10 +486,20 @@ async function installAcceptanceBackend(page: Page, options: BackendOptions = {}
       { id: ids.telegramTemplate, purpose_key: "telegram_pack" },
     ])
     if (path === `/prompt-templates/${ids.canonicalTemplate}/versions` && method === "GET") {
-      return json(route, [{ id: ids.canonicalPrompt, version: 1, checksum_sha256: "c".repeat(64), is_active: true }])
+      return json(route, [promptVersionWire(
+        ids.canonicalPrompt,
+        ids.canonicalTemplate,
+        "c".repeat(64),
+        "canonical_story.v1",
+      )])
     }
     if (path === `/prompt-templates/${ids.telegramTemplate}/versions` && method === "GET") {
-      return json(route, [{ id: ids.telegramPrompt, version: 1, checksum_sha256: "d".repeat(64), is_active: true }])
+      return json(route, [promptVersionWire(
+        ids.telegramPrompt,
+        ids.telegramTemplate,
+        "d".repeat(64),
+        "telegram_pack.v1",
+      )])
     }
 
     if (path === `/content-packs/${ids.contentPack}` && method === "GET") return json(route, contentPackWire(state))
@@ -601,7 +614,7 @@ async function installAcceptanceBackend(page: Page, options: BackendOptions = {}
 }
 
 async function json(route: Route, body: unknown, status = 200) {
-  await route.fulfill({ status, contentType: "application/json", body: JSON.stringify(body) })
+  await fulfillMockJson(route, body, status)
 }
 
 function accepted(jobId: string) {
@@ -704,6 +717,10 @@ function providerWire() {
     enabled: true,
     configured: true,
     capabilities: { generation: true, research: true },
+    capability_states: {
+      generation: AVAILABLE_CAPABILITY_FIXTURE,
+      research: AVAILABLE_CAPABILITY_FIXTURE,
+    },
     unavailability_codes: [],
   }
 }
@@ -829,12 +846,46 @@ function hashFor(platform: Platform) {
   return ({ telegram: "1", instagram: "2", x: "3", blog: "4" } as const)[platform].repeat(64)
 }
 
+function promptVersionWire(id: string, promptTemplateId: string, checksum: string, outputSchemaVersion: string) {
+  return {
+    id,
+    prompt_template_id: promptTemplateId,
+    version: 1,
+    system_template: "Follow the verified newsroom evidence.",
+    user_template: "{source_text}",
+    output_schema_version: outputSchemaVersion,
+    output_schema: {},
+    checksum_sha256: checksum,
+    is_active: true,
+    activated_at: now,
+    activated_by_type: "operator",
+    activated_by_id: null,
+    activation_reason: "Deterministic browser fixture",
+    created_at: now,
+  }
+}
+
 function automationOptionsWire() {
   return {
-    sources: [{ id: ids.source, name: "منبع خبر", access_mode: "public_html" }],
-    destinations: [{ id: ids.destination, name: "اتاق خبر", health_status: "healthy" }],
+    sources: [{
+      id: ids.source,
+      name: "منبع خبر",
+      access_mode: "public_html",
+      capability_state: AVAILABLE_CAPABILITY_FIXTURE,
+    }],
+    destinations: [{
+      id: ids.destination,
+      name: "اتاق خبر",
+      health_status: "healthy",
+      capability_state: AVAILABLE_CAPABILITY_FIXTURE,
+    }],
     brand_profiles: [{ id: ids.brand, name: "اتاق خبر فارسی" }],
-    prompt_template_versions: [{ id: ids.telegramPrompt, version: 1 }],
+    prompt_template_versions: [{
+      id: ids.telegramPrompt,
+      version: 1,
+      is_active: true,
+      checksum_sha256: "d".repeat(64),
+    }],
     ai_provider_profiles: [{
       id: ids.provider,
       name: "Fake acceptance provider",
@@ -842,17 +893,56 @@ function automationOptionsWire() {
       default_model: "fake-newsroom-v1",
       configured: true,
       capabilities: { generation: true, research: true },
+      capability_states: {
+        generation: AVAILABLE_CAPABILITY_FIXTURE,
+        research: AVAILABLE_CAPABILITY_FIXTURE,
+      },
       unavailability_codes: [],
     }],
   }
 }
 
 function sourceWire() {
-  return { id: ids.source, name: "منبع خبر", channel_ref: "source_newsroom", access_mode: "public_html", language_hint: "fa", configured: true }
+  return {
+    id: ids.source,
+    name: "منبع خبر",
+    channel_ref: "source_newsroom",
+    access_mode: "public_html",
+    language_hint: "fa",
+    configured: true,
+    capability_state: AVAILABLE_CAPABILITY_FIXTURE,
+  }
 }
 
 function destinationWire() {
-  return { id: ids.destination, name: "اتاق خبر", target_ref: "@newscraft", enabled: true, health_status: "healthy", configured: true, settings: {} }
+  return {
+    id: ids.destination,
+    name: "اتاق خبر",
+    target_ref: "@newscraft",
+    canonical_target: "@newscraft",
+    target_type: "username",
+    enabled: true,
+    configured: true,
+    health_status: "healthy",
+    proxy_profile_id: null,
+    connection_route: "direct",
+    proxy_health_status: "healthy",
+    telegram_health_status: "healthy",
+    bot_health_status: "healthy",
+    target_health_status: "healthy",
+    administrator_status: "administrator",
+    failure_code: null,
+    verified_bot_id: 123456,
+    verified_bot_username: "newscraft_bot",
+    verified_chat_id: -1001234567890,
+    verified_chat_title: "اتاق خبر",
+    verified_chat_type: "channel",
+    last_checked_at: now,
+    last_rotated_at: null,
+    created_at: now,
+    updated_at: now,
+    settings: {},
+  }
 }
 
 function routeWire(state: BackendState) {
@@ -863,6 +953,7 @@ function routeWire(state: BackendState) {
     destination_id: ids.destination,
     brand_profile_id: ids.brand,
     prompt_template_version_id: ids.telegramPrompt,
+    prompt_policy: "pinned",
     ai_provider_profile_id: ids.provider,
     access_mode: "public_html",
     research_mode: state.routeResearchMode,

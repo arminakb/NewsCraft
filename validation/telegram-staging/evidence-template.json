@@ -1,0 +1,9 @@
+{
+  "observer_one": "replace-with-first-observer",
+  "observer_two": "replace-with-second-observer",
+  "expected_operation_count": 1,
+  "expected_remote_message_count": 1,
+  "remote_message_ids": "",
+  "observation_ticket": "",
+  "confirm_exactly_one_remote_marker": false
+}

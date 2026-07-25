@@ -57,10 +57,7 @@ async def test_mcp_discovers_only_bounded_read_only_tools_and_forwards_bearer():
         "/codex-gateway/heartbeat",
         "/codex-gateway/tools/status",
     ]
-    assert all(
-        request.headers["Authorization"] == f"Bearer {credential}"
-        for request in requests
-    )
+    assert all(request.headers["Authorization"] == f"Bearer {credential}" for request in requests)
 
 
 @pytest.mark.asyncio

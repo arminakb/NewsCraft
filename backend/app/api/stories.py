@@ -67,7 +67,7 @@ def _cursor_decode(value: str) -> tuple[datetime, UUID]:
         raw = urlsafe_b64decode(value + "=" * (-len(value) % 4)).decode()
         timestamp, story_id = raw.rsplit("|", 1)
         return datetime.fromisoformat(timestamp), UUID(story_id)
-    except (UnicodeError, ValueError):
+    except UnicodeError, ValueError:
         raise HTTPException(422, "Invalid story cursor") from None
 
 
@@ -163,18 +163,14 @@ async def list_stories(
                 )
             )
         rows = list(
-            await session.scalars(
-                statement.order_by(Story.updated_at.desc(), Story.id.desc()).limit(batch_size)
-            )
+            await session.scalars(statement.order_by(Story.updated_at.desc(), Story.id.desc()).limit(batch_size))
         )
         if not rows:
             break
         summaries = await _story_summaries(session, rows)
         for item in rows:
             summary = summaries[item.id]
-            if completeness is None or (
-                summary["completeness"]["complete"] is (completeness == "complete")
-            ):
+            if completeness is None or (summary["completeness"]["complete"] is (completeness == "complete")):
                 matches.append((item, summary))
                 if len(matches) == limit + 1:
                     break
@@ -194,9 +190,7 @@ async def group_pending(
     payload: GroupPendingInput,
     session: AsyncSession = SessionDependency,
 ) -> JobAcceptedOut:
-    has_snapshot = exists(
-        select(1).where(StoryEvidenceSnapshot.content_item_id == ContentItem.id)
-    )
+    has_snapshot = exists(select(1).where(StoryEvidenceSnapshot.content_item_id == ContentItem.id))
     has_active_provisional = exists(
         select(1)
         .select_from(StoryEvidenceSnapshot)
@@ -225,20 +219,14 @@ async def group_pending(
         origin=JobOrigin.MANUAL,
     )
     await session.commit()
-    return JobAcceptedOut(
-        job_id=result.job.id, status=result.job.status, deduplicated=not result.created
-    )
+    return JobAcceptedOut(job_id=result.job.id, status=result.job.status, deduplicated=not result.created)
 
 
-async def _change_states(
-    session: AsyncSession, story_ids: list[UUID], state: str
-) -> list[dict]:
+async def _change_states(session: AsyncSession, story_ids: list[UUID], state: str) -> list[dict]:
     if len(set(story_ids)) != len(story_ids):
         raise HTTPException(409, "Story IDs must be unique")
     rows = list(
-        await session.scalars(
-            select(Story).where(Story.id.in_(story_ids)).order_by(Story.id).with_for_update()
-        )
+        await session.scalars(select(Story).where(Story.id.in_(story_ids)).order_by(Story.id).with_for_update())
     )
     if len(rows) != len(story_ids) or any(item.superseded_by_id is not None for item in rows):
         raise HTTPException(409, "Every story must exist and be active")
@@ -250,9 +238,7 @@ async def _change_states(
                 workflow_job_id=None,
                 event_type="story.editorial_state_changed",
                 actor="manual",
-                event_data=redact_event_data(
-                    {"story_id": str(story.id), "old_state": old, "new_state": state}
-                ),
+                event_data=redact_event_data({"story_id": str(story.id), "old_state": old, "new_state": state}),
             )
         )
     await session.flush()
@@ -324,9 +310,7 @@ async def create_manual_intake(
     session: AsyncSession = SessionDependency,
 ) -> JobAcceptedOut:
     job_payload = payload.model_dump(mode="json")
-    payload_hash = hashlib.sha256(
-        json.dumps(job_payload, sort_keys=True, separators=(",", ":")).encode()
-    ).hexdigest()
+    payload_hash = hashlib.sha256(json.dumps(job_payload, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
     result = await JobRepository(session).enqueue_job(
         job_type="manual_intake",
         payload=job_payload,

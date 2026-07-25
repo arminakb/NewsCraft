@@ -1,0 +1,46 @@
+services:
+  postgres:
+    ports: !reset []
+
+  postgres-test:
+    ports: !reset []
+
+  api:
+    environment:
+      APP_ENV: test
+      GENERATION_PROVIDER: fake
+      TELEGRAM_PUBLISH_MODE: dry-run
+      OPENROUTER_API_KEY: ""
+      TELEGRAM_SOURCE_EDITOR_API_ID: ""
+      TELEGRAM_SOURCE_EDITOR_API_HASH: ""
+      TELEGRAM_SOURCE_EDITOR_SESSION: ""
+      TELEGRAM_DESTINATION_NEWS_TOKEN: ""
+      HTTP_PROXY: ""
+      HTTPS_PROXY: ""
+      ALL_PROXY: ""
+    ports: !override
+      - "127.0.0.1:${DRILL_API_PORT:?set DRILL_API_PORT}:8000"
+
+  frontend:
+    ports: !reset []
+
+  worker-source-generation:
+    environment:
+      APP_ENV: test
+      GENERATION_PROVIDER: fake
+      TELEGRAM_PUBLISH_MODE: dry-run
+      OPENROUTER_API_KEY: ""
+      TELEGRAM_SOURCE_EDITOR_API_ID: ""
+      TELEGRAM_SOURCE_EDITOR_API_HASH: ""
+      TELEGRAM_SOURCE_EDITOR_SESSION: ""
+      HTTP_PROXY: ""
+      HTTPS_PROXY: ""
+      ALL_PROXY: ""
+  worker-publishing:
+    environment:
+      APP_ENV: test
+      TELEGRAM_PUBLISH_MODE: dry-run
+      TELEGRAM_DESTINATION_NEWS_TOKEN: ""
+      HTTP_PROXY: ""
+      HTTPS_PROXY: ""
+      ALL_PROXY: ""

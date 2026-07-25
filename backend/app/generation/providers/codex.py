@@ -38,7 +38,7 @@ class CodexGenerationProvider:
     async def generate(self, request: GenerationProviderRequest) -> GenerationProviderResult:
         try:
             requested_profile_id = UUID(str(request.metadata["provider_profile_id"]))
-        except (KeyError, TypeError, ValueError):
+        except KeyError, TypeError, ValueError:
             raise ValueError("Codex generation request requires a provider profile ID") from None
         if requested_profile_id != self.profile.id:
             raise ValueError("Codex generation provider profile does not match request")
@@ -61,10 +61,7 @@ class CodexGenerationProvider:
                     ]
                 },
                 "untrusted_input": {
-                    "messages": [
-                        {"role": message.role, "content": message.content}
-                        for message in request.messages
-                    ],
+                    "messages": [{"role": message.role, "content": message.content} for message in request.messages],
                     "purpose": request.purpose,
                 },
             },

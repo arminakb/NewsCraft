@@ -5,7 +5,7 @@ import os
 import re
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
-from typing import Any, Literal
+from typing import Any, Literal, cast
 from urllib.parse import unquote, urlsplit
 
 import httpx
@@ -95,7 +95,8 @@ class _BypassRule:
         if self.kind == "ip":
             return address == self.value
         if self.kind == "network":
-            return address is not None and address in self.value
+            network = cast(ipaddress.IPv4Network | ipaddress.IPv6Network, self.value)
+            return address is not None and address in network
         normalized = host.casefold().rstrip(".")
         if self.kind == "host":
             return normalized == self.value

@@ -124,9 +124,7 @@ async def test_default_fake_backend_resolution_is_db_and_network_free():
 async def test_default_fake_backend_reports_all_empty_evidence_without_invalid_citation():
     resolver = DefaultResearchBackendResolver(SimpleNamespace())
     profile_id = uuid4()
-    backend = await resolver(
-        SimpleNamespace(id=profile_id, provider_type="fake", settings={}, secret_ref=None)
-    )
+    backend = await resolver(SimpleNamespace(id=profile_id, provider_type="fake", settings={}, secret_ref=None))
     digest = sha256(b"").hexdigest()
     result = await backend.research(
         ResearchRequest(
@@ -155,9 +153,7 @@ async def test_default_fake_backend_reports_all_empty_evidence_without_invalid_c
 
     assert result.output.brief.verified_facts == []
     assert result.output.brief.disagreements == []
-    assert result.output.brief.missing_information == [
-        "The supplied evidence contains no textual content to cite."
-    ]
+    assert result.output.brief.missing_information == ["The supplied evidence contains no textual content to cite."]
 
 
 def _binding_values():

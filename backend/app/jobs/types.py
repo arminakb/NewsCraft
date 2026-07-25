@@ -7,7 +7,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from enum import StrEnum
 from types import MappingProxyType
-from typing import Any, Protocol
+from typing import Any, Protocol, cast
 from uuid import UUID
 
 from app.core.redaction import redact_secrets
@@ -170,7 +170,8 @@ class JobExecution:
             payload=job.payload,
             attempt_count=job.attempt_count,
             max_attempts=job.max_attempts,
-            origin=job.origin,
+            # __post_init__ validates and normalizes string-backed ORM enum values.
+            origin=cast(JobOrigin, job.origin),
             lease_owner=job.lease_owner,
             created_at=job.created_at,
             scheduled_for=job.scheduled_for,

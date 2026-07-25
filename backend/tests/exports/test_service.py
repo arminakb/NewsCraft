@@ -98,8 +98,7 @@ def _pack_fixture(*, blog_body: str | None = None):
     blog = PlatformVariant(id=uuid4(), content_pack_id=pack.id, platform="blog")
     telegram_content = _telegram_content()
     blog_content = _blog_content(
-        blog_body
-        or ("## Evidence\n\n[Source](https://example.com/report) " + "grounded " * 180)
+        blog_body or ("## Evidence\n\n[Source](https://example.com/report) " + "grounded " * 180)
     )
     revisions = [
         PlatformVariantRevision(
@@ -158,9 +157,7 @@ def _revision_for(variant, content: dict, revision_number: int, *, approval_stat
 def _rehash(revision) -> None:
     from app.automations.telegram.handlers import sha256_canonical
 
-    revision.content_hash = sha256_canonical(
-        {"content": revision.content, "evidence_map": revision.evidence_map}
-    )
+    revision.content_hash = sha256_canonical({"content": revision.content, "evidence_map": revision.evidence_map})
 
 
 def _canonical_json(value) -> bytes:
@@ -217,8 +214,7 @@ async def test_export_manifest_binds_every_file_to_exact_revision_and_hash(monke
     ]
     assert all(item.sha256 for item in manifest.files)
     assert all(
-        not Path(item.file_name).is_absolute() and ".." not in Path(item.file_name).parts
-        for item in manifest.files
+        not Path(item.file_name).is_absolute() and ".." not in Path(item.file_name).parts for item in manifest.files
     )
     assert artifact.manifest_file == "manifest.json"
     assert artifact.archive_file == "bundle.zip"
@@ -311,11 +307,7 @@ async def test_independent_exports_have_identical_bytes_and_never_embed_job_or_r
 
     def package_bytes(export_id):
         root = tmp_path / "exports" / str(export_id)
-        return {
-            path.relative_to(root).as_posix(): path.read_bytes()
-            for path in root.rglob("*")
-            if path.is_file()
-        }
+        return {path.relative_to(root).as_posix(): path.read_bytes() for path in root.rglob("*") if path.is_file()}
 
     first_package = package_bytes(export_ids[0])
     assert first_package == package_bytes(export_ids[1])
@@ -342,9 +334,7 @@ async def test_selection_freezes_highest_revision_and_worker_never_substitutes_n
         export_root=tmp_path / "exports",
         media_root=tmp_path / "media",
     )
-    current_payload = await service.prepare_payload(
-        ExportRequest(content_pack_id=pack.id, formats=["json"])
-    )
+    current_payload = await service.prepare_payload(ExportRequest(content_pack_id=pack.id, formats=["json"]))
     assert current_payload.revision_ids == [new_telegram.id, revisions[1].id]
 
     exact_payload = await service.prepare_payload(
@@ -374,9 +364,7 @@ async def test_selection_freezes_highest_revision_and_worker_never_substitutes_n
             )
         )
 
-    drifted = exact_payload.model_copy(
-        update={"revision_hashes": ["f" * 64, *exact_payload.revision_hashes[1:]]}
-    )
+    drifted = exact_payload.model_copy(update={"revision_hashes": ["f" * 64, *exact_payload.revision_hashes[1:]]})
     with pytest.raises(ExportContractError, match="identity"):
         await service.build_from_payload(
             drifted,
@@ -437,9 +425,8 @@ def test_blog_html_is_sanitized_and_keeps_resolved_citation_links(tmp_path):
     from app.exports.service import ExportService, render_export_html
 
     malicious = (
-        '## Evidence\n\n<script>alert(1)</script> [Source](https://example.com/report) '
-        '[Unsafe](javascript:alert(2)) '
-        + "grounded " * 180
+        "## Evidence\n\n<script>alert(1)</script> [Source](https://example.com/report) "
+        "[Unsafe](javascript:alert(2)) " + "grounded " * 180
     )
     pack, variants, revisions = _pack_fixture(blog_body=malicious)
     service = ExportService(

@@ -89,6 +89,7 @@ async def test_conflicting_duplicate_source_creates_return_409():
     assert source_conflict.value.status_code == 409
     assert source_session.nested_count == 1
 
+
 async def test_source_savepoint_race_reuses_matching_winner_and_rejects_conflict():
     winner = Source(
         id=uuid4(),
@@ -136,6 +137,7 @@ class MemorySession:
 
     async def commit(self):
         return None
+
     async def scalar(self, statement):
         entity = statement.column_descriptions[0].get("entity")
         return next((value for value in self.values if isinstance(value, entity)), None)
@@ -150,10 +152,7 @@ class MemorySession:
                 value
                 for value in self.values
                 if isinstance(value, model)
-                and (
-                    getattr(value, "id", None) == identifier
-                    or getattr(value, "source_id", None) == identifier
-                )
+                and (getattr(value, "id", None) == identifier or getattr(value, "source_id", None) == identifier)
             ),
             None,
         )

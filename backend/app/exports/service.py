@@ -457,9 +457,7 @@ class ExportService:
                 identity,
                 payload,
             ):
-                files.append(
-                    self._write_file(staging, relative, content, kind, platform, revision.id)
-                )
+                files.append(self._write_file(staging, relative, content, kind, platform, revision.id))
             if payload.include_media:
                 files.extend(await self._copy_revision_media(staging, base, platform, revision, parsed))
         return files
@@ -720,9 +718,7 @@ class ExportService:
             archive_sha256 = _sha256_path(archive)
             expected_files.add(ARCHIVE_FILE)
         actual_files = {
-            path.relative_to(target).as_posix()
-            for path in target.rglob("*")
-            if path.is_file() or path.is_symlink()
+            path.relative_to(target).as_posix() for path in target.rglob("*") if path.is_file() or path.is_symlink()
         }
         if actual_files != expected_files:
             raise ExportContractError("existing export directory has unexpected or missing files")
@@ -762,10 +758,7 @@ class ExportService:
                     ("media", platform, revision.id, asset_id)
                     for asset_id in self._assigned_media_ids(platform, parsed)
                 )
-        actual = [
-            (item.kind, item.platform, item.revision_id, item.media_asset_id)
-            for item in manifest.files
-        ]
+        actual = [(item.kind, item.platform, item.revision_id, item.media_asset_id) for item in manifest.files]
         if actual != expected:
             raise ExportContractError("existing export manifest file matrix is stale")
         for item in manifest.files:
@@ -805,5 +798,5 @@ class ExportService:
                         or archive.read(info.filename) != expected[info.filename]
                     ):
                         raise ExportContractError("existing export archive is not deterministic")
-        except (KeyError, OSError, zipfile.BadZipFile):
+        except KeyError, OSError, zipfile.BadZipFile:
             raise ExportContractError("existing export archive is invalid") from None

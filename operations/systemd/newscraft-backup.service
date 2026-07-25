@@ -1,0 +1,23 @@
+[Unit]
+Description=NewsCraft quiesced encrypted backup
+Requires=docker.service
+After=docker.service
+
+[Service]
+Type=oneshot
+User=newscraft-backup
+Group=newscraft-backup
+UMask=0077
+RuntimeDirectory=newscraft-backup
+RuntimeDirectoryMode=0700
+WorkingDirectory=/opt/newscraft
+ExecStart=/usr/bin/python3 scripts/backup_restore.py backup --output-dir /var/backups/newscraft --recipient-file /etc/newscraft-backup/recipient.txt --identity-file /etc/newscraft-backup/identity.txt --staging-dir /run/newscraft-backup
+ExecStart=/usr/bin/python3 scripts/backup_restore.py prune --output-dir /var/backups/newscraft --identity-file /etc/newscraft-backup/identity.txt --apply
+ExecStart=/usr/bin/python3 scripts/backup_restore.py status --output-dir /var/backups/newscraft --identity-file /etc/newscraft-backup/identity.txt --max-age-hours 24 --minimum-free-bytes 5368709120
+TimeoutStartSec=2h
+Nice=10
+IOSchedulingClass=best-effort
+IOSchedulingPriority=6
+
+[Install]
+WantedBy=multi-user.target

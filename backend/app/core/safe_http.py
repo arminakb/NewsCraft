@@ -156,9 +156,7 @@ class SafeHttpClient:
         self._max_response_bytes = max_response_bytes
         if transport is not None and network_backend is not None:
             raise ValueError("transport and network_backend are mutually exclusive")
-        self._pinned_backend = _PinnedAsyncNetworkBackend(
-            network_backend or httpcore.AnyIOBackend()
-        )
+        self._pinned_backend = _PinnedAsyncNetworkBackend(network_backend or httpcore.AnyIOBackend())
         effective_transport = transport or _PinnedAsyncTransport(self._pinned_backend)
         self._client = httpx.AsyncClient(
             timeout=timeout,
@@ -196,9 +194,7 @@ class SafeHttpClient:
             if redirect_count == self._max_redirects:
                 raise SafeHttpError("Too many manual URL redirects")
             current_url = urljoin(str(response.url), location)
-            if response.status_code == 303 or (
-                response.status_code in {301, 302} and current_method == "POST"
-            ):
+            if response.status_code == 303 or (response.status_code in {301, 302} and current_method == "POST"):
                 current_method = "GET"
                 kwargs.pop("content", None)
                 kwargs.pop("data", None)

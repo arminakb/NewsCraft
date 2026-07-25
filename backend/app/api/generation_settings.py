@@ -140,10 +140,7 @@ async def _profile_out(
         "generation": await capability_status.get("provider", profile.id, "generation"),
         "research": await capability_status.get("provider", profile.id, "research"),
     }
-    capabilities = {
-        name: shaped[name] and state.available
-        for name, state in capability_states.items()
-    }
+    capabilities = {name: shaped[name] and state.available for name, state in capability_states.items()}
     for state in capability_states.values():
         if not state.available and state.failure_code not in codes:
             codes.append(state.failure_code)
@@ -188,9 +185,7 @@ async def _clear_other_default_profiles(
     keep_id: UUID | None = None,
 ) -> None:
     profiles = list(
-        await session.scalars(
-            select(BrandProfile).where(BrandProfile.is_default.is_(True)).with_for_update()
-        )
+        await session.scalars(select(BrandProfile).where(BrandProfile.is_default.is_(True)).with_for_update())
     )
     for profile in profiles:
         if profile.id != keep_id:
@@ -250,11 +245,7 @@ async def seed_codex_provider_profile(
 
 @router.get("/brand-profiles", response_model=list[BrandProfileOut])
 async def list_brand_profiles(session: AsyncSession = SessionDependency):
-    return list(
-        await session.scalars(
-            select(BrandProfile).order_by(BrandProfile.is_default.desc(), BrandProfile.name)
-        )
-    )
+    return list(await session.scalars(select(BrandProfile).order_by(BrandProfile.is_default.desc(), BrandProfile.name)))
 
 
 @router.post("/brand-profiles", response_model=BrandProfileOut, status_code=201)
@@ -431,9 +422,7 @@ async def activate_prompt_version(
     if candidate is None:
         raise HTTPException(404, "Prompt template version not found")
     template = await session.scalar(
-        select(PromptTemplate)
-        .where(PromptTemplate.id == candidate.prompt_template_id)
-        .with_for_update()
+        select(PromptTemplate).where(PromptTemplate.id == candidate.prompt_template_id).with_for_update()
     )
     if template is None:
         raise HTTPException(404, "Prompt template not found")

@@ -59,12 +59,7 @@ def _canonical_hash(value: Any) -> str:
 def _buttons(content: TelegramVariantContent) -> dict[str, Any] | None:
     if not content.buttons:
         return None
-    return {
-        "inline_keyboard": [
-            [{"text": button.text, "url": str(button.url)}]
-            for button in content.buttons
-        ]
-    }
+    return {"inline_keyboard": [[{"text": button.text, "url": str(button.url)}] for button in content.buttons]}
 
 
 def _ordered_media(content: TelegramVariantContent, media: Iterable[Any]) -> list[Any]:
@@ -257,8 +252,7 @@ def build_publish_plan(revision: Any, media: Iterable[Any], destination: Any) ->
         rendered = _render_media(content, ordered, destination.target_ref)
 
     operations = tuple(
-        _operation(index, method, fields, files)
-        for index, (method, fields, files) in enumerate(rendered)
+        _operation(index, method, fields, files) for index, (method, fields, files) in enumerate(rendered)
     )
     payload_hash = _canonical_hash(
         {

@@ -420,11 +420,20 @@ export function ArticlesPage() {
           ) : null}
 
           {query.hasNextPage ? (
-            <div className="flex justify-center pt-1">
+            <div className="flex justify-center pb-20 pt-1">
               <Button
-                className="min-w-36"
+                className="min-w-36 scroll-mb-4"
                 disabled={query.isFetchingNextPage}
                 variant="outline"
+                onFocus={(event) => {
+                  const scrollContainer = event.currentTarget.closest<HTMLElement>(".newsroom-scroll")
+                  if (!scrollContainer) return
+                  const buttonBounds = event.currentTarget.getBoundingClientRect()
+                  const scrollBounds = scrollContainer.getBoundingClientRect()
+                  if (buttonBounds.bottom > scrollBounds.bottom) {
+                    scrollContainer.scrollTop += buttonBounds.bottom - scrollBounds.bottom + 16
+                  }
+                }}
                 onClick={() => query.fetchNextPage()}
               >
                 {query.isFetchingNextPage ? "Loading more…" : "Load more"}

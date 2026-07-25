@@ -136,8 +136,12 @@ flow plus offline acceptance limitations.
 Create and verify a local database, media, and export backup from the repository root:
 
 ```bash
-python scripts/backup_restore.py backup --output-dir ./backups
-python scripts/backup_restore.py verify ./backups/newscraft-*.newscraft-backup.tar.gz
+python scripts/backup_restore.py backup --output-dir ./backups \
+  --recipient-file /secure/backup-recipient.txt \
+  --identity-file /secure/backup-identity.txt \
+  --staging-dir /run/newscraft-backup
+python scripts/backup_restore.py verify ./backups/newscraft-*.newscraft-backup.tar.gz.age \
+  --identity-file /secure/backup-identity.txt
 ```
 
 Restore is destructive and requires an explicit `--confirm-replace` flag. Read the
@@ -232,18 +236,21 @@ The report is written to `validation/content-intelligence-report.md`.
 
 ```bash
 cd backend
-.venv/bin/python -m pytest tests -v
+uv sync --locked
+uv run python -m pytest tests -v
 ```
 
-If the virtual environment does not exist yet, create it and install backend dependencies from `backend/pyproject.toml`.
+Use Python `3.14.6` and uv `0.11.29`. `uv sync --locked` creates the development environment from the committed lock; production uses `uv sync --locked --no-dev --no-editable`.
 
 ## Local Frontend Development
 
 ```bash
 cd frontend
-npm install
+npm ci
 npm run dev
 ```
+
+Use Node.js `26.4.0` and npm `11.17.0`. Dependency updates must change `package.json` and `package-lock.json` together; ordinary installs and builds use `npm ci`.
 
 Useful frontend checks:
 

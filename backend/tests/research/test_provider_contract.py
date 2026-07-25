@@ -218,9 +218,7 @@ def test_fixture_deserializes_as_exact_backend_output() -> None:
 
 
 def fixture_output() -> dict[str, object]:
-    return ResearchBackendOutput.model_validate_json(
-        FIXTURE_PATH.read_text(encoding="utf-8")
-    ).model_dump(mode="json")
+    return ResearchBackendOutput.model_validate_json(FIXTURE_PATH.read_text(encoding="utf-8")).model_dump(mode="json")
 
 
 async def test_fake_rejects_citation_key_outside_request_and_returned_sources(
@@ -295,9 +293,7 @@ async def test_fake_rejects_duplicate_discovered_keys(
     evidence_records: list[EvidenceRecord],
 ) -> None:
     output = fixture_output()
-    output["brief"]["discovered_evidence_keys"].append(
-        output["brief"]["discovered_evidence_keys"][0]
-    )
+    output["brief"]["discovered_evidence_keys"].append(output["brief"]["discovered_evidence_keys"][0])
     backend = FakeResearchBackend(output=ResearchBackendOutput.model_validate(output))
 
     with pytest.raises(
@@ -332,9 +328,7 @@ def output_with_added_source(*, body: str) -> ResearchBackendOutput:
 async def test_fake_rejects_computed_pages_over_budget(
     evidence_records: list[EvidenceRecord],
 ) -> None:
-    request = research_request(evidence_records).model_copy(
-        update={"budget": ResearchBudget(max_pages=1)}
-    )
+    request = research_request(evidence_records).model_copy(update={"budget": ResearchBudget(max_pages=1)})
     backend = FakeResearchBackend(output=output_with_added_source(body="Extra source body"))
 
     with pytest.raises(ResearchBudgetExceeded, match="^Research budget exceeded$"):
@@ -344,9 +338,7 @@ async def test_fake_rejects_computed_pages_over_budget(
 async def test_fake_rejects_computed_fetched_characters_over_budget(
     evidence_records: list[EvidenceRecord],
 ) -> None:
-    request = research_request(evidence_records).model_copy(
-        update={"budget": ResearchBudget(max_total_chars=10_000)}
-    )
+    request = research_request(evidence_records).model_copy(update={"budget": ResearchBudget(max_total_chars=10_000)})
     backend = FakeResearchBackend(output=output_with_added_source(body="x" * 10_000))
 
     with pytest.raises(ResearchBudgetExceeded, match="^Research budget exceeded$"):
@@ -411,9 +403,7 @@ async def test_fake_rejects_every_computed_usage_dimension_over_budget(
         fetched_characters=0,
     ).model_copy(update=usage_change)
     backend = ControlledUsageFake(
-        output=ResearchBackendOutput.model_validate_json(
-            FIXTURE_PATH.read_text(encoding="utf-8")
-        ),
+        output=ResearchBackendOutput.model_validate_json(FIXTURE_PATH.read_text(encoding="utf-8")),
         usage=usage,
         elapsed_ms=elapsed_ms,
     )

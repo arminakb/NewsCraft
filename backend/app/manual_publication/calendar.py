@@ -190,7 +190,7 @@ def validate_calendar_window(
         raise ValueError("calendar window cannot exceed 93 days")
     try:
         timezone = ZoneInfo(display_timezone)
-    except (OSError, TypeError, ValueError, ZoneInfoNotFoundError):
+    except OSError, TypeError, ValueError, ZoneInfoNotFoundError:
         raise ValueError("timezone must be a valid IANA timezone") from None
     return start, end, timezone
 
@@ -212,8 +212,7 @@ async def list_calendar_events(
             select(ManualPublicationPlan, PlatformVariantRevision)
             .join(
                 PlatformVariantRevision,
-                PlatformVariantRevision.id
-                == ManualPublicationPlan.platform_variant_revision_id,
+                PlatformVariantRevision.id == ManualPublicationPlan.platform_variant_revision_id,
             )
             .where(
                 ManualPublicationPlan.scheduled_for >= start_utc,
@@ -255,19 +254,14 @@ async def list_calendar_events(
             platform=plan.platform,
             revision_id=plan.platform_variant_revision_id,
             title=_title_for(plan.platform, revision.content),
-            starts_at=_require_aware(plan.scheduled_for, field="scheduled_for").astimezone(
-                timezone
-            ),
+            starts_at=_require_aware(plan.scheduled_for, field="scheduled_for").astimezone(timezone),
             status=plan.status,
             action_url=_review_action(plan.platform_variant_revision_id),
         )
         for plan, revision in manual_rows
     ]
     for publish_job, workflow_job, revision in telegram_rows:
-        if (
-            workflow_job.origin != JobOrigin.MANUAL.value
-            or workflow_job.job_type != JobType.TELEGRAM_PUBLISH.value
-        ):
+        if workflow_job.origin != JobOrigin.MANUAL.value or workflow_job.job_type != JobType.TELEGRAM_PUBLISH.value:
             continue
         events.append(
             CalendarEvent(
@@ -395,8 +389,7 @@ async def list_publications(
                 select(Publication, PlatformVariantRevision)
                 .join(
                     PlatformVariantRevision,
-                    PlatformVariantRevision.id
-                    == Publication.platform_variant_revision_id,
+                    PlatformVariantRevision.id == Publication.platform_variant_revision_id,
                 )
                 .where(
                     Publication.reconciliation_status == "confirmed",
@@ -449,8 +442,7 @@ async def list_publications(
                 select(ManualPublicationPlan, PlatformVariantRevision)
                 .join(
                     PlatformVariantRevision,
-                    PlatformVariantRevision.id
-                    == ManualPublicationPlan.platform_variant_revision_id,
+                    PlatformVariantRevision.id == ManualPublicationPlan.platform_variant_revision_id,
                 )
                 .where(*manual_conditions)
                 .order_by(
@@ -489,8 +481,6 @@ async def list_publications(
     has_more = len(records) > limit
     page = records[:limit]
     next_cursor = (
-        encode_publication_cursor(page[-1].occurred_at, page[-1].kind, page[-1].id)
-        if has_more and page
-        else None
+        encode_publication_cursor(page[-1].occurred_at, page[-1].kind, page[-1].id) if has_more and page else None
     )
     return PublicationListOut(items=page, next_cursor=next_cursor)

@@ -75,7 +75,7 @@ def _entry_published_at(entry: Any) -> datetime | None:
     if raw:
         try:
             return parse_source_datetime(str(raw))[0]
-        except (ValueError, TypeError, OverflowError):
+        except ValueError, TypeError, OverflowError:
             return None
     parsed_tuple = entry.get("published_parsed") or entry.get("updated_parsed")
     if parsed_tuple:

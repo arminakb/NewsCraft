@@ -280,13 +280,9 @@ async def test_provider_configuration_api_works_without_external_credentials_and
         yield session
 
     app.dependency_overrides[get_session] = override_session
-    app.dependency_overrides[get_capability_status_service] = lambda: (
-        StaticCapabilityStatusService("unknown")
-    )
+    app.dependency_overrides[get_capability_status_service] = lambda: StaticCapabilityStatusService("unknown")
     try:
-        async with httpx.AsyncClient(
-            transport=httpx.ASGITransport(app=app), base_url="http://test"
-        ) as client:
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
             response = await client.post(
                 "/ai-provider-profiles",
                 json={
@@ -723,9 +719,7 @@ async def test_generation_create_savepoints_recover_matching_winners_and_reject_
     )
     provider_body = AIProviderProfileCreate(name="Fake", provider_type="fake", default_model="fake-v1")
     provider_match = GenerationSavepointRaceSession(provider)
-    assert (
-        await create_provider_profile(provider_body, provider_match, AVAILABLE_CAPABILITIES)
-    ).id == provider.id
+    assert (await create_provider_profile(provider_body, provider_match, AVAILABLE_CAPABILITIES)).id == provider.id
     provider_conflict = GenerationSavepointRaceSession(provider)
     with pytest.raises(HTTPException) as error:
         await create_provider_profile(

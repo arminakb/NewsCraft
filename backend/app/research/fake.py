@@ -41,9 +41,7 @@ class FakeResearchBackend:
             output=output,
             usage=usage,
             elapsed_ms=elapsed_ms,
-            sanitized_events=[
-                {"event": "fixture_loaded", "source_count": len(output.sources)}
-            ],
+            sanitized_events=[{"event": "fixture_loaded", "source_count": len(output.sources)}],
         )
 
     def _output_for(self, request: ResearchRequest) -> ResearchBackendOutput:
@@ -89,15 +87,10 @@ class EvidenceGroundedFakeResearchBackend(FakeResearchBackend):
             return ResearchBackendOutput(
                 sources=[],
                 brief=CandidateResearchBrief(
-                    summary=(
-                        "The deterministic research backend found no textual evidence "
-                        "that could be cited."
-                    ),
+                    summary=("The deterministic research backend found no textual evidence that could be cited."),
                     verified_facts=[],
                     disagreements=[],
-                    missing_information=[
-                        "The supplied evidence contains no textual content to cite."
-                    ],
+                    missing_information=["The supplied evidence contains no textual content to cite."],
                     suggested_angles=[],
                     discovered_evidence_keys=[],
                 ),
@@ -146,11 +139,7 @@ def _validate_output(request: ResearchRequest, output: ResearchBackendOutput) ->
         *source_keys,
     }
     claims = [*output.brief.verified_facts, *output.brief.disagreements]
-    if any(
-        citation.evidence_key not in permitted_citation_keys
-        for claim in claims
-        for citation in claim.citations
-    ):
+    if any(citation.evidence_key not in permitted_citation_keys for claim in claims for citation in claim.citations):
         raise ValueError("Research output contains unknown citation evidence keys")
 
 

@@ -347,7 +347,7 @@ def _slug(value: str) -> str:
 def _int_value(value: Any) -> int:
     try:
         return int(value or 0)
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         return 0
 
 

@@ -45,9 +45,7 @@ class BrandProfilePatch(BaseModel):
         if isinstance(value, dict):
             null_fields = sorted(key for key, item in value.items() if item is None)
             if null_fields:
-                raise ValueError(
-                    f"Brand profile fields cannot be null: {', '.join(null_fields)}"
-                )
+                raise ValueError(f"Brand profile fields cannot be null: {', '.join(null_fields)}")
         return value
 
 
@@ -111,9 +109,7 @@ class AIProviderProfileCreate(BaseModel):
                 OpenRouterProviderSettings.model_validate(self.settings)
         else:
             if self.secret_ref is not None or self.default_model is None or self.settings is None:
-                raise ValueError(
-                    "codex forbids secret_ref and requires default_model and settings"
-                )
+                raise ValueError("codex forbids secret_ref and requires default_model and settings")
             CodexProviderSettings.model_validate(self.settings or {})
         return self
 

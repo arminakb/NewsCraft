@@ -125,7 +125,7 @@ def decode_library_cursor(cursor: str) -> tuple[datetime, UUID]:
         row_id = UUID(payload["id"])
         if timestamp.tzinfo is None or timestamp.utcoffset() is None:
             raise ValueError
-    except (binascii.Error, UnicodeError, json.JSONDecodeError, KeyError, TypeError, ValueError):
+    except binascii.Error, UnicodeError, json.JSONDecodeError, KeyError, TypeError, ValueError:
         raise ValueError("invalid library cursor") from None
     return timestamp, row_id
 
@@ -252,8 +252,7 @@ def evidence_statement(
         statement = statement.where(
             or_(
                 StoryEvidenceSnapshot.captured_at < captured_at,
-                (StoryEvidenceSnapshot.captured_at == captured_at)
-                & (StoryEvidenceSnapshot.id < snapshot_id),
+                (StoryEvidenceSnapshot.captured_at == captured_at) & (StoryEvidenceSnapshot.id < snapshot_id),
             )
         )
     return statement.order_by(
@@ -358,17 +357,9 @@ async def list_library_originals(
     limit: int = Query(default=50, ge=1, le=200),
     session: AsyncSession = SessionDependency,
 ) -> LibraryOriginalListOut:
-    rows = (
-        await session.execute(
-            original_statement(cursor=_decode_route_cursor(cursor), limit=limit)
-        )
-    ).all()
+    rows = (await session.execute(original_statement(cursor=_decode_route_cursor(cursor), limit=limit))).all()
     page = rows[:limit]
-    next_cursor = (
-        encode_library_cursor(page[-1].sort_at, page[-1].id)
-        if len(rows) > limit and page
-        else None
-    )
+    next_cursor = encode_library_cursor(page[-1].sort_at, page[-1].id) if len(rows) > limit and page else None
     return LibraryOriginalListOut(
         items=[original_out(row) for row in page],
         next_cursor=next_cursor,
@@ -394,11 +385,7 @@ async def list_library_evidence(
         )
     ).all()
     page = rows[:limit]
-    next_cursor = (
-        encode_library_cursor(page[-1].captured_at, page[-1].id)
-        if len(rows) > limit and page
-        else None
-    )
+    next_cursor = encode_library_cursor(page[-1].captured_at, page[-1].id) if len(rows) > limit and page else None
     return LibraryEvidenceListOut(
         items=[evidence_out(row) for row in page],
         next_cursor=next_cursor,
@@ -426,11 +413,7 @@ async def list_library_research_runs(
         )
     ).all()
     page = rows[:limit]
-    next_cursor = (
-        encode_library_cursor(page[-1].created_at, page[-1].id)
-        if len(rows) > limit and page
-        else None
-    )
+    next_cursor = encode_library_cursor(page[-1].created_at, page[-1].id) if len(rows) > limit and page else None
     return LibraryResearchRunListOut(
         items=[research_run_out(row) for row in page],
         next_cursor=next_cursor,

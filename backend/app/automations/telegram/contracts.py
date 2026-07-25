@@ -97,8 +97,7 @@ def telegram_envelope_fingerprint(envelope: TelegramEnvelope) -> str:
 def _canonical_json_value(value):
     if isinstance(value, dict):
         return {
-            str(key): _canonical_json_value(item)
-            for key, item in sorted(value.items(), key=lambda pair: str(pair[0]))
+            str(key): _canonical_json_value(item) for key, item in sorted(value.items(), key=lambda pair: str(pair[0]))
         }
     if isinstance(value, (list, tuple)):
         return [_canonical_json_value(item) for item in value]

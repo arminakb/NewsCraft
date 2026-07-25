@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import io
 import json
+import shutil
 import stat
 import sys
 import tarfile
@@ -85,7 +86,10 @@ class FakeRunner:
             raise BackupRestoreError(f"injected command failure: {' '.join(normalized)}")
 
         if output_path is not None:
-            if "pg_dump" in normalized:
+            if "age" in normalized:
+                assert input_path is not None
+                output_path.write_bytes(input_path.read_bytes())
+            elif "pg_dump" in normalized:
                 output_path.write_bytes(b"PGDMP\x01database")
             elif "/data/media" in normalized:
                 output_path.write_bytes(_content_archive({"photo.jpg": b"media"}))
@@ -96,12 +100,22 @@ class FakeRunner:
 
         if normalized[:2] == ["git", "rev-parse"]:
             return "a" * 40 + "\n"
+        if normalized == ["docker", "compose", "--profile", "operations", "images", "--quiet"]:
+            return f"sha256:{'b' * 64}\nsha256:{'c' * 64}\n"
+        if normalized == ["docker", "compose", "ps", "--services", "--status", "running"]:
+            return "\n".join(RUNTIME_SERVICES) + "\n"
+        if any("SELECT count(*) FROM pg_stat_activity" in argument for argument in normalized):
+            return "0\n"
+        if any("CREATE TEMP TABLE backup_inventory" in argument for argument in normalized):
+            return json.dumps({"public.stories": {"rows": 1, "content_md5": "d" * 32}}) + "\n"
         if normalized[-2:] == ["alembic", "current"]:
             return "0009_operational_retention (head)\n"
         if normalized[-2:] == ["alembic", "heads"]:
             return "0009_operational_retention (head)\n"
         if "SHOW server_version;" in normalized:
             return "18.4\n"
+        if normalized[-2:] in (["pg_dump", "--version"], ["pg_restore", "--version"]):
+            return "pg_dump (PostgreSQL) 18.4\n"
         return ""
 
 
@@ -112,7 +126,35 @@ def fake_runner() -> FakeRunner:
 
 @pytest.fixture
 def valid_archive(tmp_path: Path, fake_runner: FakeRunner) -> Path:
-    return BackupRestore(runner=fake_runner, now=lambda: FIXED_NOW).backup(tmp_path)
+    encrypted = _create_backup(tmp_path, fake_runner)
+    plaintext = tmp_path / "fixture.newscraft-backup.tar.gz"
+    shutil.copyfile(encrypted, plaintext)
+    encrypted.unlink()
+    return plaintext
+
+
+def _age_files(directory: Path) -> tuple[Path, Path]:
+    recipient = directory / "recipient.txt"
+    identity = directory / "identity.txt"
+    recipient.write_text("age1fixture\n", encoding="utf-8")
+    identity.write_text("AGE-SECRET-KEY-1FIXTURE\n", encoding="utf-8")
+    recipient.chmod(0o600)
+    identity.chmod(0o600)
+    return recipient, identity
+
+
+def _create_backup(directory: Path, runner: FakeRunner) -> Path:
+    recipient, identity = _age_files(directory)
+    try:
+        return BackupRestore(runner=runner, now=lambda: FIXED_NOW).backup(
+            directory,
+            recipient_file=recipient,
+            identity_file=identity,
+            staging_root=directory,
+        )
+    finally:
+        recipient.unlink(missing_ok=True)
+        identity.unlink(missing_ok=True)
 
 
 def _read_outer_archive(archive_path: Path) -> list[tuple[tarfile.TarInfo, bytes]]:
@@ -198,50 +240,32 @@ def test_backup_runs_exact_consistent_database_media_and_export_commands(
     tmp_path: Path,
     fake_runner: FakeRunner,
 ) -> None:
-    archive = BackupRestore(runner=fake_runner, now=lambda: FIXED_NOW).backup(tmp_path)
+    archive = _create_backup(tmp_path, fake_runner)
 
-    assert fake_runner.commands[:3] == [
-        [
-            "docker",
-            "compose",
-            "exec",
-            "-T",
-            "postgres",
-            "pg_dump",
-            "-U",
-            "newscraft",
-            "-d",
-            "newscraft",
-            "--format=custom",
-        ],
-        [
-            "docker",
-            "compose",
-            "exec",
-            "-T",
-            "api",
-            "tar",
-            "-C",
-            "/data/media",
-            "-czf",
-            "-",
-            ".",
-        ],
-        [
-            "docker",
-            "compose",
-            "exec",
-            "-T",
-            "api",
-            "tar",
-            "-C",
-            "/data/exports",
-            "-czf",
-            "-",
-            ".",
-        ],
+    stop = ["docker", "compose", "stop", "api", "worker-source-generation", "worker-publishing", "scheduler"]
+    start = [
+        "docker",
+        "compose",
+        "up",
+        "-d",
+        "--no-deps",
+        "api",
+        "worker-source-generation",
+        "worker-publishing",
+        "scheduler",
     ]
-    assert archive.name == "newscraft-20260713T123456Z.newscraft-backup.tar.gz"
+    database = next(
+        command for command in fake_runner.commands if "pg_dump" in command and "--format=custom" in command
+    )
+    media = next(command for command in fake_runner.commands if "/data/media" in command)
+    exports = next(command for command in fake_runner.commands if "/data/exports" in command)
+    assert "backup" in database and "backup" in media and "backup" in exports
+    assert fake_runner.commands.index(stop) < fake_runner.commands.index(database)
+    assert (
+        fake_runner.commands.index(database) < fake_runner.commands.index(media) < fake_runner.commands.index(exports)
+    )
+    assert fake_runner.commands.index(exports) < fake_runner.commands.index(start)
+    assert archive.name == "newscraft-20260713T123456Z.newscraft-backup.tar.gz.age"
     assert archive.parent == tmp_path
     assert archive.is_file()
     assert stat.S_IMODE(archive.stat().st_mode) == 0o600
@@ -256,12 +280,32 @@ def test_backup_manifest_records_metadata_sizes_and_checksums(
     manifest = BackupRestore().verify(valid_archive)
 
     assert manifest == {
-        "schema": "newscraft-backup-v1",
+        "schema": "newscraft-backup-v2",
+        "backup_id": "newscraft-20260713T123456Z-aaaaaaaaaaaa",
         "created_utc": "2026-07-13T12:34:56Z",
         "git_sha": "a" * 40,
         "alembic_current": "0009_operational_retention (head)",
         "alembic_head": "0009_operational_retention (head)",
         "postgresql_version": "18.4",
+        "postgresql_major": 18,
+        "pg_dump_version": "pg_dump (PostgreSQL) 18.4",
+        "pg_dump_major": 18,
+        "database_inventory": {
+            "tables": {"public.stories": {"rows": 1, "content_md5": "d" * 32}},
+            "root_sha256": hashlib.sha256(
+                json.dumps(
+                    {"public.stories": {"rows": 1, "content_md5": "d" * 32}},
+                    sort_keys=True,
+                    separators=(",", ":"),
+                ).encode()
+            ).hexdigest(),
+        },
+        "container_image_ids": [f"sha256:{'b' * 64}", f"sha256:{'c' * 64}"],
+        "consistency": {
+            "mode": "quiesced",
+            "quiesce_started_utc": "2026-07-13T12:34:56Z",
+            "quiesce_completed_utc": "2026-07-13T12:34:56Z",
+        },
         "database_dump": {
             "filename": "database.dump",
             "bytes": len(b"PGDMP\x01database"),
@@ -277,6 +321,8 @@ def test_backup_manifest_records_metadata_sizes_and_checksums(
             "bytes": ANY,
             "sha256": ANY,
         },
+        "media_inventory": {"entries": 1, "files": 1, "bytes": 5, "root_sha256": ANY},
+        "export_inventory": {"entries": 1, "files": 1, "bytes": 6, "root_sha256": ANY},
     }
 
 
@@ -284,15 +330,245 @@ def test_backup_failure_does_not_publish_a_partial_archive(tmp_path: Path) -> No
     runner = FakeRunner(fail_when=lambda command: "/data/exports" in command)
 
     with pytest.raises(BackupRestoreError, match="injected command failure"):
-        BackupRestore(runner=runner, now=lambda: FIXED_NOW).backup(tmp_path)
+        _create_backup(tmp_path, runner)
 
     assert list(tmp_path.iterdir()) == []
+
+
+def test_backup_quiescence_failure_resumes_prior_writers_without_capturing(tmp_path: Path) -> None:
+    class BusyRunner(FakeRunner):
+        def run(self, command, *, output_path=None, input_path=None):
+            if any("SELECT count(*) FROM pg_stat_activity" in argument for argument in command):
+                self.commands.append(list(command))
+                self.calls.append({"command": list(command)})
+                return "1"
+            return super().run(command, output_path=output_path, input_path=input_path)
+
+    runner = BusyRunner()
+    with pytest.raises(BackupRestoreError, match="quiescence failed"):
+        _create_backup(tmp_path, runner)
+
+    stop = ["docker", "compose", "stop", "api", "worker-source-generation", "worker-publishing", "scheduler"]
+    start = [
+        "docker",
+        "compose",
+        "up",
+        "-d",
+        "--no-deps",
+        "api",
+        "worker-source-generation",
+        "worker-publishing",
+        "scheduler",
+    ]
+    assert stop in runner.commands
+    assert start in runner.commands
+    assert not any("--format=custom" in command for command in runner.commands)
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_backup_resumes_only_writer_services_that_were_running(tmp_path: Path) -> None:
+    class ApiOnlyRunner(FakeRunner):
+        def run(self, command, *, output_path=None, input_path=None):
+            if list(command) == ["docker", "compose", "ps", "--services", "--status", "running"]:
+                self.commands.append(list(command))
+                self.calls.append({"command": list(command)})
+                return "api\nfrontend\n"
+            return super().run(command, output_path=output_path, input_path=input_path)
+
+    runner = ApiOnlyRunner()
+    _create_backup(tmp_path, runner)
+
+    assert ["docker", "compose", "stop", "api"] in runner.commands
+    assert ["docker", "compose", "up", "-d", "--no-deps", "api"] in runner.commands
+    assert not any(
+        command[:3] == ["docker", "compose", "stop"] and "worker-publishing" in command for command in runner.commands
+    )
+
+
+def test_backup_publishes_only_encrypted_output_and_verifies_decryption(tmp_path: Path) -> None:
+    runner = FakeRunner()
+    recipient, identity = _age_files(tmp_path)
+    archive = BackupRestore(runner=runner, now=lambda: FIXED_NOW).backup(
+        tmp_path,
+        recipient_file=recipient,
+        identity_file=identity,
+        staging_root=tmp_path,
+    )
+
+    manifest = BackupRestore(runner=runner).verify(archive, identity_file=identity)
+
+    assert archive.name.endswith(".newscraft-backup.tar.gz.age")
+    assert manifest["schema"] == "newscraft-backup-v2"
+    assert not list(tmp_path.glob("*.newscraft-backup.tar.gz"))
+
+
+def test_plaintext_staging_is_removed_and_destination_receives_only_ciphertext(tmp_path: Path) -> None:
+    output = tmp_path / "output"
+    staging = tmp_path / "staging"
+    output.mkdir(mode=0o700)
+    staging.mkdir(mode=0o700)
+    recipient, identity = _age_files(tmp_path)
+
+    archive = BackupRestore(runner=FakeRunner(), now=lambda: FIXED_NOW).backup(
+        output,
+        recipient_file=recipient,
+        identity_file=identity,
+        staging_root=staging,
+    )
+
+    assert list(output.iterdir()) == [archive]
+    assert list(staging.iterdir()) == []
+    assert archive.name.endswith(".age")
+
+
+def test_encrypted_verify_rejects_a_wrong_identity_before_restore(tmp_path: Path) -> None:
+    creator = FakeRunner()
+    recipient, identity = _age_files(tmp_path)
+    archive = BackupRestore(runner=creator, now=lambda: FIXED_NOW).backup(
+        tmp_path,
+        recipient_file=recipient,
+        identity_file=identity,
+        staging_root=tmp_path,
+    )
+    verifier = FakeRunner(fail_when=lambda command: "age" in command and "--decrypt" in command)
+
+    with pytest.raises(BackupRestoreError, match="injected command failure"):
+        BackupRestore(runner=verifier).restore(archive, confirm_replace=True, identity_file=identity)
+
+    assert STOP_COMMAND not in verifier.commands
+
+
+def test_backup_rejects_non_private_key_files_before_quiescing(tmp_path: Path) -> None:
+    recipient, identity = _age_files(tmp_path)
+    identity.chmod(0o644)
+    runner = FakeRunner()
+
+    with pytest.raises(BackupRestoreError, match="must not be accessible"):
+        BackupRestore(runner=runner).backup(
+            tmp_path,
+            recipient_file=recipient,
+            identity_file=identity,
+            staging_root=tmp_path,
+        )
+
+    assert runner.commands == []
+
+
+def test_backup_rejects_a_non_private_plaintext_staging_directory(tmp_path: Path) -> None:
+    recipient, identity = _age_files(tmp_path)
+    staging = tmp_path / "staging"
+    staging.mkdir(mode=0o755)
+    staging.chmod(0o755)
+    runner = FakeRunner()
+
+    with pytest.raises(BackupRestoreError, match="must be mode 0700"):
+        BackupRestore(runner=runner).backup(
+            tmp_path,
+            recipient_file=recipient,
+            identity_file=identity,
+            staging_root=staging,
+        )
+
+    assert runner.commands == []
+
+
+def test_encryption_failure_resumes_writers_and_publishes_nothing(tmp_path: Path) -> None:
+    runner = FakeRunner(fail_when=lambda command: "age" in command and "--encrypt" in command)
+
+    with pytest.raises(BackupRestoreError, match="injected command failure"):
+        _create_backup(tmp_path, runner)
+
+    assert [
+        "docker",
+        "compose",
+        "up",
+        "-d",
+        "--no-deps",
+        "api",
+        "worker-source-generation",
+        "worker-publishing",
+        "scheduler",
+    ] in runner.commands
+    assert not list(tmp_path.glob("*.newscraft-backup.tar.gz.age"))
+
+
+def test_retention_dry_run_and_apply_preserve_newest_verified_and_invalid_backups(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _recipient, identity = _age_files(tmp_path)
+    workflow = BackupRestore(runner=FakeRunner())
+    created_by_name: dict[str, str] = {}
+    for day in range(1, 21):
+        name = f"newscraft-202606{day:02d}T010000Z.newscraft-backup.tar.gz.age"
+        (tmp_path / name).write_bytes(f"archive-{day}".encode())
+        created_by_name[name] = f"2026-06-{day:02d}T01:00:00Z"
+    invalid = tmp_path / "invalid.newscraft-backup.tar.gz.age"
+    invalid.write_bytes(b"invalid")
+
+    def fake_verify(archive, *, identity_file=None):
+        del identity_file
+        path = Path(archive)
+        if path.name == invalid.name:
+            raise BackupVerificationError("invalid fixture")
+        return {"created_utc": created_by_name[path.name]}
+
+    monkeypatch.setattr(workflow, "verify", fake_verify)
+    dry_run = workflow.prune(tmp_path, identity_file=identity)
+
+    newest = "newscraft-20260620T010000Z.newscraft-backup.tar.gz.age"
+    assert newest in dry_run["kept"]
+    assert dry_run["would_delete"]
+    assert dry_run["deleted"] == []
+    assert dry_run["invalid"] == [invalid.name]
+    assert len(list(tmp_path.glob("*.age"))) == 21
+
+    applied = workflow.prune(tmp_path, identity_file=identity, apply=True)
+    assert newest in applied["kept"]
+    assert applied["deleted"]
+    assert (tmp_path / newest).is_file()
+    assert invalid.is_file()
+
+
+def test_backup_status_enforces_verified_freshness_without_exposing_keys(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _recipient, identity = _age_files(tmp_path)
+    archive = tmp_path / "newscraft-20260713T120000Z.newscraft-backup.tar.gz.age"
+    archive.write_bytes(b"encrypted")
+    workflow = BackupRestore(runner=FakeRunner(), now=lambda: FIXED_NOW)
+    monkeypatch.setattr(
+        workflow,
+        "verify",
+        lambda _archive, *, identity_file=None: {
+            "backup_id": "newscraft-20260713T120000Z-aaaaaaaaaaaa",
+            "created_utc": "2026-07-13T12:00:00Z",
+        },
+    )
+
+    status = workflow.status(
+        tmp_path,
+        identity_file=identity,
+        max_age_hours=1,
+        minimum_free_bytes=0,
+    )
+
+    assert status["status"] == "healthy"
+    assert status["backup_id"] == "newscraft-20260713T120000Z-aaaaaaaaaaaa"
+    with pytest.raises(BackupRestoreError, match="stale"):
+        workflow.status(
+            tmp_path,
+            identity_file=identity,
+            max_age_hours=0.1,
+            minimum_free_bytes=0,
+        )
 
 
 def test_backup_never_overwrites_archive_created_during_publication(
     tmp_path: Path,
 ) -> None:
-    rival = tmp_path / "newscraft-20260713T123456Z.newscraft-backup.tar.gz"
+    rival = tmp_path / "newscraft-20260713T123456Z.newscraft-backup.tar.gz.age"
 
     class RacingRunner(FakeRunner):
         def run(self, command, *, output_path=None, input_path=None):
@@ -306,7 +582,7 @@ def test_backup_never_overwrites_archive_created_during_publication(
             return result
 
     with pytest.raises(BackupRestoreError, match="already exists"):
-        BackupRestore(runner=RacingRunner(), now=lambda: FIXED_NOW).backup(tmp_path)
+        _create_backup(tmp_path, RacingRunner())
 
     assert rival.read_bytes() == b"rival-archive"
 
@@ -324,7 +600,17 @@ def test_backup_removes_published_archive_when_durability_sync_fails(
     monkeypatch.setattr(workflow, "_sync_directory", fail_sync)
 
     with pytest.raises(BackupRestoreError, match="injected durability failure"):
-        workflow.backup(tmp_path)
+        recipient, identity = _age_files(tmp_path)
+        try:
+            workflow.backup(
+                tmp_path,
+                recipient_file=recipient,
+                identity_file=identity,
+                staging_root=tmp_path,
+            )
+        finally:
+            recipient.unlink(missing_ok=True)
+            identity.unlink(missing_ok=True)
 
     assert list(tmp_path.iterdir()) == []
 
@@ -342,7 +628,17 @@ def test_backup_removes_published_archive_when_durability_sync_is_interrupted(
     monkeypatch.setattr(workflow, "_sync_directory", interrupt_sync)
 
     with pytest.raises(KeyboardInterrupt):
-        workflow.backup(tmp_path)
+        recipient, identity = _age_files(tmp_path)
+        try:
+            workflow.backup(
+                tmp_path,
+                recipient_file=recipient,
+                identity_file=identity,
+                staging_root=tmp_path,
+            )
+        finally:
+            recipient.unlink(missing_ok=True)
+            identity.unlink(missing_ok=True)
 
     assert list(tmp_path.iterdir()) == []
 
@@ -471,6 +767,29 @@ def test_verify_rejects_wrong_or_extra_manifest_schema(
         BackupRestore().verify(extra)
 
 
+def test_verify_keeps_legacy_v1_plaintext_archives_recoverable(valid_archive: Path, tmp_path: Path) -> None:
+    legacy_fields = {
+        "schema",
+        "created_utc",
+        "git_sha",
+        "alembic_current",
+        "alembic_head",
+        "postgresql_version",
+        "database_dump",
+        "media_archive",
+        "export_archive",
+    }
+
+    def downgrade(manifest: dict[str, object]) -> None:
+        manifest["schema"] = "newscraft-backup-v1"
+        for field in set(manifest) - legacy_fields:
+            del manifest[field]
+
+    legacy = _mutate_manifest(valid_archive, tmp_path, downgrade)
+
+    assert BackupRestore().verify(legacy)["schema"] == "newscraft-backup-v1"
+
+
 def test_verify_rejects_size_mismatch(valid_archive: Path, tmp_path: Path) -> None:
     archive = _mutate_manifest(
         valid_archive,
@@ -479,6 +798,17 @@ def test_verify_rejects_size_mismatch(valid_archive: Path, tmp_path: Path) -> No
     )
 
     with pytest.raises(BackupVerificationError, match="size mismatch.*database.dump"):
+        BackupRestore().verify(archive)
+
+
+def test_verify_rejects_a_nested_inventory_mismatch(valid_archive: Path, tmp_path: Path) -> None:
+    archive = _mutate_manifest(
+        valid_archive,
+        tmp_path,
+        lambda manifest: manifest["media_inventory"].__setitem__("files", 99),  # type: ignore[union-attr]
+    )
+
+    with pytest.raises(BackupVerificationError, match="media inventory"):
         BackupRestore().verify(archive)
 
 
@@ -602,7 +932,28 @@ def test_restore_validates_database_dump_with_pg_restore_before_stopping(
     validation_index = next(
         index for index, command in enumerate(runner.commands) if "pg_restore" in command and "--list" in command
     )
-    assert validation_index == 0
+    assert any("SHOW server_version;" in command for command in runner.commands[:validation_index])
+    assert any("--version" in command for command in runner.commands[:validation_index])
+    assert STOP_COMMAND not in runner.commands
+
+
+def test_restore_rejects_an_incompatible_postgresql_major_before_dump_validation(
+    valid_archive: Path,
+) -> None:
+    class OldServerRunner(FakeRunner):
+        def run(self, command, *, output_path=None, input_path=None):
+            if "SHOW server_version;" in command:
+                self.commands.append(list(command))
+                self.calls.append({"command": list(command)})
+                return "17.9"
+            return super().run(command, output_path=output_path, input_path=input_path)
+
+    runner = OldServerRunner()
+
+    with pytest.raises(BackupRestoreError, match="unsupported PostgreSQL restore path"):
+        BackupRestore(runner=runner).restore(valid_archive, confirm_replace=True)
+
+    assert not any("--list" in command for command in runner.commands)
     assert STOP_COMMAND not in runner.commands
 
 
@@ -651,7 +1002,7 @@ def test_restore_stops_replaces_and_restarts_actual_split_services(
     assert stop_index < drop_index < create_index < restore_index
     assert restore_index < media_index < export_index < migrate_index < start_index
 
-    database_calls = [call for call in runner.calls if "pg_restore" in call["command"]]
+    database_calls = [call for call in runner.calls if "pg_restore" in call["command"] and "input_bytes" in call]
     assert len(database_calls) == 2
     assert all(call["input_bytes"] == b"PGDMP\x01database" for call in database_calls)
     volume_calls = [call for call in runner.calls if "input_bytes" in call and "pg_restore" not in call["command"]]
@@ -735,7 +1086,7 @@ def test_restore_falls_back_to_stopping_each_service_after_aggregate_stop_failur
     assert "stop state could not be confirmed" not in stderr
 
 
-def test_cli_help_lists_backup_verify_and_restore(capsys: pytest.CaptureFixture[str]) -> None:
+def test_cli_help_lists_backup_verify_prune_status_and_restore(capsys: pytest.CaptureFixture[str]) -> None:
     with pytest.raises(SystemExit) as exc_info:
         main(["--help"])
 
@@ -743,5 +1094,30 @@ def test_cli_help_lists_backup_verify_and_restore(capsys: pytest.CaptureFixture[
     output = capsys.readouterr().out
     assert "backup" in output
     assert "verify" in output
+    assert "prune" in output
+    assert "status" in output
     assert "restore" in output
     assert "--confirm-replace" in output
+
+
+def test_systemd_timer_runs_backup_retention_and_status_without_inline_credentials() -> None:
+    service = (ROOT / "operations/systemd/newscraft-backup.service").read_text(encoding="utf-8")
+    timer = (ROOT / "operations/systemd/newscraft-backup.timer").read_text(encoding="utf-8")
+
+    assert "User=newscraft-backup" in service
+    assert "UMask=0077" in service
+    assert "RuntimeDirectoryMode=0700" in service
+    assert "--staging-dir /run/newscraft-backup" in service
+    assert "backup_restore.py backup" in service
+    assert "backup_restore.py prune" in service and "--apply" in service
+    assert "backup_restore.py status" in service
+    assert "TimeoutStartSec=2h" in service
+    assert "OnCalendar=*-*-* 02:17:00 UTC" in timer
+    assert "Persistent=true" in timer
+    for secret_name in (
+        "OPENROUTER_API_KEY",
+        "TELEGRAM_SOURCE_EDITOR_API_HASH",
+        "TELEGRAM_SOURCE_EDITOR_SESSION",
+        "TELEGRAM_DESTINATION_NEWS_TOKEN",
+    ):
+        assert secret_name not in service

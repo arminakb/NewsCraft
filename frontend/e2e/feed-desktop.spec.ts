@@ -1,12 +1,13 @@
 import { expect, test, type Page, type Route } from "@playwright/test"
 
-const screenshots = "/home/armin/.codex/visualizations/2026/07/21/019f86a6-d213-7481-862f-ea026504b08d"
+import { fulfillMockJson } from "./support/mock-backend"
+
 const sourceId = "22222222-2222-4222-8222-222222222222"
 const researchCollectionId = "cccccccc-cccc-4ccc-8ccc-cccccccccccc"
 const emptyCollectionId = "dddddddd-dddd-4ddd-8ddd-dddddddddddd"
 const createdCollectionId = "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee"
 
-test("Feed renders a consistent responsive desktop card grid", async ({ page }) => {
+test("Feed renders a consistent responsive desktop card grid", async ({ page }, testInfo) => {
   const diagnostics = await installFeedBackend(page)
 
   for (const viewport of [
@@ -97,7 +98,7 @@ test("Feed renders a consistent responsive desktop card grid", async ({ page }) 
     await expect(persian).toHaveAttribute("lang", "fa")
     await expect(page.locator("bdi", { hasText: "خبرگزاری نمونه" })).toHaveAttribute("dir", "auto")
     await page.screenshot({
-      path: `${screenshots}/feed-4f-${viewport.width}x${viewport.height}.png`,
+      path: testInfo.outputPath(`feed-4f-${viewport.width}x${viewport.height}.png`),
       fullPage: true,
     })
   }
@@ -128,7 +129,7 @@ test("Feed images keep accessible alt text and stable missing or broken fallback
   expect(diagnostics.badResponses).toEqual([])
 })
 
-test("title search preserves URL state, pagination, history, and placeholder actions", async ({ page }) => {
+test("title search preserves URL state, pagination, history, and placeholder actions", async ({ page }, testInfo) => {
   const diagnostics = await installFeedBackend(page)
   await page.setViewportSize({ width: 1440, height: 1000 })
   await page.goto(`/feed?language=en&collection_id=${researchCollectionId}&sort=score`)
@@ -217,14 +218,14 @@ test("title search preserves URL state, pagination, history, and placeholder act
   await page.keyboard.press("Escape")
   await expect(createCollection).toBeFocused()
 
-  await page.screenshot({ path: `${screenshots}/feed-4f-search-1440x1000.png`, fullPage: true })
+  await page.screenshot({ path: testInfo.outputPath("feed-4f-search-1440x1000.png"), fullPage: true })
   expect(diagnostics.consoleErrors).toEqual([])
   expect(diagnostics.pageErrors).toEqual([])
   expect(diagnostics.failedRequests).toEqual([])
   expect(diagnostics.badResponses).toEqual([])
 })
 
-test("compact global rail exposes primary routes, tooltips, counts, and Advanced navigation", async ({ page }) => {
+test("compact global rail exposes primary routes, tooltips, counts, and Advanced navigation", async ({ page }, testInfo) => {
   const diagnostics = await installFeedBackend(page)
   await page.setViewportSize({ width: 1440, height: 1000 })
   await page.goto("/feed")
@@ -271,7 +272,7 @@ test("compact global rail exposes primary routes, tooltips, counts, and Advanced
   await expect(panel.getByRole("link", { name: "Retention" })).toHaveAttribute("href", "/settings/retention")
   await page.keyboard.press("ArrowDown")
   await expect(panel.getByRole("link", { name: "Automations" })).toBeFocused()
-  await page.screenshot({ path: `${screenshots}/feed-4e-advanced-1440x1000.png`, fullPage: true })
+  await page.screenshot({ path: testInfo.outputPath("feed-4e-advanced-1440x1000.png"), fullPage: true })
   await page.keyboard.press("Escape")
   await expect(panel).toBeHidden()
   await expect(advanced).toBeFocused()
@@ -360,7 +361,7 @@ test("legacy Inbox, Content, Library, and Media URLs redirect to Feed with query
   expect(diagnostics.badResponses).toEqual([])
 })
 
-test("collections selection, creation, errors, and URL history coexist with Feed", async ({ page }) => {
+test("collections selection, creation, errors, and URL history coexist with Feed", async ({ page }, testInfo) => {
   const diagnostics = await installFeedBackend(page)
   await page.setViewportSize({ width: 1440, height: 1000 })
   await page.goto("/feed?language=en")
@@ -406,7 +407,7 @@ test("collections selection, creation, errors, and URL history coexist with Feed
   await sidebar.getByRole("button", { name: "Create new collection" }).click()
   await expect(nameInput).toBeFocused()
   await expect(nameInput).toHaveValue("")
-  await page.screenshot({ path: `${screenshots}/feed-4c1-dialog-1440x1000.png`, fullPage: true })
+  await page.screenshot({ path: testInfo.outputPath("feed-4c1-dialog-1440x1000.png"), fullPage: true })
   await nameInput.fill("  Reading Queue  ")
   await dialog.getByRole("button", { name: "Create collection" }).click()
   await expect(dialog).toBeHidden()
@@ -422,16 +423,16 @@ test("collections selection, creation, errors, and URL history coexist with Feed
   await duplicateDialog.getByRole("button", { name: "Cancel" }).click()
 
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
-  await page.screenshot({ path: `${screenshots}/feed-4c1-1440x1000.png`, fullPage: true })
+  await page.screenshot({ path: testInfo.outputPath("feed-4c1-1440x1000.png"), fullPage: true })
   expect(diagnostics.consoleErrors).toEqual([
     "Failed to load resource: the server responded with a status of 409 (Conflict)",
   ])
   expect(diagnostics.pageErrors).toEqual([])
   expect(diagnostics.failedRequests).toEqual([])
-  expect(diagnostics.badResponses).toEqual(["409 http://localhost:3000/api/backend/article-collections"])
+  expect(diagnostics.badResponses).toEqual(["409 /api/backend/article-collections"])
 })
 
-test("collection management renames and deletes while preserving URL state", async ({ page }) => {
+test("collection management renames and deletes while preserving URL state", async ({ page }, testInfo) => {
   const diagnostics = await installFeedBackend(page)
   await page.setViewportSize({ width: 1440, height: 1000 })
   await page.goto(`/feed?language=en&collection_id=${researchCollectionId}&sort=score`)
@@ -459,7 +460,7 @@ test("collection management renames and deletes while preserving URL state", asy
   await page.keyboard.press("Shift+F10")
   const keyboardMenu = page.getByRole("menu", { name: "Manage Research" })
   await expect(keyboardMenu.getByRole("menuitem", { name: "Rename" })).toBeFocused()
-  await page.screenshot({ path: `${screenshots}/feed-4e-context-1440x1000.png`, fullPage: true })
+  await page.screenshot({ path: testInfo.outputPath("feed-4e-context-1440x1000.png"), fullPage: true })
   await page.keyboard.press("ArrowDown")
   await expect(keyboardMenu.getByRole("menuitem", { name: "Delete" })).toBeFocused()
   await page.keyboard.press("ArrowUp")
@@ -495,7 +496,7 @@ test("collection management renames and deletes while preserving URL state", asy
   const emptyDelete = page.getByRole("dialog", { name: "Delete Collection?" })
   await expect(emptyDelete).toContainText("Empty contains 0 saved articles")
   await expect(emptyDelete).toContainText("Articles themselves are not deleted from NewsCraft")
-  await page.screenshot({ path: `${screenshots}/feed-4d-delete-1440x1000.png`, fullPage: true })
+  await page.screenshot({ path: testInfo.outputPath("feed-4d-delete-1440x1000.png"), fullPage: true })
   await emptyDelete.getByRole("button", { name: "Delete Collection" }).click()
   await expect(emptyDelete).toBeHidden()
   await expect(sidebar.getByRole("button", { name: /Empty.*0 articles/ })).toHaveCount(0)
@@ -516,11 +517,11 @@ test("collection management renames and deletes while preserving URL state", asy
   expect(diagnostics.pageErrors).toEqual([])
   expect(diagnostics.failedRequests).toEqual([])
   expect(diagnostics.badResponses).toEqual([
-    `409 http://localhost:3000/api/backend/article-collections/${researchCollectionId}`,
+    `409 /api/backend/article-collections/${researchCollectionId}`,
   ])
 })
 
-test("save dialog edits multiple memberships and reconciles Feed and sidebar state", async ({ page }) => {
+test("save dialog edits multiple memberships and reconciles Feed and sidebar state", async ({ page }, testInfo) => {
   const diagnostics = await installFeedBackend(page)
   await page.setViewportSize({ width: 1440, height: 1000 })
   await page.goto("/feed")
@@ -541,7 +542,7 @@ test("save dialog edits multiple memberships and reconciles Feed and sidebar sta
   await dialog.getByRole("textbox", { name: "Create a collection" }).fill("  Reading Queue  ")
   await dialog.getByRole("button", { name: "Create" }).click()
   await expect(dialog.getByRole("checkbox", { name: /Reading Queue.*0 articles/ })).toBeChecked()
-  await page.screenshot({ path: `${screenshots}/feed-4c2-dialog-1440x1000.png`, fullPage: true })
+  await page.screenshot({ path: testInfo.outputPath("feed-4c2-dialog-1440x1000.png"), fullPage: true })
   await dialog.getByRole("button", { name: "Apply" }).click()
   await expect(dialog).toBeHidden()
   await expect(thirdCard.getByRole("button", { name: "Save article to collection" })).toHaveAttribute("aria-pressed", "true")
@@ -569,7 +570,7 @@ test("save dialog edits multiple memberships and reconciles Feed and sidebar sta
   await expect(sidebar.getByRole("button", { name: /Empty.*0 articles/ })).toBeVisible()
   await sidebar.getByRole("button", { name: /Research.*3 articles/ }).click()
   await expect(page.getByRole("heading", { name: "English editorial report 3" })).toBeVisible()
-  await page.screenshot({ path: `${screenshots}/feed-4c2-save-1440x1000.png`, fullPage: true })
+  await page.screenshot({ path: testInfo.outputPath("feed-4c2-save-1440x1000.png"), fullPage: true })
 
   expect(diagnostics.consoleErrors).toEqual([])
   expect(diagnostics.pageErrors).toEqual([])
@@ -599,7 +600,7 @@ test("save dialog keeps confirmed server truth after a partial mutation failure"
   expect(diagnostics.pageErrors).toEqual([])
   expect(diagnostics.failedRequests).toEqual([])
   expect(diagnostics.badResponses).toEqual([
-    `503 http://localhost:3000/api/backend/article-collections/${researchCollectionId}/articles/11111111-1111-4111-8111-000000000003`,
+    `503 /api/backend/article-collections/${researchCollectionId}/articles/11111111-1111-4111-8111-000000000003`,
   ])
 })
 
@@ -626,7 +627,7 @@ test("direct collection removal keeps the card on failure and retries safely", a
   expect(diagnostics.pageErrors).toEqual([])
   expect(diagnostics.failedRequests).toEqual([])
   expect(diagnostics.badResponses).toEqual([
-    `503 http://localhost:3000/api/backend/article-collections/${researchCollectionId}/articles/11111111-1111-4111-8111-000000000001`,
+    `503 /api/backend/article-collections/${researchCollectionId}/articles/11111111-1111-4111-8111-000000000001`,
   ])
 })
 
@@ -653,7 +654,9 @@ async function installFeedBackend(page: Page, options: { failFirstMembershipMuta
   page.on("pageerror", (error) => diagnostics.pageErrors.push(error.message))
   page.on("requestfailed", (request) => diagnostics.failedRequests.push(request.url()))
   page.on("response", (response) => {
-    if (response.status() >= 400) diagnostics.badResponses.push(`${response.status()} ${response.url()}`)
+    if (response.status() >= 400) {
+      diagnostics.badResponses.push(`${response.status()} ${new URL(response.url()).pathname}`)
+    }
   })
 
   await page.route("https://assets.example/**", async (route) => {
@@ -684,7 +687,7 @@ async function installFeedBackend(page: Page, options: { failFirstMembershipMuta
       const body = route.request().postDataJSON() as { name?: string }
       const name = body.name?.trim() ?? ""
       if (collections.some((collection) => collection.name.toLocaleLowerCase() === name.toLocaleLowerCase())) {
-        return fulfillJson(route, { detail: "article collection name already exists" }, 409)
+        return fulfillUncontractedJson(route, { detail: "article collection name already exists" }, 409)
       }
       const created = collectionWire(createdCollectionId, name, 0)
       collections.push(created)
@@ -693,11 +696,11 @@ async function installFeedBackend(page: Page, options: { failFirstMembershipMuta
     const collectionMatch = path.match(/^\/article-collections\/([^/]+)$/)
     if (collectionMatch && route.request().method() === "PATCH") {
       const collection = collections.find((item) => item.id === collectionMatch[1])
-      if (!collection) return fulfillJson(route, { detail: "article collection not found" }, 404)
+      if (!collection) return fulfillUncontractedJson(route, { detail: "article collection not found" }, 404)
       const body = route.request().postDataJSON() as { name?: string }
       const name = body.name?.trim() ?? ""
       if (collections.some((item) => item.id !== collection.id && item.name.toLocaleLowerCase() === name.toLocaleLowerCase())) {
-        return fulfillJson(route, { detail: "article collection name already exists" }, 409)
+        return fulfillUncontractedJson(route, { detail: "article collection name already exists" }, 409)
       }
       collection.name = name
       collection.updated_at = "2026-07-22T08:00:00Z"
@@ -708,21 +711,21 @@ async function installFeedBackend(page: Page, options: { failFirstMembershipMuta
     }
     if (collectionMatch && route.request().method() === "DELETE") {
       const index = collections.findIndex((collection) => collection.id === collectionMatch[1])
-      if (index === -1) return fulfillJson(route, { detail: "article collection not found" }, 404)
+      if (index === -1) return fulfillUncontractedJson(route, { detail: "article collection not found" }, 404)
       const [deleted] = collections.splice(index, 1)
       for (const articleMemberships of memberships.values()) articleMemberships.delete(deleted.id)
       // API unit coverage verifies the real endpoint's 204 contract.
-      return fulfillJson(route, {})
+      return fulfillUncontractedJson(route, {})
     }
     const membershipMatch = path.match(/^\/article-collections\/([^/]+)\/articles\/([^/]+)$/)
     if (membershipMatch && ["PUT", "DELETE"].includes(route.request().method())) {
       const [, collectionId, requestedArticleId] = membershipMatch
       if (failNextMembershipMutation) {
         failNextMembershipMutation = false
-        return fulfillJson(route, { detail: "temporary membership failure" }, 503)
+        return fulfillUncontractedJson(route, { detail: "temporary membership failure" }, 503)
       }
       if (!collections.some((collection) => collection.id === collectionId)) {
-        return fulfillJson(route, { detail: "article collection not found" }, 404)
+        return fulfillUncontractedJson(route, { detail: "article collection not found" }, 404)
       }
       const articleMemberships = memberships.get(requestedArticleId) ?? new Set<string>()
       if (route.request().method() === "PUT") articleMemberships.add(collectionId)
@@ -730,14 +733,14 @@ async function installFeedBackend(page: Page, options: { failFirstMembershipMuta
       memberships.set(requestedArticleId, articleMemberships)
       // Playwright's Chromium route shim reports fulfilled 204 requests as net::ERR_ABORTED.
       // Use an empty 200 here; API unit coverage verifies production's real 204 contract.
-      return fulfillJson(route, {})
+      return fulfillUncontractedJson(route, {})
     }
     if (path === "/articles/facets") return fulfillJson(route, facets())
     if (path === "/articles") {
       diagnostics.articleQueries.push(url.search)
       const collectionId = url.searchParams.get("collection_id")
       if (collectionId && !collections.some((collection) => collection.id === collectionId)) {
-        return fulfillJson(route, { detail: "article collection not found" }, 404)
+        return fulfillUncontractedJson(route, { detail: "article collection not found" }, 404)
       }
       const titleQuery = url.searchParams.get("q")?.trim().toLocaleLowerCase() ?? ""
       const matchingIndexes = Array.from({ length: 7 }, (_, index) => index + 1)
@@ -838,5 +841,9 @@ function facets() {
 }
 
 async function fulfillJson(route: Route, body: unknown, status = 200) {
+  await fulfillMockJson(route, body, status)
+}
+
+async function fulfillUncontractedJson(route: Route, body: unknown, status = 200) {
   await route.fulfill({ status, contentType: "application/json", body: JSON.stringify(body) })
 }

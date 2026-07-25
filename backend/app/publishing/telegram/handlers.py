@@ -150,9 +150,7 @@ def build_telegram_publish_handlers(
             )
         publish_job = await context.session.get(PublishJob, payload.publish_job_id)
         destination = (
-            await context.session.get(Destination, publish_job.destination_id)
-            if publish_job is not None
-            else None
+            await context.session.get(Destination, publish_job.destination_id) if publish_job is not None else None
         )
         if destination is None or destination.platform != "telegram":
             raise PermanentJobError(
@@ -270,12 +268,16 @@ def build_telegram_publish_handlers(
             current = await context.session.scalar(
                 select(Destination).where(Destination.id == payload.destination_id).with_for_update()
             )
-            configuration_changed = current is None or (
-                current.target_ref,
-                current.secret_ref,
-                current.secret_id,
-                current.proxy_profile_id,
-            ) != snapshot
+            configuration_changed = (
+                current is None
+                or (
+                    current.target_ref,
+                    current.secret_ref,
+                    current.secret_id,
+                    current.proxy_profile_id,
+                )
+                != snapshot
+            )
             if current is not None:
                 if configuration_changed:
                     current.health_status = "unknown"

@@ -256,7 +256,9 @@ class TelegramLifecycleService:
         )
         active_checks = int(
             await self.session.scalar(
-                select(func.count()).select_from(WorkflowJob).where(
+                select(func.count())
+                .select_from(WorkflowJob)
+                .where(
                     WorkflowJob.job_type == "telegram.destination.check",
                     WorkflowJob.status.in_(_ACTIVE_JOB_STATUSES),
                     WorkflowJob.payload["destination_id"].as_string() == str(destination_id),

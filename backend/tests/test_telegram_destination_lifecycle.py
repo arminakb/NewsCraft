@@ -139,9 +139,7 @@ async def test_route_resolver_builds_http_connect_and_authenticated_socks5_route
     )
 
     assert await resolver.proxy_url(None, http_profile) == "http://93.184.216.34:8080"
-    assert await resolver.proxy_url(None, socks_profile) == (
-        "socks5h://user%20name:p%40ss@93.184.216.34:1080"
-    )
+    assert await resolver.proxy_url(None, socks_profile) == ("socks5h://user%20name:p%40ss@93.184.216.34:1080")
 
 
 async def test_bot_health_calls_validate_identity_target_and_admin_without_leaking_token():

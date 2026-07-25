@@ -102,7 +102,7 @@ def _message_datetime(block: Tag) -> tuple[str | None, datetime | None, str]:
         return None, None, "missing"
     try:
         parsed, status = parse_source_datetime(raw, default_timezone="UTC")
-    except (TypeError, ValueError, OverflowError):
+    except TypeError, ValueError, OverflowError:
         return raw, None, "failed"
     return raw, parsed, status
 
@@ -195,7 +195,7 @@ def _message_ids(block: Tag, data_post_message_id: int) -> list[int]:
         value = node.get("data-message-id")
         try:
             message_id = int(str(value))
-        except (TypeError, ValueError):
+        except TypeError, ValueError:
             continue
         if message_id not in message_ids:
             message_ids.append(message_id)

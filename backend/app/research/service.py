@@ -120,11 +120,7 @@ class ResearchService:
         from app.llm_providers.models import LLMProvider
         from app.llm_providers.schemas import effective_llm_provider_settings
 
-        generic = (
-            await self.session.get(LLMProvider, profile_id)
-            if isinstance(self.session, AsyncSession)
-            else None
-        )
+        generic = await self.session.get(LLMProvider, profile_id) if isinstance(self.session, AsyncSession) else None
         if generic is not None:
             if not generic.enabled or generic.research_capability != "ready":
                 raise ResearchRequestError("Selected research provider profile is unavailable")

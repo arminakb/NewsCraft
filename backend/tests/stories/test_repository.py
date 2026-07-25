@@ -748,11 +748,14 @@ async def test_grouping_preserves_release_two_dispatch_revision_ids(db_session: 
         first_dispatch.story_revision_id,
         second_dispatch.story_revision_id,
     } == original_dispatch_revision_ids
-    assert set(
-        await db_session.scalars(
-            select(StoryRevision.id).where(StoryRevision.id.in_(original_dispatch_revision_ids))
+    assert (
+        set(
+            await db_session.scalars(
+                select(StoryRevision.id).where(StoryRevision.id.in_(original_dispatch_revision_ids))
+            )
         )
-    ) == original_dispatch_revision_ids
+        == original_dispatch_revision_ids
+    )
 
 
 @pytest.mark.asyncio

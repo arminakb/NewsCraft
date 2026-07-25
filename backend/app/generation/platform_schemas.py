@@ -97,9 +97,7 @@ class XVariantPayload(BaseModel):
 
     @model_validator(mode="after")
     def reject_citation_userinfo(self):
-        _reject_url_userinfo(
-            [citation.source_url for post in self.posts for citation in post.citations]
-        )
+        _reject_url_userinfo([citation.source_url for post in self.posts for citation in post.citations])
         return self
 
 
@@ -120,15 +118,11 @@ class BlogVariantPayload(BaseModel):
 
     @model_validator(mode="after")
     def reject_url_userinfo(self):
-        _reject_url_userinfo(
-            [*[citation.source_url for citation in self.citations], *self.canonical_sources]
-        )
+        _reject_url_userinfo([*[citation.source_url for citation in self.citations], *self.canonical_sources])
         return self
 
 
-type PlatformPayload = (
-    TelegramVariantPayload | InstagramVariantPayload | XVariantPayload | BlogVariantPayload
-)
+type PlatformPayload = TelegramVariantPayload | InstagramVariantPayload | XVariantPayload | BlogVariantPayload
 
 
 class InstagramEditPayload(BaseModel):

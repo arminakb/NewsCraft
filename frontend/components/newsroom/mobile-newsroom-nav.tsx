@@ -88,7 +88,7 @@ export function MobileNewsroomNav() {
             role="dialog"
             aria-label="Newsroom navigation"
             aria-modal="true"
-            className="absolute inset-x-3 bottom-20 max-h-[calc(100dvh-6rem)] min-w-0 overscroll-contain overflow-y-auto rounded-lg border bg-white p-3 shadow-xl"
+            className="absolute inset-x-3 bottom-20 max-h-[calc(100dvh-6rem)] min-w-0 overscroll-contain overflow-y-auto rounded-lg border bg-white p-3 shadow-xl dark:bg-background"
           >
             <div className="mb-2 flex min-h-11 items-center justify-between gap-3 px-2">
               <span className="font-semibold">Navigate NewsCraft</span>
@@ -131,7 +131,7 @@ export function MobileNewsroomNav() {
               <div className="space-y-4 pt-1">
                 {advancedNavSections.map((section) => (
                   <div key={section.label}>
-                    <div className="px-3 pb-1 text-xs font-medium text-slate-600">{section.label}</div>
+                    <div className="px-3 pb-1 text-xs font-medium text-slate-600 dark:text-slate-300">{section.label}</div>
                     <div className="space-y-1">
                       {section.items.map((item) => {
                         const Icon = item.icon
@@ -163,7 +163,7 @@ export function MobileNewsroomNav() {
 
       <nav
         aria-label="Mobile newsroom navigation"
-        className="fixed inset-x-0 bottom-0 z-40 grid min-h-16 grid-cols-3 border-t bg-white/95 px-2 py-1 backdrop-blur min-[900px]:hidden"
+        className="fixed inset-x-0 bottom-0 z-40 grid min-h-16 grid-cols-3 border-t bg-white/95 px-2 py-1 backdrop-blur dark:bg-background/95 min-[900px]:hidden"
       >
         {newsroomNavItems.slice(0, 2).map((item) => {
           const Icon = item.icon
@@ -203,7 +203,7 @@ export function MobileNewsroomNav() {
 
 function MobileGroupLabel({ children }: { children: React.ReactNode }) {
   return (
-    <div className="px-3 pb-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-600">
+    <div className="px-3 pb-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-600 dark:text-slate-300">
       {children}
     </div>
   )

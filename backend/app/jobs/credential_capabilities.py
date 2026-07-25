@@ -44,6 +44,7 @@ _SAFE_FAILURE_CODES = frozenset(
         "disabled",
         "executable_unavailable",
         "health_check_failed",
+        "generation_profile_unqualified",
         "invalid_configuration",
         "observation_missing",
         "observation_stale",
@@ -99,9 +100,7 @@ def provider_shape_capabilities(profile: AIProviderProfile) -> tuple[dict[str, b
             valid_settings = True
         except ValueError:
             valid_settings = False
-        generation = research = bool(
-            profile.default_model and profile.secret_ref is None and valid_settings
-        )
+        generation = research = bool(profile.default_model and profile.secret_ref is None and valid_settings)
         if not generation:
             codes.append("invalid_configuration")
     elif profile.provider_type == "openrouter":
@@ -111,15 +110,24 @@ def provider_shape_capabilities(profile: AIProviderProfile) -> tuple[dict[str, b
         except ValueError:
             configured = None
             valid_settings = False
-        generation = bool(profile.default_model and profile.secret_ref and valid_settings)
+        base_available = bool(profile.default_model and profile.secret_ref and valid_settings)
+        generation = bool(
+            base_available
+            and configured is not None
+            and configured.pricing is not None
+            and configured.generation_policy is not None
+            and configured.generation_policy.qualification_status == "qualified"
+        )
         research = bool(
-            generation
+            base_available
             and configured is not None
             and configured.pricing is not None
             and configured.research_budgets is not None
         )
-        if not generation:
+        if not base_available:
             codes.append("invalid_configuration")
+        elif not generation:
+            codes.append("generation_profile_unqualified")
         elif not research:
             codes.append("research_configuration_missing")
     else:
@@ -173,10 +181,7 @@ class WorkerCredentialCapabilityObserver:
         owned = set(capabilities)
         observations: list[CapabilityObservation] = []
         if "generation" in owned:
-            generic_profiles = {
-                profile.id: profile
-                for profile in await self.session.scalars(select(LLMProvider))
-            }
+            generic_profiles = {profile.id: profile for profile in await self.session.scalars(select(LLMProvider))}
             profiles = list(await self.session.scalars(select(AIProviderProfile)))
             for profile in profiles:
                 generic = generic_profiles.pop(profile.id, None)
@@ -191,9 +196,7 @@ class WorkerCredentialCapabilityObserver:
             observations.extend(self._source(source) for source in sources)
         if "publishing" in owned:
             destinations = list(
-                await self.session.scalars(
-                    select(Destination).where(Destination.platform == "telegram")
-                )
+                await self.session.scalars(select(Destination).where(Destination.platform == "telegram"))
             )
             for destination in destinations:
                 observations.append(await self._destination(destination))
@@ -239,9 +242,7 @@ class WorkerCredentialCapabilityObserver:
                 except Exception:
                     credential_available = False
                     credential_code = "invalid_configuration"
-            generation_available = (
-                credential_available and profile.generation_capability == "ready"
-            )
+            generation_available = credential_available and profile.generation_capability == "ready"
             research_available = credential_available and profile.research_capability == "ready"
             generation_code = (
                 "available"
@@ -258,9 +259,7 @@ class WorkerCredentialCapabilityObserver:
                 else profile.failure_code or "research_configuration_missing"
             )
         return [
-            _observation(
-                "provider", profile.id, "generation", generation_available, generation_code
-            ),
+            _observation("provider", profile.id, "generation", generation_available, generation_code),
             _observation("provider", profile.id, "research", research_available, research_code),
         ]
 
@@ -269,24 +268,33 @@ class WorkerCredentialCapabilityObserver:
         if not profile.enabled:
             code = "disabled"
             available = False
-        elif not shaped["generation"]:
+        elif profile.provider_type == "openrouter":
+            if "invalid_configuration" in shape_codes:
+                available = False
+                code = "invalid_configuration"
+            else:
+                available = _secret_value(self.secret_resolver, profile.secret_ref) is not None
+                code = "available" if available else "credential_missing"
+        elif not any(shaped.values()):
             code = "invalid_configuration"
             available = False
-        elif profile.provider_type == "openrouter":
-            available = _secret_value(self.secret_resolver, profile.secret_ref) is not None
-            code = "available" if available else "credential_missing"
         elif profile.provider_type == "codex":
             available = bool(
-                self.config.codex_enabled
-                and self.executable_resolver(self.config.codex_executable) is not None
+                self.config.codex_enabled and self.executable_resolver(self.config.codex_executable) is not None
             )
             code = "available" if available else "executable_unavailable"
         else:
             available = True
             code = "available"
-        observations = [
-            _observation("provider", profile.id, "generation", available, code)
-        ]
+        generation_available = available and shaped["generation"]
+        generation_code = (
+            "available"
+            if generation_available
+            else "generation_profile_unqualified"
+            if available and "generation_profile_unqualified" in shape_codes
+            else code
+        )
+        observations = [_observation("provider", profile.id, "generation", generation_available, generation_code)]
         research_available = available and shaped["research"]
         research_code = (
             "available"
@@ -295,25 +303,19 @@ class WorkerCredentialCapabilityObserver:
             if available and "research_configuration_missing" in shape_codes
             else code
         )
-        observations.append(
-            _observation("provider", profile.id, "research", research_available, research_code)
-        )
+        observations.append(_observation("provider", profile.id, "research", research_available, research_code))
         return observations
 
     def _source(self, source: TelegramSourceConfig) -> CapabilityObservation:
         if source.access_mode == "public_html":
             return _observation("source", source.source_id, "source", True, "available")
         if source.access_mode != "mtproto_user":
-            return _observation(
-                "source", source.source_id, "source", False, "invalid_configuration"
-            )
+            return _observation("source", source.source_id, "source", False, "invalid_configuration")
         api_id = _secret_value(self.secret_resolver, source.api_id_secret_ref)
         api_hash = _secret_value(self.secret_resolver, source.api_hash_secret_ref)
         session = _secret_value(self.secret_resolver, source.session_secret_ref)
         if None in (api_id, api_hash, session):
-            return _observation(
-                "source", source.source_id, "source", False, "credential_missing"
-            )
+            return _observation("source", source.source_id, "source", False, "credential_missing")
         try:
             valid_api_id = int(api_id or "") > 0
         except ValueError:
@@ -414,9 +416,7 @@ class CapabilityStatusService:
         if not status.available:
             raise JobCapabilityUnavailable(
                 code=(
-                    "job_capability_unknown"
-                    if status.status in {"unknown", "stale"}
-                    else "job_capability_unavailable"
+                    "job_capability_unknown" if status.status in {"unknown", "stale"} else "job_capability_unavailable"
                 ),
                 job_type=job_type,
                 retry_after_seconds=self.config.capability_retry_after_seconds,

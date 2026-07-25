@@ -98,10 +98,7 @@ async def test_codex_generation_usage_never_leaks_auth_literal_as_cli_version():
     async def runner(**kwargs):
         return ProcessRunResult(
             exit_code=0,
-            stdout=(
-                '{"type":"turn.completed","usage":'
-                '{"input_tokens":25,"output_tokens":10}}\n'
-            ),
+            stdout=('{"type":"turn.completed","usage":{"input_tokens":25,"output_tokens":10}}\n'),
             stderr="",
             elapsed_ms=5,
             structured_output={
@@ -121,9 +118,7 @@ async def test_codex_generation_usage_never_leaks_auth_literal_as_cli_version():
         ),
         profile=profile,
     )
-    result = await provider.generate(
-        replace(_request(), metadata={"provider_profile_id": str(profile_id)})
-    )
+    result = await provider.generate(replace(_request(), metadata={"provider_profile_id": str(profile_id)}))
 
     assert result.usage["codex_cli_version"] == "[REDACTED]"
     assert secret_version not in str(result.usage)

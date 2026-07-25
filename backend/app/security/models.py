@@ -44,9 +44,7 @@ class SecurityAuditEvent(Base):
     outcome: Mapped[str] = mapped_column(Text, nullable=False)
     reason_code: Mapped[str | None] = mapped_column(Text, nullable=True)
     request_id: Mapped[str | None] = mapped_column(Text, nullable=True)
-    event_metadata: Mapped[dict] = mapped_column(
-        "metadata", JSONB, nullable=False, server_default=text("'{}'::jsonb")
-    )
+    event_metadata: Mapped[dict] = mapped_column("metadata", JSONB, nullable=False, server_default=text("'{}'::jsonb"))
     created_at: Mapped[datetime] = timestamp_now()
 
     __table_args__ = (

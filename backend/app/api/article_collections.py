@@ -91,9 +91,7 @@ async def _require_unique_name(
     *,
     excluding_id: UUID | None = None,
 ) -> None:
-    statement = select(ArticleCollection.id).where(
-        ArticleCollection.normalized_name == normalized_name
-    )
+    statement = select(ArticleCollection.id).where(ArticleCollection.normalized_name == normalized_name)
     if excluding_id is not None:
         statement = statement.where(ArticleCollection.id != excluding_id)
     if await session.scalar(statement) is not None:

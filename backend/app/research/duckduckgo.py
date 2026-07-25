@@ -90,7 +90,7 @@ def _normalize_result(raw: Any) -> SearchResult | None:
             url=normalize_url(url.strip()),
             snippet=_clean_text(raw.get("body") or raw.get("snippet"), limit=2_000),
         )
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         return None
 
 

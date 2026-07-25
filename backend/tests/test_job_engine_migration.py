@@ -57,8 +57,7 @@ def test_job_engine_downgrade_removes_deferred_columns_before_job_tables():
     first_table_drop = 'op.drop_table("runtime_heartbeats")'
     assert downgrade.index(publish_drop) < downgrade.index(first_table_drop)
     assert downgrade.index(source_drop) < downgrade.index(first_table_drop)
-    assert (
-        downgrade.index('op.drop_constraint(\n        "fk_publish_jobs_workflow_job_id_workflow_jobs"')
-        < downgrade.index(publish_drop)
-    )
+    assert downgrade.index(
+        'op.drop_constraint(\n        "fk_publish_jobs_workflow_job_id_workflow_jobs"'
+    ) < downgrade.index(publish_drop)
     assert downgrade.index('op.drop_table("workflow_events")') < downgrade.index('op.drop_table("workflow_jobs")')

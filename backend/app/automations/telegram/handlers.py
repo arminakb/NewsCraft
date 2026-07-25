@@ -1759,10 +1759,7 @@ async def _resolve_process_prompt(
         if (
             prompt is None
             or prompt.checksum_sha256 != payload.prompt_checksum
-            or (
-                route.prompt_policy != "follow_active"
-                and prompt.id != route.prompt_template_version_id
-            )
+            or (route.prompt_policy != "follow_active" and prompt.id != route.prompt_template_version_id)
         ):
             raise NeedsReviewJobError(
                 code="telegram_prompt_snapshot_invalid",
@@ -1770,11 +1767,7 @@ async def _resolve_process_prompt(
             )
     elif route.prompt_policy == "follow_active":
         templates = list(
-            await session.scalars(
-                select(PromptTemplate).where(
-                    PromptTemplate.purpose_key == "telegram_rewrite"
-                )
-            )
+            await session.scalars(select(PromptTemplate).where(PromptTemplate.purpose_key == "telegram_rewrite"))
         )
         template_ids = {item.id for item in templates}
         candidates = list(
@@ -1785,11 +1778,7 @@ async def _resolve_process_prompt(
                 )
             )
         )
-        active = [
-            item
-            for item in candidates
-            if item.prompt_template_id in template_ids and item.is_active
-        ]
+        active = [item for item in candidates if item.prompt_template_id in template_ids and item.is_active]
         if len(active) != 1:
             raise NeedsReviewJobError(
                 code="telegram_active_prompt_invalid",

@@ -1,5 +1,7 @@
 import { expect, test, type Page, type Route } from "@playwright/test"
 
+import { fulfillMockJson } from "./support/mock-backend"
+
 const failedJob = backendJob({
   id: "22222222-2222-4222-8222-222222222222",
   status: "failed",
@@ -20,7 +22,7 @@ const succeededJob = backendJob({
 
 test.describe("NewsCraft command center", () => {
   test("desktop Today and mobile Job Queue use fixed live workflow truth", async ({ page }) => {
-    await installApiRoutes(page)
+    const unhandledRequests = await installApiRoutes(page)
     await page.setViewportSize({ width: 1440, height: 900 })
     await page.goto("/")
 
@@ -48,10 +50,12 @@ test.describe("NewsCraft command center", () => {
     const detail = page.getByRole("dialog", { name: "Job details" })
     await expect(detail).toBeVisible()
     await expect(detail.getByRole("button", { name: "Retry job" })).toBeVisible()
+    expect(unhandledRequests).toEqual([])
   })
 })
 
 async function installApiRoutes(page: Page) {
+  const unhandledRequests: string[] = []
   await page.route("**/api/backend/automation-control", async (route) => {
     await fulfillJson(route, {
       global_pause: true,
@@ -89,6 +93,16 @@ async function installApiRoutes(page: Page) {
       await fulfillJson(route, { ...failedJob, status: "queued", error_class: null, error_code: null, error_message: null })
       return
     }
+    if (path !== "/jobs") {
+      const requestLabel = `${route.request().method()} ${path}${url.search}`
+      unhandledRequests.push(requestLabel)
+      await route.fulfill({
+        status: 501,
+        contentType: "application/json",
+        body: JSON.stringify({ detail: `Unhandled deterministic test request: ${requestLabel}` }),
+      })
+      return
+    }
 
     const statuses = url.searchParams.getAll("status")
     const items = statuses.includes("running")
@@ -100,10 +114,11 @@ async function installApiRoutes(page: Page) {
           : [failedJob, runningJob, succeededJob]
     await fulfillJson(route, { items })
   })
+  return unhandledRequests
 }
 
 async function fulfillJson(route: Route, body: unknown) {
-  await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(body) })
+  await fulfillMockJson(route, body)
 }
 
 function backendJob(overrides: Record<string, unknown> = {}) {

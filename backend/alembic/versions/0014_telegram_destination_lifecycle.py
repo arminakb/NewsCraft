@@ -56,9 +56,7 @@ def upgrade() -> None:
     op.add_column(
         "destinations", sa.Column("telegram_health_status", sa.Text(), server_default="unchecked", nullable=False)
     )
-    op.add_column(
-        "destinations", sa.Column("bot_health_status", sa.Text(), server_default="unchecked", nullable=False)
-    )
+    op.add_column("destinations", sa.Column("bot_health_status", sa.Text(), server_default="unchecked", nullable=False))
     op.add_column(
         "destinations", sa.Column("target_health_status", sa.Text(), server_default="unchecked", nullable=False)
     )
@@ -71,9 +69,7 @@ def upgrade() -> None:
     op.add_column("destinations", sa.Column("verified_chat_id", sa.BigInteger(), nullable=True))
     op.add_column("destinations", sa.Column("verified_chat_title", sa.Text(), nullable=True))
     op.add_column("destinations", sa.Column("verified_chat_type", sa.Text(), nullable=True))
-    op.add_column(
-        "destinations", sa.Column("ownership", sa.Text(), server_default="operator_managed", nullable=False)
-    )
+    op.add_column("destinations", sa.Column("ownership", sa.Text(), server_default="operator_managed", nullable=False))
     op.create_foreign_key(
         "fk_destinations_secret_id", "destinations", "encrypted_secrets", ["secret_id"], ["id"], ondelete="RESTRICT"
     )

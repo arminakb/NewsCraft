@@ -158,9 +158,7 @@ def test_production_workers_resolve_every_owned_category_and_reject_other_worker
     source_api_id.write_text("source-canary", encoding="utf-8")
     source_proxy.write_text("http://source-proxy-canary.example:8080", encoding="utf-8")
     destination_secret.write_text("destination-canary", encoding="utf-8")
-    publishing_proxy.write_text(
-        "http://publishing-proxy-canary.example:8080", encoding="utf-8"
-    )
+    publishing_proxy.write_text("http://publishing-proxy-canary.example:8080", encoding="utf-8")
     for secret in (
         source_secret,
         source_api_id,
@@ -170,20 +168,14 @@ def test_production_workers_resolve_every_owned_category_and_reject_other_worker
     ):
         secret.chmod(0o400)
 
-    source = build_worker_secret_resolver(
-        app_env="production", secret_root=source_root, environ={}
-    )
-    publishing = build_worker_secret_resolver(
-        app_env="production", secret_root=publishing_root, environ={}
-    )
+    source = build_worker_secret_resolver(app_env="production", secret_root=source_root, environ={})
+    publishing = build_worker_secret_resolver(app_env="production", secret_root=publishing_root, environ={})
 
     assert source.resolve("OPENROUTER_API_KEY") == "provider-canary"
     assert source.resolve("TELEGRAM_SOURCE_EDITOR_API_ID") == "source-canary"
     assert source.resolve("HTTP_PROXY") == "http://source-proxy-canary.example:8080"
     assert publishing.resolve("TELEGRAM_DESTINATION_NEWS_TOKEN") == "destination-canary"
-    assert publishing.resolve("HTTP_PROXY") == (
-        "http://publishing-proxy-canary.example:8080"
-    )
+    assert publishing.resolve("HTTP_PROXY") == ("http://publishing-proxy-canary.example:8080")
     with pytest.raises(SecretNotConfiguredError):
         source.resolve("TELEGRAM_DESTINATION_NEWS_TOKEN")
     with pytest.raises(SecretNotConfiguredError):

@@ -1,5 +1,7 @@
 import { expect, test, type Page, type Route } from "@playwright/test"
 
+import { AVAILABLE_CAPABILITY_FIXTURE, fulfillMockJson } from "./support/mock-backend"
+
 type Platform = "telegram" | "instagram" | "x" | "blog"
 
 const ids = {
@@ -204,7 +206,22 @@ async function installMultiplatformBackend(page: Page): Promise<BackendState> {
     if (path === "/ai-provider-profiles" && method === "GET") return json(route, [providerWire()])
     if (path === "/prompt-templates" && method === "GET") return json(route, [{ id: ids.telegramTemplate, purpose_key: "telegram_pack" }])
     if (path === `/prompt-templates/${ids.telegramTemplate}/versions` && method === "GET") {
-      return json(route, [{ id: ids.telegramPrompt, version: 1, checksum_sha256: "1".repeat(64), is_active: true }])
+      return json(route, [{
+        id: ids.telegramPrompt,
+        prompt_template_id: ids.telegramTemplate,
+        version: 1,
+        system_template: "Follow the verified newsroom evidence.",
+        user_template: "{source_text}",
+        output_schema_version: "telegram_pack.v1",
+        output_schema: {},
+        checksum_sha256: "1".repeat(64),
+        is_active: true,
+        activated_at: now,
+        activated_by_type: "operator",
+        activated_by_id: null,
+        activation_reason: "Deterministic browser fixture",
+        created_at: now,
+      }])
     }
     for (const platform of platforms) {
       if (path === `/platform-variants/${ids.variants[platform]}/revisions` && method === "GET") {
@@ -293,7 +310,7 @@ async function expectNoHorizontalOverflow(page: Page) {
 }
 
 async function json(route: Route, body: unknown, status = 200) {
-  await route.fulfill({ status, contentType: "application/json", body: JSON.stringify(body) })
+  await fulfillMockJson(route, body, status)
 }
 
 function contentPack() {
@@ -461,7 +478,18 @@ function providerWire() {
     name: "Offline acceptance provider",
     provider_type: "codex",
     default_model: "offline-acceptance-model",
+    settings: {},
+    enabled: true,
+    configured: true,
     capabilities: { generation: true, research: false },
+    capability_states: {
+      generation: AVAILABLE_CAPABILITY_FIXTURE,
+      research: {
+        ...AVAILABLE_CAPABILITY_FIXTURE,
+        status: "unavailable",
+        failure_code: "research_configuration_missing",
+      },
+    },
     unavailability_codes: [],
   }
 }

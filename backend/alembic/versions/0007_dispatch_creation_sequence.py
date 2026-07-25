@@ -53,12 +53,7 @@ def upgrade() -> None:
             """
         )
     )
-    op.execute(
-        sa.text(
-            f"ALTER SEQUENCE {DISPATCH_SEQUENCE_NAME} "
-            "OWNED BY automation_dispatches.creation_sequence"
-        )
-    )
+    op.execute(sa.text(f"ALTER SEQUENCE {DISPATCH_SEQUENCE_NAME} OWNED BY automation_dispatches.creation_sequence"))
     op.alter_column(
         "automation_dispatches",
         "creation_sequence",

@@ -1,6 +1,7 @@
 import { apiRequest } from "@/lib/http"
+import type { components } from "@/lib/api/generated"
 
-import type { JobAccepted, JobStatus } from "@/features/jobs/types"
+import type { JobAccepted } from "@/features/jobs/types"
 import { RETENTION_CONFIRMATION } from "./types"
 import type {
   HistoryCategory,
@@ -24,87 +25,16 @@ import type {
   RetentionPolicy,
   RetentionPolicyValues,
   RetentionPreview,
-  RetentionRecordType,
   RetentionRunAccepted,
 } from "./types"
 
-type BackendOperationComponentHealth = {
-  status: OperationComponentHealth["status"]
-  observed_at: string | null
-  last_success_at: string | null
-  message: string
-  action_url: string | null
-}
-
-type BackendOperationAttentionItem = {
-  id: string
-  severity: OperationAttentionItem["severity"]
-  kind: OperationAttentionItem["kind"]
-  title: string
-  occurred_at: string
-  action_url: string
-}
-
-type BackendOperationsSnapshot = {
-  generated_at: string
-  global_paused: boolean
-  dry_run: boolean
-  components: Record<string, BackendOperationComponentHealth>
-  queue_counts: Record<string, number>
-  attention: BackendOperationAttentionItem[]
-  outbound_proxy: {
-    mode: "direct" | "proxy"
-    scheme: string | null
-    bypass_rule_count: number
-    last_connectivity_status: "not_checked" | "ok" | "failed"
-    configuration_error_code: string | null
-  }
-}
-
-type BackendHistoryEntry = {
-  id: string
-  occurred_at: string
-  category: HistoryCategory
-  status: string
-  title: string
-  summary: string
-  job_id: string | null
-  subject_url: string
-  sanitized_metadata: Record<string, unknown>
-}
-
-type BackendHistoryPage = {
-  items: BackendHistoryEntry[]
-  next_cursor: string | null
-}
-
-type BackendReconciliationOperation = {
-  operation_index: number
-  operation_key: string
-  method: string
-  request_hash: string
-  status: string
-  attempt_count: number
-  remote_message_ids: number[]
-  sent_at: string | null
-}
-
-type BackendReconciliationCase = {
-  publish_job_id: string
-  status: "pending"
-  publish_status: string
-  workflow_job_id: string | null
-  platform_variant_revision_id: string
-  destination: {
-    id: string
-    name: string
-    target_ref: string
-  }
-  operations: BackendReconciliationOperation[]
-  ambiguous_operation_key: string
-  ambiguous_at: string | null
-  ambiguity_reason: string
-}
+type BackendOperationComponentHealth = components["schemas"]["ComponentHealthOut"]
+type BackendOperationAttentionItem = components["schemas"]["AttentionItemOut"]
+type BackendOperationsSnapshot = components["schemas"]["OperationsSnapshotOut"]
+type BackendHistoryEntry = components["schemas"]["HistoryEntryOut"]
+type BackendHistoryPage = components["schemas"]["HistoryPageOut"]
+type BackendReconciliationOperation = components["schemas"]["ReconciliationOperationSummary"]
+type BackendReconciliationCase = components["schemas"]["ReconciliationCase"]
 
 type BackendReconciliationReceipt = {
   id: string
@@ -135,11 +65,7 @@ type BackendReconciledPublication = {
   reconciliation_status: "confirmed"
 }
 
-type BackendJobAccepted = {
-  job_id: string
-  status: JobStatus
-  deduplicated: boolean
-}
+type BackendJobAccepted = components["schemas"]["JobAcceptedOut"]
 
 type BackendRequeuedReconciliation = {
   publish_job_id: string
@@ -150,46 +76,11 @@ type BackendRequeuedReconciliation = {
 
 type BackendReconciliationDecisionResult = BackendReconciledPublication | BackendRequeuedReconciliation
 
-type BackendRetentionPolicyValues = {
-  raw_payload_days: number
-  completed_job_days: number
-  attempt_metadata_days: number
-  export_artifact_days: number
-  unreferenced_media_days: number
-}
-
-type BackendRetentionPolicy = BackendRetentionPolicyValues & {
-  id: "global"
-  created_at: string
-  updated_at: string
-}
-
-type BackendRetentionCandidate = {
-  category: RetentionCategory
-  record_type: RetentionRecordType
-  record_id: string
-  operation: RetentionCandidate["operation"]
-  occurred_at: string
-  byte_length: number | null
-}
-
-type BackendRetentionCategorySummary = {
-  count: number
-  byte_length: number | null
-  oldest_at: string | null
-  newest_at: string | null
-}
-
-type BackendRetentionPreview = {
-  run_id: string
-  preview_token: string
-  schema_revision: string
-  policy: BackendRetentionPolicyValues
-  candidates: BackendRetentionCandidate[]
-  counts: Partial<Record<RetentionCategory, BackendRetentionCategorySummary>>
-  previewed_at: string
-  preview_expires_at: string
-}
+type BackendRetentionPolicyValues = components["schemas"]["RetentionPolicyInput"]
+type BackendRetentionPolicy = components["schemas"]["RetentionPolicyOut"]
+type BackendRetentionCandidate = components["schemas"]["RetentionCandidateOut"]
+type BackendRetentionCategorySummary = components["schemas"]["RetentionCategorySummaryOut"]
+type BackendRetentionPreview = components["schemas"]["RetentionPreviewOut"]
 
 export async function fetchOperationsDiagnostics(): Promise<OperationsSnapshot> {
   return mapOperationsSnapshot(await apiRequest<BackendOperationsSnapshot>("/operations/diagnostics"))
@@ -305,10 +196,10 @@ function mapOperationsSnapshot(row: BackendOperationsSnapshot): OperationsSnapsh
     attention: row.attention.map(mapAttentionItem),
     outboundProxy: {
       mode: row.outbound_proxy.mode,
-      scheme: row.outbound_proxy.scheme,
+      scheme: row.outbound_proxy.scheme ?? null,
       bypassRuleCount: row.outbound_proxy.bypass_rule_count,
       lastConnectivityStatus: row.outbound_proxy.last_connectivity_status,
-      configurationErrorCode: row.outbound_proxy.configuration_error_code,
+      configurationErrorCode: row.outbound_proxy.configuration_error_code ?? null,
     },
   }
 }
@@ -455,7 +346,7 @@ function mapRetentionPreview(row: BackendRetentionPreview): RetentionPreview {
   >) {
     counts[category] = {
       count: summary.count,
-      byteLength: summary.byte_length,
+      byteLength: summary.byte_length ?? null,
       oldestAt: summary.oldest_at,
       newestAt: summary.newest_at,
     }
@@ -479,7 +370,7 @@ function mapRetentionCandidate(row: BackendRetentionCandidate): RetentionCandida
     recordId: row.record_id,
     operation: row.operation,
     occurredAt: row.occurred_at,
-    byteLength: row.byte_length,
+    byteLength: row.byte_length ?? null,
   }
 }
 

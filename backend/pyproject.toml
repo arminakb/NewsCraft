@@ -2,7 +2,7 @@
 name = "newscraft-backend"
 version = "0.1.0"
 description = "PostgreSQL-backed ingestion backend for NewsCraft"
-requires-python = ">=3.14"
+requires-python = ">=3.14,<3.15"
 dependencies = [
   "alembic>=1.16",
   "asyncpg>=0.30",
@@ -28,12 +28,23 @@ dependencies = [
   "uvicorn[standard]>=0.35",
 ]
 
-[project.optional-dependencies]
+[dependency-groups]
 dev = [
+  "mypy>=1.18,<2",
+  "packaging>=25,<27",
+  "pip-audit>=2.9,<3",
   "pytest>=8.4",
   "pytest-asyncio>=1.0",
+  "pytest-cov>=7,<8",
   "ruff>=0.13",
 ]
+
+[build-system]
+requires = ["setuptools>=82"]
+build-backend = "setuptools.build_meta"
+
+[tool.uv]
+required-version = "==0.11.29"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
@@ -50,3 +61,22 @@ target-version = "py314"
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B"]
+
+[tool.mypy]
+python_version = "3.14"
+files = [
+  "app/core/config.py",
+  "app/core/outbound_proxy.py",
+  "app/core/redaction.py",
+  "app/core/secrets.py",
+  "app/jobs/types.py",
+  "../scripts/backup_restore.py",
+  "../scripts/dependency_inventory.py",
+]
+check_untyped_defs = true
+ignore_missing_imports = true
+no_implicit_optional = true
+pretty = true
+show_error_codes = true
+warn_redundant_casts = true
+warn_unused_configs = true

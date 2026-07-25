@@ -58,6 +58,7 @@ def manual_generation_provider_schema(payload_type: type) -> dict[str, Any]:
     relax(schema)
     return schema
 
+
 DEFAULT_TELEGRAM_SYSTEM_TEMPLATE = """You rewrite source material for Telegram.
 Preserve factual meaning and do not invent facts.
 Obey the requested language, direction, tone, and attribution policy.

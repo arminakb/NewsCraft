@@ -67,14 +67,18 @@ async def test_fake_provider_is_deterministic_and_preserves_locked_result_contra
     second = await provider.generate(request)
 
     expected_output = {"z": 1, "text": "rewritten"}
-    assert first == second == GenerationProviderResult(
-        provider="fake",
-        requested_model="requested-v1",
-        resolved_model="fake-v1",
-        output=expected_output,
-        raw_text=json.dumps(expected_output, ensure_ascii=False, sort_keys=True, separators=(",", ":")),
-        usage={"input_tokens": 0, "output_tokens": 0, "cost_usd": 0},
-        finish_reason="stop",
+    assert (
+        first
+        == second
+        == GenerationProviderResult(
+            provider="fake",
+            requested_model="requested-v1",
+            resolved_model="fake-v1",
+            output=expected_output,
+            raw_text=json.dumps(expected_output, ensure_ascii=False, sort_keys=True, separators=(",", ":")),
+            usage={"input_tokens": 0, "output_tokens": 0, "cost_usd": 0},
+            finish_reason="stop",
+        )
     )
 
 
@@ -162,9 +166,7 @@ async def test_default_fake_provider_completes_cited_four_platform_acceptance_ou
                     ),
                 ),
                 response_schema={},
-                metadata={
-                    "input_payload": {"canonical_story_json": canonical_json}
-                },
+                metadata={"input_payload": {"canonical_story_json": canonical_json}},
             )
         )
         model.model_validate(result.output)

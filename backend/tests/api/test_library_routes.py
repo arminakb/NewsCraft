@@ -135,19 +135,12 @@ class _ResearchSession:
 
 
 def test_library_routes_are_registered_as_read_only_gets():
-    operations = {
-        (path, method.upper())
-        for path, row in app.openapi()["paths"].items()
-        for method in row
-    }
+    operations = {(path, method.upper()) for path, row in app.openapi()["paths"].items() for method in row}
     assert ("/library/evidence", "GET") in operations
     assert ("/library/originals", "GET") in operations
     assert ("/library/research-runs", "GET") in operations
     assert ("/library/research-runs/{run_id}", "GET") in operations
-    assert not any(
-        path.startswith("/library/") and method != "GET"
-        for path, method in operations
-    )
+    assert not any(path.startswith("/library/") and method != "GET" for path, method in operations)
 
 
 @pytest.mark.asyncio
@@ -252,10 +245,7 @@ async def test_evidence_cursor_remains_stable_when_a_newer_row_is_inserted_betwe
     from app.api.library import list_library_evidence
 
     now = datetime(2026, 7, 13, 12, tzinfo=UTC)
-    original = [
-        _evidence(captured_at=now - timedelta(minutes=index))
-        for index in range(3)
-    ]
+    original = [_evidence(captured_at=now - timedelta(minutes=index)) for index in range(3)]
     session = _EvidenceSession(original)
 
     first = await list_library_evidence(
@@ -374,11 +364,7 @@ async def test_exact_research_route_returns_the_same_safe_projection_and_404s_mi
         "result_story_revision_id",
         "error_summary",
     }
-    exact_sql = str(
-        found.statements[-1].compile(
-            dialect=postgresql.dialect(), compile_kwargs={"literal_binds": True}
-        )
-    )
+    exact_sql = str(found.statements[-1].compile(dialect=postgresql.dialect(), compile_kwargs={"literal_binds": True}))
     assert f"research_runs.id = '{run.id}'" in exact_sql
     with pytest.raises(HTTPException) as error:
         await get_library_research_run(run_id=uuid4(), session=missing)
@@ -419,10 +405,7 @@ async def test_research_cursor_remains_stable_when_a_newer_row_is_inserted_betwe
     from app.api.library import list_library_research_runs
 
     now = datetime(2026, 7, 13, 12, tzinfo=UTC)
-    original = [
-        _research_run(created_at=now - timedelta(minutes=index))
-        for index in range(3)
-    ]
+    original = [_research_run(created_at=now - timedelta(minutes=index)) for index in range(3)]
     session = _ResearchSession(original)
 
     first = await list_library_research_runs(
@@ -481,14 +464,10 @@ async def test_routes_apply_cursor_filters_and_limit_to_the_database_projection(
     )
 
     evidence_sql = str(
-        evidence_session.statements[-1].compile(
-            dialect=postgresql.dialect(), compile_kwargs={"literal_binds": True}
-        )
+        evidence_session.statements[-1].compile(dialect=postgresql.dialect(), compile_kwargs={"literal_binds": True})
     )
     research_sql = str(
-        research_session.statements[-1].compile(
-            dialect=postgresql.dialect(), compile_kwargs={"literal_binds": True}
-        )
+        research_session.statements[-1].compile(dialect=postgresql.dialect(), compile_kwargs={"literal_binds": True})
     )
     assert str(story_id) in evidence_sql and str(source_id) in evidence_sql
     assert "LIMIT 8" in evidence_sql

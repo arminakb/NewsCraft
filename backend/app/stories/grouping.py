@@ -26,8 +26,7 @@ class GroupingDecision:
 def normalize_title(value: str) -> frozenset[str]:
     normalized = unicodedata.normalize("NFKC", value).casefold()
     without_punctuation = "".join(
-        " " if unicodedata.category(character).startswith("P") else character
-        for character in normalized
+        " " if unicodedata.category(character).startswith("P") else character for character in normalized
     )
     return frozenset(token for token in without_punctuation.split() if len(token) >= 2)
 

@@ -130,10 +130,10 @@ def _entry_date(entry: Any, default_timezone: str) -> tuple[str | None, datetime
     if raw:
         try:
             return raw, parse_source_datetime(raw, default_timezone=default_timezone)[0], "parsed"
-        except (ValueError, TypeError, OverflowError):
+        except ValueError, TypeError, OverflowError:
             try:
                 parsed = parsedate_to_datetime(raw)
-            except (TypeError, ValueError):
+            except TypeError, ValueError:
                 return raw, None, "failed"
             return raw, parsed.astimezone(UTC), "parsed"
 

@@ -58,11 +58,7 @@ async def trusted_story_media(
     *,
     lock_rows: bool = False,
 ) -> tuple[dict[UUID, MediaAsset], list[dict[str, Any]]]:
-    content_item_ids = {
-        record.content_item_id
-        for record in evidence.values()
-        if record.content_item_id is not None
-    }
+    content_item_ids = {record.content_item_id for record in evidence.values() if record.content_item_id is not None}
     if not content_item_ids:
         return {}, []
     link_statement = (
@@ -82,11 +78,7 @@ async def trusted_story_media(
     asset_ids = {link.media_asset_id for link in links}
     if not asset_ids:
         return {}, []
-    asset_statement = (
-        select(MediaAsset)
-        .where(MediaAsset.id.in_(asset_ids))
-        .order_by(MediaAsset.id)
-    )
+    asset_statement = select(MediaAsset).where(MediaAsset.id.in_(asset_ids)).order_by(MediaAsset.id)
     if lock_rows:
         asset_statement = asset_statement.with_for_update().execution_options(populate_existing=True)
     assets = list(await session.scalars(asset_statement))
@@ -115,9 +107,7 @@ async def trusted_story_media(
                 "mime_type": asset.mime_type,
                 "width": asset.width,
                 "height": asset.height,
-                "duration_seconds": (
-                    str(asset.duration_seconds) if asset.duration_seconds is not None else None
-                ),
+                "duration_seconds": (str(asset.duration_seconds) if asset.duration_seconds is not None else None),
                 "byte_length": asset.byte_length,
                 "checksum_sha256": asset.checksum_sha256,
                 "fetch_status": asset.fetch_status,

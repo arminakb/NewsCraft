@@ -1,5 +1,7 @@
 import { expect, test, type Page, type Route } from "@playwright/test"
 
+import { AVAILABLE_CAPABILITY_FIXTURE, fulfillMockJson } from "./support/mock-backend"
+
 const ids = {
   template: "11111111-1111-4111-8111-111111111111",
   prompt1: "22222222-2222-4222-8222-222222222222",
@@ -383,7 +385,7 @@ async function expectNoHorizontalOverflow(page: Page) {
 }
 
 async function json(route: Route, body: unknown, status = 200) {
-  await route.fulfill({ status, contentType: "application/json", body: JSON.stringify(body) })
+  await fulfillMockJson(route, body, status)
 }
 
 function automationControl(state: BackendState) {
@@ -427,27 +429,43 @@ function provider() {
     id: ids.provider, name: "OpenRouter newsroom", provider_type: "openrouter", default_model: "openai/gpt-5-mini",
     settings: {}, enabled: true, configured: true,
     capabilities: { generation: true, research: true }, unavailability_codes: [],
+    capability_states: {
+      generation: AVAILABLE_CAPABILITY_FIXTURE,
+      research: AVAILABLE_CAPABILITY_FIXTURE,
+    },
   }
 }
 
 function source() {
   return {
     id: ids.source, name: "Source newsroom", channel_ref: "source_newsroom", access_mode: "public_html",
-    language_hint: "fa", configured: true,
+    language_hint: "fa", configured: true, capability_state: AVAILABLE_CAPABILITY_FIXTURE,
   }
 }
 
 function destination() {
   return {
     id: ids.destination, name: "Main newsroom", target_ref: "@newscraft", enabled: true,
-    health_status: "healthy", configured: true, settings: {},
+    canonical_target: "@newscraft", target_type: "username", health_status: "healthy", configured: true,
+    proxy_profile_id: null, connection_route: "direct", proxy_health_status: "healthy",
+    telegram_health_status: "healthy", bot_health_status: "healthy", target_health_status: "healthy",
+    administrator_status: "administrator", failure_code: null,
+    verified_bot_id: 123456, verified_bot_username: "newscraft_bot",
+    verified_chat_id: -1001234567890, verified_chat_title: "Main newsroom", verified_chat_type: "channel",
+    last_checked_at: "2026-07-12T08:00:00Z", last_rotated_at: null,
+    created_at: "2026-07-12T08:00:00Z", updated_at: "2026-07-12T08:00:00Z", settings: {},
   }
 }
 
 function automationOptions(state: BackendState) {
   return {
     sources: [],
-    destinations: [{ id: ids.destination, name: "Main newsroom", health_status: "healthy" }],
+    destinations: [{
+      id: ids.destination,
+      name: "Main newsroom",
+      health_status: "healthy",
+      capability_state: AVAILABLE_CAPABILITY_FIXTURE,
+    }],
     brand_profiles: [{ id: ids.brand, name: "Persian newsroom" }],
     prompt_template_versions: [{
       id: state.prompt2Active ? ids.prompt2 : ids.prompt1,
@@ -459,6 +477,10 @@ function automationOptions(state: BackendState) {
       id: ids.provider, name: "OpenRouter newsroom", provider_type: "openrouter",
       default_model: "openai/gpt-5-mini", configured: true,
       capabilities: { generation: true, research: true }, unavailability_codes: [],
+      capability_states: {
+        generation: AVAILABLE_CAPABILITY_FIXTURE,
+        research: AVAILABLE_CAPABILITY_FIXTURE,
+      },
     }],
   }
 }

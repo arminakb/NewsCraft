@@ -63,8 +63,7 @@ class RenderedRevisionHtmlOut(BaseModel):
     html: str = Field(min_length=1)
 
 
-def get_editorial_profile_resolver(
-) -> None:
+def get_editorial_profile_resolver() -> None:
     """The API never constructs a provider or resolves a worker credential."""
     return None
 

@@ -134,9 +134,7 @@ def _prior_decision_event(
             "operator_note": "[REDACTED]",
             "publication_id": str(publication_id) if publication_id is not None else None,
             "requeued_workflow_job_id": (
-                str(requeued_workflow_job_id)
-                if requeued_workflow_job_id is not None
-                else None
+                str(requeued_workflow_job_id) if requeued_workflow_job_id is not None else None
             ),
             "requeued_job_status": requeued_job_status,
             "requeued_job_deduplicated": requeued_job_deduplicated,
@@ -243,24 +241,23 @@ def test_reconciliation_schema_is_conservative():
     )
     assert published.remote_message_ids == [501, 502]
     assert published.operator_note == "Verified in the destination channel"
-    assert TelegramReconcileIn.model_validate(
-        {
-            "outcome": "not_published",
-            "operator_note": "  Verified manually  ",
-        }
-    ).operator_note == "Verified manually"
+    assert (
+        TelegramReconcileIn.model_validate(
+            {
+                "outcome": "not_published",
+                "operator_note": "  Verified manually  ",
+            }
+        ).operator_note
+        == "Verified manually"
+    )
     assert TelegramReconcileIn.model_validate({"outcome": "not_published"}).operator_note is None
     with pytest.raises(ValidationError):
         TelegramReconcileIn.model_validate({"outcome": "unknown"})
     with pytest.raises(ValidationError):
-        TelegramReconcileIn.model_validate(
-            {"outcome": "not_published", "permalink": "https://t.me/target/501"}
-        )
+        TelegramReconcileIn.model_validate({"outcome": "not_published", "permalink": "https://t.me/target/501"})
     for invalid_note in ("four", "     ", "x" * 1_001):
         with pytest.raises(ValidationError):
-            TelegramReconcileIn.model_validate(
-                {"outcome": "not_published", "operator_note": invalid_note}
-            )
+            TelegramReconcileIn.model_validate({"outcome": "not_published", "operator_note": invalid_note})
 
 
 def test_published_reconciliation_only_confirms_one_ambiguous_operation_with_all_others_succeeded():

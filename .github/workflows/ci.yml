@@ -1,0 +1,460 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  PYTHON_VERSION: 3.14.6
+  UV_VERSION: 0.11.29
+  NODE_VERSION: 26.4.0
+  FORCE_COLOR: "1"
+
+jobs:
+  backend-static:
+    name: Backend static
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v7
+        with:
+          version: ${{ env.UV_VERSION }}
+          enable-cache: true
+          cache-dependency-glob: backend/uv.lock
+      - uses: actions/setup-python@v6
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - name: Frozen development install
+        working-directory: backend
+        run: uv sync --locked
+      - name: Compile, lint, format, and typecheck
+        working-directory: backend
+        run: |
+          uv run python -m compileall -q app tests ../scripts
+          uv run ruff check . ../scripts
+          uv run ruff format --check . ../scripts
+          uv run mypy
+      - name: Assert lock remains unchanged
+        run: git diff --exit-code -- backend/pyproject.toml backend/uv.lock
+
+  backend-unit:
+    name: Backend unit
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    env:
+      APP_ENV: test
+      OPENROUTER_API_KEY: ""
+      TELEGRAM_SOURCE_EDITOR_API_ID: ""
+      TELEGRAM_SOURCE_EDITOR_API_HASH: ""
+      TELEGRAM_SOURCE_EDITOR_SESSION: ""
+      TELEGRAM_DESTINATION_NEWS_TOKEN: ""
+      HTTP_PROXY: ""
+      HTTPS_PROXY: ""
+      ALL_PROXY: ""
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v7
+        with:
+          version: ${{ env.UV_VERSION }}
+          enable-cache: true
+          cache-dependency-glob: backend/uv.lock
+      - uses: actions/setup-python@v6
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - name: Frozen development install
+        working-directory: backend
+        run: uv sync --locked
+      - name: Credential-free unit suite
+        working-directory: backend
+        run: |
+          mkdir -p reports
+          uv run pytest -p no:cacheprovider -q \
+            --ignore=tests/postgres \
+            --ignore=tests/integration \
+            --ignore=tests/test_dispatch_sequence_migration_postgres.py \
+            --cov=app --cov-report=term --cov-report=xml:reports/coverage.xml \
+            --junitxml=reports/unit.xml
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: backend-unit-reports
+          path: backend/reports/
+          retention-days: 30
+
+  backend-postgres:
+    name: Backend PostgreSQL and integration
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    env:
+      APP_ENV: test
+      DATABASE_URL: postgresql+asyncpg://newscraft:newscraft@127.0.0.1:5432/newscraft_test
+      TEST_DATABASE_URL: postgresql+asyncpg://newscraft:newscraft@127.0.0.1:5432/newscraft_test
+      OPENROUTER_API_KEY: ""
+      TELEGRAM_SOURCE_EDITOR_API_ID: ""
+      TELEGRAM_SOURCE_EDITOR_API_HASH: ""
+      TELEGRAM_SOURCE_EDITOR_SESSION: ""
+      TELEGRAM_DESTINATION_NEWS_TOKEN: ""
+      HTTP_PROXY: ""
+      HTTPS_PROXY: ""
+      ALL_PROXY: ""
+    services:
+      postgres:
+        image: postgres:18.3-bookworm@sha256:80630f83606d8db77d30b3851b16a9f78be2d0d4dda6f7b82a1fdca5ebe3acba
+        env:
+          POSTGRES_USER: newscraft
+          POSTGRES_PASSWORD: newscraft
+          POSTGRES_DB: newscraft_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U newscraft -d newscraft_test"
+          --health-interval 2s
+          --health-timeout 2s
+          --health-retries 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v7
+        with:
+          version: ${{ env.UV_VERSION }}
+          enable-cache: true
+          cache-dependency-glob: backend/uv.lock
+      - uses: actions/setup-python@v6
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - name: Frozen development install
+        working-directory: backend
+        run: uv sync --locked
+      - name: Migrate isolated test database
+        working-directory: backend
+        run: uv run alembic upgrade head
+      - name: PostgreSQL and process-crash suites
+        working-directory: backend
+        run: |
+          mkdir -p reports
+          uv run pytest -p no:cacheprovider -q \
+            tests/postgres tests/integration tests/stories/test_manual_intake_postgres.py \
+            --junitxml=reports/postgres.xml
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: backend-postgres-reports
+          path: backend/reports/
+          retention-days: 30
+
+  migrations:
+    name: Migration contract
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    env:
+      DATABASE_URL: postgresql+asyncpg://newscraft:newscraft@127.0.0.1:5432/newscraft_migration_test
+      TEST_DATABASE_URL: postgresql+asyncpg://newscraft:newscraft@127.0.0.1:5432/newscraft_migration_test
+    services:
+      postgres:
+        image: postgres:18.3-bookworm@sha256:80630f83606d8db77d30b3851b16a9f78be2d0d4dda6f7b82a1fdca5ebe3acba
+        env:
+          POSTGRES_USER: newscraft
+          POSTGRES_PASSWORD: newscraft
+          POSTGRES_DB: newscraft_migration_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U newscraft -d newscraft_migration_test"
+          --health-interval 2s
+          --health-timeout 2s
+          --health-retries 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v7
+        with:
+          version: ${{ env.UV_VERSION }}
+          enable-cache: true
+          cache-dependency-glob: backend/uv.lock
+      - uses: actions/setup-python@v6
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - name: Frozen development install
+        working-directory: backend
+        run: uv sync --locked
+      - name: One head and empty-database upgrade
+        working-directory: backend
+        run: |
+          test "$(uv run alembic heads | wc -l)" -eq 1
+          uv run alembic upgrade head
+          uv run alembic current
+          uv run alembic check
+      - name: Supported upgrade/downgrade regression
+        working-directory: backend
+        run: |
+          mkdir -p reports
+          uv run pytest -p no:cacheprovider -q \
+            tests/test_dispatch_sequence_migration_postgres.py \
+            --junitxml=reports/migrations.xml
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: migration-reports
+          path: backend/reports/
+          retention-days: 30
+
+  frontend:
+    name: Frontend test, type, and build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Frozen install
+        working-directory: frontend
+        run: npm ci
+      - name: Generate clean route types
+        working-directory: frontend
+        run: |
+          rm -rf .next
+          npm exec next typegen
+      - name: Typecheck, unit tests, and production build
+        working-directory: frontend
+        run: |
+          npm run typecheck
+          mkdir -p reports
+          npm test -- --reporter=default --reporter=junit --outputFile.junit=reports/vitest.xml
+          npm run build
+      - name: Assert source and lock remain unchanged
+        run: git diff --exit-code -- frontend/package.json frontend/package-lock.json frontend/next-env.d.ts
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: frontend-reports
+          path: frontend/reports/
+          retention-days: 30
+
+  contracts:
+    name: API and browser contracts
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v7
+        with:
+          version: ${{ env.UV_VERSION }}
+          enable-cache: true
+          cache-dependency-glob: backend/uv.lock
+      - uses: actions/setup-python@v6
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Frozen installs
+        run: |
+          cd backend && uv sync --locked
+          cd ../frontend && npm ci
+      - name: Contract mapping suites
+        run: |
+          cd backend
+          mkdir -p reports
+          uv run python scripts/export_openapi.py --output ../contracts/openapi.json
+          uv run pytest -p no:cacheprovider -q tests/test_openapi_contract.py tests/test_api.py tests/api --junitxml=reports/contracts.xml
+          cd ../frontend
+          npm run api:generate
+          npm run typecheck
+          npm test -- --run tests/openapi-contract.test.ts tests/operations-api.test.ts tests/api-client.test.ts tests/backend-proxy-route.test.ts tests/control-api.test.ts tests/editorial-api.test.ts tests/job-api.test.ts tests/packages-api.test.ts tests/telegram-api.test.ts
+          cd ..
+          git diff --exit-code -- contracts/openapi.json frontend/lib/api/generated.ts
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: contract-reports
+          path: backend/reports/
+          retention-days: 30
+
+  compose-and-images:
+    name: Compose and production images
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: astral-sh/setup-uv@v7
+        with:
+          version: ${{ env.UV_VERSION }}
+          enable-cache: true
+          cache-dependency-glob: backend/uv.lock
+      - uses: actions/setup-python@v6
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - name: Render every supported topology
+        env:
+          HTTP_PROXY: ""
+          HTTPS_PROXY: ""
+          ALL_PROXY: ""
+        run: |
+          docker compose config --quiet
+          docker compose -f docker-compose.yml -f docker-compose.production.yml config --quiet
+          docker compose -f docker-compose.yml -f docker-compose.dev.yml config --quiet
+          docker compose -f docker-compose.yml -f docker-compose.test.yml --profile test config --quiet
+          docker compose -f docker-compose.yml -f docker-compose.acceptance.yml config --quiet
+          docker compose -f docker-compose.yml -f docker-compose.proxy.yml config --quiet
+      - name: Topology and immutable-input tests
+        working-directory: backend
+        run: |
+          uv sync --locked
+          uv run pytest -p no:cacheprovider -q tests/test_docker_config.py tests/test_dependency_locking.py
+      - name: Build production images
+        run: |
+          mkdir -p reports
+          docker build --pull -t newscraft-ci-backend:${{ github.sha }} backend
+          docker build --pull -t newscraft-ci-frontend:${{ github.sha }} frontend
+      - name: Smoke production-only runtime contents
+        run: |
+          docker run --rm newscraft-ci-backend:${{ github.sha }} python -c \
+            "import importlib.util; import app.main; assert importlib.util.find_spec('pytest') is None; assert importlib.util.find_spec('ruff') is None"
+          docker run --rm --entrypoint node newscraft-ci-frontend:${{ github.sha }} -e \
+            "require('node:fs').accessSync('/app/server.js'); require('node:fs').accessSync('/app/.next/static')"
+      - name: Backend CycloneDX SBOM
+        uses: anchore/sbom-action@v0
+        with:
+          image: newscraft-ci-backend:${{ github.sha }}
+          format: cyclonedx-json
+          output-file: reports/backend.cdx.json
+          upload-artifact: false
+      - name: Frontend CycloneDX SBOM
+        uses: anchore/sbom-action@v0
+        with:
+          image: newscraft-ci-frontend:${{ github.sha }}
+          format: cyclonedx-json
+          output-file: reports/frontend.cdx.json
+          upload-artifact: false
+      - name: Scan backend image
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: newscraft-ci-backend:${{ github.sha }}
+          format: sarif
+          output: reports/trivy-backend.sarif
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: "1"
+      - name: Scan frontend image
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: newscraft-ci-frontend:${{ github.sha }}
+          format: sarif
+          output: reports/trivy-frontend.sarif
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: "1"
+      - name: Record dependency inventory
+        run: python3 scripts/dependency_inventory.py --output reports/dependency-inventory.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: image-dependency-inventory
+          path: reports/
+          retention-days: 30
+
+  security:
+    name: Dependency and secret policy
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: astral-sh/setup-uv@v7
+        with:
+          version: ${{ env.UV_VERSION }}
+          enable-cache: true
+          cache-dependency-glob: backend/uv.lock
+      - uses: actions/setup-python@v6
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Frozen installs
+        run: |
+          cd backend && uv sync --locked
+          cd ../frontend && npm ci
+      - name: Dependency audits
+        run: |
+          cd backend && uv run pip-audit --desc
+          cd ../frontend && npm audit --audit-level=high
+      - name: Credential boundary tests
+        working-directory: backend
+        run: >-
+          uv run pytest -p no:cacheprovider -q
+          tests/core/test_secret_boundary.py
+          tests/core/test_external_secret_boundary.py
+          tests/core/test_attempt_error_secret_boundary.py
+          tests/test_secret_redaction.py
+          tests/test_credential_capabilities.py
+      - uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+
+  browser-mocked:
+    name: Mocked browser acceptance
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    env:
+      PLAYWRIGHT_PORT: "3000"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Frozen install and Chromium
+        working-directory: frontend
+        run: |
+          npm ci
+          npx playwright install --with-deps chromium
+      - name: Mocked Playwright suite
+        working-directory: frontend
+        run: npm run test:e2e -- --reporter=line,html
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: playwright-report
+          path: |
+            frontend/playwright-report/
+            frontend/test-results/
+          retention-days: 30
+
+  release-gate:
+    name: Release gate
+    if: always()
+    needs:
+      - backend-static
+      - backend-unit
+      - backend-postgres
+      - migrations
+      - frontend
+      - contracts
+      - compose-and-images
+      - security
+      - browser-mocked
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Require every blocking job
+        env:
+          NEEDS_JSON: ${{ toJson(needs) }}
+        run: jq -e 'all(.[]; .result == "success")' <<<"$NEEDS_JSON"

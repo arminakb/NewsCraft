@@ -372,12 +372,7 @@ def _apply_article_filters(
     display_at = _display_at_expression()
     content_type, topic, language = _article_classification_expressions()
     if filters.title_query is not None:
-        escaped_query = (
-            filters.title_query
-            .replace("\\", "\\\\")
-            .replace("%", "\\%")
-            .replace("_", "\\_")
-        )
+        escaped_query = filters.title_query.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
         statement = statement.where(ContentItem.title.ilike(f"%{escaped_query}%", escape="\\"))
     if filters.languages:
         statement = statement.where(language.in_(filters.languages))
@@ -446,9 +441,7 @@ def article_list_statement(
                 or_(
                     ContentItem.score < cursor_score,
                     (ContentItem.score == cursor_score) & (display_at < cursor_at),
-                    (ContentItem.score == cursor_score)
-                    & (display_at == cursor_at)
-                    & (ContentItem.id < cursor_id),
+                    (ContentItem.score == cursor_score) & (display_at == cursor_at) & (ContentItem.id < cursor_id),
                 )
             )
     if sort == "score":
@@ -533,7 +526,7 @@ def decode_article_cursor(
                 raise ValueError
             return score, display_at, content_item_id
         return display_at, content_item_id
-    except (binascii.Error, UnicodeError, json.JSONDecodeError, KeyError, TypeError, ValueError):
+    except binascii.Error, UnicodeError, json.JSONDecodeError, KeyError, TypeError, ValueError:
         raise ValueError("invalid article cursor") from None
 
 
@@ -636,12 +629,7 @@ def _source(row: Any) -> ArticleSourceOut:
 
 
 def _primary_image(row: Any) -> ArticleImageOut | None:
-    if (
-        row.image_id is None
-        or row.image_kind != "image"
-        or row.image_fetch_status == "expired"
-        or not row.image_url
-    ):
+    if row.image_id is None or row.image_kind != "image" or row.image_fetch_status == "expired" or not row.image_url:
         return None
     return ArticleImageOut(
         id=row.image_id,
@@ -719,8 +707,7 @@ async def _coverage_states_for_items(
         include_historical=False,
     )
     return {
-        content_item_id: _coverage(associations.get(content_item_id, [])).state
-        for content_item_id in content_item_ids
+        content_item_id: _coverage(associations.get(content_item_id, [])).state for content_item_id in content_item_ids
     }
 
 
@@ -739,11 +726,7 @@ async def _coverage_filter_ids(
     candidate_ids = list(await session.scalars(candidate_statement))
     states = await _coverage_states_for_items(session, candidate_ids)
     selected_states = set(filters.coverage)
-    return {
-        content_item_id
-        for content_item_id, state in states.items()
-        if state in selected_states
-    }
+    return {content_item_id for content_item_id, state in states.items() if state in selected_states}
 
 
 async def _text_facets(session: AsyncSession, expression) -> list[ArticleFacetValueOut]:
@@ -1009,11 +992,7 @@ async def list_articles(
             )
             for row in page
         ],
-        next_cursor=(
-            encode_article_cursor(sort, page[-1], filters_key)
-            if len(rows) > limit and page
-            else None
-        ),
+        next_cursor=(encode_article_cursor(sort, page[-1], filters_key) if len(rows) > limit and page else None),
         result_count=result_count,
     )
 
@@ -1052,8 +1031,7 @@ async def get_article_facets(
             for row in source_rows
         ],
         coverage=[
-            ArticleCoverageFacetOut(value=state, count=count)
-            for state, count in sorted(coverage_counts.items())
+            ArticleCoverageFacetOut(value=state, count=count) for state, count in sorted(coverage_counts.items())
         ],
     )
 
@@ -1066,9 +1044,9 @@ async def get_article(
     row = (await session.execute(article_detail_statement(content_item_id))).one_or_none()
     if row is None:
         raise HTTPException(status_code=404, detail="article not found")
-    associations = (
-        await _story_associations(session, [content_item_id], include_historical=True)
-    ).get(content_item_id, [])
+    associations = (await _story_associations(session, [content_item_id], include_historical=True)).get(
+        content_item_id, []
+    )
     memberships = await _saved_collections_for_items(session, [content_item_id])
     return ArticleDetailOut(
         **_core_fields(

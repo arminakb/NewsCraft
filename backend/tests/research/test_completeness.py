@@ -127,12 +127,8 @@ def test_offline_psl_uses_private_domains_and_multilevel_public_suffixes() -> No
 def test_unicode_and_punycode_hosts_are_one_independent_source() -> None:
     report = evaluate_completeness(
         [
-            CompletenessEvidence.from_record(
-                _record(url="https://www.bücher.de/a", body="a" * 400), is_primary=True
-            ),
-            CompletenessEvidence.from_record(
-                _record(url="https://www.xn--bcher-kva.de/b", body="b" * 400)
-            ),
+            CompletenessEvidence.from_record(_record(url="https://www.bücher.de/a", body="a" * 400), is_primary=True),
+            CompletenessEvidence.from_record(_record(url="https://www.xn--bcher-kva.de/b", body="b" * 400)),
         ]
     )
 
@@ -144,12 +140,8 @@ def test_unicode_and_punycode_hosts_are_one_independent_source() -> None:
 def test_idna2008_sharp_s_and_punycode_hosts_are_one_independent_source() -> None:
     report = evaluate_completeness(
         [
-            CompletenessEvidence.from_record(
-                _record(url="https://faß.de/a", body="a" * 400), is_primary=True
-            ),
-            CompletenessEvidence.from_record(
-                _record(url="https://xn--fa-hia.de/b", body="b" * 400)
-            ),
+            CompletenessEvidence.from_record(_record(url="https://faß.de/a", body="a" * 400), is_primary=True),
+            CompletenessEvidence.from_record(_record(url="https://xn--fa-hia.de/b", body="b" * 400)),
         ]
     )
 

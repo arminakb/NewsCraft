@@ -19,7 +19,7 @@ from app.jobs.models import AutomationControl, WorkflowJob
 from app.jobs.runtime import RuntimeHeartbeatService
 from app.jobs.types import JobStatus
 from app.operations.health import database_time, normalize_utc, snapshot_high_water
-from app.publishing.models import Destination, Publication, PublishJob
+from app.publishing.models import Destination, Publication, PublishJob, PublishOperationReceipt
 from app.research.models import ResearchAttempt, ResearchRun
 
 AttentionKind = Literal[
@@ -254,6 +254,14 @@ class OperationsDiagnostics:
                 .limit(100)
             )
         )
+        publish_receipts = list(
+            await self.session.scalars(
+                select(PublishOperationReceipt)
+                .where(PublishOperationReceipt.status.in_(("dispatching", "ambiguous")))
+                .order_by(PublishOperationReceipt.updated_at.desc(), PublishOperationReceipt.id.desc())
+                .limit(100)
+            )
+        )
         publication_rows = list(
             (
                 await self.session.execute(
@@ -310,6 +318,8 @@ class OperationsDiagnostics:
                 links["workflow_job"].get(str(job.workflow_job_id)),
             ):
                 candidates.append(item)
+        for receipt in publish_receipts:
+            candidates.append(_publish_receipt_attention(receipt))
         for publication, workflow_job_id in publication_rows:
             item = _publication_attention(publication)
             if _newer_than_links(
@@ -483,6 +493,17 @@ def _publication_attention(publication: Publication) -> AttentionItem:
         kind="publication",
         title=_safe_text("Publication requires reconciliation: ", publication.reconciliation_status),
         occurred_at=publication.published_at,
+        action_url="/jobs",
+    )
+
+
+def _publish_receipt_attention(receipt: PublishOperationReceipt) -> AttentionItem:
+    return AttentionItem(
+        id=f"publication:{receipt.publish_job_id}",
+        severity="error" if receipt.status == "ambiguous" else "warning",
+        kind="publication",
+        title=_safe_text("Telegram publish receipt requires attention: ", receipt.status),
+        occurred_at=receipt.ambiguous_at or receipt.updated_at,
         action_url="/jobs",
     )
 

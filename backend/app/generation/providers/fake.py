@@ -46,11 +46,7 @@ def _default_output(request: GenerationProviderRequest) -> dict[str, Any]:
         if not isinstance(evidence, list) or not evidence:
             raise ValueError("fake canonical generation requires persisted evidence")
         source = next(
-            (
-                item
-                for item in evidence
-                if isinstance(item, dict) and str(item.get("content_text") or "")
-            ),
+            (item for item in evidence if isinstance(item, dict) and str(item.get("content_text") or "")),
             None,
         )
         if source is None:

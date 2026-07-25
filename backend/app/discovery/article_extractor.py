@@ -159,7 +159,7 @@ def _parse_google_news_decode_response(value: str) -> str | None:
     try:
         payload_text = value.split("\n\n", 1)[1] if "\n\n" in value else value.removeprefix(")]}'\n")
         rows = json.loads(payload_text)
-    except (IndexError, json.JSONDecodeError):
+    except IndexError, json.JSONDecodeError:
         return None
     for row in rows:
         if not isinstance(row, list) or len(row) < 3 or row[0] != "wrb.fr" or not isinstance(row[2], str):
@@ -264,7 +264,7 @@ def _parse_datetime(value: str | None) -> datetime | None:
         return None
     try:
         return parse_source_datetime(value)[0]
-    except (ValueError, TypeError, OverflowError):
+    except ValueError, TypeError, OverflowError:
         return None
 
 

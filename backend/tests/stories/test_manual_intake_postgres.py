@@ -50,14 +50,9 @@ async def manual_engine() -> AsyncIterator[AsyncEngine]:
 
 @pytest_asyncio.fixture
 async def manual_factory(manual_engine: AsyncEngine):
-    table_names = [
-        manual_engine.dialect.identifier_preparer.quote(table.name)
-        for table in Base.metadata.sorted_tables
-    ]
+    table_names = [manual_engine.dialect.identifier_preparer.quote(table.name) for table in Base.metadata.sorted_tables]
     async with manual_engine.begin() as connection:
-        await connection.execute(
-            text(f"TRUNCATE TABLE {', '.join(table_names)} RESTART IDENTITY CASCADE")
-        )
+        await connection.execute(text(f"TRUNCATE TABLE {', '.join(table_names)} RESTART IDENTITY CASCADE"))
     return async_sessionmaker(manual_engine, expire_on_commit=False)
 
 
@@ -134,12 +129,15 @@ async def test_two_session_manual_replay_serializes_to_one_complete_materializat
         assert await count_rows(session, RawPayload) == 1
         assert await count_rows(session, ContentItem) == 1
         assert await count_rows(session, SourceItem) == 1
-        assert await count_rows(
-            session,
-            WorkflowEvent,
-            WorkflowEvent.workflow_job_id == job_id,
-            WorkflowEvent.event_type == "manual_intake.completed",
-        ) == 1
+        assert (
+            await count_rows(
+                session,
+                WorkflowEvent,
+                WorkflowEvent.workflow_job_id == job_id,
+                WorkflowEvent.event_type == "manual_intake.completed",
+            )
+            == 1
+        )
 
 
 @pytest.mark.asyncio
@@ -161,8 +159,7 @@ async def test_late_database_failure_rolls_back_manual_rows_and_keeps_outer_sess
 
         def fail_completion_flush(sync_session, flush_context, instances):
             if any(
-                isinstance(value, WorkflowEvent)
-                and value.event_type == "manual_intake.completed"
+                isinstance(value, WorkflowEvent) and value.event_type == "manual_intake.completed"
                 for value in sync_session.new
             ):
                 raise RuntimeError("forced late persistence failure")
@@ -183,11 +180,14 @@ async def test_late_database_failure_rolls_back_manual_rows_and_keeps_outer_sess
         assert await count_rows(session, RawPayload) == 0
         assert await count_rows(session, ContentItem) == 0
         assert await count_rows(session, SourceItem) == 0
-        assert await count_rows(
-            session,
-            WorkflowEvent,
-            WorkflowEvent.event_type == "manual_intake.completed",
-        ) == 0
+        assert (
+            await count_rows(
+                session,
+                WorkflowEvent,
+                WorkflowEvent.event_type == "manual_intake.completed",
+            )
+            == 0
+        )
 
         failed_job = await JobRepository(session).fail_job(
             job_id=job_id,

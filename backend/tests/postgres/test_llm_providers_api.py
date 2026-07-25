@@ -216,9 +216,7 @@ async def test_fake_provider_api_supports_full_operator_lifecycle(
 
     tested = await _request(db_session, "POST", f"/llm-providers/{provider_id}/test")
     enabled = await _request(db_session, "POST", f"/llm-providers/{provider_id}/enable")
-    dependencies = await _request(
-        db_session, "GET", f"/llm-providers/{provider_id}/dependencies"
-    )
+    dependencies = await _request(db_session, "GET", f"/llm-providers/{provider_id}/dependencies")
     disabled = await _request(db_session, "POST", f"/llm-providers/{provider_id}/disable")
     deleted = await _request(db_session, "DELETE", f"/llm-providers/{provider_id}")
 

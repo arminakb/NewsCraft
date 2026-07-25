@@ -90,21 +90,13 @@ async def test_follow_active_resolves_once_and_persists_exact_job_prompt_snapsho
             if model is WorkflowJob and identifier == workflow_job.id:
                 return workflow_job
             return next(
-                (
-                    item
-                    for item in (template, pinned, active)
-                    if isinstance(item, model) and item.id == identifier
-                ),
+                (item for item in (template, pinned, active) if isinstance(item, model) and item.id == identifier),
                 None,
             )
 
         async def scalars(self, statement):
             entity = statement.column_descriptions[0].get("entity")
-            return [
-                item
-                for item in (template, pinned, active)
-                if isinstance(item, entity)
-            ]
+            return [item for item in (template, pinned, active) if isinstance(item, entity)]
 
     session = Session()
     resolved = await _resolve_process_prompt(
@@ -165,15 +157,7 @@ def test_generation_finalization_locks_variant_before_runtime_controls():
     destination_lock = finalization.index("select(Destination)")
     publish_gate = finalization.index("gate = evaluate_auto_publish")
 
-    assert (
-        variant_lock
-        < dispatch_lock
-        < route_lock
-        < lineage_recheck
-        < control_lock
-        < destination_lock
-        < publish_gate
-    )
+    assert variant_lock < dispatch_lock < route_lock < lineage_recheck < control_lock < destination_lock < publish_gate
 
 
 def test_captured_snapshot_is_verified_and_cited_exactly():
@@ -312,11 +296,7 @@ class HandlerProbeSession:
 
     async def get(self, model, identifier):
         return next(
-            (
-                value
-                for value in self.values
-                if isinstance(value, model) and value.id == identifier
-            ),
+            (value for value in self.values if isinstance(value, model) and value.id == identifier),
             None,
         )
 
@@ -387,8 +367,7 @@ async def test_manual_route_resumes_once_successful_research_revision_is_persist
         version=1,
         system_template="Locked system",
         user_template=(
-            "{source_text} {source_url} {source_channel} {language} {direction} "
-            "{attribution_policy} {custom_footer}"
+            "{source_text} {source_url} {source_channel} {language} {direction} {attribution_policy} {custom_footer}"
         ),
         output_schema_version="telegram_rewrite.v1",
         output_schema=TelegramRewriteOutput.model_json_schema(),
@@ -419,17 +398,29 @@ async def test_manual_route_resumes_once_successful_research_revision_is_persist
         created_at=datetime.now(UTC),
     )
     manual_run = ResearchRun(
-        id=uuid4(), story_id=story_revision.story_id, requested_mode="manual",
-        provider_profile_id=profile.id, status="succeeded", query_budget=4,
-        page_budget=8, time_budget_seconds=120,
+        id=uuid4(),
+        story_id=story_revision.story_id,
+        requested_mode="manual",
+        provider_profile_id=profile.id,
+        status="succeeded",
+        query_budget=4,
+        page_budget=8,
+        time_budget_seconds=120,
         result_story_revision_id=story_revision.id,
         created_at=dispatch.created_at,
         finished_at=dispatch.created_at,
     )
     session = HandlerProbeSession(
         [
-            route, story_revision, source_item, content_item, snapshot, prompt, brand,
-            profile, destination,
+            route,
+            story_revision,
+            source_item,
+            content_item,
+            snapshot,
+            prompt,
+            brand,
+            profile,
+            destination,
         ],
         dispatch,
         link,
@@ -468,22 +459,34 @@ async def test_manual_route_resumes_once_successful_research_revision_is_persist
 async def test_manual_route_stops_for_review_until_operator_research_succeeds():
     research_profile_id = uuid4()
     route = AutomationRoute(
-        id=uuid4(), source_id=uuid4(), destination_id=uuid4(), brand_profile_id=uuid4(),
-        prompt_template_version_id=uuid4(), ai_provider_profile_id=uuid4(),
+        id=uuid4(),
+        source_id=uuid4(),
+        destination_id=uuid4(),
+        brand_profile_id=uuid4(),
+        prompt_template_version_id=uuid4(),
+        ai_provider_profile_id=uuid4(),
         research_mode="manual",
         content_filters={"research_provider_profile_id": str(research_profile_id)},
     )
     revision = StoryRevision(id=uuid4(), story_id=uuid4(), revision_number=1)
     source_item = SourceItem(id=uuid4(), source_id=route.source_id, content_item_id=uuid4())
     dispatch = AutomationDispatch(
-        id=uuid4(), route_id=route.id, source_item_id=source_item.id,
-        story_revision_id=revision.id, source_key="source:1", source_fingerprint="f" * 64,
-        source_message_ids=[1], dispatch_kind="live", status="captured",
+        id=uuid4(),
+        route_id=route.id,
+        source_item_id=source_item.id,
+        story_revision_id=revision.id,
+        source_key="source:1",
+        source_fingerprint="f" * 64,
+        source_message_ids=[1],
+        dispatch_kind="live",
+        status="captured",
         created_at=datetime.now(UTC),
     )
     session = HandlerProbeSession([route, revision, source_item], dispatch, SimpleNamespace())
     job = SimpleNamespace(
-        id=uuid4(), payload={"dispatch_id": str(dispatch.id)}, attempt_count=1,
+        id=uuid4(),
+        payload={"dispatch_id": str(dispatch.id)},
+        attempt_count=1,
     )
     from app.jobs.errors import NeedsReviewJobError
 

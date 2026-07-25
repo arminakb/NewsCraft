@@ -61,7 +61,7 @@ export function GlobalControls() {
     return (
       <Card size="sm">
         <CardContent className="space-y-3 p-4">
-          <div role="alert" dir="auto" className="text-red-700">
+          <div role="alert" dir="auto" className="text-red-700 dark:text-red-300">
             {getApiErrorMessage(controlQuery.error, "Automation control request failed")}
           </div>
           <Button variant="outline" onClick={() => void controlQuery.refetch()}>
@@ -108,12 +108,12 @@ export function GlobalControls() {
             />
             Dry run
           </label>
-          <span className={control.globalPause ? "text-amber-700" : "text-emerald-700"}>
+          <span className={control.globalPause ? "text-amber-700 dark:text-amber-300" : "text-emerald-700 dark:text-emerald-300"}>
             {control.globalPause ? control.pauseReason ?? "Paused" : "Active"}
           </span>
         </div>
         {mutation.isError ? (
-          <div role="alert" dir="auto" className="text-sm text-red-700">
+          <div role="alert" dir="auto" className="text-sm text-red-700 dark:text-red-300">
             {getApiErrorMessage(mutation.error, "Automation control update failed")}
           </div>
         ) : null}

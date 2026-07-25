@@ -28,7 +28,9 @@ async def test_export_daily_bundle_queries_date_range_and_writes_agent_folder(tm
             "Stored image story",
             score=90,
             sort_at=datetime(2026, 7, 5, 12, tzinfo=UTC),
-            primary_media=SimpleNamespace(id=uuid4(), storage_path=str(image_source), normalized_url="https://e.test/a.jpg"),
+            primary_media=SimpleNamespace(
+                id=uuid4(), storage_path=str(image_source), normalized_url="https://e.test/a.jpg"
+            ),
         ),
         _content_item(
             "Remote image story",
@@ -80,9 +82,9 @@ async def test_export_daily_bundle_queries_date_range_and_writes_agent_folder(tm
             "item_count": 3,
         }
     ]
-    assert "Full content for Stored image story" in (
-        output_path / "articles/001-stored-image-story.md"
-    ).read_text(encoding="utf-8")
+    assert "Full content for Stored image story" in (output_path / "articles/001-stored-image-story.md").read_text(
+        encoding="utf-8"
+    )
     assert "Stored image story" in (output_path / "index.md").read_text(encoding="utf-8")
 
 

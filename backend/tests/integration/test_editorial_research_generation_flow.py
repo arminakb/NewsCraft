@@ -95,9 +95,7 @@ async def test_http_manual_story_research_generation_edit_and_exact_approval(app
     )
     assert research["disposition"] == "enqueued" and research["job_id"]
     await app_harness.run_until_idle()
-    research_detail = (
-        await app_harness.client.get(f"/research-runs/{research['run_id']}")
-    )
+    research_detail = await app_harness.client.get(f"/research-runs/{research['run_id']}")
     assert research_detail.status_code == 200
     assert research_detail.json()["status"] == "succeeded"
 
@@ -106,9 +104,7 @@ async def test_http_manual_story_research_generation_edit_and_exact_approval(app
         {
             "brand_profile_id": str(app_harness.brand_id),
             "platforms": ["telegram"],
-            "generation_provider_profile_id": str(
-                app_harness.fake_provider_profile_id
-            ),
+            "generation_provider_profile_id": str(app_harness.fake_provider_profile_id),
             "research_mode": "off",
             "research_provider_profile_id": None,
             "research_run_id": research["run_id"],
@@ -120,19 +116,9 @@ async def test_http_manual_story_research_generation_edit_and_exact_approval(app
 
     async with app_harness.session_factory() as session:
         canonical_job = await session.get(WorkflowJob, UUID(pack["job_id"]))
-        telegram_job = await session.get(
-            WorkflowJob, UUID(canonical_job.result["continuation_job_id"])
-        )
-        generated = await session.get(
-            PlatformVariantRevision, UUID(telegram_job.result["revision_id"])
-        )
-        runs = list(
-            await session.scalars(
-                select(GenerationRun).order_by(
-                    GenerationRun.created_at, GenerationRun.id
-                )
-            )
-        )
+        telegram_job = await session.get(WorkflowJob, UUID(canonical_job.result["continuation_job_id"]))
+        generated = await session.get(PlatformVariantRevision, UUID(telegram_job.result["revision_id"]))
+        runs = list(await session.scalars(select(GenerationRun).order_by(GenerationRun.created_at, GenerationRun.id)))
         assert [run.prompt_template_version_id for run in runs] == [
             app_harness.canonical_prompt_version_id,
             app_harness.telegram_prompt_version_id,
@@ -317,9 +303,7 @@ async def test_stale_research_attempt_uses_captured_job_id_after_real_rollback(
     release3_factory,
 ):
     async with release3_factory() as session:
-        defaults = await seed_default_telegram_configuration(
-            session, openrouter_available=False
-        )
+        defaults = await seed_default_telegram_configuration(session, openrouter_available=False)
         intake = await JobRepository(session).enqueue_job(
             job_type="manual_intake",
             payload={
@@ -351,20 +335,14 @@ async def test_stale_research_attempt_uses_captured_job_id_after_real_rollback(
         research_job = await session.get(WorkflowJob, requested.job_id)
         assert research_job is not None
 
-        winning_backend = FakeResearchBackend.from_fixture(
-            ROOT / "backend/tests/fixtures/research_brief.json"
-        )
+        winning_backend = FakeResearchBackend.from_fixture(ROOT / "backend/tests/fixtures/research_brief.json")
 
         class InterleavingBackend:
             async def research(self, request):
                 async with release3_factory() as competing_session:
-                    competing_job = await competing_session.get(
-                        WorkflowJob, requested.job_id
-                    )
+                    competing_job = await competing_session.get(WorkflowJob, requested.job_id)
                     assert competing_job is not None
-                    await build_research_story_handler(
-                        lambda _profile: winning_backend
-                    )(
+                    await build_research_story_handler(lambda _profile: winning_backend)(
                         competing_job,
                         JobContext(
                             session=competing_session,
@@ -373,9 +351,7 @@ async def test_stale_research_attempt_uses_captured_job_id_after_real_rollback(
                     )
                 return await winning_backend.research(request)
 
-        stale = await build_research_story_handler(
-            lambda _profile: InterleavingBackend()
-        )(
+        stale = await build_research_story_handler(lambda _profile: InterleavingBackend())(
             research_job,
             JobContext(session=session, providers=build_default_provider_registry()),
         )

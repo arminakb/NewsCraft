@@ -123,9 +123,7 @@ def test_backfill_requires_one_safe_bound(payload):
 
 def test_route_rejects_unknown_content_filter_and_non_off_research():
     with pytest.raises(ValidationError):
-        TelegramRouteCreate.model_validate(
-            {**valid_route_payload(), "content_filters": {"unknown": True}}
-        )
+        TelegramRouteCreate.model_validate({**valid_route_payload(), "content_filters": {"unknown": True}})
     with pytest.raises(ValidationError):
         TelegramRouteCreate.model_validate({**valid_route_payload(), "research_mode": "deep"})
 
@@ -308,7 +306,13 @@ async def test_route_create_validates_references_and_options_omit_all_secret_ref
         provider_type="openrouter",
         default_model="openai/gpt-5-mini",
         secret_ref="OPENROUTER_EDITOR_KEY",
-        settings={},
+        settings={
+            "pricing": {
+                "input_usd_per_million": "0",
+                "output_usd_per_million": "0",
+            },
+            "generation_policy": {"qualification_status": "qualified"},
+        },
         enabled=True,
     )
     orphan = Source(
@@ -317,9 +321,7 @@ async def test_route_create_validates_references_and_options_omit_all_secret_ref
         name="Orphan without transport config",
         source_group="telegram",
     )
-    session = ConfigurationSession(
-        [source, source_config, orphan, destination, brand, prompt, version, provider]
-    )
+    session = ConfigurationSession([source, source_config, orphan, destination, brand, prompt, version, provider])
     payload = {
         **valid_route_payload(),
         "source_id": source.id,
@@ -385,9 +387,7 @@ async def test_prompt_policy_switch_requires_confirmation_and_tracks_active_or_p
     session = ConfigurationSession([route, template, pinned, active])
 
     with pytest.raises(ValidationError, match="confirm_change"):
-        TelegramPromptPolicyInput.model_validate(
-            {"prompt_policy": "follow_active", "confirm_change": False}
-        )
+        TelegramPromptPolicyInput.model_validate({"prompt_policy": "follow_active", "confirm_change": False})
 
     followed = await update_prompt_policy(
         route.id,
@@ -415,9 +415,7 @@ async def test_prompt_policy_switch_requires_confirmation_and_tracks_active_or_p
 
 def codex_route_configuration():
     source = Source(id=uuid4(), platform="telegram_public", name="Source", source_group="telegram")
-    config = TelegramSourceConfig(
-        source_id=source.id, access_mode="public_html", channel_ref="source_channel"
-    )
+    config = TelegramSourceConfig(source_id=source.id, access_mode="public_html", channel_ref="source_channel")
     destination = Destination(
         id=uuid4(),
         name="Destination",
@@ -450,9 +448,7 @@ def codex_route_configuration():
         settings=default_codex_provider_settings().model_dump(mode="json"),
         enabled=True,
     )
-    session = ConfigurationSession(
-        [source, config, destination, brand, prompt, version, provider]
-    )
+    session = ConfigurationSession([source, config, destination, brand, prompt, version, provider])
     payload = TelegramRouteCreate.model_validate(
         {
             **valid_route_payload(),
@@ -483,12 +479,8 @@ async def test_codex_is_safe_telegram_option_and_route_when_worker_reports_avail
             "configured": True,
             "capabilities": {"generation": True, "research": True},
             "capability_states": {
-                "generation": await AVAILABLE_CAPABILITIES.get(
-                    "provider", provider.id, "generation"
-                ),
-                "research": await AVAILABLE_CAPABILITIES.get(
-                    "provider", provider.id, "research"
-                ),
+                "generation": await AVAILABLE_CAPABILITIES.get("provider", provider.id, "generation"),
+                "research": await AVAILABLE_CAPABILITIES.get("provider", provider.id, "research"),
             },
         }
     ]
@@ -537,9 +529,7 @@ async def test_valid_codex_configuration_remains_editable_when_worker_is_unavail
         ("openrouter", {"secret_ref": None}, set()),
     ],
 )
-async def test_telegram_rejects_drifted_fake_and_openrouter_profiles(
-    provider_type, mutation, configured_secrets
-):
+async def test_telegram_rejects_drifted_fake_and_openrouter_profiles(provider_type, mutation, configured_secrets):
     session, payload, provider = codex_route_configuration()
     provider.provider_type = provider_type
     provider.default_model = "fake-v1" if provider_type == "fake" else "model-a"
@@ -558,9 +548,7 @@ async def test_telegram_rejects_drifted_fake_and_openrouter_profiles(
 
 async def test_auto_route_uses_route_level_confirmation_without_destination_permission():
     source = Source(id=uuid4(), platform="telegram_public", name="Source", source_group="telegram")
-    config = TelegramSourceConfig(
-        source_id=source.id, access_mode="public_html", channel_ref="source_channel"
-    )
+    config = TelegramSourceConfig(source_id=source.id, access_mode="public_html", channel_ref="source_channel")
     destination = Destination(
         id=uuid4(),
         name="Destination",

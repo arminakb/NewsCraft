@@ -267,10 +267,7 @@ def _source_issue(source: Any) -> str:
     if _source_status(source) == "unknown":
         return "not checked yet"
     return (
-        _get(source, "disabled_reason")
-        or _get(source, "last_error_type")
-        or _get(source, "last_error_message")
-        or ""
+        _get(source, "disabled_reason") or _get(source, "last_error_type") or _get(source, "last_error_message") or ""
     )
 
 
@@ -299,7 +296,7 @@ def _breakdown_value(item: Any, key: str) -> int:
     breakdown = _get(item, "score_breakdown", {}) or {}
     try:
         return int(breakdown.get(key) or 0)
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         return 0
 
 

@@ -91,9 +91,7 @@ class PublicHtmlTelegramAdapter:
                             checksum.update(chunk)
                             output.write(chunk)
                     mime_type = (
-                        response.headers.get("content-type")
-                        or reference.mime_type
-                        or "application/octet-stream"
+                        response.headers.get("content-type") or reference.mime_type or "application/octet-stream"
                     )
                     mime_type = mime_type.split(";", 1)[0].strip().lower()
                 materialized.append(

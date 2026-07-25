@@ -38,9 +38,7 @@ class ProviderRegistry:
     def names(self) -> tuple[str, ...]:
         return tuple(sorted(self._providers))
 
-    def register_factory(
-        self, name: str, factory: Callable[..., GenerationProvider]
-    ) -> None:
+    def register_factory(self, name: str, factory: Callable[..., GenerationProvider]) -> None:
         if name in self._factories:
             raise DuplicateProviderError(name)
         self._factories[name] = factory

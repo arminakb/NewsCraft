@@ -79,5 +79,5 @@ def _parse_gdelt_date(value: str | None) -> datetime | None:
         if len(value) == 14 and value.isdigit():
             return datetime.strptime(value, "%Y%m%d%H%M%S").replace(tzinfo=UTC)
         return parse_source_datetime(value)[0]
-    except (ValueError, TypeError, OverflowError):
+    except ValueError, TypeError, OverflowError:
         return None

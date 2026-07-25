@@ -97,8 +97,10 @@ def normalize_proxy_host(raw: str) -> str:
         ascii_host = idna.encode(value, uts46=True, std3_rules=True).decode("ascii").casefold()
     except idna.IDNAError:
         raise TelegramConfigurationError("telegram_proxy_host_invalid") from None
-    if len(ascii_host) > 253 or ascii_host == "localhost" or any(
-        not _HOST_LABEL.fullmatch(label) for label in ascii_host.split(".")
+    if (
+        len(ascii_host) > 253
+        or ascii_host == "localhost"
+        or any(not _HOST_LABEL.fullmatch(label) for label in ascii_host.split("."))
     ):
         raise TelegramConfigurationError("telegram_proxy_host_invalid")
     return ascii_host
@@ -151,7 +153,7 @@ async def validate_proxy_endpoint(
         else:
             result = resolver(normalized, port)
             infos = await result if hasattr(result, "__await__") else result
-    except (OSError, UnicodeError):
+    except OSError, UnicodeError:
         raise TelegramConfigurationError("telegram_proxy_dns_failed") from None
     addresses = sorted({_public_address(item[4][0]) for item in infos})
     if not addresses:
@@ -171,7 +173,7 @@ async def check_proxy_reachability(
         )
         writer.close()
         await writer.wait_closed()
-    except (OSError, TimeoutError):
+    except OSError, TimeoutError:
         raise TelegramConfigurationError("telegram_proxy_unreachable") from None
 
 
@@ -260,7 +262,7 @@ class TelegramRouteResolver:
                 trust_env=False,
             ) as http:
                 yield TelegramBotClient(http)
-        except (ValueError, ImportError):
+        except ValueError, ImportError:
             raise TelegramConfigurationError("telegram_proxy_client_initialization_failed") from None
 
 

@@ -111,9 +111,7 @@ def test_telegram_renderer_preserves_exact_release_two_mapping():
     }
     payload = TelegramVariantPayload.model_validate(stored)
 
-    assert render_telegram_variant(stored) == TelegramVariantContent.model_validate(stored).model_dump(
-        mode="json"
-    )
+    assert render_telegram_variant(stored) == TelegramVariantContent.model_validate(stored).model_dump(mode="json")
     assert render_platform_copy("telegram", payload) == stored["body"]
 
 
@@ -291,15 +289,19 @@ async def test_generation_path_creates_four_platform_runs_attempts_and_revisions
 
     assert [item.platform for item in generated.revisions] == ["telegram", "instagram", "x", "blog"]
     assert len(context.runs) == len(context.attempts) == len(context.provider.calls) == 4
-    assert all(
-        run.prompt_template_version_id == context.prompts[run.platform].id
-        for run in context.runs
-    )
+    assert all(run.prompt_template_version_id == context.prompts[run.platform].id for run in context.runs)
     assert context.runs[1].prompt_template_version_id != context.inactive_higher.id
     telegram = generated.revisions[0]
     assert set(telegram.content) == {
-        "body", "parse_mode", "buttons", "source_item_id", "source_url",
-        "media_policy", "media_asset_ids", "direction", "dry_run",
+        "body",
+        "parse_mode",
+        "buttons",
+        "source_item_id",
+        "source_url",
+        "media_policy",
+        "media_asset_ids",
+        "direction",
+        "dry_run",
     }
     assert telegram.content["source_item_id"] is None
 
@@ -350,9 +352,7 @@ def _set_nested_media_limit(raw, platform, field, value):
     }
     assignment[field] = value
     if platform == "instagram":
-        raw["carousel"] = [
-            {"order": 1, "headline": "Grounded", "body": "Grounded", "media": assignment}
-        ]
+        raw["carousel"] = [{"order": 1, "headline": "Grounded", "body": "Grounded", "media": assignment}]
     elif platform == "x":
         raw["posts"][0]["media"] = [assignment]
     else:
@@ -994,27 +994,27 @@ async def test_retry_checkpoint_reloads_failed_revision_gates_and_remains_needs_
         "revision_id": str(revision_id),
         "platform": "instagram",
     }
-    assert await _artifact_requires_review(
-        Session(),
-        artifact,
-        expected_platform="instagram",
-        expected_story_revision_id=story_revision_id,
-        expected_brand_profile_id=brand_profile_id,
-        expected_attempt_id=attempt_id,
-        authored=authored,
-        expected_content=content,
-        expected_evidence_map=evidence_map,
-        expected_validation_results=expected_validation_results,
-        evidence=evidence,
-    ) is True
+    assert (
+        await _artifact_requires_review(
+            Session(),
+            artifact,
+            expected_platform="instagram",
+            expected_story_revision_id=story_revision_id,
+            expected_brand_profile_id=brand_profile_id,
+            expected_attempt_id=attempt_id,
+            authored=authored,
+            expected_content=content,
+            expected_evidence_map=evidence_map,
+            expected_validation_results=expected_validation_results,
+            evidence=evidence,
+        )
+        is True
+    )
     pack_query, variant_query, revision_query = statements
     assert pack_query._for_update_arg is None
     assert variant_query._for_update_arg is not None
     assert revision_query._for_update_arg is not None
-    assert all(
-        statement.get_execution_options().get("populate_existing") is True
-        for statement in statements
-    )
+    assert all(statement.get_execution_options().get("populate_existing") is True for statement in statements)
     statements.clear()
     with pytest.raises(NeedsReviewJobError):
         await _artifact_requires_review(
@@ -1077,9 +1077,7 @@ async def test_retry_checkpoint_reloads_failed_revision_gates_and_remains_needs_
         )
     drifted_evidence = [{**evidence_map[0], "excerpt_sha256": "f" * 64}]
     revision.evidence_map = drifted_evidence
-    revision.content_hash = sha256_canonical(
-        {"content": revision.content, "evidence_map": drifted_evidence}
-    )
+    revision.content_hash = sha256_canonical({"content": revision.content, "evidence_map": drifted_evidence})
     with pytest.raises(NeedsReviewJobError):
         await _artifact_requires_review(
             Session(),
@@ -1095,9 +1093,7 @@ async def test_retry_checkpoint_reloads_failed_revision_gates_and_remains_needs_
             evidence=evidence,
         )
     revision.evidence_map = evidence_map
-    revision.content_hash = sha256_canonical(
-        {"content": revision.content, "evidence_map": evidence_map}
-    )
+    revision.content_hash = sha256_canonical({"content": revision.content, "evidence_map": evidence_map})
     revision.validation_results = [{"gate": "tampered", "ok": True, "reason": None}]
     with pytest.raises(NeedsReviewJobError):
         await _artifact_requires_review(
@@ -1346,12 +1342,8 @@ def _pack_handler_fixture(*, platforms=("instagram",), media_asset_id=None):
             "brand_profile_id": str(brand_id),
             "generation_provider_profile_id": str(profile_id),
             "platforms": list(platforms),
-            "platform_prompt_template_version_ids": {
-                platform: str(prompt.id) for platform, prompt in prompts.items()
-            },
-            "platform_prompt_checksums": {
-                platform: prompt.checksum_sha256 for platform, prompt in prompts.items()
-            },
+            "platform_prompt_template_version_ids": {platform: str(prompt.id) for platform, prompt in prompts.items()},
+            "platform_prompt_checksums": {platform: prompt.checksum_sha256 for platform, prompt in prompts.items()},
         },
     )
     return SimpleNamespace(
@@ -1436,9 +1428,7 @@ async def test_pack_handler_wires_safe_media_limits_hash_and_prompt_recheck_befo
 
     assert result["platforms"] == ["instagram"]
     assert rechecks == [("instagram", fixture.prompts["instagram"].id)]
-    assert __import__("json").loads(invocation["input_payload"]["platform_limits_json"])[
-        "caption_max"
-    ] == 2200
+    assert __import__("json").loads(invocation["input_payload"]["platform_limits_json"])["caption_max"] == 2200
     assert __import__("json").loads(invocation["input_payload"]["source_media_json"]) == safe_media
     expected_input, expected_hash = _platform_stage_input(
         platform="instagram",
@@ -2672,6 +2662,7 @@ async def test_regeneration_retry_replays_actual_committed_artifact_bound_to_imm
         "base_revision_id": str(base_id),
         "base_content_hash": base.content_hash,
     }
+
     async def cached_invoke(context, **kwargs):
         assert "before_provider_call" in kwargs
         return durable_run, SimpleNamespace(id=attempt_id), authored

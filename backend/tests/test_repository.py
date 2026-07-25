@@ -154,14 +154,10 @@ def test_identity_upserts_match_partial_unique_indexes():
     }
 
     global_sql = str(_identity_insert_statement(values).compile(dialect=postgresql.dialect()))
-    source_sql = str(
-        _identity_insert_statement({**values, "scope": "source"}).compile(dialect=postgresql.dialect())
-    )
+    source_sql = str(_identity_insert_statement({**values, "scope": "source"}).compile(dialect=postgresql.dialect()))
 
     assert "ON CONFLICT (identity_type, identity_hash) WHERE scope = 'global' AND is_strong" in global_sql
-    assert (
-        "ON CONFLICT (source_id, identity_type, identity_hash) WHERE scope = 'source' AND is_strong" in source_sql
-    )
+    assert "ON CONFLICT (source_id, identity_type, identity_hash) WHERE scope = 'source' AND is_strong" in source_sql
 
 
 def test_repository_exposes_plan_methods():

@@ -66,10 +66,7 @@ def test_x_validator_reports_exact_segment_and_weighted_length():
             message="Post 1 is 281/280 weighted characters",
         )
     ]
-    assert any(
-        issue.code == "x_platform_recheck_required" and issue.severity == "warning"
-        for issue in issues
-    )
+    assert any(issue.code == "x_platform_recheck_required" and issue.severity == "warning" for issue in issues)
 
 
 def test_x_weighted_length_counts_urls_as_23_and_every_other_code_point_once():
@@ -175,9 +172,7 @@ def test_instagram_validator_rejects_duplicate_or_gapped_carousel_order(orders):
         }
     )
 
-    assert "instagram_carousel_order_invalid" in {
-        issue.code for issue in validate_platform_payload("instagram", value)
-    }
+    assert "instagram_carousel_order_invalid" in {issue.code for issue in validate_platform_payload("instagram", value)}
 
 
 def test_instagram_validator_rejects_duplicate_media_and_empty_hashtag_or_checklist_item():
@@ -251,14 +246,10 @@ def test_blog_canonical_sources_equal_distinct_non_null_citation_urls():
     valid = BlogVariantPayload.model_validate(
         blog_payload(citations=citations, canonical_sources=["https://example.com/report"])
     )
-    assert "blog_canonical_sources_mismatch" not in {
-        issue.code for issue in validate_platform_payload("blog", valid)
-    }
+    assert "blog_canonical_sources_mismatch" not in {issue.code for issue in validate_platform_payload("blog", valid)}
 
     missing = BlogVariantPayload.model_validate(blog_payload(citations=citations, canonical_sources=[]))
-    assert "blog_canonical_sources_mismatch" in {
-        issue.code for issue in validate_platform_payload("blog", missing)
-    }
+    assert "blog_canonical_sources_mismatch" in {issue.code for issue in validate_platform_payload("blog", missing)}
 
 
 def test_blog_canonical_sources_preserve_first_citation_order():
@@ -285,18 +276,14 @@ def test_blog_canonical_source_equality_uses_validated_url_normalization():
         )
     )
 
-    assert "blog_canonical_sources_mismatch" not in {
-        issue.code for issue in validate_platform_payload("blog", value)
-    }
+    assert "blog_canonical_sources_mismatch" not in {issue.code for issue in validate_platform_payload("blog", value)}
 
 
 def test_blog_with_only_manual_text_citations_keeps_canonical_sources_empty():
     value = BlogVariantPayload.model_validate(
         blog_payload(citations=[citation_ref(source_url=None)], canonical_sources=[])
     )
-    assert "blog_canonical_sources_mismatch" not in {
-        issue.code for issue in validate_platform_payload("blog", value)
-    }
+    assert "blog_canonical_sources_mismatch" not in {issue.code for issue in validate_platform_payload("blog", value)}
 
 
 def test_blog_hero_media_order_must_be_one():
@@ -325,9 +312,7 @@ def test_blog_hero_media_order_must_be_one():
         ("replace_manually", [], {"telegram_requires_manual_media_replacement"}),
     ],
 )
-def test_telegram_validation_delegates_release_two_renderability_policy(
-    media_policy, media_asset_ids, expected_codes
-):
+def test_telegram_validation_delegates_release_two_renderability_policy(media_policy, media_asset_ids, expected_codes):
     from app.generation.platform_schemas import TelegramVariantPayload
 
     payload = TelegramVariantPayload.model_validate(

@@ -43,6 +43,8 @@ def _source_matches(source: Source, config: TelegramSourceConfig, body: Telegram
         and config.api_hash_secret_ref == body.api_hash_secret_ref
         and config.session_secret_ref == body.session_secret_ref
     )
+
+
 @router.get("", response_model=list[TelegramSourceOut])
 async def list_telegram_sources(
     session: AsyncSession = SessionDependency,
@@ -109,9 +111,7 @@ async def create_telegram_source(
                 Source.telegram_username == body.channel_ref,
             )
         )
-        existing_config = (
-            await session.get(TelegramSourceConfig, existing.id) if existing is not None else None
-        )
+        existing_config = await session.get(TelegramSourceConfig, existing.id) if existing is not None else None
         if existing is None or existing_config is None or not _source_matches(existing, existing_config, body):
             raise HTTPException(409, "Telegram source already exists with different configuration") from None
         return await _source_out(existing, existing_config, capability_status)

@@ -83,10 +83,7 @@ def payload_claims(platform: Platform, payload: PlatformPayload) -> list[Claim]:
             for part in [
                 payload.hook,
                 payload.caption,
-                *(
-                    f"{slide.headline}\n{slide.body}"
-                    for slide in sorted(payload.carousel, key=lambda item: item.order)
-                ),
+                *(f"{slide.headline}\n{slide.body}" for slide in sorted(payload.carousel, key=lambda item: item.order)),
             ]
             if part.strip()
         )
@@ -143,9 +140,7 @@ async def generate_platform_variants(
     for platform in deduplicate_preserving_order(request.platforms):
         prompt = await context.require_active_prompt_version(PLATFORM_PROMPT_PURPOSE[platform])
         run = await context.start_generation_run(platform, prompt_template_version_id=prompt.id)
-        provider_result = await context.provider.generate(
-            context.request_for(platform, prompt_version=prompt)
-        )
+        provider_result = await context.provider.generate(context.request_for(platform, prompt_version=prompt))
         attempt = await context.record_attempt(run, provider_result)
         if platform == "telegram":
             rewrite = TelegramRewriteOutput.model_validate(provider_result.output)

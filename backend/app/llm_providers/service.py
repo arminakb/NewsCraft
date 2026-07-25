@@ -317,11 +317,12 @@ class LLMProviderService:
     async def dependencies(self, provider_id: UUID) -> LLMProviderDependenciesOut:
         automations = int(
             await self.session.scalar(
-                select(func.count()).select_from(AutomationRoute).where(
+                select(func.count())
+                .select_from(AutomationRoute)
+                .where(
                     or_(
                         AutomationRoute.ai_provider_profile_id == provider_id,
-                        AutomationRoute.content_filters["research_provider_profile_id"].as_string()
-                        == str(provider_id),
+                        AutomationRoute.content_filters["research_provider_profile_id"].as_string() == str(provider_id),
                     )
                 )
             )

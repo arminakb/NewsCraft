@@ -1,165 +1,160 @@
 # Backup and restore
 
-This runbook covers the local Compose stack. A NewsCraft backup contains only a PostgreSQL
-custom-format dump plus the exact `/data/media` and `/data/exports` volume contents. It does
-not contain `.env`, credentials, rendered Compose environments, or logs.
+NewsCraft backups use the `newscraft-backup-v2` contract. A final backup is an authenticated
+age-encrypted archive containing only a PostgreSQL custom dump, media archive, export archive,
+and strict manifest. It never includes `.env`, Compose renders, application logs, provider
+credentials, Telegram credentials, or the decryption identity.
 
-The archive schema is `newscraft-backup-v1`. Its manifest records the UTC creation time, Git
-SHA, current and head Alembic revisions, PostgreSQL version, filenames, byte counts, and
-SHA-256 checksums. Verification also rejects unsafe tar paths, links, duplicates, unexpected
-or missing files, malformed manifests, and unsafe paths or links inside the media and export
-tarballs.
+The manifest records a backup ID, UTC consistency window, Git revision, Alembic revisions,
+PostgreSQL server and dump-client majors, container image IDs, an independent logical database
+data hash, per-payload checksums, and deterministic media/export inventory root hashes. Legacy
+v1 plaintext archives remain readable for recovery, but the backup command no longer publishes
+new plaintext archives.
 
-## Before a backup
+## Keys, schedule, and SLO
 
-Run all commands from the repository root. Confirm the stack is healthy and check the source
-data size against free space on the filesystem that will hold `./backups`:
+Generate and escrow an age identity outside the repository and application services:
+
+```bash
+install -d -m 0700 "$HOME/.config/newscraft-backup"
+age-keygen -o "$HOME/.config/newscraft-backup/identity.txt"
+age-keygen -y "$HOME/.config/newscraft-backup/identity.txt" \
+  > "$HOME/.config/newscraft-backup/recipient.txt"
+chmod 0600 "$HOME/.config/newscraft-backup/identity.txt" \
+  "$HOME/.config/newscraft-backup/recipient.txt"
+```
+
+Keep the identity in approved offline/backup-key escrow and test recovery after every rotation.
+The operational baseline is nightly backup, RPO <=24 hours, RTO <=2 hours, retention of 7 daily,
+5 weekly, and 12 monthly generations, and a full disposable restore drill at least quarterly.
+
+## Quiesced encrypted backup
+
+Check health, source size, backup filesystem space, and temporary filesystem space first:
 
 ```bash
 docker compose ps
 df -h . ./backups "${TMPDIR:-/tmp}" 2>/dev/null || df -h . "${TMPDIR:-/tmp}"
 docker compose exec -T postgres psql -U newscraft -d newscraft -Atqc \
   "SELECT pg_size_pretty(pg_database_size('newscraft'));"
-docker compose exec -T api du -sh /data/media /data/exports
+docker compose --profile operations run --rm --no-deps backup \
+  sh -ceu 'du -sh /data/media /data/exports'
 ```
 
-Leave enough free space for the database dump, both compressed volume archives, the final
-archive, and temporary verification copies. Standalone `verify` and `restore` stage their
-verified members under `${TMPDIR:-/tmp}`, so that filesystem must also have room for the dump
-and both volume archives. A backup failure publishes no final archive.
-
-## Create and verify
+Create the backup:
 
 ```bash
-python scripts/backup_restore.py backup --output-dir ./backups
-python scripts/backup_restore.py verify \
-  ./backups/newscraft-YYYYMMDDTHHMMSSZ.newscraft-backup.tar.gz
+python scripts/backup_restore.py backup \
+  --output-dir ./backups \
+  --recipient-file "$HOME/.config/newscraft-backup/recipient.txt" \
+  --identity-file "$HOME/.config/newscraft-backup/identity.txt" \
+  --staging-dir /run/newscraft-backup
 ```
 
-Backup uses these live service boundaries:
+`--staging-dir` must already exist with mode 0700 on tmpfs or an approved encrypted filesystem
+and must have room for the plaintext dump plus both file archives. The tool records which writer
+services are running, stops only those writers, rejects capture
+while any other database client session remains, and captures all three stores through the
+credential-minimal `backup` Compose service. That service has read-only media/export mounts,
+the matching PostgreSQL client, pinned age package, and no OpenRouter or Telegram authority.
+The tool verifies plaintext internally, encrypts it, decrypts and verifies the ciphertext, then
+resumes exactly the writer services that were running before atomically publishing one mode-0600
+`.newscraft-backup.tar.gz.age` file. Private plaintext exists only in a mode-0700 staging tree and
+is removed on every exit. A failed capture publishes nothing and attempts to resume prior writers.
 
-- `docker compose exec -T postgres pg_dump -U newscraft -d newscraft --format=custom`
-- `docker compose exec -T api tar -C /data/media -czf - .`
-- `docker compose exec -T api tar -C /data/exports -czf - .`
-
-The tool stages data in a private `0700` directory, verifies the complete archive, and then
-publishes the final `0600` file atomically. Copy an archive off-host only through an approved
-encrypted storage path and verify it again after copying.
-
-## Destructive restore
-
-> **Warning:** restore drops and recreates the current `newscraft` database, then replaces
-> every file under `/data/media` and `/data/exports`. It is not a merge and cannot be undone
-> without another verified backup.
-
-Take a fresh backup of the current state first. Then run:
+Verify the encrypted copy before and after approved off-host transfer:
 
 ```bash
 python scripts/backup_restore.py verify \
-  ./backups/newscraft-YYYYMMDDTHHMMSSZ.newscraft-backup.tar.gz
+  ./backups/newscraft-YYYYMMDDTHHMMSSZ.newscraft-backup.tar.gz.age \
+  --identity-file "$HOME/.config/newscraft-backup/identity.txt"
+```
+
+## Safe retention
+
+Preview retention first. Invalid/unreadable archives are reported and never deleted; the newest
+verified backup is always protected.
+
+```bash
+python scripts/backup_restore.py prune \
+  --output-dir ./backups \
+  --identity-file "$HOME/.config/newscraft-backup/identity.txt"
+
+python scripts/backup_restore.py prune \
+  --output-dir ./backups \
+  --identity-file "$HOME/.config/newscraft-backup/identity.txt" \
+  --apply
+```
+
+Retention verification is local. Apply the same generation policy in approved off-host storage,
+verify before and after transfer, and alert on a failed/missed backup, newest verified backup older
+than 24 hours, or insufficient capacity.
+
+For a single-host deployment, install the reviewed units from `operations/systemd/`, create the
+dedicated `newscraft-backup` OS account, grant only the Docker/project access required by this
+workflow, and provision `/etc/newscraft-backup` and `/var/backups/newscraft` as mode-0700 paths.
+The timer runs backup, retention, and freshness/capacity status sequentially and gives the full
+operation a two-hour deadline. Connect failed-unit state to the deployment's normal paging path:
+
+```bash
+sudo install -m 0644 operations/systemd/newscraft-backup.service \
+  operations/systemd/newscraft-backup.timer /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now newscraft-backup.timer
+systemctl list-timers newscraft-backup.timer
+```
+
+## Disposable restore drill
+
+Do not test recovery against the primary project. Prepare three independent mode-0600 files:
+the age identity, a unique canary value that exists only in runtime secret storage, and a report
+HMAC key of at least 32 random bytes. Then run:
+
+```bash
+python scripts/restore_drill.py \
+  --archive ./backups/newscraft-YYYYMMDDTHHMMSSZ.newscraft-backup.tar.gz.age \
+  --identity-file "$HOME/.config/newscraft-backup/identity.txt" \
+  --secret-canary-file "$HOME/.config/newscraft-backup/canary.txt" \
+  --report-signing-key-file "$HOME/.config/newscraft-backup/report-hmac.key" \
+  --project-name newscraft-restore-drill-YYYYMMDD-a \
+  --api-port 18000 \
+  --output-dir reports/restore-drills \
+  --cleanup
+```
+
+The project name must match the strict `newscraft-restore-drill-*` allowlist. The override removes
+the primary database/frontend ports, binds only the selected loopback API port, clears live
+authority, and forces fake-provider/dry-run behavior. Project-scoped volumes are new. Before any
+`down -v`, the tool inspects every container's `com.docker.compose.project` label and refuses
+cleanup on a mismatch.
+
+The drill rejects incompatible PostgreSQL server/restore-client majors before destructive work,
+restores DB/media/exports, migrates forward, compares the logical DB data hash and exact file
+inventories, rejects unvalidated constraints, scans restored DB/media/exports/manifest for the
+count-only secret canary, checks readiness, and runs the credential-free smoke. It writes a
+mode-0600 JSON report plus HMAC-SHA256 signature containing RPO/RTO, archive hash, backup ID,
+integrity evidence, smoke result, and cleanup result. Preserve both files in the approved audit
+store. If a drill fails, omit `--cleanup` while investigating; never manually use `down -v` until
+the disposable project label has been independently confirmed.
+
+## Emergency in-place restore
+
+> **Warning:** this drops and recreates the current database and replaces every media/export
+> file. Prefer restore into new stores followed by controlled cutover. Take a fresh verified
+> backup and retain the old stores read-only through the rollback window.
+
+```bash
 python scripts/backup_restore.py restore \
-  ./backups/newscraft-YYYYMMDDTHHMMSSZ.newscraft-backup.tar.gz \
+  ./backups/newscraft-YYYYMMDDTHHMMSSZ.newscraft-backup.tar.gz.age \
+  --identity-file "$HOME/.config/newscraft-backup/identity.txt" \
   --confirm-replace
 ```
 
-The restore verifies the archive and asks `pg_restore --list` to validate the database dump
-before changing anything. It then stops exactly `api`,
-`worker-source-generation`, `worker-publishing`, `scheduler`, and `frontend`. PostgreSQL stays
-up while the database is recreated and restored. Only after `pg_restore --exit-on-error`
-succeeds does the tool replace the media and export contents, run the one-shot `migrate`
-service, and restart those five services. `migrate` is not a long-running runtime service and
-must never be added to the stop/start set or given an automatic restart policy. Expect the UI,
-API, workers, and scheduler to be unavailable for the duration.
-
-If any destructive step fails, the tool retries the aggregate stop and then tries each runtime
-service individually if necessary. When it confirms containment, it reports that all five
-runtime services remain stopped and prints this recovery command:
-
-```bash
-docker compose up -d --no-deps api worker-source-generation worker-publishing scheduler frontend
-```
-
-Do not run it until the failure has been understood and the database and both volumes are in
-a consistent state. Re-running restore with the same verified archive is the normal recovery
-path. `--no-deps` is intentional: restore already ran the one-shot migration, and traversing the
-API dependency graph would run that completed service again.
-
-If the tool instead reports that runtime service stop state could not be confirmed, inspect and
-stop the services explicitly before any recovery work:
-
-```bash
-docker compose ps
-docker compose stop api worker-source-generation worker-publishing scheduler frontend
-docker compose ps
-```
-
-Do not run the recovery/start command while any of those services has an unconfirmed state.
-
-## Post-restore proof
-
-Confirm services and migration state:
-
-```bash
-docker compose ps
-docker compose run --rm --no-deps migrate alembic current
-```
-
-Record durable row counts for comparison with the pre-backup drill record:
-
-```bash
-docker compose exec -T postgres psql -U newscraft -d newscraft <<'SQL'
-SELECT 'stories' AS object, count(*) FROM stories
-UNION ALL SELECT 'story_evidence_snapshots', count(*) FROM story_evidence_snapshots
-UNION ALL SELECT 'story_evidence_links', count(*) FROM story_evidence_links
-UNION ALL SELECT 'story_revisions', count(*) FROM story_revisions
-UNION ALL SELECT 'platform_variant_revisions', count(*) FROM platform_variant_revisions
-UNION ALL SELECT 'automation_routes', count(*) FROM automation_routes
-UNION ALL SELECT 'publications', count(*) FROM publications
-UNION ALL SELECT 'media_assets', count(*) FROM media_assets
-ORDER BY object;
-SQL
-docker compose run --rm --no-deps api sh -ceu \
-  'find /data/media -type f | wc -l; find /data/exports -type f | wc -l; du -sh /data/media /data/exports'
-```
-
-Compare these results with the counts and file totals recorded immediately before backup.
-Inspect a representative story, evidence record, revision, route, publication, media object,
-and export through the application before declaring the restore usable.
-
-## Quarterly disposable-project drill
-
-Run a restore drill at least quarterly during a planned interruption. The separate Compose
-project name creates separate database, media, export, and staging volumes. The primary
-project is brought down without `-v`, so its volumes remain intact; never use `down -v` until
-the disposable project name is active and verified.
-
-```bash
-ARCHIVE="$PWD/backups/newscraft-YYYYMMDDTHHMMSSZ.newscraft-backup.tar.gz"
-python scripts/backup_restore.py verify "$ARCHIVE"
-
-# Record the post-restore proof queries above, then free the bound local ports.
-docker compose down
-
-export COMPOSE_PROJECT_NAME="newscraft-restore-drill-$(date -u +%Y%m%d)"
-docker compose up -d --build postgres api worker-source-generation \
-  worker-publishing scheduler frontend
-docker compose ps
-python scripts/backup_restore.py restore "$ARCHIVE" --confirm-replace
-
-# Run every post-restore proof query above and record the result in the drill log.
-docker compose ps
-
-# This -v applies only to the disposable project while COMPOSE_PROJECT_NAME is set.
-docker compose down -v
-unset COMPOSE_PROJECT_NAME
-
-# Return to the preserved primary volumes.
-docker compose up -d postgres api worker-source-generation \
-  worker-publishing scheduler frontend
-docker compose ps
-```
-
-If the drill fails before disposable cleanup, keep `COMPOSE_PROJECT_NAME` set while diagnosing
-it. Confirm `docker compose ls` and `docker volume ls` show the drill project before any
-`down -v` command. Keep the archive, command output, counts, file totals, duration, and failure
-notes as the quarterly drill record.
+Verification, age authentication, manifest checks, PostgreSQL major compatibility, and
+`pg_restore --list` all run before writer shutdown or replacement. The restore then stops the API,
+both workers, scheduler, and frontend; recreates/restores the DB; replaces media and exports; runs
+Alembic; and restarts the five services. On any partial failure it contains runtime services and
+prints the exact recovery command. Do not run that command until the database and both volumes are
+known consistent; normally re-run the same verified restore. Never delete the prior stores or the
+source archive until readiness, smoke, integrity, RPO/RTO, report signature, and rollback review
+are signed complete.

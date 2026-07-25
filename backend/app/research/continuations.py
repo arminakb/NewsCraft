@@ -84,20 +84,14 @@ class ContentPackContinuationPayload(BaseModel):
             "platform_prompt_template_version_ids",
             "platform_prompt_checksums",
         }
-        if (
-            present_legacy != legacy_keys
-            or plural_keys.intersection(value)
-            or value.get("platform") != "telegram"
-        ):
+        if present_legacy != legacy_keys or plural_keys.intersection(value) or value.get("platform") != "telegram":
             raise ValueError("legacy content pack continuation payload is ambiguous or unsupported")
         translated = dict(value)
         translated["platforms"] = [translated.pop("platform")]
         translated["platform_prompt_template_version_ids"] = {
             "telegram": translated.pop("platform_prompt_template_version_id")
         }
-        translated["platform_prompt_checksums"] = {
-            "telegram": translated.pop("platform_prompt_checksum")
-        }
+        translated["platform_prompt_checksums"] = {"telegram": translated.pop("platform_prompt_checksum")}
         return translated
 
     @model_validator(mode="after")

@@ -61,12 +61,8 @@ def test_gateway_hasher_issues_parseable_hash_only_values_and_supports_unpadded_
     assert hasher.parse_credential_prefix(credential.value) == credential.prefix
     assert hasher.matches("credential", credential.value, credential.digest)
     assert credential.value.encode() not in credential.digest
-    assert hasher.issue_credential(seed="same-retry") == hasher.issue_credential(
-        seed="same-retry"
-    )
-    assert hasher.issue_credential(seed="same-retry") != hasher.issue_credential(
-        seed="different-retry"
-    )
+    assert hasher.issue_credential(seed="same-retry") == hasher.issue_credential(seed="same-retry")
+    assert hasher.issue_credential(seed="same-retry") != hasher.issue_credential(seed="different-retry")
 
 
 def test_gateway_hasher_fails_closed_without_exactly_32_bytes():
@@ -129,10 +125,7 @@ def test_connection_status_requires_authenticated_heartbeat_and_uses_server_wind
 def test_pair_and_heartbeat_authenticate_inside_gateway_while_admin_mutations_remain_protected():
     assert mutation_rule("POST", "/codex-gateway/pair") is None
     assert mutation_rule("POST", "/codex-gateway/heartbeat") is None
-    assert (
-        mutation_rule("POST", "/codex-gateway/pairing-sessions").required_scope
-        == "settings:write"
-    )
+    assert mutation_rule("POST", "/codex-gateway/pairing-sessions").required_scope == "settings:write"
     assert (
         mutation_rule(
             "POST",

@@ -84,9 +84,7 @@ async def test_safe_fetch_revalidates_redirect_target() -> None:
 
 
 async def test_safe_fetch_allows_five_redirects_but_not_six() -> None:
-    responses = [
-        (302, {"Location": f"https://news.example/hop-{index}"}, b"") for index in range(1, 7)
-    ]
+    responses = [(302, {"Location": f"https://news.example/hop-{index}"}, b"") for index in range(1, 7)]
     fetcher = SafeArticleFetcher(resolver=public_resolver, transport=QueueTransport(responses))
 
     with pytest.raises(SafeArticleFetchError, match="Too many article redirects"):
@@ -138,9 +136,7 @@ async def test_safe_fetch_uses_exact_final_accepted_url_after_public_redirect() 
         ]
     )
 
-    source = await SafeArticleFetcher(resolver=public_resolver, transport=transport).fetch(
-        "https://news.example/start"
-    )
+    source = await SafeArticleFetcher(resolver=public_resolver, transport=transport).fetch("https://news.example/start")
 
     assert str(source.url) == "https://final.example/report?b=2&a=1"
     assert [str(request.url) for request in transport.requests] == [
