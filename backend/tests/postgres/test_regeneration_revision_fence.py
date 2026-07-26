@@ -562,6 +562,10 @@ async def test_regeneration_enqueue_does_not_lock_prompt_behind_variant(
         output_schema={},
         checksum_sha256="c" * 64,
         is_active=True,
+        activated_at=datetime.now(UTC),
+        activated_by_type="system",
+        activated_by_id="test-suite",
+        activation_reason="Test fixture",
     )
     pack = ContentPack(
         id=uuid4(),

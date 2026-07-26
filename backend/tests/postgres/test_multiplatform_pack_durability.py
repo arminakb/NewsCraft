@@ -101,6 +101,10 @@ async def test_later_platform_failure_and_worker_rollback_cannot_erase_prior_che
             output_schema=output_schema,
             checksum_sha256=prompt_checksum(system_template, user_template, output_schema),
             is_active=True,
+            activated_at=datetime.now(UTC),
+            activated_by_type="system",
+            activated_by_id="test-suite",
+            activation_reason="Test fixture",
         )
         prompts[platform] = version
         db_session.add(template)
