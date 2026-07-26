@@ -67,15 +67,15 @@ The same command was rerun after Phase 7:
 
 | Surface | Queries | p50 | p95 | Outcome |
 | --- | ---: | ---: | ---: | --- |
-| Today | 1,009 | 570.98 ms | 593.05 ms | remaining N+1 debt |
-| Inbox | 2 | 11.80 ms | 13.25 ms | bounded |
-| Feed | 10 | 732.07 ms | 754.63 ms | query count improved; scan latency remains |
-| Raw Content | 1 | 30.45 ms | 30.83 ms | bounded |
-| Drafts | 752 | 489.73 ms | 541.12 ms | improved from 1,753 queries; remaining N+1 debt |
-| Jobs | 5 | 11.37 ms | 11.49 ms | bounded |
-| Library | 3 | 17.27 ms | 17.98 ms | bounded |
+| Today | 12 | 57.39 ms | 68.13 ms | bounded bulk projection |
+| Inbox | 2 | 12.49 ms | 13.65 ms | bounded |
+| Feed | 8 | 74.34 ms | 74.41 ms | bounded SQL materialization |
+| Raw Content | 1 | 27.36 ms | 29.82 ms | bounded |
+| Drafts | 4 | 39.30 ms | 104.41 ms | bounded bulk projection |
+| Jobs | 5 | 11.20 ms | 11.87 ms | bounded |
+| Library | 3 | 19.08 ms | 19.72 ms | bounded |
 
-The refactor materially reduced Drafts and slightly reduced Feed query counts,
-but did not close the Today/Drafts projection fan-out or the Feed scan latency.
-Those are recorded maintenance debt, not accepted performance budgets. Timing
-is machine-sensitive; the query counts are the stronger comparison.
+Bulk projection closed the Today and Drafts N+1 debts, while SQL
+materialization closed the Feed scan debt. Every measured surface now has a
+bounded query count on the representative dataset. Timing remains
+machine-sensitive; the query counts are the stronger comparison.

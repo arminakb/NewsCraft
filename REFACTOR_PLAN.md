@@ -810,9 +810,9 @@ another overlapping refactor plan.
 
 | Measure | Baseline | Final | Result |
 | --- | ---: | ---: | --- |
-| Backend application | 51,060 lines / 218 files | 52,190 lines / 245 files | +1,130 lines |
-| Handwritten frontend | 16,858 lines / 115 files | 16,927 lines / 116 files | +69 lines |
-| Total handwritten production | 67,918 lines | 69,117 lines | +1,199 lines (+1.8%) |
+| Backend application | 51,060 lines / 218 files | 51,804 lines / 243 files | +744 lines |
+| Handwritten frontend | 16,858 lines / 115 files | 15,956 lines / 117 files | -902 lines |
+| Total handwritten production | 67,918 lines | 67,760 lines | -158 lines (-0.2%) |
 | Application modules at least 1,000 lines | 9 | 0 | eliminated |
 | Ruff complex functions (`C901`) | 83 | 53 | 30 removed |
 | Ruff excessive statements (`PLR0915`) | 39 | 25 | 14 removed |
@@ -820,41 +820,45 @@ another overlapping refactor plan.
 | TypeScript unused-code findings | 5 | 0 | blocking |
 
 The repository did **not** meet the planned 10-15% production-LOC reduction.
-Correctness fixes, explicit domain contracts, worker capability boundaries,
-runtime evidence, and operator-facing UX replaced more code than deletion
-removed. This exception is retained openly; LOC was not compressed at the cost
-of the new verified behavior.
+It finished slightly below the original baseline, while correctness fixes,
+explicit domain contracts, worker capability boundaries, runtime evidence, and
+operator-facing UX offset most deletion. This quantitative exception is
+retained openly; code was not compressed, features cut, or metrics gamed at the
+cost of verified behavior.
 
 ### Final performance evidence
 
 The representative PostgreSQL dataset remains 20,000 content items, 1,000
-stories, and 10,000 jobs. Inbox (2 queries), Raw Content (1), Jobs (5), and
-Library (3) remain bounded. Feed improved from 12 to 10 queries, and Drafts from
-1,753 to 752 queries. Today remains at 1,009 queries; Today and Drafts therefore
-retain N+1 projection debt. Feed p95 remains 754.63 ms. Exact timings and the
-before/after table are in `docs/refactor-performance-baseline.md`.
+stories, and 10,000 jobs. Today improved from 1,009 to 12 queries, Feed from 12
+to 8, and Drafts from 1,753 to 4. The final p95 values are 68.13 ms, 74.41 ms,
+and 104.41 ms respectively. Bulk projection closed the Today and Drafts N+1
+debts, SQL materialization closed the Feed scan debt, and every measured
+surface now has a bounded query count. Exact timings and the before/after table
+are in `docs/refactor-performance-baseline.md`.
 
 ### Final verification
 
 | Gate | Final evidence |
 | --- | --- |
 | Backend static | Ruff and formatting passed; full-app mypy passed; quality budgets passed |
-| Backend unit | 1,753 passed, 213 PostgreSQL-dependent tests skipped |
+| Backend unit | 1,748 passed, 213 PostgreSQL-dependent tests skipped |
 | PostgreSQL/integration | 234 passed against a disposable migrated PostgreSQL 18 database |
 | Frontend | 50 Vitest files / 379 tests passed; strict typecheck and production build passed |
 | Browser | 65 Playwright Chromium tests passed with desktop/mobile, RTL, keyboard, and axe coverage |
 | Contracts | OpenAPI regenerated with no contract or generated-client drift |
-| Deployment | Every supported Compose topology rendered; production backend/frontend images built and content-smoked |
+| Deployment | All six supported Compose topologies rendered; production backend/frontend images built; an isolated six-service deployment passed the 13-step credential-free smoke |
 | Acceptance | Seven real-PostgreSQL critical journeys passed |
-| Restore | Encrypted drill `newscraft-restore-drill-refactor-final-g` passed with matching inventories, zero unvalidated constraints, RPO 35 s, RTO 103.345 s, readiness/smoke success, signed report, and label-verified cleanup |
+| Restore | Encrypted drill `newscraft-restore-drill-refactor-final-h` from source revision `4c0bd8d` passed with matching inventories, zero unvalidated constraints, zero secret-canary matches, RPO 21 s, RTO 69.456 s, readiness/smoke success, signed report, and label-verified cleanup |
 
 ### Remaining maintenance debt
 
-1. Reduce Today and Drafts projection query fan-out.
-2. Replace the remaining Feed scan latency with a bounded query plan.
-3. Continue reducing the committed complexity budgets below 53 `C901` and 25
+1. The planned 10-15% LOC reduction remains an explicit quantitative exception:
+   production code finished 158 lines (0.2%) below baseline, and future
+   deletion should remain behavior-led.
+2. Continue reducing the committed complexity budgets below 53 `C901` and 25
    `PLR0915` findings as those functions are next changed.
 
-These items do not invalidate the refactor's correctness, workflow, module-size,
-typing, browser, acceptance, deployment, or recovery outcomes, but they remain
-explicit follow-up debt rather than silently reclassified success.
+These items do not invalidate the refactor's correctness, performance,
+workflow, module-size, typing, browser, acceptance, deployment, or recovery
+outcomes, but they remain explicit follow-up debt rather than silently
+reclassified success.
