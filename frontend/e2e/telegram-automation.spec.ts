@@ -79,19 +79,12 @@ for (const viewport of [
     await expect(page.getByRole("status", { name: "Latest route action" })).toContainText("Dry run queued")
     expect(backend.requests.dryRun).toEqual({ source_message_id: 91 })
 
-    await navigate(page, "Drafts", viewport.name === "mobile")
-    await expect(page.getByText(/Needs review ·/)).toBeVisible()
-    await expect(page.getByRole("link", { name: "Continue review" })).toBeVisible()
-    await expectNoHorizontalOverflow(page)
     await page.goto(`/review/${ids.dryDraft}`)
     await expect(page.getByText("Draft dry run blocks publishing")).toBeVisible()
     await expect(page.getByRole("button", { name: "Publish exact revision" })).toBeDisabled()
     expect(backend.requests.publish).toBeUndefined()
 
-    await navigate(page, "Drafts", viewport.name === "mobile")
-    await page.reload()
-    await expect(page.getByText(/Needs review ·/)).toBeVisible()
-    await page.getByRole("link", { name: "Continue review" }).click()
+    await page.goto(`/review/${ids.draft1}`)
     await expect(page.getByText("Captured Telegram source")).toBeVisible()
     await expect(page.getByText("image · image/jpeg")).toBeVisible()
     await expect(page.getByLabel("Telegram message")).toHaveAttribute("dir", "rtl")
@@ -366,7 +359,7 @@ async function navigate(page: Page, label: string, mobile: boolean) {
       await page.getByRole("dialog", { name: "Advanced navigation" }).getByRole("link", { name: label, exact: true }).click()
     }
   }
-  const expectedPath = label === "Today" ? "/" : label === "Automations" ? "/automations" : label === "Drafts" ? "/drafts" : null
+  const expectedPath = label === "Today" ? "/" : label === "Automations" ? "/automations" : null
   if (expectedPath) await page.waitForURL((url) => url.pathname === expectedPath)
 }
 

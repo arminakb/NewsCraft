@@ -45,7 +45,7 @@ it("indexes clean app entry A before editor B becomes dirty", () => {
   const go = vi.spyOn(window.history, "go").mockImplementation(() => undefined)
   const view = render(<Coordinated><Harness handled={vi.fn()} dirty={false} /></Coordinated>)
   const entryA = window.history.state
-  window.history.pushState({ caller: "editor-b" }, "", "/drafts/pack-1")
+  window.history.pushState({ caller: "editor-b" }, "", "/review/revision-1")
   const editorB = window.history.state
   expect(confirm).not.toHaveBeenCalled()
 

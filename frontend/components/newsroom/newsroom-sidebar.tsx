@@ -9,7 +9,6 @@ import {
   CalendarDays,
   Clock3,
   Database,
-  FileText,
   Files,
   Inbox,
   ListTodo,
@@ -34,7 +33,6 @@ export type NewsroomNavItem = {
 export const workflowNavItems = [
   { label: "Today", href: "/", icon: Newspaper },
   { label: "Inbox", href: "/inbox", icon: Inbox },
-  { label: "Drafts", href: "/drafts", activeHref: "/review", icon: FileText },
   { label: "Calendar", href: "/calendar", icon: CalendarDays },
   { label: "Library", href: "/feed", icon: Files },
 ] as const satisfies readonly NewsroomNavItem[]

@@ -25,7 +25,7 @@ export function AttentionQueue({
                 Open job
               </Link>
             ) : job.status === "needs_review" ? (
-              <Link className={buttonVariants({ variant: "outline" })} href="/drafts?approval_state=pending_review">
+              <Link className={buttonVariants({ variant: "outline" })} href={`/jobs?status=attention&job=${job.id}`}>
                 Continue review
               </Link>
             ) : null}

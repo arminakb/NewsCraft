@@ -173,7 +173,7 @@ function StoryRow({
         {view === "needs-decision" ? (
           <Button disabled={pending} onClick={() => onState("shortlisted")}>Shortlist</Button>
         ) : view === "ready-to-generate" ? (
-          <Link className={buttonVariants()} href="/drafts">Open drafts</Link>
+          <Link className={buttonVariants()} href="/jobs">Open job queue</Link>
         ) : (
           <Button disabled={pending} onClick={() => onState("inbox")}>Return to inbox</Button>
         )}

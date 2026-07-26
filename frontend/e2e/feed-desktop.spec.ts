@@ -246,7 +246,6 @@ test("compact global rail exposes primary routes, tooltips, counts, and Advanced
   const expectedPrimary = [
     ["Today", "/"],
     ["Inbox", "/inbox"],
-    ["Drafts", "/drafts"],
     ["Calendar", "/calendar"],
     ["Library", "/feed"],
   ] as const

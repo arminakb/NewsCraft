@@ -72,7 +72,7 @@ for (const viewport of [
     const backend = await installMultiplatformBackend(page)
     await page.setViewportSize(viewport)
 
-    await page.goto(`/drafts/${ids.contentPack}`)
+    await page.goto(`/review/${ids.revisions.telegram}`)
     await expect(page.getByRole("heading", { name: "Editorial review" })).toBeVisible()
 
     for (const [tabName, previewName] of [
@@ -82,7 +82,7 @@ for (const viewport of [
       ["Blog", "Blog preview"],
     ] as const) {
       await page.getByRole("tab", { name: tabName, exact: true }).click()
-      const preview = page.getByRole("region", { name: previewName })
+      const preview = page.getByRole("region", { name: previewName, exact: true })
       await expect(preview).toBeVisible()
       await expect(preview).toContainText("Approximation only")
       await expectNoHorizontalOverflow(page)

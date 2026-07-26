@@ -261,7 +261,7 @@ test("all exact copy actions and export formats stay bound to the four approved 
   const backend = await installAcceptanceBackend(page, { allApproved: true })
   await installClipboardCapture(page)
   await page.setViewportSize(viewports[0])
-  await page.goto(`/drafts/${ids.contentPack}`)
+  await page.goto(`/review/${ids.revisions.telegram}`)
 
   const actionsByPlatform = [
     { tab: "Telegram", actions: ["Copy Telegram formatted message"] },
@@ -305,18 +305,13 @@ test("mobile navigation omits legacy surfaces and reaches surviving routes witho
   await expect(navigation).toBeVisible()
   await expect(navigation.getByRole("link", { name: "Inbox", exact: true })).toHaveAttribute("href", "/inbox")
   await expect(navigation.getByRole("link", { name: "Content", exact: true })).toHaveCount(0)
+  await expect(navigation.getByRole("link", { name: "Drafts", exact: true })).toHaveCount(0)
   await expect(navigation.getByRole("link", { name: "Library", exact: true })).toHaveAttribute("href", "/feed")
   await expect(navigation.getByRole("link", { name: "Media", exact: true })).toHaveCount(0)
   await navigation.getByRole("link", { name: "Inbox", exact: true }).click()
   await expect(page.getByRole("heading", { name: "Inbox", exact: true })).toBeVisible()
   await page.getByRole("button", { name: "Shortlist", exact: true }).click()
   await expect.poll(() => backend.editorialRequests).toEqual([{ state: "shortlisted" }])
-  await expectNoHorizontalOverflow(page)
-
-  await page.getByRole("button", { name: "Open navigation" }).click()
-  await page.getByRole("dialog", { name: "Newsroom navigation" }).getByRole("link", { name: "Drafts", exact: true }).click()
-  await expect(page).toHaveURL(/\/drafts$/)
-  await expect(page.getByRole("heading", { name: "Drafts", exact: true })).toBeVisible()
   await expectNoHorizontalOverflow(page)
 
   await page.getByRole("button", { name: "Open navigation" }).click()
@@ -329,7 +324,7 @@ test("mobile navigation omits legacy surfaces and reaches surviving routes witho
 test("keyboard-only editor creates and approves an immutable Persian revision", async ({ page }) => {
   const backend = await installAcceptanceBackend(page)
   await page.setViewportSize(viewports[0])
-  await page.goto(`/drafts/${ids.contentPack}`)
+  await page.goto(`/review/${ids.revisions.telegram}`)
   await expect(page.getByRole("heading", { name: "Editorial review" })).toBeVisible()
 
   const message = page.getByLabel("Telegram message")
@@ -369,7 +364,7 @@ for (const viewport of viewports) {
   test(`${viewport.name} critical paths have no serious or critical axe violations`, async ({ page }) => {
     const backend = await installAcceptanceBackend(page, { allApproved: true })
     await page.setViewportSize(viewport)
-    for (const route of ["/", "/automations", "/drafts", `/drafts/${ids.contentPack}`, "/calendar", "/diagnostics", "/settings/retention"]) {
+    for (const route of ["/", "/automations", `/review/${ids.revisions.telegram}`, "/calendar", "/diagnostics", "/settings/retention"]) {
       await page.goto(route)
       await expect(page.getByRole("main")).toBeVisible()
       const results = await new AxeBuilder({ page }).analyze()

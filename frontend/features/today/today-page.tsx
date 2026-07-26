@@ -163,7 +163,7 @@ function PriorityDecision({
             <div className="flex items-center gap-2 font-semibold"><SquarePen className="size-5 text-amber-700" aria-hidden="true" />Editorial review is waiting</div>
             <p className="mt-1 text-sm text-muted-foreground">Continue with the oldest item needing a decision.</p>
           </div>
-          <Link className={buttonVariants()} href="/drafts?approval_state=pending_review">
+          <Link className={buttonVariants()} href={`/jobs?status=attention&job=${job.id}`}>
             Continue review
             <ArrowRight aria-hidden="true" />
           </Link>

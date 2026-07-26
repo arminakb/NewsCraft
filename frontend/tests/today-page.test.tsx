@@ -20,6 +20,7 @@ const summary = { queued: 3, running: 1, attention: 2, succeeded_today: 4 }
 const runningJob = job({ status: "running", progress: 42, progress_message: "در حال پردازش منابع" })
 const failedJob = job({ id: "22222222-2222-4222-8222-222222222222", status: "failed", error_message: "خطای شبکه" })
 const successJob = job({ id: "33333333-3333-4333-8333-333333333333", status: "succeeded", progress: 100 })
+const reviewJob = job({ id: "44444444-4444-4444-8444-444444444444", status: "needs_review" })
 
 describe("TodayPage", () => {
   beforeEach(() => {
@@ -92,6 +93,20 @@ describe("TodayPage", () => {
       `/jobs?status=attention&job=${failedJob.id}`,
     )
     expect(screen.getByRole("region", { name: "Recent successes" })).toHaveTextContent(successJob.job_type)
+  })
+
+  it("routes review decisions through the surviving job detail", async () => {
+    vi.mocked(getJobs).mockImplementation(async (filters = {}) => {
+      if (filters.statuses?.includes("failed")) return [reviewJob]
+      return []
+    })
+    renderToday()
+
+    const reviewLinks = await screen.findAllByRole("link", { name: "Continue review" })
+    expect(reviewLinks).toHaveLength(2)
+    for (const link of reviewLinks) {
+      expect(link).toHaveAttribute("href", `/jobs?status=attention&job=${reviewJob.id}`)
+    }
   })
 })
 

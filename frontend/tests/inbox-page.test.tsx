@@ -72,6 +72,13 @@ describe("InboxPage", () => {
     )
   })
 
+  it("sends generation-ready stories to the job queue", async () => {
+    navigation.params = new URLSearchParams("view=ready-to-generate")
+    renderInbox()
+
+    expect(await screen.findByRole("link", { name: "Open job queue" })).toHaveAttribute("href", "/jobs")
+  })
+
   it("queues manually pasted source text from the direct Add story action", async () => {
     renderInbox()
     fireEvent.click(screen.getByRole("button", { name: "Add story" }))
