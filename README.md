@@ -197,8 +197,6 @@ docker compose run --rm \
   worker-source-generation python -m app.daily_bundle \
   --start 2026-07-05 \
   --end 2026-07-06 \
-  --topic "AI" \
-  --topic "economy" \
   --output /output/today-news/2026-07-05 \
   --download-media
 ```
