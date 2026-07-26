@@ -59,7 +59,10 @@ class StoryEvidenceSnapshot(Base):
     snapshot_metadata: Mapped[dict] = mapped_column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
     captured_at: Mapped[datetime] = timestamp_now()
 
-    __table_args__ = (UniqueConstraint("story_id", "evidence_key", name="uq_story_evidence_key"),)
+    __table_args__ = (
+        UniqueConstraint("story_id", "evidence_key", name="uq_story_evidence_key"),
+        Index("ix_story_evidence_content_item", "content_item_id"),
+    )
 
 
 class StoryRevision(Base):

@@ -603,7 +603,7 @@ async def test_filtered_cursor_is_stable_and_rejected_after_filter_change(db_ses
     assert changed_filter.json()["detail"] == "invalid article cursor"
 
 
-async def test_articles_search_titles_only_with_exact_count_filters_and_cursor_binding(
+async def test_articles_search_title_and_body_with_exact_count_filters_and_cursor_binding(
     db_session: AsyncSession,
 ):
     climate = _article(
@@ -638,12 +638,12 @@ async def test_articles_search_titles_only_with_exact_count_filters_and_cursor_b
 
     filtered = await _get(db_session, "/articles?q=%20CLIMATE%20&language=en&sort=score")
     assert filtered.status_code == 200
-    assert filtered.json()["result_count"] == 2
+    assert filtered.json()["result_count"] == 3
     assert [item["id"] for item in filtered.json()["items"]] == [
+        str(body_only.id),
         str(climate.id),
         str(second_report.id),
     ]
-    assert str(body_only.id) not in {item["id"] for item in filtered.json()["items"]}
 
     persian_result = await _get(db_session, "/articles?q=گزارش%20فناوری")
     assert persian_result.status_code == 200
@@ -660,7 +660,7 @@ async def test_articles_search_titles_only_with_exact_count_filters_and_cursor_b
     assert cursor
     second = await _get(db_session, f"/articles?q=CLIMATE&limit=1&cursor={cursor}")
     assert second.status_code == 200
-    assert second.json()["result_count"] == 2
+    assert second.json()["result_count"] == 3
 
     changed_query = await _get(db_session, f"/articles?q=outlook&cursor={cursor}")
     assert changed_query.status_code == 422
@@ -826,6 +826,31 @@ async def test_score_cursor_is_stable_and_bound_to_sort(db_session: AsyncSession
     wrong_sort = await _get(db_session, f"/articles?sort=newest&cursor={cursor}")
     assert wrong_sort.status_code == 422
     assert wrong_sort.json()["detail"] == "invalid article cursor"
+
+
+async def test_score_cursor_is_stable_when_all_sort_keys_tie(db_session: AsyncSession):
+    ids = [
+        UUID("00000000-0000-4000-8000-000000000003"),
+        UUID("00000000-0000-4000-8000-000000000002"),
+        UUID("00000000-0000-4000-8000-000000000001"),
+    ]
+    rows = [_article(title=f"Tied {index}", score=20, sort_at=NOW) for index in range(3)]
+    for row, content_item_id in zip(rows, ids, strict=True):
+        row.id = content_item_id
+    db_session.add_all(rows)
+    await db_session.commit()
+
+    first = await _get(db_session, "/articles?sort=score&limit=1")
+    cursor = first.json()["next_cursor"]
+    assert [item["id"] for item in first.json()["items"]] == [str(ids[0])]
+
+    inserted = _article(title="New tied row", score=20, sort_at=NOW)
+    inserted.id = UUID("00000000-0000-4000-8000-000000000004")
+    db_session.add(inserted)
+    await db_session.commit()
+
+    second = await _get(db_session, f"/articles?sort=score&limit=2&cursor={cursor}")
+    assert [item["id"] for item in second.json()["items"]] == [str(ids[1]), str(ids[2])]
 
 
 async def test_articles_reject_invalid_cursor_and_return_404_for_unknown_id(db_session: AsyncSession):

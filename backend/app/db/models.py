@@ -156,6 +156,25 @@ class ContentItem(Base):
         DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now()
     )
 
+    __table_args__ = (
+        Index(
+            "ix_content_items_search",
+            text("to_tsvector('simple'::regconfig, COALESCE(title, '') || ' ' || COALESCE(content_text, ''))"),
+            postgresql_using="gin",
+        ),
+        Index(
+            "ix_content_items_display_at",
+            text("COALESCE(published_at, sort_at) DESC"),
+            text("id DESC"),
+        ),
+        Index(
+            "ix_content_items_score_display_at",
+            text("score DESC"),
+            text("COALESCE(published_at, sort_at) DESC"),
+            text("id DESC"),
+        ),
+    )
+
 
 class ArticleCollection(Base):
     __tablename__ = "article_collections"
