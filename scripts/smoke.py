@@ -585,54 +585,68 @@ class SmokeDriver:
             "destination_not_administrator",
         )
 
-        options = _as_dict(
-            self._request("GET", "/telegram/automations/options").data,
-            "automation_options_invalid",
-        )
-        sources = _as_list(options.get("sources"), "automation_sources_invalid")
-        destinations = _as_list(
-            options.get("destinations"),
-            "automation_destinations_invalid",
-        )
-        brands = _as_list(options.get("brand_profiles"), "brand_options_invalid")
-        prompts = _as_list(
-            options.get("prompt_template_versions"),
-            "prompt_options_invalid",
-        )
-        providers = _as_list(
-            options.get("ai_provider_profiles"),
-            "provider_options_invalid",
-        )
-        _require(
-            any(isinstance(item, dict) and item.get("id") == source_id for item in sources),
-            "source_option_missing",
-        )
-        _require(
-            any(isinstance(item, dict) and item.get("id") == destination_id for item in destinations),
-            "destination_option_missing",
-        )
-        brand_option = next(
-            (item for item in brands if isinstance(item, dict) and item.get("id") == brand_id),
-            None,
-        )
-        prompt = next((item for item in prompts if isinstance(item, dict)), None)
-        provider_option = next(
-            (item for item in providers if isinstance(item, dict) and item.get("id") == provider_id),
-            None,
-        )
-        _require(brand_option is not None, "brand_option_missing")
-        _require(prompt is not None, "prompt_option_missing")
-        _require(provider_option is not None, "fake_provider_missing")
-        option_capabilities = _as_dict(
-            provider_option.get("capabilities"),
-            "provider_capabilities_invalid",
-        )
-        _require(
-            provider_option.get("configured") is True
-            and option_capabilities.get("generation") is True
-            and option_capabilities.get("research") is True,
-            "fake_provider_not_ready",
-        )
+        while True:
+            options = _as_dict(
+                self._request("GET", "/telegram/automations/options").data,
+                "automation_options_invalid",
+            )
+            sources = _as_list(options.get("sources"), "automation_sources_invalid")
+            destinations = _as_list(
+                options.get("destinations"),
+                "automation_destinations_invalid",
+            )
+            brands = _as_list(options.get("brand_profiles"), "brand_options_invalid")
+            prompts = _as_list(
+                options.get("prompt_template_versions"),
+                "prompt_options_invalid",
+            )
+            providers = _as_list(
+                options.get("ai_provider_profiles"),
+                "provider_options_invalid",
+            )
+            source_option = next(
+                (item for item in sources if isinstance(item, dict) and item.get("id") == source_id),
+                None,
+            )
+            destination_option = next(
+                (item for item in destinations if isinstance(item, dict) and item.get("id") == destination_id),
+                None,
+            )
+            brand_option = next(
+                (item for item in brands if isinstance(item, dict) and item.get("id") == brand_id),
+                None,
+            )
+            prompt = next((item for item in prompts if isinstance(item, dict)), None)
+            provider_option = next(
+                (item for item in providers if isinstance(item, dict) and item.get("id") == provider_id),
+                None,
+            )
+            source_state = source_option.get("capability_state") if source_option is not None else None
+            destination_state = (
+                destination_option.get("capability_state") if destination_option is not None else None
+            )
+            option_capabilities = (
+                provider_option.get("capabilities") if provider_option is not None else None
+            )
+            ready = (
+                brand_option is not None
+                and prompt is not None
+                and provider_option is not None
+                and provider_option.get("configured") is True
+                and isinstance(option_capabilities, dict)
+                and option_capabilities.get("generation") is True
+                and option_capabilities.get("research") is True
+                and isinstance(source_state, dict)
+                and source_state.get("status") == "available"
+                and isinstance(destination_state, dict)
+                and destination_state.get("status") == "available"
+            )
+            if ready:
+                break
+            remaining = self._remaining()
+            if self.poll_interval_seconds:
+                self._sleeper(min(self.poll_interval_seconds, remaining))
+        assert prompt is not None
         prompt_id = _required_id(prompt.get("id"), "prompt_id_missing")
 
         route_response = _as_dict(

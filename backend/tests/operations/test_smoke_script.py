@@ -47,6 +47,7 @@ class FakeSmokeAPI:
     def __init__(self) -> None:
         self.requests: list[dict[str, object]] = []
         self.job_reads: dict[str, int] = {}
+        self.option_reads = 0
         self.research_citations = True
         self.control = {
             "global_pause": False,
@@ -251,14 +252,24 @@ class FakeSmokeAPI:
                 "administrator_status": "administrator",
             }
         if (method, path) == ("GET", "/telegram/automations/options"):
+            self.option_reads += 1
+            capability_status = "available" if self.option_reads > 1 else "unknown"
+            capability_available = self.option_reads > 1
             return 200, {
-                "sources": [{"id": ids["source"], "name": "Smoke source", "access_mode": "public_html"}],
+                "sources": [
+                    {
+                        "id": ids["source"],
+                        "name": "Smoke source",
+                        "access_mode": "public_html",
+                        "capability_state": {"status": capability_status},
+                    }
+                ],
                 "destinations": [
                     {
                         "id": ids["destination"],
                         "name": "Smoke destination",
-                        "health_status": "unknown",
-                        "allow_auto_publish": False,
+                        "health_status": "healthy",
+                        "capability_state": {"status": capability_status},
                     }
                 ],
                 "brand_profiles": [{"id": ids["brand"], "name": "Default Newsroom"}],
@@ -269,8 +280,11 @@ class FakeSmokeAPI:
                         "name": "Deterministic Fake",
                         "provider_type": "fake",
                         "default_model": "fake-v1",
-                        "configured": True,
-                        "capabilities": {"generation": True, "research": True},
+                        "configured": capability_available,
+                        "capabilities": {
+                            "generation": capability_available,
+                            "research": capability_available,
+                        },
                     }
                 ],
             }
@@ -903,6 +917,7 @@ def test_smoke_driver_runs_complete_fake_workflow(
         ("POST", "/telegram/sources"),
         ("POST", "/telegram/destinations"),
         ("POST", f"/telegram/destinations/{fake_http.ids['destination']}/enable"),
+        ("GET", "/telegram/automations/options"),
         ("GET", "/telegram/automations/options"),
         ("POST", "/telegram/automations"),
         ("POST", f"/telegram/automations/{fake_http.ids['route']}/activate"),
