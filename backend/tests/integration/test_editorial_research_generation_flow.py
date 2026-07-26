@@ -4,10 +4,8 @@ from pathlib import Path
 from uuid import UUID
 
 import pytest
-from fastapi import HTTPException
 from sqlalchemy import select
 
-from app.api.telegram_drafts import require_revision_transition
 from app.generation.default_prompts import (
     seed_default_editorial_prompts,
     seed_default_telegram_configuration,
@@ -25,6 +23,10 @@ from app.jobs.models import WorkflowEvent, WorkflowJob
 from app.jobs.registry import JobContext
 from app.jobs.repository import JobRepository
 from app.jobs.types import JobOrigin
+from app.publishing.telegram.draft_publication import (
+    ReviewedTelegramDraftError,
+    require_revision_transition,
+)
 from app.research.fake import FakeResearchBackend
 from app.research.handlers import build_research_story_handler
 from app.research.models import ResearchAttempt, ResearchRun
@@ -273,7 +275,7 @@ async def test_supplemental_direct_service_flow(
         assert edited.approval_state == "pending_review"
         assert edited.content["body"] == "Edited copy"
 
-        with pytest.raises(HTTPException):
+        with pytest.raises(ReviewedTelegramDraftError):
             require_revision_transition(
                 edited,
                 content_hash=edited.content_hash,

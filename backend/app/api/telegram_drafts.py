@@ -11,14 +11,11 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.capabilities import CapabilityStatusDependency
-from app.automations.models import AutomationDispatch, AutomationRoute
 from app.automations.telegram.handlers import (
-    enqueue_telegram_publish_intent,
     sha256_canonical,
 )
 from app.db.session import get_session
 from app.generation.models import PlatformVariant, PlatformVariantRevision
-from app.generation.revision_validation import RevisionValidationError, validate_approvable_revision
 from app.jobs.events import redact_event_data
 from app.jobs.models import WorkflowEvent, WorkflowJob
 from app.jobs.repository import JobRepository
@@ -29,6 +26,13 @@ from app.publishing.models import (
     Publication,
     PublishJob,
     PublishOperationReceipt,
+)
+from app.publishing.telegram.draft_publication import (
+    ReviewedTelegramDraftError,
+    publish_reviewed_draft,
+)
+from app.publishing.telegram.draft_publication import (
+    revision_dispatch as _revision_dispatch,
 )
 from app.publishing.telegram.service import (
     PublishValidationError,
@@ -333,53 +337,6 @@ def _publish_job_out(
     }
 
 
-def require_revision_transition(
-    revision: Any,
-    *,
-    content_hash: str,
-) -> None:
-    if revision.content_hash != content_hash:
-        raise HTTPException(409, "Draft content changed")
-    if revision.approval_state != "approved":
-        raise HTTPException(409, "Draft cannot publish from its current state")
-    try:
-        validate_approvable_revision(revision)
-    except RevisionValidationError as exc:
-        raise HTTPException(409, str(exc)) from None
-    if bool((revision.content or {}).get("dry_run")):
-        raise HTTPException(409, "Dry-run drafts cannot be published")
-
-
-async def _revision_dispatch(
-    session: AsyncSession,
-    revision: PlatformVariantRevision,
-) -> AutomationDispatch | None:
-    variant = await session.get(PlatformVariant, revision.platform_variant_id)
-    if variant is None or variant.platform != "telegram":
-        return None
-    expected_variant_id = revision.platform_variant_id
-    current: PlatformVariantRevision | None = revision
-    seen: set[UUID] = set()
-    while current is not None and current.id not in seen:
-        if current.platform_variant_id != expected_variant_id:
-            return None
-        seen.add(current.id)
-        dispatch = await session.scalar(
-            select(AutomationDispatch)
-            .where(AutomationDispatch.variant_revision_id == current.id)
-            .order_by(AutomationDispatch.created_at.desc())
-            .limit(1)
-        )
-        if dispatch is not None:
-            return dispatch
-        current = (
-            await session.get(PlatformVariantRevision, current.parent_revision_id)
-            if current.parent_revision_id is not None
-            else None
-        )
-    return None
-
-
 async def _publication_context_out(
     session: AsyncSession,
     revision: PlatformVariantRevision,
@@ -406,74 +363,6 @@ async def _publication_context_out(
         publish_job_id=publish_job.id if publish_job is not None else None,
         publish_status=publish_job.status if publish_job is not None else None,
         publication=_publication_out(publication) if publication is not None else None,
-    )
-
-
-async def _locked_revision(
-    session: AsyncSession,
-    revision_id: UUID,
-) -> PlatformVariantRevision:
-    provisional = await session.scalar(
-        select(PlatformVariantRevision)
-        .where(PlatformVariantRevision.id == revision_id)
-        .execution_options(populate_existing=True)
-    )
-    if provisional is None:
-        raise HTTPException(404, "Telegram draft not found")
-    variant = await session.scalar(
-        select(PlatformVariant)
-        .where(PlatformVariant.id == provisional.platform_variant_id)
-        .with_for_update()
-        .execution_options(populate_existing=True)
-    )
-    if variant is None or variant.platform != "telegram":
-        raise HTTPException(404, "Telegram draft not found")
-    revision = await session.scalar(
-        select(PlatformVariantRevision)
-        .where(
-            PlatformVariantRevision.id == revision_id,
-            PlatformVariantRevision.platform_variant_id == variant.id,
-        )
-        .with_for_update()
-        .execution_options(populate_existing=True)
-    )
-    if revision is None:
-        raise HTTPException(404, "Telegram draft not found")
-    latest_id = await session.scalar(
-        select(PlatformVariantRevision.id)
-        .where(PlatformVariantRevision.platform_variant_id == revision.platform_variant_id)
-        .order_by(
-            PlatformVariantRevision.revision_number.desc(),
-            PlatformVariantRevision.created_at.desc(),
-            PlatformVariantRevision.id.desc(),
-        )
-        .limit(1)
-    )
-    if latest_id != revision.id:
-        raise HTTPException(409, "Telegram draft revision is not current")
-    return revision
-
-
-def _append_draft_event(
-    session: AsyncSession,
-    *,
-    event_type: str,
-    revision: PlatformVariantRevision,
-    data: dict[str, Any] | None = None,
-) -> None:
-    session.add(
-        WorkflowEvent(
-            workflow_job_id=None,
-            event_type=event_type,
-            actor="operator",
-            event_data=redact_event_data(
-                {
-                    "revision_id": str(revision.id),
-                    "content_hash": revision.content_hash,
-                    **(data or {}),
-                }
-            ),
-        )
     )
 
 
@@ -526,48 +415,22 @@ async def publish_telegram_draft(
     session: AsyncSession = SessionDependency,
     capability_status: CapabilityStatusDependency = None,
 ):
-    async with session.begin():
-        revision = await _locked_revision(session, revision_id)
-        require_revision_transition(
-            revision,
-            content_hash=body.content_hash,
-        )
-        dispatch = await _revision_dispatch(session, revision)
-        if dispatch is None:
-            raise HTTPException(409, "Telegram draft has no route provenance")
-        route = await session.get(AutomationRoute, dispatch.route_id)
-        if route is None:
-            raise HTTPException(409, "Telegram draft route is missing")
-        destination = await session.scalar(
-            select(Destination).where(Destination.id == route.destination_id).with_for_update()
-        )
-        if destination is None:
-            raise HTTPException(409, "Telegram draft destination is missing")
-        await capability_status.require_available(
-            "destination",
-            destination.id,
-            "publishing",
-            job_type="telegram.publish",
-        )
-        publish_job = await enqueue_telegram_publish_intent(
-            session,
-            revision=revision,
-            destination=destination,
-            dispatch=dispatch if dispatch.variant_revision_id == revision.id else None,
-        )
-        _append_draft_event(
-            session,
-            event_type="telegram.revision.publish_requested",
-            revision=revision,
-            data={"publish_job_id": str(publish_job.id)},
-        )
-        await session.flush()
+    try:
+        async with session.begin():
+            result = await publish_reviewed_draft(
+                session,
+                revision_id=revision_id,
+                content_hash=body.content_hash,
+                capability_status=capability_status,
+            )
+    except ReviewedTelegramDraftError as exc:
+        raise HTTPException(exc.status_code, str(exc)) from None
     return TelegramPublishAcceptedOut(
-        revision_id=revision.id,
+        revision_id=result.revision.id,
         job=TelegramPublishIntentOut(
-            publish_job_id=publish_job.id,
-            workflow_job_id=publish_job.workflow_job_id,
-            status=publish_job.status,
+            publish_job_id=result.publish_job.id,
+            workflow_job_id=result.publish_job.workflow_job_id,
+            status=result.publish_job.status,
         ),
     )
 

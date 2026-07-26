@@ -10,13 +10,18 @@ from pydantic import ValidationError
 
 from app.api.telegram_drafts import (
     ScheduleTelegramIn,
-    _locked_revision,
-    require_revision_transition,
     schedule_telegram_revision,
 )
 from app.generation.models import PlatformVariant, PlatformVariantRevision
 from app.jobs.types import JobStatus
 from app.main import app
+from app.publishing.telegram.draft_publication import (
+    ReviewedTelegramDraftError,
+    require_revision_transition,
+)
+from app.publishing.telegram.draft_publication import (
+    locked_revision as _locked_revision,
+)
 from app.publishing.telegram.service import ReviewedTelegramScheduleError
 from tests.capability_fakes import AVAILABLE_CAPABILITIES
 
@@ -53,7 +58,7 @@ def _revision(*, approval_state: str = "approved", dry_run: bool = False):
 def test_publish_transition_rejects_invalid_state(state):
     revision = _revision(approval_state=state)
 
-    with pytest.raises(HTTPException) as error:
+    with pytest.raises(ReviewedTelegramDraftError) as error:
         require_revision_transition(revision, content_hash=revision.content_hash)
 
     assert error.value.status_code == 409
@@ -61,12 +66,12 @@ def test_publish_transition_rejects_invalid_state(state):
 
 def test_publish_transition_requires_exact_hash_and_rejects_dry_run():
     revision = _revision()
-    with pytest.raises(HTTPException) as stale:
+    with pytest.raises(ReviewedTelegramDraftError) as stale:
         require_revision_transition(revision, content_hash="b" * 64)
     assert stale.value.status_code == 409
 
     dry_run = _revision(dry_run=True)
-    with pytest.raises(HTTPException) as error:
+    with pytest.raises(ReviewedTelegramDraftError) as error:
         require_revision_transition(dry_run, content_hash=dry_run.content_hash)
     assert error.value.status_code == 409
 
