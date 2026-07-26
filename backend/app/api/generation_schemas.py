@@ -6,15 +6,6 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from app.api.telegram_schemas import SecretRef
-from app.generation.provider_settings import (
-    CodexGenerationLimits,
-    CodexProviderSettings,
-    OpenRouterProviderSettings,
-    ProviderPricingSettings,
-    ResearchBudgetSettings,
-    ResearchBudgetsSettings,
-)
 from app.jobs.credential_capabilities import CapabilityStatus
 
 
@@ -45,9 +36,7 @@ class BrandProfilePatch(BaseModel):
         if isinstance(value, dict):
             null_fields = sorted(key for key, item in value.items() if item is None)
             if null_fields:
-                raise ValueError(
-                    f"Brand profile fields cannot be null: {', '.join(null_fields)}"
-                )
+                raise ValueError(f"Brand profile fields cannot be null: {', '.join(null_fields)}")
         return value
 
 
@@ -91,41 +80,6 @@ class PromptTemplateVersionOut(BaseModel):
     created_at: datetime
 
 
-class AIProviderProfileCreate(BaseModel):
-    name: str = Field(min_length=1, max_length=120)
-    provider_type: Literal["fake", "openrouter", "codex"]
-    default_model: str | None = Field(default=None, min_length=1, max_length=200)
-    secret_ref: SecretRef | None = None
-    settings: dict | None = None
-    enabled: bool = True
-
-    @model_validator(mode="after")
-    def validate_provider_contract(self):
-        if self.provider_type == "fake":
-            if self.secret_ref is not None or self.settings is not None:
-                raise ValueError("fake provider cannot have secret or provider settings")
-        elif self.provider_type == "openrouter":
-            if self.secret_ref is None or self.default_model is None:
-                raise ValueError("openrouter requires secret_ref and default_model")
-            if self.settings is not None:
-                OpenRouterProviderSettings.model_validate(self.settings)
-        else:
-            if self.secret_ref is not None or self.default_model is None or self.settings is None:
-                raise ValueError(
-                    "codex forbids secret_ref and requires default_model and settings"
-                )
-            CodexProviderSettings.model_validate(self.settings or {})
-        return self
-
-
-class AIProviderProfilePatch(BaseModel):
-    name: str | None = Field(default=None, min_length=1, max_length=120)
-    default_model: str | None = Field(default=None, min_length=1, max_length=200)
-    secret_ref: SecretRef | None = None
-    settings: dict | None = None
-    enabled: bool | None = None
-
-
 class BrandProfileOut(BrandProfileCreate):
     model_config = ConfigDict(from_attributes=True)
     id: UUID
@@ -145,18 +99,10 @@ class AIProviderProfileOut(BaseModel):
 
 
 __all__ = [
-    "AIProviderProfileCreate",
-    "AIProviderProfilePatch",
     "AIProviderProfileOut",
     "BrandProfileCreate",
     "BrandProfilePatch",
     "BrandProfileOut",
-    "CodexGenerationLimits",
-    "CodexProviderSettings",
-    "OpenRouterProviderSettings",
     "PromptTemplateVersionOut",
     "PromptActivationCreate",
-    "ProviderPricingSettings",
-    "ResearchBudgetSettings",
-    "ResearchBudgetsSettings",
 ]

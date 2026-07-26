@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 import re
 from collections.abc import Mapping
+from typing import Literal
 
 from uvicorn.logging import AccessFormatter
 
@@ -98,6 +99,10 @@ def _sanitize_access_record(record: logging.LogRecord) -> logging.LogRecord:
         raise TypeError("access log string fields are invalid")
     if type(status_code) is not int:
         raise TypeError("access log status must be an integer")
+    assert isinstance(client_addr, str)
+    assert isinstance(method, str)
+    assert isinstance(target, str)
+    assert isinstance(http_version, str)
     cloned.msg = redact_string(cloned.msg)
     cloned.args = (
         redact_string(client_addr),
@@ -135,7 +140,7 @@ class RedactingFormatter(logging.Formatter):
         self,
         fmt: str | None = None,
         datefmt: str | None = None,
-        style: str = "%",
+        style: Literal["%", "{", "$"] = "%",
         validate: bool = True,
         *,
         defaults: Mapping[str, object] | None = None,
@@ -161,7 +166,7 @@ class RedactingAccessFormatter(AccessFormatter):
         self,
         fmt: str | None = None,
         datefmt: str | None = None,
-        style: str = "%",
+        style: Literal["%", "{", "$"] = "%",
         use_colors: bool | None = None,
         *,
         delegate: logging.Formatter | None = None,

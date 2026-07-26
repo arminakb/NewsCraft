@@ -328,11 +328,7 @@ async def test_remaining_output_allowance_reaches_openrouter_transport():
                 "model": "openai/test",
                 "choices": [
                     {
-                        "message": {
-                            "content": __import__("json").dumps(
-                                {"action": "finish", "brief": brief}
-                            )
-                        },
+                        "message": {"content": __import__("json").dumps({"action": "finish", "brief": brief})},
                         "finish_reason": "stop",
                     }
                 ],
@@ -430,11 +426,7 @@ async def test_transport_missing_usage_is_needs_review():
                 "model": "openai/test",
                 "choices": [
                     {
-                        "message": {
-                            "content": __import__("json").dumps(
-                                {"action": "finish", "brief": brief}
-                            )
-                        },
+                        "message": {"content": __import__("json").dumps({"action": "finish", "brief": brief})},
                         "finish_reason": "stop",
                     }
                 ],

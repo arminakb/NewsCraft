@@ -31,9 +31,7 @@ def _heartbeat(
         component_type="worker",
         capabilities=capabilities or ["generation", "source"],
         observed_at=observed_at,
-        runtime_metadata={
-            "external_capabilities": [observation.model_dump(mode="json")]
-        },
+        runtime_metadata={"external_capabilities": [observation.model_dump(mode="json")]},
     )
 
 
@@ -128,9 +126,11 @@ def test_provider_observation_contains_no_value_or_reference():
         config=Settings(_env_file=None),
     )
 
-    encoded = str([item.model_dump(mode="json") for item in observer._provider(profile)])
+    observations = observer._provider(profile)
+    encoded = str([item.model_dump(mode="json") for item in observations])
 
-    assert "available" in encoded
+    assert observations[0].state == "unavailable"
+    assert observations[0].failure_code == "generation_profile_unqualified"
     assert canary not in encoded
     assert "OPENROUTER_API_KEY" not in encoded
     assert "secret_ref" not in encoded

@@ -5,10 +5,15 @@ from dataclasses import dataclass, field
 from typing import Any
 from urllib.parse import urlsplit
 
+from app.content.quality import (
+    PROMO_KEYWORDS,
+    content_quality_reasons,
+    has_meaningful_content,
+    with_content_support_reason,
+)
 from app.db.models import Source
 from app.sources.base import ParsedSourceItem
 
-MEANINGFUL_RE = re.compile(r"[\w\u0600-\u06ff]", re.UNICODE)
 TAG_RE = re.compile(r"[^a-z0-9]+")
 
 AI_KEYWORDS = (
@@ -141,17 +146,6 @@ VENDOR_KEYWORDS = (
     "claude",
     "chatgpt",
 )
-PROMO_KEYWORDS = (
-    "discount",
-    "coupon",
-    "buy now",
-    "limited time",
-    "sale",
-    "promo",
-    "save",
-    "تخفیف",
-    "خرید",
-)
 LONGFORM_KEYWORDS = (
     "longform",
     "analysis",
@@ -169,7 +163,7 @@ class ContentClassification:
     content_type: str
     confidence: float
     reasons: list[str] = field(default_factory=list)
-    quality_flags: list[str] = field(default_factory=list)
+    quality_reasons: list[str] = field(default_factory=list)
     metadata: dict = field(default_factory=dict)
 
 
@@ -185,27 +179,27 @@ def classify_content_item(source: Source, parsed_item: ParsedSourceItem) -> Cont
     url = parsed_item.canonical_url_candidate or parsed_item.source_url_norm or parsed_item.source_url or ""
     domain = _domain(url) or _domain(source.homepage_url or source.feed_url or "")
     text_length = len(parsed_item.content_text or "")
-    quality_flags = _quality_flags(parsed_item, text_length)
+    quality_reasons = content_quality_reasons(source, parsed_item)
 
-    if "weak_text" in quality_flags:
-        return _result("low_signal", 0.95, ["text is too weak for rewrite"], quality_flags, source, parsed_item)
+    if not has_meaningful_content(parsed_item) or "missing_body" in quality_reasons:
+        return _result("low_signal", 0.95, ["source content is unusable"], quality_reasons, source, parsed_item)
     if _is_youtube(source, url, domain) or any(candidate.kind == "video" for candidate in parsed_item.media_candidates):
-        return _result("video", 0.95, ["youtube or video media signal"], quality_flags, source, parsed_item)
+        return _result("video", 0.95, ["youtube or video media signal"], quality_reasons, source, parsed_item)
     if _has(text, PROMO_KEYWORDS):
-        return _result("promo", 0.9, ["promotional language"], quality_flags, source, parsed_item)
+        return _result("promo", 0.9, ["promotional language"], quality_reasons, source, parsed_item)
     if _has(text, TUTORIAL_KEYWORDS):
-        return _result("tutorial", 0.86, ["tutorial or implementation signal"], quality_flags, source, parsed_item)
+        return _result("tutorial", 0.86, ["tutorial or implementation signal"], quality_reasons, source, parsed_item)
     if "arxiv.org" in domain or _has(text, RESEARCH_KEYWORDS):
-        return _result("research", 0.86, ["research publication signal"], quality_flags, source, parsed_item)
+        return _result("research", 0.86, ["research publication signal"], quality_reasons, source, parsed_item)
     if text_length >= 3500 or ("medium.com" in domain and _has(text, LONGFORM_KEYWORDS)):
-        return _result("longform", 0.82, ["longform analysis signal"], quality_flags, source, parsed_item)
+        return _result("longform", 0.82, ["longform analysis signal"], quality_reasons, source, parsed_item)
     if _is_vendor(domain, source) and _has(text, TOOL_KEYWORDS):
-        return _result("tool_update", 0.84, ["vendor developer/tooling update"], quality_flags, source, parsed_item)
+        return _result("tool_update", 0.84, ["vendor developer/tooling update"], quality_reasons, source, parsed_item)
     if _is_vendor(domain, source) and (_has(text, VENDOR_KEYWORDS) or _has(text, NEWS_KEYWORDS)):
-        return _result("vendor_update", 0.82, ["vendor product/company update"], quality_flags, source, parsed_item)
+        return _result("vendor_update", 0.82, ["vendor product/company update"], quality_reasons, source, parsed_item)
     if _has(text, NEWS_KEYWORDS):
-        return _result("news", 0.78, ["news language signal"], quality_flags, source, parsed_item)
-    return _result("article", 0.62, ["default technical article"], quality_flags, source, parsed_item)
+        return _result("news", 0.78, ["news language signal"], quality_reasons, source, parsed_item)
+    return _result("article", 0.62, ["default technical article"], quality_reasons, source, parsed_item)
 
 
 def classify_content_taxonomy(source: Source, parsed_item: ParsedSourceItem) -> ContentTaxonomy:
@@ -240,7 +234,7 @@ def _result(
     content_type: str,
     confidence: float,
     reasons: list[str],
-    quality_flags: list[str],
+    quality_reasons: list[str],
     source: Source,
     parsed_item: ParsedSourceItem,
 ) -> ContentClassification:
@@ -248,7 +242,7 @@ def _result(
         content_type=content_type,
         confidence=confidence,
         reasons=reasons,
-        quality_flags=quality_flags,
+        quality_reasons=with_content_support_reason(quality_reasons, content_type),
         metadata={
             "source_platform": source.platform,
             "source_name": source.name,
@@ -347,21 +341,8 @@ def _slug(value: str) -> str:
 def _int_value(value: Any) -> int:
     try:
         return int(value or 0)
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         return 0
-
-
-def _quality_flags(parsed_item: ParsedSourceItem, text_length: int) -> list[str]:
-    flags: list[str] = []
-    title = parsed_item.title or ""
-    body = parsed_item.content_text or ""
-    if MEANINGFUL_RE.search(title):
-        flags.append("meaningful_title")
-    if text_length >= 80:
-        flags.append("enough_text")
-    if len(MEANINGFUL_RE.findall(f"{title} {body}")) < 8:
-        flags.append("weak_text")
-    return flags
 
 
 def _has(text: str, keywords: tuple[str, ...]) -> bool:

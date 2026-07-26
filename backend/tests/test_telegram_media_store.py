@@ -56,9 +56,7 @@ def test_media_store_atomic_deduplication_leaves_no_temporary_files(tmp_path):
     with ThreadPoolExecutor(max_workers=4) as executor:
         stored = list(
             executor.map(
-                lambda _: store.persist(
-                    b"same-content", mime_type="image/png", file_name="same.png", kind="photo"
-                ),
+                lambda _: store.persist(b"same-content", mime_type="image/png", file_name="same.png", kind="photo"),
                 range(8),
             )
         )

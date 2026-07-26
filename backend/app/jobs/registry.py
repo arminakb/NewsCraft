@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import Awaitable, Callable
+from collections.abc import Callable, Coroutine
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -27,7 +27,7 @@ class JobContext:
 
 # External or material side effects performed by a handler must have a durable
 # idempotency key, checkpoint, or ambiguity receipt that makes lease replay safe.
-type JobHandler = Callable[[JobExecution, JobContext], Awaitable[dict[str, Any]]]
+type JobHandler = Callable[[JobExecution, JobContext], Coroutine[Any, Any, dict[str, Any]]]
 
 
 class JobHandlerRegistry:
@@ -100,19 +100,19 @@ def build_default_registry(
     if "source" in selected:
         from app.automations.telegram.handlers import build_telegram_route_handlers
 
-        handlers = build_telegram_route_handlers(source_registry, media_stager)
-        registry.register("telegram.route.backfill", handlers.backfill)
-        registry.register("telegram.route.dry_run", handlers.dry_run)
-        registry.register("telegram.route.initialize", handlers.initialize)
-        registry.register("telegram.route.poll", handlers.poll)
+        assert source_registry is not None
+        assert media_stager is not None
+        route_handlers = build_telegram_route_handlers(source_registry, media_stager)
+        registry.register("telegram.route.backfill", route_handlers.backfill)
+        registry.register("telegram.route.dry_run", route_handlers.dry_run)
+        registry.register("telegram.route.initialize", route_handlers.initialize)
+        registry.register("telegram.route.poll", route_handlers.poll)
     if "generation" in selected:
         from app.automations.telegram.handlers import build_telegram_process_handler
         from app.exports.handlers import build_export_handler
-        from app.generation.handlers import (
-            build_canonical_generation_handler,
-            build_pack_generation_handler,
-            build_regenerate_handler,
-        )
+        from app.generation.canonical_generation import build_canonical_generation_handler
+        from app.generation.package_generation import build_pack_generation_handler
+        from app.generation.variant_regeneration import build_regenerate_handler
         from app.retention.handlers import build_retention_handler
 
         registry.register(
@@ -144,13 +144,15 @@ def build_default_registry(
         from app.jobs.canary import PUBLISHING_CANARY, handle_worker_canary
         from app.publishing.telegram.handlers import build_telegram_publish_handlers
 
-        handlers = build_telegram_publish_handlers(
+        assert telegram_client is not None
+        assert destination_secret_resolver is not None
+        publish_handlers = build_telegram_publish_handlers(
             telegram_client,
             destination_secret_resolver,
             route_resolver=telegram_route_resolver,
         )
         registry.register(PUBLISHING_CANARY, handle_worker_canary)
-        registry.register("telegram.destination.check", handlers.destination_check)
-        registry.register("telegram.proxy.check", handlers.proxy_check)
-        registry.register("telegram.publish", handlers.publish)
+        registry.register("telegram.destination.check", publish_handlers.destination_check)
+        registry.register("telegram.proxy.check", publish_handlers.proxy_check)
+        registry.register("telegram.publish", publish_handlers.publish)
     return registry

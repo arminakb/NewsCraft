@@ -2,26 +2,36 @@
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { Database, Play } from "lucide-react"
-import { useState } from "react"
+import { useEffect, useState } from "react"
+import { useSearchParams } from "next/navigation"
 
 import { OperationsPageFrame } from "@/components/dashboard/pages/operations-page-frame"
 import { SourceDetailPanel } from "@/components/dashboard/source-detail-panel"
 import { SourceHealthTable } from "@/components/dashboard/source-health-table"
 import { Button } from "@/components/ui/button"
-import { getSource, getSources, runIngest, seedSources } from "@/lib/api-client"
+import {
+  getSource,
+  getSources,
+  runIngest,
+  seedSources,
+} from "@/features/operations/ingestion-api"
+import type { SourceSummary } from "@/features/operations/ingestion-types"
 import { queryKeys } from "@/lib/query-keys"
-import type { SourceSummary } from "@/lib/types"
 
 export function SourcesPage({
   initialSources = [],
   enableQueries = true,
+  initialSourceId = null,
 }: {
   initialSources?: SourceSummary[]
   enableQueries?: boolean
+  initialSourceId?: string | null
 }) {
+  const searchParams = useSearchParams()
   const queryClient = useQueryClient()
-  const [selectedSourceId, setSelectedSourceId] = useState(initialSources[0]?.id ?? "")
-  const [detailOpen, setDetailOpen] = useState(false)
+  const requestedSourceId = searchParams?.get("source") ?? initialSourceId
+  const [selectedSourceId, setSelectedSourceId] = useState(requestedSourceId ?? initialSources[0]?.id ?? "")
+  const [detailOpen, setDetailOpen] = useState(Boolean(requestedSourceId))
   const sourcesQuery = useQuery({
     queryKey: queryKeys.sources,
     queryFn: getSources,
@@ -44,6 +54,15 @@ export function SourcesPage({
     enabled: Boolean(selectedSourceId) && enableQueries,
     placeholderData: selectedSource,
   })
+
+  useEffect(() => {
+    if (!searchParams) return
+    const sourceId = searchParams?.get("source")
+    if (sourceId) {
+      setSelectedSourceId(sourceId)
+      setDetailOpen(true)
+    }
+  }, [searchParams])
 
   return (
     <OperationsPageFrame

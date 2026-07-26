@@ -26,6 +26,8 @@ env/
 data/
 backups/
 *.newscraft-backup.tar.gz
+*.newscraft-backup.tar.gz.age
+reports/restore-drills/
 
 # Secrets and local config
 .env

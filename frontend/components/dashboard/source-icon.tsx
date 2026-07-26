@@ -1,7 +1,7 @@
 import { CircleHelp, Globe2, MessageSquare, Newspaper, Rss, Send } from "lucide-react"
 
 import { cn } from "@/lib/utils"
-import type { SourcePlatform } from "@/lib/types"
+import type { SourcePlatform } from "@/features/operations/ingestion-types"
 
 export function SourceIcon({ platform, className }: { platform: SourcePlatform; className?: string }) {
   if (platform === "telegram_public") {

@@ -41,7 +41,7 @@ def _require_aware(value: datetime, *, field: str) -> datetime:
 def _require_iana(value: str) -> str:
     try:
         ZoneInfo(value)
-    except (OSError, TypeError, ValueError, ZoneInfoNotFoundError):
+    except OSError, TypeError, ValueError, ZoneInfoNotFoundError:
         raise ValueError("display_timezone must be a valid IANA timezone") from None
     return value
 
@@ -87,6 +87,10 @@ class ManualPublicationCompleteIn(BaseModel):
     @classmethod
     def require_safe_external_url(cls, value: str | None) -> str | None:
         return validate_external_url(value)
+
+
+class ErrorDetailOut(BaseModel):
+    detail: str
 
 
 class ManualPublicationPlanOut(BaseModel):
@@ -206,6 +210,7 @@ async def create_manual_publication_plan(
 @router.get(
     "/platform-variant-revisions/{revision_id}/manual-publication-plan",
     response_model=ManualPublicationPlanOut,
+    responses={404: {"model": ErrorDetailOut}},
 )
 async def get_manual_publication_plan_for_revision(
     revision_id: UUID,

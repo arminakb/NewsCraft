@@ -113,7 +113,7 @@ docker compose up --build      # full stack: postgres, api, frontend, workers, s
 
 ## Known Gaps & Not Yet Done
 
-1. **Frontend-Backend Contract Drift** — the `docs/frontend-audit/` folder documents the delta between frontend assumptions and actual backend contracts. Not yet resolved; `plan.md` and `docs/frontend-audit/refactor-roadmap.md` outline the path.
+1. **Maintainability and UX debt** — the current cleanup, correctness, and operator-experience work is defined in `REFACTOR_PLAN.md`. Superseded execution plans have been removed.
 2. **Frontend consolidation in progress** — `docs/frontend-consolidation/` has data contracts, wireframes, field maps for the Articles API migration, but the frontend `/articles` page is still being validated against the backend.
 3. **`.sentry-native/`** — build directory owned by root, not part of the repo, fine to ignore.
 4. **Multi-context docs** — `docs/agents/` defines how agents should consume this repo (AGENTS.md, issue-tracker.md, triage-labels.md, domain.md). If handoff recipient is another agent, those files define the conventions.
@@ -125,7 +125,7 @@ docker compose up --build      # full stack: postgres, api, frontend, workers, s
 | `README.md` | Full project docs, structure, run instructions |
 | `CONTEXT.md` | Domain glossary (classification terms) |
 | `AGENTS.md` | Agent conventions for working in this repo |
-| `plan.md` | The Content Settings + Codex Gateway plan (1153 lines) |
+| `REFACTOR_PLAN.md` | Current maintainability, correctness, and UX execution plan |
 | `docs/operations/readiness-and-health.md` | Operational health runbook |
 | `docs/production-readiness-audit-2026-07-15.md` | Full production hardening audit |
 | `docs/frontend-audit/current-state.md` | Frontend audit findings |

@@ -1,7 +1,8 @@
 "use client"
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { useCallback, useMemo, useRef, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import { useSearchParams } from "next/navigation"
 
 import { useNotices } from "@/components/providers/notice-provider"
 import { Button } from "@/components/ui/button"
@@ -22,11 +23,22 @@ const filters: Array<{ label: string; statuses?: JobStatus[] }> = [
   { label: "Cancelled", statuses: ["cancelled"] },
 ]
 
-export function JobsPage() {
+export function JobsPage({
+  initialStatus = null,
+  initialJobId = null,
+}: {
+  initialStatus?: string | null
+  initialJobId?: string | null
+}) {
+  const searchParams = useSearchParams()
   const queryClient = useQueryClient()
   const { pushNotice } = useNotices()
-  const [activeFilter, setActiveFilter] = useState("All")
-  const [selectedId, setSelectedId] = useState<string | null>(null)
+  const [activeFilter, setActiveFilter] = useState(() =>
+    filterFromQuery(searchParams?.get("status") ?? initialStatus)
+  )
+  const [selectedId, setSelectedId] = useState<string | null>(() =>
+    searchParams?.get("job") ?? initialJobId
+  )
   const triggerRef = useRef<HTMLButtonElement | null>(null)
   const selectedFilter = filters.find((filter) => filter.label === activeFilter) ?? filters[0]
   const jobFilters = useMemo<JobFilters>(
@@ -46,6 +58,12 @@ export function JobsPage() {
       return status === "queued" || status === "running" ? 5_000 : false
     },
   })
+
+  useEffect(() => {
+    if (!searchParams) return
+    setActiveFilter(filterFromQuery(searchParams?.get("status") ?? null))
+    setSelectedId(searchParams?.get("job") ?? null)
+  }, [searchParams])
 
   const invalidateJobTruth = useCallback(async () => {
     await queryClient.invalidateQueries({ queryKey: ["jobs"] })
@@ -131,4 +149,9 @@ export function JobsPage() {
       ) : null}
     </section>
   )
+}
+
+function filterFromQuery(value: string | null) {
+  if (!value) return "All"
+  return filters.find((filter) => filter.label.toLowerCase() === value.toLowerCase())?.label ?? "All"
 }

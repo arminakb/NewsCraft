@@ -47,7 +47,7 @@ def _decode_key(encoded: str) -> bytes:
             altchars=b"-_",
             validate=True,
         )
-    except (binascii.Error, ValueError, TypeError):
+    except binascii.Error, ValueError, TypeError:
         raise SecretKeyUnavailable from None
     if len(raw) != 32:
         raise SecretKeyUnavailable
@@ -80,16 +80,14 @@ class MasterKeyRing:
     def from_settings(cls, config: Settings) -> MasterKeyRing:
         if config.secret_master_key is None:
             raise SecretKeyUnavailable
-        keys: dict[str, bytes] = {
-            config.secret_key_version: _decode_key(config.secret_master_key.get_secret_value())
-        }
+        keys: dict[str, bytes] = {config.secret_key_version: _decode_key(config.secret_master_key.get_secret_value())}
         if config.secret_previous_keys is not None:
             encoded_previous = config.secret_previous_keys.get_secret_value().strip()
             if not encoded_previous:
                 return cls(active_version=config.secret_key_version, keys=keys)
             try:
                 previous = json.loads(encoded_previous)
-            except (json.JSONDecodeError, TypeError):
+            except json.JSONDecodeError, TypeError:
                 raise SecretKeyUnavailable from None
             if not isinstance(previous, dict):
                 raise SecretKeyUnavailable
@@ -245,7 +243,7 @@ class EncryptedSecretStore:
                 self._aad(record, record.key_version),
             )
             return plaintext.decode("utf-8")
-        except (InvalidTag, SecretKeyUnavailable, UnicodeDecodeError, ValueError):
+        except InvalidTag, SecretKeyUnavailable, UnicodeDecodeError, ValueError:
             record_security_event(
                 self.session,
                 principal=principal,

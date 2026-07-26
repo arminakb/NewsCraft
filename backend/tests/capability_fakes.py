@@ -55,9 +55,7 @@ class StaticCapabilityStatusService:
         if not status.available:
             raise JobCapabilityUnavailable(
                 code=(
-                    "job_capability_unknown"
-                    if status.status in {"unknown", "stale"}
-                    else "job_capability_unavailable"
+                    "job_capability_unknown" if status.status in {"unknown", "stale"} else "job_capability_unavailable"
                 ),
                 job_type=job_type,
                 retry_after_seconds=self.config.capability_retry_after_seconds,

@@ -1,6 +1,11 @@
 import { SourcesPage } from "@/components/dashboard/pages/sources-page"
-import { emptyDashboardSnapshot } from "@/lib/empty-data"
 
-export default function Page() {
-  return <SourcesPage initialSources={emptyDashboardSnapshot.sources} />
+export default async function Page({
+  searchParams,
+}: {
+  searchParams: Promise<{ source?: string | string[] }>
+}) {
+  const query = await searchParams
+  const source = Array.isArray(query.source) ? query.source[0] : query.source
+  return <SourcesPage initialSourceId={source ?? null} />
 }

@@ -75,6 +75,7 @@ PUBLISHING_WORKER_ENVIRONMENT_NAMES = {
 }
 SCHEDULER_ENVIRONMENT_NAMES = {"NEWSCRAFT_COMPONENT_ID", "DATABASE_URL"}
 ALL_COMPOSE_SERVICES = {
+    "backup",
     "postgres",
     "postgres-test",
     "migrate",
@@ -84,7 +85,7 @@ ALL_COMPOSE_SERVICES = {
     "worker-publishing",
     "scheduler",
 }
-PRODUCTION_LONG_RUNNING_SERVICES = ALL_COMPOSE_SERVICES - {"postgres-test", "migrate"}
+PRODUCTION_LONG_RUNNING_SERVICES = ALL_COMPOSE_SERVICES - {"backup", "postgres-test", "migrate"}
 
 
 def _compose_config(
@@ -124,7 +125,12 @@ def test_local_service_ports_bind_to_loopback():
 def test_dockerfile_runs_backend_api():
     dockerfile = (ROOT / "backend/Dockerfile").read_text(encoding="utf-8")
 
-    assert "FROM python:3.14-slim" in dockerfile
+    assert "python:3.14.6-slim-bookworm@sha256:" in dockerfile
+    assert "ghcr.io/astral-sh/uv:0.11.29@sha256:" in dockerfile
+    assert "uv sync --locked --no-dev --no-editable --reinstall-package newscraft-backend" in dockerfile
+    assert "USER newscraft" in dockerfile
+    assert ".[dev]" not in dockerfile
+    assert "pip install" not in dockerfile
     assert "uvicorn" in dockerfile
     assert "app.main:app" in dockerfile
 
@@ -143,6 +149,32 @@ def test_compose_defines_exact_normal_runtime_services_and_test_profile():
         "scheduler",
     }
     assert services["postgres-test"]["profiles"] == ["test"]
+    assert services["backup"]["profiles"] == ["operations"]
+
+
+def test_backup_service_is_credential_minimal_and_storage_read_only():
+    service = _compose_yaml()["services"]["backup"]
+
+    assert service["environment"] == {
+        "PGHOST": "postgres",
+        "PGUSER": "newscraft",
+        "PGPASSWORD": "newscraft",
+        "PGDATABASE": "newscraft",
+    }
+    assert service["volumes"] == ["media_data:/data/media:ro", "export_data:/data/exports:ro"]
+    assert not any(
+        marker in name
+        for name in service["environment"]
+        for marker in ("OPENROUTER", "TELEGRAM", "TOKEN", "API_KEY", "SESSION")
+    )
+
+
+def test_backup_image_reuses_the_pinned_postgres_non_root_user():
+    dockerfile = (ROOT / "operations/backup.Dockerfile").read_text(encoding="utf-8")
+
+    assert "USER backup" in dockerfile
+    assert "groupadd" not in dockerfile
+    assert "useradd" not in dockerfile
 
 
 def test_worker_and_scheduler_are_long_running_backend_services():
@@ -516,7 +548,7 @@ def test_production_app_processes_run_beneath_docker_init():
         "scheduler",
     ):
         assert services[name]["init"] is True
-    for name in ("postgres", "postgres-test", "migrate"):
+    for name in ("backup", "postgres", "postgres-test", "migrate"):
         assert "init" not in services[name]
 
 
@@ -537,7 +569,7 @@ def test_postgres_18_volume_uses_supported_data_parent():
     compose = yaml.safe_load((ROOT / "docker-compose.yml").read_text(encoding="utf-8"))
     postgres = compose["services"]["postgres"]
 
-    assert postgres["image"] == "postgres:18"
+    assert postgres["image"].startswith("postgres:18.3-bookworm@sha256:")
     assert "postgres_data:/var/lib/postgresql" in postgres["volumes"]
     assert "postgres_data:/var/lib/postgresql/data" not in postgres["volumes"]
 
@@ -546,22 +578,30 @@ def test_compose_has_ephemeral_postgres_test_profile():
     compose = yaml.safe_load((ROOT / "docker-compose.yml").read_text(encoding="utf-8"))
     service = compose["services"]["postgres-test"]
 
-    assert service["image"] == "postgres:18"
+    assert service["image"].startswith("postgres:18.3-bookworm@sha256:")
     assert service["profiles"] == ["test"]
     assert service["environment"]["POSTGRES_DB"] == "newscraft_test"
     assert service["ports"] == ["127.0.0.1:55432:5432"]
     assert "/var/lib/postgresql" in service["tmpfs"]
 
 
-def test_acceptance_compose_enables_fixture_only_for_source_worker():
+def test_acceptance_compose_enables_fixture_for_source_and_publishing_workers():
     acceptance = yaml.safe_load((ROOT / "docker-compose.acceptance.yml").read_text(encoding="utf-8"))
     source_worker = acceptance["services"]["worker-source-generation"]
+    publishing_worker = acceptance["services"]["worker-publishing"]
 
-    assert source_worker["environment"] == {
+    test_key = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
+    assert acceptance["services"]["api"]["environment"] == {
         "APP_ENV": "test",
-        "TELEGRAM_ACCEPTANCE_FIXTURE_PATH": ("/acceptance-fixtures/telegram_public_album.html"),
+        "SECRET_MASTER_KEY": test_key,
     }
-    assert source_worker["volumes"] == ["./backend/tests/fixtures:/acceptance-fixtures:ro"]
+    for worker in (source_worker, publishing_worker):
+        assert worker["environment"] == {
+            "APP_ENV": "test",
+            "SECRET_MASTER_KEY": test_key,
+            "TELEGRAM_ACCEPTANCE_FIXTURE_PATH": ("/acceptance-fixtures/telegram_public_album.html"),
+        }
+        assert worker["volumes"] == ["./backend/tests/fixtures:/acceptance-fixtures:ro"]
     assert set(acceptance["services"]) == ALL_COMPOSE_SERVICES
     assert all(service["restart"] == "no" for service in acceptance["services"].values())
 

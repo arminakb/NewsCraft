@@ -26,9 +26,7 @@ class RetryableJobError(JobHandlerError):
         message: str = "Job handler failed",
         retry_at: datetime | None = None,
     ) -> None:
-        if retry_at is not None and (
-            retry_at.tzinfo is None or retry_at.utcoffset() is None
-        ):
+        if retry_at is not None and (retry_at.tzinfo is None or retry_at.utcoffset() is None):
             raise ValueError("retry_at must be timezone-aware")
         self.retry_at = retry_at
         super().__init__(code=code, message=message)

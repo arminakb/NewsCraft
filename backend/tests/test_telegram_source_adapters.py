@@ -54,10 +54,21 @@ def _envelope(**overrides) -> TelegramEnvelope:
 
 def test_transport_contracts_have_exact_fields_and_are_frozen():
     assert [field.name for field in fields(TelegramMediaReference)] == [
-        "key", "position", "kind", "source_url", "remote_ref", "file_name", "mime_type"
+        "key",
+        "position",
+        "kind",
+        "source_url",
+        "remote_ref",
+        "file_name",
+        "mime_type",
     ]
     assert [field.name for field in fields(TelegramFetchResult)] == [
-        "peer_id", "envelopes", "fetched_at", "snapshot_token", "next_page_token", "complete"
+        "peer_id",
+        "envelopes",
+        "fetched_at",
+        "snapshot_token",
+        "next_page_token",
+        "complete",
     ]
     envelope = _envelope()
     with pytest.raises(FrozenInstanceError):
@@ -134,9 +145,7 @@ async def test_public_html_activation_excludes_messages_at_the_exact_boundary():
     client = httpx.AsyncClient(transport=httpx.MockTransport(lambda request: httpx.Response(200, text=html)))
     adapter = PublicHtmlTelegramAdapter(client)
 
-    result = await adapter.fetch(
-        _request(limit=20, activation_boundary_at=datetime(2026, 7, 11, 8, 42, tzinfo=UTC))
-    )
+    result = await adapter.fetch(_request(limit=20, activation_boundary_at=datetime(2026, 7, 11, 8, 42, tzinfo=UTC)))
 
     assert result.envelopes == ()
     assert result.complete is True
@@ -460,9 +469,7 @@ async def test_mtproto_rejects_mismatched_request_and_page_snapshots_before_tran
             _request(
                 channel_ref="one_channel",
                 snapshot_token=_encode_token("snapshot", {"head": 52}),
-                page_token=_encode_token(
-                    "page", {"before": 50, "snapshot": 53, "pending_group_ids": []}
-                ),
+                page_token=_encode_token("page", {"before": 50, "snapshot": 53, "pending_group_ids": []}),
                 api_id_secret_ref="ONE_API_ID",
                 api_hash_secret_ref="ONE_API_HASH",
                 session_secret_ref="ONE_SESSION",
@@ -596,9 +603,7 @@ async def test_mtproto_media_sanitizes_secret_valued_client_enter_errors(tmp_pat
 
 
 @pytest.mark.parametrize("error_type", [RuntimeError, ValueError])
-async def test_mtproto_media_sanitizes_secret_valued_client_exit_errors_and_cleans_files(
-    tmp_path, error_type
-):
+async def test_mtproto_media_sanitizes_secret_valued_client_exit_errors_and_cleans_files(tmp_path, error_type):
     message = _mtproto_message(52, media=SimpleNamespace(name="media-object"))
     factory = FakeTelegramClientFactory([message])
     adapter = MtprotoTelegramAdapter(
@@ -726,12 +731,16 @@ def test_source_registry_replaces_one_mode_and_rejects_unknown_modes():
 
 
 def _public_page(*message_ids: int) -> str:
-    return "<html><body>" + "".join(
-        f'''<div class="tgme_widget_message" data-post="example_channel/{message_id}">
+    return (
+        "<html><body>"
+        + "".join(
+            f"""<div class="tgme_widget_message" data-post="example_channel/{message_id}">
         <div class="tgme_widget_message_text js-message_text">Post {message_id}</div>
-        <time datetime="2026-07-11T08:{message_id % 60:02d}:00+00:00"></time></div>'''
-        for message_id in message_ids
-    ) + "</body></html>"
+        <time datetime="2026-07-11T08:{message_id % 60:02d}:00+00:00"></time></div>"""
+            for message_id in message_ids
+        )
+        + "</body></html>"
+    )
 
 
 def _mtproto_message(

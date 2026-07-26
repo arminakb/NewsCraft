@@ -108,9 +108,7 @@ async def test_scheduler_double_tick_materializes_one_job_for_one_due_source(
 
     due_at = NOW + timedelta(minutes=1)
     async with session_factory() as session:
-        schedule = await session.scalar(
-            select(WorkflowSchedule).where(WorkflowSchedule.source_id == source_id)
-        )
+        schedule = await session.scalar(select(WorkflowSchedule).where(WorkflowSchedule.source_id == source_id))
         assert schedule is not None
         schedule_id = schedule.id
         schedule.next_run_at = due_at
@@ -122,11 +120,7 @@ async def test_scheduler_double_tick_materializes_one_job_for_one_due_source(
             tick_results.append(await SchedulerService(session).tick(due_at))
 
     async with session_factory() as session:
-        jobs = list(
-            await session.scalars(
-                select(WorkflowJob).where(WorkflowJob.job_type == "ingest.collect")
-            )
-        )
+        jobs = list(await session.scalars(select(WorkflowJob).where(WorkflowJob.job_type == "ingest.collect")))
 
     assert [result.enqueued for result in tick_results] == [1, 0]
     assert len(jobs) == 1

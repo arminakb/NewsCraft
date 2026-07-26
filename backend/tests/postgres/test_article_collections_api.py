@@ -136,10 +136,7 @@ async def test_membership_is_idempotent_supports_multiple_collections_and_never_
 async def test_articles_collection_filter_preserves_pagination_and_rejects_unknown_ids(
     db_session: AsyncSession,
 ):
-    articles = [
-        _article(title=f"Collected {index}", sort_at=NOW - timedelta(minutes=index))
-        for index in range(4)
-    ]
+    articles = [_article(title=f"Collected {index}", sort_at=NOW - timedelta(minutes=index)) for index in range(4)]
     db_session.add_all(articles)
     await db_session.commit()
     selected = await _create_collection(db_session, "Selected")
@@ -248,9 +245,7 @@ async def test_saved_article_primary_media_is_protected_from_retention(
         media_root=tmp_path,
     ).preview(RetentionPolicyInput(unreferenced_media_days=30))
     candidate_ids = {
-        candidate.record_id
-        for candidate in preview.candidates
-        if candidate.category == "unreferenced_media"
+        candidate.record_id for candidate in preview.candidates if candidate.category == "unreferenced_media"
     }
 
     assert unreferenced_media.id in candidate_ids

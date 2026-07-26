@@ -24,6 +24,16 @@ def pending_item(title: str, url: str, *, hours: int = 0):
     )
 
 
+def grouping_result(story, content_item_ids):
+    return SimpleNamespace(
+        story=story,
+        items=tuple(
+            SimpleNamespace(content_item_id=content_item_id, disposition="grouped", reason="evidence_attached")
+            for content_item_id in content_item_ids
+        ),
+    )
+
+
 @pytest.mark.asyncio
 async def test_group_pending_handler_is_deterministic_and_replay_safe(monkeypatch):
     first = pending_item("OpenAI releases coding agent", "https://example.com/agent")
@@ -45,7 +55,7 @@ async def test_group_pending_handler_is_deterministic_and_replay_safe(monkeypatc
 
         async def group_content_items(self, content_item_ids):
             self.group_calls.append(tuple(content_item_ids))
-            return self.story
+            return grouping_result(self.story, content_item_ids)
 
         async def list_evidence(self, story_id):
             assert story_id == self.story.id
@@ -64,6 +74,10 @@ async def test_group_pending_handler_is_deterministic_and_replay_safe(monkeypatc
         "selected_count": 2,
         "grouped_story_count": 1,
         "evidence_snapshot_count": 2,
+        "grouped_item_count": 2,
+        "skipped_item_count": 0,
+        "duplicate_item_count": 0,
+        "conflicted_item_count": 0,
         "next_cursor": None,
     }
     assert repository.group_calls == [(first.id, second.id), (first.id, second.id)]
@@ -138,7 +152,7 @@ async def test_full_grouping_page_enqueues_one_idempotent_continuation(monkeypat
             return [first, second]
 
         async def group_content_items(self, content_item_ids):
-            return SimpleNamespace(id=content_item_ids[0])
+            return grouping_result(SimpleNamespace(id=content_item_ids[0]), content_item_ids)
 
         async def list_evidence(self, story_id):
             return [SimpleNamespace(evidence_snapshot_id=story_id)]
@@ -183,7 +197,7 @@ async def test_short_final_grouping_page_enqueues_no_continuation(monkeypatch):
             return [only]
 
         async def group_content_items(self, content_item_ids):
-            return SimpleNamespace(id=only.id)
+            return grouping_result(SimpleNamespace(id=only.id), content_item_ids)
 
         async def list_evidence(self, story_id):
             return [SimpleNamespace(evidence_snapshot_id=only.id)]

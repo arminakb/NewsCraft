@@ -9,13 +9,13 @@ import pytest
 from app.api.telegram_automations import list_route_dispatches
 from app.automations.models import AutomationRoute
 from app.generation.default_prompts import telegram_prompt_checksum
-from app.generation.handlers import _invoke
 from app.generation.models import AIProviderProfile, GenerationAttempt, GenerationRun, PromptTemplateVersion
 from app.generation.providers.base import GenerationProviderResult
 from app.ingestion.repository import IngestionRepository
-from app.ingestion.service import _record_source_failure
+from app.ingestion.workflow import _record_source_failure
 from app.jobs.errors import RetryableJobError
 from app.jobs.registry import JobContext
+from tests.generation.handler_exports import _invoke
 
 
 class _Transaction:

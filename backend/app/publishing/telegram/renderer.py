@@ -4,7 +4,7 @@ import hashlib
 import json
 from collections.abc import Iterable
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from app.generation.telegram_schema import TelegramVariantContent
 from app.publishing.telegram.contracts import (
@@ -44,6 +44,16 @@ class TelegramPublishNeedsReview(ValueError):
     """Raised when a revision cannot be rendered without an operator decision."""
 
 
+def _upload_media_type(value: str) -> Literal["photo", "video", "document"]:
+    if value == "photo":
+        return "photo"
+    if value == "video":
+        return "video"
+    if value == "document":
+        return "document"
+    raise TelegramPublishNeedsReview("unsupported rendered media type")
+
+
 def validate_renderability_policy(content: TelegramVariantContent) -> None:
     """Validate policy-only renderability without requiring media database rows."""
 
@@ -59,12 +69,7 @@ def _canonical_hash(value: Any) -> str:
 def _buttons(content: TelegramVariantContent) -> dict[str, Any] | None:
     if not content.buttons:
         return None
-    return {
-        "inline_keyboard": [
-            [{"text": button.text, "url": str(button.url)}]
-            for button in content.buttons
-        ]
-    }
+    return {"inline_keyboard": [[{"text": button.text, "url": str(button.url)}] for button in content.buttons]}
 
 
 def _ordered_media(content: TelegramVariantContent, media: Iterable[Any]) -> list[Any]:
@@ -148,7 +153,7 @@ def _operation(
                 attach_name=descriptor["media"].removeprefix("attach://"),
                 filename=descriptor["filename"],
                 mime_type=descriptor["mime_type"],
-                media_type=descriptor["type"],
+                media_type=_upload_media_type(descriptor["type"]),
                 checksum_sha256=descriptor["checksum_sha256"],
             )
             for descriptor, _ in files
@@ -257,8 +262,7 @@ def build_publish_plan(revision: Any, media: Iterable[Any], destination: Any) ->
         rendered = _render_media(content, ordered, destination.target_ref)
 
     operations = tuple(
-        _operation(index, method, fields, files)
-        for index, (method, fields, files) in enumerate(rendered)
+        _operation(index, method, fields, files) for index, (method, fields, files) in enumerate(rendered)
     )
     payload_hash = _canonical_hash(
         {

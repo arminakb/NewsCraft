@@ -227,10 +227,16 @@ export function PlatformEditor({
     <section aria-labelledby="platform-editor-heading" className="min-w-0 space-y-4">
       <div>
         <h2 id="platform-editor-heading" className="text-lg font-semibold">Platform editor</h2>
-        <p className="break-all text-xs text-muted-foreground">
+      </div>
+
+      <details className="rounded-lg border p-3" open={revision.validation.some((issue) => issue.severity === "error")}>
+        <summary className="cursor-pointer font-medium">
+          Advanced revision identity{revision.validation.some((issue) => issue.severity === "error") ? " — validation blocker" : ""}
+        </summary>
+        <p className="mt-2 break-all text-xs text-muted-foreground">
           Loaded {revision.platform} revision {revision.id} · hash {revision.contentHash}
         </p>
-      </div>
+      </details>
 
       <fieldset disabled={busy} className="contents">
         <legend className="sr-only">Editable {revision.platform} revision fields</legend>

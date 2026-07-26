@@ -18,7 +18,7 @@ class TitleNormalization:
     low_signal: bool = False
 
 
-def normalize_telegram_title(title: str, body: str) -> TitleNormalization:
+def normalize_title(title: str, body: str) -> TitleNormalization:
     clean_title = _clean(title)
     if _meaningful(clean_title):
         return TitleNormalization(title=clean_title, quality="good", was_generated=False)

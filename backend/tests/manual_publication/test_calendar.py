@@ -85,13 +85,9 @@ def test_publication_value_object_rejects_unsafe_or_naive_values():
     assert record.revision_id == TELEGRAM_REVISION_ID
 
     with pytest.raises(ValidationError, match="userinfo"):
-        PublicationRecord.model_validate(
-            {**record.model_dump(), "external_url": "https://token@example.test/post"}
-        )
+        PublicationRecord.model_validate({**record.model_dump(), "external_url": "https://token@example.test/post"})
     with pytest.raises(ValidationError, match="timezone-aware"):
-        PublicationRecord.model_validate(
-            {**record.model_dump(), "occurred_at": datetime(2026, 7, 13, 11)}
-        )
+        PublicationRecord.model_validate({**record.model_dump(), "occurred_at": datetime(2026, 7, 13, 11)})
 
 
 def test_calendar_window_allows_exactly_93_days_and_normalizes_to_utc():

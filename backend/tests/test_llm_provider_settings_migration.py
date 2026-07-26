@@ -18,9 +18,7 @@ def test_migration_repairs_json_null_settings_and_guards_the_shape():
 def test_required_settings_guard_matches_model_metadata():
     providers = Base.metadata.tables["llm_providers"]
     constraint = next(
-        constraint
-        for constraint in providers.constraints
-        if constraint.name == "ck_llm_providers_required_settings"
+        constraint for constraint in providers.constraints if constraint.name == "ck_llm_providers_required_settings"
     )
 
     rendered = str(constraint.sqltext)

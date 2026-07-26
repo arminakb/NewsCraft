@@ -2,12 +2,12 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { fireEvent, render, screen, waitFor } from "@testing-library/react"
 import { useState } from "react"
 
-import { getTelegramDrafts } from "@/features/automations/telegram-api"
+import { getTelegramPublicationOutcomes } from "@/features/automations/telegram-api"
 import { fetchReconciliationCases } from "@/features/operations/api"
 import { TelegramOutcomes } from "@/features/today/telegram-outcomes"
 import { operationsQueryKeys } from "@/lib/query-keys"
 
-vi.mock("@/features/automations/telegram-api", () => ({ getTelegramDrafts: vi.fn() }))
+vi.mock("@/features/automations/telegram-api", () => ({ getTelegramPublicationOutcomes: vi.fn() }))
 vi.mock("@/features/operations/api", () => ({ fetchReconciliationCases: vi.fn() }))
 vi.mock("@/features/operations/reconciliation-panel", () => ({
   ReconciliationPanel: ({
@@ -15,16 +15,16 @@ vi.mock("@/features/operations/reconciliation-panel", () => ({
     value,
   }: {
     onResolved?: (result: unknown) => void | Promise<void>
-    value: { ambiguousAt: string | null; publishJobId: string }
+    value: { ambiguous_at: string | null; publish_job_id: string }
   }) => {
-    const [mountedGeneration] = useState(value.ambiguousAt)
+    const [mountedGeneration] = useState(value.ambiguous_at)
     return (
       <button
         data-testid="safe-reconciliation-panel"
         onClick={() => void onResolved?.({ reconciliationStatus: "requeued" })}
         type="button"
       >
-        Safe reconciliation for {value.publishJobId}; mounted {mountedGeneration}
+        Safe reconciliation for {value.publish_job_id}; mounted {mountedGeneration}
       </button>
     )
   },
@@ -32,46 +32,24 @@ vi.mock("@/features/operations/reconciliation-panel", () => ({
 
 const publishJobId = "11111111-1111-4111-8111-111111111111"
 const reconciliationCase = {
-  publishJobId,
-  ambiguousOperationKey: "telegram:publish:0",
-  ambiguousAt: "2026-07-13T08:00:00Z",
+  publish_job_id: publishJobId,
+  ambiguous_operation_key: "telegram:publish:0",
+  ambiguous_at: "2026-07-13T08:00:00Z",
   operations: [
     {
-      operationKey: "telegram:publish:0",
-      attemptCount: 1,
+      operation_key: "telegram:publish:0",
+      attempt_count: 1,
     },
   ],
 }
 
 it("discovers every authoritative case even when a newer draft supersedes its revision", async () => {
-  vi.mocked(getTelegramDrafts).mockResolvedValue([
+  vi.mocked(getTelegramPublicationOutcomes).mockResolvedValue([
     {
-      id: "21111111-1111-4111-8111-111111111111",
+      revisionId: "21111111-1111-4111-8111-111111111111",
       platformVariantId: "31111111-1111-4111-8111-111111111111",
-      parentRevisionId: null,
-      generationAttemptId: null,
       revisionNumber: 1,
-      content: {
-        body: "Ambiguous Telegram draft",
-        parseMode: "HTML",
-        buttons: [],
-        sourceItemId: null,
-        sourceUrl: null,
-        mediaPolicy: "preserve",
-        mediaAssetIds: [],
-        direction: "ltr",
-        dryRun: false,
-      },
-      contentHash: "a".repeat(64),
-      evidenceMap: [],
-      evidence: [],
-      media: [],
-      validationResults: [],
       approvalState: "approved",
-      approvalNote: null,
-      approvedAt: "2026-07-13T08:00:00Z",
-      createdBy: "automation",
-      createdAt: "2026-07-13T08:00:00Z",
       routeId: null,
       dispatchId: null,
       publishJobId,
@@ -79,32 +57,10 @@ it("discovers every authoritative case even when a newer draft supersedes its re
       publication: null,
     },
     {
-      id: "41111111-1111-4111-8111-111111111111",
+      revisionId: "41111111-1111-4111-8111-111111111111",
       platformVariantId: "31111111-1111-4111-8111-111111111111",
-      parentRevisionId: "21111111-1111-4111-8111-111111111111",
-      generationAttemptId: null,
       revisionNumber: 2,
-      content: {
-        body: "Newer draft revision",
-        parseMode: "HTML",
-        buttons: [],
-        sourceItemId: null,
-        sourceUrl: null,
-        mediaPolicy: "preserve",
-        mediaAssetIds: [],
-        direction: "ltr",
-        dryRun: false,
-      },
-      contentHash: "b".repeat(64),
-      evidenceMap: [],
-      evidence: [],
-      media: [],
-      validationResults: [],
       approvalState: "pending_review",
-      approvalNote: null,
-      approvedAt: null,
-      createdBy: "operator",
-      createdAt: "2026-07-13T08:05:00Z",
       routeId: null,
       dispatchId: null,
       publishJobId: null,
@@ -127,13 +83,13 @@ it("discovers every authoritative case even when a newer draft supersedes its re
 
   fireEvent.click(panel)
   await waitFor(() => expect(fetchReconciliationCases).toHaveBeenCalledTimes(2))
-  await waitFor(() => expect(getTelegramDrafts).toHaveBeenCalledTimes(2))
+  await waitFor(() => expect(getTelegramPublicationOutcomes).toHaveBeenCalledTimes(2))
 
   client.setQueryData(operationsQueryKeys.reconciliations, [
     {
       ...reconciliationCase,
-      ambiguousAt: "2026-07-13T08:10:00Z",
-      operations: [{ ...reconciliationCase.operations[0], attemptCount: 2 }],
+      ambiguous_at: "2026-07-13T08:10:00Z",
+      operations: [{ ...reconciliationCase.operations[0], attempt_count: 2 }],
     },
   ])
   expect(await screen.findByText(/mounted 2026-07-13T08:10:00Z/)).toBeInTheDocument()

@@ -15,11 +15,11 @@ from app.core.outbound_proxy import ProxyDiagnostics, safe_proxy_diagnostics
 from app.core.redaction import redact_secrets, redact_string
 from app.db.models import Source
 from app.generation.models import GenerationRun
-from app.jobs.models import AutomationControl, WorkflowJob
+from app.jobs.models import AutomationControl, RuntimeHeartbeat, WorkflowJob
 from app.jobs.runtime import RuntimeHeartbeatService
 from app.jobs.types import JobStatus
 from app.operations.health import database_time, normalize_utc, snapshot_high_water
-from app.publishing.models import Destination, Publication, PublishJob
+from app.publishing.models import Destination, Publication, PublishJob, PublishOperationReceipt
 from app.research.models import ResearchAttempt, ResearchRun
 
 AttentionKind = Literal[
@@ -113,7 +113,7 @@ class OperationsDiagnostics:
 
     async def _generated_at(
         self,
-        heartbeats: Sequence[object],
+        heartbeats: Sequence[RuntimeHeartbeat],
         attention: Sequence[AttentionItem],
     ) -> datetime:
         # Read the clock only after all projected rows. Under PostgreSQL's
@@ -254,6 +254,14 @@ class OperationsDiagnostics:
                 .limit(100)
             )
         )
+        publish_receipts = list(
+            await self.session.scalars(
+                select(PublishOperationReceipt)
+                .where(PublishOperationReceipt.status.in_(("dispatching", "ambiguous")))
+                .order_by(PublishOperationReceipt.updated_at.desc(), PublishOperationReceipt.id.desc())
+                .limit(100)
+            )
+        )
         publication_rows = list(
             (
                 await self.session.execute(
@@ -300,7 +308,11 @@ class OperationsDiagnostics:
             if _newer_than_links(
                 item.occurred_at,
                 links["generation"].get(str(run.id)),
-                links["workflow_job"].get(_generation_workflow_job_id(run)),
+                (
+                    links["workflow_job"].get(workflow_job_id)
+                    if (workflow_job_id := _generation_workflow_job_id(run)) is not None
+                    else None
+                ),
             ):
                 candidates.append(item)
         for job in publish_jobs:
@@ -310,6 +322,8 @@ class OperationsDiagnostics:
                 links["workflow_job"].get(str(job.workflow_job_id)),
             ):
                 candidates.append(item)
+        for receipt in publish_receipts:
+            candidates.append(_publish_receipt_attention(receipt))
         for publication, workflow_job_id in publication_rows:
             item = _publication_attention(publication)
             if _newer_than_links(
@@ -331,20 +345,20 @@ def _now(clock: ClockSource | None) -> datetime:
 
 
 def _component_health(
-    heartbeats: list[object],
+    heartbeats: Sequence[RuntimeHeartbeat],
     *,
     generated_at: datetime,
     expected_component_ids: str,
 ) -> dict[str, ComponentHealth]:
     expected = {value.strip() for value in expected_component_ids.split(",") if value.strip()}
-    by_id: dict[str, object] = {}
+    by_id: dict[str, RuntimeHeartbeat] = {}
     for heartbeat in heartbeats:
         by_id.setdefault(str(heartbeat.component_id), heartbeat)
 
     components: dict[str, ComponentHealth] = {}
     for component_id in sorted(expected | set(by_id)):
-        heartbeat = by_id.get(component_id)
-        if heartbeat is None:
+        current_heartbeat = by_id.get(component_id)
+        if current_heartbeat is None:
             components[component_id] = ComponentHealth(
                 status="unknown",
                 observed_at=None,
@@ -353,8 +367,9 @@ def _component_health(
                 action_url=_component_action_url(component_id, None),
             )
             continue
-        observed_at = normalize_utc(heartbeat.observed_at, field="heartbeat observed_at")
+        observed_at = normalize_utc(current_heartbeat.observed_at, field="heartbeat observed_at")
         age = generated_at - observed_at
+        status: Literal["healthy", "degraded", "down", "unknown"]
         if age <= timedelta(seconds=30):
             status = "healthy"
             message = "Heartbeat observed within 30 seconds"
@@ -369,7 +384,7 @@ def _component_health(
             observed_at=observed_at,
             last_success_at=None,
             message=message,
-            action_url=_component_action_url(component_id, heartbeat),
+            action_url=_component_action_url(component_id, current_heartbeat),
         )
     return components
 
@@ -383,7 +398,7 @@ def _job_attention(job: WorkflowJob) -> AttentionItem:
         kind=kind,
         title=_safe_text(job.job_type, ": ", detail),
         occurred_at=job.updated_at,
-        action_url="/jobs",
+        action_url=f"/jobs?status=attention&job={job.id}",
     )
 
 
@@ -395,7 +410,7 @@ def _source_attention(source: Source) -> AttentionItem:
         kind="source",
         title=_safe_text("Source ", source.name, ": ", detail),
         occurred_at=source.last_failure_at or source.updated_at,
-        action_url="/sources",
+        action_url=f"/sources?source={source.id}",
     )
 
 
@@ -406,7 +421,7 @@ def _destination_attention(destination: Destination) -> AttentionItem:
         kind="destination",
         title=_safe_text("Destination ", destination.name, ": ", destination.health_status),
         occurred_at=destination.last_health_check_at or destination.updated_at,
-        action_url="/automations",
+        action_url="/settings/content#telegram-destinations",
     )
 
 
@@ -416,7 +431,7 @@ def _paused_route_attention(route: AutomationRoute) -> AttentionItem:
         severity="warning",
         kind="route",
         title=_safe_text("Automation ", route.name, " is paused"),
-        occurred_at=route.paused_at,
+        occurred_at=route.paused_at or route.updated_at,
         action_url=f"/automations/{route.id}",
     )
 
@@ -472,7 +487,11 @@ def _publish_job_attention(job: PublishJob) -> AttentionItem:
         kind="publication",
         title=_safe_text("Publish job requires attention: ", job.status),
         occurred_at=job.updated_at,
-        action_url="/jobs",
+        action_url=(
+            "/#telegram-publication-outcomes"
+            if job.status == "reconciliation_required"
+            else f"/jobs?status=attention&job={job.workflow_job_id}"
+        ),
     )
 
 
@@ -483,7 +502,18 @@ def _publication_attention(publication: Publication) -> AttentionItem:
         kind="publication",
         title=_safe_text("Publication requires reconciliation: ", publication.reconciliation_status),
         occurred_at=publication.published_at,
-        action_url="/jobs",
+        action_url="/#telegram-publication-outcomes",
+    )
+
+
+def _publish_receipt_attention(receipt: PublishOperationReceipt) -> AttentionItem:
+    return AttentionItem(
+        id=f"publication:{receipt.publish_job_id}",
+        severity="error" if receipt.status == "ambiguous" else "warning",
+        kind="publication",
+        title=_safe_text("Telegram publish receipt requires attention: ", receipt.status),
+        occurred_at=receipt.ambiguous_at or receipt.updated_at,
+        action_url="/#telegram-publication-outcomes",
     )
 
 

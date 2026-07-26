@@ -66,9 +66,7 @@ def test_manual_plan_output_rejects_non_boolean_checklist_storage():
         ManualPublicationPlanOut.model_validate(_plan(checklist_state={"caption_final": 1}))
 
 
-def test_calendar_route_allows_exact_93_day_window_and_returns_strict_projection(
-    api_client, monkeypatch
-):
+def test_calendar_route_allows_exact_93_day_window_and_returns_strict_projection(api_client, monkeypatch):
     client, session = api_client
     start = datetime(2026, 7, 13, 8, tzinfo=UTC)
     seen = {}
@@ -155,9 +153,7 @@ def test_calendar_route_rejects_invalid_windows_before_query(api_client, monkeyp
     assert response.status_code == 422
 
 
-def test_calendar_route_does_not_misreport_projection_corruption_as_user_input(
-    api_client, monkeypatch
-):
+def test_calendar_route_does_not_misreport_projection_corruption_as_user_input(api_client, monkeypatch):
     client, _session = api_client
 
     async def corrupt_projection(*_args, **_kwargs):
@@ -247,9 +243,7 @@ def test_real_application_registers_calendar_and_manual_publication_routes():
     assert "get" in paths["/calendar"]
     assert "get" in paths["/publications"]
     assert "post" in paths["/manual-publication-plans"]
-    assert "get" in paths[
-        "/platform-variant-revisions/{revision_id}/manual-publication-plan"
-    ]
+    assert "get" in paths["/platform-variant-revisions/{revision_id}/manual-publication-plan"]
     assert "patch" in paths["/manual-publication-plans/{plan_id}/checklist"]
     assert "post" in paths["/manual-publication-plans/{plan_id}/mark-published"]
     assert "post" in paths["/manual-publication-plans/{plan_id}/cancel"]
@@ -268,9 +262,7 @@ def test_latest_manual_plan_for_revision_is_read_only_and_exact(api_client, monk
             return _plan()
 
     monkeypatch.setattr(calendar_api, "ManualPublicationService", FakeService)
-    response = client.get(
-        f"/platform-variant-revisions/{REVISION_ID}/manual-publication-plan"
-    )
+    response = client.get(f"/platform-variant-revisions/{REVISION_ID}/manual-publication-plan")
 
     assert response.status_code == 200
     assert response.json()["id"] == str(PLAN_ID)
@@ -290,9 +282,7 @@ def test_latest_manual_plan_for_revision_returns_404_without_writes(api_client, 
             return None
 
     monkeypatch.setattr(calendar_api, "ManualPublicationService", FakeService)
-    response = client.get(
-        f"/platform-variant-revisions/{REVISION_ID}/manual-publication-plan"
-    )
+    response = client.get(f"/platform-variant-revisions/{REVISION_ID}/manual-publication-plan")
 
     assert response.status_code == 404
     assert response.json() == {"detail": "Manual publication plan not found"}
@@ -386,15 +376,9 @@ def test_manual_mutations_delegate_exact_values_and_commit_only_after_success(
                 calls.append((args, kwargs))
                 return _plan(
                     status="manual_published" if name == "mark_published" else "planned",
-                    external_url=(
-                        "https://instagram.com/p/abc" if name == "mark_published" else None
-                    ),
+                    external_url=("https://instagram.com/p/abc" if name == "mark_published" else None),
                     operator_note="Posted from mobile" if name == "mark_published" else None,
-                    completed_at=(
-                        datetime(2026, 7, 14, 8, 5, tzinfo=UTC)
-                        if name == "mark_published"
-                        else None
-                    ),
+                    completed_at=(datetime(2026, 7, 14, 8, 5, tzinfo=UTC) if name == "mark_published" else None),
                 )
 
             return invoke

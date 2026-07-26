@@ -60,34 +60,34 @@ def test_mutation_rules_cover_each_phase_one_scope_without_protecting_reads():
     expected = {
         ("POST", "/brand-profiles"): "settings:write",
         ("POST", "/prompt-templates"): "prompts:write",
-        ("PATCH", "/ai-provider-profiles/99e6ff1f-96fb-42a7-9a94-a78a7a06539d"): "providers:write",
+        ("PATCH", "/llm-providers/99e6ff1f-96fb-42a7-9a94-a78a7a06539d"): "providers:write",
         ("POST", "/telegram/destinations"): "destinations:write",
         ("PATCH", "/automation-control"): "automations:write",
         ("POST", "/jobs/99e6ff1f-96fb-42a7-9a94-a78a7a06539d/retry"): "jobs:write",
     }
     assert {key: mutation_rule(*key).required_scope for key in expected} == expected
-    assert mutation_rule("GET", "/ai-provider-profiles") is None
+    assert mutation_rule("GET", "/llm-providers") is None
 
 
 def test_middleware_rejects_missing_credentials_and_scope_but_allows_admin():
     api = FastAPI()
     api.add_middleware(SecurityAuthorizationMiddleware, config=_config())
 
-    @api.post("/ai-provider-profiles")
+    @api.post("/llm-providers")
     async def mutate_provider():
         return {"ok": True}
 
     with TestClient(api) as client:
-        missing = client.post("/ai-provider-profiles")
+        missing = client.post("/llm-providers")
         denied = client.post(
-            "/ai-provider-profiles",
+            "/llm-providers",
             headers={
                 "Authorization": "Bearer codex-secret",
                 "X-NewsCraft-Principal-Type": "codex_service",
             },
         )
         allowed = client.post(
-            "/ai-provider-profiles",
+            "/llm-providers",
             headers={"Authorization": "Bearer admin-secret"},
         )
 

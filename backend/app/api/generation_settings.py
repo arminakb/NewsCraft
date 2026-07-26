@@ -1,20 +1,17 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from typing import Annotated
+from typing import Annotated, Literal
 from uuid import UUID, uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, Request
-from pydantic import ValidationError
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.capabilities import CapabilityStatusDependency
 from app.api.generation_schemas import (
-    AIProviderProfileCreate,
     AIProviderProfileOut,
-    AIProviderProfilePatch,
     BrandProfileCreate,
     BrandProfileOut,
     BrandProfilePatch,
@@ -32,14 +29,9 @@ from app.generation.default_prompts import (
 )
 from app.generation.models import AIProviderProfile, BrandProfile, PromptTemplate, PromptTemplateVersion
 from app.generation.platform_schemas import BlogVariantPayload, InstagramVariantPayload, XVariantPayload
-from app.generation.provider_settings import (
-    CodexProviderSettings,
-    OpenRouterProviderSettings,
-    default_codex_provider_settings,
-    merge_provider_settings,
-)
+from app.generation.provider_settings import default_codex_provider_settings
 from app.generation.telegram_schema import TelegramRewriteOutput
-from app.jobs.credential_capabilities import CapabilityStatusService, provider_shape_capabilities
+from app.jobs.credential_capabilities import CapabilityStatus, CapabilityStatusService, provider_shape_capabilities
 from app.security.auth import SecurityPrincipal
 
 router = APIRouter(tags=["generation-settings"])
@@ -136,20 +128,18 @@ async def _profile_out(
     capability_status: CapabilityStatusService,
 ) -> AIProviderProfileOut:
     shaped, codes = provider_shape_capabilities(profile)
-    capability_states = {
+    capability_states: dict[Literal["generation", "research"], CapabilityStatus] = {
         "generation": await capability_status.get("provider", profile.id, "generation"),
         "research": await capability_status.get("provider", profile.id, "research"),
     }
-    capabilities = {
-        name: shaped[name] and state.available
-        for name, state in capability_states.items()
+    capabilities: dict[Literal["generation", "research"], bool] = {
+        name: shaped[name] and state.available for name, state in capability_states.items()
     }
     for state in capability_states.values():
         if not state.available and state.failure_code not in codes:
             codes.append(state.failure_code)
     generation = capabilities["generation"]
     research = capabilities["research"]
-    configured = generation or research
     return AIProviderProfileOut(
         id=profile.id,
         name=profile.name,
@@ -157,7 +147,7 @@ async def _profile_out(
         default_model=profile.default_model,
         settings=dict(profile.settings or {}),
         enabled=profile.enabled,
-        configured=configured,
+        configured=generation or research,
         capabilities=capabilities,
         capability_states=capability_states,
         unavailability_codes=codes,
@@ -188,9 +178,7 @@ async def _clear_other_default_profiles(
     keep_id: UUID | None = None,
 ) -> None:
     profiles = list(
-        await session.scalars(
-            select(BrandProfile).where(BrandProfile.is_default.is_(True)).with_for_update()
-        )
+        await session.scalars(select(BrandProfile).where(BrandProfile.is_default.is_(True)).with_for_update())
     )
     for profile in profiles:
         if profile.id != keep_id:
@@ -199,30 +187,6 @@ async def _clear_other_default_profiles(
 
 def _template_matches(template: PromptTemplate, body: PromptTemplateCreate) -> bool:
     return template.name == body.name and template.description == body.description
-
-
-def _provider_values(body: AIProviderProfileCreate) -> dict:
-    return {
-        "name": body.name,
-        "provider_type": body.provider_type,
-        "default_model": body.default_model,
-        "secret_ref": body.secret_ref,
-        "settings": _validated_settings(body.provider_type, body.settings),
-        "enabled": body.enabled,
-    }
-
-
-def _provider_matches(profile: AIProviderProfile, body: AIProviderProfileCreate) -> bool:
-    return all(getattr(profile, key) == value for key, value in _provider_values(body).items())
-
-
-def _validated_settings(provider_type: str, value: dict | None) -> dict:
-    if provider_type == "fake" or value is None:
-        return {}
-    if provider_type == "codex":
-        CodexProviderSettings.model_validate(value)
-        return dict(value)
-    return OpenRouterProviderSettings.model_validate(value).model_dump(mode="json")
 
 
 async def seed_codex_provider_profile(
@@ -250,11 +214,7 @@ async def seed_codex_provider_profile(
 
 @router.get("/brand-profiles", response_model=list[BrandProfileOut])
 async def list_brand_profiles(session: AsyncSession = SessionDependency):
-    return list(
-        await session.scalars(
-            select(BrandProfile).order_by(BrandProfile.is_default.desc(), BrandProfile.name)
-        )
-    )
+    return list(await session.scalars(select(BrandProfile).order_by(BrandProfile.is_default.desc(), BrandProfile.name)))
 
 
 @router.post("/brand-profiles", response_model=BrandProfileOut, status_code=201)
@@ -431,9 +391,7 @@ async def activate_prompt_version(
     if candidate is None:
         raise HTTPException(404, "Prompt template version not found")
     template = await session.scalar(
-        select(PromptTemplate)
-        .where(PromptTemplate.id == candidate.prompt_template_id)
-        .with_for_update()
+        select(PromptTemplate).where(PromptTemplate.id == candidate.prompt_template_id).with_for_update()
     )
     if template is None:
         raise HTTPException(404, "Prompt template not found")
@@ -463,77 +421,8 @@ async def activate_prompt_version(
 
 @router.get("/ai-provider-profiles", response_model=list[AIProviderProfileOut])
 async def list_provider_profiles(
+    capability_status: CapabilityStatusDependency,
     session: AsyncSession = SessionDependency,
-    capability_status: CapabilityStatusDependency = None,
 ):
     rows = list(await session.scalars(select(AIProviderProfile).order_by(AIProviderProfile.name)))
     return [await _profile_out(row, capability_status) for row in rows]
-
-
-@router.post("/ai-provider-profiles", response_model=AIProviderProfileOut, status_code=201)
-async def create_provider_profile(
-    body: AIProviderProfileCreate,
-    session: AsyncSession = SessionDependency,
-    capability_status: CapabilityStatusDependency = None,
-):
-    existing = await session.scalar(select(AIProviderProfile).where(AIProviderProfile.name == body.name))
-    if existing is not None:
-        if _provider_matches(existing, body):
-            return await _profile_out(existing, capability_status)
-        raise HTTPException(409, "AI provider profile already exists with different configuration")
-    profile = AIProviderProfile(**_provider_values(body))
-    try:
-        async with session.begin_nested():
-            session.add(profile)
-            await session.flush()
-    except IntegrityError:
-        existing = await session.scalar(select(AIProviderProfile).where(AIProviderProfile.name == body.name))
-        if existing is None or not _provider_matches(existing, body):
-            raise HTTPException(409, "AI provider profile already exists with different configuration") from None
-        return await _profile_out(existing, capability_status)
-    await session.commit()
-    return await _profile_out(profile, capability_status)
-
-
-@router.patch("/ai-provider-profiles/{provider_profile_id}", response_model=AIProviderProfileOut)
-async def patch_provider_profile(
-    provider_profile_id: UUID,
-    body: AIProviderProfilePatch,
-    session: AsyncSession = SessionDependency,
-    capability_status: CapabilityStatusDependency = None,
-):
-    profile = await session.get(AIProviderProfile, provider_profile_id)
-    if profile is None:
-        raise HTTPException(404, "AI provider profile not found")
-    patch = body.model_dump(exclude_unset=True)
-    settings_supplied = "settings" in patch
-    settings_patch = patch.pop("settings", None)
-    complete = {
-        "name": patch.get("name", profile.name),
-        "provider_type": profile.provider_type,
-        "default_model": patch.get("default_model", profile.default_model),
-        "secret_ref": patch.get("secret_ref", profile.secret_ref),
-        "settings": (
-            None
-            if settings_supplied and settings_patch is None
-            else merge_provider_settings(dict(profile.settings or {}), settings_patch)
-            if settings_supplied
-            else (dict(profile.settings or {}) or None)
-        ),
-        "enabled": patch.get("enabled", profile.enabled),
-    }
-    try:
-        validated = AIProviderProfileCreate.model_validate(complete)
-    except ValidationError as exc:
-        detail = [
-            {key: value for key, value in error.items() if key in {"type", "loc", "msg"}}
-            for error in exc.errors(include_url=False)
-        ]
-        raise HTTPException(422, detail=detail) from None
-    profile.name = validated.name
-    profile.default_model = validated.default_model
-    profile.secret_ref = validated.secret_ref
-    profile.settings = _validated_settings(validated.provider_type, validated.settings)
-    profile.enabled = validated.enabled
-    await session.commit()
-    return await _profile_out(profile, capability_status)

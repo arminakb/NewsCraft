@@ -53,6 +53,12 @@ class Settings(BaseSettings):
     recovery_warning_count: int = Field(default=2, ge=2, le=100)
     openrouter_base_url: str = "https://openrouter.ai/api/v1"
     openrouter_default_model: str = "openai/gpt-5-mini"
+    generation_invalid_output_quarantine_enabled: bool = False
+    generation_invalid_output_quarantine_root: str = "/data/generation-invalid-output"
+    generation_invalid_output_quarantine_recipient_file: str = "/run/secrets/GENERATION_QUARANTINE_AGE_RECIPIENT"
+    generation_invalid_output_quarantine_max_bytes: int = Field(default=1_000_000, ge=1_024, le=10_000_000)
+    generation_invalid_output_quarantine_ttl_days: int = Field(default=7, ge=1, le=7)
+    generation_invalid_output_quarantine_age_executable: str = "age"
     codex_enabled: bool = False
     codex_executable: str = "codex"
     telegram_media_staging_root: str = "/data/telegram-staging"

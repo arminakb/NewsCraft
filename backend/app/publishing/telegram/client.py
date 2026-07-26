@@ -100,7 +100,7 @@ class TelegramBotClient:
                 response = await self._post_multipart(url, operation)
             else:
                 response = await self._http.post(url, json=operation.fields)
-        except (httpx.ConnectError, httpx.ConnectTimeout, httpx.PoolTimeout):
+        except httpx.ConnectError, httpx.ConnectTimeout, httpx.PoolTimeout:
             metadata = _safe_metadata({"description": "telegram_connect_failed"}, token)
             raise TelegramRetryableBeforeDispatch(
                 "Telegram connection failed before dispatch", metadata=metadata
@@ -132,7 +132,7 @@ class TelegramBotClient:
             expected_count = len(operation.file_paths) if operation.method == "sendMediaGroup" else 1
             if len(remote_ids) != expected_count:
                 raise ValueError("unexpected result count")
-        except (TypeError, ValueError):
+        except TypeError, ValueError:
             raise TelegramAmbiguousError("Telegram returned an invalid success response", metadata=metadata) from None
         success_metadata = {
             "http_status": response.status_code,
@@ -174,7 +174,7 @@ class TelegramBotClient:
         url = f"{self._base_url}/bot{token}/getChat"
         try:
             response = await self._http.post(url, json={"chat_id": target_ref})
-        except (httpx.ConnectError, httpx.ConnectTimeout, httpx.PoolTimeout):
+        except httpx.ConnectError, httpx.ConnectTimeout, httpx.PoolTimeout:
             metadata = _safe_metadata({"description": "telegram_connect_failed"}, token)
             raise TelegramRetryableBeforeDispatch(
                 "Telegram connection failed before dispatch", metadata=metadata
@@ -211,7 +211,7 @@ class TelegramBotClient:
         url = f"{self._base_url}/bot{token}/{method}"
         try:
             response = await self._http.post(url, json=fields)
-        except (httpx.ConnectError, httpx.ConnectTimeout, httpx.PoolTimeout):
+        except httpx.ConnectError, httpx.ConnectTimeout, httpx.PoolTimeout:
             metadata = _safe_metadata({"description": "telegram_connect_failed"}, token)
             raise TelegramRetryableBeforeDispatch(
                 "Telegram connection failed before dispatch", metadata=metadata

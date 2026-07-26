@@ -57,9 +57,7 @@ async def _post_with_session(path: str, session: AsyncSession):
 
     app.dependency_overrides[get_session] = override_session
     try:
-        async with AsyncClient(
-            transport=ASGITransport(app=app), base_url="http://test"
-        ) as client:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
             return await client.post(path)
     finally:
         app.dependency_overrides.clear()

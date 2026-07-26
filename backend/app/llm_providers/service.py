@@ -13,7 +13,7 @@ from app.automations.models import AutomationRoute
 from app.core.config import Settings, settings
 from app.core.outbound_proxy import build_outbound_http_client
 from app.generation.models import AIProviderProfile, GenerationRun
-from app.generation.provider_settings import OpenRouterProviderSettings, merge_provider_settings
+from app.generation.provider_settings import merge_provider_settings
 from app.generation.providers.base import GenerationProviderRequest, ProviderMessage
 from app.generation.providers.openai_compatible import OpenAICompatibleProvider
 from app.jobs.models import WorkflowJob
@@ -80,7 +80,7 @@ async def _default_probe(provider: LLMProvider, api_key: str, configured: LLMPro
         base_url=provider.base_url,
         timeout=configured.timeout_seconds,
     )
-    adapter = OpenAICompatibleProvider(
+    adapter: OpenAICompatibleProvider = OpenAICompatibleProvider(
         http_client=client,
         api_key=api_key,
         base_url=provider.base_url,
@@ -225,7 +225,7 @@ class LLMProviderService:
         if provider.protocol != "openai_compatible":
             raise ValueError("provider secret cannot be rotated")
         if provider.secret_id is None:
-            secret = self._secret_store().create(
+            created_secret = self._secret_store().create(
                 purpose="provider_api_key",
                 owner_type="llm_provider",
                 owner_id=provider.id,
@@ -233,8 +233,8 @@ class LLMProviderService:
                 principal=self.principal,
                 required_scope="providers:write",
             )
-            await self.session.flush([secret])
-            provider.secret_id = secret.id
+            await self.session.flush([created_secret])
+            provider.secret_id = created_secret.id
         else:
             secret = await self.session.get(EncryptedSecret, provider.secret_id)
             if secret is None:
@@ -317,11 +317,12 @@ class LLMProviderService:
     async def dependencies(self, provider_id: UUID) -> LLMProviderDependenciesOut:
         automations = int(
             await self.session.scalar(
-                select(func.count()).select_from(AutomationRoute).where(
+                select(func.count())
+                .select_from(AutomationRoute)
+                .where(
                     or_(
                         AutomationRoute.ai_provider_profile_id == provider_id,
-                        AutomationRoute.content_filters["research_provider_profile_id"].as_string()
-                        == str(provider_id),
+                        AutomationRoute.content_filters["research_provider_profile_id"].as_string() == str(provider_id),
                     )
                 )
             )
@@ -366,96 +367,32 @@ class LLMProviderService:
 def provider_out(provider: LLMProvider) -> LLMProviderOut:
     configured = provider.protocol == "fake" or provider.secret_id is not None
     settings_value = effective_llm_provider_settings(provider.settings)
-    return LLMProviderOut(
-        id=provider.id,
-        name=provider.name,
-        protocol=provider.protocol,
-        base_url=provider.base_url,
-        default_model=provider.default_model,
-        enabled=provider.enabled,
-        configured=configured,
-        settings=settings_value,
-        health_status=provider.health_status,
-        generation_capability=provider.generation_capability,
-        research_capability=provider.research_capability,
-        generation_ready=provider.enabled and provider.generation_capability == "ready",
-        research_ready=provider.enabled and provider.research_capability == "ready",
-        failure_code=provider.failure_code,
-        last_checked_at=provider.last_checked_at,
-        ownership=provider.ownership,
-        created_at=provider.created_at,
-        updated_at=provider.updated_at,
+    return LLMProviderOut.model_validate(
+        {
+            "id": provider.id,
+            "name": provider.name,
+            "protocol": provider.protocol,
+            "base_url": provider.base_url,
+            "default_model": provider.default_model,
+            "enabled": provider.enabled,
+            "configured": configured,
+            "settings": settings_value,
+            "health_status": provider.health_status,
+            "generation_capability": provider.generation_capability,
+            "research_capability": provider.research_capability,
+            "generation_ready": provider.enabled and provider.generation_capability == "ready",
+            "research_ready": provider.enabled and provider.research_capability == "ready",
+            "failure_code": provider.failure_code,
+            "last_checked_at": provider.last_checked_at,
+            "ownership": provider.ownership,
+            "created_at": provider.created_at,
+            "updated_at": provider.updated_at,
+        }
     )
-
-
-async def seed_legacy_provider_compatibility(session: AsyncSession) -> list[LLMProvider]:
-    """Create only missing target rows while legacy callers remain during migration."""
-
-    legacy_rows = list(
-        await session.scalars(
-            select(AIProviderProfile).where(AIProviderProfile.provider_type.in_({"fake", "openrouter"}))
-        )
-    )
-    existing_ids = set(await session.scalars(select(LLMProvider.id)))
-    created: list[LLMProvider] = []
-    for legacy in legacy_rows:
-        if legacy.id in existing_ids:
-            continue
-        if legacy.provider_type == "fake":
-            target = LLMProvider(
-                id=legacy.id,
-                name=legacy.name,
-                protocol="fake",
-                base_url=None,
-                default_model=legacy.default_model or "fake-v1",
-                enabled=legacy.enabled,
-                secret_id=None,
-                settings=LLMProviderSettings().model_dump(mode="json"),
-                health_status="healthy" if legacy.enabled else "unchecked",
-                generation_capability="ready" if legacy.enabled else "unavailable",
-                research_capability="ready" if legacy.enabled else "unavailable",
-                failure_code=None if legacy.enabled else "disabled",
-                ownership="system_managed",
-            )
-        else:
-            try:
-                old = OpenRouterProviderSettings.model_validate(dict(legacy.settings or {}))
-            except ValueError:
-                old = OpenRouterProviderSettings()
-            target_settings = LLMProviderSettings(
-                timeout_seconds=old.timeout_seconds,
-                research_budgets=old.research_budgets or LLMProviderSettings().research_budgets,
-                pricing=old.pricing or LLMProviderSettings().pricing,
-                attribution_headers={
-                    "http_referer": old.http_referer,
-                    "app_title": old.app_title,
-                },
-            )
-            target = LLMProvider(
-                id=legacy.id,
-                name=legacy.name,
-                protocol="openai_compatible",
-                base_url=str(old.base_url).rstrip("/"),
-                default_model=legacy.default_model or "unconfigured",
-                enabled=False,
-                secret_id=None,
-                settings=target_settings.model_dump(mode="json"),
-                health_status="unchecked",
-                generation_capability="unavailable",
-                research_capability="unavailable",
-                failure_code="credential_import_required",
-                ownership="system_managed",
-            )
-        session.add(target)
-        created.append(target)
-    if created:
-        await session.flush()
-    return created
 
 
 __all__ = [
     "LLMProviderService",
     "ProviderDependencyConflict",
     "provider_out",
-    "seed_legacy_provider_compatibility",
 ]

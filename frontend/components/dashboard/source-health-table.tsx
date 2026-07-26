@@ -15,7 +15,10 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { formatNumber } from "@/lib/format"
 import { cn } from "@/lib/utils"
-import type { SourcePlatform, SourceSummary } from "@/lib/types"
+import type {
+  SourcePlatform,
+  SourceSummary,
+} from "@/features/operations/ingestion-types"
 
 type SourceHealthTableProps = {
   sources: SourceSummary[]

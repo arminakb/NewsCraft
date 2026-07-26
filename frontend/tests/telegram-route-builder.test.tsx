@@ -36,7 +36,7 @@ describe("RouteBuilder", () => {
 
     expect(await screen.findByRole("option", { name: "Persian newsroom" })).toBeInTheDocument()
     expect(screen.getByRole("option", { name: "Prompt version 3 · active" })).toBeInTheDocument()
-    expect(screen.getByLabelText("Prompt update policy")).toHaveValue("")
+    expect(screen.getByLabelText("Prompt update policy")).toHaveValue("pinned")
     expect(screen.getByRole("option", { name: "Editorial AI" })).toBeInTheDocument()
     expect(screen.getByLabelText("Telegram destination")).toHaveValue("destination-1")
     expect(screen.getByRole("link", { name: "Manage destinations" })).toHaveAttribute(

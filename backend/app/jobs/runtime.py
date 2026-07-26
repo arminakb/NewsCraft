@@ -4,9 +4,9 @@ import os
 import socket
 from collections.abc import Mapping, Sequence
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, cast
 
-from sqlalchemy import select
+from sqlalchemy import Table, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -50,7 +50,7 @@ class RuntimeHeartbeatService:
             "observed_at": observed_at,
             "metadata": safe_metadata,
         }
-        statement = insert(RuntimeHeartbeat.__table__).values(**values)
+        statement = insert(cast(Table, RuntimeHeartbeat.__table__)).values(**values)
         statement = statement.on_conflict_do_update(
             index_elements=["component_id"],
             set_={

@@ -1,24 +1,22 @@
+import type { components } from "@/lib/api/generated"
+import { camelize } from "@/lib/camelize"
 import { apiRequest } from "@/lib/http"
 
 import type {
-  AutomationControl,
   BrandProfile,
   BrandProfileInput,
   BrandProfilePatch,
   CredentialCapabilityState,
   JobAccepted,
   PromptTemplate,
-  PromptTemplateInput,
   PromptVersion,
   PromptVersionInput,
   TelegramAutomationOptions,
   TelegramDestination,
   TelegramDispatch,
-  TelegramDraft,
-  TelegramDraftEditInput,
-  TelegramDraftFilters,
-  TelegramDraftPublishAccepted,
   TelegramPublication,
+  TelegramPublicationContext,
+  TelegramPublishAccepted,
   TelegramPublishJob,
   TelegramPublishReceipt,
   TelegramReconcileInput,
@@ -33,6 +31,7 @@ import type {
 } from "./telegram-types"
 
 type BackendJobAccepted = { job_id: string; status: JobAccepted["status"]; deduplicated: boolean }
+type Schemas = components["schemas"]
 type BackendTelegramRoute = {
   id: string; name: string; source_id: string; destination_id: string; brand_profile_id: string
   prompt_template_version_id: string; ai_provider_profile_id: string; access_mode: TelegramRoute["accessMode"]
@@ -44,21 +43,8 @@ type BackendTelegramRoute = {
   cursor_state: Record<string, unknown>; enabled: boolean; paused_at: string | null
   last_polled_at: string | null; next_poll_at: string | null; created_at: string; updated_at: string
 }
-type BackendTelegramPublication = {
-  id: string; publish_job_id: string; destination_id: string; platform_variant_revision_id: string
-  remote_message_ids: number[]; permalink: string | null; payload_hash: string; published_at: string
-  reconciliation_status: string
-}
-type BackendTelegramDraft = {
-  id: string; platform_variant_id: string; parent_revision_id: string | null; generation_attempt_id: string | null
-  revision_number: number; content: Record<string, unknown>; content_hash: string
-  evidence_map: Array<Record<string, unknown>>; evidence: Array<Record<string, unknown>>
-  media: Array<Record<string, unknown>>; validation_results: unknown[]
-  approval_state: TelegramDraft["approvalState"]; approval_note: string | null; approved_at: string | null
-  created_by: string; created_at: string; route_id: string | null; dispatch_id: string | null
-  publish_job_id: string | null; publish_status: TelegramDraft["publishStatus"]
-  publication: BackendTelegramPublication | null
-}
+type BackendTelegramPublication = Schemas["TelegramPublicationOut"]
+type BackendTelegramPublicationContext = Schemas["TelegramPublicationContextOut"]
 type BackendTelegramReceipt = {
   id: string; operation_index: number; operation_key: string; method: TelegramPublishReceipt["method"]
   request_hash: string; status: TelegramPublishReceipt["status"]; attempt_count: number
@@ -103,10 +89,6 @@ export async function getTelegramAutomationOptions(): Promise<TelegramAutomation
   }
 }
 
-export async function getTelegramSources(): Promise<TelegramSource[]> {
-  return (await apiRequest<Array<Record<string, unknown>>>("/telegram/sources")).map(mapTelegramSource)
-}
-
 export async function createTelegramSource(input: TelegramSourceInput): Promise<TelegramSource> {
   const row = await apiRequest<Record<string, unknown>>("/telegram/sources", json("POST", defined({
     name: input.name, channel_ref: input.channelRef, access_mode: input.accessMode,
@@ -149,7 +131,6 @@ export async function createTelegramRoute(input: TelegramRouteInput): Promise<Te
   return mapTelegramRoute(row)
 }
 
-export const activateTelegramRoute = (id: string) => routeAccepted(id, "activate")
 export const pauseTelegramRoute = (id: string) => routeTransition(id, "pause")
 export const resumeTelegramRoute = (id: string) => routeTransition(id, "resume")
 
@@ -191,32 +172,20 @@ export async function getTelegramDispatches(routeId: string): Promise<TelegramDi
   return rows.map(mapTelegramDispatch)
 }
 
-export async function getTelegramDrafts(filters: TelegramDraftFilters = {}): Promise<TelegramDraft[]> {
-  const params = new URLSearchParams()
-  if (filters.routeId) params.set("route_id", filters.routeId)
-  if (filters.approvalState) params.set("approval_state", filters.approvalState)
-  const query = params.toString()
-  return (await apiRequest<BackendTelegramDraft[]>(`/telegram/drafts${query ? `?${query}` : ""}`)).map(mapTelegramDraft)
+export async function getTelegramPublicationOutcomes(): Promise<TelegramPublicationContext[]> {
+  return camelize(await apiRequest<BackendTelegramPublicationContext[]>("/telegram/publication-outcomes"))
 }
 
-export async function getTelegramDraft(id: string): Promise<TelegramDraft> {
-  return mapTelegramDraft(await apiRequest<BackendTelegramDraft>(`/telegram/drafts/${encodeURIComponent(id)}`))
-}
-
-export async function editTelegramDraft(id: string, input: TelegramDraftEditInput): Promise<TelegramDraft> {
-  return mapTelegramDraft(await apiRequest<BackendTelegramDraft>(
-    `/telegram/drafts/${encodeURIComponent(id)}/revisions`, json("POST", input)
+export async function getTelegramPublicationContext(id: string): Promise<TelegramPublicationContext> {
+  return camelize(await apiRequest<BackendTelegramPublicationContext>(
+    `/telegram/revisions/${encodeURIComponent(id)}/publication-context`,
   ))
 }
 
-export const approveTelegramDraft = (id: string, contentHash: string) => draftHashMutation(id, "approve", { content_hash: contentHash })
-export const rejectTelegramDraft = (id: string, contentHash: string, note?: string) => draftHashMutation(id, "reject", defined({ content_hash: contentHash, note }))
-
-export async function publishTelegramDraft(id: string, contentHash: string): Promise<TelegramDraftPublishAccepted> {
-  const row = await apiRequest<{ revision: BackendTelegramDraft; job: { publish_job_id: string; workflow_job_id: string; status: TelegramPublishJob["status"] } }>(
+export async function publishTelegramDraft(id: string, contentHash: string): Promise<TelegramPublishAccepted> {
+  return camelize(await apiRequest<Schemas["TelegramPublishAcceptedOut"]>(
     `/telegram/drafts/${encodeURIComponent(id)}/publish`, json("POST", { content_hash: contentHash })
-  )
-  return { revision: mapTelegramDraft(row.revision), job: { publishJobId: row.job.publish_job_id, workflowJobId: row.job.workflow_job_id, status: row.job.status } }
+  ))
 }
 
 export async function getTelegramPublishJob(id: string): Promise<TelegramPublishJob> {
@@ -255,33 +224,26 @@ export async function reconcileTelegramPublishJob(
 }
 
 export async function getBrandProfiles(): Promise<BrandProfile[]> {
-  return (await apiRequest<Array<Record<string, unknown>>>("/brand-profiles")).map(mapBrandProfile)
+  return apiRequest<BrandProfile[]>("/brand-profiles")
 }
 export async function createBrandProfile(input: BrandProfileInput): Promise<BrandProfile> {
-  return mapBrandProfile(await apiRequest<Record<string, unknown>>("/brand-profiles", json("POST", brandBody(input))))
+  return apiRequest<BrandProfile>("/brand-profiles", json("POST", input))
 }
 export async function updateBrandProfile(id: string, input: BrandProfilePatch): Promise<BrandProfile> {
-  return mapBrandProfile(await apiRequest<Record<string, unknown>>(`/brand-profiles/${encodeURIComponent(id)}`, json("PATCH", brandBody(input))))
+  return apiRequest<BrandProfile>(`/brand-profiles/${encodeURIComponent(id)}`, json("PATCH", input))
 }
 
 export async function getPromptTemplates(): Promise<PromptTemplate[]> {
   return (await apiRequest<Array<Record<string, unknown>>>("/prompt-templates")).map(mapPromptTemplate)
 }
-export async function createPromptTemplate(input: PromptTemplateInput): Promise<PromptTemplate> {
-  return mapPromptTemplate(await apiRequest<Record<string, unknown>>("/prompt-templates", json("POST", { purpose_key: input.purposeKey, name: input.name, description: input.description })))
-}
 export async function getPromptVersions(templateId: string): Promise<PromptVersion[]> {
-  return (await apiRequest<Array<Record<string, unknown>>>(`/prompt-templates/${encodeURIComponent(templateId)}/versions`)).map(mapPromptVersion)
+  return apiRequest<PromptVersion[]>(`/prompt-templates/${encodeURIComponent(templateId)}/versions`)
 }
 export async function createPromptVersion(templateId: string, input: PromptVersionInput): Promise<PromptVersion> {
-  return mapPromptVersion(await apiRequest<Record<string, unknown>>(`/prompt-templates/${encodeURIComponent(templateId)}/versions`, json("POST", { system_template: input.systemTemplate, user_template: input.userTemplate })))
+  return apiRequest<PromptVersion>(`/prompt-templates/${encodeURIComponent(templateId)}/versions`, json("POST", input))
 }
 export async function activatePromptVersion(versionId: string, reason: string): Promise<PromptVersion> {
-  return mapPromptVersion(await apiRequest<Record<string, unknown>>(`/prompt-template-versions/${encodeURIComponent(versionId)}/activate`, json("POST", { reason })))
-}
-
-export function mapAutomationControl(row: Record<string, unknown>): AutomationControl {
-  return { globalPause: row.global_pause as boolean, dryRun: row.dry_run as boolean, pauseReason: row.pause_reason as string | null, pausedAt: row.paused_at as string | null, updatedAt: row.updated_at as string }
+  return apiRequest<PromptVersion>(`/prompt-template-versions/${encodeURIComponent(versionId)}/activate`, json("POST", { reason }))
 }
 
 export function mapTelegramRoute(row: BackendTelegramRoute): TelegramRoute {
@@ -304,23 +266,6 @@ export function mapTelegramRoute(row: BackendTelegramRoute): TelegramRoute {
   }
 }
 
-export function mapTelegramDraft(row: BackendTelegramDraft): TelegramDraft {
-  const content = row.content
-  return {
-    id: row.id, platformVariantId: row.platform_variant_id, parentRevisionId: row.parent_revision_id,
-    generationAttemptId: row.generation_attempt_id, revisionNumber: row.revision_number,
-    content: { body: content.body as string, parseMode: content.parse_mode as "HTML", buttons: content.buttons as TelegramDraft["content"]["buttons"], sourceItemId: content.source_item_id as string | null, sourceUrl: content.source_url as string | null, mediaPolicy: content.media_policy as TelegramDraft["content"]["mediaPolicy"], mediaAssetIds: content.media_asset_ids as string[], direction: content.direction as TelegramDraft["content"]["direction"], dryRun: content.dry_run as boolean },
-    contentHash: row.content_hash,
-    evidenceMap: row.evidence_map.map((item) => ({ evidenceSnapshotId: item.evidence_snapshot_id as string, evidenceKey: item.evidence_key as string, sourceUrl: item.source_url as string | null, locator: item.locator as string, excerptSha256: item.excerpt_sha256 as string })),
-    evidence: row.evidence.map((item) => ({ evidenceSnapshotId: item.evidence_snapshot_id as string, evidenceKey: item.evidence_key as string, sourceUrl: item.source_url as string | null, contentText: item.content_text as string, contentSha256: item.content_sha256 as string })),
-    media: row.media.map((item) => ({ id: item.id as string, kind: item.kind as string, mimeType: item.mime_type as string | null, fetchStatus: item.fetch_status as string, checksumSha256: item.checksum_sha256 as string | null, previewUrl: `/api/backend${item.preview_url as string}` })),
-    validationResults: row.validation_results, approvalState: row.approval_state, approvalNote: row.approval_note,
-    approvedAt: row.approved_at, createdBy: row.created_by, createdAt: row.created_at, routeId: row.route_id,
-    dispatchId: row.dispatch_id, publishJobId: row.publish_job_id, publishStatus: row.publish_status,
-    publication: row.publication ? mapTelegramPublication(row.publication) : null,
-  }
-}
-
 export function mapTelegramPublishJob(row: BackendTelegramPublishJob): TelegramPublishJob {
   return { publishJobId: row.publish_job_id, workflowJobId: row.workflow_job_id, destinationId: row.destination_id, platformVariantRevisionId: row.platform_variant_revision_id, status: row.status, payloadHash: row.payload_hash, scheduledFor: row.scheduled_for, createdAt: row.created_at, updatedAt: row.updated_at, receipts: row.receipts.map(mapTelegramReceipt), publication: row.publication ? mapTelegramPublication(row.publication) : null }
 }
@@ -338,18 +283,12 @@ function mapTelegramReceipt(row: BackendTelegramReceipt): TelegramPublishReceipt
   return { id: row.id, operationIndex: row.operation_index, operationKey: row.operation_key, method: row.method, requestHash: row.request_hash, status: row.status, attemptCount: row.attempt_count, remoteMessageIds: row.remote_message_ids, responseMetadata: row.response_metadata, nextAttemptAt: row.next_attempt_at, ambiguousAt: row.ambiguous_at, completedAt: row.completed_at, createdAt: row.created_at, updatedAt: row.updated_at }
 }
 function mapTelegramPublication(row: BackendTelegramPublication): TelegramPublication {
-  return { id: row.id, publishJobId: row.publish_job_id, destinationId: row.destination_id, platformVariantRevisionId: row.platform_variant_revision_id, remoteMessageIds: row.remote_message_ids, permalink: row.permalink, payloadHash: row.payload_hash, publishedAt: row.published_at, reconciliationStatus: row.reconciliation_status as TelegramPublication["reconciliationStatus"] }
+  return camelize(row)
 }
 function mapJobAccepted(row: BackendJobAccepted): JobAccepted { return { jobId: row.job_id, status: row.status, deduplicated: row.deduplicated } }
 function mapRouteAccepted(row: { route: BackendTelegramRoute; job: BackendJobAccepted }): TelegramRouteAccepted { return { route: mapTelegramRoute(row.route), job: mapJobAccepted(row.job) } }
-async function routeAccepted(id: string, transition: "activate") { return mapRouteAccepted(await apiRequest<{ route: BackendTelegramRoute; job: BackendJobAccepted }>(`/telegram/automations/${encodeURIComponent(id)}/${transition}`, { method: "POST" })) }
 async function routeTransition(id: string, transition: "pause" | "resume") { return mapTelegramRoute(await apiRequest<BackendTelegramRoute>(`/telegram/automations/${encodeURIComponent(id)}/${transition}`, { method: "POST" })) }
-async function draftHashMutation(id: string, transition: "approve" | "reject", body: Record<string, unknown>) { return mapTelegramDraft(await apiRequest<BackendTelegramDraft>(`/telegram/drafts/${encodeURIComponent(id)}/${transition}`, json("POST", body))) }
-
-function brandBody(input: BrandProfileInput | BrandProfilePatch) { return defined({ name: input.name, output_language: input.outputLanguage, tone: input.tone, editorial_rules: input.editorialRules, attribution_rules: input.attributionRules, default_hashtags: input.defaultHashtags, platform_preferences: input.platformPreferences, is_default: input.isDefault }) }
-function mapBrandProfile(row: Record<string, unknown>): BrandProfile { return { id: row.id as string, name: row.name as string, outputLanguage: row.output_language as string, tone: row.tone as string, editorialRules: row.editorial_rules as string[], attributionRules: row.attribution_rules as Record<string, unknown>, defaultHashtags: row.default_hashtags as string[], platformPreferences: row.platform_preferences as Record<string, unknown>, isDefault: row.is_default as boolean } }
 function mapPromptTemplate(row: Record<string, unknown>): PromptTemplate { return { id: row.id as string, purposeKey: row.purpose_key as string, name: row.name as string, description: row.description as string | null } }
-function mapPromptVersion(row: Record<string, unknown>): PromptVersion { return { id: row.id as string, promptTemplateId: row.prompt_template_id as string, version: row.version as number, systemTemplate: row.system_template as string, userTemplate: row.user_template as string, outputSchemaVersion: row.output_schema_version as string, outputSchema: row.output_schema as Record<string, unknown>, checksumSha256: row.checksum_sha256 as string, isActive: row.is_active as boolean, activatedAt: row.activated_at as string | null, activatedByType: row.activated_by_type as string | null, activatedById: row.activated_by_id as string | null, activationReason: row.activation_reason as string | null, createdAt: row.created_at as string } }
 
 function mapCredentialCapabilityState(value: unknown): CredentialCapabilityState {
   const row = value && typeof value === "object" ? value as Record<string, unknown> : {}

@@ -18,6 +18,10 @@ import {
   rejectPlatformRevision,
   saveManualPlatformRevision,
 } from "@/features/packages/api"
+import {
+  regeneratePlatformVariant,
+  saveTelegramPlatformRevision,
+} from "@/features/packages/telegram-api"
 import type {
   CitationRef,
   ContentPackageVariant,
@@ -29,12 +33,12 @@ import type {
 } from "@/features/packages/types"
 import {
   getAIProviderOptions,
-  getPromptVersionOptions,
   getStoryEvidence,
-  regenerateVariant,
-  saveVariantRevision,
-} from "@/lib/editorial-api"
-import type { EvidenceCitation, VariantRevision } from "@/lib/editorial-types"
+} from "@/features/editorial/api"
+import type {
+  EvidenceCitation,
+  VariantRevision,
+} from "@/features/editorial/types"
 import { getApiErrorMessage } from "@/lib/http"
 import { queryKeys } from "@/lib/query-keys"
 
@@ -80,11 +84,6 @@ export function ContentPackWorkspace({ packId, initialRevisionId = null }: { pac
     queryFn: getAIProviderOptions,
     enabled: activeVariant?.platform === "telegram",
   })
-  const prompts = useQuery({
-    queryKey: queryKeys.editorialPromptOptions,
-    queryFn: getPromptVersionOptions,
-    enabled: activeVariant?.platform === "telegram",
-  })
   const evidence = useQuery({
     queryKey: queryKeys.evidence(pack.data?.storyId ?? "unresolved"),
     queryFn: () => getStoryEvidence(pack.data!.storyId),
@@ -117,8 +116,6 @@ export function ContentPackWorkspace({ packId, initialRevisionId = null }: { pac
     queryClient.setQueryData<PlatformRevision[]>(queryKeys.variantRevisions(updated.variantId), (current) => upsertRevision(current, updated))
     await Promise.all([
       refreshPackageAndHistory(updated.variantId),
-      queryClient.invalidateQueries({ queryKey: queryKeys.telegramDraft(updated.id) }),
-      queryClient.invalidateQueries({ queryKey: queryKeys.telegramDrafts() }),
       queryClient.invalidateQueries({ queryKey: queryKeys.telegramRoutes }),
     ])
   }
@@ -133,7 +130,7 @@ export function ContentPackWorkspace({ packId, initialRevisionId = null }: { pac
   }
 
   const telegramSave = useMutation({
-    mutationFn: (input: Parameters<typeof saveVariantRevision>[1] & { variantId: string }) => saveVariantRevision(input.variantId, input),
+    mutationFn: (input: Parameters<typeof saveTelegramPlatformRevision>[1] & { variantId: string }) => saveTelegramPlatformRevision(input.variantId, input),
     onSuccess: async (created) => {
       setSelectedRevisionId(created.id)
       setEditorDirty(false)
@@ -153,7 +150,7 @@ export function ContentPackWorkspace({ packId, initialRevisionId = null }: { pac
     onSuccess: refreshRevision,
   })
   const regenerate = useMutation({
-    mutationFn: (input: { variantId: string; providerProfileId: string; platformPromptTemplateVersionId: string; instruction: string | null }) => regenerateVariant(input.variantId, input),
+    mutationFn: (input: { variantId: string; providerProfileId: string; instruction: string | null }) => regeneratePlatformVariant(input.variantId, input),
     onSuccess: async (_job, input) => refreshPackageAndHistory(input.variantId),
   })
   const workspaceBusy = telegramSave.isPending || manualSave.isPending || approve.isPending || reject.isPending || regenerate.isPending
@@ -162,13 +159,13 @@ export function ContentPackWorkspace({ packId, initialRevisionId = null }: { pac
     ?? initialRevision.error
     ?? revisionHistory.error
     ?? evidence.error
-    ?? (activeVariant?.platform === "telegram" ? providers.error ?? prompts.error : null)
+    ?? (activeVariant?.platform === "telegram" ? providers.error : null)
   if (queryError) return <section role="alert" dir="auto" className="p-6 text-red-700">{getApiErrorMessage(queryError, "Editorial workspace or captured evidence could not be loaded")}</section>
   const loading = pack.isPending
     || (Boolean(initialRevisionId) && initialRevision.isPending)
     || (Boolean(pack.data?.storyId) && evidence.isPending)
     || (Boolean(activeVariant) && revisionHistory.isPending)
-    || (activeVariant?.platform === "telegram" && (providers.isPending || prompts.isPending))
+    || (activeVariant?.platform === "telegram" && providers.isPending)
   if (loading) return <section role="status" className="p-6">Loading editorial workspace and captured evidence…</section>
   if (!pack.data) return <section role="alert" className="p-6 text-red-700">Content package data is unavailable.</section>
 
@@ -209,26 +206,40 @@ export function ContentPackWorkspace({ packId, initialRevisionId = null }: { pac
     }
   }
 
+  const blockers = revision ? revisionBlockers(revision) : []
+
   return <section className="min-w-0 space-y-4 p-4 md:p-6" aria-labelledby="content-pack-workspace-heading">
-    <header><h1 id="content-pack-workspace-heading" className="text-2xl font-semibold">Multi-platform editorial studio</h1><p className="text-sm text-muted-foreground">Pack {pack.data.id} · {pack.data.status}</p></header>
+    <header><h1 id="content-pack-workspace-heading" className="text-2xl font-semibold">Editorial review</h1><p className="text-sm text-muted-foreground">{pack.data.status === "ready" ? "Ready for handoff" : "Review each platform and approve the exact revision."}</p></header>
     <div role="tablist" aria-label="Package platforms" className="flex flex-wrap gap-2 border-b pb-3">
       {variants.map((variant) => <button key={variant.id} type="button" role="tab" disabled={workspaceBusy} aria-selected={variant.id === activeVariant?.id} aria-controls={`platform-panel-${variant.id}`} className={`rounded-lg border px-3 py-2 text-sm ${variant.id === activeVariant?.id ? "bg-primary text-primary-foreground" : "bg-background"}`} onClick={() => chooseVariant(variant)}>{platformLabel(variant.platform)}</button>)}
     </div>
     {!activeVariant || !revision ? <section className="rounded-lg border p-4"><h2 className="font-semibold">No platform revision is ready</h2><p className="text-sm text-muted-foreground">Generation is pending for {activeVariant ? platformLabel(activeVariant.platform) : "this content package"}.</p></section> : <div id={`platform-panel-${activeVariant.id}`} role="tabpanel" aria-label={`${platformLabel(activeVariant.platform)} package`} className="space-y-4">
       <PlatformPreview revision={revision} />
+      <RevisionBlockers blockers={blockers} />
       <div className="rounded-lg border p-4"><CopyExportActions key={revision.id} revision={revision} intendedRevisions={intendedExportRevisions} /></div>
       <div className="grid min-w-0 gap-4 min-[900px]:grid-cols-2">
         <div className="min-w-0 space-y-4">
           <EvidencePanel evidence={evidence.data ?? []} activeCitation={activeCitation} />
-          <ExactEvidenceMap citations={revision.evidenceCitations} onSelect={(citation) => setActiveCitation(citation)} />
-          <RevisionTimeline revisions={revisions} activeRevisionId={revision.id} onSelect={chooseRevision} disabled={workspaceBusy} />
+          <details className="rounded-lg border p-3" open={blockers.length > 0}>
+            <summary className="cursor-pointer font-medium">Advanced revision details{blockers.length ? " — validation blocker" : ""}</summary>
+            <div className="mt-3 space-y-4">
+              <dl className="grid gap-2 text-xs sm:grid-cols-2">
+                <div><dt className="text-muted-foreground">Revision</dt><dd className="break-all">{revision.id}</dd></div>
+                <div><dt className="text-muted-foreground">Content hash</dt><dd className="break-all">{revision.contentHash}</dd></div>
+                <div><dt className="text-muted-foreground">Provider</dt><dd>{revision.providerProfile?.name ?? "Operator revision"}</dd></div>
+                <div><dt className="text-muted-foreground">Resolved model</dt><dd>{revision.resolvedModel ?? "Not recorded"}</dd></div>
+              </dl>
+              {blockers.map((blocker) => <div key={blocker} className="text-sm text-red-700">{blocker}</div>)}
+              <ExactEvidenceMap citations={revision.evidenceCitations} onSelect={(citation) => setActiveCitation(citation)} />
+              <RevisionTimeline revisions={revisions} activeRevisionId={revision.id} onSelect={chooseRevision} disabled={workspaceBusy} />
+            </div>
+          </details>
         </div>
         <div className="min-w-0 space-y-4">
           {revision.platform === "telegram" ? <VariantEditor
             revision={telegramEditorRevision(revision)}
             availableProviders={providers.data ?? []}
-            availablePromptVersions={prompts.data ?? []}
-            onSave={(input) => telegramSave.mutateAsync(input)}
+            onSave={async (input) => telegramEditorRevision(await telegramSave.mutateAsync(input))}
             onApprove={async (input) => {
               const updated = await approve.mutateAsync(input)
               if (updated.platform !== "telegram") throw new Error("Telegram approval returned a different platform")
@@ -260,6 +271,26 @@ export function ContentPackWorkspace({ packId, initialRevisionId = null }: { pac
       </div>
     </div>}
   </section>
+}
+
+function RevisionBlockers({ blockers }: { blockers: string[] }) {
+  if (!blockers.length) {
+    return <div role="status" className="rounded-lg border border-green-200 bg-green-50 p-3 text-sm text-green-800">No validation blockers on this revision.</div>
+  }
+  return <section aria-labelledby="revision-blockers-heading" className="rounded-lg border border-red-300 bg-red-50 p-3 text-red-900">
+    <h2 id="revision-blockers-heading" className="font-semibold">Resolve before approval</h2>
+    <ul className="mt-1 list-disc ps-5 text-sm">{blockers.map((blocker) => <li key={blocker}>{blocker}</li>)}</ul>
+  </section>
+}
+
+function revisionBlockers(revision: PlatformRevision) {
+  const validationIssues = revision.validation
+    .filter((issue) => issue.severity === "error")
+    .map((issue) => issue.message)
+  const failedGates = revision.validationResults
+    .filter((gate) => !gate.ok)
+    .map((gate) => gate.reason ?? `${gate.gate.replaceAll("_", " ")} failed`)
+  return [...new Set([...validationIssues, ...failedGates])]
 }
 
 function ExactEvidenceMap({ citations, onSelect }: { citations: CitationRef[]; onSelect: (citation: CitationRef) => void }) {

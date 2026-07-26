@@ -1,4 +1,8 @@
 import type { JobStatus } from "@/features/jobs/types"
+import type { components } from "@/lib/api/generated"
+import type { Camelized } from "@/lib/camelize"
+
+type Schemas = components["schemas"]
 
 export type TelegramAccessMode = "public_html" | "mtproto_user"
 export type TelegramResearchMode = "off" | "manual" | "auto_if_incomplete"
@@ -6,9 +10,6 @@ export type TelegramMediaPolicy = "preserve" | "omit" | "replace_manually"
 export type TelegramAttributionPolicy = "preserve" | "remove" | "custom"
 export type TelegramPublishingPolicy = "review_required" | "auto_publish"
 export type TelegramPromptPolicy = "pinned" | "follow_active"
-export type TelegramApprovalState = "draft" | "pending_review" | "approved" | "rejected"
-export type TelegramDirection = "ltr" | "rtl"
-export type TelegramParseMode = "HTML"
 export type TelegramDestinationHealth = "unknown" | "healthy" | "unhealthy"
 export type CredentialCapabilityStatus = "available" | "unavailable" | "unknown" | "stale"
 export type CredentialCapabilityState = {
@@ -28,8 +29,6 @@ export type TelegramPublishStatus =
   | "succeeded"
   | "failed"
 export type TelegramReceiptStatus = "pending" | "dispatching" | "succeeded" | "ambiguous" | "failed"
-export type TelegramReconciliationOutcome = "published" | "not_published"
-
 export type JobAccepted = {
   jobId: string
   status: JobStatus
@@ -176,83 +175,9 @@ export type TelegramAutomationOptions = {
   >
 }
 
-export type TelegramButton = { text: string; url: string }
-export type TelegramRewriteContent = {
-  body: string
-  parseMode: TelegramParseMode
-  buttons: TelegramButton[]
-  sourceItemId: string | null
-  sourceUrl: string | null
-  mediaPolicy: TelegramMediaPolicy
-  mediaAssetIds: string[]
-  direction: TelegramDirection
-  dryRun: boolean
-}
-export type TelegramEvidenceCitation = {
-  evidenceSnapshotId: string
-  evidenceKey: string
-  sourceUrl: string | null
-  locator: string
-  excerptSha256: string
-}
-export type TelegramEvidence = {
-  evidenceSnapshotId: string
-  evidenceKey: string
-  sourceUrl: string | null
-  contentText: string
-  contentSha256: string
-}
-export type TelegramDraftMedia = {
-  id: string
-  kind: string
-  mimeType: string | null
-  fetchStatus: string
-  checksumSha256: string | null
-  previewUrl: string
-}
-export type TelegramPublication = {
-  id: string
-  publishJobId: string
-  destinationId: string
-  platformVariantRevisionId: string
-  remoteMessageIds: number[]
-  permalink: string | null
-  payloadHash: string
-  publishedAt: string
-  reconciliationStatus: "confirmed"
-}
-export type TelegramDraft = {
-  id: string
-  platformVariantId: string
-  parentRevisionId: string | null
-  generationAttemptId: string | null
-  revisionNumber: number
-  content: TelegramRewriteContent
-  contentHash: string
-  evidenceMap: TelegramEvidenceCitation[]
-  evidence: TelegramEvidence[]
-  media: TelegramDraftMedia[]
-  validationResults: unknown[]
-  approvalState: TelegramApprovalState
-  approvalNote: string | null
-  approvedAt: string | null
-  createdBy: string
-  createdAt: string
-  routeId: string | null
-  dispatchId: string | null
-  publishJobId: string | null
-  publishStatus: TelegramPublishStatus | null
-  publication: TelegramPublication | null
-}
-export type TelegramDraftFilters = { routeId?: string; approvalState?: TelegramApprovalState }
-export type TelegramDraftEditInput = {
-  content: { body: string; parse_mode: TelegramParseMode; buttons: TelegramButton[] }
-  media_asset_ids: string[]
-}
-export type TelegramDraftPublishAccepted = {
-  revision: TelegramDraft
-  job: { publishJobId: string; workflowJobId: string; status: TelegramPublishStatus }
-}
+export type TelegramPublication = Camelized<Schemas["TelegramPublicationOut"]>
+export type TelegramPublicationContext = Camelized<Schemas["TelegramPublicationContextOut"]>
+export type TelegramPublishAccepted = Camelized<Schemas["TelegramPublishAcceptedOut"]>
 
 export type TelegramPublishReceipt = {
   id: string
@@ -294,44 +219,10 @@ export type TelegramReconciliationResult = {
   job?: JobAccepted
 }
 
-export type AutomationControl = {
-  globalPause: boolean
-  dryRun: boolean
-  pauseReason: string | null
-  pausedAt: string | null
-  updatedAt: string
-}
-
-export type BrandProfile = {
-  id: string
-  name: string
-  outputLanguage: string
-  tone: string
-  editorialRules: string[]
-  attributionRules: Record<string, unknown>
-  defaultHashtags: string[]
-  platformPreferences: Record<string, unknown>
-  isDefault: boolean
-}
-export type BrandProfileInput = Omit<BrandProfile, "id">
-export type BrandProfilePatch = Partial<BrandProfileInput>
+export type BrandProfile = Schemas["BrandProfileOut"]
+export type BrandProfileInput = Schemas["BrandProfileCreate"]
+export type BrandProfilePatch = Schemas["BrandProfilePatch"]
 
 export type PromptTemplate = { id: string; purposeKey: string; name: string; description: string | null }
-export type PromptTemplateInput = Omit<PromptTemplate, "id">
-export type PromptVersion = {
-  id: string
-  promptTemplateId: string
-  version: number
-  systemTemplate: string
-  userTemplate: string
-  outputSchemaVersion: string
-  outputSchema: Record<string, unknown>
-  checksumSha256: string
-  isActive: boolean
-  activatedAt: string | null
-  activatedByType: string | null
-  activatedById: string | null
-  activationReason: string | null
-  createdAt: string
-}
-export type PromptVersionInput = { systemTemplate: string; userTemplate: string }
+export type PromptVersion = Schemas["PromptTemplateVersionOut"]
+export type PromptVersionInput = Schemas["PromptTemplateVersionCreate"]

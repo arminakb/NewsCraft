@@ -1,18 +1,20 @@
 from __future__ import annotations
 
+import importlib
 import json
 from datetime import datetime
-from typing import Any
+from types import ModuleType
+from typing import Any, Protocol
 from urllib.parse import quote, urljoin, urlsplit
 
 import httpx
 from bs4 import BeautifulSoup
 
 from app.discovery.models import DiscoveryItem, ExtractedArticle
-from app.normalization.dates import parse_source_datetime
+from app.normalization.dates import normalize_source_datetime
 
 try:
-    import trafilatura
+    trafilatura: ModuleType | None = importlib.import_module("trafilatura")
 except ModuleNotFoundError:  # pragma: no cover - exercised in environments without optional install
     trafilatura = None
 
@@ -24,7 +26,13 @@ GOOGLE_NEWS_DECODE_HEADERS = {
 }
 
 
-async def extract_article(client: httpx.AsyncClient, item: DiscoveryItem) -> ExtractedArticle:
+class ArticleHttpClient(Protocol):
+    async def get(self, url: str, **kwargs: Any) -> httpx.Response: ...
+
+    async def post(self, url: str, **kwargs: Any) -> httpx.Response: ...
+
+
+async def extract_article(client: ArticleHttpClient, item: DiscoveryItem) -> ExtractedArticle:
     if not item.url:
         return _failed_article(item, "missing_url")
 
@@ -87,7 +95,7 @@ async def extract_article(client: httpx.AsyncClient, item: DiscoveryItem) -> Ext
     )
 
 
-async def _resolve_google_news_url(client: httpx.AsyncClient, source_url: str) -> str | None:
+async def _resolve_google_news_url(client: ArticleHttpClient, source_url: str) -> str | None:
     article_id = _google_news_article_id(source_url)
     if not article_id:
         return None
@@ -98,7 +106,7 @@ async def _resolve_google_news_url(client: httpx.AsyncClient, source_url: str) -
 
 
 async def _google_news_decode_params(
-    client: httpx.AsyncClient,
+    client: ArticleHttpClient,
     source_url: str,
     article_id: str,
 ) -> dict[str, str] | None:
@@ -119,9 +127,7 @@ async def _google_news_decode_params(
         if response.status_code >= 300:
             continue
         soup = BeautifulSoup(response.text, "lxml")
-        data_element = soup.select_one("c-wiz > div[jscontroller]") or soup.find(
-            attrs={"data-n-a-sg": True, "data-n-a-ts": True}
-        )
+        data_element = soup.select_one("c-wiz > div[jscontroller], [data-n-a-sg][data-n-a-ts]")
         if not data_element:
             continue
         signature = data_element.get("data-n-a-sg")
@@ -132,7 +138,7 @@ async def _google_news_decode_params(
 
 
 async def _decode_google_news_url(
-    client: httpx.AsyncClient,
+    client: ArticleHttpClient,
     article_id: str,
     signature: str,
     timestamp: str,
@@ -159,7 +165,7 @@ def _parse_google_news_decode_response(value: str) -> str | None:
     try:
         payload_text = value.split("\n\n", 1)[1] if "\n\n" in value else value.removeprefix(")]}'\n")
         rows = json.loads(payload_text)
-    except (IndexError, json.JSONDecodeError):
+    except IndexError, json.JSONDecodeError:
         return None
     for row in rows:
         if not isinstance(row, list) or len(row) < 3 or row[0] != "wrb.fr" or not isinstance(row[2], str):
@@ -260,12 +266,7 @@ def _fallback_text(soup: BeautifulSoup) -> str:
 
 
 def _parse_datetime(value: str | None) -> datetime | None:
-    if not value:
-        return None
-    try:
-        return parse_source_datetime(value)[0]
-    except (ValueError, TypeError, OverflowError):
-        return None
+    return normalize_source_datetime(value)[0]
 
 
 def _failed_article(item: DiscoveryItem, warning: str) -> ExtractedArticle:

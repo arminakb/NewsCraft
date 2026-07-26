@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import unicodedata
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Literal
@@ -26,8 +27,7 @@ class GroupingDecision:
 def normalize_title(value: str) -> frozenset[str]:
     normalized = unicodedata.normalize("NFKC", value).casefold()
     without_punctuation = "".join(
-        " " if unicodedata.category(character).startswith("P") else character
-        for character in normalized
+        " " if unicodedata.category(character).startswith("P") else character for character in normalized
     )
     return frozenset(token for token in without_punctuation.split() if len(token) >= 2)
 
@@ -50,3 +50,29 @@ def decide_group(left: GroupingInput, right: GroupingInput) -> GroupingDecision:
     if hours <= 72 and score >= 0.72:
         return GroupingDecision(grouped=True, score=score, reason="title_similarity")
     return GroupingDecision(grouped=False, score=score, reason="insufficient_similarity")
+
+
+def group_components(items: Sequence[GroupingInput]) -> tuple[tuple[int, ...], ...]:
+    parents = list(range(len(items)))
+
+    def find(index: int) -> int:
+        while parents[index] != index:
+            parents[index] = parents[parents[index]]
+            index = parents[index]
+        return index
+
+    def union(left: int, right: int) -> None:
+        left_root = find(left)
+        right_root = find(right)
+        if left_root != right_root:
+            parents[right_root] = left_root
+
+    for left_index, left in enumerate(items):
+        for right_index in range(left_index + 1, len(items)):
+            if decide_group(left, items[right_index]).grouped:
+                union(left_index, right_index)
+
+    components: dict[int, list[int]] = {}
+    for index in range(len(items)):
+        components.setdefault(find(index), []).append(index)
+    return tuple(tuple(component) for component in components.values())

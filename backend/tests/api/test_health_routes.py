@@ -41,11 +41,10 @@ def _snapshot(ready: bool) -> ReadinessSnapshot:
     )
 
 
-def test_liveness_is_process_only_and_keeps_legacy_alias():
+def test_liveness_is_process_only():
     api = _api()
     with TestClient(api) as client:
         assert client.get("/health/live").json() == {"status": "alive"}
-        assert client.get("/health").json() == {"status": "ok"}
 
 
 def test_readiness_returns_200_or_503_from_dependency_state(monkeypatch):

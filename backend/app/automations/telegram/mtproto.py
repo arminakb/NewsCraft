@@ -12,6 +12,7 @@ from app.automations.telegram.contracts import (
     TelegramEnvelope,
     TelegramFetchRequest,
     TelegramFetchResult,
+    TelegramMediaKind,
     TelegramMediaReference,
 )
 from app.automations.telegram.public_html import (
@@ -84,9 +85,7 @@ class MtprotoTelegramAdapter:
         self.client_factory = client_factory
         self.max_media_bytes = max_media_bytes
         self.transport_page_size = transport_page_size
-        self._credential_bindings: OrderedDict[
-            int, tuple[TelegramEnvelope, tuple[str, str, str]]
-        ] = OrderedDict()
+        self._credential_bindings: OrderedDict[int, tuple[TelegramEnvelope, tuple[str, str, str]]] = OrderedDict()
 
     async def fetch(self, request: TelegramFetchRequest) -> TelegramFetchResult:
         credential_refs, credentials = self._resolve_credentials(request)
@@ -116,11 +115,7 @@ class MtprotoTelegramAdapter:
         effective_max_id = request.before_id or 0
         if snapshot_head is not None:
             pinned_max_id = snapshot_head + 1
-            effective_max_id = (
-                min(request.before_id, pinned_max_id)
-                if request.before_id is not None
-                else pinned_max_id
-            )
+            effective_max_id = min(request.before_id, pinned_max_id) if request.before_id is not None else pinned_max_id
         offset_id = int(page_state.get("before", 0))
         offset_date = _page_offset_date(page_state)
         try:
@@ -152,6 +147,7 @@ class MtprotoTelegramAdapter:
         if snapshot_head is None:
             snapshot_head = max((int(item.id) for item in messages), default=0)
             snapshot_token = _encode_token("snapshot", {"head": snapshot_head})
+        assert snapshot_token is not None
         pinned = [item for item in raw_envelopes if item.anchor_message_id <= snapshot_head]
         filtered = [item for item in pinned if _within_bounds(item, request)]
         selected_list = sorted(filtered, key=_envelope_coordinate, reverse=True)[: request.limit]
@@ -208,9 +204,7 @@ class MtprotoTelegramAdapter:
         try:
             client = self.client_factory(api_id=credentials[0], api_hash=credentials[1], session=credentials[2])
         except Exception:
-            raise RuntimeError(
-                f"failed to initialize MTProto media client for {', '.join(credential_refs)}"
-            ) from None
+            raise RuntimeError(f"failed to initialize MTProto media client for {', '.join(credential_refs)}") from None
         staging_dir.mkdir(parents=True, exist_ok=True)
         created: list[Path] = []
         result: list[MaterializedTelegramMedia] = []
@@ -237,8 +231,7 @@ class MtprotoTelegramAdapter:
                     if message is None or int(message.id) != message_id or not message.media:
                         raise ValueError(f"media {reference.key} could not be re-fetched")
                     path = staging_dir / (
-                        f"{hashlib.sha256(reference.key.encode()).hexdigest()}"
-                        f"{_safe_staging_suffix(reference)}"
+                        f"{hashlib.sha256(reference.key.encode()).hexdigest()}{_safe_staging_suffix(reference)}"
                     )
                     created.append(path)
                     checksum = hashlib.sha256()
@@ -299,9 +292,7 @@ class MtprotoTelegramAdapter:
         except _MtprotoMediaClientLifecycleError as exc:
             for path in created:
                 path.unlink(missing_ok=True)
-            raise RuntimeError(
-                f"MTProto media client {exc.phase} failed for channel {envelope.channel_ref}"
-            ) from None
+            raise RuntimeError(f"MTProto media client {exc.phase} failed for channel {envelope.channel_ref}") from None
         except BaseException:
             for path in created:
                 path.unlink(missing_ok=True)
@@ -320,9 +311,7 @@ class MtprotoTelegramAdapter:
             return None
         return binding[1]
 
-    def _resolve_credentials(
-        self, request: TelegramFetchRequest
-    ) -> tuple[tuple[str, str, str], tuple[int, str, str]]:
+    def _resolve_credentials(self, request: TelegramFetchRequest) -> tuple[tuple[str, str, str], tuple[int, str, str]]:
         refs = (
             request.api_id_secret_ref,
             request.api_hash_secret_ref,
@@ -360,15 +349,13 @@ def _mtproto_media_reference(message: Any, channel_ref: str, position: int) -> T
         position=position,
         kind=kind,
         source_url=None,
-        remote_ref=_encode_token(
-            "mtproto_media", {"channel": channel_ref, "message_id": int(message.id)}
-        ),
+        remote_ref=_encode_token("mtproto_media", {"channel": channel_ref, "message_id": int(message.id)}),
         file_name=file_name,
         mime_type=mime_type,
     )
 
 
-def _mtproto_media_kind(message: Any) -> str:
+def _mtproto_media_kind(message: Any) -> TelegramMediaKind:
     if getattr(message, "photo", None) is not None or message.media.__class__.__name__.lower().endswith("photo"):
         return "photo"
     mime_type = getattr(getattr(message, "file", None), "mime_type", "") or ""
@@ -418,7 +405,7 @@ def _page_offset_date(page_state: dict) -> datetime | None:
 def _token_integer(state: dict, key: str, kind: str) -> int:
     try:
         return int(state[key])
-    except (KeyError, TypeError, ValueError):
+    except KeyError, TypeError, ValueError:
         raise ValueError(f"invalid {kind} token") from None
 
 

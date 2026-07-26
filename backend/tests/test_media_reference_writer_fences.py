@@ -1,15 +1,12 @@
 from __future__ import annotations
 
 import hashlib
-from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from types import SimpleNamespace
 from uuid import uuid4
 
 import pytest
-from fastapi import HTTPException
 
-from app.api.telegram_drafts import TelegramDraftEditIn, edit_telegram_draft
 from app.automations.telegram.handlers import _dispatch_media, _media_decision
 from app.db.models import ContentItem, MediaAsset
 from app.generation.editorial_service import (
@@ -17,9 +14,10 @@ from app.generation.editorial_service import (
     EditVariantRequest,
     InvalidGenerationRequest,
 )
-from app.generation.models import PlatformVariant, PlatformVariantRevision
+from app.generation.models import ContentPack
 from app.generation.telegram_schema import TelegramRewriteOutput
 from app.jobs.errors import NeedsReviewJobError
+from app.stories.models import StoryRevision
 
 
 def _expired_media(media_id=None) -> MediaAsset:
@@ -45,6 +43,9 @@ def _assert_fresh_media_lock(statement) -> None:
 async def test_editorial_telegram_edit_fresh_locks_media_before_rejecting_tombstone():
     variant_id = uuid4()
     revision_id = uuid4()
+    pack_id = uuid4()
+    story_revision_id = uuid4()
+    story_id = uuid4()
     media = _expired_media()
     evidence_id = uuid4()
     evidence_text = "Grounded evidence"
@@ -56,7 +57,9 @@ async def test_editorial_telegram_edit_fresh_locks_media_before_rejecting_tombst
         "locator": f"chars:0-{len(evidence_text)}",
         "excerpt_sha256": evidence_hash,
     }
-    variant = SimpleNamespace(id=variant_id, platform="telegram")
+    variant = SimpleNamespace(id=variant_id, content_pack_id=pack_id, platform="telegram")
+    pack = SimpleNamespace(id=pack_id, story_revision_id=story_revision_id)
+    story_revision = SimpleNamespace(id=story_revision_id, story_id=story_id)
     parent = SimpleNamespace(
         id=revision_id,
         platform_variant_id=variant_id,
@@ -97,6 +100,13 @@ async def test_editorial_telegram_edit_fresh_locks_media_before_rejecting_tombst
         async def scalar(self, statement):
             return self.scalar_values.pop(0)
 
+        async def get(self, model, identifier):
+            if model is ContentPack and identifier == pack_id:
+                return pack
+            if model is StoryRevision and identifier == story_revision_id:
+                return story_revision
+            raise AssertionError(f"unexpected object lookup: {model} {identifier}")
+
         async def scalars(self, statement):
             entity = statement.column_descriptions[0].get("entity")
             if entity is MediaAsset:
@@ -129,93 +139,6 @@ async def test_editorial_telegram_edit_fresh_locks_media_before_rejecting_tombst
     with pytest.raises(InvalidGenerationRequest, match="checksum-verified"):
         await EditorialService(session).edit_variant(variant_id, request)
 
-    _assert_fresh_media_lock(session.media_statement)
-    assert "media_assets, platform_variant_revisions" in str(session.executed[-1])
-    assert session.added == []
-
-
-@pytest.mark.asyncio
-async def test_draft_edit_fresh_locks_media_before_rejecting_tombstone(monkeypatch):
-    revision_id = uuid4()
-    variant_id = uuid4()
-    media = _expired_media()
-    lineage = SimpleNamespace(id=revision_id, platform_variant_id=variant_id)
-    variant = SimpleNamespace(id=variant_id, platform="telegram")
-    parent = SimpleNamespace(
-        id=revision_id,
-        platform_variant_id=variant_id,
-        evidence_map=[],
-        content={
-            "body": "Parent",
-            "parse_mode": "HTML",
-            "buttons": [],
-            "source_item_id": None,
-            "source_url": None,
-            "media_policy": "replace_manually",
-            "media_asset_ids": [],
-            "direction": "ltr",
-            "dry_run": False,
-        },
-    )
-
-    class Session:
-        def __init__(self):
-            self.media_statement = None
-            self.executed = []
-            self.added = []
-
-        @asynccontextmanager
-        async def begin(self):
-            yield
-
-        async def get(self, model, identifier):
-            assert model is PlatformVariantRevision
-            assert identifier == revision_id
-            return lineage
-
-        async def scalar(self, statement):
-            assert statement.column_descriptions[0].get("entity") is PlatformVariant
-            return variant
-
-        async def scalars(self, statement):
-            assert statement.column_descriptions[0].get("entity") is MediaAsset
-            self.media_statement = statement
-            return [media]
-
-        async def execute(self, statement):
-            self.executed.append(statement)
-
-        def add(self, value):
-            self.added.append(value)
-
-        async def flush(self):
-            return None
-
-    async def allow_revision_write(session, **kwargs):
-        assert kwargs == {"variant_id": variant_id}
-
-    async def locked_revision(session, identifier):
-        assert identifier == revision_id
-        return parent
-
-    async def revision_snapshots(session, revision, evidence_map):
-        assert revision is parent
-        assert evidence_map == []
-        return []
-
-    monkeypatch.setattr("app.api.telegram_drafts.require_revision_write_allowed", allow_revision_write)
-    monkeypatch.setattr("app.api.telegram_drafts._locked_revision", locked_revision)
-    monkeypatch.setattr("app.api.telegram_drafts._revision_snapshots", revision_snapshots)
-    session = Session()
-    body = TelegramDraftEditIn(
-        content=TelegramRewriteOutput(body="Edited", parse_mode="HTML", buttons=[]),
-        media_asset_ids=[media.id],
-    )
-
-    with pytest.raises(HTTPException) as caught:
-        await edit_telegram_draft(revision_id, body, session)
-
-    assert caught.value.status_code == 422
     _assert_fresh_media_lock(session.media_statement)
     assert "media_assets, platform_variant_revisions" in str(session.executed[-1])
     assert session.added == []

@@ -26,7 +26,7 @@ export default function Page() {
         </p>
       ) : null}
       {diagnosticsQuery.isError ? (
-        <div className="space-y-3 rounded-md border border-red-200 bg-red-50 p-4" dir="auto" role="alert">
+        <div className="space-y-3 rounded-md border border-red-200 bg-red-50 p-4 dark:border-red-900 dark:bg-red-950/40 dark:text-red-200" dir="auto" role="alert">
           <p>{getApiErrorMessage(diagnosticsQuery.error, "Operational diagnostics could not be loaded")}</p>
           <Button onClick={() => diagnosticsQuery.refetch()} size="sm" variant="outline">
             Retry diagnostics

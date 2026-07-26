@@ -13,7 +13,15 @@ const badgeVariants = cva(
         secondary:
           "bg-secondary text-secondary-foreground [a]:hover:bg-secondary/80",
         destructive:
-          "bg-destructive/10 text-destructive focus-visible:ring-destructive/20 dark:bg-destructive/20 dark:focus-visible:ring-destructive/40 [a]:hover:bg-destructive/20",
+          "border-red-300 bg-red-100 text-red-900 focus-visible:ring-red-700 dark:border-red-700 dark:bg-red-950 dark:text-red-100 dark:focus-visible:ring-red-300 forced-colors:border-[CanvasText] forced-colors:text-[CanvasText] [a]:hover:bg-red-200 dark:[a]:hover:bg-red-900",
+        error:
+          "border-red-300 bg-red-100 text-red-900 focus-visible:ring-red-700 dark:border-red-700 dark:bg-red-950 dark:text-red-100 dark:focus-visible:ring-red-300 forced-colors:border-[CanvasText] forced-colors:text-[CanvasText]",
+        warning:
+          "border-amber-300 bg-amber-100 text-amber-950 focus-visible:ring-amber-800 dark:border-amber-700 dark:bg-amber-950 dark:text-amber-100 dark:focus-visible:ring-amber-300 forced-colors:border-[CanvasText] forced-colors:text-[CanvasText]",
+        success:
+          "border-emerald-300 bg-emerald-100 text-emerald-900 focus-visible:ring-emerald-800 dark:border-emerald-700 dark:bg-emerald-950 dark:text-emerald-100 dark:focus-visible:ring-emerald-300 forced-colors:border-[CanvasText] forced-colors:text-[CanvasText]",
+        neutral:
+          "border-slate-300 bg-slate-100 text-slate-900 focus-visible:ring-slate-700 dark:border-slate-600 dark:bg-slate-950 dark:text-slate-100 dark:focus-visible:ring-slate-300 forced-colors:border-[CanvasText] forced-colors:text-[CanvasText]",
         outline:
           "border-border text-foreground [a]:hover:bg-muted [a]:hover:text-muted-foreground",
         ghost:

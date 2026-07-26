@@ -84,7 +84,4 @@ def test_manual_publication_model_metadata_matches_migration_contract():
     indexes = {index.name: index for index in table.indexes}
     assert indexes["uq_manual_publication_active_revision"].unique is True
     assert {"ix_manual_publication_schedule", "ix_manual_publication_history"} <= indexes.keys()
-    assert all(
-        "DESC" in str(expression).upper()
-        for expression in indexes["ix_manual_publication_history"].expressions
-    )
+    assert all("DESC" in str(expression).upper() for expression in indexes["ix_manual_publication_history"].expressions)

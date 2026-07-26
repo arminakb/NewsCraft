@@ -78,6 +78,28 @@ time-bounded observation produced by the source/generation worker and can be `av
 profiles remain editable while a worker or credential is unavailable. Never test availability
 by placing a credential value in a profile, request, log, event, or diagnostic payload.
 
+### Optional encrypted invalid-output quarantine
+
+Normal diagnostics retain only stage/type/path metadata, byte count, SHA-256,
+and allowlisted request/model IDs. Raw invalid output is discarded. If a
+time-limited investigation requires it, mount an `age` recipient file only into
+the source/generation worker, mount a private writable directory at
+`/data/generation-invalid-output`, and set:
+
+```dotenv
+GENERATION_INVALID_OUTPUT_QUARANTINE_ENABLED=true
+GENERATION_INVALID_OUTPUT_QUARANTINE_RECIPIENT_FILE=/run/secrets/GENERATION_QUARANTINE_AGE_RECIPIENT
+GENERATION_INVALID_OUTPUT_QUARANTINE_ROOT=/data/generation-invalid-output
+GENERATION_INVALID_OUTPUT_QUARANTINE_MAX_BYTES=1000000
+GENERATION_INVALID_OUTPUT_QUARANTINE_TTL_DAYS=7
+```
+
+The worker writes only `.age` ciphertext with mode `0600`; plaintext remains in
+memory, oversized responses are skipped, writes are hash-audited, and expired
+artifacts are pruned during subsequent writes. Keep the decryption identity
+outside the worker and record all operator access in the incident ticket. Turn
+the feature off and destroy remaining ciphertext when the investigation ends.
+
 ## Operator flow
 
 1. Open **Settings**, inspect the **Canonical story** and **Telegram pack** templates, and

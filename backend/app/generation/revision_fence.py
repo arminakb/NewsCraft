@@ -33,11 +33,7 @@ class _RegenerationFence:
 
 
 def public_job_result(result: dict[str, Any] | None) -> dict[str, Any]:
-    return {
-        key: value
-        for key, value in dict(result or {}).items()
-        if key != REGENERATION_FENCE_RESULT_KEY
-    }
+    return {key: value for key, value in dict(result or {}).items() if key != REGENERATION_FENCE_RESULT_KEY}
 
 
 def _fence_from_job(job: Any) -> _RegenerationFence | None:
@@ -55,7 +51,7 @@ def _fence_from_job(job: Any) -> _RegenerationFence | None:
                 lease_owner=str(raw["lease_owner"]),
             ),
         )
-    except (KeyError, TypeError, ValueError):
+    except KeyError, TypeError, ValueError:
         return None
     if re.fullmatch(r"[0-9a-f]{64}", fence.base_content_hash) is None:
         return None
@@ -92,7 +88,7 @@ def _raw_fence_targets_variant(job: Any, variant_id: UUID) -> bool:
         return False
     try:
         return UUID(str(raw.get("variant_id"))) == variant_id
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         return False
 
 
@@ -102,11 +98,8 @@ async def _locked_regeneration_jobs(
     variant_id: UUID,
     owner_job_id: UUID | None = None,
 ) -> list[Any]:
-    target_variant = (
-        func.lower(
-            WorkflowJob.result[REGENERATION_FENCE_RESULT_KEY]["variant_id"].astext
-        )
-        == str(variant_id)
+    target_variant = func.lower(WorkflowJob.result[REGENERATION_FENCE_RESULT_KEY]["variant_id"].astext) == str(
+        variant_id
     )
     target = target_variant
     if owner_job_id is not None:
@@ -169,11 +162,7 @@ async def acquire_regeneration_fence(
 
     for job in jobs:
         fence = _fence_from_job(job)
-        if (
-            fence is None
-            and _raw_fence_targets_variant(job, variant_id)
-            and _has_live_lease(job, observed_at)
-        ):
+        if fence is None and _raw_fence_targets_variant(job, variant_id) and _has_live_lease(job, observed_at):
             raise RegenerationFenceConflict("Live regeneration fence is invalid")
         if fence is None or fence.variant_id != variant_id or not _is_live(job, fence, observed_at):
             continue
@@ -212,11 +201,7 @@ async def require_revision_write_allowed(
     live = []
     for job in await _locked_regeneration_jobs(session, variant_id=variant_id):
         fence = _fence_from_job(job)
-        if (
-            fence is None
-            and _raw_fence_targets_variant(job, variant_id)
-            and _has_live_lease(job, observed_at)
-        ):
+        if fence is None and _raw_fence_targets_variant(job, variant_id) and _has_live_lease(job, observed_at):
             raise RegenerationFenceConflict("Live regeneration fence is invalid")
         if fence is not None and fence.variant_id == variant_id and _is_live(job, fence, observed_at):
             live.append(fence)

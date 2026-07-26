@@ -11,9 +11,7 @@ from dataclasses import dataclass
 from app.core.config import Settings
 
 _PAIRING_PATTERN = re.compile(r"^ncp_([A-Za-z0-9_-]{12})[A-Za-z0-9_-]{31,64}$")
-_CREDENTIAL_PATTERN = re.compile(
-    r"^ncg_([A-Za-z0-9_-]{12})_([A-Za-z0-9_-]{40,64})$"
-)
+_CREDENTIAL_PATTERN = re.compile(r"^ncg_([A-Za-z0-9_-]{12})_([A-Za-z0-9_-]{40,64})$")
 
 
 class GatewayKeyUnavailable(RuntimeError):
@@ -69,13 +67,14 @@ class GatewayCredentialHasher:
             prefix = secrets.token_urlsafe(9)
             secret = secrets.token_urlsafe(36)
         else:
-            prefix = base64.urlsafe_b64encode(
-                self.digest("credential-prefix", seed)
-            ).decode().rstrip("=")[:12]
-            secret = base64.urlsafe_b64encode(
-                self.digest("credential-secret-a", seed)
-                + self.digest("credential-secret-b", seed)[:4]
-            ).decode().rstrip("=")
+            prefix = base64.urlsafe_b64encode(self.digest("credential-prefix", seed)).decode().rstrip("=")[:12]
+            secret = (
+                base64.urlsafe_b64encode(
+                    self.digest("credential-secret-a", seed) + self.digest("credential-secret-b", seed)[:4]
+                )
+                .decode()
+                .rstrip("=")
+            )
         value = f"ncg_{prefix}_{secret}"
         digest = self.digest("credential", value)
         return IssuedCredential(

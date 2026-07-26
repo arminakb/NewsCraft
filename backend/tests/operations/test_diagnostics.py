@@ -7,7 +7,7 @@ import pytest
 from app.jobs.models import AutomationControl
 from app.jobs.runtime import RuntimeHeartbeatService
 from app.jobs.types import JobStatus
-from app.operations.diagnostics import OperationsDiagnostics
+from app.operations.diagnostics import OperationsDiagnostics, _publish_receipt_attention
 
 NOW = datetime(2026, 7, 13, 8, 30, tzinfo=UTC)
 PUBLISH_JOB_ID = UUID("11111111-1111-4111-8111-111111111111")
@@ -17,6 +17,32 @@ DESTINATION_ID = UUID("44444444-4444-4444-8444-444444444444")
 ROUTE_ID = UUID("55555555-5555-4555-8555-555555555555")
 RESEARCH_RUN_ID = UUID("66666666-6666-4666-8666-666666666666")
 GENERATION_RUN_ID = UUID("77777777-7777-4777-8777-777777777777")
+
+
+def test_ambiguous_and_dispatching_receipts_project_publication_attention():
+    ambiguous = _publish_receipt_attention(
+        SimpleNamespace(
+            publish_job_id=PUBLISH_JOB_ID,
+            status="ambiguous",
+            ambiguous_at=NOW,
+            updated_at=NOW - timedelta(seconds=1),
+        )
+    )
+    dispatching = _publish_receipt_attention(
+        SimpleNamespace(
+            publish_job_id=PUBLISH_JOB_ID,
+            status="dispatching",
+            ambiguous_at=None,
+            updated_at=NOW - timedelta(minutes=6),
+        )
+    )
+
+    assert ambiguous.severity == "error"
+    assert ambiguous.occurred_at == NOW
+    assert "ambiguous" in ambiguous.title
+    assert ambiguous.action_url == "/#telegram-publication-outcomes"
+    assert dispatching.severity == "warning"
+    assert dispatching.occurred_at == NOW - timedelta(minutes=6)
 
 
 class FrozenClock:
@@ -49,6 +75,7 @@ class FakeSession:
         research_rows=(),
         generation_runs=(),
         publish_jobs=(),
+        publish_receipts=(),
         publication_rows=(),
         control=None,
     ):
@@ -62,6 +89,7 @@ class FakeSession:
         self.research_rows = list(research_rows)
         self.generation_runs = list(generation_runs)
         self.publish_jobs = list(publish_jobs)
+        self.publish_receipts = list(publish_receipts)
         self.publication_rows = list(publication_rows)
         self.control = control
         self.scalar_sql: list[str] = []
@@ -87,6 +115,8 @@ class FakeSession:
             return Rows(self.generation_runs)
         if "FROM publish_jobs" in sql:
             return Rows(self.publish_jobs)
+        if "FROM publish_operation_receipts" in sql:
+            return Rows(self.publish_receipts)
         raise AssertionError(f"Unexpected scalar query: {sql}")
 
     async def execute(self, statement):
@@ -237,7 +267,7 @@ async def test_snapshot_reads_control_queue_and_newest_attention_without_writes_
     assert snapshot.attention[0].kind == "research"
     assert snapshot.attention[0].severity == "warning"
     assert snapshot.attention[0].occurred_at == newer.updated_at
-    assert snapshot.attention[0].action_url == "/jobs"
+    assert snapshot.attention[0].action_url == f"/jobs?status=attention&job={RESEARCH_JOB_ID}"
     assert snapshot.attention[1].kind == "publication"
     assert snapshot.attention[1].severity == "error"
     assert "hunter2" not in snapshot.attention[0].title
@@ -368,13 +398,13 @@ async def test_snapshot_merges_durable_attention_newest_first_without_duplicates
     assert [item.id for item in snapshot.attention].count(f"route:{ROUTE_ID}") == 1
     assert [item.id for item in snapshot.attention].count(f"publication:{PUBLISH_JOB_ID}") == 1
     assert "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa" in str(snapshot.model_dump())
-    assert snapshot.attention[0].action_url == "/jobs"
+    assert snapshot.attention[0].action_url == f"/jobs?status=attention&job={RESEARCH_JOB_ID}"
     assert snapshot.attention[1].action_url == f"/automations/{ROUTE_ID}"
-    assert snapshot.attention[2].action_url == "/sources"
-    assert snapshot.attention[3].action_url == "/automations"
+    assert snapshot.attention[2].action_url == f"/sources?source={SOURCE_ID}"
+    assert snapshot.attention[3].action_url == "/settings/content#telegram-destinations"
     assert snapshot.attention[4].action_url == "/inbox"
     assert snapshot.attention[5].action_url == "/drafts"
-    assert snapshot.attention[6].action_url == "/jobs"
+    assert snapshot.attention[6].action_url == "/#telegram-publication-outcomes"
     serialized = str(snapshot.model_dump())
     for secret in ("source-secret", "source-token", "dispatch-secret", "research-secret", "generation-secret"):
         assert secret not in serialized

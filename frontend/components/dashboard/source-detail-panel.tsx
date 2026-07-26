@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button"
 import { Separator } from "@/components/ui/separator"
 import { formatNumber, formatPlatform } from "@/lib/format"
 import { cn } from "@/lib/utils"
-import type { SourceSummary } from "@/lib/types"
+import type { SourceSummary } from "@/features/operations/ingestion-types"
 
 const statusDotClass: Record<SourceSummary["status"], string> = {
   healthy: "bg-emerald-600",
@@ -88,7 +88,6 @@ export function SourceDetailPanel({
               </a>
             }
           />
-          <Row label="Source ID" value={source.id} />
           <Row label="Added" value={source.addedAt} />
           <Row label="Fetch interval" value={`Every ${source.fetchIntervalMinutes} minutes`} />
           <Row
@@ -101,6 +100,10 @@ export function SourceDetailPanel({
             }
           />
         </dl>
+        <details className="mt-6 rounded-md border p-3 text-sm">
+          <summary className="cursor-pointer font-medium">Advanced source record</summary>
+          <div className="mt-3 break-all text-xs text-muted-foreground">{source.id}</div>
+        </details>
       </div>
     </aside>
   )

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from decimal import Decimal
 from typing import Any
 from uuid import UUID
 
@@ -38,7 +39,7 @@ class CodexGenerationProvider:
     async def generate(self, request: GenerationProviderRequest) -> GenerationProviderResult:
         try:
             requested_profile_id = UUID(str(request.metadata["provider_profile_id"]))
-        except (KeyError, TypeError, ValueError):
+        except KeyError, TypeError, ValueError:
             raise ValueError("Codex generation request requires a provider profile ID") from None
         if requested_profile_id != self.profile.id:
             raise ValueError("Codex generation provider profile does not match request")
@@ -47,7 +48,7 @@ class CodexGenerationProvider:
             max_model_calls=limits.max_model_calls,
             max_input_tokens=limits.max_input_tokens,
             max_output_tokens=limits.max_output_tokens,
-            max_cost_usd=0,
+            max_cost_usd=Decimal(0),
             max_elapsed_seconds=limits.max_elapsed_seconds,
         )
         prompt = json.dumps(
@@ -61,10 +62,7 @@ class CodexGenerationProvider:
                     ]
                 },
                 "untrusted_input": {
-                    "messages": [
-                        {"role": message.role, "content": message.content}
-                        for message in request.messages
-                    ],
+                    "messages": [{"role": message.role, "content": message.content} for message in request.messages],
                     "purpose": request.purpose,
                 },
             },

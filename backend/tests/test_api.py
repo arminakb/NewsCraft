@@ -13,14 +13,14 @@ from app.main import app
 
 
 async def test_health_endpoint_returns_ok():
-    response = await _get("/health")
+    response = await _get("/health/live")
 
     assert response.status_code == 200
-    assert response.json() == {"status": "ok"}
+    assert response.json() == {"status": "alive"}
 
 
 async def test_cors_allows_frontend_origin():
-    response = await _get("/health", headers={"Origin": "http://localhost:3000"})
+    response = await _get("/health/live", headers={"Origin": "http://localhost:3000"})
     preflight = await _options(
         "/ingest/run",
         headers={
@@ -78,7 +78,7 @@ async def test_ingest_run_endpoint_enqueues_one_idempotent_job_without_network(m
     def fail_if_constructed(*_args, **_kwargs):
         raise AssertionError("the API must not construct the network ingestion service")
 
-    monkeypatch.setattr("app.ingestion.service.IngestionService.__init__", fail_if_constructed)
+    monkeypatch.setattr("app.ingestion.workflow.IngestionWorkflow.__init__", fail_if_constructed)
     _override_session(fake_session)
 
     payload = {
@@ -115,15 +115,7 @@ async def test_ingest_run_endpoint_enqueues_one_idempotent_job_without_network(m
     assert fake_session.commit_count == 2
 
 
-async def test_ingest_run_endpoint_requires_request_id(monkeypatch):
-    class LegacyNetworkService:
-        async def run_once(self, **_kwargs):
-            return {"status": "succeeded"}
-
-    monkeypatch.setattr(
-        "app.ingestion.service.IngestionService.__init__",
-        lambda self, _session: setattr(self, "run_once", LegacyNetworkService().run_once),
-    )
+async def test_ingest_run_endpoint_requires_request_id():
     _override_session(FakeSession([]))
     try:
         response = await _post("/ingest/run", json={"platforms": ["rss"]})
@@ -282,22 +274,6 @@ async def test_content_item_detail_endpoint_returns_404_for_missing_item():
     app.dependency_overrides.clear()
     assert response.status_code == 404
     assert response.json()["detail"] == "content item not found"
-
-
-async def test_dashboard_summary_endpoint_returns_counts():
-    _override_session(FakeSession([], scalar_results=[50, 3, 1284, 912, 18]))
-
-    response = await _get("/dashboard/summary")
-
-    app.dependency_overrides.clear()
-    assert response.status_code == 200
-    assert response.json() == {
-        "rss_feeds": 50,
-        "telegram_channels": 3,
-        "content_items": 1284,
-        "media_assets": 912,
-        "warnings": 18,
-    }
 
 
 async def test_ingest_runs_endpoint_returns_latest_runs():

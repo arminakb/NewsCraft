@@ -97,7 +97,7 @@ def export_artifact_out(
 ) -> ExportArtifactOut:
     downloads: list[str] = []
     if isinstance(artifact, ExportArtifact):
-        names = [artifact.manifest_file]
+        names: list[str] = [artifact.manifest_file]
         if artifact.archive_file is not None:
             names.append(artifact.archive_file)
         names.extend(item.file_name for item in artifact.manifest.files)
@@ -234,13 +234,13 @@ async def _enqueue_export_job(
         ):
             return result
 
-        expired = _typed_artifact(job)
-        if not isinstance(expired, ExpiredExportArtifact):  # pragma: no cover - guarded above
+        expired_artifact = _typed_artifact(job)
+        if not isinstance(expired_artifact, ExpiredExportArtifact):  # pragma: no cover - guarded above
             return result
         if generation >= MAX_EXPORT_REBUILD_GENERATIONS:
             raise HTTPException(status_code=409, detail="Export rebuild history exceeds the supported depth")
-        previous = (job, expired)
-        idempotency_key = _export_rebuild_idempotency_key(base_key, job, expired)
+        previous = (job, expired_artifact)
+        idempotency_key = _export_rebuild_idempotency_key(base_key, job, expired_artifact)
 
     raise HTTPException(status_code=409, detail="Export rebuild history is invalid")  # pragma: no cover
 
@@ -389,7 +389,8 @@ async def list_exports(
     next_cursor = None
     if len(rows) > limit and page:
         last = page[-1]
-        next_cursor = encode_export_cursor(last.finished_at, last.id)
+        if last.finished_at is not None:
+            next_cursor = encode_export_cursor(last.finished_at, last.id)
     return ExportArtifactListOut(items=output, next_cursor=next_cursor)
 
 

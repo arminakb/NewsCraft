@@ -131,7 +131,7 @@ async def rotate_llm_provider_secret(
         await service.rotate_secret(provider, body.secret.get_secret_value())
         await session.commit()
         await session.refresh(provider)
-    except (SecretStoreError, RuntimeError):
+    except SecretStoreError, RuntimeError:
         raise HTTPException(503, detail={"code": "secret_store_unavailable"}) from None
     except ValueError:
         raise HTTPException(422, detail={"code": "llm_provider_secret_invalid"}) from None

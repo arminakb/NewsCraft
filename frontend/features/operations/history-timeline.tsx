@@ -29,7 +29,7 @@ export function HistoryTimeline({ routeId }: { routeId: string }) {
         ...(pageParam ? { cursor: pageParam } : {}),
       }),
     initialPageParam: null as string | null,
-    getNextPageParam: (page) => page.nextCursor ?? undefined,
+    getNextPageParam: (page) => page.next_cursor ?? undefined,
   })
   const entries = historyQuery.data?.pages.flatMap((page) => page.items) ?? []
 
@@ -81,13 +81,13 @@ export function HistoryTimeline({ routeId }: { routeId: string }) {
 }
 
 function HistoryTimelineItem({ entry }: { entry: HistoryEntry }) {
-  const metadata = Object.entries(entry.sanitizedMetadata)
+  const metadata = Object.entries(entry.sanitized_metadata)
 
   return (
     <li className="relative grid gap-3 px-4 py-4 md:grid-cols-[150px_minmax(0,1fr)_auto]">
       <div className="space-y-1">
-        <time className="text-sm font-medium tabular-nums" dateTime={entry.occurredAt}>
-          {formatTehranTimestamp(entry.occurredAt)}
+        <time className="text-sm font-medium tabular-nums" dateTime={entry.occurred_at}>
+          {formatTehranTimestamp(entry.occurred_at)}
         </time>
         <div className="flex flex-wrap gap-1.5">
           <Badge variant="outline">{humanize(entry.category)}</Badge>
@@ -102,7 +102,7 @@ function HistoryTimelineItem({ entry }: { entry: HistoryEntry }) {
         <DirectionBoundary className="text-sm text-muted-foreground" direction="auto">
           {entry.summary}
         </DirectionBoundary>
-        {entry.jobId ? <p className="text-xs text-muted-foreground">Workflow job {entry.jobId}</p> : null}
+        {entry.job_id ? <p className="text-xs text-muted-foreground">Workflow job {entry.job_id}</p> : null}
         {metadata.length ? (
           <dl className="grid gap-2 rounded-md border bg-slate-50 p-3 text-xs sm:grid-cols-2">
             {metadata.map(([key, value]) => (
@@ -125,7 +125,7 @@ function HistoryTimelineItem({ entry }: { entry: HistoryEntry }) {
 
       <Link
         className="inline-flex items-center gap-1 self-start text-sm font-medium text-primary underline-offset-4 hover:underline"
-        href={entry.subjectUrl}
+        href={entry.subject_url}
       >
         Open related record
         <ArrowUpRight aria-hidden="true" className="size-3.5" />

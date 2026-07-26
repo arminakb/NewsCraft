@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from typing import Literal
 from uuid import UUID, uuid4
 
 from sqlalchemy import func, select
@@ -191,7 +192,7 @@ class TelegramLifecycleService:
 
     async def rotate_destination_token(self, destination: Destination, value: str) -> Destination:
         if destination.secret_id is None:
-            secret = self._store().create(
+            created_secret = self._store().create(
                 purpose="telegram_bot_token",
                 owner_type="telegram_destination",
                 owner_id=destination.id,
@@ -199,9 +200,9 @@ class TelegramLifecycleService:
                 principal=self.principal,
                 required_scope="destinations:write",
             )
-            await self.session.flush([secret])
-            destination.secret_id = secret.id
-            destination.secret_ref = f"encrypted:{secret.id}"
+            await self.session.flush([created_secret])
+            destination.secret_id = created_secret.id
+            destination.secret_ref = f"encrypted:{created_secret.id}"
         else:
             secret = await self.session.get(EncryptedSecret, destination.secret_id)
             if secret is None:
@@ -256,7 +257,9 @@ class TelegramLifecycleService:
         )
         active_checks = int(
             await self.session.scalar(
-                select(func.count()).select_from(WorkflowJob).where(
+                select(func.count())
+                .select_from(WorkflowJob)
+                .where(
                     WorkflowJob.job_type == "telegram.destination.check",
                     WorkflowJob.status.in_(_ACTIVE_JOB_STATUSES),
                     WorkflowJob.payload["destination_id"].as_string() == str(destination_id),
@@ -455,12 +458,19 @@ class TelegramLifecycleService:
 async def destination_out(session: AsyncSession, destination: Destination) -> TelegramDestinationOut:
     secret = await session.get(EncryptedSecret, destination.secret_id) if destination.secret_id else None
     canonical = destination.canonical_target or destination.target_ref
+    target_type: Literal["username", "numeric_id", "legacy"]
+    if destination.target_type == "username":
+        target_type = "username"
+    elif destination.target_type == "numeric_id":
+        target_type = "numeric_id"
+    else:
+        target_type = "legacy"
     return TelegramDestinationOut(
         id=destination.id,
         name=destination.name,
         target_ref=canonical,
         canonical_target=canonical,
-        target_type=destination.target_type or "legacy",
+        target_type=target_type,
         enabled=destination.enabled,
         health_status=destination.health_status,
         configured=secret is not None,
@@ -488,10 +498,17 @@ async def proxy_out(session: AsyncSession, profile: TelegramProxyProfile) -> Tel
     secret_ids = [item for item in (profile.username_secret_id, profile.password_secret_id) if item is not None]
     secrets = [await session.get(EncryptedSecret, item) for item in secret_ids]
     rotated = max((item.last_rotated_at for item in secrets if item is not None), default=None)
+    proxy_type: Literal["http_connect", "socks5"]
+    if profile.proxy_type == "http_connect":
+        proxy_type = "http_connect"
+    elif profile.proxy_type == "socks5":
+        proxy_type = "socks5"
+    else:
+        raise TelegramConfigurationError("telegram_proxy_type_invalid")
     return TelegramProxyOut(
         id=profile.id,
         name=profile.name,
-        proxy_type=profile.proxy_type,
+        proxy_type=proxy_type,
         host=profile.host,
         port=profile.port,
         enabled=profile.enabled,

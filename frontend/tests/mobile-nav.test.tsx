@@ -22,7 +22,7 @@ describe("mobile newsroom navigation", () => {
   })
 
   it("is an aria-modal drawer with initial focus and current-page state", async () => {
-    pathname = "/feed"
+    pathname = "/inbox"
     render(<MobileNewsroomNav />)
 
     fireEvent.click(screen.getByRole("button", { name: "Open navigation" }))
@@ -34,10 +34,10 @@ describe("mobile newsroom navigation", () => {
     expect(within(dialog).getByText("Automation")).toBeInTheDocument()
     expect(within(dialog).getByText("Collection")).toBeInTheDocument()
     expect(within(dialog).getByText("System")).toBeInTheDocument()
-    expect(within(dialog).getByRole("link", { name: "Feed" })).toHaveAttribute("aria-current", "page")
-    expect(within(dialog).queryByRole("link", { name: "Inbox" })).not.toBeInTheDocument()
+    expect(within(dialog).getByRole("link", { name: "Inbox" })).toHaveAttribute("aria-current", "page")
+    expect(within(dialog).queryByRole("link", { name: "Feed monitor" })).not.toBeInTheDocument()
     expect(within(dialog).queryByRole("link", { name: /^Content$/ })).not.toBeInTheDocument()
-    expect(within(dialog).queryByRole("link", { name: "Library" })).not.toBeInTheDocument()
+    expect(within(dialog).getByRole("link", { name: "Library" })).not.toHaveAttribute("aria-current")
     expect(within(dialog).queryByRole("link", { name: "Media" })).not.toBeInTheDocument()
     await waitFor(() => expect(within(dialog).getByRole("link", { name: "Today" })).toHaveFocus())
   })
@@ -103,7 +103,7 @@ describe("mobile newsroom navigation", () => {
 
     const dialog = screen.getByRole("dialog", { name: "Newsroom navigation" })
     window.addEventListener("click", (event) => event.preventDefault(), { capture: true, once: true })
-    fireEvent.click(within(dialog).getByRole("link", { name: "Feed" }))
+    fireEvent.click(within(dialog).getByRole("link", { name: "Inbox" }))
 
     expect(screen.queryByRole("dialog", { name: "Newsroom navigation" })).not.toBeInTheDocument()
     expect(trigger).toHaveFocus()
@@ -163,17 +163,17 @@ describe("mobile newsroom navigation", () => {
     }
   })
 
-  it("puts Feed after Today in mobile workflow navigation", () => {
+  it("puts Inbox after Today in mobile workflow navigation", () => {
     render(<MobileNewsroomNav />)
 
     const mobileNavigation = screen.getByRole("navigation", { name: "Mobile newsroom navigation" })
     expect(within(mobileNavigation).getAllByRole("link").map((link) => link.textContent)).toEqual([
       "Today",
-      "Feed",
+      "Inbox",
     ])
-    expect(within(mobileNavigation).getByRole("link", { name: "Feed" })).toHaveAttribute(
+    expect(within(mobileNavigation).getByRole("link", { name: "Inbox" })).toHaveAttribute(
       "href",
-      "/feed",
+      "/inbox",
     )
   })
 })

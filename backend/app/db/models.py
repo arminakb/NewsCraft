@@ -8,6 +8,7 @@ from sqlalchemy import (
     BigInteger,
     Boolean,
     CheckConstraint,
+    Computed,
     DateTime,
     ForeignKey,
     Index,
@@ -136,6 +137,13 @@ class ContentItem(Base):
     content_type_confidence: Mapped[Decimal] = mapped_column(Numeric, nullable=False, server_default="0")
     classification_reasons: Mapped[list] = mapped_column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
     classification_metadata: Mapped[dict] = mapped_column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
+    canonical_classification: Mapped[dict] = mapped_column(
+        JSONB,
+        Computed(
+            "newscraft_canonical_article_classification("
+            "content_type, metrics -> 'classification' ->> 'category', language_code)"
+        ),
+    )
     rewrite_bucket: Mapped[str | None] = mapped_column(Text)
     freshness_bucket: Mapped[str] = mapped_column(Text, nullable=False, server_default="unknown")
     source_tier: Mapped[str] = mapped_column(Text, nullable=False, server_default="unknown")
@@ -154,6 +162,25 @@ class ContentItem(Base):
     created_at: Mapped[datetime] = timestamp_now()
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now()
+    )
+
+    __table_args__ = (
+        Index(
+            "ix_content_items_search",
+            text("to_tsvector('simple'::regconfig, COALESCE(title, '') || ' ' || COALESCE(content_text, ''))"),
+            postgresql_using="gin",
+        ),
+        Index(
+            "ix_content_items_display_at",
+            text("COALESCE(published_at, sort_at) DESC"),
+            text("id DESC"),
+        ),
+        Index(
+            "ix_content_items_score_display_at",
+            text("score DESC"),
+            text("COALESCE(published_at, sort_at) DESC"),
+            text("id DESC"),
+        ),
     )
 
 

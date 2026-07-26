@@ -5,7 +5,6 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from app.core.outbound_proxy import ProxyDiagnostics
 from app.core.redaction import redact_secrets
 
 
@@ -95,27 +94,6 @@ class IngestRunRequest(BaseModel):
     source_ids: list[str] | None = None
 
 
-class IngestRunOut(BaseModel):
-    model_config = ConfigDict(extra="allow")
-
-    status: str | None = None
-    checked: int = 0
-    fetched: int = 0
-    skipped: int = 0
-    failed: int = 0
-    items: int = 0
-    media_candidates: int = 0
-    errors: list[dict] = []
-
-
-class DashboardSummaryOut(BaseModel):
-    rss_feeds: int = 0
-    telegram_channels: int = 0
-    content_items: int = 0
-    media_assets: int = 0
-    warnings: int = 0
-
-
 class IngestRunSummaryOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -139,14 +117,6 @@ class MediaAssetListOut(MediaAssetOut):
 
 class SourceDetailOut(SourceOut):
     pass
-
-
-class DiagnosticsOut(BaseModel):
-    status: str
-    checks: dict[str, str]
-    source_health: dict[str, int] = Field(default_factory=dict)
-    problem_sources: list[dict[str, Any]] = Field(default_factory=list)
-    outbound_proxy: ProxyDiagnostics
 
 
 class ApproveContentItemIn(BaseModel):

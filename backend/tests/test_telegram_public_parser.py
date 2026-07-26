@@ -29,7 +29,9 @@ def test_public_telegram_parser_keeps_album_ids_media_and_entities_ordered():
     assert album.parser_meta["message_ids"] == [42, 43, 44]
     assert album.parser_meta["grouped_id"] == "album-900"
     assert [candidate.source_field for candidate in album.media_candidates] == [
-        "message_photo", "message_video", "message_document"
+        "message_photo",
+        "message_video",
+        "message_document",
     ]
     assert album.parser_meta["entities"] == [
         {"type": "link", "text": "Source", "url": "https://example.com/story"},

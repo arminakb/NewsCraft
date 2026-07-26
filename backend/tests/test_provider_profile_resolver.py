@@ -1,3 +1,4 @@
+from decimal import Decimal
 from uuid import uuid4
 
 import httpx
@@ -85,6 +86,37 @@ async def test_profile_resolver_honors_selected_secret_settings_and_default_mode
         "http_referer": "http://127.0.0.1:3000/",
         "app_title": "NewsCraft",
     }
+    await factory.clients[0].aclose()
+
+
+async def test_profile_resolver_exposes_frozen_generation_execution_policy():
+    secrets = FakeSecrets({"OPENROUTER_EDITOR_KEY": "editor-secret"})
+    factory = RecordingFactory()
+    resolver = ProviderProfileResolver(
+        secret_resolver=secrets,
+        http_client_factory=factory,
+        provider_registry=build_default_provider_registry(),
+    )
+    selected = profile()
+    selected.settings = {
+        **selected.settings,
+        "generation_policy": {
+            "qualification_status": "qualified",
+            "max_output_tokens": 8_000,
+            "max_attempts": 2,
+            "max_pack_cost_usd": "1.50",
+            "max_elapsed_seconds": 150,
+        },
+    }
+
+    resolved = await resolver.resolve(selected, model_override=None)
+
+    assert resolved.max_output_tokens == 8_000
+    assert resolved.max_attempts == 2
+    assert resolved.max_pack_cost_usd == Decimal("1.50")
+    assert resolved.max_elapsed_seconds == 150
+    assert resolved.pricing_input_usd_per_million == Decimal("1.25")
+    assert resolved.pricing_output_usd_per_million == Decimal("5.00")
     await factory.clients[0].aclose()
 
 
@@ -229,3 +261,34 @@ async def test_profile_resolver_rejects_codex_when_disabled_or_executable_missin
         )
         with pytest.raises(ProviderProfileConfigurationError):
             await resolver.resolve(codex, model_override=None)
+
+
+async def test_profile_configuration_checksum_tracks_model_and_safe_settings_but_not_secret_reference():
+    secrets = FakeSecrets({"OPENROUTER_EDITOR_KEY": "one", "OPENROUTER_OTHER_KEY": "two"})
+    factory = RecordingFactory()
+    resolver = ProviderProfileResolver(
+        secret_resolver=secrets,
+        http_client_factory=factory,
+        provider_registry=build_default_provider_registry(),
+    )
+    profile_id = uuid4()
+    base = profile(id=profile_id)
+    changed_secret = profile(id=profile_id, secret_ref="OPENROUTER_OTHER_KEY")
+    changed_model = profile(id=profile_id, default_model="openai/gpt-5-mini")
+    changed_timeout = profile(
+        id=profile_id,
+        settings={**base.settings, "timeout_seconds": 46},
+    )
+
+    resolved = [
+        await resolver.resolve(candidate, None) for candidate in (base, changed_secret, changed_model, changed_timeout)
+    ]
+    try:
+        assert resolved[0].configuration_checksum == resolved[1].configuration_checksum
+        assert resolved[0].configuration_checksum != resolved[2].configuration_checksum
+        assert resolved[0].configuration_checksum != resolved[3].configuration_checksum
+        assert all(len(item.configuration_revision) == 16 for item in resolved)
+        assert all(len(item.configuration_checksum) == 64 for item in resolved)
+    finally:
+        for client in factory.clients:
+            await client.aclose()

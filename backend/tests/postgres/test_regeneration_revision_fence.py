@@ -15,7 +15,6 @@ from app.generation.editorial_service import (
     RegenerateVariantRequest,
     RevisionConflict,
 )
-from app.generation.handlers import build_regenerate_handler
 from app.generation.models import (
     AIProviderProfile,
     BrandProfile,
@@ -35,6 +34,7 @@ from app.jobs.models import WorkflowJob
 from app.jobs.registry import JobContext
 from app.research.schemas import CitationRef
 from app.stories.models import Story, StoryRevision
+from tests.generation.handler_exports import build_regenerate_handler
 
 
 @pytest.mark.asyncio
@@ -116,9 +116,7 @@ async def test_committed_regeneration_fence_prevents_second_session_revision_adv
     await db_session.commit()
 
     locked_variant = await db_session.scalar(
-        select(PlatformVariant)
-        .where(PlatformVariant.id == variant.id)
-        .with_for_update()
+        select(PlatformVariant).where(PlatformVariant.id == variant.id).with_for_update()
     )
     assert locked_variant is not None
     await acquire_regeneration_fence(
@@ -240,9 +238,7 @@ async def test_cached_regeneration_replay_does_not_deadlock_with_manual_edit(
         locator="chars:0-8",
         excerpt_sha256="a" * 64,
     )
-    mismatched_citation = payload_citation.model_copy(
-        update={"evidence_key": "evidence:mismatch"}
-    )
+    mismatched_citation = payload_citation.model_copy(update={"evidence_key": "evidence:mismatch"})
     edit_request = ManualPlatformEditRequest(
         base_revision_id=base.id,
         base_content_hash=base.content_hash,
@@ -271,7 +267,7 @@ async def test_cached_regeneration_replay_does_not_deadlock_with_manual_edit(
         await allow_edit_revision_lock.wait()
 
     monkeypatch.setattr(
-        "app.generation.editorial_service.require_revision_write_allowed",
+        "app.generation.manual_edit.require_revision_write_allowed",
         pause_after_edit_variant_lock,
     )
 
@@ -280,9 +276,7 @@ async def test_cached_regeneration_replay_does_not_deadlock_with_manual_edit(
             # Cached artifact validation later locks the variant. The wrapper
             # must not already hold the current revision while waiting here.
             locked = await context.session.scalar(
-                select(PlatformVariant)
-                .where(PlatformVariant.id == variant.id)
-                .with_for_update()
+                select(PlatformVariant).where(PlatformVariant.id == variant.id).with_for_update()
             )
             assert locked is not None
             return {"replayed": True}
@@ -290,7 +284,7 @@ async def test_cached_regeneration_replay_does_not_deadlock_with_manual_edit(
         return replay
 
     monkeypatch.setattr(
-        "app.generation.handlers.build_pack_generation_handler",
+        "app.generation.variant_regeneration.build_pack_generation_handler",
         cached_replay_builder,
     )
     job = SimpleNamespace(
@@ -331,10 +325,7 @@ async def test_cached_regeneration_replay_does_not_deadlock_with_manual_edit(
             deadline = asyncio.get_running_loop().time() + 2
             while True:
                 wait_type = await observer.scalar(
-                    text(
-                        "SELECT wait_event_type FROM pg_stat_activity "
-                        "WHERE pid = :pid"
-                    ),
+                    text("SELECT wait_event_type FROM pg_stat_activity WHERE pid = :pid"),
                     {"pid": replay_pid},
                 )
                 if wait_type == "Lock":
@@ -430,9 +421,7 @@ async def test_cached_regeneration_replay_does_not_invert_normal_pack_lock_order
             # Match the real pack handler's persistence order. If the wrapper
             # still holds Variant, this first Story lock completes the
             # Variant -> Story half of the old cycle.
-            locked_story = await context.session.scalar(
-                select(Story).where(Story.id == story.id).with_for_update()
-            )
+            locked_story = await context.session.scalar(select(Story).where(Story.id == story.id).with_for_update())
             locked_pack = await context.session.scalar(
                 select(ContentPack).where(ContentPack.id == pack.id).with_for_update()
             )
@@ -447,7 +436,7 @@ async def test_cached_regeneration_replay_does_not_invert_normal_pack_lock_order
         return replay
 
     monkeypatch.setattr(
-        "app.generation.handlers.build_pack_generation_handler",
+        "app.generation.variant_regeneration.build_pack_generation_handler",
         cached_replay_builder,
     )
     job = SimpleNamespace(
@@ -469,12 +458,13 @@ async def test_cached_regeneration_replay_does_not_invert_normal_pack_lock_order
     ):
         try:
             await normal_generation.execute(text("SET LOCAL lock_timeout = '750ms'"))
-            assert await normal_generation.scalar(
-                select(Story).where(Story.id == story.id).with_for_update()
-            ) is not None
-            assert await normal_generation.scalar(
-                select(ContentPack).where(ContentPack.id == pack.id).with_for_update()
-            ) is not None
+            assert (
+                await normal_generation.scalar(select(Story).where(Story.id == story.id).with_for_update()) is not None
+            )
+            assert (
+                await normal_generation.scalar(select(ContentPack).where(ContentPack.id == pack.id).with_for_update())
+                is not None
+            )
 
             replay_pid = await replaying.scalar(text("SELECT pg_backend_pid()"))
             replay_task = asyncio.create_task(
@@ -487,10 +477,7 @@ async def test_cached_regeneration_replay_does_not_invert_normal_pack_lock_order
             deadline = asyncio.get_running_loop().time() + 2
             while True:
                 wait_type = await observer.scalar(
-                    text(
-                        "SELECT wait_event_type FROM pg_stat_activity "
-                        "WHERE pid = :pid"
-                    ),
+                    text("SELECT wait_event_type FROM pg_stat_activity WHERE pid = :pid"),
                     {"pid": replay_pid},
                 )
                 if wait_type == "Lock":
@@ -502,11 +489,12 @@ async def test_cached_regeneration_replay_does_not_invert_normal_pack_lock_order
             # This is the normal pack handler's next lock. It must remain
             # available while replay waits on Story; otherwise PostgreSQL sees
             # Story -> Variant versus Variant -> Story.
-            assert await normal_generation.scalar(
-                select(PlatformVariant)
-                .where(PlatformVariant.id == variant.id)
-                .with_for_update()
-            ) is not None
+            assert (
+                await normal_generation.scalar(
+                    select(PlatformVariant).where(PlatformVariant.id == variant.id).with_for_update()
+                )
+                is not None
+            )
             await normal_generation.commit()
 
             assert await asyncio.wait_for(replay_task, timeout=2) == {"replayed": True}
@@ -574,6 +562,10 @@ async def test_regeneration_enqueue_does_not_lock_prompt_behind_variant(
         output_schema={},
         checksum_sha256="c" * 64,
         is_active=True,
+        activated_at=datetime.now(UTC),
+        activated_by_type="system",
+        activated_by_id="test-suite",
+        activation_reason="Test fixture",
     )
     pack = ContentPack(
         id=uuid4(),
@@ -616,9 +608,7 @@ async def test_regeneration_enqueue_does_not_lock_prompt_behind_variant(
     async with session_factory() as cached_worker, session_factory() as enqueueing:
         try:
             locked_prompt = await cached_worker.scalar(
-                select(PromptTemplateVersion)
-                .where(PromptTemplateVersion.id == prompt.id)
-                .with_for_update()
+                select(PromptTemplateVersion).where(PromptTemplateVersion.id == prompt.id).with_for_update()
             )
             assert locked_prompt is not None
             await enqueueing.execute(text("SET LOCAL lock_timeout = '750ms'"))
@@ -639,9 +629,7 @@ async def test_regeneration_enqueue_does_not_lock_prompt_behind_variant(
             # The worker's Prompt -> Variant order can now continue because
             # enqueue did not hold Variant while waiting for the prompt row.
             locked_variant = await cached_worker.scalar(
-                select(PlatformVariant)
-                .where(PlatformVariant.id == variant.id)
-                .with_for_update()
+                select(PlatformVariant).where(PlatformVariant.id == variant.id).with_for_update()
             )
             assert locked_variant is not None
         finally:

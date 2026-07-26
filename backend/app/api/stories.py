@@ -12,6 +12,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import exists, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.editorial_errors import editorial_http_error
 from app.db.models import ContentItem
 from app.db.session import get_session
 from app.jobs.events import redact_event_data
@@ -28,6 +29,12 @@ from app.research.service import (
 )
 from app.stories.models import Story, StoryEvidenceSnapshot
 from app.stories.schemas import ManualIntakeRequest
+from app.stories.states import (
+    TELEGRAM_PROVISIONAL,
+    EditableStoryStatus,
+    EditorialStoryStatus,
+    decide_story_transition,
+)
 
 router = APIRouter()
 SessionDependency = Depends(get_session)
@@ -43,13 +50,13 @@ class ResearchRunCreate(BaseModel):
 
 class StoryEditorialStateInput(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    state: Literal["inbox", "shortlisted", "rejected"]
+    state: EditableStoryStatus
 
 
 class StoryBulkEditorialStateInput(BaseModel):
     model_config = ConfigDict(extra="forbid")
     story_ids: list[UUID] = Field(min_length=1, max_length=200)
-    state: Literal["inbox", "shortlisted", "rejected"]
+    state: EditableStoryStatus
 
 
 class GroupPendingInput(BaseModel):
@@ -67,7 +74,7 @@ def _cursor_decode(value: str) -> tuple[datetime, UUID]:
         raw = urlsafe_b64decode(value + "=" * (-len(value) % 4)).decode()
         timestamp, story_id = raw.rsplit("|", 1)
         return datetime.fromisoformat(timestamp), UUID(story_id)
-    except (UnicodeError, ValueError):
+    except UnicodeError, ValueError:
         raise HTTPException(422, "Invalid story cursor") from None
 
 
@@ -135,7 +142,7 @@ async def _story_summary(session: AsyncSession, story: Story) -> dict:
 @router.get("/stories")
 async def list_stories(
     search: str | None = Query(default=None, max_length=200),
-    editorial_state: Literal["inbox", "shortlisted", "rejected", "drafted"] | None = None,
+    editorial_state: EditorialStoryStatus | None = None,
     completeness: Literal["complete", "incomplete"] | None = None,
     include_superseded: bool = False,
     limit: int = Query(default=50, ge=1, le=200),
@@ -163,18 +170,14 @@ async def list_stories(
                 )
             )
         rows = list(
-            await session.scalars(
-                statement.order_by(Story.updated_at.desc(), Story.id.desc()).limit(batch_size)
-            )
+            await session.scalars(statement.order_by(Story.updated_at.desc(), Story.id.desc()).limit(batch_size))
         )
         if not rows:
             break
         summaries = await _story_summaries(session, rows)
         for item in rows:
             summary = summaries[item.id]
-            if completeness is None or (
-                summary["completeness"]["complete"] is (completeness == "complete")
-            ):
+            if completeness is None or (summary["completeness"]["complete"] is (completeness == "complete")):
                 matches.append((item, summary))
                 if len(matches) == limit + 1:
                     break
@@ -194,16 +197,14 @@ async def group_pending(
     payload: GroupPendingInput,
     session: AsyncSession = SessionDependency,
 ) -> JobAcceptedOut:
-    has_snapshot = exists(
-        select(1).where(StoryEvidenceSnapshot.content_item_id == ContentItem.id)
-    )
+    has_snapshot = exists(select(1).where(StoryEvidenceSnapshot.content_item_id == ContentItem.id))
     has_active_provisional = exists(
         select(1)
         .select_from(StoryEvidenceSnapshot)
         .join(Story, Story.id == StoryEvidenceSnapshot.story_id)
         .where(
             StoryEvidenceSnapshot.content_item_id == ContentItem.id,
-            Story.status == "telegram_provisional",
+            Story.status == TELEGRAM_PROVISIONAL,
             Story.superseded_by_id.is_(None),
         )
     )
@@ -225,24 +226,29 @@ async def group_pending(
         origin=JobOrigin.MANUAL,
     )
     await session.commit()
-    return JobAcceptedOut(
-        job_id=result.job.id, status=result.job.status, deduplicated=not result.created
+    return JobAcceptedOut.model_validate(
+        {"job_id": result.job.id, "status": result.job.status, "deduplicated": not result.created}
     )
 
 
 async def _change_states(
-    session: AsyncSession, story_ids: list[UUID], state: str
+    session: AsyncSession,
+    story_ids: list[UUID],
+    state: EditableStoryStatus,
 ) -> list[dict]:
     if len(set(story_ids)) != len(story_ids):
         raise HTTPException(409, "Story IDs must be unique")
     rows = list(
-        await session.scalars(
-            select(Story).where(Story.id.in_(story_ids)).order_by(Story.id).with_for_update()
-        )
+        await session.scalars(select(Story).where(Story.id.in_(story_ids)).order_by(Story.id).with_for_update())
     )
     if len(rows) != len(story_ids) or any(item.superseded_by_id is not None for item in rows):
         raise HTTPException(409, "Every story must exist and be active")
-    for story in rows:
+    decisions = [decide_story_transition(story.status, state) for story in rows]
+    if any(not decision.allowed for decision in decisions):
+        raise HTTPException(409, "The requested story transition is not allowed")
+    for story, decision in zip(rows, decisions, strict=True):
+        if not decision.changed:
+            continue
         old = story.status
         story.status = state
         session.add(
@@ -250,9 +256,7 @@ async def _change_states(
                 workflow_job_id=None,
                 event_type="story.editorial_state_changed",
                 actor="manual",
-                event_data=redact_event_data(
-                    {"story_id": str(story.id), "old_state": old, "new_state": state}
-                ),
+                event_data=redact_event_data({"story_id": str(story.id), "old_state": old, "new_state": state}),
             )
         )
     await session.flush()
@@ -300,7 +304,7 @@ async def create_research_run(
             query_hint=payload.query_hint,
         )
     except ResearchRequestError as exc:
-        raise HTTPException(422, str(exc)) from None
+        raise editorial_http_error(exc) from None
     await session.commit()
     return result
 
@@ -324,9 +328,7 @@ async def create_manual_intake(
     session: AsyncSession = SessionDependency,
 ) -> JobAcceptedOut:
     job_payload = payload.model_dump(mode="json")
-    payload_hash = hashlib.sha256(
-        json.dumps(job_payload, sort_keys=True, separators=(",", ":")).encode()
-    ).hexdigest()
+    payload_hash = hashlib.sha256(json.dumps(job_payload, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
     result = await JobRepository(session).enqueue_job(
         job_type="manual_intake",
         payload=job_payload,
@@ -334,8 +336,10 @@ async def create_manual_intake(
         origin=JobOrigin.MANUAL,
     )
     await session.commit()
-    return JobAcceptedOut(
-        job_id=result.job.id,
-        status=result.job.status,
-        deduplicated=not result.created,
+    return JobAcceptedOut.model_validate(
+        {
+            "job_id": result.job.id,
+            "status": result.job.status,
+            "deduplicated": not result.created,
+        }
     )

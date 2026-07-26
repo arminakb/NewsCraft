@@ -153,7 +153,7 @@ export function SaveToCollectionDialog({
     } catch (cause) {
       setBaseline(confirmed)
       setSelected(new Set(confirmed))
-      setMutationError(getApiErrorMessage(cause, "Changes may have saved, but the Feed could not be refreshed. Review and try again."))
+      setMutationError(getApiErrorMessage(cause, "Changes may have saved, but the Library could not be refreshed. Review and try again."))
     } finally {
       busyRef.current = false
       setPending(false)

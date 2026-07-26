@@ -1,5 +1,7 @@
 import { expect, test, type Page, type Route } from "@playwright/test"
 
+import { AVAILABLE_CAPABILITY_FIXTURE, fulfillMockJson } from "./support/mock-backend"
+
 const ids = {
   template: "11111111-1111-4111-8111-111111111111",
   prompt1: "22222222-2222-4222-8222-222222222222",
@@ -38,7 +40,8 @@ for (const viewport of [
 
     await page.goto("/automations")
     await page.getByRole("link", { name: "New automation" }).click()
-    await expect(page.getByRole("heading", { name: "New Telegram automation" })).toBeVisible()
+    await expect(page).toHaveURL(/\/automations\/new$/, { timeout: 20_000 })
+    await expect(page.getByRole("heading", { name: "New Telegram automation" })).toBeVisible({ timeout: 20_000 })
     await expectNoHorizontalOverflow(page)
     await expect(page.getByLabel("Access mode")).toHaveValue("public_html")
     await expect(page.getByLabel("Research mode")).toHaveValue("off")
@@ -68,6 +71,7 @@ for (const viewport of [
     await navigate(page, "Automations", viewport.name === "mobile")
     await page.getByRole("link", { name: "Persian breaking route" }).click()
     await expect(page.getByText("Initializing")).toBeVisible()
+    await page.getByText("Advanced route details").click()
     await expect(page.getByText("Last message 90")).toBeVisible()
     await expectNoHorizontalOverflow(page)
     await page.getByLabel("Source message ID (optional)").fill("91")
@@ -76,33 +80,37 @@ for (const viewport of [
     expect(backend.requests.dryRun).toEqual({ source_message_id: 91 })
 
     await navigate(page, "Drafts", viewport.name === "mobile")
-    await expect(page.getByText("pending review")).toBeVisible()
-    await expect(page.getByText("پیش‌نویس آزمایشی")).toBeVisible()
+    await expect(page.getByText(/Needs review ·/)).toBeVisible()
+    await expect(page.getByRole("link", { name: "Continue review" })).toBeVisible()
     await expectNoHorizontalOverflow(page)
-    await page.getByRole("link", { name: "Review exact revision" }).click()
+    await page.goto(`/review/${ids.dryDraft}`)
     await expect(page.getByText("Draft dry run blocks publishing")).toBeVisible()
     await expect(page.getByRole("button", { name: "Publish exact revision" })).toBeDisabled()
     expect(backend.requests.publish).toBeUndefined()
 
     await navigate(page, "Drafts", viewport.name === "mobile")
-    // A later route poll produced a live item; reload for the next server-backed list read.
     await page.reload()
-    await expect(page.getByText("pending review")).toBeVisible()
-    await expect(page.getByText("پیش‌نویس اولیه")).toBeVisible()
-    await page.getByRole("link", { name: "Review exact revision" }).click()
-    await expect(page.getByText("Captured source evidence")).toBeVisible()
-    await expect(page.getByLabel("Review Telegram revision").getByText("image · image/jpeg")).toBeVisible()
-    await expect(page.getByLabel("Telegram body")).toHaveAttribute("dir", "rtl")
+    await expect(page.getByText(/Needs review ·/)).toBeVisible()
+    await page.getByRole("link", { name: "Continue review" }).click()
+    await expect(page.getByText("Captured Telegram source")).toBeVisible()
+    await expect(page.getByText("image · image/jpeg")).toBeVisible()
+    await expect(page.getByLabel("Telegram message")).toHaveAttribute("dir", "rtl")
     await expectNoHorizontalOverflow(page)
-    await page.getByLabel("Telegram body").fill("نسخه دوم با زمینه تأییدشده")
-    await page.getByRole("button", { name: "Save as new revision" }).click()
-    await expect(page).toHaveURL(new RegExp(`/review/${ids.draft2}$`))
-    await expect(page.getByRole("heading", { name: "Review Telegram revision 2" })).toBeVisible()
-    expect(backend.requests.edit).toMatchObject({ content: { body: "نسخه دوم با زمینه تأییدشده" } })
+    await page.getByLabel("Telegram message").fill("نسخه دوم با زمینه تأییدشده")
+    await page.getByRole("button", { name: "Save new revision" }).click()
+    await expect(page.getByRole("status").filter({ hasText: "New pending review revision created" }).first()).toBeVisible()
+    expect(backend.requests.edit).toMatchObject({
+      base_revision_id: ids.draft1,
+      base_content_hash: "a".repeat(64),
+      content: { body: "نسخه دوم با زمینه تأییدشده" },
+      edit_note: "Operator edit",
+    })
 
-    await page.getByRole("button", { name: "Approve exact revision" }).click()
-    await expect(page.locator("[data-notice-title]", { hasText: "Revision approved" })).toBeVisible()
-    expect(backend.requests.approve).toEqual({ content_hash: "b".repeat(64) })
+    await page.getByRole("button", { name: "Approve revision", exact: true }).click()
+    await expect(page.getByRole("status").filter({ hasText: "Revision approved" }).first()).toBeVisible()
+    expect(backend.requests.approve).toEqual({ expected_content_hash: "b".repeat(64), note: null })
+    await page.getByRole("link", { name: "Preview, schedule, or publish approved revision" }).click()
+    await expect(page).toHaveURL(new RegExp(`/review/${ids.draft2}$`))
     const publish = page.getByRole("button", { name: "Publish exact revision" })
     await expect(publish).toBeEnabled()
     await publish.click()
@@ -146,17 +154,17 @@ test("ambiguous Telegram delivery requires operator reconciliation and has no ge
   await page.goto("/")
 
   const outcomes = page.getByRole("region", { name: "Telegram publication outcomes" })
-  await expect(outcomes.getByText("Reconciliation required", { exact: true }).first()).toBeVisible()
-  await expect(outcomes).toContainText("Automatic retry is blocked")
-  await expect(outcomes.getByRole("button", { name: /retry/i })).toHaveCount(0)
-  await outcomes.getByRole("button", { name: "Confirm published", exact: true }).click()
-  const remoteIds = outcomes.getByLabel("Verified remote message IDs")
+  const reconciliation = outcomes.getByRole("region", { name: "Telegram reconciliation for @newscraft" })
+  await expect(reconciliation).toContainText("Automatic retry is blocked")
+  await expect(reconciliation.getByRole("button", { name: /retry/i })).toHaveCount(0)
+  await reconciliation.getByRole("button", { name: "Confirm published", exact: true }).click()
+  const remoteIds = reconciliation.getByLabel("Verified remote message IDs")
   await remoteIds.fill("501, bad, 502")
-  await outcomes.getByLabel("Verification note").fill("Verified in the destination channel")
-  await expect(outcomes.getByRole("button", { name: "Confirm published messages" })).toBeDisabled()
-  await expect(outcomes.getByRole("alert")).toContainText("positive, unique integers")
+  await reconciliation.getByLabel("Verification note").fill("Verified in the destination channel")
+  await expect(reconciliation.getByRole("button", { name: "Confirm published messages" })).toBeDisabled()
+  await expect(reconciliation.getByRole("alert")).toContainText("positive, unique integers")
   await remoteIds.fill("501, 502")
-  await outcomes.getByRole("button", { name: "Confirm published messages" }).click()
+  await reconciliation.getByRole("button", { name: "Confirm published messages" }).click()
   await expect(outcomes).toContainText("Remote IDs: 501, 502")
   expect(backend.requests.reconcile).toEqual({
     outcome: "published",
@@ -211,14 +219,6 @@ async function installTelegramBackend(page: Page, options: { reconciliation?: bo
     const method = request.method()
     const body = method === "POST" || method === "PATCH" ? request.postDataJSON() : undefined
 
-    if (path.includes("/telegram/drafts/") && path.includes("/media/") && method === "GET") {
-      return route.fulfill({
-        status: 200,
-        contentType: "image/png",
-        body: Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=", "base64"),
-      })
-    }
-
     if (path === "/automation-control") {
       if (method === "PATCH") {
         state.requests.control = body
@@ -228,15 +228,26 @@ async function installTelegramBackend(page: Page, options: { reconciliation?: bo
     }
     if (path === "/jobs/summary") return json(route, { queued: 0, running: 0, attention: 0, succeeded_today: 1 })
     if (path === "/jobs") return json(route, { items: [] })
-    if (path === "/content-pack-requests") return json(route, [])
+    if (path === "/content-pack-requests") return json(route, [contentPackRequest(state)])
 
     if (path.startsWith("/platform-variant-revisions/") && method === "GET") {
       const revisionId = path.split("/").at(-1)!
+      if (revisionId === ids.dryDraft) state.dryRunReviewed = true
       return json(route, editorialRevision(draftForId(revisionId, state)))
     }
     if (path === `/content-packs/${ids.contentPack}`) return json(route, editorialPack(state))
-    if (path === `/platform-variants/${draft(1, state).platform_variant_id}/revisions`) {
+    if (path === `/platform-variants/${draft(1, state).platform_variant_id}/revisions` && method === "GET") {
       return json(route, [editorialRevision(draft(1, state)), editorialRevision(draft(2, state))])
+    }
+    if (path === `/platform-variants/${draft(1, state).platform_variant_id}/revisions` && method === "POST") {
+      state.requests.edit = body
+      state.childCreated = true
+      return json(route, editorialRevision(draft(2, state)), 201)
+    }
+    if (path === `/platform-variant-revisions/${ids.draft2}/approve` && method === "POST") {
+      state.requests.approve = body
+      state.approved = true
+      return json(route, editorialRevision(draft(2, state)))
     }
     if (path === `/stories/${ids.story}/evidence`) return json(route, editorialEvidence())
 
@@ -304,30 +315,18 @@ async function installTelegramBackend(page: Page, options: { reconciliation?: bo
     }
     if (path === `/telegram/automations/${ids.route}/dispatches`) return json(route, dispatches(state))
 
-    if (path === "/telegram/drafts") {
-      return json(route, [state.dryRun && !state.dryRunReviewed ? dryRunDraft(state) : draft(state.childCreated ? 2 : 1, state)])
+    if (path === "/telegram/publication-outcomes" && method === "GET") {
+      return json(route, state.reconciliation && !state.reconciled ? [] : [publicationContext(state)])
     }
-    if (path === `/telegram/drafts/${ids.dryDraft}`) {
-      state.dryRunReviewed = true
-      return json(route, dryRunDraft(state))
-    }
-    if (path === `/telegram/drafts/${ids.draft1}`) return json(route, draft(1, state))
-    if (path === `/telegram/drafts/${ids.draft1}/revisions`) {
-      state.requests.edit = body
-      state.childCreated = true
-      return json(route, draft(2, state), 201)
-    }
-    if (path === `/telegram/drafts/${ids.draft2}`) return json(route, draft(2, state))
-    if (path === `/telegram/drafts/${ids.draft2}/approve`) {
-      state.requests.approve = body
-      state.approved = true
-      return json(route, draft(2, state))
+    if (path.startsWith("/telegram/revisions/") && path.endsWith("/publication-context") && method === "GET") {
+      const revisionId = path.split("/")[3]!
+      return json(route, publicationContext(state, revisionId))
     }
     if (path === `/telegram/drafts/${ids.draft2}/publish`) {
       state.requests.publish = body
       state.publishQueued = true
       return json(route, {
-        revision: draft(2, state),
+        revision_id: ids.draft2,
         job: { publish_job_id: ids.publishJob, workflow_job_id: ids.workflowJob, status: "queued" },
       }, 202)
     }
@@ -383,7 +382,7 @@ async function expectNoHorizontalOverflow(page: Page) {
 }
 
 async function json(route: Route, body: unknown, status = 200) {
-  await route.fulfill({ status, contentType: "application/json", body: JSON.stringify(body) })
+  await fulfillMockJson(route, body, status)
 }
 
 function automationControl(state: BackendState) {
@@ -427,27 +426,43 @@ function provider() {
     id: ids.provider, name: "OpenRouter newsroom", provider_type: "openrouter", default_model: "openai/gpt-5-mini",
     settings: {}, enabled: true, configured: true,
     capabilities: { generation: true, research: true }, unavailability_codes: [],
+    capability_states: {
+      generation: AVAILABLE_CAPABILITY_FIXTURE,
+      research: AVAILABLE_CAPABILITY_FIXTURE,
+    },
   }
 }
 
 function source() {
   return {
     id: ids.source, name: "Source newsroom", channel_ref: "source_newsroom", access_mode: "public_html",
-    language_hint: "fa", configured: true,
+    language_hint: "fa", configured: true, capability_state: AVAILABLE_CAPABILITY_FIXTURE,
   }
 }
 
 function destination() {
   return {
     id: ids.destination, name: "Main newsroom", target_ref: "@newscraft", enabled: true,
-    health_status: "healthy", configured: true, settings: {},
+    canonical_target: "@newscraft", target_type: "username", health_status: "healthy", configured: true,
+    proxy_profile_id: null, connection_route: "direct", proxy_health_status: "healthy",
+    telegram_health_status: "healthy", bot_health_status: "healthy", target_health_status: "healthy",
+    administrator_status: "administrator", failure_code: null,
+    verified_bot_id: 123456, verified_bot_username: "newscraft_bot",
+    verified_chat_id: -1001234567890, verified_chat_title: "Main newsroom", verified_chat_type: "channel",
+    last_checked_at: "2026-07-12T08:00:00Z", last_rotated_at: null,
+    created_at: "2026-07-12T08:00:00Z", updated_at: "2026-07-12T08:00:00Z", settings: {},
   }
 }
 
 function automationOptions(state: BackendState) {
   return {
     sources: [],
-    destinations: [{ id: ids.destination, name: "Main newsroom", health_status: "healthy" }],
+    destinations: [{
+      id: ids.destination,
+      name: "Main newsroom",
+      health_status: "healthy",
+      capability_state: AVAILABLE_CAPABILITY_FIXTURE,
+    }],
     brand_profiles: [{ id: ids.brand, name: "Persian newsroom" }],
     prompt_template_versions: [{
       id: state.prompt2Active ? ids.prompt2 : ids.prompt1,
@@ -459,6 +474,10 @@ function automationOptions(state: BackendState) {
       id: ids.provider, name: "OpenRouter newsroom", provider_type: "openrouter",
       default_model: "openai/gpt-5-mini", configured: true,
       capabilities: { generation: true, research: true }, unavailability_codes: [],
+      capability_states: {
+        generation: AVAILABLE_CAPABILITY_FIXTURE,
+        research: AVAILABLE_CAPABILITY_FIXTURE,
+      },
     }],
   }
 }
@@ -557,7 +576,7 @@ function dispatch(messageId: number, status: string, kind: string) {
 }
 
 function dispatchId(messageId: number) {
-  return `${ids.route.slice(0, -3)}${messageId}`
+  return `77777777-7777-4777-8777-${String(messageId).padStart(12, "0")}`
 }
 
 function draft(version: 1 | 2, state: BackendState) {
@@ -590,7 +609,6 @@ function draft(version: 1 | 2, state: BackendState) {
       mime_type: "image/jpeg",
       fetch_status: "downloaded",
       checksum_sha256: "d".repeat(64),
-      preview_url: `/telegram/drafts/${id}/media/bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb`,
     }],
     validation_results: [],
     approval_state: version === 2 && state.approved ? "approved" : "pending_review",
@@ -673,16 +691,48 @@ function editorialRevision(row: ReturnType<typeof draft>) {
 }
 
 function editorialPack(state: BackendState) {
-  const current = draft(state.childCreated ? 2 : 1, state)
+  const current = state.dryRun && !state.dryRunReviewed
+    ? dryRunDraft(state)
+    : draft(state.childCreated ? 2 : 1, state)
   return {
     id: ids.contentPack,
     story_id: ids.story,
     story_revision_id: ids.storyRevision,
     brand_profile_id: ids.brand,
-    status: "pending_review",
+    status: state.approved ? "approved" : "pending_review",
     created_at: "2026-07-12T09:00:00Z",
     updated_at: "2026-07-12T09:00:00Z",
     variants: [{ id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", platform: "telegram", current_revision: editorialRevision(current) }],
+  }
+}
+
+function contentPackRequest(state: BackendState) {
+  return {
+    id: ids.contentPack,
+    job_id: ids.workflowJob,
+    story_id: ids.story,
+    status: state.approved ? "approved" : "pending_review",
+    last_failure: null,
+    created_at: "2026-07-12T09:00:00Z",
+    updated_at: "2026-07-12T09:00:00Z",
+    pack: editorialPack(state),
+  }
+}
+
+function publicationContext(state: BackendState, requestedId?: string) {
+  const row = draftForId(requestedId ?? (state.childCreated ? ids.draft2 : ids.draft1), state)
+  const reconciles = state.reconciliation && !state.reconciled
+  const succeeded = state.published || state.reconciled
+  return {
+    revision_id: row.id,
+    platform_variant_id: row.platform_variant_id,
+    revision_number: row.revision_number,
+    approval_state: row.approval_state,
+    route_id: ids.route,
+    dispatch_id: dispatchId(91),
+    publish_job_id: state.publishQueued || reconciles || succeeded ? ids.publishJob : null,
+    publish_status: reconciles ? "reconciliation_required" : succeeded ? "succeeded" : state.publishQueued ? "queued" : null,
+    publication: succeeded && !reconciles ? publication() : null,
   }
 }
 

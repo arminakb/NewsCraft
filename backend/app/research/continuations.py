@@ -66,40 +66,6 @@ class ContentPackContinuationPayload(BaseModel):
     canonical_prompt_checksum: str
     platform_prompt_checksums: dict[Platform, str]
 
-    @model_validator(mode="before")
-    @classmethod
-    def translate_release_three_telegram_payload(cls, value: object):
-        if not isinstance(value, dict):
-            return value
-        legacy_keys = {
-            "platform",
-            "platform_prompt_template_version_id",
-            "platform_prompt_checksum",
-        }
-        present_legacy = legacy_keys.intersection(value)
-        if not present_legacy:
-            return value
-        plural_keys = {
-            "platforms",
-            "platform_prompt_template_version_ids",
-            "platform_prompt_checksums",
-        }
-        if (
-            present_legacy != legacy_keys
-            or plural_keys.intersection(value)
-            or value.get("platform") != "telegram"
-        ):
-            raise ValueError("legacy content pack continuation payload is ambiguous or unsupported")
-        translated = dict(value)
-        translated["platforms"] = [translated.pop("platform")]
-        translated["platform_prompt_template_version_ids"] = {
-            "telegram": translated.pop("platform_prompt_template_version_id")
-        }
-        translated["platform_prompt_checksums"] = {
-            "telegram": translated.pop("platform_prompt_checksum")
-        }
-        return translated
-
     @model_validator(mode="after")
     def prompt_maps_match_requested_platforms(self):
         requested = set(self.platforms)
@@ -135,17 +101,14 @@ class ContentPackResearchContinuation(BaseModel):
 
 def normalize_continuation(value: object) -> dict:
     if isinstance(value, dict) and value.get("job_type") == "content_pack.generate":
-        parsed = ContentPackResearchContinuation.model_validate(value).validate_identity()
-    else:
-        parsed = TelegramResearchContinuation.model_validate(value).validate_identity()
-    return parsed.model_dump(mode="json")
+        content_pack = ContentPackResearchContinuation.model_validate(value).validate_identity()
+        return content_pack.model_dump(mode="json")
+    telegram = TelegramResearchContinuation.model_validate(value).validate_identity()
+    return telegram.model_dump(mode="json")
 
 
 def append_unique_continuation(payload: dict, continuation: dict | None) -> tuple[dict, bool]:
     existing_values = list(payload.get("continuations") or [])
-    legacy = payload.get("continuation")
-    if legacy is not None:
-        existing_values.append(legacy)
     normalized: list[dict] = []
     seen: set[str] = set()
     for value in existing_values:
@@ -224,17 +187,17 @@ async def _validate_bound_context(
     result_revision: StoryRevision,
 ) -> tuple[TelegramResearchContinuation | ContentPackResearchContinuation, AutomationDispatch | None]:
     if descriptor.get("job_type") == "content_pack.generate":
-        value = ContentPackResearchContinuation.model_validate(descriptor).validate_identity()
+        content_pack = ContentPackResearchContinuation.model_validate(descriptor).validate_identity()
         if (
-            value.expected_story_id != run.story_id
-            or value.expected_provider_profile_id != run.provider_profile_id
+            content_pack.expected_story_id != run.story_id
+            or content_pack.expected_provider_profile_id != run.provider_profile_id
             or result_revision.story_id != run.story_id
         ):
             raise ValueError("content pack research continuation binding is invalid")
-        return value, None
-    value = TelegramResearchContinuation.model_validate(descriptor).validate_identity()
+        return content_pack, None
+    telegram = TelegramResearchContinuation.model_validate(descriptor).validate_identity()
     dispatch = await session.scalar(
-        select(AutomationDispatch).where(AutomationDispatch.id == value.payload.dispatch_id).with_for_update()
+        select(AutomationDispatch).where(AutomationDispatch.id == telegram.payload.dispatch_id).with_for_update()
     )
     if dispatch is None:
         raise ValueError("research continuation dispatch is missing")
@@ -250,19 +213,19 @@ async def _validate_bound_context(
     except TypeError, ValueError:
         raise ValueError("research continuation profile is invalid") from None
     if (
-        value.expected_route_id != route.id
-        or value.expected_story_id != run.story_id
-        or value.expected_provider_profile_id != run.provider_profile_id
-        or value.expected_research_mode != route.research_mode
+        telegram.expected_route_id != route.id
+        or telegram.expected_story_id != run.story_id
+        or telegram.expected_provider_profile_id != run.provider_profile_id
+        or telegram.expected_research_mode != route.research_mode
         or configured_profile_id != run.provider_profile_id
         or current_revision.story_id != run.story_id
         or result_revision.story_id != run.story_id
-        or dispatch.story_revision_id != value.expected_story_revision_id
+        or dispatch.story_revision_id != telegram.expected_story_revision_id
     ):
         raise ValueError("research continuation binding is invalid")
     ancestor = result_revision
     visited: set[UUID] = set()
-    while ancestor.id != value.expected_story_revision_id:
+    while ancestor.id != telegram.expected_story_revision_id:
         if ancestor.id in visited or ancestor.parent_revision_id is None:
             raise ValueError("research continuation result lineage is invalid")
         visited.add(ancestor.id)
@@ -270,9 +233,9 @@ async def _validate_bound_context(
         if parent is None or parent.story_id != run.story_id:
             raise ValueError("research continuation result lineage is invalid")
         ancestor = parent
-    if result_revision.id == value.expected_story_revision_id:
+    if result_revision.id == telegram.expected_story_revision_id:
         raise ValueError("research continuation result must descend from expected revision")
-    return value, dispatch
+    return telegram, dispatch
 
 
 __all__ = [

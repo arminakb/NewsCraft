@@ -1,4 +1,6 @@
+import json
 from datetime import UTC, datetime
+from pathlib import Path
 from uuid import uuid4
 
 from app.content.classification import classify_content_item, classify_content_taxonomy
@@ -110,7 +112,7 @@ def test_classifies_low_signal_content():
     )
 
     assert result.content_type == "low_signal"
-    assert "weak_text" in result.quality_flags
+    assert "insufficient_facts" in result.quality_reasons
 
 
 def test_classifies_persian_telegram_tutorial():
@@ -200,7 +202,41 @@ def test_content_item_values_store_classification_metadata():
     assert values["content_type"] == "tutorial"
     assert values["content_type_confidence"] > 0
     assert values["classification_reasons"]
-    assert values["classification_metadata"]["quality_flags"]
+    assert values["classification_metadata"]["quality_reasons"]
+
+
+def test_bilingual_quality_corpus_has_stable_visible_reasons():
+    corpus = json.loads((Path(__file__).parent / "fixtures/content-quality-corpus.json").read_text())
+
+    for case in corpus:
+        media = (
+            [MediaCandidate("https://example.com/video.mp4", "https://example.com/video.mp4", "video", "enclosure")]
+            if case.get("media") == "video"
+            else []
+        )
+        item = _item(
+            title=case["title"],
+            body=case["body"],
+            url=f"https://example.com/{case['id']}",
+            media=media,
+            parser_meta=case.get("parser_meta"),
+        )
+        item.date_parse_status = case["date_parse_status"]
+        item.published_at = None if case["date_parse_status"] == "failed" else item.published_at
+        source = _source(
+            platform=case["platform"],
+            telegram_username="quality" if case["platform"] == "telegram_public" else None,
+            language_hint=case["language"],
+        )
+
+        classification = classify_content_item(source, item)
+        values = _content_item_values(source, item)
+
+        assert classification.quality_reasons == case["expected_reasons"], case["id"]
+        assert values["classification_metadata"]["quality_reasons"] == case["expected_reasons"], case["id"]
+        for reason in case["expected_reasons"]:
+            assert reason in values["rewrite_blockers"], case["id"]
+            assert reason in values["rewrite_ready_reason"], case["id"]
 
 
 def _source(

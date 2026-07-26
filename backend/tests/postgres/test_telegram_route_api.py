@@ -94,9 +94,7 @@ async def test_all_route_mutations_materialize_committed_responses(
         assert route.enabled is True
         assert route.paused_at is None
         assert route.research_mode == "manual"
-        assert route.content_filters["research_provider_profile_id"] == str(
-            configuration.provider_profile_id
-        )
+        assert route.content_filters["research_provider_profile_id"] == str(configuration.provider_profile_id)
         assert await session.scalar(select(func.count()).select_from(WorkflowJob)) == 3
 
 
@@ -134,9 +132,7 @@ async def test_concurrent_activation_returns_one_consistent_route_job_pair(
     async with session_factory() as session:
         assert (
             await session.scalar(
-                select(func.count())
-                .select_from(WorkflowJob)
-                .where(WorkflowJob.job_type == "telegram.route.initialize")
+                select(func.count()).select_from(WorkflowJob).where(WorkflowJob.job_type == "telegram.route.initialize")
             )
             == 1
         )

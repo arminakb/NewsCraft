@@ -16,7 +16,6 @@ from app.generation.default_prompts import (
 )
 from app.jobs.capability_gate import safe_gate_code, safe_gate_job_type
 from app.jobs.errors import JobCapabilityUnavailable
-from app.llm_providers.service import seed_legacy_provider_compatibility
 from app.security.middleware import SecurityAuthorizationMiddleware
 
 configure_logging()
@@ -33,7 +32,6 @@ async def lifespan(_app: FastAPI):
             enabled=settings.codex_enabled,
             model="gpt-5.4",
         )
-        await seed_legacy_provider_compatibility(session)
         await session.commit()
     yield
 

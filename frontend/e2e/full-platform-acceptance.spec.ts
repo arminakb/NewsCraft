@@ -1,6 +1,8 @@
 import AxeBuilder from "@axe-core/playwright"
 import { expect, test, type Locator, type Page, type Route } from "@playwright/test"
 
+import { AVAILABLE_CAPABILITY_FIXTURE, fulfillMockJson } from "./support/mock-backend"
+
 type Platform = "telegram" | "instagram" | "x" | "blog"
 
 const platforms = ["telegram", "instagram", "x", "blog"] as const
@@ -73,6 +75,7 @@ type BackendState = {
   controlRequests: Array<Record<string, unknown>>
   copyReady: boolean
   dryRunRequests: Array<Record<string, unknown>>
+  editorialRequests: Array<Record<string, unknown>>
   emptyCalendar: boolean
   emptyInbox: boolean
   exportPolls: number
@@ -150,7 +153,11 @@ test("review-first route preserves manual research, dry-run review, and durable 
     publishing_policy: "review_required",
     confirm_auto_publish: false,
   })
-  await expect(page.getByText("Manual", { exact: true })).toBeVisible()
+  const advancedDetails = page.locator("details", {
+    has: page.locator("summary", { hasText: "Advanced route details" }),
+  })
+  await advancedDetails.locator("summary").click()
+  await expect(advancedDetails.getByText("Manual", { exact: true })).toBeVisible()
   await expect(page.getByRole("link", { name: "Research more" })).toHaveCount(0)
 
   await page.getByLabel("Source message ID (optional)").fill("91")
@@ -186,7 +193,11 @@ test("automatic route requires explicit confirmation and exposes auto research o
     confirm_auto_publish: true,
     content_filters: { research_provider_profile_id: ids.provider },
   })
-  await expect(page.getByText("Auto If Incomplete", { exact: true })).toBeVisible()
+  const advancedDetails = page.locator("details", {
+    has: page.locator("summary", { hasText: "Advanced route details" }),
+  })
+  await advancedDetails.locator("summary").click()
+  await expect(advancedDetails.getByText("Auto If Incomplete", { exact: true })).toBeVisible()
   await expect(page.getByText(/Research succeeded/)).toBeVisible()
   await expect(page.getByText("Fake acceptance provider · fake", { exact: true })).toBeVisible()
   expect(backend.unhandled).toEqual([])
@@ -292,13 +303,20 @@ test("mobile navigation omits legacy surfaces and reaches surviving routes witho
   await page.getByRole("button", { name: "Open navigation" }).click()
   const navigation = page.getByRole("dialog", { name: "Newsroom navigation" })
   await expect(navigation).toBeVisible()
-  await expect(navigation.getByRole("link", { name: "Inbox", exact: true })).toHaveCount(0)
+  await expect(navigation.getByRole("link", { name: "Inbox", exact: true })).toHaveAttribute("href", "/inbox")
   await expect(navigation.getByRole("link", { name: "Content", exact: true })).toHaveCount(0)
-  await expect(navigation.getByRole("link", { name: "Library", exact: true })).toHaveCount(0)
+  await expect(navigation.getByRole("link", { name: "Library", exact: true })).toHaveAttribute("href", "/feed")
   await expect(navigation.getByRole("link", { name: "Media", exact: true })).toHaveCount(0)
-  await navigation.getByRole("link", { name: "Drafts", exact: true }).click()
+  await navigation.getByRole("link", { name: "Inbox", exact: true }).click()
+  await expect(page.getByRole("heading", { name: "Inbox", exact: true })).toBeVisible()
+  await page.getByRole("button", { name: "Shortlist", exact: true }).click()
+  await expect.poll(() => backend.editorialRequests).toEqual([{ state: "shortlisted" }])
+  await expectNoHorizontalOverflow(page)
+
+  await page.getByRole("button", { name: "Open navigation" }).click()
+  await page.getByRole("dialog", { name: "Newsroom navigation" }).getByRole("link", { name: "Drafts", exact: true }).click()
   await expect(page).toHaveURL(/\/drafts$/)
-  await expect(page.getByRole("heading", { name: "Drafts" })).toBeVisible()
+  await expect(page.getByRole("heading", { name: "Drafts", exact: true })).toBeVisible()
   await expectNoHorizontalOverflow(page)
 
   await page.getByRole("button", { name: "Open navigation" }).click()
@@ -312,7 +330,7 @@ test("keyboard-only editor creates and approves an immutable Persian revision", 
   const backend = await installAcceptanceBackend(page)
   await page.setViewportSize(viewports[0])
   await page.goto(`/drafts/${ids.contentPack}`)
-  await expect(page.getByRole("heading", { name: "Multi-platform editorial studio" })).toBeVisible()
+  await expect(page.getByRole("heading", { name: "Editorial review" })).toBeVisible()
 
   const message = page.getByLabel("Telegram message")
   await tabTo(page, message)
@@ -322,7 +340,16 @@ test("keyboard-only editor creates and approves an immutable Persian revision", 
   await tabTo(page, save)
   await page.keyboard.press("Enter")
   await expect.poll(() => backend.childCreated).toBe(true)
-  await expect(page.getByText(new RegExp(`Loaded revision ${ids.childRevision}`))).toBeVisible()
+  const advancedDetails = page
+    .getByRole("tabpanel", { name: "Telegram package" })
+    .locator("summary")
+    .filter({ hasText: "Advanced Telegram details" })
+  await tabTo(page, advancedDetails)
+  await page.keyboard.press("Enter")
+  await expect(advancedDetails.locator("..")).toHaveAttribute("open", "")
+  await expect(
+    advancedDetails.locator("..").getByText(new RegExp(`Loaded revision ${ids.childRevision}`)),
+  ).toBeVisible()
   expect(backend.telegramEditRequest).toMatchObject({
     base_revision_id: ids.revisions.telegram,
     base_content_hash: "1".repeat(64),
@@ -364,6 +391,7 @@ async function fillRouteIdentity(page: Page, name: string) {
   await page.getByLabel("Source name").fill("منبع خبر")
   await page.getByLabel("Source channel").fill("source_newsroom")
   await expect(page.getByLabel("Telegram destination")).toHaveValue(ids.destination)
+  await page.getByLabel("Prompt update policy").selectOption("pinned")
 }
 
 async function installClipboardCapture(page: Page) {
@@ -400,6 +428,7 @@ async function installAcceptanceBackend(page: Page, options: BackendOptions = {}
     controlRequests: [],
     copyReady: false,
     dryRunRequests: [],
+    editorialRequests: [],
     emptyCalendar: Boolean(options.emptyCalendar),
     emptyInbox: Boolean(options.emptyInbox),
     exportPolls: 0,
@@ -453,6 +482,10 @@ async function installAcceptanceBackend(page: Page, options: BackendOptions = {}
     }
 
     if (path === "/stories" && method === "GET") return json(route, { items: state.emptyInbox ? [] : [storySummaryWire()], next_cursor: null })
+    if (path === `/stories/${ids.story}/editorial-state` && method === "PATCH" && body) {
+      state.editorialRequests.push(body)
+      return json(route, { ...storySummaryWire(), status: body.state })
+    }
     if (path === `/stories/${ids.story}` && method === "GET") return json(route, storySummaryWire())
     if (path === `/stories/${ids.story}/evidence` && method === "GET") return json(route, [evidenceWire()])
     if (path === "/stories/manual" && method === "POST" && body) {
@@ -483,10 +516,20 @@ async function installAcceptanceBackend(page: Page, options: BackendOptions = {}
       { id: ids.telegramTemplate, purpose_key: "telegram_pack" },
     ])
     if (path === `/prompt-templates/${ids.canonicalTemplate}/versions` && method === "GET") {
-      return json(route, [{ id: ids.canonicalPrompt, version: 1, checksum_sha256: "c".repeat(64), is_active: true }])
+      return json(route, [promptVersionWire(
+        ids.canonicalPrompt,
+        ids.canonicalTemplate,
+        "c".repeat(64),
+        "canonical_story.v1",
+      )])
     }
     if (path === `/prompt-templates/${ids.telegramTemplate}/versions` && method === "GET") {
-      return json(route, [{ id: ids.telegramPrompt, version: 1, checksum_sha256: "d".repeat(64), is_active: true }])
+      return json(route, [promptVersionWire(
+        ids.telegramPrompt,
+        ids.telegramTemplate,
+        "d".repeat(64),
+        "telegram_pack.v1",
+      )])
     }
 
     if (path === `/content-packs/${ids.contentPack}` && method === "GET") return json(route, contentPackWire(state))
@@ -565,11 +608,11 @@ async function installAcceptanceBackend(page: Page, options: BackendOptions = {}
       return json(route, state.routeResearchMode === "auto_if_incomplete" ? [dispatchWire()] : [])
     }
     if (path === `/telegram/automations/${ids.route}` && method === "GET") return json(route, routeWire(state))
-    if (path === "/telegram/drafts" && method === "GET") {
-      return json(route, state.reconciliation ? [] : [telegramDraftWire(state)])
+    if (path === "/telegram/publication-outcomes" && method === "GET") {
+      return json(route, state.reconciliation ? [] : [telegramPublicationContextWire(state)])
     }
-    if (path.startsWith("/telegram/drafts/") && method === "GET") {
-      return json(route, telegramDraftWire(state, path.split("/")[3]!))
+    if (path.startsWith("/telegram/revisions/") && path.endsWith("/publication-context") && method === "GET") {
+      return json(route, telegramPublicationContextWire(state, path.split("/")[3]!))
     }
 
     if (path === "/telegram/reconciliation" && method === "GET") {
@@ -601,7 +644,7 @@ async function installAcceptanceBackend(page: Page, options: BackendOptions = {}
 }
 
 async function json(route: Route, body: unknown, status = 200) {
-  await route.fulfill({ status, contentType: "application/json", body: JSON.stringify(body) })
+  await fulfillMockJson(route, body, status)
 }
 
 function accepted(jobId: string) {
@@ -704,6 +747,10 @@ function providerWire() {
     enabled: true,
     configured: true,
     capabilities: { generation: true, research: true },
+    capability_states: {
+      generation: AVAILABLE_CAPABILITY_FIXTURE,
+      research: AVAILABLE_CAPABILITY_FIXTURE,
+    },
     unavailability_codes: [],
   }
 }
@@ -829,12 +876,46 @@ function hashFor(platform: Platform) {
   return ({ telegram: "1", instagram: "2", x: "3", blog: "4" } as const)[platform].repeat(64)
 }
 
+function promptVersionWire(id: string, promptTemplateId: string, checksum: string, outputSchemaVersion: string) {
+  return {
+    id,
+    prompt_template_id: promptTemplateId,
+    version: 1,
+    system_template: "Follow the verified newsroom evidence.",
+    user_template: "{source_text}",
+    output_schema_version: outputSchemaVersion,
+    output_schema: {},
+    checksum_sha256: checksum,
+    is_active: true,
+    activated_at: now,
+    activated_by_type: "operator",
+    activated_by_id: null,
+    activation_reason: "Deterministic browser fixture",
+    created_at: now,
+  }
+}
+
 function automationOptionsWire() {
   return {
-    sources: [{ id: ids.source, name: "منبع خبر", access_mode: "public_html" }],
-    destinations: [{ id: ids.destination, name: "اتاق خبر", health_status: "healthy" }],
+    sources: [{
+      id: ids.source,
+      name: "منبع خبر",
+      access_mode: "public_html",
+      capability_state: AVAILABLE_CAPABILITY_FIXTURE,
+    }],
+    destinations: [{
+      id: ids.destination,
+      name: "اتاق خبر",
+      health_status: "healthy",
+      capability_state: AVAILABLE_CAPABILITY_FIXTURE,
+    }],
     brand_profiles: [{ id: ids.brand, name: "اتاق خبر فارسی" }],
-    prompt_template_versions: [{ id: ids.telegramPrompt, version: 1 }],
+    prompt_template_versions: [{
+      id: ids.telegramPrompt,
+      version: 1,
+      is_active: true,
+      checksum_sha256: "d".repeat(64),
+    }],
     ai_provider_profiles: [{
       id: ids.provider,
       name: "Fake acceptance provider",
@@ -842,17 +923,56 @@ function automationOptionsWire() {
       default_model: "fake-newsroom-v1",
       configured: true,
       capabilities: { generation: true, research: true },
+      capability_states: {
+        generation: AVAILABLE_CAPABILITY_FIXTURE,
+        research: AVAILABLE_CAPABILITY_FIXTURE,
+      },
       unavailability_codes: [],
     }],
   }
 }
 
 function sourceWire() {
-  return { id: ids.source, name: "منبع خبر", channel_ref: "source_newsroom", access_mode: "public_html", language_hint: "fa", configured: true }
+  return {
+    id: ids.source,
+    name: "منبع خبر",
+    channel_ref: "source_newsroom",
+    access_mode: "public_html",
+    language_hint: "fa",
+    configured: true,
+    capability_state: AVAILABLE_CAPABILITY_FIXTURE,
+  }
 }
 
 function destinationWire() {
-  return { id: ids.destination, name: "اتاق خبر", target_ref: "@newscraft", enabled: true, health_status: "healthy", configured: true, settings: {} }
+  return {
+    id: ids.destination,
+    name: "اتاق خبر",
+    target_ref: "@newscraft",
+    canonical_target: "@newscraft",
+    target_type: "username",
+    enabled: true,
+    configured: true,
+    health_status: "healthy",
+    proxy_profile_id: null,
+    connection_route: "direct",
+    proxy_health_status: "healthy",
+    telegram_health_status: "healthy",
+    bot_health_status: "healthy",
+    target_health_status: "healthy",
+    administrator_status: "administrator",
+    failure_code: null,
+    verified_bot_id: 123456,
+    verified_bot_username: "newscraft_bot",
+    verified_chat_id: -1001234567890,
+    verified_chat_title: "اتاق خبر",
+    verified_chat_type: "channel",
+    last_checked_at: now,
+    last_rotated_at: null,
+    created_at: now,
+    updated_at: now,
+    settings: {},
+  }
 }
 
 function routeWire(state: BackendState) {
@@ -863,6 +983,7 @@ function routeWire(state: BackendState) {
     destination_id: ids.destination,
     brand_profile_id: ids.brand,
     prompt_template_version_id: ids.telegramPrompt,
+    prompt_policy: "pinned",
     ai_provider_profile_id: ids.provider,
     access_mode: "public_html",
     research_mode: state.routeResearchMode,
@@ -909,26 +1030,14 @@ function dispatchWire() {
   }
 }
 
-function telegramDraftWire(state: BackendState, requestedId?: string) {
+function telegramPublicationContextWire(state: BackendState, requestedId?: string) {
   const revisionId = requestedId === ids.childRevision || state.childCreated ? ids.childRevision : ids.revisions.telegram
   const revision = revisionWire("telegram", state, revisionId)
   return {
-    id: revision.id,
+    revision_id: revision.id,
     platform_variant_id: revision.platform_variant_id,
-    parent_revision_id: revision.parent_revision_id,
-    generation_attempt_id: revision.generation_attempt_id,
     revision_number: revision.revision_number,
-    content: revision.content,
-    content_hash: revision.content_hash,
-    evidence_map: revision.evidence_map,
-    evidence: [{ evidence_snapshot_id: ids.evidence, evidence_key: "report:today", source_url: evidenceUrl, content_text: evidenceWire().content_text, content_sha256: evidenceWire().content_sha256 }],
-    media: [],
-    validation_results: revision.validation_results,
     approval_state: revision.approval_state,
-    approval_note: revision.approval_note,
-    approved_at: revision.approved_at,
-    created_by: revision.created_by,
-    created_at: revision.created_at,
     route_id: ids.route,
     dispatch_id: dispatchWire().id,
     publish_job_id: null,

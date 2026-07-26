@@ -14,6 +14,7 @@ from app.automations.telegram.contracts import (
     TelegramEnvelope,
     telegram_envelope_fingerprint,
 )
+from app.automations.telegram.decisions import advance_poll_cursor
 from app.automations.telegram.media import StoredTelegramMedia, TelegramMediaStore
 from app.db.models import Source
 from app.ingestion.repository import IngestionRepository, build_item_identities
@@ -24,6 +25,7 @@ from app.jobs.types import JobOrigin
 from app.research.schemas import CitationRef
 from app.sources.base import MediaCandidate, ParsedSourceItem
 from app.stories.models import Story, StoryEvidenceLink, StoryEvidenceSnapshot, StoryRevision
+from app.stories.states import TELEGRAM_PROVISIONAL
 
 DispatchKind = Literal["live", "backfill", "dry_run", "source_edit"]
 
@@ -97,14 +99,14 @@ class TelegramCaptureRepository:
             )
             if original_dispatch is None:
                 raise ValueError("source edit capture requires an existing source revision")
-            story_id = (
+            story_id_query = (
                 select(StoryRevision.story_id)
                 .where(StoryRevision.id == original_dispatch.story_revision_id)
                 .scalar_subquery()
             )
             parent_revision = await self.session.scalar(
                 select(StoryRevision)
-                .where(StoryRevision.story_id == story_id)
+                .where(StoryRevision.story_id == story_id_query)
                 .order_by(StoryRevision.revision_number.desc())
                 .limit(1)
                 .with_for_update()
@@ -156,7 +158,7 @@ class TelegramCaptureRepository:
         if parent_revision is None:
             story = Story(
                 title=_story_title(envelope),
-                status="telegram_provisional",
+                status=TELEGRAM_PROVISIONAL,
                 primary_language=source.language_hint or "und",
             )
             self.session.add(story)
@@ -194,12 +196,14 @@ class TelegramCaptureRepository:
         await self.session.flush()
         citations = []
         if snapshot.content_text:
-            citation = CitationRef(
-                evidence_key=snapshot.evidence_key,
-                evidence_snapshot_id=snapshot.id,
-                source_url=snapshot.source_url,
-                locator=f"chars:0-{len(snapshot.content_text)}",
-                excerpt_sha256=snapshot.content_sha256,
+            citation = CitationRef.model_validate(
+                {
+                    "evidence_key": snapshot.evidence_key,
+                    "evidence_snapshot_id": snapshot.id,
+                    "source_url": snapshot.source_url,
+                    "locator": f"chars:0-{len(snapshot.content_text)}",
+                    "excerpt_sha256": snapshot.content_sha256,
+                }
             )
             citations.append(citation.model_dump(mode="json"))
         revision = StoryRevision(
@@ -379,6 +383,8 @@ def _update_cursor(
     state["recent_fingerprints"] = dict(retained)
     if dispatch_kind == "live":
         current = state.get("last_message_id")
-        highest = max(envelope.message_ids)
-        state["last_message_id"] = max(int(current), highest) if current is not None else highest
+        state["last_message_id"] = advance_poll_cursor(
+            int(current) if current is not None else None,
+            envelope.message_ids,
+        )
     route.cursor_state = state

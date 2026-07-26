@@ -10,7 +10,6 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.generation.default_prompts import prompt_checksum
-from app.generation.handlers import build_pack_generation_handler
 from app.generation.models import (
     BrandProfile,
     ContentPack,
@@ -26,6 +25,7 @@ from app.jobs.models import WorkflowJob
 from app.jobs.registry import JobContext
 from app.jobs.types import JobExecution
 from app.stories.models import Story, StoryEvidenceSnapshot, StoryRevision
+from tests.generation.handler_exports import build_pack_generation_handler
 
 
 @pytest.mark.asyncio
@@ -101,6 +101,10 @@ async def test_later_platform_failure_and_worker_rollback_cannot_erase_prior_che
             output_schema=output_schema,
             checksum_sha256=prompt_checksum(system_template, user_template, output_schema),
             is_active=True,
+            activated_at=datetime.now(UTC),
+            activated_by_type="system",
+            activated_by_id="test-suite",
+            activation_reason="Test fixture",
         )
         prompts[platform] = version
         db_session.add(template)
@@ -195,7 +199,7 @@ async def test_later_platform_failure_and_worker_rollback_cannot_erase_prior_che
         first_run_id = run.id
         return run, attempt, authored
 
-    monkeypatch.setattr("app.generation.handlers._invoke", invoke)
+    monkeypatch.setattr("app.generation.package_generation._invoke", invoke)
     with pytest.raises(NeedsReviewJobError, match="Later platform failed"):
         await build_pack_generation_handler(SimpleNamespace())(
             execution,

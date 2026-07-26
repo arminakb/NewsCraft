@@ -169,10 +169,7 @@ class CodexToolService:
                 total=len(destinations),
                 enabled=sum(item.enabled for item in destinations),
                 healthy=sum(item.health_status == "healthy" for item in destinations),
-                administrator=sum(
-                    item.administrator_status == "administrator"
-                    for item in destinations
-                ),
+                administrator=sum(item.administrator_status == "administrator" for item in destinations),
             ),
             prompt_governance=PromptGovernanceSummaryOut(
                 purposes=prompt_total,
@@ -207,10 +204,7 @@ class CodexToolService:
 
     async def list_telegram_destinations(self) -> list[TelegramDestinationOut]:
         service = TelegramLifecycleService(self.session, principal=self.principal)
-        return [
-            await destination_out(self.session, destination)
-            for destination in await service.list_destinations()
-        ]
+        return [await destination_out(self.session, destination) for destination in await service.list_destinations()]
 
     async def get_telegram_destination_status(
         self,
@@ -223,11 +217,7 @@ class CodexToolService:
         return await destination_out(self.session, destination)
 
     async def list_automations(self) -> list[AutomationSummaryOut]:
-        routes = list(
-            await self.session.scalars(
-                select(AutomationRoute).order_by(AutomationRoute.name)
-            )
-        )
+        routes = list(await self.session.scalars(select(AutomationRoute).order_by(AutomationRoute.name)))
         return [AutomationSummaryOut.model_validate(route) for route in routes]
 
     async def get_job_status(self, job_id: UUID) -> JobOut:

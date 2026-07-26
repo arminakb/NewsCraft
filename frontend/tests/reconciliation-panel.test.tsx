@@ -12,47 +12,47 @@ vi.mock("@/features/operations/api", () => ({
 }))
 
 const pendingCase: ReconciliationCase = {
-  publishJobId: "11111111-1111-4111-8111-111111111111",
+  publish_job_id: "11111111-1111-4111-8111-111111111111",
   status: "pending",
-  publishStatus: "reconciliation_required",
-  workflowJobId: "22222222-2222-4222-8222-222222222222",
-  platformVariantRevisionId: "33333333-3333-4333-8333-333333333333",
+  publish_status: "reconciliation_required",
+  workflow_job_id: "22222222-2222-4222-8222-222222222222",
+  platform_variant_revision_id: "33333333-3333-4333-8333-333333333333",
   destination: {
     id: "44444444-4444-4444-8444-444444444444",
     name: "کانال خبر",
-    targetRef: "@newscraft",
+    target_ref: "@newscraft",
   },
   operations: [
     {
-      operationIndex: 1,
-      operationKey: "telegram:publish:1",
+      operation_index: 1,
+      operation_key: "telegram:publish:1",
       method: "sendMessage",
-      requestHash: "sha256:second",
+      request_hash: "sha256:second",
       status: "pending",
-      attemptCount: 0,
-      remoteMessageIds: [],
-      sentAt: null,
+      attempt_count: 0,
+      remote_message_ids: [],
+      sent_at: null,
     },
     {
-      operationIndex: 0,
-      operationKey: "telegram:publish:0",
+      operation_index: 0,
+      operation_key: "telegram:publish:0",
       method: "sendMessage",
-      requestHash: "sha256:first",
+      request_hash: "sha256:first",
       status: "ambiguous",
-      attemptCount: 1,
-      remoteMessageIds: [],
-      sentAt: "2026-07-11T08:00:00Z",
+      attempt_count: 1,
+      remote_message_ids: [],
+      sent_at: "2026-07-11T08:00:00Z",
     },
   ],
-  ambiguousOperationKey: "telegram:publish:0",
-  ambiguousAt: "2026-07-11T08:00:05Z",
-  ambiguityReason: "پاسخ تلگرام پس از ارسال ذخیره نشد",
+  ambiguous_operation_key: "telegram:publish:0",
+  ambiguous_at: "2026-07-11T08:00:05Z",
+  ambiguity_reason: "پاسخ تلگرام پس از ارسال ذخیره نشد",
 }
 
 const publishableCase: ReconciliationCase = {
   ...pendingCase,
   operations: pendingCase.operations.map((operation) =>
-    operation.operationKey === pendingCase.ambiguousOperationKey
+    operation.operation_key === pendingCase.ambiguous_operation_key
       ? operation
       : { ...operation, status: "succeeded" },
   ),
@@ -104,7 +104,7 @@ describe("ReconciliationPanel", () => {
     expect(submit).toBeEnabled()
 
     fireEvent.click(submit)
-    expect(submitReconciliationDecision).toHaveBeenCalledWith(pendingCase.publishJobId, {
+    expect(submitReconciliationDecision).toHaveBeenCalledWith(pendingCase.publish_job_id, {
       outcome: "not_published",
       operatorNote: "Checked the destination channel",
     })
@@ -144,7 +144,7 @@ describe("ReconciliationPanel", () => {
     fireEvent.click(submit)
 
     await waitFor(() => {
-      expect(submitReconciliationDecision).toHaveBeenCalledWith(pendingCase.publishJobId, {
+      expect(submitReconciliationDecision).toHaveBeenCalledWith(pendingCase.publish_job_id, {
         outcome: "published",
         remoteMessageIds: [9201],
         permalink: "https://t.me/newscraft/9201",
@@ -159,7 +159,7 @@ describe("ReconciliationPanel", () => {
     const mediaGroupCase: ReconciliationCase = {
       ...publishableCase,
       operations: publishableCase.operations.map((operation) =>
-        operation.operationKey === publishableCase.ambiguousOperationKey
+        operation.operation_key === publishableCase.ambiguous_operation_key
           ? { ...operation, method: "sendMediaGroup" }
           : operation,
       ),
@@ -194,8 +194,8 @@ describe("ReconciliationPanel", () => {
         <ReconciliationPanel
           value={{
             ...pendingCase,
-            publishJobId: "66666666-6666-4666-8666-666666666666",
-            destination: { ...pendingCase.destination, targetRef: "@newscraft_archive" },
+            publish_job_id: "66666666-6666-4666-8666-666666666666",
+            destination: { ...pendingCase.destination, target_ref: "@newscraft_archive" },
           }}
         />
       </>,
@@ -212,10 +212,10 @@ describe("ReconciliationPanel", () => {
 })
 
 const requeuedResult: ReconciliationDecisionResult = {
-  publishJobId: pendingCase.publishJobId,
+  publishJobId: pendingCase.publish_job_id,
   reconciliationStatus: "requeued",
   job: {
-    jobId: pendingCase.workflowJobId!,
+    job_id: pendingCase.workflow_job_id!,
     status: "queued",
     deduplicated: false,
   },
@@ -224,9 +224,9 @@ const requeuedResult: ReconciliationDecisionResult = {
 
 const publishedResult: ReconciliationDecisionResult = {
   id: "55555555-5555-4555-8555-555555555555",
-  publishJobId: pendingCase.publishJobId,
+  publishJobId: pendingCase.publish_job_id,
   destinationId: pendingCase.destination.id,
-  platformVariantRevisionId: pendingCase.platformVariantRevisionId,
+  platformVariantRevisionId: pendingCase.platform_variant_revision_id,
   remoteMessageIds: [9201],
   permalink: "https://t.me/newscraft/9201",
   payloadHash: "sha256:payload",

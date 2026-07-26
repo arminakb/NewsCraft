@@ -13,12 +13,13 @@ from pydantic import HttpUrl, TypeAdapter, ValidationError
 from app.normalization.urls import normalize_url
 from app.research.schemas import CandidateClaim, CandidateResearchBrief, CitationRef, Claim, ResearchBrief
 from app.stories.evidence import EvidenceRecord
+from app.workflows.errors import EditorialValidationError
 
 _LOCATOR_PATTERN = re.compile(r"chars:(\d+)-(\d+)")
 _HTTP_URL_ADAPTER = TypeAdapter(HttpUrl)
 
 
-class CitationIntegrityError(ValueError):
+class CitationIntegrityError(EditorialValidationError):
     pass
 
 
@@ -45,12 +46,14 @@ def _resolve_candidate_claim(value: CandidateClaim, evidence_by_key: Mapping[str
         if digest != candidate.excerpt_sha256:
             raise CitationIntegrityError("citation excerpt checksum does not match evidence")
         citations.append(
-            CitationRef(
-                evidence_key=evidence.evidence_key,
-                evidence_snapshot_id=evidence.evidence_snapshot_id,
-                source_url=evidence.source_url,
-                locator=candidate.locator,
-                excerpt_sha256=candidate.excerpt_sha256,
+            CitationRef.model_validate(
+                {
+                    "evidence_key": evidence.evidence_key,
+                    "evidence_snapshot_id": evidence.evidence_snapshot_id,
+                    "source_url": evidence.source_url,
+                    "locator": candidate.locator,
+                    "excerpt_sha256": candidate.excerpt_sha256,
+                }
             )
         )
     return Claim(text=value.text, citations=citations)

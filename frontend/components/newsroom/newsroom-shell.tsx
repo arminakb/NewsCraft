@@ -29,9 +29,9 @@ export function NewsroomShell({ children }: { children: React.ReactNode }) {
         : "active"
 
   return (
-    <div className="min-h-screen min-w-0 overflow-x-clip bg-slate-50 text-sm text-foreground min-[900px]:grid min-[900px]:h-screen min-[900px]:grid-cols-[72px_minmax(0,1fr)] min-[900px]:overflow-hidden">
+    <div className="min-h-screen min-w-0 overflow-x-clip bg-slate-50 text-sm text-foreground dark:bg-background min-[900px]:grid min-[900px]:h-screen min-[900px]:grid-cols-[72px_minmax(0,1fr)] min-[900px]:overflow-hidden">
       <NewsroomSidebar summary={summaryQuery.data} />
-      <div data-testid="newsroom-content" className="newsroom-scroll min-w-0 overflow-x-clip bg-white min-[900px]:h-screen min-[900px]:overflow-y-auto">
+      <div data-testid="newsroom-content" className="newsroom-scroll min-w-0 overflow-x-clip bg-white dark:bg-background min-[900px]:h-screen min-[900px]:overflow-y-auto">
         <NewsroomHeader controlState={controlState} />
         <main id="main-content" tabIndex={-1} className="min-w-0 pb-20 min-[900px]:pb-0">
           {children}

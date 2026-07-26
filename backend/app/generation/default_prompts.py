@@ -9,6 +9,7 @@ from string import Formatter
 from typing import Any
 from uuid import uuid4
 
+from pydantic import BaseModel
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -29,7 +30,46 @@ _OPERATIONAL_SCHEMA_LIMITS = {
 }
 
 
-def manual_generation_provider_schema(payload_type: type) -> dict[str, Any]:
+def _relax_manual_schema_value(
+    key: str,
+    value: Any,
+    *,
+    integrity_boundary: bool,
+) -> None:
+    if key == "$defs" and isinstance(value, dict):
+        for name, definition in value.items():
+            _relax_manual_schema_node(
+                definition,
+                integrity_boundary=name == "CitationRef",
+            )
+        return
+    if isinstance(value, dict):
+        _relax_manual_schema_node(value, integrity_boundary=integrity_boundary)
+    elif isinstance(value, list):
+        for item in value:
+            _relax_manual_schema_node(item, integrity_boundary=integrity_boundary)
+
+
+def _relax_manual_schema_node(
+    node: Any,
+    *,
+    integrity_boundary: bool = False,
+) -> None:
+    if not isinstance(node, dict):
+        return
+    integrity_boundary = integrity_boundary or node.get("title") == "Citations"
+    if not integrity_boundary and node.get("format") not in {"uri", "uuid"}:
+        for key in _OPERATIONAL_SCHEMA_LIMITS:
+            node.pop(key, None)
+    for key, value in node.items():
+        _relax_manual_schema_value(
+            key,
+            value,
+            integrity_boundary=integrity_boundary,
+        )
+
+
+def manual_generation_provider_schema(payload_type: type[BaseModel]) -> dict[str, Any]:
     """Keep provider output shape strict while deferring publish limits.
 
     Citation and URL constraints are integrity boundaries, not platform
@@ -37,26 +77,9 @@ def manual_generation_provider_schema(payload_type: type) -> dict[str, Any]:
     """
 
     schema = deepcopy(payload_type.model_json_schema())
-
-    def relax(node: Any, *, integrity_boundary: bool = False) -> None:
-        if not isinstance(node, dict):
-            return
-        integrity_boundary = integrity_boundary or node.get("title") == "Citations"
-        if not integrity_boundary and node.get("format") not in {"uri", "uuid"}:
-            for key in _OPERATIONAL_SCHEMA_LIMITS:
-                node.pop(key, None)
-        for key, value in node.items():
-            if key == "$defs" and isinstance(value, dict):
-                for name, definition in value.items():
-                    relax(definition, integrity_boundary=name == "CitationRef")
-            elif isinstance(value, dict):
-                relax(value, integrity_boundary=integrity_boundary)
-            elif isinstance(value, list):
-                for item in value:
-                    relax(item, integrity_boundary=integrity_boundary)
-
-    relax(schema)
+    _relax_manual_schema_node(schema)
     return schema
+
 
 DEFAULT_TELEGRAM_SYSTEM_TEMPLATE = """You rewrite source material for Telegram.
 Preserve factual meaning and do not invent facts.
@@ -186,60 +209,15 @@ def validate_prompt_template_fields(
 
 async def seed_default_telegram_prompt(session: AsyncSession) -> PromptTemplateVersion:
     await _lock_seed_transaction(session)
-    templates = list(await session.scalars(select(PromptTemplate).with_for_update()))
-    template = next(
-        (item for item in templates if item.purpose_key == "telegram_rewrite"),
-        None,
-    )
-    if template is None:
-        template = PromptTemplate(
-            id=uuid4(),
-            purpose_key="telegram_rewrite",
-            name="Telegram Rewrite",
-            description="Safe structured Telegram rewrite prompt",
-        )
-        template = await _add_with_conflict_reload(
-            session,
-            template,
-            select(PromptTemplate).where(PromptTemplate.purpose_key == "telegram_rewrite"),
-        )
-
-    output_schema = TelegramRewriteOutput.model_json_schema()
-    checksum = telegram_prompt_checksum(
-        DEFAULT_TELEGRAM_SYSTEM_TEMPLATE,
-        DEFAULT_TELEGRAM_USER_TEMPLATE,
-        output_schema,
-    )
-    versions = [
-        item
-        for item in await session.scalars(select(PromptTemplateVersion).with_for_update())
-        if item.prompt_template_id == template.id
-    ]
-    active = max((item for item in versions if item.is_active), key=lambda item: item.version, default=None)
-    if active is not None:
-        return active
-    if versions:
-        return max(versions, key=lambda item: item.version)
-    version = PromptTemplateVersion(
-        id=uuid4(),
-        prompt_template_id=template.id,
-        version=max((item.version for item in versions), default=0) + 1,
+    return await _seed_prompt_version(
+        session,
+        purpose_key="telegram_rewrite",
+        name="Telegram Rewrite",
+        description="Safe structured Telegram rewrite prompt",
         system_template=DEFAULT_TELEGRAM_SYSTEM_TEMPLATE,
         user_template=DEFAULT_TELEGRAM_USER_TEMPLATE,
         output_schema_version="telegram_rewrite.v1",
-        output_schema=output_schema,
-        checksum_sha256=checksum,
-        is_active=True,
-        activated_at=datetime.now(UTC),
-        **_SYSTEM_ACTIVATION,
-    )
-    return await _add_with_conflict_reload(
-        session,
-        version,
-        select(PromptTemplateVersion).where(
-            PromptTemplateVersion.prompt_template_id == template.id,
-            PromptTemplateVersion.version == version.version,
-        ),
+        output_schema=TelegramRewriteOutput.model_json_schema(),
     )
 
 

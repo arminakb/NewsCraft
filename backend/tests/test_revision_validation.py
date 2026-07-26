@@ -2,9 +2,7 @@ from types import SimpleNamespace
 from uuid import uuid4
 
 import pytest
-from fastapi import HTTPException
 
-from app.api.telegram_drafts import require_revision_transition
 from app.generation.editorial_service import (
     ApprovalRequest,
     EditorialService,
@@ -13,6 +11,10 @@ from app.generation.editorial_service import (
 from app.generation.revision_validation import (
     RevisionValidationError,
     validate_approvable_revision,
+)
+from app.publishing.telegram.draft_publication import (
+    ReviewedTelegramDraftError,
+    require_revision_transition,
 )
 
 
@@ -82,10 +84,8 @@ async def test_editorial_approval_rejects_invalid_revision_without_state_mutatio
     assert invalid.approval_state == "pending_review"
 
 
-def test_weak_legacy_transition_helper_fails_closed_for_approval_and_publish():
+def test_publish_transition_helper_fails_closed_without_validation_results():
     invalid = revision(validation_results=[])
-    with pytest.raises(HTTPException, match="transition is unsupported"):
-        require_revision_transition(invalid, action="approve", content_hash=invalid.content_hash)
     invalid.approval_state = "approved"
-    with pytest.raises(HTTPException, match="validation results are empty"):
-        require_revision_transition(invalid, action="publish", content_hash=invalid.content_hash)
+    with pytest.raises(ReviewedTelegramDraftError, match="validation results are empty"):
+        require_revision_transition(invalid, content_hash=invalid.content_hash)

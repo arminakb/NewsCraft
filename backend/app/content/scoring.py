@@ -108,6 +108,7 @@ def score_content_item(
         source_tier=source_tier,
     )
 
+
 def _searchable_text(parsed_item: ParsedSourceItem) -> str:
     return " ".join(
         value

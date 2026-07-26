@@ -6,7 +6,19 @@ from uuid import uuid4
 import pytest
 from pydantic import ValidationError
 
-from app.generation.handlers import (
+from app.generation.multiplatform import (
+    PLATFORM_PROMPT_PURPOSE,
+    deduplicate_preserving_order,
+    ordered_distinct_citations,
+    payload_claims,
+)
+from app.generation.platform_renderers import render_platform_copy
+from app.generation.platform_schemas import InstagramVariantPayload, TelegramVariantPayload, XVariantPayload
+from app.generation.platform_validation import revision_gates_from_issues
+from app.research.citations import CitationIntegrityError
+from app.research.schemas import CitationRef
+from app.stories.evidence import EvidenceRecord
+from tests.generation.handler_exports import (
     _artifact_requires_review,
     _manual_output_with_ordinary_issues,
     _platform_stage_input,
@@ -15,21 +27,6 @@ from app.generation.handlers import (
     platform_limits_for,
     validate_payload_media_assignments,
 )
-from app.generation.multiplatform import (
-    PLATFORM_PROMPT_PURPOSE,
-    MultiPlatformPackRequest,
-    deduplicate_preserving_order,
-    generate_platform_variants,
-    ordered_distinct_citations,
-    payload_claims,
-)
-from app.generation.platform_renderers import render_platform_copy, render_telegram_variant
-from app.generation.platform_schemas import InstagramVariantPayload, TelegramVariantPayload, XVariantPayload
-from app.generation.platform_validation import revision_gates_from_issues
-from app.generation.telegram_schema import TelegramVariantContent
-from app.research.citations import CitationIntegrityError, validate_citations
-from app.research.schemas import CitationRef
-from app.stories.evidence import EvidenceRecord
 
 
 def citation(*, snapshot_id=None, key="evidence:one", url="https://example.com/report"):
@@ -57,29 +54,18 @@ def instagram_payload(*citations):
     )
 
 
-def test_multiplatform_request_is_plural_server_resolved_and_deduplicated():
-    request = MultiPlatformPackRequest(
-        story_revision_id=uuid4(),
-        brand_profile_id=uuid4(),
-        platforms=["telegram", "instagram", "telegram", "blog"],
-        generation_provider_profile_id=uuid4(),
-    )
-
-    assert deduplicate_preserving_order(request.platforms) == ["telegram", "instagram", "blog"]
+def test_platform_order_is_server_resolved_and_deduplicated():
+    assert deduplicate_preserving_order(["telegram", "instagram", "telegram", "blog"]) == [
+        "telegram",
+        "instagram",
+        "blog",
+    ]
     assert PLATFORM_PROMPT_PURPOSE == {
         "telegram": "telegram_pack",
         "instagram": "instagram_pack",
         "x": "x_pack",
         "blog": "blog_pack",
     }
-    assert "platform_prompt_template_version_id" not in MultiPlatformPackRequest.model_fields
-    with pytest.raises(ValidationError):
-        MultiPlatformPackRequest.model_validate(
-            {
-                **request.model_dump(mode="json"),
-                "platform": "telegram",
-            }
-        )
 
 
 def test_manual_payload_claims_and_evidence_map_preserve_exact_citation_order():
@@ -111,9 +97,6 @@ def test_telegram_renderer_preserves_exact_release_two_mapping():
     }
     payload = TelegramVariantPayload.model_validate(stored)
 
-    assert render_telegram_variant(stored) == TelegramVariantContent.model_validate(stored).model_dump(
-        mode="json"
-    )
     assert render_platform_copy("telegram", payload) == stored["body"]
 
 
@@ -141,88 +124,6 @@ def test_x_renderer_numbers_multi_post_threads_and_keeps_single_post_plain():
 
     assert render_platform_copy("x", thread) == "1/2 First post\n\n2/2 Second post"
     assert render_platform_copy("x", single) == "Only post"
-
-
-class _Provider:
-    def __init__(self, outputs):
-        self.outputs = list(outputs)
-        self.calls = []
-
-    async def generate(self, request):
-        self.calls.append(request)
-        return SimpleNamespace(output=self.outputs.pop(0))
-
-
-class _Repository:
-    def __init__(self):
-        self.revisions = []
-
-    async def create_revision(self, platform, content, evidence_map, issues, attempt_id):
-        revision = SimpleNamespace(
-            id=uuid4(),
-            platform=platform,
-            content=content,
-            evidence_map=evidence_map,
-            validation_errors=[issue for issue in issues if issue["severity"] == "error"],
-            generation_attempt_id=attempt_id,
-        )
-        self.revisions.append(revision)
-        return revision
-
-
-class _GenerationContext:
-    def __init__(self, outputs, evidence):
-        self.provider = _Provider(outputs)
-        self.repository = _Repository()
-        self.prompts = {
-            platform: SimpleNamespace(id=uuid4(), purpose=purpose, version=1)
-            for platform, purpose in PLATFORM_PROMPT_PURPOSE.items()
-        }
-        self.inactive_higher = SimpleNamespace(id=uuid4(), purpose="instagram_pack", version=99)
-        self.runs = []
-        self.attempts = []
-        self.evidence = evidence
-
-    async def require_active_prompt_version(self, purpose):
-        return next(prompt for prompt in self.prompts.values() if prompt.purpose == purpose)
-
-    async def start_generation_run(self, platform, *, prompt_template_version_id):
-        run = SimpleNamespace(
-            id=uuid4(),
-            platform=platform,
-            prompt_template_version_id=prompt_template_version_id,
-        )
-        self.runs.append(run)
-        return run
-
-    def request_for(self, platform, *, prompt_version):
-        return SimpleNamespace(platform=platform, prompt_template_version_id=prompt_version.id)
-
-    async def record_attempt(self, run, provider_result):
-        attempt = SimpleNamespace(id=uuid4(), generation_run_id=run.id)
-        self.attempts.append(attempt)
-        return attempt
-
-    def release_two_telegram_content(self, rewrite):
-        return {
-            "body": rewrite.body,
-            "parse_mode": rewrite.parse_mode,
-            "buttons": [item.model_dump(mode="json") for item in rewrite.buttons],
-            "source_item_id": None,
-            "source_url": None,
-            "media_policy": "omit",
-            "media_asset_ids": [],
-            "direction": "rtl",
-            "dry_run": False,
-        }
-
-    async def validated_telegram_evidence_map(self):
-        return list(self.evidence[0])
-
-    async def validate_manual_platform_citations(self, platform, payload):
-        from app.generation.multiplatform import payload_claims
-
-        validate_citations(payload_claims(platform, payload), self.evidence[1])
 
 
 def _complete_outputs(citation_value):
@@ -258,50 +159,6 @@ def _complete_outputs(citation_value):
             "manual_checklist": ["Verify links"],
         },
     ]
-
-
-@pytest.mark.asyncio
-async def test_generation_path_creates_four_platform_runs_attempts_and_revisions_with_active_prompts():
-    content = "Evidence"
-    snapshot_id = uuid4()
-    citation_value = citation(snapshot_id=snapshot_id)
-    citation_value["excerpt_sha256"] = hashlib.sha256(content.encode()).hexdigest()
-    ref = CitationRef.model_validate(citation_value)
-    record = EvidenceRecord(
-        evidence_key=ref.evidence_key,
-        evidence_snapshot_id=snapshot_id,
-        content_item_id=None,
-        title="Evidence",
-        content_text=content,
-        content_sha256=hashlib.sha256(content.encode()).hexdigest(),
-        source_url=str(ref.source_url),
-        authors=(),
-        published_at=None,
-        captured_at=datetime.now(UTC),
-    )
-    context = _GenerationContext(_complete_outputs(citation_value), ([ref], {snapshot_id: record}))
-    request = MultiPlatformPackRequest(
-        story_revision_id=uuid4(),
-        brand_profile_id=uuid4(),
-        platforms=["telegram", "instagram", "telegram", "x", "blog", "instagram"],
-        generation_provider_profile_id=uuid4(),
-    )
-
-    generated = await generate_platform_variants(request, context)
-
-    assert [item.platform for item in generated.revisions] == ["telegram", "instagram", "x", "blog"]
-    assert len(context.runs) == len(context.attempts) == len(context.provider.calls) == 4
-    assert all(
-        run.prompt_template_version_id == context.prompts[run.platform].id
-        for run in context.runs
-    )
-    assert context.runs[1].prompt_template_version_id != context.inactive_higher.id
-    telegram = generated.revisions[0]
-    assert set(telegram.content) == {
-        "body", "parse_mode", "buttons", "source_item_id", "source_url",
-        "media_policy", "media_asset_ids", "direction", "dry_run",
-    }
-    assert telegram.content["source_item_id"] is None
 
 
 def test_ordinary_invalid_platform_output_is_persistable_as_failed_review_gate():
@@ -350,9 +207,7 @@ def _set_nested_media_limit(raw, platform, field, value):
     }
     assignment[field] = value
     if platform == "instagram":
-        raw["carousel"] = [
-            {"order": 1, "headline": "Grounded", "body": "Grounded", "media": assignment}
-        ]
+        raw["carousel"] = [{"order": 1, "headline": "Grounded", "body": "Grounded", "media": assignment}]
     elif platform == "x":
         raw["posts"][0]["media"] = [assignment]
     else:
@@ -594,8 +449,8 @@ def test_telegram_trusted_assembly_preserves_locked_parent_context_and_ignores_p
 @pytest.mark.asyncio
 async def test_telegram_artifact_replay_reconstructs_expected_content_from_immutable_parent():
     from app.automations.telegram.handlers import sha256_canonical
-    from app.generation.handlers import _artifact_requires_review
     from app.generation.telegram_schema import TelegramRewriteOutput, assemble_telegram_variant
+    from tests.generation.handler_exports import _artifact_requires_review
 
     fixture = _pack_handler_fixture(platforms=("telegram",))
     pack_id, variant_id, parent_id, revision_id, attempt_id = (
@@ -994,27 +849,27 @@ async def test_retry_checkpoint_reloads_failed_revision_gates_and_remains_needs_
         "revision_id": str(revision_id),
         "platform": "instagram",
     }
-    assert await _artifact_requires_review(
-        Session(),
-        artifact,
-        expected_platform="instagram",
-        expected_story_revision_id=story_revision_id,
-        expected_brand_profile_id=brand_profile_id,
-        expected_attempt_id=attempt_id,
-        authored=authored,
-        expected_content=content,
-        expected_evidence_map=evidence_map,
-        expected_validation_results=expected_validation_results,
-        evidence=evidence,
-    ) is True
+    assert (
+        await _artifact_requires_review(
+            Session(),
+            artifact,
+            expected_platform="instagram",
+            expected_story_revision_id=story_revision_id,
+            expected_brand_profile_id=brand_profile_id,
+            expected_attempt_id=attempt_id,
+            authored=authored,
+            expected_content=content,
+            expected_evidence_map=evidence_map,
+            expected_validation_results=expected_validation_results,
+            evidence=evidence,
+        )
+        is True
+    )
     pack_query, variant_query, revision_query = statements
     assert pack_query._for_update_arg is None
     assert variant_query._for_update_arg is not None
     assert revision_query._for_update_arg is not None
-    assert all(
-        statement.get_execution_options().get("populate_existing") is True
-        for statement in statements
-    )
+    assert all(statement.get_execution_options().get("populate_existing") is True for statement in statements)
     statements.clear()
     with pytest.raises(NeedsReviewJobError):
         await _artifact_requires_review(
@@ -1077,9 +932,7 @@ async def test_retry_checkpoint_reloads_failed_revision_gates_and_remains_needs_
         )
     drifted_evidence = [{**evidence_map[0], "excerpt_sha256": "f" * 64}]
     revision.evidence_map = drifted_evidence
-    revision.content_hash = sha256_canonical(
-        {"content": revision.content, "evidence_map": drifted_evidence}
-    )
+    revision.content_hash = sha256_canonical({"content": revision.content, "evidence_map": drifted_evidence})
     with pytest.raises(NeedsReviewJobError):
         await _artifact_requires_review(
             Session(),
@@ -1095,9 +948,7 @@ async def test_retry_checkpoint_reloads_failed_revision_gates_and_remains_needs_
             evidence=evidence,
         )
     revision.evidence_map = evidence_map
-    revision.content_hash = sha256_canonical(
-        {"content": revision.content, "evidence_map": evidence_map}
-    )
+    revision.content_hash = sha256_canonical({"content": revision.content, "evidence_map": evidence_map})
     revision.validation_results = [{"gate": "tampered", "ok": True, "reason": None}]
     with pytest.raises(NeedsReviewJobError):
         await _artifact_requires_review(
@@ -1173,10 +1024,10 @@ async def test_prompt_checksum_drift_before_provider_is_permanent():
 
 @pytest.mark.asyncio
 async def test_all_selected_prompts_lock_in_canonical_order_before_first_provider(monkeypatch):
-    from app.generation.handlers import build_pack_generation_handler
     from app.generation.models import PromptTemplateVersion
     from app.jobs.errors import PermanentJobError
     from app.jobs.registry import JobContext
+    from tests.generation.handler_exports import build_pack_generation_handler
 
     class PromptOrderSession(_PackHandlerSession):
         async def scalars(self, statement):
@@ -1204,8 +1055,8 @@ async def test_all_selected_prompts_lock_in_canonical_order_before_first_provide
         provider_calls += 1
         raise AssertionError("provider must not run before every prompt passes preflight")
 
-    monkeypatch.setattr("app.generation.handlers.require_prompt_integrity", require_integrity)
-    monkeypatch.setattr("app.generation.handlers._invoke", invoke)
+    monkeypatch.setattr("app.generation.package_generation.require_prompt_integrity", require_integrity)
+    monkeypatch.setattr("app.generation.package_generation._invoke", invoke)
 
     with pytest.raises(PermanentJobError) as caught:
         await build_pack_generation_handler(SimpleNamespace())(
@@ -1346,12 +1197,8 @@ def _pack_handler_fixture(*, platforms=("instagram",), media_asset_id=None):
             "brand_profile_id": str(brand_id),
             "generation_provider_profile_id": str(profile_id),
             "platforms": list(platforms),
-            "platform_prompt_template_version_ids": {
-                platform: str(prompt.id) for platform, prompt in prompts.items()
-            },
-            "platform_prompt_checksums": {
-                platform: prompt.checksum_sha256 for platform, prompt in prompts.items()
-            },
+            "platform_prompt_template_version_ids": {platform: str(prompt.id) for platform, prompt in prompts.items()},
+            "platform_prompt_checksums": {platform: prompt.checksum_sha256 for platform, prompt in prompts.items()},
         },
     )
     return SimpleNamespace(
@@ -1369,9 +1216,9 @@ def _pack_handler_fixture(*, platforms=("instagram",), media_asset_id=None):
 
 @pytest.mark.asyncio
 async def test_pack_handler_wires_safe_media_limits_hash_and_prompt_recheck_before_provider(monkeypatch):
-    from app.generation.handlers import build_pack_generation_handler
     from app.generation.models import PlatformVariantRevision
     from app.jobs.registry import JobContext
+    from tests.generation.handler_exports import build_pack_generation_handler
 
     media_asset_id = uuid4()
     fixture = _pack_handler_fixture(media_asset_id=media_asset_id)
@@ -1424,10 +1271,10 @@ async def test_pack_handler_wires_safe_media_limits_hash_and_prompt_recheck_befo
         authored = kwargs["validate_output"](fixture.raw)
         return durable_run, SimpleNamespace(id=attempt_id), authored
 
-    monkeypatch.setattr("app.generation.handlers._locked_story_evidence", locked_evidence)
-    monkeypatch.setattr("app.generation.handlers._trusted_story_media", trusted_media)
-    monkeypatch.setattr("app.generation.handlers._require_exact_active_prompt", recheck)
-    monkeypatch.setattr("app.generation.handlers._invoke", invoke)
+    monkeypatch.setattr("app.generation.package_generation._locked_story_evidence", locked_evidence)
+    monkeypatch.setattr("app.generation.package_generation._trusted_story_media", trusted_media)
+    monkeypatch.setattr("app.generation.package_generation._require_exact_active_prompt", recheck)
+    monkeypatch.setattr("app.generation.package_generation._invoke", invoke)
 
     result = await build_pack_generation_handler(SimpleNamespace())(
         fixture.job,
@@ -1436,9 +1283,7 @@ async def test_pack_handler_wires_safe_media_limits_hash_and_prompt_recheck_befo
 
     assert result["platforms"] == ["instagram"]
     assert rechecks == [("instagram", fixture.prompts["instagram"].id)]
-    assert __import__("json").loads(invocation["input_payload"]["platform_limits_json"])[
-        "caption_max"
-    ] == 2200
+    assert __import__("json").loads(invocation["input_payload"]["platform_limits_json"])["caption_max"] == 2200
     assert __import__("json").loads(invocation["input_payload"]["source_media_json"]) == safe_media
     expected_input, expected_hash = _platform_stage_input(
         platform="instagram",
@@ -1472,8 +1317,8 @@ async def test_pack_handler_wires_safe_media_limits_hash_and_prompt_recheck_befo
 
 @pytest.mark.asyncio
 async def test_release_three_queued_telegram_job_uses_singular_prompt_checksum_fallback(monkeypatch):
-    from app.generation.handlers import build_pack_generation_handler
     from app.jobs.registry import JobContext
+    from tests.generation.handler_exports import build_pack_generation_handler
 
     fixture = _pack_handler_fixture(platforms=("telegram",))
     fixture.raw = _complete_outputs(fixture.ref.model_dump(mode="json"))[0]
@@ -1513,15 +1358,15 @@ async def test_release_three_queued_telegram_job_uses_singular_prompt_checksum_f
         return prompt
 
     monkeypatch.setattr(
-        "app.generation.handlers._locked_story_evidence",
+        "app.generation.package_generation._locked_story_evidence",
         lambda context, revision: _resolved(([fixture.ref], fixture.evidence)),
     )
     monkeypatch.setattr(
-        "app.generation.handlers._trusted_story_media",
+        "app.generation.package_generation._trusted_story_media",
         lambda session_value, evidence, **kwargs: _resolved(({}, [])),
     )
-    monkeypatch.setattr("app.generation.handlers._require_exact_active_prompt", recheck)
-    monkeypatch.setattr("app.generation.handlers._invoke", invoke)
+    monkeypatch.setattr("app.generation.package_generation._require_exact_active_prompt", recheck)
+    monkeypatch.setattr("app.generation.package_generation._invoke", invoke)
 
     result = await build_pack_generation_handler(SimpleNamespace())(
         fixture.job,
@@ -1534,10 +1379,10 @@ async def test_release_three_queued_telegram_job_uses_singular_prompt_checksum_f
 
 @pytest.mark.asyncio
 async def test_existing_telegram_variant_generation_preserves_exact_trusted_parent_context(monkeypatch):
-    from app.generation.handlers import build_pack_generation_handler
     from app.generation.models import PlatformVariantRevision
     from app.jobs.errors import NeedsReviewJobError
     from app.jobs.registry import JobContext
+    from tests.generation.handler_exports import build_pack_generation_handler
 
     fixture = _pack_handler_fixture(platforms=("telegram",))
     fixture.raw = _complete_outputs(fixture.ref.model_dump(mode="json"))[0]
@@ -1596,15 +1441,15 @@ async def test_existing_telegram_variant_generation_preserves_exact_trusted_pare
         return fixture.prompts[platform]
 
     monkeypatch.setattr(
-        "app.generation.handlers._locked_story_evidence",
+        "app.generation.package_generation._locked_story_evidence",
         lambda context, revision: _resolved(([fixture.ref], fixture.evidence)),
     )
     monkeypatch.setattr(
-        "app.generation.handlers._trusted_story_media",
+        "app.generation.package_generation._trusted_story_media",
         lambda session_value, evidence, **kwargs: _resolved(({}, [])),
     )
-    monkeypatch.setattr("app.generation.handlers._require_exact_active_prompt", recheck)
-    monkeypatch.setattr("app.generation.handlers._invoke", invoke)
+    monkeypatch.setattr("app.generation.package_generation._require_exact_active_prompt", recheck)
+    monkeypatch.setattr("app.generation.package_generation._invoke", invoke)
 
     with pytest.raises(NeedsReviewJobError) as caught:
         await build_pack_generation_handler(SimpleNamespace())(
@@ -1627,10 +1472,10 @@ async def test_existing_telegram_variant_generation_preserves_exact_trusted_pare
 
 @pytest.mark.asyncio
 async def test_pack_handler_relocks_media_after_provider_and_rejects_unlinked_assignment(monkeypatch):
-    from app.generation.handlers import build_pack_generation_handler
     from app.generation.models import PlatformVariantRevision
     from app.jobs.errors import NeedsReviewJobError
     from app.jobs.registry import JobContext
+    from tests.generation.handler_exports import build_pack_generation_handler
 
     media_asset_id = uuid4()
     fixture = _pack_handler_fixture(media_asset_id=media_asset_id)
@@ -1663,12 +1508,12 @@ async def test_pack_handler_relocks_media_after_provider_and_rejects_unlinked_as
         return fixture.prompts[platform]
 
     monkeypatch.setattr(
-        "app.generation.handlers._locked_story_evidence",
+        "app.generation.package_generation._locked_story_evidence",
         lambda context, revision: _resolved(([fixture.ref], fixture.evidence)),
     )
-    monkeypatch.setattr("app.generation.handlers._trusted_story_media", trusted_media)
-    monkeypatch.setattr("app.generation.handlers._require_exact_active_prompt", recheck)
-    monkeypatch.setattr("app.generation.handlers._invoke", invoke)
+    monkeypatch.setattr("app.generation.package_generation._trusted_story_media", trusted_media)
+    monkeypatch.setattr("app.generation.package_generation._require_exact_active_prompt", recheck)
+    monkeypatch.setattr("app.generation.package_generation._invoke", invoke)
 
     with pytest.raises(NeedsReviewJobError) as caught:
         await build_pack_generation_handler(SimpleNamespace())(
@@ -1683,10 +1528,10 @@ async def test_pack_handler_relocks_media_after_provider_and_rejects_unlinked_as
 
 @pytest.mark.asyncio
 async def test_pack_handler_rejects_unauthorized_provider_media_before_revision(monkeypatch):
-    from app.generation.handlers import build_pack_generation_handler
     from app.generation.models import PlatformVariantRevision
     from app.jobs.errors import NeedsReviewJobError
     from app.jobs.registry import JobContext
+    from tests.generation.handler_exports import build_pack_generation_handler
 
     fixture = _pack_handler_fixture(media_asset_id=uuid4())
     run_id = uuid4()
@@ -1707,15 +1552,15 @@ async def test_pack_handler_rejects_unauthorized_provider_media_before_revision(
         return fixture.prompts[platform]
 
     monkeypatch.setattr(
-        "app.generation.handlers._locked_story_evidence",
+        "app.generation.package_generation._locked_story_evidence",
         lambda context, revision: _resolved(([fixture.ref], fixture.evidence)),
     )
     monkeypatch.setattr(
-        "app.generation.handlers._trusted_story_media",
+        "app.generation.package_generation._trusted_story_media",
         lambda session_value, evidence, **kwargs: _resolved(({}, [])),
     )
-    monkeypatch.setattr("app.generation.handlers._require_exact_active_prompt", recheck)
-    monkeypatch.setattr("app.generation.handlers._invoke", invoke)
+    monkeypatch.setattr("app.generation.package_generation._require_exact_active_prompt", recheck)
+    monkeypatch.setattr("app.generation.package_generation._invoke", invoke)
 
     with pytest.raises(NeedsReviewJobError) as caught:
         await build_pack_generation_handler(SimpleNamespace())(
@@ -1729,10 +1574,10 @@ async def test_pack_handler_rejects_unauthorized_provider_media_before_revision(
 @pytest.mark.asyncio
 async def test_pack_handler_retry_uses_linked_failed_artifact_and_persists_needs_review_result(monkeypatch):
     from app.automations.telegram.handlers import sha256_canonical
-    from app.generation.handlers import build_pack_generation_handler
     from app.generation.models import ContentPack, PlatformVariant, PlatformVariantRevision
     from app.jobs.errors import NeedsReviewJobError
     from app.jobs.registry import JobContext
+    from tests.generation.handler_exports import build_pack_generation_handler
 
     fixture = _pack_handler_fixture()
     fixture.raw["caption"] = "x" * 2_201
@@ -1778,15 +1623,15 @@ async def test_pack_handler_retry_uses_linked_failed_artifact_and_persists_needs
         return fixture.prompts[platform]
 
     monkeypatch.setattr(
-        "app.generation.handlers._locked_story_evidence",
+        "app.generation.package_generation._locked_story_evidence",
         lambda context, revision_value: _resolved(([fixture.ref], fixture.evidence)),
     )
     monkeypatch.setattr(
-        "app.generation.handlers._trusted_story_media",
+        "app.generation.package_generation._trusted_story_media",
         lambda session_value, evidence, **kwargs: _resolved(({}, [])),
     )
-    monkeypatch.setattr("app.generation.handlers._require_exact_active_prompt", recheck)
-    monkeypatch.setattr("app.generation.handlers._invoke", invoke)
+    monkeypatch.setattr("app.generation.package_generation._require_exact_active_prompt", recheck)
+    monkeypatch.setattr("app.generation.package_generation._invoke", invoke)
 
     with pytest.raises(NeedsReviewJobError) as caught:
         await build_pack_generation_handler(SimpleNamespace())(
@@ -1802,9 +1647,9 @@ async def test_pack_handler_retry_uses_linked_failed_artifact_and_persists_needs
 
 @pytest.mark.asyncio
 async def test_pack_handler_records_incremental_result_before_later_platform_failure(monkeypatch):
-    from app.generation.handlers import build_pack_generation_handler
     from app.jobs.errors import NeedsReviewJobError
     from app.jobs.registry import JobContext
+    from tests.generation.handler_exports import build_pack_generation_handler
 
     fixture = _pack_handler_fixture(platforms=("instagram", "blog"))
     run_id, attempt_id = uuid4(), uuid4()
@@ -1830,15 +1675,15 @@ async def test_pack_handler_records_incremental_result_before_later_platform_fai
         return fixture.prompts[platform]
 
     monkeypatch.setattr(
-        "app.generation.handlers._locked_story_evidence",
+        "app.generation.package_generation._locked_story_evidence",
         lambda context, revision_value: _resolved(([fixture.ref], fixture.evidence)),
     )
     monkeypatch.setattr(
-        "app.generation.handlers._trusted_story_media",
+        "app.generation.package_generation._trusted_story_media",
         lambda session_value, evidence, **kwargs: _resolved(({}, [])),
     )
-    monkeypatch.setattr("app.generation.handlers._require_exact_active_prompt", recheck)
-    monkeypatch.setattr("app.generation.handlers._invoke", invoke)
+    monkeypatch.setattr("app.generation.package_generation._require_exact_active_prompt", recheck)
+    monkeypatch.setattr("app.generation.package_generation._invoke", invoke)
 
     with pytest.raises(NeedsReviewJobError, match="Blog citations failed"):
         await build_pack_generation_handler(SimpleNamespace())(
@@ -1855,10 +1700,10 @@ async def test_pack_handler_records_incremental_result_before_later_platform_fai
 
 @pytest.mark.asyncio
 async def test_pack_handler_persists_full_schema_max_violation_then_requires_review(monkeypatch):
-    from app.generation.handlers import build_pack_generation_handler
     from app.generation.models import PlatformVariantRevision
     from app.jobs.errors import NeedsReviewJobError
     from app.jobs.registry import JobContext
+    from tests.generation.handler_exports import build_pack_generation_handler
 
     fixture = _pack_handler_fixture()
     fixture.raw["caption"] = "x" * 2_201
@@ -1880,15 +1725,15 @@ async def test_pack_handler_persists_full_schema_max_violation_then_requires_rev
         return fixture.prompts[platform]
 
     monkeypatch.setattr(
-        "app.generation.handlers._locked_story_evidence",
+        "app.generation.package_generation._locked_story_evidence",
         lambda context, revision_value: _resolved(([fixture.ref], fixture.evidence)),
     )
     monkeypatch.setattr(
-        "app.generation.handlers._trusted_story_media",
+        "app.generation.package_generation._trusted_story_media",
         lambda session_value, evidence, **kwargs: _resolved(({}, [])),
     )
-    monkeypatch.setattr("app.generation.handlers._require_exact_active_prompt", recheck)
-    monkeypatch.setattr("app.generation.handlers._invoke", invoke)
+    monkeypatch.setattr("app.generation.package_generation._require_exact_active_prompt", recheck)
+    monkeypatch.setattr("app.generation.package_generation._invoke", invoke)
 
     with pytest.raises(NeedsReviewJobError) as caught:
         await build_pack_generation_handler(SimpleNamespace())(
@@ -1914,10 +1759,10 @@ async def test_pack_handler_persists_full_schema_max_violation_then_requires_rev
 
 @pytest.mark.asyncio
 async def test_regeneration_rechecks_base_before_provider_and_creates_no_child(monkeypatch):
-    from app.generation.handlers import build_pack_generation_handler
     from app.generation.models import PlatformVariantRevision
     from app.jobs.errors import NeedsReviewJobError
     from app.jobs.registry import JobContext
+    from tests.generation.handler_exports import build_pack_generation_handler
 
     fixture = _pack_handler_fixture()
     pack_id, variant_id = uuid4(), uuid4()
@@ -1962,15 +1807,15 @@ async def test_regeneration_rechecks_base_before_provider_and_creates_no_child(m
         return fixture.prompts[platform]
 
     monkeypatch.setattr(
-        "app.generation.handlers._locked_story_evidence",
+        "app.generation.package_generation._locked_story_evidence",
         lambda context, revision: _resolved(([fixture.ref], fixture.evidence)),
     )
     monkeypatch.setattr(
-        "app.generation.handlers._trusted_story_media",
+        "app.generation.package_generation._trusted_story_media",
         lambda session_value, evidence, **kwargs: _resolved(({}, [])),
     )
-    monkeypatch.setattr("app.generation.handlers._require_exact_active_prompt", recheck)
-    monkeypatch.setattr("app.generation.handlers._invoke", invoke)
+    monkeypatch.setattr("app.generation.generation_helpers._require_exact_active_prompt", recheck)
+    monkeypatch.setattr("app.generation.package_generation._invoke", invoke)
 
     with pytest.raises(NeedsReviewJobError) as caught:
         await build_pack_generation_handler(SimpleNamespace())(
@@ -1989,13 +1834,13 @@ async def test_regeneration_fence_survives_provider_and_cached_success_until_chi
     monkeypatch,
     cached_success,
 ):
-    from app.generation.handlers import build_pack_generation_handler
     from app.generation.models import ContentPack, PlatformVariant, PlatformVariantRevision
     from app.generation.revision_fence import (
         REGENERATION_FENCE_RESULT_KEY,
         RegenerationFenceOwner,
     )
     from app.jobs.registry import JobContext
+    from tests.generation.handler_exports import build_pack_generation_handler
 
     fixture = _pack_handler_fixture()
     pack_id, variant_id, base_id = uuid4(), uuid4(), uuid4()
@@ -2077,16 +1922,16 @@ async def test_regeneration_fence_survives_provider_and_cached_success_until_chi
         return durable_run, SimpleNamespace(id=attempt_id), authored
 
     monkeypatch.setattr(
-        "app.generation.handlers._locked_story_evidence",
+        "app.generation.package_generation._locked_story_evidence",
         lambda context, revision: _resolved(([fixture.ref], fixture.evidence)),
     )
     monkeypatch.setattr(
-        "app.generation.handlers._trusted_story_media",
+        "app.generation.package_generation._trusted_story_media",
         lambda session_value, evidence, **kwargs: _resolved(({}, [])),
     )
-    monkeypatch.setattr("app.generation.handlers._require_exact_regeneration_dispatch", dispatch)
-    monkeypatch.setattr("app.generation.handlers.require_revision_write_allowed", require_owner)
-    monkeypatch.setattr("app.generation.handlers._invoke", invoke)
+    monkeypatch.setattr("app.generation.package_generation._require_exact_regeneration_dispatch", dispatch)
+    monkeypatch.setattr("app.generation.package_generation.require_revision_write_allowed", require_owner)
+    monkeypatch.setattr("app.generation.package_generation._invoke", invoke)
 
     result = await build_pack_generation_handler(SimpleNamespace())(
         fixture.job,
@@ -2101,47 +1946,11 @@ async def test_regeneration_fence_survives_provider_and_cached_success_until_chi
 
 
 @pytest.mark.asyncio
-async def test_fabricated_citation_stops_before_revision_persistence():
-    content = "Evidence"
-    snapshot_id = uuid4()
-    valid = citation(snapshot_id=snapshot_id)
-    valid["excerpt_sha256"] = hashlib.sha256(content.encode()).hexdigest()
-    ref = CitationRef.model_validate(valid)
-    record = EvidenceRecord(
-        evidence_key=ref.evidence_key,
-        evidence_snapshot_id=snapshot_id,
-        content_item_id=None,
-        title="Evidence",
-        content_text=content,
-        content_sha256=hashlib.sha256(content.encode()).hexdigest(),
-        source_url=str(ref.source_url),
-        authors=(),
-        published_at=None,
-        captured_at=datetime.now(UTC),
-    )
-    fabricated = {**valid, "evidence_snapshot_id": str(uuid4())}
-    context = _GenerationContext([_complete_outputs(fabricated)[1]], ([ref], {snapshot_id: record}))
-
-    with pytest.raises(CitationIntegrityError):
-        await generate_platform_variants(
-            MultiPlatformPackRequest(
-                story_revision_id=uuid4(),
-                brand_profile_id=uuid4(),
-                platforms=["instagram"],
-                generation_provider_profile_id=uuid4(),
-            ),
-            context,
-        )
-
-    assert context.repository.revisions == []
-
-
-@pytest.mark.asyncio
 async def test_platform_stage_retry_reuses_durable_attempt_without_second_provider_call():
     from app.automations.telegram.handlers import sha256_canonical
-    from app.generation.handlers import _invoke
     from app.generation.models import AIProviderProfile, GenerationAttempt, GenerationRun
     from app.jobs.registry import JobContext
+    from tests.generation.handler_exports import _invoke
     from tests.generation.test_editorial_service import _lifecycle_prompt, _LifecycleSession
 
     profile = AIProviderProfile(
@@ -2234,10 +2043,10 @@ async def test_durable_success_revalidation_failure_is_sanitized_needs_review_wi
     expected_code,
 ):
     from app.automations.telegram.handlers import sha256_canonical
-    from app.generation.handlers import _invoke
     from app.generation.models import AIProviderProfile, GenerationAttempt, GenerationRun
     from app.jobs.errors import NeedsReviewJobError
     from app.jobs.registry import JobContext
+    from tests.generation.handler_exports import _invoke
     from tests.generation.test_editorial_service import _lifecycle_prompt, _LifecycleSession
 
     profile = AIProviderProfile(
@@ -2398,9 +2207,9 @@ async def test_regeneration_idempotency_is_bound_to_locked_current_revision():
 
 @pytest.mark.asyncio
 async def test_regeneration_wrapper_holds_no_row_locks_across_pack_delegation(monkeypatch):
-    from app.generation.handlers import build_regenerate_handler
-    from app.generation.models import ContentPack, PlatformVariant, PlatformVariantRevision
+    from app.generation.models import ContentPack, PlatformVariant
     from app.jobs.registry import JobContext
+    from tests.generation.handler_exports import build_regenerate_handler
 
     variant = SimpleNamespace(id=uuid4(), content_pack_id=uuid4(), platform="instagram")
     pack = SimpleNamespace(
@@ -2421,10 +2230,8 @@ async def test_regeneration_wrapper_holds_no_row_locks_across_pack_delegation(mo
             entity = statement.column_descriptions[0]["entity"]
             assert statement._for_update_arg is None
             events.append(f"read_{entity.__name__}")
-            if entity is PlatformVariant:
-                return variant
-            assert entity is PlatformVariantRevision
-            return current
+            assert entity is PlatformVariant
+            return variant
 
     def pack_builder(profile_resolver):
         async def handle(job, context):
@@ -2433,7 +2240,7 @@ async def test_regeneration_wrapper_holds_no_row_locks_across_pack_delegation(mo
 
         return handle
 
-    monkeypatch.setattr("app.generation.handlers.build_pack_generation_handler", pack_builder)
+    monkeypatch.setattr("app.generation.variant_regeneration.build_pack_generation_handler", pack_builder)
     job = SimpleNamespace(
         payload={
             "variant_id": str(variant.id),
@@ -2454,16 +2261,15 @@ async def test_regeneration_wrapper_holds_no_row_locks_across_pack_delegation(mo
     assert events == [
         "read_PlatformVariant",
         "get_pack",
-        "read_PlatformVariantRevision",
         "delegate",
     ]
 
 
 @pytest.mark.asyncio
 async def test_regeneration_retry_delegates_after_committed_child_becomes_current(monkeypatch):
-    from app.generation.handlers import build_regenerate_handler
     from app.generation.models import ContentPack, PlatformVariant
     from app.jobs.registry import JobContext
+    from tests.generation.handler_exports import build_regenerate_handler
 
     variant_id = uuid4()
     pack_id = uuid4()
@@ -2494,7 +2300,7 @@ async def test_regeneration_retry_delegates_after_committed_child_becomes_curren
 
         return handle
 
-    monkeypatch.setattr("app.generation.handlers.build_pack_generation_handler", pack_builder)
+    monkeypatch.setattr("app.generation.variant_regeneration.build_pack_generation_handler", pack_builder)
     job = SimpleNamespace(
         payload={
             "variant_id": str(variant_id),
@@ -2519,11 +2325,11 @@ async def test_regeneration_retry_delegates_after_committed_child_becomes_curren
 
 @pytest.mark.asyncio
 async def test_regeneration_terminal_failure_clears_exact_owned_fence(monkeypatch):
-    from app.generation.handlers import build_regenerate_handler
     from app.generation.models import ContentPack, PlatformVariant
     from app.generation.revision_fence import RegenerationFenceOwner
     from app.jobs.errors import NeedsReviewJobError
     from app.jobs.registry import JobContext
+    from tests.generation.handler_exports import build_regenerate_handler
 
     variant = SimpleNamespace(id=uuid4(), content_pack_id=uuid4(), platform="instagram")
     pack = SimpleNamespace(
@@ -2574,8 +2380,8 @@ async def test_regeneration_terminal_failure_clears_exact_owned_fence(monkeypatc
 
         return handle
 
-    monkeypatch.setattr("app.generation.handlers.build_pack_generation_handler", pack_builder)
-    monkeypatch.setattr("app.generation.handlers.clear_regeneration_fence", clear)
+    monkeypatch.setattr("app.generation.variant_regeneration.build_pack_generation_handler", pack_builder)
+    monkeypatch.setattr("app.generation.variant_regeneration.clear_regeneration_fence", clear)
     job = SimpleNamespace(
         id=uuid4(),
         attempt_count=2,
@@ -2602,9 +2408,9 @@ async def test_regeneration_terminal_failure_clears_exact_owned_fence(monkeypatc
 @pytest.mark.asyncio
 async def test_regeneration_retry_replays_actual_committed_artifact_bound_to_immutable_base(monkeypatch):
     from app.automations.telegram.handlers import sha256_canonical
-    from app.generation.handlers import build_regenerate_handler
     from app.generation.models import ContentPack, PlatformVariant
     from app.jobs.registry import JobContext
+    from tests.generation.handler_exports import build_regenerate_handler
 
     fixture = _pack_handler_fixture()
     pack_id, variant_id, base_id, revision_id, run_id, attempt_id = (
@@ -2655,7 +2461,6 @@ async def test_regeneration_retry_replays_actual_committed_artifact_bound_to_imm
         prompts=[fixture.prompts["instagram"]],
         scalar_values=[
             variant,
-            child,
             fixture.story,
             pack.id,
             fixture.story,
@@ -2672,19 +2477,20 @@ async def test_regeneration_retry_replays_actual_committed_artifact_bound_to_imm
         "base_revision_id": str(base_id),
         "base_content_hash": base.content_hash,
     }
+
     async def cached_invoke(context, **kwargs):
         assert "before_provider_call" in kwargs
         return durable_run, SimpleNamespace(id=attempt_id), authored
 
     monkeypatch.setattr(
-        "app.generation.handlers._locked_story_evidence",
+        "app.generation.package_generation._locked_story_evidence",
         lambda context, revision: _resolved(([fixture.ref], fixture.evidence)),
     )
     monkeypatch.setattr(
-        "app.generation.handlers._trusted_story_media",
+        "app.generation.package_generation._trusted_story_media",
         lambda session_value, evidence, **kwargs: _resolved(({}, [])),
     )
-    monkeypatch.setattr("app.generation.handlers._invoke", cached_invoke)
+    monkeypatch.setattr("app.generation.package_generation._invoke", cached_invoke)
 
     result = await build_regenerate_handler(SimpleNamespace())(
         fixture.job,
@@ -2697,93 +2503,11 @@ async def test_regeneration_retry_replays_actual_committed_artifact_bound_to_imm
 
 
 @pytest.mark.asyncio
-async def test_release_three_queued_telegram_regeneration_normalizes_current_base_and_prompt(monkeypatch):
-    from app.generation.default_prompts import prompt_checksum
-    from app.generation.handlers import build_regenerate_handler
-    from app.generation.models import ContentPack, PlatformVariant, PlatformVariantRevision, PromptTemplateVersion
-    from app.jobs.registry import JobContext
-
-    variant = SimpleNamespace(id=uuid4(), content_pack_id=uuid4(), platform="telegram")
-    pack = SimpleNamespace(
-        id=variant.content_pack_id,
-        story_revision_id=uuid4(),
-        brand_profile_id=uuid4(),
-    )
-    current = SimpleNamespace(id=uuid4(), content_hash="b" * 64)
-    system_template = "Grounded Telegram system"
-    user_template = "Story={canonical_story_json}"
-    output_schema = {}
-    prompt = SimpleNamespace(
-        id=uuid4(),
-        system_template=system_template,
-        user_template=user_template,
-        output_schema=output_schema,
-        checksum_sha256=prompt_checksum(system_template, user_template, output_schema),
-    )
-
-    class Session:
-        async def get(self, model, identifier):
-            if model is PlatformVariant and identifier == variant.id:
-                return variant
-            if model is ContentPack and identifier == pack.id:
-                return pack
-            return None
-
-        async def scalar(self, statement):
-            entity = statement.column_descriptions[0]["entity"]
-            if entity is PlatformVariant:
-                return variant
-            if entity is PlatformVariantRevision:
-                return current
-            if entity is PromptTemplateVersion:
-                return prompt
-            return None
-
-        async def scalars(self, statement):
-            assert statement._for_update_arg is None
-            return [prompt]
-
-    delegated_payloads = []
-
-    def pack_builder(profile_resolver):
-        async def handle(job, context):
-            delegated_payloads.append(dict(job.payload))
-            return {"normalized": True}
-
-        return handle
-
-    monkeypatch.setattr("app.generation.handlers.build_pack_generation_handler", pack_builder)
-    job = SimpleNamespace(
-        payload={
-            "variant_id": str(variant.id),
-            "generation_provider_profile_id": str(uuid4()),
-            "platform_prompt_template_version_id": str(prompt.id),
-            "instruction": "Try again",
-        }
-    )
-
-    result = await build_regenerate_handler(SimpleNamespace())(
-        job,
-        JobContext(session=Session(), providers=SimpleNamespace()),
-    )
-
-    assert result == {"normalized": True}
-    normalized = delegated_payloads[0]
-    assert normalized["platforms"] == ["telegram"]
-    assert normalized["base_revision_id"] == str(current.id)
-    assert normalized["base_content_hash"] == current.content_hash
-    assert normalized["platform_prompt_template_version_ids"] == {"telegram": str(prompt.id)}
-    assert normalized["platform_prompt_checksums"] == {"telegram": prompt.checksum_sha256}
-    assert "platform_prompt_template_version_id" not in normalized
-
-
-@pytest.mark.parametrize("case", ["manual_legacy", "platform_mismatch"])
-@pytest.mark.asyncio
-async def test_regeneration_handler_rejects_ambiguous_legacy_or_target_platform_mismatch(monkeypatch, case):
-    from app.generation.handlers import build_regenerate_handler
+async def test_regeneration_handler_rejects_target_platform_mismatch(monkeypatch):
     from app.generation.models import ContentPack, PlatformVariant, PlatformVariantRevision
     from app.jobs.errors import PermanentJobError
     from app.jobs.registry import JobContext
+    from tests.generation.handler_exports import build_regenerate_handler
 
     target_platform = "instagram"
     variant = SimpleNamespace(id=uuid4(), content_pack_id=uuid4(), platform=target_platform)
@@ -2817,21 +2541,18 @@ async def test_regeneration_handler_rejects_ambiguous_legacy_or_target_platform_
 
         return handle
 
-    monkeypatch.setattr("app.generation.handlers.build_pack_generation_handler", pack_builder)
+    monkeypatch.setattr("app.generation.variant_regeneration.build_pack_generation_handler", pack_builder)
     payload = {
         "variant_id": str(variant.id),
         "generation_provider_profile_id": str(uuid4()),
     }
-    if case == "manual_legacy":
-        payload["platform_prompt_template_version_id"] = str(uuid4())
-    else:
-        payload |= {
-            "base_revision_id": str(current.id),
-            "base_content_hash": current.content_hash,
-            "platforms": ["blog"],
-            "platform_prompt_template_version_ids": {"blog": str(uuid4())},
-            "platform_prompt_checksums": {"blog": "c" * 64},
-        }
+    payload |= {
+        "base_revision_id": str(current.id),
+        "base_content_hash": current.content_hash,
+        "platforms": ["blog"],
+        "platform_prompt_template_version_ids": {"blog": str(uuid4())},
+        "platform_prompt_checksums": {"blog": "c" * 64},
+    }
 
     with pytest.raises(PermanentJobError):
         await build_regenerate_handler(SimpleNamespace())(

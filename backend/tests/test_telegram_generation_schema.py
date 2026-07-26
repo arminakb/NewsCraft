@@ -16,9 +16,7 @@ def test_telegram_output_rejects_unbounded_or_unsupported_content():
     with pytest.raises(ValidationError):
         TelegramRewriteOutput(body="<script>alert(1)</script>", parse_mode="HTML", buttons=[])
     with pytest.raises(ValidationError):
-        TelegramRewriteOutput(
-            body='<a href="javascript:alert(1)">unsafe</a>', parse_mode="HTML", buttons=[]
-        )
+        TelegramRewriteOutput(body='<a href="javascript:alert(1)">unsafe</a>', parse_mode="HTML", buttons=[])
     for malformed in ("<b>x</i>", "</b>orphan", "<b/>x", "<!--comment--><b>x</b>"):
         with pytest.raises(ValidationError):
             TelegramRewriteOutput(body=malformed, parse_mode="HTML", buttons=[])

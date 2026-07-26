@@ -18,9 +18,7 @@ async def list_ingest_runs(
     limit: int = Query(100, ge=1, le=250),
     session: AsyncSession = SessionDependency,
 ):
-    rows = await session.scalars(
-        select(IngestRun).order_by(IngestRun.started_at.desc()).limit(limit)
-    )
+    rows = await session.scalars(select(IngestRun).order_by(IngestRun.started_at.desc()).limit(limit))
     return list(rows)
 
 
@@ -34,8 +32,10 @@ async def run_ingest(request: IngestRunRequest, session: AsyncSession = SessionD
         pause_sensitive=False,
     )
     await session.commit()
-    return JobAcceptedOut(
-        job_id=result.job.id,
-        status=result.job.status,
-        deduplicated=not result.created,
+    return JobAcceptedOut.model_validate(
+        {
+            "job_id": result.job.id,
+            "status": result.job.status,
+            "deduplicated": not result.created,
+        }
     )

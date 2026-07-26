@@ -7,10 +7,10 @@ import { OperationsPageFrame } from "@/components/dashboard/pages/operations-pag
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Progress } from "@/components/ui/progress"
-import { getIngestRuns, runIngest } from "@/lib/api-client"
+import { getIngestRuns, runIngest } from "@/features/operations/ingestion-api"
+import type { IngestionRunSummary } from "@/features/operations/ingestion-types"
 import { formatNumber } from "@/lib/format"
 import { queryKeys } from "@/lib/query-keys"
-import type { IngestionRunSummary } from "@/lib/types"
 import { cn } from "@/lib/utils"
 
 const runPresentation = {

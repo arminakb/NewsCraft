@@ -16,28 +16,24 @@ describe("NewsroomSidebar", () => {
   })
 
   it("keeps primary routes in the compact rail and every advanced route in its panel", async () => {
-    render(<NewsroomSidebar summary={{ queued: 3, running: 1, attention: 2, succeededToday: 5 }} />)
+    render(<NewsroomSidebar summary={{ queued: 3, running: 1, attention: 2, succeeded_today: 5 }} />)
 
     const navigation = screen.getByRole("navigation", { name: "Newsroom navigation" })
     expect(within(navigation).getAllByRole("link").map((link) => link.getAttribute("aria-label"))).toEqual([
       "Today",
-      "Feed",
+      "Inbox",
       "Drafts",
-      "Review & Publish",
       "Calendar",
+      "Library",
     ])
 
     expect(screen.getByRole("link", { name: "Today" })).toHaveAttribute("href", "/")
-    expect(screen.getByRole("link", { name: "Feed" })).toHaveAttribute("href", "/feed")
+    expect(screen.getByRole("link", { name: "Inbox" })).toHaveAttribute("href", "/inbox")
     expect(screen.getByRole("link", { name: "Drafts" })).toHaveAttribute("href", "/drafts")
-    expect(screen.getByRole("link", { name: "Review & Publish" })).toHaveAttribute(
-      "href",
-      "/drafts?approval_state=pending_review"
-    )
     expect(screen.getByRole("link", { name: "Calendar" })).toHaveAttribute("href", "/calendar")
-    expect(screen.queryByRole("link", { name: "Inbox" })).not.toBeInTheDocument()
+    expect(screen.getByRole("link", { name: "Library" })).toHaveAttribute("href", "/feed")
+    expect(screen.queryByRole("link", { name: "Feed monitor" })).not.toBeInTheDocument()
     expect(screen.queryByRole("link", { name: "Content" })).not.toBeInTheDocument()
-    expect(screen.queryByRole("link", { name: "Library" })).not.toBeInTheDocument()
 
     const advanced = screen.getByRole("button", { name: /Advanced navigation/ })
     expect(advanced).toHaveAttribute("aria-current", "page")
@@ -78,12 +74,11 @@ describe("NewsroomSidebar", () => {
     expect(screen.getByRole("button", { name: "Advanced navigation" })).not.toHaveAttribute("aria-current")
   })
 
-  it("marks Review & Publish while an exact review workspace is open", () => {
+  it("keeps exact review work under Drafts", () => {
     pathname = "/review/revision-1"
     render(<NewsroomSidebar />)
 
-    expect(screen.getByRole("link", { name: "Review & Publish" })).toHaveAttribute("aria-current", "page")
-    expect(screen.getByRole("link", { name: "Drafts" })).not.toHaveAttribute("aria-current")
+    expect(screen.getByRole("link", { name: "Drafts" })).toHaveAttribute("aria-current", "page")
   })
 
   it("marks deep advanced routes and closes the panel on outside press", () => {
@@ -111,10 +106,10 @@ describe("NewsroomSidebar", () => {
     expect(within(dialog).getByText("System")).toBeInTheDocument()
     expect(within(dialog).getAllByRole("link").map((link) => link.textContent)).toEqual([
       "Today",
-      "Feed",
+      "Inbox",
       "Drafts",
-      "Review & Publish",
       "Calendar",
+      "Library",
       "Job Queue",
       "Automations",
       "Sources",
@@ -124,15 +119,13 @@ describe("NewsroomSidebar", () => {
       "Retention",
     ])
     expect(within(dialog).getByRole("link", { name: "Automations" })).toHaveAttribute("href", "/automations")
-    expect(within(dialog).getByRole("link", { name: "Feed" })).toHaveAttribute("href", "/feed")
+    expect(within(dialog).getByRole("link", { name: "Inbox" })).toHaveAttribute("href", "/inbox")
+    expect(within(dialog).getByRole("link", { name: "Library" })).toHaveAttribute("href", "/feed")
     expect(within(dialog).getByRole("link", { name: "Drafts" })).toHaveAttribute("href", "/drafts")
-    expect(within(dialog).getByRole("link", { name: "Review & Publish" })).toHaveAttribute("href", "/drafts?approval_state=pending_review")
     expect(within(dialog).getByRole("link", { name: "Calendar" })).toHaveAttribute("href", "/calendar")
     expect(within(dialog).getByRole("link", { name: "Content Settings" })).toHaveAttribute("href", "/settings/content")
     expect(within(dialog).getByRole("link", { name: "Retention" })).toHaveAttribute("href", "/settings/retention")
-    expect(within(dialog).queryByRole("link", { name: "Inbox" })).not.toBeInTheDocument()
     expect(within(dialog).queryByRole("link", { name: /^Content$/ })).not.toBeInTheDocument()
-    expect(within(dialog).queryByRole("link", { name: "Library" })).not.toBeInTheDocument()
     expect(within(dialog).queryByRole("link", { name: "Media" })).not.toBeInTheDocument()
   })
 

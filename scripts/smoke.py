@@ -434,8 +434,8 @@ class SmokeDriver:
         return _required_id(data.get("job_id"), code)
 
     def _health(self) -> StepEvidence:
-        response = _as_dict(self._request("GET", "/health").data, "health_response_invalid")
-        _require(response.get("status") == "ok", "health_not_ok")
+        response = _as_dict(self._request("GET", "/health/live").data, "health_response_invalid")
+        _require(response.get("status") == "alive", "health_not_ok")
         return StepEvidence(
             statuses={"api": "ok"},
             invariants=("api_health",),
@@ -497,10 +497,10 @@ class SmokeDriver:
         provider = _as_dict(
             self._request(
                 "POST",
-                "/ai-provider-profiles",
+                "/llm-providers",
                 body={
                     "name": f"{self.run_id}-provider",
-                    "provider_type": "fake",
+                    "protocol": "fake",
                     "default_model": "fake-v1",
                     "enabled": True,
                 },
@@ -509,15 +509,11 @@ class SmokeDriver:
             "provider_response_invalid",
         )
         provider_id = _required_id(provider.get("id"), "provider_id_missing")
-        capabilities = _as_dict(
-            provider.get("capabilities"),
-            "provider_capabilities_invalid",
-        )
         _require(
-            provider.get("provider_type") == self.provider
+            provider.get("protocol") == self.provider
             and provider.get("configured") is True
-            and capabilities.get("generation") is True
-            and capabilities.get("research") is True,
+            and provider.get("generation_ready") is True
+            and provider.get("research_ready") is True,
             "fake_provider_not_ready",
         )
 
@@ -538,17 +534,17 @@ class SmokeDriver:
         source_id = _required_id(source_response.get("id"), "source_id_missing")
         _require(source_response.get("access_mode") == "public_html", "source_mode_invalid")
 
-        secret_ref = f"NEWSCRAFT_SMOKE_{self.run_id.rsplit('-', 1)[1].upper()}"
-        self._state["secret_canary"] = secret_ref
+        suffix = self.run_id.rsplit("-", 1)[1]
+        bot_token = f"123456:deterministic-smoke-token-{suffix}"
+        self._state["secret_canary"] = bot_token
         destination_response = _as_dict(
             self._request(
                 "POST",
                 "/telegram/destinations",
                 body={
                     "name": f"{self.run_id}-destination",
-                    "target_ref": f"@{self.run_id}",
-                    "secret_ref": secret_ref,
-                    "allow_auto_publish": False,
+                    "target": f"@newscraft_smoke_{suffix}",
+                    "bot_token": bot_token,
                 },
                 expected_statuses=frozenset({202}),
             ).data,
@@ -559,60 +555,94 @@ class SmokeDriver:
             "destination_response_invalid",
         )
         destination_id = _required_id(destination.get("id"), "destination_id_missing")
-        _require(destination.get("configured") is False, "destination_must_be_unconfigured")
+        _require(destination.get("configured") is True, "destination_must_be_configured")
+        _require(destination.get("enabled") is False, "destination_must_start_disabled")
         destination_job_id = self._job_id(
             destination_response.get("job"),
             "destination_job_invalid",
         )
+        destination_job = self._poll_job(destination_job_id)
+        _require(destination_job.get("status") == "succeeded", "destination_check_failed")
+        enabled_destination = _as_dict(
+            self._request(
+                "POST",
+                f"/telegram/destinations/{destination_id}/enable",
+                body={},
+            ).data,
+            "destination_enable_response_invalid",
+        )
+        _require(
+            enabled_destination.get("configured") is True,
+            "destination_configuration_lost",
+        )
+        _require(enabled_destination.get("enabled") is True, "destination_not_enabled")
+        _require(
+            enabled_destination.get("health_status") == "healthy",
+            "destination_not_healthy",
+        )
+        _require(
+            enabled_destination.get("administrator_status") == "administrator",
+            "destination_not_administrator",
+        )
 
-        options = _as_dict(
-            self._request("GET", "/telegram/automations/options").data,
-            "automation_options_invalid",
-        )
-        sources = _as_list(options.get("sources"), "automation_sources_invalid")
-        destinations = _as_list(
-            options.get("destinations"),
-            "automation_destinations_invalid",
-        )
-        brands = _as_list(options.get("brand_profiles"), "brand_options_invalid")
-        prompts = _as_list(
-            options.get("prompt_template_versions"),
-            "prompt_options_invalid",
-        )
-        providers = _as_list(
-            options.get("ai_provider_profiles"),
-            "provider_options_invalid",
-        )
-        _require(
-            any(isinstance(item, dict) and item.get("id") == source_id for item in sources),
-            "source_option_missing",
-        )
-        _require(
-            any(isinstance(item, dict) and item.get("id") == destination_id for item in destinations),
-            "destination_option_missing",
-        )
-        brand_option = next(
-            (item for item in brands if isinstance(item, dict) and item.get("id") == brand_id),
-            None,
-        )
-        prompt = next((item for item in prompts if isinstance(item, dict)), None)
-        provider_option = next(
-            (item for item in providers if isinstance(item, dict) and item.get("id") == provider_id),
-            None,
-        )
-        _require(brand_option is not None, "brand_option_missing")
-        _require(prompt is not None, "prompt_option_missing")
-        _require(provider_option is not None, "fake_provider_missing")
-        option_capabilities = _as_dict(
-            provider_option.get("capabilities"),
-            "provider_capabilities_invalid",
-        )
-        _require(
-            provider_option.get("configured") is True
-            and option_capabilities.get("generation") is True
-            and option_capabilities.get("research") is True,
-            "fake_provider_not_ready",
-        )
+        while True:
+            options = _as_dict(
+                self._request("GET", "/telegram/automations/options").data,
+                "automation_options_invalid",
+            )
+            sources = _as_list(options.get("sources"), "automation_sources_invalid")
+            destinations = _as_list(
+                options.get("destinations"),
+                "automation_destinations_invalid",
+            )
+            brands = _as_list(options.get("brand_profiles"), "brand_options_invalid")
+            prompts = _as_list(
+                options.get("prompt_template_versions"),
+                "prompt_options_invalid",
+            )
+            providers = _as_list(
+                options.get("ai_provider_profiles"),
+                "provider_options_invalid",
+            )
+            source_option = next(
+                (item for item in sources if isinstance(item, dict) and item.get("id") == source_id),
+                None,
+            )
+            destination_option = next(
+                (item for item in destinations if isinstance(item, dict) and item.get("id") == destination_id),
+                None,
+            )
+            brand_option = next(
+                (item for item in brands if isinstance(item, dict) and item.get("id") == brand_id),
+                None,
+            )
+            prompt = next((item for item in prompts if isinstance(item, dict)), None)
+            provider_option = next(
+                (item for item in providers if isinstance(item, dict) and item.get("id") == provider_id),
+                None,
+            )
+            source_state = source_option.get("capability_state") if source_option is not None else None
+            destination_state = destination_option.get("capability_state") if destination_option is not None else None
+            option_capabilities = provider_option.get("capabilities") if provider_option is not None else None
+            ready = (
+                brand_option is not None
+                and prompt is not None
+                and provider_option is not None
+                and provider_option.get("configured") is True
+                and isinstance(option_capabilities, dict)
+                and option_capabilities.get("generation") is True
+                and option_capabilities.get("research") is True
+                and isinstance(source_state, dict)
+                and source_state.get("status") == "available"
+                and isinstance(destination_state, dict)
+                and destination_state.get("status") == "available"
+            )
+            if ready:
+                break
+            remaining = self._remaining()
+            if self.poll_interval_seconds:
+                self._sleeper(min(self.poll_interval_seconds, remaining))
+        assert prompt is not None
         prompt_id = _required_id(prompt.get("id"), "prompt_id_missing")
 
         route_response = _as_dict(
@@ -700,9 +730,10 @@ class SmokeDriver:
                 "route_id": route_id,
                 "activation_job_id": activation_job_id,
             },
-            statuses={"route": "ready", "destination": "unconfigured"},
+            statuses={"route": "ready", "destination": "healthy"},
             invariants=(
-                "credential_free_configuration",
+                "synthetic_encrypted_destination_credential",
+                "deterministic_destination_health_check",
                 "unique_persian_brand_and_fake_provider",
                 "whole_run_dry_run_safety",
                 "new_post_only_route_activation",
@@ -881,7 +912,10 @@ class SmokeDriver:
             _required_id(variant.get("id"), "platform_variant_id_missing")
             _required_id(revision.get("id"), "platform_revision_id_missing")
             _required_hash(revision.get("content_hash"), "platform_content_hash_invalid")
-            _require(revision.get("approval_state") == "pending_review", "platform_review_state_invalid")
+            _require(
+                revision.get("approval_state") == "pending_review",
+                "platform_review_state_invalid",
+            )
             if platform == "telegram":
                 _require(
                     bool(content.get("body")) and content.get("parse_mode") == "HTML",
@@ -1047,7 +1081,7 @@ class SmokeDriver:
             "telegram_album_not_preserved",
         )
         _require(
-            dispatch.get("status") in {"captured", "researching", "generating", "needs_review"},
+            dispatch.get("status") in {"captured", "researching", "generating", "needs_review", "pending_review"},
             "telegram_dry_run_status_invalid",
         )
 
@@ -1160,13 +1194,19 @@ class SmokeDriver:
             )
         _require(len(names) == len(set(names)), "export_file_names_not_unique")
         archive_file = artifact.get("archive_file")
-        _require(isinstance(archive_file, str) and bool(archive_file), "export_archive_missing")
+        _require(
+            isinstance(archive_file, str) and bool(archive_file),
+            "export_archive_missing",
+        )
         archive_hash = _required_hash(
             artifact.get("archive_sha256"),
             "export_archive_checksum_invalid",
         )
         manifest_file = artifact.get("manifest_file")
-        _require(isinstance(manifest_file, str) and bool(manifest_file), "export_manifest_file_missing")
+        _require(
+            isinstance(manifest_file, str) and bool(manifest_file),
+            "export_manifest_file_missing",
+        )
         expected_downloads: dict[str, tuple[str, int | None]] = {
             str(manifest_file): (expected_manifest_hash, len(canonical_manifest)),
             str(archive_file): (archive_hash, None),
@@ -1182,9 +1222,15 @@ class SmokeDriver:
         downloaded: dict[str, bytes] = {}
         prefix = f"/exports/{job_id}/download/"
         for path in downloads:
-            _require(isinstance(path, str) and path.startswith(prefix), "export_download_path_invalid")
+            _require(
+                isinstance(path, str) and path.startswith(prefix),
+                "export_download_path_invalid",
+            )
             file_name = str(path).removeprefix(prefix)
-            _require(file_name in expected_downloads and file_name not in downloaded, "export_download_set_invalid")
+            _require(
+                file_name in expected_downloads and file_name not in downloaded,
+                "export_download_set_invalid",
+            )
             content = self._request_bytes(str(path)).data
             expected_hash, expected_length = expected_downloads[file_name]
             _require(
@@ -1386,7 +1432,11 @@ class SmokeDriver:
         _require(completed_job.get("status") == "succeeded", "paused_backfill_not_resumed")
         return StepEvidence(
             ids={"route_id": route_id, "backfill_job_id": backfill_job_id},
-            statuses={"global_pause": "resumed", "route": "resumed", "backfill": "succeeded"},
+            statuses={
+                "global_pause": "resumed",
+                "route": "resumed",
+                "backfill": "succeeded",
+            },
             invariants=(
                 "global_pause_override",
                 "route_pause_and_resume",
@@ -1410,7 +1460,11 @@ class SmokeDriver:
             self._request(
                 "GET",
                 "/operations/history",
-                query={"subject_type": "automation_route", "subject_id": route_id, "limit": 50},
+                query={
+                    "subject_type": "automation_route",
+                    "subject_id": route_id,
+                    "limit": 50,
+                },
             ).data,
             "route_history_invalid",
         )
@@ -1444,7 +1498,10 @@ class SmokeDriver:
             "pause_history_category_invalid",
         )
         serialized = json.dumps(pages, ensure_ascii=False, sort_keys=True)
-        _require(str(self._state["secret_canary"]) not in serialized, "history_secret_canary_leaked")
+        _require(
+            str(self._state["secret_canary"]) not in serialized,
+            "history_secret_canary_leaked",
+        )
         return StepEvidence(
             ids={
                 "story_id": story_id,
@@ -1481,7 +1538,10 @@ class SmokeDriver:
         for name in sorted(EXPECTED_RUNTIME_COMPONENTS):
             component = _as_dict(components[name], "diagnostics_component_invalid")
             status = component.get("status")
-            _require(status in {"healthy", "degraded", "down", "unknown"}, "component_status_invalid")
+            _require(
+                status in {"healthy", "degraded", "down", "unknown"},
+                "component_status_invalid",
+            )
             observed_at = _parse_time(
                 component.get("observed_at"),
                 "component_observed_at_invalid",

@@ -11,8 +11,6 @@ cd backend
 PYTHONPATH=. .venv/bin/python -m app.daily_bundle \
   --start 2026-07-05 \
   --end 2026-07-06 \
-  --topic "AI" \
-  --topic "economy" \
   --output ../today-news/2026-07-05 \
   --download-media
 ```
@@ -23,23 +21,16 @@ With Docker Compose:
 docker compose run --rm api python -m app.daily_bundle \
   --start 2026-07-05 \
   --end 2026-07-06 \
-  --topic "AI" \
-  --topic "economy" \
   --output /workspace/today-news/2026-07-05 \
   --download-media
 ```
 
 The command treats `--start` as inclusive local midnight and `--end` as exclusive local midnight. If both are omitted, it exports yesterday in the selected timezone, defaulting to `Asia/Tehran`.
 
-Phase 1 sources are:
+The command uses the same configured-source workflow as scheduled and manual ingestion:
 
-- Existing curated RSS and Atom feeds through `IngestionService`.
-- Existing public Telegram channels through `IngestionService`.
-- GDELT document API for broad no-signup global news discovery.
-- Google News RSS topic searches.
-- Hacker News top, new, and best stories for AI, startup, and technical trend signals.
-
-Every discovered URL is passed through full article extraction. Extraction failures are stored item-by-item with fallback discovery text, so one bad URL does not abort the bundle.
+- Existing curated RSS and Atom feeds through `IngestionWorkflow`.
+- Existing public Telegram channels through `IngestionWorkflow`.
 
 The output folder has this structure:
 
@@ -100,10 +91,6 @@ With Docker Compose:
 ```bash
 docker compose run --rm api alembic upgrade head
 ```
-
-## Legacy SQLite
-
-`backend/scripts/migrate_legacy_sqlite.py` currently provides a minimal reader for legacy `news.db` article rows. It does not write into PostgreSQL yet.
 
 ## Content Scoring
 
@@ -217,26 +204,15 @@ or from Python by calling `seed_sources(session)`.
 
 ## Trigger Ingestion
 
-Run the worker manually:
-
-```bash
-cd backend
-.venv/bin/python -m app.worker --trigger manual --platform rss --download-media
-```
-
-With Docker Compose:
-
-```bash
-docker compose run --rm worker
-```
-
-The API endpoint is:
+With the Compose stack running, enqueue an ingestion job through the API:
 
 ```bash
 curl -X POST http://localhost:8000/ingest/run \
   -H 'content-type: application/json' \
-  -d '{"platforms":["rss"]}'
+  -d '{"request_id":"123e4567-e89b-42d3-a456-426614174000","platforms":["rss"]}'
 ```
+
+The API records the durable job and `worker-source-generation` claims it.
 
 ## Media Storage
 

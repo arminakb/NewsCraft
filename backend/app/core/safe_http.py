@@ -3,7 +3,8 @@ from __future__ import annotations
 import asyncio
 import ipaddress
 import socket
-from collections.abc import AsyncIterator, Awaitable, Callable, Sequence
+from collections.abc import AsyncIterable, AsyncIterator, Awaitable, Callable, Sequence
+from types import TracebackType
 from typing import Any
 from urllib.parse import urljoin, urlsplit
 
@@ -91,7 +92,7 @@ class _PinnedAsyncNetworkBackend(httpcore.AsyncNetworkBackend):
 
 
 class _HttpcoreResponseStream(httpx.AsyncByteStream):
-    def __init__(self, stream: AsyncIterator[bytes]) -> None:
+    def __init__(self, stream: AsyncIterable[bytes]) -> None:
         self._stream = stream
 
     async def __aiter__(self) -> AsyncIterator[bytes]:
@@ -99,8 +100,9 @@ class _HttpcoreResponseStream(httpx.AsyncByteStream):
             yield chunk
 
     async def aclose(self) -> None:
-        if hasattr(self._stream, "aclose"):
-            await self._stream.aclose()
+        close = getattr(self._stream, "aclose", None)
+        if close is not None:
+            await close()
 
 
 class _PinnedAsyncTransport(httpx.AsyncBaseTransport):
@@ -127,6 +129,8 @@ class _PinnedAsyncTransport(httpx.AsyncBaseTransport):
             response = await self._pool.handle_async_request(core_request)
         except Exception as exc:
             raise SafeHttpError("Manual URL request failed") from exc
+        if not isinstance(response.stream, AsyncIterable):
+            raise SafeHttpError("Manual URL request failed")
         return httpx.Response(
             status_code=response.status,
             headers=response.headers,
@@ -156,9 +160,7 @@ class SafeHttpClient:
         self._max_response_bytes = max_response_bytes
         if transport is not None and network_backend is not None:
             raise ValueError("transport and network_backend are mutually exclusive")
-        self._pinned_backend = _PinnedAsyncNetworkBackend(
-            network_backend or httpcore.AnyIOBackend()
-        )
+        self._pinned_backend = _PinnedAsyncNetworkBackend(network_backend or httpcore.AnyIOBackend())
         effective_transport = transport or _PinnedAsyncTransport(self._pinned_backend)
         self._client = httpx.AsyncClient(
             timeout=timeout,
@@ -172,8 +174,13 @@ class SafeHttpClient:
         await self._client.__aenter__()
         return self
 
-    async def __aexit__(self, *args: object) -> None:
-        await self._client.__aexit__(*args)
+    async def __aexit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_value: BaseException | None,
+        traceback: TracebackType | None,
+    ) -> None:
+        await self._client.__aexit__(exc_type, exc_value, traceback)
 
     async def get(self, url: str, **kwargs: Any) -> httpx.Response:
         return await self._request("GET", url, **kwargs)
@@ -196,9 +203,7 @@ class SafeHttpClient:
             if redirect_count == self._max_redirects:
                 raise SafeHttpError("Too many manual URL redirects")
             current_url = urljoin(str(response.url), location)
-            if response.status_code == 303 or (
-                response.status_code in {301, 302} and current_method == "POST"
-            ):
+            if response.status_code == 303 or (response.status_code in {301, 302} and current_method == "POST"):
                 current_method = "GET"
                 kwargs.pop("content", None)
                 kwargs.pop("data", None)

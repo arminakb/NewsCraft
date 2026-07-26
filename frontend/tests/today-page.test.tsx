@@ -3,7 +3,7 @@ import { fireEvent, render, screen, waitFor, within } from "@testing-library/rea
 
 import { NoticeProvider } from "@/components/providers/notice-provider"
 import { getAutomationControl } from "@/features/control/api"
-import { cancelJob, getJobs, getJobSummary, retryJob } from "@/features/jobs/api"
+import { getJobs, getJobSummary } from "@/features/jobs/api"
 import type { JobFilters, WorkflowJob } from "@/features/jobs/types"
 import { TodayPage } from "@/features/today/today-page"
 
@@ -14,13 +14,11 @@ vi.mock("@/features/control/api", () => ({
 vi.mock("@/features/jobs/api", () => ({
   getJobs: vi.fn(),
   getJobSummary: vi.fn(),
-  retryJob: vi.fn(),
-  cancelJob: vi.fn(),
 }))
 
-const summary = { queued: 3, running: 1, attention: 2, succeededToday: 4 }
-const runningJob = job({ status: "running", progress: 42, progressMessage: "در حال پردازش منابع" })
-const failedJob = job({ id: "22222222-2222-4222-8222-222222222222", status: "failed", errorMessage: "خطای شبکه" })
+const summary = { queued: 3, running: 1, attention: 2, succeeded_today: 4 }
+const runningJob = job({ status: "running", progress: 42, progress_message: "در حال پردازش منابع" })
+const failedJob = job({ id: "22222222-2222-4222-8222-222222222222", status: "failed", error_message: "خطای شبکه" })
 const successJob = job({ id: "33333333-3333-4333-8333-333333333333", status: "succeeded", progress: 100 })
 
 describe("TodayPage", () => {
@@ -35,8 +33,6 @@ describe("TodayPage", () => {
     })
     vi.mocked(getJobSummary).mockResolvedValue(summary)
     vi.mocked(getJobs).mockImplementation(async (filters = {}) => jobsFor(filters))
-    vi.mocked(retryJob).mockResolvedValue({ ...failedJob, status: "queued" })
-    vi.mocked(cancelJob).mockResolvedValue({ ...failedJob, status: "cancelled" })
   })
 
   it("shows the Today heading and loading skeletons", () => {
@@ -62,11 +58,13 @@ describe("TodayPage", () => {
   })
 
   it("renders the exact all-zero empty state", async () => {
-    vi.mocked(getJobSummary).mockResolvedValue({ queued: 0, running: 0, attention: 0, succeededToday: 0 })
+    vi.mocked(getJobSummary).mockResolvedValue({ queued: 0, running: 0, attention: 0, succeeded_today: 0 })
     vi.mocked(getJobs).mockResolvedValue([])
     renderToday()
 
     expect(await screen.findByText("No workflow jobs yet")).toBeInTheDocument()
+    const priority = screen.getByRole("region", { name: "Highest-priority decision" })
+    expect(within(priority).getByRole("link", { name: /Add story/ })).toHaveAttribute("href", "/inbox?add=story")
   })
 
   it("renders summary-only counts, exact attention statuses, progress API text, and successes", async () => {
@@ -83,38 +81,17 @@ describe("TodayPage", () => {
     expect(progressText).toHaveAttribute("dir", "auto")
     expect(screen.getByText("42%", { selector: "[data-progress-label]" })).toHaveAttribute("dir", "auto")
     expect(screen.getByText("خطای شبکه")).toHaveAttribute("dir", "auto")
-    expect(screen.getByRole("region", { name: "Recent successes" })).toHaveTextContent(successJob.jobType)
-  })
-
-  it.each([
-    ["success", false],
-    ["error", true],
-  ] as const)("re-enables Retry after a settled %s, including a failed-job refetch", async (_name, rejects) => {
-    if (rejects) vi.mocked(retryJob).mockRejectedValue(new Error("retry rejected"))
-    renderToday()
-
-    const retry = await screen.findByRole("button", { name: "Retry" })
-    fireEvent.click(retry)
-    await waitFor(() => expect(retryJob).toHaveBeenCalledWith(failedJob.id))
-    await waitFor(() => expect(retry).not.toBeDisabled())
-    if (!rejects) expect(getJobs).toHaveBeenCalledTimes(6)
-  })
-
-  it.each([
-    ["success", false],
-    ["error", true],
-  ] as const)("re-enables Cancel after a settled %s", async (_name, rejects) => {
-    const queuedAttention = job({ id: "44444444-4444-4444-8444-444444444444", status: "queued" })
-    vi.mocked(getJobs).mockImplementation(async (filters = {}) =>
-      filters.statuses?.includes("failed") ? [queuedAttention] : jobsFor(filters)
+    const priority = screen.getByRole("region", { name: "Highest-priority decision" })
+    expect(within(priority).getByText("Resolve failed workflow")).toBeInTheDocument()
+    expect(within(priority).getByRole("link", { name: /Inspect and retry/ })).toHaveAttribute(
+      "href",
+      `/jobs?status=attention&job=${failedJob.id}`,
     )
-    if (rejects) vi.mocked(cancelJob).mockRejectedValue(new Error("cancel rejected"))
-    renderToday()
-
-    const cancel = await screen.findByRole("button", { name: "Cancel" })
-    fireEvent.click(cancel)
-    await waitFor(() => expect(cancelJob).toHaveBeenCalledWith(queuedAttention.id))
-    await waitFor(() => expect(cancel).not.toBeDisabled())
+    expect(screen.getByRole("link", { name: "Open job" })).toHaveAttribute(
+      "href",
+      `/jobs?status=attention&job=${failedJob.id}`,
+    )
+    expect(screen.getByRole("region", { name: "Recent successes" })).toHaveTextContent(successJob.job_type)
   })
 })
 
@@ -128,23 +105,23 @@ function jobsFor(filters: JobFilters): WorkflowJob[] {
 function job(overrides: Partial<WorkflowJob> = {}): WorkflowJob {
   return {
     id: "11111111-1111-4111-8111-111111111111",
-    jobType: "ingest.collect",
+    job_type: "ingest.collect",
     status: "queued",
     origin: "manual",
     priority: 0,
-    pauseSensitive: false,
-    scheduledFor: "2026-07-12T08:00:00Z",
-    attemptCount: 0,
-    maxAttempts: 3,
+    pause_sensitive: false,
+    scheduled_for: "2026-07-12T08:00:00Z",
+    attempt_count: 0,
+    max_attempts: 3,
     progress: 0,
-    progressMessage: null,
-    errorClass: null,
-    errorCode: null,
-    errorMessage: null,
-    startedAt: null,
-    finishedAt: null,
-    createdAt: "2026-07-12T08:00:00Z",
-    updatedAt: "2026-07-12T08:00:00Z",
+    progress_message: null,
+    error_class: null,
+    error_code: null,
+    error_message: null,
+    started_at: null,
+    finished_at: null,
+    created_at: "2026-07-12T08:00:00Z",
+    updated_at: "2026-07-12T08:00:00Z",
     ...overrides,
   }
 }

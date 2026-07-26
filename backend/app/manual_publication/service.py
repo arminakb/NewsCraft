@@ -13,7 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.automations.telegram.handlers import sha256_canonical
 from app.generation.models import PlatformVariant, PlatformVariantRevision
-from app.generation.multiplatform import MANUAL_PLATFORM_ADAPTERS
+from app.generation.multiplatform import parse_manual_platform_payload
 from app.generation.platform_schemas import PlatformPayload
 from app.generation.platform_validation import validate_platform_payload
 from app.jobs.events import redact_event_data
@@ -77,10 +77,7 @@ _CHECKLISTS: dict[str, tuple[ManualChecklistItem, ...]] = {
     ),
 }
 
-if {
-    platform: tuple(item.id for item in items)
-    for platform, items in _CHECKLISTS.items()
-} != CHECKLIST_IDS_BY_PLATFORM:
+if {platform: tuple(item.id for item in items) for platform, items in _CHECKLISTS.items()} != CHECKLIST_IDS_BY_PLATFORM:
     raise RuntimeError("manual checklist model and service contracts diverged")
 
 
@@ -242,25 +239,22 @@ class ManualPublicationService:
                 code="manual_revision_not_approved",
                 status_code=409,
             )
-        expected_hash = sha256_canonical(
-            {"content": revision.content, "evidence_map": revision.evidence_map}
-        )
+        expected_hash = sha256_canonical({"content": revision.content, "evidence_map": revision.evidence_map})
         if revision.content_hash != expected_hash:
             raise ManualPublicationError(
                 "revision content hash is invalid",
                 code="manual_revision_hash_mismatch",
                 status_code=409,
             )
-        adapter = MANUAL_PLATFORM_ADAPTERS[variant.platform]
         try:
-            payload = adapter.model_validate(revision.content)
+            platform, payload = parse_manual_platform_payload(variant.platform, revision.content)
         except ValidationError as exc:
             raise ManualPublicationError(
                 "revision content is not schema-valid",
                 code="manual_revision_schema_invalid",
                 status_code=409,
             ) from exc
-        issues = validate_platform_payload(variant.platform, payload)
+        issues = validate_platform_payload(platform, payload)
         if any(issue.severity == "error" for issue in issues):
             raise ManualPublicationError(
                 "revision content is not schema-valid",
@@ -373,7 +367,7 @@ class ManualPublicationService:
         normalized_schedule = scheduled_for.astimezone(UTC)
         try:
             ZoneInfo(display_timezone)
-        except (OSError, ZoneInfoNotFoundError, ValueError):
+        except OSError, ZoneInfoNotFoundError, ValueError:
             raise ManualPublicationError(
                 "display_timezone must be a valid IANA timezone",
                 code="manual_timezone_invalid",
@@ -468,9 +462,7 @@ class ManualPublicationService:
         if updated == current and plan.status == next_status:
             return plan
         observed_at = self._observed_at()
-        changed_ids = sorted(
-            key for key in updated if current.get(key) != updated.get(key)
-        )
+        changed_ids = sorted(key for key in updated if current.get(key) != updated.get(key))
         plan.checklist_state = updated
         plan.status = next_status
         plan.updated_at = observed_at

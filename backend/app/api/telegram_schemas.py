@@ -27,9 +27,7 @@ class TelegramSourceCreate(BaseModel):
         if self.access_mode == "public_html" and any(refs):
             raise ValueError("public_html cannot store MTProto credential references")
         if self.access_mode == "mtproto_user" and not all(refs):
-            raise ValueError(
-                "mtproto_user requires api_id_secret_ref, api_hash_secret_ref, and session_secret_ref"
-            )
+            raise ValueError("mtproto_user requires api_id_secret_ref, api_hash_secret_ref, and session_secret_ref")
         return self
 
 
@@ -60,9 +58,7 @@ class TelegramDestinationPatch(BaseModel):
     @model_validator(mode="before")
     @classmethod
     def reject_nulls_except_route(cls, value):
-        if isinstance(value, dict) and any(
-            item is None for key, item in value.items() if key != "proxy_profile_id"
-        ):
+        if isinstance(value, dict) and any(item is None for key, item in value.items() if key != "proxy_profile_id"):
             raise ValueError("destination patch fields cannot be null")
         return value
 

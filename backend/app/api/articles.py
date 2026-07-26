@@ -4,27 +4,46 @@ import base64
 import binascii
 import hashlib
 import json
-from collections import Counter, defaultdict
-from dataclasses import dataclass
+from collections import defaultdict
+from dataclasses import asdict, dataclass
 from datetime import datetime
-from typing import Annotated, Any, Literal
+from typing import Annotated, Any, Literal, cast
 from urllib.parse import urlsplit
 from uuid import UUID
 
 import nh3
 from fastapi import APIRouter, Depends, HTTPException, Query
-from pydantic import BaseModel, ConfigDict, Field
-from sqlalchemy import exists, false, func, or_, select
+from sqlalchemy import case, exists, func, literal, literal_column, or_, select, union_all
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import aliased
 from sqlalchemy.sql import Select
 
+from app.api.article_schemas import (
+    ArticleAdvancedOut,
+    ArticleCoverageFacetOut,
+    ArticleCoverageOut,
+    ArticleDetailOut,
+    ArticleEvidenceReferenceOut,
+    ArticleFacetsOut,
+    ArticleFacetValueOut,
+    ArticleImageOut,
+    ArticleListOut,
+    ArticleMediaOut,
+    ArticleRawClassificationOut,
+    ArticleReadinessDetailOut,
+    ArticleReadinessSummaryOut,
+    ArticleSourceFacetOut,
+    ArticleSourceOut,
+    ArticleStoryLinkOut,
+    ArticleStorySummaryOut,
+    ArticleSummaryOut,
+    CoverageState,
+)
 from app.api.stories import _story_summaries
 from app.content.article_metadata import (
-    canonical_article_expressions,
     canonical_content_type,
     canonical_language,
     canonical_topic,
-    canonicalize_article_classification,
 )
 from app.db.models import ArticleCollection, ArticleCollectionItem, ContentItem, ItemMedia, MediaAsset, Source
 from app.db.session import get_session
@@ -36,228 +55,11 @@ SessionDependency = Depends(get_session)
 _EXCERPT_LIMIT = 500
 _EXCERPT_SCAN_LIMIT = 2_000
 ArticleSort = Literal["newest", "score"]
-CoverageState = Literal["ungrouped", "incomplete", "complete"]
-
-
-class ArticleSourceOut(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    id: UUID | None
-    name: str | None
-    platform: str | None
-    homepage_url: str | None
-
-
-class ArticleImageOut(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    id: UUID
-    url: str
-    kind: str
-    width: int | None
-    height: int | None
-    alt_text: str | None
-    fetch_status: str
-
-
-class ArticleStorySummaryOut(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    id: UUID
-    title: str
-    editorial_state: str
-    complete: bool
-    score: int = Field(ge=0, le=100)
-
-
-class ArticleCoverageOut(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    state: CoverageState
-    stories: list[ArticleStorySummaryOut]
-
-
-class ArticleReadinessSummaryOut(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    ready: bool
-
-
-class ArticleReadinessDetailOut(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    ready: bool
-    reason: str | None
-    blockers: list[str]
-
-
-class ArticleCoreOut(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    id: UUID
-    title: str | None
-    summary: str | None
-    excerpt: str | None
-    source: ArticleSourceOut
-    canonical_url: str | None
-    published_at: datetime | None
-    sort_at: datetime
-    display_at: datetime
-    date_basis: Literal["published", "collected"]
-    score: int
-    content_type: str
-    topic: str | None
-    domain: str | None
-    language: str | None
-    direction: Literal["ltr", "rtl"] | None
-    coverage: ArticleCoverageOut
-    image: ArticleImageOut | None
-    has_image: bool
-    marked: Literal[False] = False
-    marked_at: None = None
-    saved: bool
-    saved_collection_ids: list[UUID]
-
-
-class ArticleSummaryOut(ArticleCoreOut):
-    article_readiness: ArticleReadinessSummaryOut
-
-
-class ArticleListOut(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    items: list[ArticleSummaryOut]
-    next_cursor: str | None
-    result_count: int = Field(ge=0)
-
-
-class ArticleFacetValueOut(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    value: str
-    count: int = Field(ge=1)
-
-
-class ArticleCoverageFacetOut(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    value: CoverageState
-    count: int = Field(ge=1)
-
-
-class ArticleSourceFacetOut(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    id: UUID
-    name: str
-    platform: str
-    count: int = Field(ge=1)
-
-
-class ArticleFacetsOut(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    languages: list[ArticleFacetValueOut]
-    topics: list[ArticleFacetValueOut]
-    content_types: list[ArticleFacetValueOut]
-    sources: list[ArticleSourceFacetOut]
-    coverage: list[ArticleCoverageFacetOut]
-
-
-class ArticleStoryLinkOut(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    id: UUID
-    title: str
-    editorial_state: str
-    primary_language: str
-    active: bool
-    superseded_by_id: UUID | None
-    evidence_count: int = Field(ge=0)
-    complete: bool
-    completeness_score: int = Field(ge=0, le=100)
-    story_url: str
-    evidence_url: str
-    research_runs_url: str
-    content_packs_url: str
-
-
-class ArticleEvidenceReferenceOut(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    id: UUID
-    story_id: UUID
-    evidence_key: str
-    title: str | None
-    source_url: str | None
-    published_at: datetime | None
-    captured_at: datetime
-    content_sha256: str
-    story_url: str
-    evidence_url: str
-
-
-class ArticleMediaOut(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    id: UUID
-    url: str
-    kind: str
-    mime_type: str | None
-    width: int | None
-    height: int | None
-    alt_text: str | None
-    title: str | None
-    fetch_status: str
-    role: str
-    sort_order: int
-    primary: bool
-
-
-class ArticleRawClassificationOut(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    content_type: str | None
-    topic: str | None
-    language: str | None
-
-
-class ArticleAdvancedOut(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    item_type: str
-    status: str
-    rewrite_bucket: str | None
-    classification_reasons: list[str]
-    source_tier: str
-    freshness_bucket: str
-    quality_status: str
-    title_quality: str
-    title_was_generated: bool
-    content_intent: str | None
-    duplicate_of_id: UUID | None
-    date_source: str | None
-    date_parse_status: str
-    created_at: datetime
-    updated_at: datetime
-    raw_classification: ArticleRawClassificationOut
-
-
-class ArticleDetailOut(ArticleCoreOut):
-    article_readiness: ArticleReadinessDetailOut
-    content_text: str | None
-    sanitized_html: str | None
-    authors: list[str]
-    tags: list[str]
-    media: list[ArticleMediaOut]
-    story_links: list[ArticleStoryLinkOut]
-    evidence_references: list[ArticleEvidenceReferenceOut]
-    advanced: ArticleAdvancedOut
 
 
 @dataclass(frozen=True, slots=True)
 class ArticleFilters:
-    title_query: str | None = None
+    search_query: str | None = None
     languages: tuple[str, ...] = ()
     topics: tuple[str, ...] = ()
     content_types: tuple[str, ...] = ()
@@ -271,21 +73,13 @@ class ArticleFilters:
     collection_id: UUID | None = None
 
     def fingerprint(self) -> str:
-        payload = {
-            "q": self.title_query,
-            "language": self.languages,
-            "topic": self.topics,
-            "content_type": self.content_types,
-            "source_id": tuple(str(value) for value in self.source_ids),
-            "coverage": self.coverage,
-            "has_image": self.has_image,
-            "score_min": self.score_min,
-            "score_max": self.score_max,
-            "date_from": self.date_from.isoformat() if self.date_from else None,
-            "date_to": self.date_to.isoformat() if self.date_to else None,
-            "collection_id": str(self.collection_id) if self.collection_id else None,
-        }
-        raw = json.dumps(payload, ensure_ascii=True, sort_keys=True, separators=(",", ":")).encode()
+        raw = json.dumps(
+            asdict(self),
+            default=str,
+            ensure_ascii=True,
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode()
         return hashlib.sha256(raw).hexdigest()
 
 
@@ -296,15 +90,11 @@ def _display_at_expression():
     return func.coalesce(ContentItem.published_at, ContentItem.sort_at)
 
 
-def _topic_expression():
-    return ContentItem.metrics["classification"]["category"].astext
-
-
 def _article_classification_expressions():
-    return canonical_article_expressions(
-        ContentItem.content_type,
-        _topic_expression(),
-        ContentItem.language_code,
+    return (
+        ContentItem.canonical_classification["content_type"].astext,
+        ContentItem.canonical_classification["topic"].astext,
+        ContentItem.canonical_classification["language"].astext,
     )
 
 
@@ -322,7 +112,142 @@ def _usable_image_expression():
     )
 
 
+def _search_vector_expression():
+    document = (
+        func.coalesce(ContentItem.title, literal_column("''"))
+        + literal_column("' '")
+        + func.coalesce(ContentItem.content_text, literal_column("''"))
+    )
+    return func.to_tsvector(literal_column("'simple'::regconfig"), document)
+
+
+def _story_completeness_subquery():
+    source_host = func.lower(
+        func.regexp_replace(
+            func.split_part(
+                func.split_part(func.coalesce(StoryEvidenceSnapshot.source_url, ""), "://", 2),
+                "/",
+                1,
+            ),
+            r":\d+$",
+            "",
+        )
+    )
+    source_label = func.lower(func.trim(StoryEvidenceSnapshot.snapshot_metadata["source_label"].astext))
+    source_identity = case(
+        (source_host != "", "host:" + source_host),
+        (source_label != "", "source:" + source_label),
+        else_=None,
+    )
+    body_characters = func.sum(
+        func.char_length(
+            func.regexp_replace(
+                func.coalesce(StoryEvidenceSnapshot.content_text, ""),
+                r"\s+",
+                "",
+                "g",
+            )
+        )
+    )
+    has_primary = func.bool_or(
+        func.coalesce(StoryEvidenceSnapshot.snapshot_metadata["is_primary"].astext == "true", False)
+    )
+    return (
+        select(
+            StoryEvidenceSnapshot.story_id.label("story_id"),
+            func.count(func.distinct(source_identity)).label("source_count"),
+            body_characters.label("body_character_count"),
+            has_primary.label("has_primary"),
+        )
+        .group_by(StoryEvidenceSnapshot.story_id)
+        .subquery("story_completeness")
+    )
+
+
+def _active_story_exists():
+    link = aliased(StoryEvidenceSnapshot)
+    story = aliased(Story)
+    return exists(
+        select(1)
+        .select_from(link)
+        .join(story, story.id == link.story_id)
+        .where(
+            link.content_item_id == ContentItem.id,
+            story.superseded_by_id.is_(None),
+        )
+    ).correlate(ContentItem)
+
+
+def _complete_story_exists():
+    link = aliased(StoryEvidenceSnapshot)
+    story = aliased(Story)
+    completeness = _story_completeness_subquery()
+    return exists(
+        select(1)
+        .select_from(link)
+        .join(story, story.id == link.story_id)
+        .join(completeness, completeness.c.story_id == story.id)
+        .where(
+            link.content_item_id == ContentItem.id,
+            story.superseded_by_id.is_(None),
+            completeness.c.source_count >= 2,
+            completeness.c.body_character_count >= 800,
+            completeness.c.has_primary.is_(True),
+        )
+    ).correlate(ContentItem)
+
+
+def _coverage_state_expression():
+    return case(
+        (_complete_story_exists(), "complete"),
+        (_active_story_exists(), "incomplete"),
+        else_="ungrouped",
+    )
+
+
+def _coverage_facet_statement() -> Select:
+    active_link = aliased(StoryEvidenceSnapshot)
+    active_story = aliased(Story)
+    active_items = (
+        select(active_link.content_item_id.label("content_item_id"))
+        .join(active_story, active_story.id == active_link.story_id)
+        .where(active_story.superseded_by_id.is_(None))
+        .group_by(active_link.content_item_id)
+        .subquery("active_story_items")
+    )
+    complete_link = aliased(StoryEvidenceSnapshot)
+    complete_story = aliased(Story)
+    completeness = _story_completeness_subquery()
+    complete_items = (
+        select(complete_link.content_item_id.label("content_item_id"))
+        .join(complete_story, complete_story.id == complete_link.story_id)
+        .join(completeness, completeness.c.story_id == complete_story.id)
+        .where(
+            complete_story.superseded_by_id.is_(None),
+            completeness.c.source_count >= 2,
+            completeness.c.body_character_count >= 800,
+            completeness.c.has_primary.is_(True),
+        )
+        .group_by(complete_link.content_item_id)
+        .subquery("complete_story_items")
+    )
+    coverage_state = case(
+        (complete_items.c.content_item_id.is_not(None), "complete"),
+        (active_items.c.content_item_id.is_not(None), "incomplete"),
+        else_="ungrouped",
+    ).label("coverage_state")
+    return (
+        select(coverage_state, func.count(ContentItem.id).label("count"))
+        .select_from(ContentItem)
+        .outerjoin(active_items, active_items.c.content_item_id == ContentItem.id)
+        .outerjoin(complete_items, complete_items.c.content_item_id == ContentItem.id)
+        .group_by(coverage_state)
+        .order_by(coverage_state)
+    )
+
+
 def _base_article_columns() -> tuple:
+    content_type, topic, language = _article_classification_expressions()
     return (
         ContentItem.id,
         ContentItem.title,
@@ -333,8 +258,11 @@ def _base_article_columns() -> tuple:
         ContentItem.sort_at,
         _display_at_expression().label("display_at"),
         ContentItem.score,
+        content_type.label("content_type"),
+        topic.label("topic"),
+        language.label("language"),
         ContentItem.content_type.label("raw_content_type"),
-        _topic_expression().label("raw_topic"),
+        ContentItem.metrics["classification"]["category"].astext.label("raw_topic"),
         ContentItem.classification_metadata["source_domain"].astext.label("domain"),
         ContentItem.language_code.label("raw_language_code"),
         ContentItem.direction,
@@ -362,104 +290,107 @@ def _join_article_projection(statement: Select) -> Select:
     )
 
 
-def _apply_article_filters(
-    statement: Select,
-    filters: ArticleFilters,
-    *,
-    coverage_ids: set[UUID] | None,
-    include_coverage: bool = True,
-) -> Select:
-    display_at = _display_at_expression()
-    content_type, topic, language = _article_classification_expressions()
-    if filters.title_query is not None:
-        escaped_query = (
-            filters.title_query
-            .replace("\\", "\\\\")
-            .replace("%", "\\%")
-            .replace("_", "\\_")
-        )
-        statement = statement.where(ContentItem.title.ilike(f"%{escaped_query}%", escape="\\"))
-    if filters.languages:
-        statement = statement.where(language.in_(filters.languages))
-    if filters.topics:
-        statement = statement.where(topic.in_(filters.topics))
-    if filters.content_types:
-        statement = statement.where(content_type.in_(filters.content_types))
-    if filters.source_ids:
-        statement = statement.where(ContentItem.primary_source_id.in_(filters.source_ids))
-    if filters.has_image is not None:
-        usable_image = _usable_image_expression()
-        statement = statement.where(usable_image if filters.has_image else ~usable_image)
-    if filters.score_min is not None:
-        statement = statement.where(ContentItem.score >= filters.score_min)
-    if filters.score_max is not None:
-        statement = statement.where(ContentItem.score <= filters.score_max)
-    if filters.date_from is not None:
-        statement = statement.where(display_at >= filters.date_from)
-    if filters.date_to is not None:
-        statement = statement.where(display_at < filters.date_to)
-    if filters.collection_id is not None:
-        statement = statement.where(
-            exists(
-                select(1)
-                .select_from(ArticleCollectionItem)
-                .where(
-                    ArticleCollectionItem.collection_id == filters.collection_id,
-                    ArticleCollectionItem.content_item_id == ContentItem.id,
+@dataclass(frozen=True, slots=True)
+class ArticleQuery:
+    filters: ArticleFilters
+    sort: ArticleSort
+    cursor: tuple[datetime, UUID] | tuple[int, datetime, UUID] | None
+
+    def filtered(self, statement: Select) -> Select:
+        display_at = _display_at_expression()
+        content_type, topic, language = _article_classification_expressions()
+        filters = self.filters
+        if filters.search_query is not None:
+            if any(character.isalnum() for character in filters.search_query):
+                statement = statement.where(
+                    _search_vector_expression().op("@@")(
+                        func.websearch_to_tsquery(
+                            literal_column("'simple'::regconfig"),
+                            filters.search_query,
+                        )
+                    )
                 )
-                .correlate(ContentItem)
-            )
-        )
-    if include_coverage and filters.coverage:
-        if coverage_ids is None:
-            raise ValueError("coverage IDs required")
-        statement = statement.where(ContentItem.id.in_(coverage_ids) if coverage_ids else false())
-    return statement
-
-
-def article_list_statement(
-    *,
-    sort: ArticleSort,
-    cursor: tuple[datetime, UUID] | tuple[int, datetime, UUID] | None,
-    limit: int,
-    filters: ArticleFilters,
-    coverage_ids: set[UUID] | None,
-) -> Select:
-    display_at = _display_at_expression()
-    statement = _apply_article_filters(
-        _join_article_projection(select(*_base_article_columns())),
-        filters,
-        coverage_ids=coverage_ids,
-    )
-    if cursor is not None:
-        if sort == "newest":
-            cursor_at, cursor_id = cursor
+            else:
+                escaped_query = filters.search_query.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+                pattern = f"%{escaped_query}%"
+                statement = statement.where(
+                    or_(
+                        ContentItem.title.ilike(pattern, escape="\\"),
+                        ContentItem.content_text.ilike(pattern, escape="\\"),
+                    )
+                )
+        if filters.languages:
+            statement = statement.where(language.in_(filters.languages))
+        if filters.topics:
+            statement = statement.where(topic.in_(filters.topics))
+        if filters.content_types:
+            statement = statement.where(content_type.in_(filters.content_types))
+        if filters.source_ids:
+            statement = statement.where(ContentItem.primary_source_id.in_(filters.source_ids))
+        if filters.coverage:
+            statement = statement.where(_coverage_state_expression().in_(filters.coverage))
+        if filters.has_image is not None:
+            usable_image = _usable_image_expression()
+            statement = statement.where(usable_image if filters.has_image else ~usable_image)
+        if filters.score_min is not None:
+            statement = statement.where(ContentItem.score >= filters.score_min)
+        if filters.score_max is not None:
+            statement = statement.where(ContentItem.score <= filters.score_max)
+        if filters.date_from is not None:
+            statement = statement.where(display_at >= filters.date_from)
+        if filters.date_to is not None:
+            statement = statement.where(display_at < filters.date_to)
+        if filters.collection_id is not None:
             statement = statement.where(
-                or_(
-                    display_at < cursor_at,
-                    (display_at == cursor_at) & (ContentItem.id < cursor_id),
+                exists(
+                    select(1)
+                    .select_from(ArticleCollectionItem)
+                    .where(
+                        ArticleCollectionItem.collection_id == filters.collection_id,
+                        ArticleCollectionItem.content_item_id == ContentItem.id,
+                    )
+                    .correlate(ContentItem)
                 )
+            )
+        return statement
+
+    def count_statement(self) -> Select:
+        return self.filtered(select(func.count()).select_from(ContentItem))
+
+    def list_statement(self, limit: int) -> Select:
+        display_at = _display_at_expression()
+        statement = self.filtered(_join_article_projection(select(*_base_article_columns())))
+        if self.cursor is not None:
+            if self.sort == "newest":
+                if len(self.cursor) != 2:
+                    raise ValueError("newest article cursor shape is invalid")
+                cursor_at, cursor_id = self.cursor
+                statement = statement.where(
+                    or_(
+                        display_at < cursor_at,
+                        (display_at == cursor_at) & (ContentItem.id < cursor_id),
+                    )
+                )
+            else:
+                if len(self.cursor) != 3:
+                    raise ValueError("score article cursor shape is invalid")
+                cursor_score, cursor_at, cursor_id = self.cursor
+                statement = statement.where(
+                    or_(
+                        ContentItem.score < cursor_score,
+                        (ContentItem.score == cursor_score) & (display_at < cursor_at),
+                        (ContentItem.score == cursor_score) & (display_at == cursor_at) & (ContentItem.id < cursor_id),
+                    )
+                )
+        if self.sort == "score":
+            statement = statement.order_by(
+                ContentItem.score.desc(),
+                display_at.desc(),
+                ContentItem.id.desc(),
             )
         else:
-            cursor_score, cursor_at, cursor_id = cursor
-            statement = statement.where(
-                or_(
-                    ContentItem.score < cursor_score,
-                    (ContentItem.score == cursor_score) & (display_at < cursor_at),
-                    (ContentItem.score == cursor_score)
-                    & (display_at == cursor_at)
-                    & (ContentItem.id < cursor_id),
-                )
-            )
-    if sort == "score":
-        statement = statement.order_by(
-            ContentItem.score.desc(),
-            display_at.desc(),
-            ContentItem.id.desc(),
-        )
-    else:
-        statement = statement.order_by(display_at.desc(), ContentItem.id.desc())
-    return statement.limit(limit + 1)
+            statement = statement.order_by(display_at.desc(), ContentItem.id.desc())
+        return statement.limit(limit + 1)
 
 
 def article_detail_statement(content_item_id: UUID) -> Select:
@@ -533,7 +464,7 @@ def decode_article_cursor(
                 raise ValueError
             return score, display_at, content_item_id
         return display_at, content_item_id
-    except (binascii.Error, UnicodeError, json.JSONDecodeError, KeyError, TypeError, ValueError):
+    except binascii.Error, UnicodeError, json.JSONDecodeError, KeyError, TypeError, ValueError:
         raise ValueError("invalid article cursor") from None
 
 
@@ -582,7 +513,7 @@ def _article_filters(
     if date_from is not None and date_to is not None and date_from >= date_to:
         raise HTTPException(status_code=422, detail="date_from must be earlier than date_to")
     return ArticleFilters(
-        title_query=(q.strip().casefold() or None) if q is not None else None,
+        search_query=(q.strip().casefold() or None) if q is not None else None,
         languages=_filter_values(language, canonical_language),
         topics=_filter_values(topic, canonical_topic),
         content_types=_filter_values(content_type, canonical_content_type),
@@ -605,9 +536,7 @@ def _bounded_excerpt(summary: str | None, content: str | None) -> str | None:
 
 
 def _label(value: object | None) -> str | None:
-    if value is None:
-        return None
-    normalized = " ".join(str(value).split())
+    normalized = " ".join(str(value).split()) if value is not None else ""
     return normalized or None
 
 
@@ -623,7 +552,7 @@ def _domain(value: object | None) -> str | None:
 
 
 def _direction(value: object | None) -> Literal["ltr", "rtl"] | None:
-    return value if value in {"ltr", "rtl"} else None
+    return cast(Literal["ltr", "rtl"], value) if value in {"ltr", "rtl"} else None
 
 
 def _source(row: Any) -> ArticleSourceOut:
@@ -636,12 +565,7 @@ def _source(row: Any) -> ArticleSourceOut:
 
 
 def _primary_image(row: Any) -> ArticleImageOut | None:
-    if (
-        row.image_id is None
-        or row.image_kind != "image"
-        or row.image_fetch_status == "expired"
-        or not row.image_url
-    ):
+    if row.image_id is None or row.image_kind != "image" or row.image_fetch_status == "expired" or not row.image_url:
         return None
     return ArticleImageOut(
         id=row.image_id,
@@ -699,64 +623,44 @@ def _coverage(associations: list[tuple[Story, dict]]) -> ArticleCoverageOut:
         )
         for story, summary in active
     ]
-    state: CoverageState
-    if not stories:
-        state = "ungrouped"
-    elif any(story.complete for story in stories):
-        state = "complete"
-    else:
-        state = "incomplete"
+    state: CoverageState = (
+        "complete" if any(story.complete for story in stories) else "incomplete" if stories else "ungrouped"
+    )
     return ArticleCoverageOut(state=state, stories=stories)
 
 
-async def _coverage_states_for_items(
-    session: AsyncSession,
-    content_item_ids: list[UUID],
-) -> dict[UUID, CoverageState]:
-    associations = await _story_associations(
-        session,
-        content_item_ids,
-        include_historical=False,
-    )
-    return {
-        content_item_id: _coverage(associations.get(content_item_id, [])).state
-        for content_item_id in content_item_ids
-    }
-
-
-async def _coverage_filter_ids(
-    session: AsyncSession,
-    filters: ArticleFilters,
-) -> set[UUID] | None:
-    if not filters.coverage:
-        return None
-    candidate_statement = _apply_article_filters(
-        select(ContentItem.id),
-        filters,
-        coverage_ids=None,
-        include_coverage=False,
-    )
-    candidate_ids = list(await session.scalars(candidate_statement))
-    states = await _coverage_states_for_items(session, candidate_ids)
-    selected_states = set(filters.coverage)
-    return {
-        content_item_id
-        for content_item_id, state in states.items()
-        if state in selected_states
-    }
-
-
-async def _text_facets(session: AsyncSession, expression) -> list[ArticleFacetValueOut]:
-    value = expression.label("value")
-    rows = (
-        await session.execute(
-            select(value, func.count(ContentItem.id).label("count"))
-            .where(value.is_not(None))
-            .group_by(value)
-            .order_by(value)
+async def _classification_facets(session: AsyncSession) -> dict[str, list[ArticleFacetValueOut]]:
+    content_type, topic, language = _article_classification_expressions()
+    classifications = (
+        select(
+            content_type.label("content_type"),
+            topic.label("topic"),
+            language.label("language"),
         )
-    ).all()
-    return [ArticleFacetValueOut(value=row.value, count=row.count) for row in rows]
+        .cte("article_classifications")
+        .prefix_with("MATERIALIZED")
+    )
+    statements = []
+    for facet, expression in (
+        ("content_types", classifications.c.content_type),
+        ("topics", classifications.c.topic),
+        ("languages", classifications.c.language),
+    ):
+        statements.append(
+            select(
+                literal(facet).label("facet"),
+                expression.label("value"),
+                func.count().label("count"),
+            )
+            .select_from(classifications)
+            .where(expression.is_not(None))
+            .group_by(expression)
+        )
+    rows = (await session.execute(union_all(*statements).order_by("facet", "value"))).all()
+    output: dict[str, list[ArticleFacetValueOut]] = {name: [] for name in ("content_types", "topics", "languages")}
+    for row in rows:
+        output[row.facet].append(ArticleFacetValueOut(value=row.value, count=row._mapping["count"]))
+    return output
 
 
 def _core_fields(
@@ -765,11 +669,6 @@ def _core_fields(
     saved_collection_ids: list[UUID],
 ) -> dict[str, Any]:
     image = _primary_image(row)
-    classification = canonicalize_article_classification(
-        content_type=row.raw_content_type,
-        topic=row.raw_topic,
-        language=row.raw_language_code,
-    )
     return {
         "id": row.id,
         "title": row.title,
@@ -782,16 +681,14 @@ def _core_fields(
         "display_at": row.display_at,
         "date_basis": "published" if row.published_at is not None else "collected",
         "score": row.score,
-        "content_type": classification.content_type,
-        "topic": classification.topic,
+        "content_type": row.content_type,
+        "topic": row.topic,
         "domain": _domain(row.domain),
-        "language": classification.language,
+        "language": row.language,
         "direction": _direction(row.direction),
         "coverage": coverage,
         "image": image,
         "has_image": image is not None,
-        "marked": False,
-        "marked_at": None,
         "saved": bool(saved_collection_ids),
         "saved_collection_ids": saved_collection_ids,
     }
@@ -975,24 +872,13 @@ async def list_articles(
     )
     filters_key = filters.fingerprint()
     decoded_cursor = _route_cursor(cursor, sort, filters_key)
-    coverage_ids = await _coverage_filter_ids(session, filters)
-    count_statement = _apply_article_filters(
-        select(func.count()).select_from(ContentItem),
-        filters,
-        coverage_ids=coverage_ids,
+    query = ArticleQuery(
+        filters=filters,
+        sort=sort,
+        cursor=decoded_cursor,
     )
-    result_count = int(await session.scalar(count_statement) or 0)
-    rows = (
-        await session.execute(
-            article_list_statement(
-                sort=sort,
-                cursor=decoded_cursor,
-                limit=limit,
-                filters=filters,
-                coverage_ids=coverage_ids,
-            )
-        )
-    ).all()
+    result_count = int(await session.scalar(query.count_statement()) or 0)
+    rows = (await session.execute(query.list_statement(limit))).all()
     page = rows[:limit]
     associations = await _story_associations(
         session,
@@ -1009,11 +895,7 @@ async def list_articles(
             )
             for row in page
         ],
-        next_cursor=(
-            encode_article_cursor(sort, page[-1], filters_key)
-            if len(rows) > limit and page
-            else None
-        ),
+        next_cursor=(encode_article_cursor(sort, page[-1], filters_key) if len(rows) > limit and page else None),
         result_count=result_count,
     )
 
@@ -1035,25 +917,27 @@ async def get_article_facets(
             .order_by(Source.name, Source.platform, Source.id)
         )
     ).all()
-    content_item_ids = list(await session.scalars(select(ContentItem.id)))
-    coverage_counts = Counter((await _coverage_states_for_items(session, content_item_ids)).values())
-    content_type, topic, language = _article_classification_expressions()
+    coverage_rows = (await session.execute(_coverage_facet_statement())).all()
+    classification_facets = await _classification_facets(session)
     return ArticleFacetsOut(
-        languages=await _text_facets(session, language),
-        topics=await _text_facets(session, topic),
-        content_types=await _text_facets(session, content_type),
+        languages=classification_facets["languages"],
+        topics=classification_facets["topics"],
+        content_types=classification_facets["content_types"],
         sources=[
             ArticleSourceFacetOut(
                 id=row.id,
                 name=row.name,
                 platform=row.platform,
-                count=row.count,
+                count=row._mapping["count"],
             )
             for row in source_rows
         ],
         coverage=[
-            ArticleCoverageFacetOut(value=state, count=count)
-            for state, count in sorted(coverage_counts.items())
+            ArticleCoverageFacetOut(
+                value=row.coverage_state,
+                count=row._mapping["count"],
+            )
+            for row in coverage_rows
         ],
     )
 
@@ -1066,9 +950,9 @@ async def get_article(
     row = (await session.execute(article_detail_statement(content_item_id))).one_or_none()
     if row is None:
         raise HTTPException(status_code=404, detail="article not found")
-    associations = (
-        await _story_associations(session, [content_item_id], include_historical=True)
-    ).get(content_item_id, [])
+    associations = (await _story_associations(session, [content_item_id], include_historical=True)).get(
+        content_item_id, []
+    )
     memberships = await _saved_collections_for_items(session, [content_item_id])
     return ArticleDetailOut(
         **_core_fields(

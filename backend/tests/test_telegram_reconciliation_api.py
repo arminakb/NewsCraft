@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import hashlib
 import json
 from datetime import UTC, datetime
 from types import SimpleNamespace
@@ -17,7 +16,6 @@ from app.api.telegram_drafts import (
     _publication_out,
     _publish_job_out,
     _validate_reconciled_remote_ids,
-    get_telegram_draft_media,
     reconcile_telegram_publish_job,
     router,
 )
@@ -134,9 +132,7 @@ def _prior_decision_event(
             "operator_note": "[REDACTED]",
             "publication_id": str(publication_id) if publication_id is not None else None,
             "requeued_workflow_job_id": (
-                str(requeued_workflow_job_id)
-                if requeued_workflow_job_id is not None
-                else None
+                str(requeued_workflow_job_id) if requeued_workflow_job_id is not None else None
             ),
             "requeued_job_status": requeued_job_status,
             "requeued_job_deduplicated": requeued_job_deduplicated,
@@ -243,24 +239,23 @@ def test_reconciliation_schema_is_conservative():
     )
     assert published.remote_message_ids == [501, 502]
     assert published.operator_note == "Verified in the destination channel"
-    assert TelegramReconcileIn.model_validate(
-        {
-            "outcome": "not_published",
-            "operator_note": "  Verified manually  ",
-        }
-    ).operator_note == "Verified manually"
+    assert (
+        TelegramReconcileIn.model_validate(
+            {
+                "outcome": "not_published",
+                "operator_note": "  Verified manually  ",
+            }
+        ).operator_note
+        == "Verified manually"
+    )
     assert TelegramReconcileIn.model_validate({"outcome": "not_published"}).operator_note is None
     with pytest.raises(ValidationError):
         TelegramReconcileIn.model_validate({"outcome": "unknown"})
     with pytest.raises(ValidationError):
-        TelegramReconcileIn.model_validate(
-            {"outcome": "not_published", "permalink": "https://t.me/target/501"}
-        )
+        TelegramReconcileIn.model_validate({"outcome": "not_published", "permalink": "https://t.me/target/501"})
     for invalid_note in ("four", "     ", "x" * 1_001):
         with pytest.raises(ValidationError):
-            TelegramReconcileIn.model_validate(
-                {"outcome": "not_published", "operator_note": invalid_note}
-            )
+            TelegramReconcileIn.model_validate({"outcome": "not_published", "operator_note": invalid_note})
 
 
 def test_published_reconciliation_only_confirms_one_ambiguous_operation_with_all_others_succeeded():
@@ -381,7 +376,7 @@ def test_publication_projection_is_exact_and_secret_free():
     assert "secret_ref" not in output
 
 
-def test_publish_job_read_and_reconciliation_routes_do_not_shadow_draft_routes():
+def test_publication_and_reconciliation_routes_are_public():
     app = FastAPI()
     app.include_router(router)
     paths = set(app.openapi()["paths"])
@@ -390,8 +385,49 @@ def test_publish_job_read_and_reconciliation_routes_do_not_shadow_draft_routes()
     assert "/telegram/publish-jobs/{publish_job_id}/reconcile" in paths
     assert "/telegram/reconciliation" in paths
     assert "/telegram/reconciliation/{publish_job_id}" in paths
-    assert "/telegram/drafts/{revision_id}" in paths
-    assert "/telegram/drafts/{revision_id}/media/{media_asset_id}" in paths
+    assert "/telegram/publication-outcomes" in paths
+    assert "/telegram/revisions/{revision_id}/publication-context" in paths
+
+
+@pytest.mark.asyncio
+async def test_publication_outcomes_bulk_load_related_rows_and_inherit_dispatch():
+    variant_id = uuid4()
+    parent = SimpleNamespace(
+        id=uuid4(),
+        platform_variant_id=variant_id,
+        parent_revision_id=None,
+        revision_number=1,
+        approval_state="approved",
+    )
+    child = SimpleNamespace(
+        id=uuid4(),
+        platform_variant_id=variant_id,
+        parent_revision_id=parent.id,
+        revision_number=2,
+        approval_state="approved",
+    )
+    dispatch = SimpleNamespace(id=uuid4(), route_id=uuid4(), variant_revision_id=parent.id)
+    publish_job = _publish_job(status="succeeded")
+    publish_job.platform_variant_revision_id = child.id
+    publication = _publication(publish_job, remote_message_ids=[700])
+
+    class BulkSession:
+        def __init__(self):
+            self.results = iter(([child, parent], [dispatch], [publish_job], [publication]))
+            self.query_count = 0
+
+        async def scalars(self, _statement):
+            self.query_count += 1
+            return next(self.results)
+
+    session = BulkSession()
+    outcomes = await telegram_api.list_telegram_publication_outcomes(session)
+
+    assert session.query_count == 4
+    assert outcomes[0].dispatch_id == dispatch.id
+    assert outcomes[0].publish_job_id == publish_job.id
+    assert outcomes[0].publication is not None
+    assert outcomes[0].publication.remote_message_ids == [700]
 
 
 def test_reconciliation_case_routes_use_strict_read_only_service_projections(monkeypatch):
@@ -658,7 +694,10 @@ async def test_new_ambiguity_generation_can_be_decided_and_records_complete_reda
     async def fake_enqueue(_repository, **_kwargs):
         return SimpleNamespace(job=requeued_job, created=True)
 
-    monkeypatch.setattr(telegram_api.JobRepository, "enqueue_job", fake_enqueue)
+    monkeypatch.setattr(
+        "app.publishing.telegram.reconciliation_operation.JobRepository.enqueue_job",
+        fake_enqueue,
+    )
 
     response = Response()
     result = await reconcile_telegram_publish_job(
@@ -741,7 +780,10 @@ async def test_stale_exact_decision_from_older_generation_is_rejected(monkeypatc
             created=True,
         )
 
-    monkeypatch.setattr(telegram_api.JobRepository, "enqueue_job", fake_enqueue)
+    monkeypatch.setattr(
+        "app.publishing.telegram.reconciliation_operation.JobRepository.enqueue_job",
+        fake_enqueue,
+    )
 
     with pytest.raises(HTTPException) as error:
         await reconcile_telegram_publish_job(
@@ -803,53 +845,3 @@ async def test_published_decision_uses_receipt_semantics_without_publish_attempt
     assert event.event_data["outcome"] == "published"
     assert event.event_data["remote_message_ids"] == [701, 702]
     assert event.event_data["publication_id"] == str(result["id"])
-
-
-@pytest.mark.asyncio
-async def test_draft_media_preview_is_revision_scoped_checksum_verified_and_path_safe(tmp_path):
-    revision_id = uuid4()
-    media_id = uuid4()
-    payload = b"exact captured image"
-    path = tmp_path / "private-storage-name.jpg"
-    path.write_bytes(payload)
-    revision = SimpleNamespace(
-        content={
-            "body": "body",
-            "parse_mode": "HTML",
-            "buttons": [],
-            "source_item_id": str(uuid4()),
-            "source_url": "https://t.me/source/1",
-            "media_policy": "preserve",
-            "media_asset_ids": [str(media_id)],
-            "direction": "rtl",
-            "dry_run": False,
-        }
-    )
-    asset = SimpleNamespace(
-        id=media_id,
-        kind="image",
-        fetch_status="downloaded",
-        storage_path=str(path),
-        checksum_sha256=hashlib.sha256(payload).hexdigest(),
-        mime_type="image/jpeg",
-    )
-
-    class Session:
-        async def scalar(self, statement):
-            return revision
-
-        async def get(self, model, key):
-            return asset if key == media_id else None
-
-    response = await get_telegram_draft_media(revision_id, media_id, Session())
-
-    assert response.media_type == "image/jpeg"
-    assert "telegram-media-" in response.headers["content-disposition"]
-    assert response.headers["x-content-type-options"] == "nosniff"
-    assert response.headers["cache-control"] == "private, no-store"
-    assert str(tmp_path) not in response.headers["content-disposition"]
-
-    asset.checksum_sha256 = "0" * 64
-    with pytest.raises(HTTPException) as error:
-        await get_telegram_draft_media(revision_id, media_id, Session())
-    assert error.value.status_code == 409

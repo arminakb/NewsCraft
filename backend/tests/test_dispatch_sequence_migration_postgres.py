@@ -154,10 +154,7 @@ async def _seed_release_two_dispatches() -> list[UUID]:
         # Force new heap tuples in an order unrelated to canonical chronology.
         for dispatch_id in (ids[1], ids[3], ids[0]):
             await connection.execute(
-                text(
-                    "UPDATE automation_dispatches SET updated_at = clock_timestamp() "
-                    "WHERE id = :id"
-                ),
+                text("UPDATE automation_dispatches SET updated_at = clock_timestamp() WHERE id = :id"),
                 {"id": dispatch_id},
             )
     await engine.dispose()

@@ -1,7 +1,7 @@
 "use client"
 
 import { useInfiniteQuery, useQuery, useQueryClient } from "@tanstack/react-query"
-import { Bot, Bookmark, ExternalLink, Gauge, ImageIcon, LoaderCircle, Search, X } from "lucide-react"
+import { Bookmark, ExternalLink, Gauge, ImageIcon, LoaderCircle, Search, X } from "lucide-react"
 import { usePathname, useRouter, useSearchParams } from "next/navigation"
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 
@@ -228,7 +228,7 @@ export function ArticlesPage() {
     } catch (cause) {
       setDirectRemovalError({
         article,
-        message: getApiErrorMessage(cause, "Article was removed, but the Feed could not be refreshed. Retry to reconcile."),
+        message: getApiErrorMessage(cause, "Article was removed, but the Library could not be refreshed. Retry to reconcile."),
       })
     } finally {
       directRemovalBusyRef.current = false
@@ -254,20 +254,20 @@ export function ArticlesPage() {
       <p aria-live="polite" className="sr-only" role="status">{announcement}</p>
       <header className="flex flex-col gap-4 border-b pb-4 sm:flex-row sm:items-end sm:justify-between">
         <div>
-          <h1 id="feed-heading" className="text-3xl font-semibold tracking-tight">Feed</h1>
+          <h1 id="feed-heading" className="text-2xl font-semibold tracking-tight">Library</h1>
           <p className="mt-1 text-sm text-muted-foreground" aria-live="polite">
             {resultCount === undefined
               ? "Loading result count…"
-              : `${formatNumber(resultCount)} ${resultCount === 1 ? "article" : "articles"}`}
+              : `${formatNumber(resultCount)} ${resultCount === 1 ? "article" : "articles"} · source monitoring and saved collections`}
           </p>
         </div>
         <div className="flex max-w-full flex-wrap items-end justify-end gap-2">
           <label className="grid min-w-0 gap-1 text-xs font-medium text-muted-foreground">
-            <span className="sr-only">Search article titles</span>
+            <span className="sr-only">Search articles</span>
             <span className="flex min-h-11 w-64 max-w-full items-center gap-2 rounded-lg border bg-background px-3 transition-colors has-[:focus-visible]:border-ring sm:min-h-9">
               <Search className="size-4 shrink-0" aria-hidden="true" />
               <input
-                aria-label="Search article titles"
+                aria-label="Search articles"
                 className="min-w-0 flex-1 bg-transparent text-base text-foreground outline-none placeholder:text-muted-foreground [&::-webkit-search-cancel-button]:hidden sm:text-sm"
                 dir="auto"
                 onChange={(event) => changeSearchDraft(event.target.value)}
@@ -324,10 +324,10 @@ export function ArticlesPage() {
             <div>
               <h2 className="font-semibold">Collection no longer available</h2>
               <p className="mt-1 text-sm text-muted-foreground">
-                This collection may have been deleted in another session. Return to All Feed to continue.
+                This collection may have been deleted in another session. Return to all articles to continue.
               </p>
             </div>
-            <Button onClick={() => selectCollection(null)} variant="outline">Return to All Feed</Button>
+            <Button onClick={() => selectCollection(null)} variant="outline">Return to all articles</Button>
           </CardContent>
         </Card>
       ) : null}
@@ -351,7 +351,7 @@ export function ArticlesPage() {
             <ImageIcon className="mx-auto size-8 text-muted-foreground" aria-hidden="true" />
             <h2 className="mt-3 font-semibold">
               {titleQuery
-                ? `No article titles match “${titleQuery}”`
+                ? `No articles match “${titleQuery}”`
                 : selectedCollection?.articleCount === 0
                 ? `${selectedCollection.name} is empty`
                 : filterCount
@@ -360,15 +360,15 @@ export function ArticlesPage() {
             </h2>
             <p className="mt-1 text-muted-foreground">
               {titleQuery
-                ? "Try a different title search or clear it."
+                ? "Try a different article search or clear it."
                 : selectedCollection?.articleCount === 0
-                ? "Use Save to Collection on a Feed card to add articles here."
+                ? "Use Save to Collection on a Library card to add articles here."
                 : filterCount
                   ? "Try removing one or more filters."
                   : "New RSS and Telegram items will appear here."}
             </p>
             {titleQuery ? (
-              <Button className="mt-4" onClick={() => changeSearchDraft("")} variant="outline">Clear title search</Button>
+              <Button className="mt-4" onClick={() => changeSearchDraft("")} variant="outline">Clear article search</Button>
             ) : filterCount && selectedCollection?.articleCount !== 0 ? (
               <Button className="mt-4" onClick={() => changeFilters(EMPTY_ARTICLE_FILTERS)} variant="outline">Clear filters</Button>
             ) : null}
@@ -383,7 +383,7 @@ export function ArticlesPage() {
           </p>
           <div
             className="feed-card-grid"
-            aria-label="Feed results"
+            aria-label="Library results"
           >
             {articles.map((article) => (
               <ArticleCard
@@ -420,11 +420,20 @@ export function ArticlesPage() {
           ) : null}
 
           {query.hasNextPage ? (
-            <div className="flex justify-center pt-1">
+            <div className="flex justify-center pb-20 pt-1">
               <Button
-                className="min-w-36"
+                className="min-w-36 scroll-mb-4"
                 disabled={query.isFetchingNextPage}
                 variant="outline"
+                onFocus={(event) => {
+                  const scrollContainer = event.currentTarget.closest<HTMLElement>(".newsroom-scroll")
+                  if (!scrollContainer) return
+                  const buttonBounds = event.currentTarget.getBoundingClientRect()
+                  const scrollBounds = scrollContainer.getBoundingClientRect()
+                  if (buttonBounds.bottom > scrollBounds.bottom) {
+                    scrollContainer.scrollTop += buttonBounds.bottom - scrollBounds.bottom + 16
+                  }
+                }}
                 onClick={() => query.fetchNextPage()}
               >
                 {query.isFetchingNextPage ? "Loading more…" : "Load more"}
@@ -535,25 +544,6 @@ function ArticleCard({
             <span className="inline-flex min-h-8 items-center text-muted-foreground">Source unavailable</span>
           )}
           <div className="flex items-center gap-1">
-            <span className="group/automation relative inline-flex">
-              <Button
-                aria-disabled="true"
-                aria-label="Automation action — not configured yet"
-                className="relative cursor-not-allowed opacity-50"
-                size="icon"
-                title="Automation action — not configured yet"
-                type="button"
-                variant="ghost"
-              >
-                <Bot className="size-4" aria-hidden="true" />
-              </Button>
-              <span
-                className="pointer-events-none absolute bottom-full right-0 z-20 mb-2 hidden w-max max-w-56 rounded-md bg-foreground px-2 py-1 text-xs text-background shadow-md group-hover/automation:block group-focus-within/automation:block"
-                role="tooltip"
-              >
-                Automation action — not configured yet
-              </span>
-            </span>
             <Button
               aria-haspopup={collectionName ? undefined : "dialog"}
               aria-label={collectionName ? `Remove article from ${collectionName}` : "Save article to collection"}

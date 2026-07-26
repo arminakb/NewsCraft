@@ -11,11 +11,11 @@ import {
   Database,
   FileText,
   Files,
+  Inbox,
   ListTodo,
   Menu,
   Newspaper,
   Settings,
-  SquarePen,
   Trash2,
   X,
 } from "lucide-react"
@@ -33,10 +33,10 @@ export type NewsroomNavItem = {
 
 export const workflowNavItems = [
   { label: "Today", href: "/", icon: Newspaper },
-  { label: "Feed", href: "/feed", icon: Files },
-  { label: "Drafts", href: "/drafts", icon: FileText },
-  { label: "Review & Publish", href: "/drafts?approval_state=pending_review", activeHref: "/review", icon: SquarePen },
+  { label: "Inbox", href: "/inbox", icon: Inbox },
+  { label: "Drafts", href: "/drafts", activeHref: "/review", icon: FileText },
   { label: "Calendar", href: "/calendar", icon: CalendarDays },
+  { label: "Library", href: "/feed", icon: Files },
 ] as const satisfies readonly NewsroomNavItem[]
 
 const automationNavItems = [
@@ -127,7 +127,7 @@ export function NewsroomSidebar({ summary }: { summary?: JobSummary }) {
           <RailLink
             key={item.href}
             item={item}
-            active={isCurrentPath(pathname, "activeHref" in item ? item.activeHref : item.href)}
+            active={isNavItemCurrent(pathname, item)}
           />
         ))}
 
@@ -233,6 +233,11 @@ export function NewsroomSidebar({ summary }: { summary?: JobSummary }) {
 
 export function isCurrentPath(pathname: string, href: string) {
   return href === "/" ? pathname === href : pathname === href || pathname.startsWith(`${href}/`)
+}
+
+export function isNavItemCurrent(pathname: string, item: NewsroomNavItem) {
+  return isCurrentPath(pathname, item.href)
+    || (item.activeHref !== undefined && isCurrentPath(pathname, item.activeHref))
 }
 
 function RailLink({

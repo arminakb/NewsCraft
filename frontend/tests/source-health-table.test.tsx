@@ -1,7 +1,7 @@
 import { fireEvent, render, screen, within } from "@testing-library/react"
 
 import { SourceHealthTable } from "@/components/dashboard/source-health-table"
-import { dashboardMock } from "@/lib/mock-data"
+import { dashboardMock } from "@/tests/fixtures/dashboard-mock"
 
 describe("SourceHealthTable", () => {
   it("renders source rows, status badges, and platform tabs", () => {
@@ -13,13 +13,12 @@ describe("SourceHealthTable", () => {
       />
     )
 
-    expect(screen.getAllByRole("row")).toHaveLength(6)
-    expect(screen.getByRole("tab", { name: /all 5/i })).toBeInTheDocument()
-    expect(screen.getByRole("tab", { name: /rss 3/i })).toBeInTheDocument()
-    expect(screen.getByRole("tab", { name: /telegram 2/i })).toBeInTheDocument()
-    expect(screen.getAllByText("Healthy")).toHaveLength(3)
+    expect(screen.getAllByRole("row")).toHaveLength(3)
+    expect(screen.getByRole("tab", { name: /all 2/i })).toBeInTheDocument()
+    expect(screen.getByRole("tab", { name: /rss 1/i })).toBeInTheDocument()
+    expect(screen.getByRole("tab", { name: /telegram 1/i })).toBeInTheDocument()
+    expect(screen.getByText("Healthy")).toBeInTheDocument()
     expect(screen.getByText("Degraded")).toBeInTheDocument()
-    expect(screen.getByText("Broken")).toBeInTheDocument()
     expect(screen.queryByRole("columnheader", { name: "Next run" })).not.toBeInTheDocument()
     expect(screen.queryByRole("button", { name: /source table options/i })).not.toBeInTheDocument()
     expect(screen.queryByRole("button", { name: /view all sources/i })).not.toBeInTheDocument()

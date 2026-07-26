@@ -40,4 +40,8 @@ class GroupPendingResult(BaseModel):
     selected_count: int
     grouped_story_count: int
     evidence_snapshot_count: int
+    grouped_item_count: int = 0
+    skipped_item_count: int = 0
+    duplicate_item_count: int = 0
+    conflicted_item_count: int = 0
     next_cursor: UUID | None

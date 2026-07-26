@@ -27,7 +27,7 @@ const activeControl = {
   updatedAt: "2026-07-12T08:00:00Z",
 }
 
-const summary = { queued: 3, running: 1, attention: 2, succeededToday: 5 }
+const summary = { queued: 3, running: 1, attention: 2, succeeded_today: 5 }
 
 describe("NewsroomShell", () => {
   beforeEach(() => {

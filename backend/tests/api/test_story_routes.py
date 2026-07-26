@@ -124,14 +124,8 @@ async def test_completeness_filter_scans_past_nonmatching_db_pages_with_stable_c
     from app.api import stories as routes
 
     now = datetime.now(UTC)
-    first_page = [
-        _story(uuid4(), updated_at=now - timedelta(seconds=index), complete=False)
-        for index in range(25)
-    ]
-    matches = [
-        _story(uuid4(), updated_at=now - timedelta(seconds=30 + index), complete=True)
-        for index in range(3)
-    ]
+    first_page = [_story(uuid4(), updated_at=now - timedelta(seconds=index), complete=False) for index in range(25)]
+    matches = [_story(uuid4(), updated_at=now - timedelta(seconds=30 + index), complete=True) for index in range(3)]
 
     async def summaries(_session, stories):
         return {
@@ -192,11 +186,7 @@ class _BatchQuerySession:
 
     async def execute(self, _statement):
         self.query_count += 1
-        rows = [
-            row
-            for story_id in self.current_story_ids
-            for row in self.evidence.get(story_id, [])
-        ]
+        rows = [row for story_id in self.current_story_ids for row in self.evidence.get(story_id, [])]
         rows.sort(key=lambda row: (row.story_id, row.captured_at, row.id))
         return _RowsResult(rows)
 
@@ -206,21 +196,20 @@ async def test_story_list_batch_loads_evidence_with_bounded_queries_and_determin
     from app.research.service import evidence_set_hash
 
     now = datetime.now(UTC)
-    first_page = [
-        _story(uuid4(), updated_at=now - timedelta(seconds=index), complete=False)
-        for index in range(25)
-    ]
-    later = [
-        _story(uuid4(), updated_at=now - timedelta(seconds=30 + index), complete=True)
-        for index in range(3)
-    ]
+    first_page = [_story(uuid4(), updated_at=now - timedelta(seconds=index), complete=False) for index in range(25)]
+    later = [_story(uuid4(), updated_at=now - timedelta(seconds=30 + index), complete=True) for index in range(3)]
     evidence = {}
     for story in first_page:
         evidence[story.id] = [
             SimpleNamespace(
-                id=uuid4(), story_id=story.id, evidence_key="operator-text:" + "0" * 64,
-                content_sha256="0" * 64, content_text="short", source_url=None,
-                snapshot_metadata={}, captured_at=now,
+                id=uuid4(),
+                story_id=story.id,
+                evidence_key="operator-text:" + "0" * 64,
+                content_sha256="0" * 64,
+                content_text="short",
+                source_url=None,
+                snapshot_metadata={},
+                captured_at=now,
             )
         ]
     for story in later:
@@ -230,18 +219,26 @@ async def test_story_list_batch_loads_evidence_with_bounded_queries_and_determin
             digest = hashlib.sha256(text.encode()).hexdigest()
             rows.append(
                 SimpleNamespace(
-                    id=uuid4(), story_id=story.id,
+                    id=uuid4(),
+                    story_id=story.id,
                     evidence_key=f"url:https://{host}/item:{digest}",
-                    content_sha256=digest, content_text=text,
+                    content_sha256=digest,
+                    content_text=text,
                     source_url=f"https://{host}/item",
-                    snapshot_metadata={"is_primary": index == 1}, captured_at=now,
+                    snapshot_metadata={"is_primary": index == 1},
+                    captured_at=now,
                 )
             )
         evidence[story.id] = rows
     session = _BatchQuerySession([first_page, later], evidence)
     page = await routes.list_stories(
-        search=None, editorial_state=None, completeness="complete",
-        include_superseded=False, limit=2, cursor=None, session=session,
+        search=None,
+        editorial_state=None,
+        completeness="complete",
+        include_superseded=False,
+        limit=2,
+        cursor=None,
+        session=session,
     )
     assert session.query_count == 4
     assert [item["id"] for item in page["items"]] == [later[0].id, later[1].id]
@@ -272,10 +269,7 @@ async def test_bulk_editorial_transition_is_atomic_and_appends_sanitized_events(
     from app.api import stories as routes
 
     now = datetime.now(UTC)
-    rows = [
-        _story(uuid4(), updated_at=now - timedelta(seconds=index), complete=False)
-        for index in range(2)
-    ]
+    rows = [_story(uuid4(), updated_at=now - timedelta(seconds=index), complete=False) for index in range(2)]
 
     async def summary(_session, story):
         return {"id": story.id, "status": story.status}
@@ -404,16 +398,12 @@ async def test_single_and_bulk_editorial_http_contracts(monkeypatch):
     app.dependency_overrides[get_session] = override_session
     try:
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-            single = await client.patch(
-                f"/stories/{first_id}/editorial-state", json={"state": "shortlisted"}
-            )
+            single = await client.patch(f"/stories/{first_id}/editorial-state", json={"state": "shortlisted"})
             bulk = await client.post(
                 "/stories/bulk-editorial-state",
                 json={"story_ids": [str(first_id), str(second_id)], "state": "rejected"},
             )
-            invalid = await client.patch(
-                f"/stories/{first_id}/editorial-state", json={"state": "published"}
-            )
+            invalid = await client.patch(f"/stories/{first_id}/editorial-state", json={"state": "published"})
     finally:
         app.dependency_overrides.clear()
     assert single.status_code == bulk.status_code == 200
@@ -472,15 +462,19 @@ async def test_story_research_endpoints_return_202_and_sanitized_full_projection
         async def request(self, **kwargs):
             calls.append(kwargs)
             return ResearchDisposition(
-                disposition="enqueued", run_id=run_id, job_id=job_id,
+                disposition="enqueued",
+                run_id=run_id,
+                job_id=job_id,
                 completeness=CompletenessReport(
-                    complete=False, score=25,
+                    complete=False,
+                    score=25,
                     reasons=[
                         "fewer_than_two_independent_sources",
                         "insufficient_body_text",
                         "missing_primary_evidence",
                     ],
-                    independent_source_count=1, body_character_count=20,
+                    independent_source_count=1,
+                    body_character_count=20,
                     has_primary_evidence=False,
                 ),
             )
@@ -512,16 +506,28 @@ async def test_story_research_endpoints_return_202_and_sanitized_full_projection
         app.dependency_overrides.clear()
     assert created.status_code == 202
     assert created.json()["job_id"] == str(job_id)
-    assert calls == [{
-        "story_id": story_id, "mode": "manual", "depth": "deep",
-        "provider_profile_id": profile_id, "query_hint": None,
-    }]
+    assert calls == [
+        {
+            "story_id": story_id,
+            "mode": "manual",
+            "depth": "deep",
+            "provider_profile_id": profile_id,
+            "query_hint": None,
+        }
+    ]
     assert listed.status_code == detail.status_code == 200
     assert listed.json()["items"][0] == detail.json()
     value = detail.json()
     assert {
-        "provider", "requested_model", "resolved_model", "budget", "attempts",
-        "events", "sources", "result_revision_id", "job_status",
+        "provider",
+        "requested_model",
+        "resolved_model",
+        "budget",
+        "attempts",
+        "events",
+        "sources",
+        "result_revision_id",
+        "job_status",
     }.issubset(value)
 
     def keys(item):
@@ -531,7 +537,16 @@ async def test_story_research_endpoints_return_202_and_sanitized_full_projection
             return set().union(*(keys(v) for v in item)) if item else set()
         return set()
 
-    assert keys(value).isdisjoint({
-        "secret_ref", "settings", "authorization", "environment", "env",
-        "openai_api_key", "http_proxy", "https_proxy", "all_proxy",
-    })
+    assert keys(value).isdisjoint(
+        {
+            "secret_ref",
+            "settings",
+            "authorization",
+            "environment",
+            "env",
+            "openai_api_key",
+            "http_proxy",
+            "https_proxy",
+            "all_proxy",
+        }
+    )

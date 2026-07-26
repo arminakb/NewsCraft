@@ -1,21 +1,20 @@
 "use client"
 
 import type { ReactNode } from "react"
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import { useQuery } from "@tanstack/react-query"
+import { ArrowRight, CircleAlert, FilePlus2, SquarePen } from "lucide-react"
+import Link from "next/link"
 
-import { useNotices } from "@/components/providers/notice-provider"
-import { Button } from "@/components/ui/button"
+import { Button, buttonVariants } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { GlobalControls } from "@/features/control/global-controls"
-import { cancelJob, getJobs, getJobSummary, retryJob } from "@/features/jobs/api"
+import { getJobs, getJobSummary } from "@/features/jobs/api"
 import { AttentionQueue } from "@/features/jobs/attention-queue"
 import { JobStatusBadge } from "@/features/jobs/job-status-badge"
 import { getApiErrorMessage } from "@/lib/http"
 import { queryKeys } from "@/lib/query-keys"
 
 export function TodayPage({ outcomes }: { outcomes?: ReactNode }) {
-  const queryClient = useQueryClient()
-  const { pushNotice } = useNotices()
   const summaryQuery = useQuery({ queryKey: queryKeys.jobSummary, queryFn: getJobSummary, refetchInterval: 5_000 })
   const runningQuery = useQuery({
     queryKey: queryKeys.jobs({ statuses: ["running"], limit: 25 }),
@@ -31,34 +30,12 @@ export function TodayPage({ outcomes }: { outcomes?: ReactNode }) {
     queryKey: queryKeys.jobs({ statuses: ["succeeded"], limit: 10 }),
     queryFn: () => getJobs({ statuses: ["succeeded"], limit: 10 }),
   })
-  const invalidate = async () => queryClient.invalidateQueries({ queryKey: ["jobs"] })
-  const retryMutation = useMutation({
-    mutationFn: (id: string) => retryJob(id),
-    onSuccess: async () => {
-      await invalidate()
-      pushNotice({ tone: "success", title: "Retry requested", message: "The job was queued again." })
-    },
-    onError: (error) => pushNotice({ tone: "error", title: "Retry failed", message: getApiErrorMessage(error) }),
-  })
-  const cancelMutation = useMutation({
-    mutationFn: (id: string) => cancelJob(id),
-    onSuccess: async () => {
-      await invalidate()
-      pushNotice({ tone: "success", title: "Job cancelled", message: "The queued job was cancelled." })
-    },
-    onError: (error) => pushNotice({ tone: "error", title: "Cancellation failed", message: getApiErrorMessage(error) }),
-  })
-
   const queries = [summaryQuery, runningQuery, attentionQuery, successesQuery]
   const firstError = queries.find((query) => query.isError)?.error
   const loading = queries.some((query) => query.isPending)
   const summary = summaryQuery.data
   const isEmpty = summary && Object.values(summary).every((count) => count === 0)
-  const pendingJobId = retryMutation.isPending
-    ? retryMutation.variables
-    : cancelMutation.isPending
-      ? cancelMutation.variables
-      : null
+  const priorityJob = attentionQuery.data?.[0]
 
   const retryAll = () => {
     for (const query of queries) void query.refetch()
@@ -70,8 +47,6 @@ export function TodayPage({ outcomes }: { outcomes?: ReactNode }) {
         <h1 id="today-heading" className="text-2xl font-semibold">Today</h1>
         <p className="text-muted-foreground">Live workflow truth and the work that needs an operator.</p>
       </div>
-      <GlobalControls />
-      {outcomes}
       {loading ? (
         <div role="status" aria-label="Loading Today" className="grid grid-cols-2 gap-3 md:grid-cols-4">
           {Array.from({ length: 4 }, (_, index) => (
@@ -88,33 +63,30 @@ export function TodayPage({ outcomes }: { outcomes?: ReactNode }) {
         </Card>
       ) : null}
       {summary ? (
-        <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-          <SummaryCard label="Queued" value={summary.queued} kind="queued" />
-          <SummaryCard label="Running" value={summary.running} kind="running" />
-          <SummaryCard label="Attention" value={summary.attention} kind="attention" />
-          <SummaryCard label="Succeeded today" value={summary.succeededToday} kind="succeeded" />
-        </div>
+        <HealthSummary summary={summary} />
       ) : null}
+      {!firstError && summary ? (
+        <PriorityDecision job={priorityJob} />
+      ) : null}
+      <GlobalControls />
+      {outcomes}
       {isEmpty ? <Card size="sm"><CardContent className="p-8 text-center text-muted-foreground">No workflow jobs yet</CardContent></Card> : null}
       {!firstError && !isEmpty && summary ? (
         <div className="grid min-w-0 gap-4 xl:grid-cols-2">
           <AttentionQueue
             jobs={attentionQuery.data ?? []}
-            pendingJobId={pendingJobId}
-            onRetry={(id) => retryMutation.mutate(id)}
-            onCancel={(id) => cancelMutation.mutate(id)}
           />
           <Card size="sm" role="region" aria-label="Running jobs">
             <CardHeader className="border-b"><CardTitle>Running now</CardTitle></CardHeader>
             <CardContent className="divide-y px-0">
               {(runningQuery.data ?? []).length ? runningQuery.data?.map((job) => (
                 <div key={job.id} className="space-y-2 px-3 py-3">
-                  <div className="flex justify-between gap-3"><span className="font-medium">{job.jobType}</span><JobStatusBadge status={job.status} /></div>
+                  <div className="flex justify-between gap-3"><span className="font-medium">{job.job_type}</span><JobStatusBadge status={job.status} /></div>
                   <div className="h-2 overflow-hidden rounded-full bg-muted" role="progressbar" aria-valuenow={job.progress} aria-valuemin={0} aria-valuemax={100}>
                     <div className="h-full bg-primary" style={{ width: `${job.progress}%` }} />
                   </div>
                   <div className="flex justify-between gap-3 text-sm text-muted-foreground">
-                    <span dir="auto">{job.progressMessage ?? "Running"}</span>
+                    <span dir="auto">{job.progress_message ?? "Running"}</span>
                     <span data-progress-label dir="auto">{job.progress}%</span>
                   </div>
                 </div>
@@ -126,7 +98,7 @@ export function TodayPage({ outcomes }: { outcomes?: ReactNode }) {
             <CardContent className="divide-y px-0">
               {(successesQuery.data ?? []).length ? successesQuery.data?.map((job) => (
                 <div key={job.id} className="flex items-center justify-between gap-3 px-3 py-3">
-                  <span className="font-medium">{job.jobType}</span><JobStatusBadge status={job.status} />
+                  <span className="font-medium">{job.job_type}</span><JobStatusBadge status={job.status} />
                 </div>
               )) : <div className="p-6 text-center text-muted-foreground">No successful jobs today</div>}
             </CardContent>
@@ -137,6 +109,80 @@ export function TodayPage({ outcomes }: { outcomes?: ReactNode }) {
   )
 }
 
-function SummaryCard({ label, value, kind }: { label: string; value: number; kind: "queued" | "running" | "attention" | "succeeded" }) {
-  return <Card size="sm"><CardContent className="p-4"><div className="text-sm text-muted-foreground">{label}</div><div data-summary={kind} className="mt-1 text-2xl font-semibold tabular-nums">{value}</div></CardContent></Card>
+function HealthSummary({
+  summary,
+}: {
+  summary: { queued: number; running: number; attention: number; succeeded_today: number }
+}) {
+  const values = [
+    ["Queued", summary.queued, "queued"],
+    ["Running", summary.running, "running"],
+    ["Attention", summary.attention, "attention"],
+    ["Succeeded", summary.succeeded_today, "succeeded"],
+  ] as const
+  return (
+    <Card size="sm" aria-label="Workflow health" role="region">
+      <CardContent className="grid grid-cols-2 divide-x divide-y p-0 sm:grid-cols-4 sm:divide-y-0">
+        {values.map(([label, value, kind]) => (
+          <div className="flex items-baseline justify-between gap-3 px-4 py-3 sm:block" key={kind}>
+            <span className="text-xs text-muted-foreground">{label}</span>
+            <strong className="text-xl tabular-nums sm:mt-1 sm:block" data-summary={kind}>{value}</strong>
+          </div>
+        ))}
+      </CardContent>
+    </Card>
+  )
+}
+
+function PriorityDecision({
+  job,
+}: {
+  job: Awaited<ReturnType<typeof getJobs>>[number] | undefined
+}) {
+  if (job?.status === "failed") {
+    return (
+      <Card size="sm" role="region" aria-label="Highest-priority decision">
+        <CardContent className="flex flex-wrap items-center justify-between gap-4 p-4">
+          <div className="min-w-0">
+            <div className="flex items-center gap-2 font-semibold"><CircleAlert className="size-5 text-red-700" aria-hidden="true" />Resolve failed workflow</div>
+            <p className="mt-1 truncate text-sm text-muted-foreground" dir="auto">{job.job_type}</p>
+          </div>
+          <Link className={buttonVariants()} href={`/jobs?status=attention&job=${job.id}`}>
+            Inspect and retry
+            <ArrowRight aria-hidden="true" />
+          </Link>
+        </CardContent>
+      </Card>
+    )
+  }
+  if (job?.status === "needs_review") {
+    return (
+      <Card size="sm" role="region" aria-label="Highest-priority decision">
+        <CardContent className="flex flex-wrap items-center justify-between gap-4 p-4">
+          <div>
+            <div className="flex items-center gap-2 font-semibold"><SquarePen className="size-5 text-amber-700" aria-hidden="true" />Editorial review is waiting</div>
+            <p className="mt-1 text-sm text-muted-foreground">Continue with the oldest item needing a decision.</p>
+          </div>
+          <Link className={buttonVariants()} href="/drafts?approval_state=pending_review">
+            Continue review
+            <ArrowRight aria-hidden="true" />
+          </Link>
+        </CardContent>
+      </Card>
+    )
+  }
+  return (
+    <Card size="sm" role="region" aria-label="Highest-priority decision">
+      <CardContent className="flex flex-wrap items-center justify-between gap-4 p-4">
+        <div>
+          <div className="flex items-center gap-2 font-semibold"><FilePlus2 className="size-5 text-teal-700" aria-hidden="true" />Start the next story</div>
+          <p className="mt-1 text-sm text-muted-foreground">No failures or reviews are blocking today.</p>
+        </div>
+        <Link className={buttonVariants()} href="/inbox?add=story">
+          Add story
+          <ArrowRight aria-hidden="true" />
+        </Link>
+      </CardContent>
+    </Card>
+  )
 }

@@ -4,7 +4,7 @@ import asyncio
 from pathlib import Path
 
 from app.db.session import async_session
-from app.validation.report import DEFAULT_REPORT_PATH, generate_content_intelligence_report
+from qualification.content_intelligence_report import DEFAULT_REPORT_PATH, generate_content_intelligence_report
 
 
 async def main() -> None:

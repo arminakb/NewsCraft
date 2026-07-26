@@ -213,11 +213,7 @@ async def test_pair_heartbeat_rotate_scope_replay_and_revoke_lifecycle(
     assert credential not in activity.text
     assert rotated_credential not in activity.text
     events = list(
-        await db_session.scalars(
-            select(SecurityAuditEvent).where(
-                SecurityAuditEvent.resource_id == str(connection_id)
-            )
-        )
+        await db_session.scalars(select(SecurityAuditEvent).where(SecurityAuditEvent.resource_id == str(connection_id)))
     )
     assert {event.action for event in events} >= {
         "codex_pairing.exchange",

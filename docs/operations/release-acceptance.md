@@ -50,7 +50,7 @@ Run the container-backed acceptance stack and smoke driver with:
 docker network inspect contenthub_default >/dev/null 2>&1 || \
   docker network create contenthub_default
 docker compose -f docker-compose.yml -f docker-compose.acceptance.yml \
-  up -d --build postgres api worker-source-generation worker-publishing scheduler frontend
+  up -d --build --wait postgres api worker-source-generation worker-publishing scheduler frontend
 python scripts/smoke.py \
   --base-url http://127.0.0.1:8000 \
   --provider fake \

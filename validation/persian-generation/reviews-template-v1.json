@@ -1,0 +1,32 @@
+{
+  "schema_version": "persian-generation-reviews-v1",
+  "instructions": "Create exactly two rows per variant_revision_id with distinct blinded reviewer IDs.",
+  "reviews": [
+    {
+      "variant_revision_id": "replace-with-run-variant-revision-id",
+      "reviewer_id": "blind-editor-a",
+      "scores": {
+        "factual_accuracy": 1,
+        "evidence_grounding": 1,
+        "relevance": 1,
+        "clarity": 1,
+        "natural_persian": 1,
+        "title": 1,
+        "platform_fit": 1
+      },
+      "language_adherent": false,
+      "full_english_output": false,
+      "encoding_ok": false,
+      "title_acceptable": false,
+      "promotional": false,
+      "claim_labels": [
+        {
+          "claim_id": "replace-with-claim-id",
+          "support": "supported",
+          "citation_valid": true
+        }
+      ]
+    }
+  ],
+  "adjudicated_variant_ids": []
+}

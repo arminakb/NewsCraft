@@ -140,10 +140,18 @@ def test_resolve_discovered_source_and_locator_boundaries() -> None:
     assert resolved.verified_facts[0].citations[0].evidence_snapshot_id == persisted_id
 
     for locator in ("chars:1-1", "chars:0-7"):
-        bad = candidate.model_copy(update={"verified_facts": [CandidateClaim(
-            text="claim",
-            citations=[_candidate(source.evidence_key, body="abcdef").model_copy(update={"locator": locator})],
-        )]})
+        bad = candidate.model_copy(
+            update={
+                "verified_facts": [
+                    CandidateClaim(
+                        text="claim",
+                        citations=[
+                            _candidate(source.evidence_key, body="abcdef").model_copy(update={"locator": locator})
+                        ],
+                    )
+                ]
+            }
+        )
         with pytest.raises(CitationIntegrityError):
             resolve_candidate_brief(bad, {source.evidence_key: record}, {source.evidence_key: persisted_id})
 
@@ -239,10 +247,13 @@ def test_resolved_unicode_url_citation_validates_against_snapshot() -> None:
     )
     brief = resolve_candidate_brief(candidate, {record.evidence_key: record}, {})
 
-    assert validate_citations(
-        brief.verified_facts,
-        {record.evidence_snapshot_id: record},
-    ) == brief.verified_facts
+    assert (
+        validate_citations(
+            brief.verified_facts,
+            {record.evidence_snapshot_id: record},
+        )
+        == brief.verified_facts
+    )
 
 
 def test_unicode_path_and_query_match_already_percent_encoded_citation_url() -> None:
@@ -259,14 +270,15 @@ def test_unicode_path_and_query_match_already_percent_encoded_citation_url() -> 
     resolved_citation = brief.verified_facts[0].citations[0]
 
     assert "%" in str(resolved_citation.source_url)
-    assert validate_citations(
-        brief.verified_facts,
-        {record.evidence_snapshot_id: record},
-    ) == brief.verified_facts
-
-    already_encoded = resolved_citation.model_copy(
-        update={"source_url": str(resolved_citation.source_url)}
+    assert (
+        validate_citations(
+            brief.verified_facts,
+            {record.evidence_snapshot_id: record},
+        )
+        == brief.verified_facts
     )
+
+    already_encoded = resolved_citation.model_copy(update={"source_url": str(resolved_citation.source_url)})
     assert validate_citations(
         [Claim(text="claim", citations=[already_encoded])],
         {record.evidence_snapshot_id: record},

@@ -4,8 +4,6 @@ import { fireEvent, render, screen, waitFor, within } from "@testing-library/rea
 import { NoticeProvider } from "@/components/providers/notice-provider"
 import {
   activatePromptVersion,
-  createBrandProfile,
-  createPromptVersion,
   getBrandProfiles,
   getPromptTemplates,
   getPromptVersions,
@@ -69,13 +67,13 @@ vi.mock("@/features/settings/content-settings-api", () => ({
 const profile = {
   id: "11111111-1111-4111-8111-111111111111",
   name: "News desk",
-  outputLanguage: "fa",
+  output_language: "fa",
   tone: "neutral",
-  editorialRules: ["Use verified evidence"],
-  attributionRules: {},
-  defaultHashtags: ["#news"],
-  platformPreferences: {},
-  isDefault: true,
+  editorial_rules: ["Use verified evidence"],
+  attribution_rules: {},
+  default_hashtags: ["#news"],
+  platform_preferences: {},
+  is_default: true,
 }
 
 const template = {
@@ -87,92 +85,105 @@ const template = {
 
 const promptVersion = {
   id: "33333333-3333-4333-8333-333333333333",
-  promptTemplateId: template.id,
+  prompt_template_id: template.id,
   version: 4,
-  systemTemplate: "Use evidence only",
-  userTemplate: "{source_text}",
-  outputSchemaVersion: "telegram_rewrite.v1",
-  outputSchema: {},
-  checksumSha256: "a".repeat(64),
-  isActive: true,
-  activatedAt: "2026-07-20T08:00:00Z",
-  activatedByType: "human_admin",
-  activatedById: "operator",
-  activationReason: "Approved newsroom baseline",
-  createdAt: "2026-07-20T08:00:00Z",
+  system_template: "Use evidence only",
+  user_template: "{source_text}",
+  output_schema_version: "telegram_rewrite.v1",
+  output_schema: {},
+  checksum_sha256: "a".repeat(64),
+  is_active: true,
+  activated_at: "2026-07-20T08:00:00Z",
+  activated_by_type: "human_admin",
+  activated_by_id: "operator",
+  activation_reason: "Approved newsroom baseline",
+  created_at: "2026-07-20T08:00:00Z",
 }
 
 const provider = {
   id: "44444444-4444-4444-8444-444444444444",
   name: "Newsroom model",
   protocol: "openai_compatible" as const,
-  baseUrl: "https://llm.example/v1",
-  defaultModel: "openai/gpt-5-mini",
+  base_url: "https://llm.example/v1",
+  default_model: "openai/gpt-5-mini",
   enabled: true,
   configured: true,
   settings: {
-    timeoutSeconds: 60,
-    maxInputTokens: 60_000,
-    maxOutputTokens: 12_000,
-    researchBudgets: {},
-    pricing: { inputUsdPerMillion: 0, outputUsdPerMillion: 0 },
-    attributionHeaders: { httpReferer: null, appTitle: "NewsCraft" },
+    timeout_seconds: 60,
+    max_input_tokens: 60_000,
+    max_output_tokens: 12_000,
+    pricing: { input_usd_per_million: "0", output_usd_per_million: "0" },
+    attribution_headers: { http_referer: null, app_title: "NewsCraft" },
   },
-  healthStatus: "healthy" as const,
-  generationCapability: "ready" as const,
-  researchCapability: "unavailable" as const,
-  generationReady: true,
-  researchReady: false,
-  failureCode: "research_budget_missing",
-  lastCheckedAt: "2026-07-23T08:00:00Z",
+  health_status: "healthy" as const,
+  generation_capability: "ready" as const,
+  research_capability: "unavailable" as const,
+  generation_ready: true,
+  research_ready: false,
+  failure_code: "research_budget_missing",
+  last_checked_at: "2026-07-23T08:00:00Z",
   ownership: "operator_managed" as const,
+  created_at: "2026-07-23T07:00:00Z",
+  updated_at: "2026-07-23T08:00:00Z",
 }
 
 const proxy = {
   id: "55555555-5555-4555-8555-555555555555",
   name: "Publishing proxy",
-  proxyType: "socks5" as const,
+  proxy_type: "socks5" as const,
   host: "proxy.example",
   port: 1080,
   enabled: true,
-  credentialsConfigured: true,
-  reachabilityStatus: "healthy",
-  failureCode: null,
-  lastCheckedAt: "2026-07-23T08:00:00Z",
+  credentials_configured: true,
+  reachability_status: "healthy",
+  failure_code: null,
+  last_checked_at: "2026-07-23T08:00:00Z",
+  last_rotated_at: null,
+  created_at: "2026-07-23T07:00:00Z",
+  updated_at: "2026-07-23T08:00:00Z",
 }
 
 const destination = {
   id: "66666666-6666-4666-8666-666666666666",
   name: "Main channel",
-  targetRef: "@newscraft",
-  canonicalTarget: "@newscraft",
-  targetType: "username" as const,
+  target_ref: "@newscraft",
+  canonical_target: "@newscraft",
+  target_type: "username" as const,
   enabled: true,
-  healthStatus: "healthy",
+  health_status: "healthy",
   configured: true,
-  proxyProfileId: proxy.id,
-  connectionRoute: "Publishing proxy",
-  proxyHealthStatus: "healthy",
-  telegramHealthStatus: "healthy",
-  botHealthStatus: "authenticated",
-  targetHealthStatus: "resolved",
-  administratorStatus: "administrator",
-  failureCode: null,
-  verifiedBotUsername: "newscraft_bot",
-  verifiedChatTitle: "NewsCraft",
-  lastCheckedAt: "2026-07-23T08:00:00Z",
+  proxy_profile_id: proxy.id,
+  connection_route: "Publishing proxy",
+  proxy_health_status: "healthy",
+  telegram_health_status: "healthy",
+  bot_health_status: "authenticated",
+  target_health_status: "resolved",
+  administrator_status: "administrator",
+  failure_code: null,
+  verified_bot_id: 42,
+  verified_bot_username: "newscraft_bot",
+  verified_chat_id: -10042,
+  verified_chat_title: "NewsCraft",
+  verified_chat_type: "channel",
+  last_checked_at: "2026-07-23T08:00:00Z",
+  last_rotated_at: null,
+  created_at: "2026-07-23T07:00:00Z",
+  updated_at: "2026-07-23T08:00:00Z",
 }
 
 const connection = {
   id: "77777777-7777-4777-8777-777777777777",
-  deviceName: "Editorial workstation",
+  device_name: "Editorial workstation",
   scopes: ["settings:read", "providers:read"],
   status: "green" as const,
-  connectionState: "active" as const,
-  failureCode: null,
-  expiresAt: "2026-08-23T08:00:00Z",
-  lastHeartbeatAt: "2026-07-24T08:00:00Z",
-  lastRotatedAt: null,
+  connection_state: "active" as const,
+  failure_code: null,
+  expires_at: "2026-08-23T08:00:00Z",
+  last_heartbeat_at: "2026-07-24T08:00:00Z",
+  last_rotated_at: null,
+  created_at: "2026-07-23T08:00:00Z",
+  credential_fingerprint: "sha256:test",
+  revoked_at: null,
 }
 
 describe("ContentSettingsPage", () => {
@@ -188,11 +199,11 @@ describe("ContentSettingsPage", () => {
     vi.mocked(getCodexActivity).mockResolvedValue([
       {
         id: "88888888-8888-4888-8888-888888888888",
-        connectionId: connection.id,
+        connection_id: connection.id,
         action: "heartbeat",
         outcome: "success",
-        reasonCode: null,
-        createdAt: "2026-07-24T08:00:00Z",
+        reason_code: null,
+        created_at: "2026-07-24T08:00:00Z",
       },
     ])
   })
@@ -201,6 +212,7 @@ describe("ContentSettingsPage", () => {
     renderSettings()
 
     expect(await screen.findByRole("heading", { name: "Content settings" })).toBeInTheDocument()
+    expect(screen.getByRole("heading", { name: "Setup checklist" })).toBeInTheDocument()
     for (const heading of [
       "Editorial profiles",
       "LLM providers",
@@ -294,12 +306,13 @@ describe("ContentSettingsPage", () => {
   it("pairs Codex with explicit read scopes and shows one-time output", async () => {
     vi.mocked(createCodexPairingSession).mockResolvedValue({
       id: "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
-      deviceName: "Review laptop",
+      device_name: "Review laptop",
       scopes: ["settings:read"],
       status: "pending",
-      expiresAt: "2026-07-24T08:05:00Z",
-      pairingCode: "one-time-code",
-      localCommand: "newscraft pair one-time-code",
+      expires_at: "2026-07-24T08:05:00Z",
+      pairing_code: "one-time-code",
+      local_command: "newscraft pair one-time-code",
+      created_at: "2026-07-24T08:00:00Z",
     })
     renderSettings()
 
@@ -318,7 +331,7 @@ describe("ContentSettingsPage", () => {
   })
 
   it("keeps raw prompt text directional and activation guarded", async () => {
-    vi.mocked(activatePromptVersion).mockResolvedValue({ ...promptVersion, isActive: true })
+    vi.mocked(activatePromptVersion).mockResolvedValue({ ...promptVersion, is_active: true })
     renderSettings()
 
     const purpose = await screen.findByRole("heading", { name: "Telegram Automation Rewrite" })
@@ -336,8 +349,8 @@ describe("ContentSettingsPage", () => {
     vi.mocked(updateBrandProfile).mockResolvedValue({
       ...profile,
       tone: "analytical",
-      attributionRules: { preserveSources: true },
-      platformPreferences: { telegram: { direction: "rtl" } },
+      attribution_rules: { preserveSources: true },
+      platform_preferences: { telegram: { direction: "rtl" } },
     })
     const { queryClient } = renderSettings()
     queryClient.setQueryData(queryKeys.editorialBrandOptions, [{ id: profile.id, name: profile.name }])
@@ -362,9 +375,9 @@ describe("ContentSettingsPage", () => {
       profile.id,
       expect.objectContaining({
         tone: "analytical",
-        attributionRules: { preserveSources: true },
-        platformPreferences: { telegram: { direction: "rtl" } },
-        isDefault: true,
+        attribution_rules: { preserveSources: true },
+        platform_preferences: { telegram: { direction: "rtl" } },
+        is_default: true,
       }),
     ))
     expect(queryClient.getQueryState(queryKeys.editorialBrandOptions)?.isInvalidated).toBe(true)

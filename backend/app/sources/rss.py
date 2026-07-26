@@ -1,16 +1,16 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from email.utils import parsedate_to_datetime
 from typing import Any
 
 import feedparser
 from bs4 import BeautifulSoup
 
-from app.normalization.dates import parse_source_datetime
+from app.normalization.dates import normalize_source_datetime
 from app.normalization.fingerprints import title_date_fingerprint
 from app.normalization.media import infer_media_kind, is_http_media_url, parse_int
 from app.normalization.text import fingerprint_text
+from app.normalization.titles import normalize_title
 from app.normalization.urls import normalize_url
 from app.sources.base import MediaCandidate, ParsedSourceItem, ParsedSourcePayload
 
@@ -60,7 +60,13 @@ def _parse_entry(
     published_raw, published_at, date_parse_status = _entry_date(entry, default_timezone)
     categories = [tag.get("term") for tag in entry.get("tags", []) if tag.get("term")]
     external_id_raw = entry.get("id") or entry.get("guid") or link
-    external_id_norm = _external_id_norm(external_id_raw, source_url, title, published_raw)
+    external_id_norm = _external_id_norm(
+        external_id_raw,
+        source_url,
+        title,
+        content_text,
+        published_raw,
+    )
 
     if not title:
         warnings.append("missing_title")
@@ -105,8 +111,7 @@ def _entry_title(entry: Any) -> str:
     title_detail = entry.get("title_detail") or {}
     if title_detail.get("value"):
         return str(title_detail["value"]).strip()
-    summary = _html_to_text(entry.get("summary") or "")
-    return summary.splitlines()[0] if summary else ""
+    return ""
 
 
 def _entry_content_html(entry: Any) -> str | None:
@@ -128,28 +133,41 @@ def _entry_author(entry: Any) -> str | None:
 def _entry_date(entry: Any, default_timezone: str) -> tuple[str | None, datetime | None, str]:
     raw = entry.get("published") or entry.get("updated") or entry.get("created")
     if raw:
-        try:
-            return raw, parse_source_datetime(raw, default_timezone=default_timezone)[0], "parsed"
-        except (ValueError, TypeError, OverflowError):
-            try:
-                parsed = parsedate_to_datetime(raw)
-            except (TypeError, ValueError):
-                return raw, None, "failed"
-            return raw, parsed.astimezone(UTC), "parsed"
+        parsed, status = normalize_source_datetime(raw, default_timezone=default_timezone)
+        return raw, parsed, status
 
     parsed_tuple = entry.get("published_parsed") or entry.get("updated_parsed")
     if parsed_tuple:
-        return None, datetime(*parsed_tuple[:6], tzinfo=UTC), "parsed_struct_time"
+        return (
+            None,
+            datetime(
+                parsed_tuple[0],
+                parsed_tuple[1],
+                parsed_tuple[2],
+                parsed_tuple[3],
+                parsed_tuple[4],
+                parsed_tuple[5],
+                tzinfo=UTC,
+            ),
+            "parsed_struct_time",
+        )
     return None, None, "missing"
 
 
-def _external_id_norm(external_id_raw: str | None, source_url: str, title: str, published_raw: str | None) -> str:
+def _external_id_norm(
+    external_id_raw: str | None,
+    source_url: str,
+    title: str,
+    content_text: str,
+    published_raw: str | None,
+) -> str:
     if external_id_raw:
         value = external_id_raw.strip()
         if value.startswith(("http://", "https://", "/")):
             return normalize_url(value, source_url)
         return fingerprint_text(value)
-    return title_date_fingerprint(title, published_raw or "")
+    normalized_title = normalize_title(title, content_text).title
+    return title_date_fingerprint(normalized_title, published_raw or "")
 
 
 def _extract_media_candidates(entry: Any, content_html: str | None, source_url: str) -> list[MediaCandidate]:

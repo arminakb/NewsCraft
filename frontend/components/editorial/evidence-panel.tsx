@@ -1,7 +1,10 @@
 "use client"
 
 import { useEffect, useState } from "react"
-import type { EvidenceCitation, EvidenceDetail } from "@/lib/editorial-types"
+import type {
+  EvidenceCitation,
+  EvidenceDetail,
+} from "@/features/editorial/types"
 import { DirectionBoundary } from "@/components/newsroom/direction-boundary"
 
 export function EvidencePanel({ evidence, activeCitation, onSelectCitation }: { evidence: EvidenceDetail[]; activeCitation: EvidenceCitation | null; onSelectCitation?: (citation: EvidenceCitation) => void }) {

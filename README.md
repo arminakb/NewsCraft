@@ -1,8 +1,9 @@
 # NewsCraft
 
-NewsCraft is a FastAPI and PostgreSQL backend for collecting, normalizing, ranking, and reviewing news content from public sources.
-
-The active backend lives in `backend/`. The ingestion dashboard lives in `frontend/`. The legacy Streamlit MVP has been removed; new ingestion and review workflows should use the backend service, worker, API, and dashboard.
+NewsCraft is a local, single-operator newsroom for collecting source material,
+making editorial decisions, researching stories, producing exact revisions, and
+publishing or exporting reviewed content. FastAPI workers and PostgreSQL own the
+durable workflow; the Next.js application is the operator interface.
 
 ## Features
 
@@ -12,8 +13,9 @@ The active backend lives in `backend/`. The ingestion dashboard lives in `fronte
 - Classifies, scores, buckets, and readiness-checks content for downstream rewriting.
 - Supports evidence-backed research, multi-platform package generation, immutable editorial revisions, exact approval, deterministic exports, reviewed Telegram scheduling/publishing, and manual publication tracking for Instagram, X, and blog.
 - Provides source health diagnostics, validation reports, and manual ingestion endpoints.
-- Provides a Next.js ingestion dashboard for source health, runs, content queue, media extraction, and source detail review.
-- Includes a minimal legacy SQLite article reader for user-provided old `news.db` files.
+- Provides a responsive newsroom with Today, Inbox, Drafts, Calendar, and
+  Library as the primary workflow, with collection, automation, diagnostics,
+  settings, and retention tools under Advanced.
 
 ## Tech Stack
 
@@ -77,6 +79,9 @@ API restart loop.
 
 - Newsroom: http://127.0.0.1:3000
 - API: http://127.0.0.1:8000
+- Primary navigation: Today, Inbox, Drafts, Calendar, and Library.
+- Advanced navigation: Jobs, Automations, Sources, Ingestion Runs, Diagnostics,
+  Content Settings, and Retention.
 - Global pause holds scheduled/automation work; manual Run ingest remains available.
 - Review is the default. No live credentials or publishing are used by default tests.
 
@@ -93,7 +98,7 @@ Source access uses `TELEGRAM_SOURCE_EDITOR_API_ID`, `TELEGRAM_SOURCE_EDITOR_API_
 
 ### Deterministic release acceptance
 
-The Release 5 smoke uses the fake AI provider, dry-run-only publishing, and a bundled Telegram
+The release smoke uses the fake AI provider, dry-run-only publishing, and a bundled Telegram
 album fixture. It needs no external credentials or network requests. The acceptance override
 enables that fixture only in the source/generation worker with `APP_ENV=test`; the backend
 rejects the fixture setting in every other environment.
@@ -102,7 +107,7 @@ rejects the fixture setting in every other environment.
 docker network inspect contenthub_default >/dev/null 2>&1 || \
   docker network create contenthub_default
 docker compose -f docker-compose.yml -f docker-compose.acceptance.yml \
-  up -d --build postgres api worker-source-generation worker-publishing scheduler frontend
+  up -d --build --wait postgres api worker-source-generation worker-publishing scheduler frontend
 python scripts/smoke.py \
   --base-url http://127.0.0.1:8000 \
   --provider fake \
@@ -112,8 +117,18 @@ docker compose -f docker-compose.yml -f docker-compose.acceptance.yml ps
 ```
 
 Do not use `docker-compose.acceptance.yml` as a deployment configuration. See the
-[Release 5 acceptance evidence](docs/operations/release-acceptance.md) for the complete test,
+[release acceptance evidence](docs/operations/release-acceptance.md) for the complete test,
 migration, browser, Compose, and environmental-gate checklist.
+
+Run the real-PostgreSQL acceptance journeys for collection/deduplication/story
+grouping, research/generation/exact approval, multi-platform export, Telegram
+publication, and crash recovery:
+
+```bash
+scripts/test_acceptance.sh
+```
+
+This command owns the disposable test database through `scripts/test_postgres.sh`.
 
 ### Research and generation
 
@@ -136,8 +151,12 @@ flow plus offline acceptance limitations.
 Create and verify a local database, media, and export backup from the repository root:
 
 ```bash
-python scripts/backup_restore.py backup --output-dir ./backups
-python scripts/backup_restore.py verify ./backups/newscraft-*.newscraft-backup.tar.gz
+python scripts/backup_restore.py backup --output-dir ./backups \
+  --recipient-file /secure/backup-recipient.txt \
+  --identity-file /secure/backup-identity.txt \
+  --staging-dir /run/newscraft-backup
+python scripts/backup_restore.py verify ./backups/newscraft-*.newscraft-backup.tar.gz.age \
+  --identity-file /secure/backup-identity.txt
 ```
 
 Restore is destructive and requires an explicit `--confirm-replace` flag. Read the
@@ -148,11 +167,13 @@ disposable restore drill.
 Run the PostgreSQL queue contract suite:
 
 ```bash
-docker compose --profile test up -d --wait postgres-test
-cd backend
-TEST_DATABASE_URL=postgresql+asyncpg://newscraft:newscraft@127.0.0.1:55432/newscraft_test \
-  PYTHONPATH=. .venv/bin/python -m pytest tests/postgres -q
+scripts/test_postgres.sh
 ```
+
+The command starts an isolated test database, migrates it, runs every
+PostgreSQL/process-crash suite, and removes the database afterward. It fails
+before pytest if the database cannot become healthy; set
+`NEWSCRAFT_KEEP_TEST_DATABASE=1` only when retaining it for local diagnosis.
 
 Run the dashboard with the API and database:
 
@@ -165,7 +186,7 @@ The dashboard is available at `http://localhost:3000` and proxies API calls thro
 Check health:
 
 ```bash
-curl http://localhost:8000/health
+curl http://localhost:8000/health/live
 ```
 
 Seed sources:
@@ -182,13 +203,13 @@ docker compose run --rm \
   worker-source-generation python -m app.daily_bundle \
   --start 2026-07-05 \
   --end 2026-07-06 \
-  --topic "AI" \
-  --topic "economy" \
   --output /output/today-news/2026-07-05 \
   --download-media
 ```
 
-The bundle command first runs the existing RSS, Atom, and public Telegram ingestion path, then adds no-signup discovery from GDELT, Google News RSS, and Hacker News. It writes `index.md`, `items.json`, `sources.json`, article markdown files, and image references under the selected output folder.
+The bundle command runs the canonical configured RSS, Atom, and public Telegram
+ingestion path, then writes `index.md`, `items.json`, `sources.json`, article
+markdown files, and image references under the selected output folder.
 
 Or trigger ingestion through the API:
 
@@ -198,11 +219,35 @@ curl -X POST http://localhost:8000/ingest/run \
   -d '{"request_id":"123e4567-e89b-42d3-a456-426614174000","platforms":["rss"]}'
 ```
 
+### Refactor quality baseline
+
+After installing the backend and frontend development dependencies, reproduce
+the handwritten production LOC, largest-file, Ruff complexity, strict
+TypeScript unused-code, and full-backend mypy baseline:
+
+```bash
+backend/.venv/bin/python scripts/quality_baseline.py --check
+```
+
+This is a blocking gate. It enforces normal Ruff, zero full-app mypy and
+TypeScript unused-code findings, the committed complexity budgets, and the
+absence of application modules at or above 1,000 lines.
+
+Capture the representative PostgreSQL query-count and timing baseline:
+
+```bash
+scripts/performance_baseline.sh
+```
+
+The command owns a disposable migrated test database and emits the complete
+measurement as JSON. The recorded Phase 0 dataset and interpretation are in
+[docs/refactor-performance-baseline.md](docs/refactor-performance-baseline.md).
+
 ## Useful Endpoints
 
-- `GET /health`
-- `GET /dashboard/summary`
-- `GET /diagnostics`
+- `GET /health/live`
+- `GET /health/ready`
+- `GET /operations/diagnostics`
 - `GET /sources`
 - `GET /sources/{source_id}`
 - `POST /sources/seed`
@@ -232,18 +277,21 @@ The report is written to `validation/content-intelligence-report.md`.
 
 ```bash
 cd backend
-.venv/bin/python -m pytest tests -v
+uv sync --locked
+uv run python -m pytest tests -v
 ```
 
-If the virtual environment does not exist yet, create it and install backend dependencies from `backend/pyproject.toml`.
+Use Python `3.14.6` and uv `0.11.29`. `uv sync --locked` creates the development environment from the committed lock; production uses `uv sync --locked --no-dev --no-editable`.
 
 ## Local Frontend Development
 
 ```bash
 cd frontend
-npm install
+npm ci
 npm run dev
 ```
+
+Use Node.js `26.4.0` and npm `11.17.0`. Dependency updates must change `package.json` and `package-lock.json` together; ordinary installs and builds use `npm ci`.
 
 Useful frontend checks:
 
@@ -256,11 +304,12 @@ npm run test:e2e
 
 The Compose stack is local-only by default: it binds PostgreSQL, API, and frontend host ports to `127.0.0.1`.
 
-Playwright uses its managed Chromium browser unless `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH` is set. On this host, browser verification requires the installed Chromium binary and single-process mode:
+Playwright uses its managed Chromium browser unless
+`PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH` is set. To use the system browser on this
+host:
 
 ```bash
-PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=/home/wingman/.cache/puppeteer/chrome-headless-shell/linux-150.0.7871.24/chrome-headless-shell-linux64/chrome-headless-shell \
-PLAYWRIGHT_CHROMIUM_SINGLE_PROCESS=1 \
+PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=/usr/bin/chromium \
 npm run test:e2e
 ```
 
@@ -313,12 +362,14 @@ manual stops, rollback, or backup/restore work.
 
 ## Documentation
 
-- Release 5 acceptance: [evidence and rerun checklist](docs/operations/release-acceptance.md)
+- Release acceptance: [evidence and rerun checklist](docs/operations/release-acceptance.md)
 - Multi-platform manual publishing: [operator runbook](docs/operations/manual-publishing-packages.md)
 - Research and generation: [operator runbook](docs/operations/research-and-generation.md)
 - Outbound networking: [proxy policy and operations](docs/operations/outbound-proxy-policy.md)
 - Credentials: [service topology, worker observations, and rotation](docs/operations/credential-topology.md)
 - Restart supervision: [policies, recovery drills, poison jobs, and rollback](docs/operations/restart-supervision.md)
+- Continuous integration: [blocking checks and release-gate ownership](docs/operations/continuous-integration.md)
+- Backup and restore: [encrypted backup and disposable restore drill](docs/operations/backup-and-restore.md)
 - Backend ingestion details: `docs/ingestion-backend.md`
 - Source catalog notes: `docs/ingestion-source-catalog.md`
 - Selective integration audit: `docs/armin-selective-audit.md`
@@ -326,4 +377,3 @@ manual stops, rollback, or backup/restore work.
 ## Notes
 
 - Local databases, virtual environments, generated media, cache files, and `.env` files are ignored by Git.
-- The legacy SQLite reader only reads old article rows; it does not write into PostgreSQL yet.

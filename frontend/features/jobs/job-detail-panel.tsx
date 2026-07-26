@@ -73,7 +73,6 @@ export function JobDetailPanel({
       <div className="flex items-start justify-between gap-3">
         <div>
           <h2 className="text-lg font-semibold">Job details</h2>
-          {job ? <div className="text-xs text-muted-foreground">{job.id}</div> : null}
         </div>
         <Button ref={closeRef} variant="outline" aria-label="Close job details" onClick={onClose}>Close</Button>
       </div>
@@ -84,14 +83,14 @@ export function JobDetailPanel({
         <div className="mt-6 space-y-6">
           <section aria-label="Job status" className="space-y-3 rounded-md border p-3">
             <div className="flex items-center justify-between gap-3">
-              <span className="font-medium">{job.jobType}</span>
+              <span className="font-medium">{job.job_type}</span>
               <JobStatusBadge status={job.status} />
             </div>
             <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-2 text-sm">
               <dt className="text-muted-foreground">Origin</dt><dd>{job.origin}</dd>
-              <dt className="text-muted-foreground">Attempts</dt><dd>{job.attemptCount} / {job.maxAttempts}</dd>
-              <dt className="text-muted-foreground">Progress</dt><dd dir="auto">{job.progress}% {job.progressMessage ?? ""}</dd>
-              <dt className="text-muted-foreground">Error</dt><dd dir="auto">{job.errorMessage ?? "-"}</dd>
+              <dt className="text-muted-foreground">Attempts</dt><dd>{job.attempt_count} / {job.max_attempts}</dd>
+              <dt className="text-muted-foreground">Progress</dt><dd dir="auto">{job.progress}% {job.progress_message ?? ""}</dd>
+              <dt className="text-muted-foreground">Error</dt><dd dir="auto">{job.error_message ?? "-"}</dd>
             </dl>
             <div className="flex gap-2">
               {job.status === "failed" || job.status === "needs_review" ? (
@@ -102,21 +101,25 @@ export function JobDetailPanel({
               ) : null}
             </div>
           </section>
-          <JsonSection title="Payload" value={job.payload} />
-          <JsonSection title="Result" value={job.result} />
-          <section aria-label="Job events" className="space-y-2">
-            <h3 className="font-semibold">Events</h3>
-            {job.events.length ? job.events.map((event) => (
-              <article key={event.id} className="rounded-md border p-3">
-                <div className="flex flex-wrap justify-between gap-2">
-                  <span className="font-medium">{event.eventType}</span>
-                  <time className="text-xs text-muted-foreground" dateTime={event.createdAt}>{event.createdAt}</time>
-                </div>
-                <div className="text-xs text-muted-foreground">{event.actor}</div>
-                <pre className="mt-2 overflow-x-auto whitespace-pre-wrap break-words text-xs" dir="auto">{safeJson(event.eventData)}</pre>
-              </article>
-            )) : <div className="text-sm text-muted-foreground">No events recorded</div>}
-          </section>
+          <details className="space-y-3 rounded-md border p-3">
+            <summary className="cursor-pointer font-semibold">Advanced execution evidence</summary>
+            <p className="break-all text-xs text-muted-foreground">Job record {job.id}</p>
+            <JsonSection title="Payload" value={job.payload} />
+            <JsonSection title="Result" value={job.result} />
+            <section aria-label="Job events" className="space-y-2">
+              <h3 className="font-semibold">Events</h3>
+              {job.events.length ? job.events.map((event) => (
+                <article key={event.id} className="rounded-md border p-3">
+                  <div className="flex flex-wrap justify-between gap-2">
+                    <span className="font-medium">{event.event_type}</span>
+                    <time className="text-xs text-muted-foreground" dateTime={event.created_at}>{event.created_at}</time>
+                  </div>
+                  <div className="text-xs text-muted-foreground">{event.actor}</div>
+                  <pre className="mt-2 overflow-x-auto whitespace-pre-wrap break-words text-xs" dir="auto">{safeJson(event.event_data)}</pre>
+                </article>
+              )) : <div className="text-sm text-muted-foreground">No events recorded</div>}
+            </section>
+          </details>
         </div>
       ) : null}
     </aside>

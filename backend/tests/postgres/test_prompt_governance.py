@@ -69,11 +69,12 @@ async def test_prompt_activation_is_serialized_and_restart_preserves_operator_ch
             "Concurrent default selection",
             "Concurrent operator selection",
         }
-        assert await session.scalar(
-            select(func.count())
-            .select_from(PromptTemplateVersion)
-            .where(PromptTemplateVersion.is_active.is_(True))
-        ) == 1
+        assert (
+            await session.scalar(
+                select(func.count()).select_from(PromptTemplateVersion).where(PromptTemplateVersion.is_active.is_(True))
+            )
+            == 1
+        )
 
     async with session_factory() as session:
         restarted = await seed_default_telegram_prompt(session)

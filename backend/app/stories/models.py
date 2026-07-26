@@ -3,12 +3,13 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 
-from sqlalchemy import DateTime, ForeignKey, Index, Integer, Text, UniqueConstraint, text
+from sqlalchemy import CheckConstraint, DateTime, ForeignKey, Index, Integer, Text, UniqueConstraint, text
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.sql import func
 
 from app.db.base import Base, timestamp_now, uuid_pk
+from app.stories.states import INBOX
 
 
 class Story(Base):
@@ -16,7 +17,7 @@ class Story(Base):
 
     id: Mapped[uuid.UUID] = uuid_pk()
     title: Mapped[str] = mapped_column(Text, nullable=False)
-    status: Mapped[str] = mapped_column(Text, nullable=False, server_default="open")
+    status: Mapped[str] = mapped_column(Text, nullable=False, server_default=INBOX)
     primary_language: Mapped[str] = mapped_column(Text, nullable=False, server_default="en")
     superseded_by_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("stories.id"), nullable=True
@@ -27,6 +28,10 @@ class Story(Base):
     )
 
     __table_args__ = (
+        CheckConstraint(
+            "status IN ('inbox', 'shortlisted', 'rejected', 'drafted', 'telegram_provisional')",
+            name="ck_stories_status",
+        ),
         Index(
             "ix_stories_active_updated",
             "status",
@@ -54,7 +59,10 @@ class StoryEvidenceSnapshot(Base):
     snapshot_metadata: Mapped[dict] = mapped_column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
     captured_at: Mapped[datetime] = timestamp_now()
 
-    __table_args__ = (UniqueConstraint("story_id", "evidence_key", name="uq_story_evidence_key"),)
+    __table_args__ = (
+        UniqueConstraint("story_id", "evidence_key", name="uq_story_evidence_key"),
+        Index("ix_story_evidence_content_item", "content_item_id"),
+    )
 
 
 class StoryRevision(Base):

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, Literal
+from typing import Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -9,8 +9,14 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.capabilities import CapabilityStatusDependency
+from app.api.content_pack_mappers import (
+    _pack_out,
+    _request_out,
+    _research_request_out,
+    _revision_out,
+)
+from app.api.editorial_errors import editorial_http_error
 from app.api.stories import _story_summary
-from app.core.redaction import redact_secrets, redact_string
 from app.db.session import get_session
 from app.exports.service import (
     ExportContractError,
@@ -27,27 +33,15 @@ from app.generation.editorial_service import (
     RevisionConflict,
 )
 from app.generation.models import (
-    AIProviderProfile,
     ContentPack,
-    GenerationAttempt,
-    GenerationRun,
     PlatformVariant,
     PlatformVariantRevision,
-    PromptTemplateVersion,
 )
-from app.generation.multiplatform import PLATFORM_ORDER
-from app.generation.platform_media import trusted_story_media
 from app.generation.platform_schemas import (
-    BlogVariantPayload,
-    InstagramVariantPayload,
     ManualPlatformEditRequest,
-    TelegramVariantPayload,
-    XVariantPayload,
 )
-from app.generation.platform_validation import validate_platform_payload
 from app.generation.providers.profiles import ProviderProfileResolver
 from app.jobs.models import WorkflowJob
-from app.research.schemas import CitationRef
 from app.stories.models import Story, StoryEvidenceSnapshot, StoryRevision
 
 router = APIRouter(tags=["content-packs"])
@@ -63,8 +57,7 @@ class RenderedRevisionHtmlOut(BaseModel):
     html: str = Field(min_length=1)
 
 
-def get_editorial_profile_resolver(
-) -> None:
+def get_editorial_profile_resolver() -> None:
     """The API never constructs a provider or resolves a worker credential."""
     return None
 
@@ -72,381 +65,21 @@ def get_editorial_profile_resolver(
 ProfileResolverDependency = Depends(get_editorial_profile_resolver)
 
 
-def _platform_values(rows: Any) -> set[str]:
-    return {value for row in rows if isinstance((value := getattr(row, "platform", row)), str)}
-
-
-async def _pack_has_exact_current_platforms(
-    session: AsyncSession,
-    pack_id: UUID,
-    expected_platforms: list[str],
-) -> bool:
-    variants = list(await session.scalars(select(PlatformVariant).where(PlatformVariant.content_pack_id == pack_id)))
-    if _platform_values(variants) != set(expected_platforms) or len(variants) != len(expected_platforms):
-        return False
-    for variant in variants:
-        current_revision_id = await session.scalar(
-            select(PlatformVariantRevision.id)
-            .where(PlatformVariantRevision.platform_variant_id == variant.id)
-            .order_by(
-                PlatformVariantRevision.revision_number.desc(),
-                PlatformVariantRevision.created_at.desc(),
-                PlatformVariantRevision.id.desc(),
-            )
-            .limit(1)
-        )
-        if current_revision_id is None:
-            return False
-    return True
-
-
-def _validation_path(code: str) -> str:
-    for marker, path in (
-        ("caption", "caption"),
-        ("hashtag", "hashtags"),
-        ("carousel", "carousel"),
-        ("seo_description", "seo_description"),
-        ("canonical_sources", "canonical_sources"),
-        ("hero", "hero_media"),
-        ("checklist", "manual_checklist"),
-        ("post", "posts"),
-        ("media", "media"),
-    ):
-        if marker in code:
-            return path
-    return "content"
-
-
-def _media_plan(platform: str | None, content: dict[str, Any]) -> list[Any]:
-    if platform == "telegram":
-        return list(content.get("media_asset_ids") or [])
-    if platform == "instagram":
-        return [slide.get("media") for slide in content.get("carousel", []) if isinstance(slide, dict)]
-    if platform == "x":
-        return [media for post in content.get("posts", []) if isinstance(post, dict) for media in post.get("media", [])]
-    if platform == "blog" and content.get("hero_media") is not None:
-        return [content["hero_media"]]
-    return []
-
-
-async def _source_media_out(
-    session: AsyncSession,
-    story_revision: StoryRevision | Any | None,
-) -> list[dict[str, Any]]:
-    raw_citations = getattr(story_revision, "citations", None)
-    if not raw_citations:
-        return []
-    try:
-        citations = [CitationRef.model_validate(item) for item in raw_citations]
-    except TypeError, ValueError:
-        return []
-    snapshot_ids = {item.evidence_snapshot_id for item in citations}
-    if not snapshot_ids:
-        return []
-    snapshots = list(
-        await session.scalars(
-            select(StoryEvidenceSnapshot).where(
-                StoryEvidenceSnapshot.id.in_(snapshot_ids),
-                StoryEvidenceSnapshot.story_id == story_revision.story_id,
-            )
-        )
-    )
-    _authorized, projection = await trusted_story_media(
-        session,
-        {snapshot.id: snapshot for snapshot in snapshots},
-    )
-    return projection
-
-
-async def _revision_out(session: AsyncSession, row: PlatformVariantRevision) -> dict[str, Any]:
-    variant = await session.get(PlatformVariant, row.platform_variant_id)
-    pack = await session.get(ContentPack, variant.content_pack_id) if variant is not None else None
-    story_revision = await session.get(StoryRevision, pack.story_revision_id) if pack is not None else None
-    attempt = await session.get(GenerationAttempt, row.generation_attempt_id) if row.generation_attempt_id else None
-    run = await session.get(GenerationRun, attempt.generation_run_id) if attempt is not None else None
-    prompt = (
-        await session.get(PromptTemplateVersion, run.prompt_template_version_id)
-        if run is not None and run.prompt_template_version_id
-        else None
-    )
-    profile = (
-        await session.get(AIProviderProfile, run.provider_profile_id)
-        if run is not None and run.provider_profile_id
-        else None
-    )
-    origin = (
-        "automation"
-        if row.created_by.startswith("automation:")
-        else row.created_by
-        if row.created_by in {"operator", "automation", "generation"}
-        else "operator"
-    )
-    redacted_validation_results = redact_secrets(row.validation_results)
-    validation_results = (
-        [item for item in redacted_validation_results if isinstance(item, dict)]
-        if isinstance(redacted_validation_results, list)
-        else []
-    )
-    validation_issues: list[dict[str, Any]] = []
-    payload_types = {
-        "telegram": TelegramVariantPayload,
-        "instagram": InstagramVariantPayload,
-        "x": XVariantPayload,
-        "blog": BlogVariantPayload,
-    }
-    if variant is not None and variant.platform in payload_types:
-        try:
-            platform_payload = payload_types[variant.platform].model_validate(row.content)
-            validation_issues = [
-                issue.model_dump(mode="json") for issue in validate_platform_payload(variant.platform, platform_payload)
-            ]
-        except ValueError:
-            validation_issues = [
-                {
-                    "code": str(gate.get("gate") or "platform_schema_invalid"),
-                    "path": _validation_path(str(gate.get("gate") or "")),
-                    "message": str(gate.get("reason") or "Stored platform content is invalid"),
-                    "severity": "warning" if gate.get("ok") else "error",
-                }
-                for gate in validation_results
-            ] or [
-                {
-                    "code": "platform_schema_invalid",
-                    "path": "content",
-                    "message": "Stored platform content is invalid",
-                    "severity": "error",
-                }
-            ]
-    platform = variant.platform if variant is not None else None
-    manual_checklist = list(row.content.get("manual_checklist") or []) if platform in {"instagram", "x", "blog"} else []
-    source_media = await _source_media_out(session, story_revision)
-    return {
-        "id": row.id,
-        "platform": platform,
-        "platform_variant_id": row.platform_variant_id,
-        "content_pack_id": pack.id if pack is not None else None,
-        "story_id": story_revision.story_id if story_revision is not None else None,
-        "parent_revision_id": row.parent_revision_id,
-        "generation_attempt_id": row.generation_attempt_id,
-        "revision_number": row.revision_number,
-        "content": row.content,
-        "content_hash": row.content_hash,
-        "evidence_map": row.evidence_map,
-        "manual_checklist": manual_checklist,
-        "validation_results": validation_results,
-        "validation_issues": validation_issues,
-        "media_plan": _media_plan(variant.platform if variant is not None else None, row.content),
-        "source_media": source_media,
-        "approval_state": row.approval_state,
-        "approval_note": row.approval_note,
-        "approved_at": row.approved_at,
-        "created_by": row.created_by,
-        "origin": origin,
-        "provider_profile": (
-            {"id": profile.id, "name": profile.name, "provider_type": profile.provider_type}
-            if profile is not None
-            else None
-        ),
-        "resolved_model": (
-            redact_string(str(attempt.resolved_model))
-            if attempt is not None and attempt.resolved_model is not None
-            else None
-        ),
-        "prompt_version": (
-            {
-                "id": prompt.id,
-                "version": prompt.version,
-                "output_schema_version": prompt.output_schema_version,
-                "checksum_sha256": prompt.checksum_sha256,
-            }
-            if prompt is not None
-            else None
-        ),
-        "created_at": row.created_at,
-    }
-
-
-async def _pack_out(session: AsyncSession, pack: ContentPack) -> dict[str, Any]:
-    story_revision = await session.get(StoryRevision, pack.story_revision_id)
-    variants = list(await session.scalars(select(PlatformVariant).where(PlatformVariant.content_pack_id == pack.id)))
-    order = {platform: index for index, platform in enumerate(PLATFORM_ORDER)}
-    variants.sort(key=lambda item: (order.get(item.platform, len(order)), str(item.id)))
-    projected = []
-    for item in variants:
-        current = await session.scalar(
-            select(PlatformVariantRevision)
-            .where(PlatformVariantRevision.platform_variant_id == item.id)
-            .order_by(
-                PlatformVariantRevision.revision_number.desc(),
-                PlatformVariantRevision.created_at.desc(),
-                PlatformVariantRevision.id.desc(),
-            )
-            .limit(1)
-        )
-        projected.append(
-            {
-                "id": item.id,
-                "platform": item.platform,
-                "current_revision": (
-                    await _revision_out(session, current) if isinstance(current, PlatformVariantRevision) else None
-                ),
-            }
-        )
+def _pack_summary(
+    pack: ContentPack,
+    story_revision: StoryRevision,
+    variants: list[PlatformVariant],
+) -> dict:
     return {
         "id": pack.id,
-        "story_id": story_revision.story_id if story_revision is not None else None,
+        "story_id": story_revision.story_id,
         "story_revision_id": pack.story_revision_id,
         "brand_profile_id": pack.brand_profile_id,
         "status": pack.status,
         "created_at": pack.created_at,
         "updated_at": pack.updated_at,
-        "variants": projected,
+        "variants": [{"id": variant.id, "platform": variant.platform} for variant in variants],
     }
-
-
-async def _request_out(session: AsyncSession, job: WorkflowJob) -> dict[str, Any] | None:
-    payload = dict(job.payload or {})
-    try:
-        story_id = UUID(str(payload["story_id"]))
-    except KeyError, TypeError, ValueError:
-        return None
-    try:
-        expected_brand_id = UUID(str(payload["brand_profile_id"]))
-    except KeyError, TypeError, ValueError:
-        expected_brand_id = None
-    raw_platforms = payload.get("platforms")
-    expected_platforms = (
-        list(dict.fromkeys(raw_platforms))
-        if isinstance(raw_platforms, list) and all(item in PLATFORM_ORDER for item in raw_platforms)
-        else [payload["platform"]]
-        if payload.get("platform") in PLATFORM_ORDER
-        else []
-    )
-    pack = None
-    child = None
-    result_revision_id = (job.result or {}).get("story_revision_id")
-    if result_revision_id is not None:
-        try:
-            revision_id = UUID(str(result_revision_id))
-        except TypeError, ValueError:
-            revision_id = None
-        if revision_id is not None:
-            child_id = (job.result or {}).get("continuation_job_id")
-            try:
-                parsed_child_id = UUID(str(child_id))
-            except TypeError, ValueError:
-                parsed_child_id = None
-            candidate = await session.get(WorkflowJob, parsed_child_id) if parsed_child_id is not None else None
-            candidate_payload = dict(candidate.payload or {}) if candidate is not None else {}
-            if (
-                candidate is not None
-                and expected_brand_id is not None
-                and candidate.job_type == "content_pack.generate_telegram"
-                and candidate_payload.get("story_revision_id") == str(revision_id)
-                and candidate_payload.get("brand_profile_id") == str(expected_brand_id)
-                and (
-                    candidate_payload.get("platforms") == expected_platforms
-                    or (expected_platforms == ["telegram"] and candidate_payload.get("platform") == "telegram")
-                )
-                and (candidate.idempotency_key or "").startswith(f"content-pack-telegram:{job.id}:")
-            ):
-                child = candidate
-                child_pack_id = (candidate.result or {}).get("content_pack_id")
-                try:
-                    parsed_pack_id = UUID(str(child_pack_id))
-                except TypeError, ValueError:
-                    parsed_pack_id = None
-                if parsed_pack_id is not None:
-                    pack = await session.get(ContentPack, parsed_pack_id)
-                    if pack is not None and (
-                        pack.story_revision_id != revision_id or pack.brand_profile_id != expected_brand_id
-                    ):
-                        pack = None
-                if candidate.status == "succeeded":
-                    if pack is None:
-                        pack = await session.scalar(
-                            select(ContentPack)
-                            .join(PlatformVariant, PlatformVariant.content_pack_id == ContentPack.id)
-                            .where(
-                                ContentPack.story_revision_id == revision_id,
-                                ContentPack.brand_profile_id == expected_brand_id,
-                                PlatformVariant.platform.in_(expected_platforms),
-                            )
-                            .order_by(ContentPack.created_at.desc())
-                            .limit(1)
-                        )
-                    if pack is not None and not await _pack_has_exact_current_platforms(
-                        session,
-                        pack.id,
-                        expected_platforms,
-                    ):
-                        pack = None
-    current_job = child or job
-    missing_exact_pack = child is not None and child.status == "succeeded" and pack is None
-    status = (
-        "ready"
-        if child is not None and child.status == "succeeded" and pack is not None
-        else "needs_review"
-        if missing_exact_pack
-        else current_job.status
-    )
-    last_failure = (
-        (
-            "Succeeded child did not produce an exact Telegram content pack"
-            if expected_platforms == ["telegram"]
-            else "Succeeded child did not produce the exact requested content pack"
-        )
-        if missing_exact_pack
-        else str(redact_secrets(current_job.error_message))
-        if current_job.status in {"failed", "needs_review", "retrying"} and current_job.error_message
-        else None
-    )
-    return {
-        "id": job.id,
-        "job_id": current_job.id,
-        "story_id": story_id,
-        "status": status,
-        "last_failure": last_failure,
-        "created_at": job.created_at,
-        "updated_at": job.updated_at,
-        "pack": await _pack_out(session, pack) if pack is not None else None,
-    }
-
-
-def _research_request_out(job: WorkflowJob) -> list[dict[str, Any]]:
-    if job.status == "succeeded":
-        return []
-    rows = []
-    for descriptor in (job.payload or {}).get("continuations", []):
-        if not isinstance(descriptor, dict) or descriptor.get("job_type") != "content_pack.generate":
-            continue
-        payload = descriptor.get("payload")
-        try:
-            story_id = UUID(str(payload["story_id"]))
-        except KeyError, TypeError, ValueError:
-            continue
-        rows.append(
-            {
-                "id": f"{job.id}:{descriptor.get('subscriber_id', story_id)}",
-                "job_id": job.id,
-                "story_id": story_id,
-                "status": job.status,
-                "last_failure": str(redact_secrets(job.error_message))
-                if job.status in {"failed", "needs_review"} and job.error_message
-                else None,
-                "created_at": job.created_at,
-                "updated_at": job.updated_at,
-                "pack": None,
-            }
-        )
-    return rows
-
-
-def _service_error(exc: Exception) -> HTTPException:
-    if isinstance(exc, RevisionConflict):
-        return HTTPException(409, str(exc))
-    code = getattr(exc, "code", None)
-    return HTTPException(422, {"code": code, "message": str(exc)} if code else str(exc))
 
 
 @router.get("/stories/{story_id}")
@@ -499,9 +132,9 @@ async def story_revisions(story_id: UUID, session: AsyncSession = SessionDepende
 async def create_content_pack(
     story_id: UUID,
     body: GeneratePackRequest,
+    capability_status: CapabilityStatusDependency,
     session: AsyncSession = SessionDependency,
     profile_resolver: ProviderProfileResolver | None = ProfileResolverDependency,
-    capability_status: CapabilityStatusDependency = None,
 ):
     await capability_status.require_available(
         "provider",
@@ -519,7 +152,7 @@ async def create_content_pack(
     try:
         result = await EditorialService(session, profile_resolver=profile_resolver).request_content_pack(story_id, body)
     except InvalidGenerationRequest as exc:
-        raise _service_error(exc) from None
+        raise editorial_http_error(exc) from None
     await session.commit()
     return result
 
@@ -549,10 +182,22 @@ async def list_content_pack_requests(session: AsyncSession = SessionDependency):
                 output.append(row)
     associated_pack_ids = {row["pack"]["id"] for row in output if row["pack"] is not None}
     packs = list(await session.scalars(select(ContentPack).order_by(ContentPack.created_at.desc())))
-    for pack in packs:
-        if pack.id in associated_pack_ids:
-            continue
-        story_revision = await session.get(StoryRevision, pack.story_revision_id)
+    unassociated_packs = [pack for pack in packs if pack.id not in associated_pack_ids]
+    if not unassociated_packs:
+        return output
+    story_revisions = {
+        row.id: row
+        for row in await session.scalars(
+            select(StoryRevision).where(StoryRevision.id.in_({pack.story_revision_id for pack in unassociated_packs}))
+        )
+    }
+    variants_by_pack: dict[UUID, list[PlatformVariant]] = {}
+    for variant in await session.scalars(
+        select(PlatformVariant).where(PlatformVariant.content_pack_id.in_({pack.id for pack in unassociated_packs}))
+    ):
+        variants_by_pack.setdefault(variant.content_pack_id, []).append(variant)
+    for pack in unassociated_packs:
+        story_revision = story_revisions.get(pack.story_revision_id)
         if story_revision is None:
             continue
         output.append(
@@ -564,7 +209,7 @@ async def list_content_pack_requests(session: AsyncSession = SessionDependency):
                 "last_failure": None,
                 "created_at": pack.created_at,
                 "updated_at": pack.updated_at,
-                "pack": await _pack_out(session, pack),
+                "pack": _pack_summary(pack, story_revision, variants_by_pack.get(pack.id, [])),
             }
         )
     return output
@@ -642,7 +287,7 @@ async def edit_variant(
             else await service.edit_variant(variant_id, body)
         )
     except (InvalidGenerationRequest, RevisionConflict) as exc:
-        raise _service_error(exc) from None
+        raise editorial_http_error(exc) from None
     await session.commit()
     return await _revision_out(session, result)
 
@@ -651,9 +296,9 @@ async def edit_variant(
 async def regenerate_variant(
     variant_id: UUID,
     body: RegenerateVariantRequest,
+    capability_status: CapabilityStatusDependency,
     session: AsyncSession = SessionDependency,
     profile_resolver: ProviderProfileResolver = ProfileResolverDependency,
-    capability_status: CapabilityStatusDependency = None,
 ):
     await capability_status.require_available(
         "provider",
@@ -664,7 +309,7 @@ async def regenerate_variant(
     try:
         result = await EditorialService(session, profile_resolver=profile_resolver).regenerate_variant(variant_id, body)
     except (InvalidGenerationRequest, RevisionConflict) as exc:
-        raise _service_error(exc) from None
+        raise editorial_http_error(exc) from None
     await session.commit()
     return result
 
@@ -674,7 +319,7 @@ async def approve_revision(revision_id: UUID, body: ApprovalRequest, session: As
     try:
         result = await EditorialService(session).approve_revision(revision_id, body)
     except (InvalidGenerationRequest, RevisionConflict) as exc:
-        raise _service_error(exc) from None
+        raise editorial_http_error(exc) from None
     await session.commit()
     return await _revision_out(session, result)
 
@@ -684,6 +329,6 @@ async def reject_revision(revision_id: UUID, body: ApprovalRequest, session: Asy
     try:
         result = await EditorialService(session).reject_revision(revision_id, body)
     except (InvalidGenerationRequest, RevisionConflict) as exc:
-        raise _service_error(exc) from None
+        raise editorial_http_error(exc) from None
     await session.commit()
     return await _revision_out(session, result)

@@ -89,20 +89,22 @@ class SafeArticleFetcher:
             if not content_text:
                 raise SafeArticleFetchError("Article extraction failed")
             content_sha256 = hashlib.sha256(content_text.encode("utf-8")).hexdigest()
-            return DiscoveredSourcePayload(
-                evidence_key=build_evidence_key(
-                    content_item_id=None,
-                    source_url=final_url,
-                    content_sha256=content_sha256,
-                ),
-                url=final_url,
-                title=" ".join(article.title.split()) or None,
-                publisher=None,
-                published_at=article.published_at,
-                retrieved_at=datetime.now(UTC),
-                content_text=content_text,
-                content_sha256=content_sha256,
-                extraction_status=article.extraction_status,
+            return DiscoveredSourcePayload.model_validate(
+                {
+                    "evidence_key": build_evidence_key(
+                        content_item_id=None,
+                        source_url=final_url,
+                        content_sha256=content_sha256,
+                    ),
+                    "url": final_url,
+                    "title": " ".join(article.title.split()) or None,
+                    "publisher": None,
+                    "published_at": article.published_at,
+                    "retrieved_at": datetime.now(UTC),
+                    "content_text": content_text,
+                    "content_sha256": content_sha256,
+                    "extraction_status": article.extraction_status,
+                }
             )
         except SafeArticleFetchError:
             raise

@@ -10,10 +10,7 @@ from fastapi import HTTPException
 from pydantic import ValidationError
 from sqlalchemy.exc import IntegrityError
 
-from app.api.capabilities import get_capability_status_service
 from app.api.generation_schemas import (
-    AIProviderProfileCreate,
-    AIProviderProfilePatch,
     BrandProfileCreate,
     BrandProfilePatch,
     PromptActivationCreate,
@@ -25,10 +22,8 @@ from app.api.generation_settings import (
     create_brand_profile,
     create_prompt_template,
     create_prompt_version,
-    create_provider_profile,
     list_prompt_versions,
     patch_brand_profile,
-    patch_provider_profile,
     seed_codex_provider_profile,
 )
 from app.core.config import Settings
@@ -48,7 +43,6 @@ from app.generation.provider_settings import (
 )
 from app.main import app
 from app.security.auth import TEST_ADMIN
-from tests.capability_fakes import AVAILABLE_CAPABILITIES, StaticCapabilityStatusService
 
 
 def _research_budget(max_model_calls: int) -> dict:
@@ -86,15 +80,6 @@ def test_openrouter_settings_round_trip_pricing_and_distinct_research_budgets():
     assert settings.research_budgets.deep.max_model_calls == 6
 
 
-def test_provider_contract_rejects_fake_settings_and_requires_openrouter_model_and_reference():
-    with pytest.raises(ValidationError, match="fake provider"):
-        AIProviderProfileCreate.model_validate({"name": "Fake", "provider_type": "fake", "settings": {}})
-    with pytest.raises(ValidationError, match="openrouter requires"):
-        AIProviderProfileCreate.model_validate(
-            {"name": "Live", "provider_type": "openrouter", "secret_ref": "OPENROUTER_KEY"}
-        )
-
-
 def test_provider_contract_forbids_unknown_settings_keys():
     with pytest.raises(ValidationError):
         OpenRouterProviderSettings.model_validate({"api_key": "must-never-be-stored"})
@@ -113,24 +98,10 @@ def test_codex_provider_settings_are_strict_and_apply_effective_nested_defaults(
         CodexProviderSettings.model_validate({"executable": "/usr/bin/codex"})
 
 
-def test_codex_profile_forbids_secret_and_requires_model():
-    with pytest.raises(ValidationError, match="codex"):
-        AIProviderProfileCreate.model_validate(
-            {
-                "name": "Codex CLI",
-                "provider_type": "codex",
-                "default_model": "gpt-5.4",
-                "secret_ref": "OPENAI_API_KEY",
-            }
-        )
-
-
 def test_codex_runtime_settings_have_safe_disabled_defaults():
     runtime = Settings(_env_file=None)
     assert runtime.codex_enabled is False
     assert runtime.codex_executable == "codex"
-    with pytest.raises(ValidationError, match="codex"):
-        AIProviderProfileCreate.model_validate({"name": "Codex CLI", "provider_type": "codex"})
 
 
 def test_prompt_versions_enforce_individual_and_combined_size_limits():
@@ -239,75 +210,6 @@ async def test_prompt_checksum_is_identical_for_non_ascii_content_across_api_and
     assert created.checksum_sha256 == prompt_checksum("سامانه", user, CanonicalStoryOutput.model_json_schema())
 
 
-async def test_codex_profile_create_applies_defaults_and_exposes_only_safe_capabilities():
-    session = GenerationSession()
-
-    created = await create_provider_profile(
-        AIProviderProfileCreate.model_validate(
-            {
-                "name": "Codex CLI",
-                "provider_type": "codex",
-                "default_model": "gpt-5.4",
-                "settings": {},
-            }
-        ),
-        session,
-        AVAILABLE_CAPABILITIES,
-    )
-    stored = session.one(AIProviderProfile)
-    assert stored.settings == {}
-    assert created.configured is True
-    assert created.capabilities == {"generation": True, "research": True}
-    assert created.unavailability_codes == []
-    assert "/private/operator" not in created.model_dump_json()
-    assert "environment" not in created.model_dump_json().lower()
-
-
-async def test_provider_configuration_api_works_without_external_credentials_and_reports_unknown(
-    monkeypatch,
-):
-    for name in (
-        "OPENROUTER_API_KEY",
-        "TELEGRAM_SOURCE_EDITOR_API_ID",
-        "TELEGRAM_SOURCE_EDITOR_API_HASH",
-        "TELEGRAM_SOURCE_EDITOR_SESSION",
-        "TELEGRAM_DESTINATION_NEWS_TOKEN",
-    ):
-        monkeypatch.delenv(name, raising=False)
-    session = GenerationSession()
-
-    async def override_session():
-        yield session
-
-    app.dependency_overrides[get_session] = override_session
-    app.dependency_overrides[get_capability_status_service] = lambda: (
-        StaticCapabilityStatusService("unknown")
-    )
-    try:
-        async with httpx.AsyncClient(
-            transport=httpx.ASGITransport(app=app), base_url="http://test"
-        ) as client:
-            response = await client.post(
-                "/ai-provider-profiles",
-                json={
-                    "name": "Credential-free API configuration",
-                    "provider_type": "openrouter",
-                    "default_model": "openai/gpt-5-mini",
-                    "secret_ref": "OPENROUTER_API_KEY",
-                },
-            )
-    finally:
-        app.dependency_overrides.clear()
-
-    assert response.status_code == 201
-    payload = response.json()
-    assert payload["configured"] is False
-    assert payload["capability_states"]["generation"]["status"] == "unknown"
-    assert payload["capability_states"]["research"]["status"] == "unknown"
-    assert "secret_ref" not in payload
-    assert "OPENROUTER_API_KEY" not in response.text
-
-
 async def test_codex_profile_seed_is_idempotent_and_has_no_secret():
     session = GenerationSession()
     first = await seed_codex_provider_profile(session, enabled=True, model="gpt-5.4")
@@ -412,92 +314,6 @@ async def test_setting_default_brand_profile_clears_the_previous_default():
     assert result is selected
     assert selected.is_default is True
     assert previous.is_default is False
-
-
-async def test_provider_patch_recursively_preserves_pricing_and_both_research_budgets():
-    session = GenerationSession()
-    created = await create_provider_profile(
-        AIProviderProfileCreate.model_validate(
-            {
-                "name": "Editor",
-                "provider_type": "openrouter",
-                "default_model": "openai/gpt-5-mini",
-                "secret_ref": "OPENROUTER_EDITOR_KEY",
-                "settings": {
-                    "pricing": {
-                        "input_usd_per_million": "1.25",
-                        "output_usd_per_million": "5.00",
-                    },
-                    "research_budgets": {
-                        "standard": _research_budget(3),
-                        "deep": _research_budget(6),
-                    },
-                },
-            }
-        ),
-        session,
-        AVAILABLE_CAPABILITIES,
-    )
-
-    patched = await patch_provider_profile(
-        created.id,
-        AIProviderProfilePatch.model_validate({"settings": {"pricing": {"input_usd_per_million": "2.50"}}}),
-        session,
-        AVAILABLE_CAPABILITIES,
-    )
-
-    assert patched.settings["pricing"] == {
-        "input_usd_per_million": "2.50",
-        "output_usd_per_million": "5.00",
-    }
-    assert patched.settings["research_budgets"]["standard"]["max_model_calls"] == 3
-    assert patched.settings["research_budgets"]["deep"]["max_model_calls"] == 6
-    assert patched.configured is True
-    assert not hasattr(patched, "secret_ref")
-
-
-async def test_provider_patch_distinguishes_omitted_settings_from_null_and_maps_validation_to_422():
-    session = GenerationSession()
-    created = await create_provider_profile(
-        AIProviderProfileCreate.model_validate(
-            {
-                "name": "Editor",
-                "provider_type": "openrouter",
-                "default_model": "model-one",
-                "secret_ref": "OPENROUTER_EDITOR_KEY",
-                "settings": {"timeout_seconds": 45},
-            }
-        ),
-        session,
-        AVAILABLE_CAPABILITIES,
-    )
-
-    renamed = await patch_provider_profile(
-        created.id,
-        AIProviderProfilePatch.model_validate({"name": "Renamed editor"}),
-        session,
-        AVAILABLE_CAPABILITIES,
-    )
-    assert renamed.settings["timeout_seconds"] == 45
-
-    cleared = await patch_provider_profile(
-        created.id,
-        AIProviderProfilePatch.model_validate({"settings": None}),
-        session,
-        AVAILABLE_CAPABILITIES,
-    )
-    assert cleared.settings == {}
-
-    with pytest.raises(HTTPException) as error:
-        await patch_provider_profile(
-            created.id,
-            AIProviderProfilePatch.model_validate({"default_model": None}),
-            session,
-            AVAILABLE_CAPABILITIES,
-        )
-    assert error.value.status_code == 422
-    assert "OPENROUTER_EDITOR_KEY" not in str(error.value.detail)
-    assert session.one(AIProviderProfile).default_model == "model-one"
 
 
 async def test_prompt_edits_create_immutable_versions_and_activation_selects_exactly_one():
@@ -622,7 +438,7 @@ async def test_prompt_version_history_returns_404_for_unknown_template():
     assert error.value.status_code == 404
 
 
-async def test_conflicting_duplicate_brand_template_and_provider_creates_return_409():
+async def test_conflicting_duplicate_brand_and_template_creates_return_409():
     session = GenerationSession()
     await create_brand_profile(
         BrandProfileCreate(
@@ -654,27 +470,7 @@ async def test_conflicting_duplicate_brand_template_and_provider_creates_return_
         )
     assert prompt_conflict.value.status_code == 409
 
-    await create_provider_profile(
-        AIProviderProfileCreate(
-            name="Fake",
-            provider_type="fake",
-            default_model="fake-v1",
-        ),
-        session,
-        AVAILABLE_CAPABILITIES,
-    )
-    with pytest.raises(HTTPException) as provider_conflict:
-        await create_provider_profile(
-            AIProviderProfileCreate(
-                name="Fake",
-                provider_type="fake",
-                default_model="fake-v2",
-            ),
-            session,
-            AVAILABLE_CAPABILITIES,
-        )
-    assert provider_conflict.value.status_code == 409
-    assert session.nested_count == 3
+    assert session.nested_count == 2
 
 
 async def test_generation_create_savepoints_recover_matching_winners_and_reject_conflicts():
@@ -712,36 +508,11 @@ async def test_generation_create_savepoints_recover_matching_winners_and_reject_
         )
     assert error.value.status_code == 409
 
-    provider = AIProviderProfile(
-        id=uuid4(),
-        name="Fake",
-        provider_type="fake",
-        default_model="fake-v1",
-        secret_ref=None,
-        settings={},
-        enabled=True,
-    )
-    provider_body = AIProviderProfileCreate(name="Fake", provider_type="fake", default_model="fake-v1")
-    provider_match = GenerationSavepointRaceSession(provider)
-    assert (
-        await create_provider_profile(provider_body, provider_match, AVAILABLE_CAPABILITIES)
-    ).id == provider.id
-    provider_conflict = GenerationSavepointRaceSession(provider)
-    with pytest.raises(HTTPException) as error:
-        await create_provider_profile(
-            AIProviderProfileCreate(name="Fake", provider_type="fake", default_model="fake-v2"),
-            provider_conflict,
-            AVAILABLE_CAPABILITIES,
-        )
-    assert error.value.status_code == 409
-
     sessions = (
         brand_match,
         brand_conflict,
         template_match,
         template_conflict,
-        provider_match,
-        provider_conflict,
     )
     assert all(session.integrity_errors == 1 for session in sessions)
 

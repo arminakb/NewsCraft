@@ -815,9 +815,7 @@ async def test_source_builder_uses_explicit_test_only_telegram_fixture(monkeypat
         str(Path("tests/fixtures/telegram_public_album.html")),
     )
 
-    dependencies = worker_module._build_source_dependencies(
-        FakeOwner(), EnvironmentSecretResolver({})
-    )
+    dependencies = worker_module._build_source_dependencies(FakeOwner(), EnvironmentSecretResolver({}))
     adapter = dependencies["source_registry"].get("public_html")
     result = await adapter.fetch(
         TelegramFetchRequest(
@@ -849,9 +847,9 @@ def test_source_builder_passes_normalized_proxy_to_telethon(monkeypatch):
             return object()
 
     monkeypatch.setattr("telethon.TelegramClient", FakeTelegramClient)
-    adapter = worker_module._build_source_dependencies(
-        FakeOwner(), EnvironmentSecretResolver({})
-    )["source_registry"].get("mtproto_user")
+    adapter = worker_module._build_source_dependencies(FakeOwner(), EnvironmentSecretResolver({}))[
+        "source_registry"
+    ].get("mtproto_user")
 
     adapter.client_factory(api_id=123, api_hash="hash-canary", session="session-canary")
 

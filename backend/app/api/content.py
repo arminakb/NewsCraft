@@ -51,9 +51,7 @@ async def list_content_items(
 @router.get("/content-items/{content_item_id}", response_model=ContentItemOut)
 async def get_content_item(content_item_id: UUID, session: AsyncSession = SessionDependency):
     item = await session.scalar(
-        select(ContentItem)
-        .options(selectinload(ContentItem.primary_media))
-        .where(ContentItem.id == content_item_id)
+        select(ContentItem).options(selectinload(ContentItem.primary_media)).where(ContentItem.id == content_item_id)
     )
     if item is None:
         raise HTTPException(status_code=404, detail="content item not found")

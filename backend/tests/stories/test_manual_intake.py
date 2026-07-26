@@ -27,9 +27,7 @@ from app.stories.schemas import ManualIntakeRequest
 def test_manual_intake_schema_is_strict_and_discriminated():
     adapter = TypeAdapter(ManualIntakeRequest)
 
-    url_request = adapter.validate_python(
-        {"kind": "url", "url": "https://example.com/report", "title": None}
-    )
+    url_request = adapter.validate_python({"kind": "url", "url": "https://example.com/report", "title": None})
     text_request = adapter.validate_python(
         {
             "kind": "text",
@@ -96,8 +94,7 @@ class RecordingSession:
                 (
                     value.id
                     for value in self.added
-                    if isinstance(value, WorkflowEvent)
-                    and value.event_type == "manual_intake.completed"
+                    if isinstance(value, WorkflowEvent) and value.event_type == "manual_intake.completed"
                 ),
                 None,
             )
@@ -122,11 +119,7 @@ def test_manual_intake_lock_is_transaction_scoped_and_uuid_deterministic():
 
     key = stories_repository._manual_intake_lock_key(job_id)
     repeated = stories_repository._manual_intake_lock_key(job_id)
-    sql = str(
-        stories_repository._manual_intake_lock_statement(job_id).compile(
-            dialect=postgresql.dialect()
-        )
-    ).upper()
+    sql = str(stories_repository._manual_intake_lock_statement(job_id).compile(dialect=postgresql.dialect())).upper()
 
     assert key == repeated
     assert -(2**63) <= key < 2**63
@@ -273,10 +266,7 @@ async def test_late_persistence_failure_rolls_back_savepoint_and_maps_retryable(
             return Savepoint(self)
 
         async def flush(self):
-            if (
-                not self.failed
-                and any(isinstance(value, WorkflowEvent) for value in self.added)
-            ):
+            if not self.failed and any(isinstance(value, WorkflowEvent) for value in self.added):
                 self.failed = True
                 raise RuntimeError("late database failure")
 
@@ -396,14 +386,11 @@ async def test_manual_intake_handler_replay_creates_one_story_snapshot_and_compl
 
     assert replay == first
     assert len([value for value in session.added if isinstance(value, Story)]) == 1
-    assert len(
-        [value for value in session.added if isinstance(value, StoryEvidenceSnapshot)]
-    ) == 1
+    assert len([value for value in session.added if isinstance(value, StoryEvidenceSnapshot)]) == 1
     events = [
         value
         for value in session.added
-        if isinstance(value, WorkflowEvent)
-        and value.event_type == "manual_intake.completed"
+        if isinstance(value, WorkflowEvent) and value.event_type == "manual_intake.completed"
     ]
     assert len(events) == 1
     assert events[0].workflow_job_id == job.id
@@ -467,9 +454,7 @@ async def test_failed_or_empty_url_extraction_needs_review_and_creates_no_story(
 async def test_unsafe_url_failure_maps_to_fixed_redacted_needs_review(monkeypatch):
     class UnsafeClient:
         async def __aenter__(self):
-            raise ManualIntakeFetchError(
-                "unsafe target contained https://user:secret@127.0.0.1/private"
-            )
+            raise ManualIntakeFetchError("unsafe target contained https://user:secret@127.0.0.1/private")
 
         async def __aexit__(self, *args):
             return None

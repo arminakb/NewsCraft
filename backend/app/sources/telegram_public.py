@@ -5,7 +5,7 @@ from datetime import datetime
 
 from bs4 import BeautifulSoup, Tag
 
-from app.normalization.dates import parse_source_datetime
+from app.normalization.dates import normalize_source_datetime
 from app.normalization.media import infer_media_kind, is_http_media_url
 from app.normalization.text import infer_direction
 from app.normalization.urls import normalize_url
@@ -18,17 +18,17 @@ COUNT_RE = re.compile(r"(?P<number>\d+(?:\.\d+)?)\s*(?P<suffix>[KMB])?", re.IGNO
 def parse_public_telegram_page(html: str, channel: str) -> ParsedSourcePayload:
     soup = BeautifulSoup(html, "lxml")
     warnings: list[str] = []
-    items = [
+    parsed_items = [
         _parse_message(block, channel=channel, warnings=warnings)
         for block in soup.select(".tgme_widget_message[data-post]")
     ]
-    items = [item for item in items if item is not None]
+    items = [item for item in parsed_items if item is not None]
     return ParsedSourcePayload(items=items, warnings=warnings, feed_meta={"channel": channel})
 
 
 def _parse_message(block: Tag, channel: str, warnings: list[str]) -> ParsedSourceItem | None:
     data_post = block.get("data-post")
-    if not data_post or "/" not in data_post:
+    if not isinstance(data_post, str) or "/" not in data_post:
         warnings.append("missing_data_post")
         return None
     post_channel, raw_message_id = data_post.rsplit("/", 1)
@@ -62,7 +62,7 @@ def _parse_message(block: Tag, channel: str, warnings: list[str]) -> ParsedSourc
         source_url=source_url,
         source_url_norm=normalize_url(source_url),
         canonical_url_candidate=normalize_url(source_url),
-        title=_message_title(content_text, message_id),
+        title="",
         summary=content_text,
         content_html=content_html,
         content_text=content_text,
@@ -85,25 +85,13 @@ def _parse_message(block: Tag, channel: str, warnings: list[str]) -> ParsedSourc
     )
 
 
-def _message_title(content_text: str, message_id: int) -> str:
-    for line in content_text.splitlines():
-        stripped = line.strip()
-        if stripped:
-            return stripped[:140]
-    return f"Telegram post {message_id}"
-
-
 def _message_datetime(block: Tag) -> tuple[str | None, datetime | None, str]:
     time_node = block.select_one("time[datetime]")
     if not time_node:
         return None, None, "missing"
-    raw = time_node.get("datetime")
-    if not raw:
-        return None, None, "missing"
-    try:
-        parsed, status = parse_source_datetime(raw, default_timezone="UTC")
-    except (TypeError, ValueError, OverflowError):
-        return raw, None, "failed"
+    raw_value = time_node.get("datetime")
+    raw = str(raw_value) if raw_value else None
+    parsed, status = normalize_source_datetime(raw)
     return raw, parsed, status
 
 
@@ -122,7 +110,8 @@ def _extract_media_candidates(block: Tag) -> list[MediaCandidate]:
             url = _background_image_url(media_node) or _first_attr(media_node, "video", "src")
             source_field, kind = "message_video", "video"
         else:
-            url = media_node.get("href") or _first_attr(media_node, "a", "href")
+            raw_url = media_node.get("href")
+            url = str(raw_url) if raw_url else _first_attr(media_node, "a", "href")
             source_field, kind = "message_document", "document"
         if url:
             _append_media(candidates, str(url), source_field=source_field, kind=kind)
@@ -150,7 +139,9 @@ def _append_media(candidates: list[MediaCandidate], url: str, source_field: str,
 
 
 def _background_image_url(node: Tag) -> str | None:
-    style = node.get("style") or ""
+    style = node.get("style")
+    if not isinstance(style, str):
+        return None
     match = CSS_URL_RE.search(style)
     if not match:
         return None
@@ -195,7 +186,7 @@ def _message_ids(block: Tag, data_post_message_id: int) -> list[int]:
         value = node.get("data-message-id")
         try:
             message_id = int(str(value))
-        except (TypeError, ValueError):
+        except TypeError, ValueError:
             continue
         if message_id not in message_ids:
             message_ids.append(message_id)

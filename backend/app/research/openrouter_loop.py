@@ -56,7 +56,7 @@ class FinishAction(BaseModel):
 
 
 ResearchAction = Annotated[SearchAction | FetchAction | FinishAction, Field(discriminator="action")]
-_ACTION_ADAPTER = TypeAdapter(ResearchAction)
+_ACTION_ADAPTER: TypeAdapter[ResearchAction] = TypeAdapter(ResearchAction)
 
 
 class OpenRouterResearchBackend:
@@ -194,15 +194,10 @@ class OpenRouterResearchBackend:
                             "results": [item.model_dump(mode="json") for item in results],
                         }
                     )
-                    events.append(
-                        {"action": "search", "status": "ok", "result_count": len(results)}
-                    )
+                    events.append({"action": "search", "status": "ok", "result_count": len(results)})
                 continue
 
-            if (
-                usage.pages >= request.budget.max_pages
-                or usage.fetched_characters >= request.budget.max_total_chars
-            ):
+            if usage.pages >= request.budget.max_pages or usage.fetched_characters >= request.budget.max_total_chars:
                 _record_exhausted(observations, events, action="fetch")
                 continue
             usage.pages += 1
@@ -238,9 +233,7 @@ class OpenRouterResearchBackend:
                     "source": source.model_dump(mode="json"),
                 }
             )
-            events.append(
-                {"action": "fetch", "status": "ok", "evidence_key": source.evidence_key}
-            )
+            events.append({"action": "fetch", "status": "ok", "evidence_key": source.evidence_key})
 
         raise ResearchBudgetExceeded("action budget exhausted")
 
@@ -288,10 +281,7 @@ class OpenRouterResearchBackend:
             raise ResearchBudgetExceeded("input token budget exhausted")
         if usage.output_tokens >= budget.max_output_tokens:
             raise ResearchBudgetExceeded("output token budget exhausted")
-        has_nonzero_rate = (
-            self.pricing.input_usd_per_million > 0
-            or self.pricing.output_usd_per_million > 0
-        )
+        has_nonzero_rate = self.pricing.input_usd_per_million > 0 or self.pricing.output_usd_per_million > 0
         if has_nonzero_rate and usage.cost >= budget.max_cost_usd:
             raise ResearchBudgetExceeded("cost budget exhausted")
 
@@ -333,10 +323,11 @@ def _required_usage(usage: dict[str, Any]) -> tuple[int, int]:
     input_tokens = usage.get("input_tokens")
     output_tokens = usage.get("output_tokens")
     if any(
-        isinstance(value, bool) or not isinstance(value, int) or value < 0
-        for value in (input_tokens, output_tokens)
+        isinstance(value, bool) or not isinstance(value, int) or value < 0 for value in (input_tokens, output_tokens)
     ):
         raise _needs_review("openrouter research usage is unavailable", "usage_unavailable")
+    assert isinstance(input_tokens, int)
+    assert isinstance(output_tokens, int)
     return input_tokens, output_tokens
 
 
@@ -390,7 +381,7 @@ def _validated_finish(
             parts = citation.locator.removeprefix("chars:").split("-")
             try:
                 start, end = (int(value) for value in parts)
-            except (TypeError, ValueError):
+            except TypeError, ValueError:
                 raise _needs_review("citation locator is invalid", "citation_invalid") from None
             if citation.locator != f"chars:{start}-{end}" or start < 0 or end <= start or end > len(content):
                 raise _needs_review("citation locator is invalid", "citation_invalid")

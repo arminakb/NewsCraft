@@ -76,11 +76,7 @@ def _admin_principal(request: Request) -> SecurityPrincipal:
 
 async def _commit_gateway_error(session: AsyncSession, exc: GatewayError) -> None:
     await session.commit()
-    headers = (
-        {"Retry-After": str(exc.retry_after_seconds)}
-        if exc.retry_after_seconds is not None
-        else None
-    )
+    headers = {"Retry-After": str(exc.retry_after_seconds)} if exc.retry_after_seconds is not None else None
     raise HTTPException(
         exc.status_code,
         detail={"code": exc.code},
@@ -210,10 +206,7 @@ async def list_connections(
     _admin_principal(request)
     service = _service(session)
     now = service.clock()
-    return [
-        connection_out(connection, now=now, config=settings)
-        for connection in await service.list_connections()
-    ]
+    return [connection_out(connection, now=now, config=settings) for connection in await service.list_connections()]
 
 
 async def _connection_or_404(

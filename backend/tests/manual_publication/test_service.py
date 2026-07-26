@@ -104,8 +104,7 @@ class _Session:
                     (
                         item
                         for item in self.plans
-                        if item.platform_variant_revision_id in identifiers
-                        and item.status in {"planned", "ready"}
+                        if item.platform_variant_revision_id in identifiers and item.status in {"planned", "ready"}
                     ),
                     None,
                 )
@@ -242,9 +241,7 @@ async def test_create_plan_rejects_non_publishable_exact_revisions(mutation, mes
         from app.automations.telegram.handlers import sha256_canonical
 
         revision.content = {"caption": "incomplete"}
-        revision.content_hash = sha256_canonical(
-            {"content": revision.content, "evidence_map": revision.evidence_map}
-        )
+        revision.content_hash = sha256_canonical({"content": revision.content, "evidence_map": revision.evidence_map})
     elif mutation == "not_current":
         newer = PlatformVariantRevision(
             id=uuid4(),
@@ -281,9 +278,7 @@ async def test_create_plan_rejects_non_publishable_exact_revisions(mutation, mes
         (NOW + timedelta(hours=1), "Mars/Olympus", "IANA timezone"),
     ],
 )
-async def test_create_plan_requires_future_aware_schedule_and_iana_timezone(
-    scheduled_for, timezone, message
-):
+async def test_create_plan_requires_future_aware_schedule_and_iana_timezone(scheduled_for, timezone, message):
     from app.manual_publication.service import ManualPublicationError
 
     variant, revision = _revision_fixture()
@@ -328,9 +323,7 @@ async def test_create_plan_exact_replay_reuses_without_event_but_conflicting_act
     replay_session = _Session(variant=variant, revisions=[revision], plans=[existing])
 
     assert (
-        await _service(replay_session).create_plan(
-            revision.id, existing.scheduled_for, existing.display_timezone
-        )
+        await _service(replay_session).create_plan(revision.id, existing.scheduled_for, existing.display_timezone)
         is existing
     )
     assert _events(replay_session) == []
@@ -427,9 +420,7 @@ async def test_active_replay_still_enforces_exact_revision_gates(mutation, messa
         revision.content_hash = "0" * 64
     elif mutation == "schema":
         revision.content = {"caption": "incomplete"}
-        revision.content_hash = sha256_canonical(
-            {"content": revision.content, "evidence_map": revision.evidence_map}
-        )
+        revision.content_hash = sha256_canonical({"content": revision.content, "evidence_map": revision.evidence_map})
     else:
         revisions.append(
             PlatformVariantRevision(
@@ -458,9 +449,7 @@ async def test_active_replay_still_enforces_exact_revision_gates(mutation, messa
     )
 
     with pytest.raises(ManualPublicationError, match=message):
-        await _service(
-            _Session(variant=variant, revisions=revisions, plans=[existing])
-        ).create_plan(
+        await _service(_Session(variant=variant, revisions=revisions, plans=[existing])).create_plan(
             revision.id,
             existing.scheduled_for,
             existing.display_timezone,
@@ -540,9 +529,7 @@ async def test_mark_published_requires_ready_and_revalidates_current_approval_ha
         checklist_state=state,
     )
     with pytest.raises(ManualPublicationError, match="ready"):
-        await _service(_Session(variant=variant, revisions=[revision], plans=[plan])).mark_published(
-            plan.id
-        )
+        await _service(_Session(variant=variant, revisions=[revision], plans=[plan])).mark_published(plan.id)
 
     plan.status = "ready"
     revision.approval_state = "rejected"

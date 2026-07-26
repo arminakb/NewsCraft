@@ -1,8 +1,5 @@
 from __future__ import annotations
 
-from html import escape
-from typing import Any
-
 from app.generation.platform_schemas import (
     BlogVariantPayload,
     InstagramVariantPayload,
@@ -11,12 +8,6 @@ from app.generation.platform_schemas import (
     TelegramVariantPayload,
     XVariantPayload,
 )
-
-
-def render_telegram_variant(content: dict[str, Any]) -> dict[str, Any]:
-    """Return the exact Release 2 mapping after its original validator runs."""
-
-    return TelegramVariantPayload.model_validate(content).model_dump(mode="json")
 
 
 def render_platform_copy(platform: Platform, payload: PlatformPayload) -> str:
@@ -39,8 +30,3 @@ def render_platform_copy(platform: Platform, payload: PlatformPayload) -> str:
 def render_platform_markdown(platform: Platform, payload: PlatformPayload) -> str:
     title = {"telegram": "Telegram", "instagram": "Instagram", "x": "X", "blog": "Blog"}[platform]
     return f"# {title}\n\n{render_platform_copy(platform, payload)}\n"
-
-
-def render_platform_html(platform: Platform, payload: PlatformPayload) -> str:
-    copy = escape(render_platform_copy(platform, payload))
-    return f'<article data-platform="{platform}"><pre>{copy}</pre></article>'

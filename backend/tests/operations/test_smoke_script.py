@@ -47,6 +47,7 @@ class FakeSmokeAPI:
     def __init__(self) -> None:
         self.requests: list[dict[str, object]] = []
         self.job_reads: dict[str, int] = {}
+        self.option_reads = 0
         self.research_citations = True
         self.control = {
             "global_pause": False,
@@ -172,8 +173,8 @@ class FakeSmokeAPI:
         query: dict[str, list[str]],
     ) -> tuple[int, object]:
         ids = self.ids
-        if (method, path) == ("GET", "/health"):
-            return 200, {"status": "ok", "token": SECRET_CANARY}
+        if (method, path) == ("GET", "/health/live"):
+            return 200, {"status": "alive", "token": SECRET_CANARY}
         if (method, path) == ("GET", "/automation-control"):
             return 200, self.control
         if (method, path) == ("PATCH", "/automation-control"):
@@ -197,10 +198,10 @@ class FakeSmokeAPI:
                 "is_default": False,
             }
             return 201, {"id": ids["brand"], **body}
-        if (method, path) == ("POST", "/ai-provider-profiles"):
+        if (method, path) == ("POST", "/llm-providers"):
             assert body == {
                 "name": f"{self._run_id()}-provider",
-                "provider_type": "fake",
+                "protocol": "fake",
                 "default_model": "fake-v1",
                 "enabled": True,
             }
@@ -209,8 +210,8 @@ class FakeSmokeAPI:
                 **body,
                 "settings": {},
                 "configured": True,
-                "capabilities": {"generation": True, "research": True},
-                "unavailability_codes": [],
+                "generation_ready": True,
+                "research_ready": True,
             }
         if (method, path) == ("POST", "/telegram/sources"):
             return 201, {
@@ -222,15 +223,17 @@ class FakeSmokeAPI:
                 "configured": True,
             }
         if (method, path) == ("POST", "/telegram/destinations"):
+            assert body["target"].startswith("@newscraft_smoke_")
+            assert body["bot_token"].startswith("123456:deterministic-smoke-token-")
             return 202, {
                 "destination": {
                     "id": ids["destination"],
                     "name": body["name"],
-                    "target_ref": body["target_ref"],
-                    "enabled": True,
+                    "target_ref": body["target"],
+                    "enabled": False,
                     "health_status": "unknown",
-                    "configured": False,
-                    "settings": {"allow_auto_publish": False},
+                    "configured": True,
+                    "administrator_status": "checking",
                 },
                 "job": {
                     "job_id": ids["destination_job"],
@@ -238,15 +241,35 @@ class FakeSmokeAPI:
                     "deduplicated": False,
                 },
             }
-        if (method, path) == ("GET", "/telegram/automations/options"):
+        if (method, path) == ("POST", f"/telegram/destinations/{ids['destination']}/enable"):
             return 200, {
-                "sources": [{"id": ids["source"], "name": "Smoke source", "access_mode": "public_html"}],
+                "id": ids["destination"],
+                "name": "Smoke destination",
+                "target_ref": "@newscraft_smoke_test",
+                "enabled": True,
+                "health_status": "healthy",
+                "configured": True,
+                "administrator_status": "administrator",
+            }
+        if (method, path) == ("GET", "/telegram/automations/options"):
+            self.option_reads += 1
+            capability_status = "available" if self.option_reads > 1 else "unknown"
+            capability_available = self.option_reads > 1
+            return 200, {
+                "sources": [
+                    {
+                        "id": ids["source"],
+                        "name": "Smoke source",
+                        "access_mode": "public_html",
+                        "capability_state": {"status": capability_status},
+                    }
+                ],
                 "destinations": [
                     {
                         "id": ids["destination"],
                         "name": "Smoke destination",
-                        "health_status": "unknown",
-                        "allow_auto_publish": False,
+                        "health_status": "healthy",
+                        "capability_state": {"status": capability_status},
                     }
                 ],
                 "brand_profiles": [{"id": ids["brand"], "name": "Default Newsroom"}],
@@ -257,8 +280,11 @@ class FakeSmokeAPI:
                         "name": "Deterministic Fake",
                         "provider_type": "fake",
                         "default_model": "fake-v1",
-                        "configured": True,
-                        "capabilities": {"generation": True, "research": True},
+                        "configured": capability_available,
+                        "capabilities": {
+                            "generation": capability_available,
+                            "research": capability_available,
+                        },
                     }
                 ],
             }
@@ -406,7 +432,7 @@ class FakeSmokeAPI:
                     "source_fingerprint": _sha("album"),
                     "source_message_ids": [42, 43, 44],
                     "dispatch_kind": "dry_run",
-                    "status": "needs_review",
+                    "status": "pending_review",
                     "variant_revision_id": ids["edited_revision"],
                 }
             ]
@@ -558,6 +584,7 @@ class FakeSmokeAPI:
         if self.job_reads[job_id] == 1:
             return {"id": job_id, "status": "running", "result": {}}
         results = {
+            ids["destination_job"]: {"destination_id": ids["destination"]},
             ids["activation_job"]: {"route_id": ids["route"]},
             ids["manual_job"]: {"story_id": ids["story"]},
             ids["research_job"]: {
@@ -864,6 +891,7 @@ def test_smoke_driver_runs_complete_fake_workflow(
         fake_http.ids[key]
         for key in (
             "activation_job",
+            "destination_job",
             "manual_job",
             "research_job",
             "generation_job",
@@ -881,13 +909,15 @@ def test_smoke_driver_runs_complete_fake_workflow(
         if not str(request["path"]).startswith("/jobs/")
     ]
     assert non_poll_sequence == [
-        ("GET", "/health"),
+        ("GET", "/health/live"),
         ("GET", "/automation-control"),
         ("PATCH", "/automation-control"),
         ("POST", "/brand-profiles"),
-        ("POST", "/ai-provider-profiles"),
+        ("POST", "/llm-providers"),
         ("POST", "/telegram/sources"),
         ("POST", "/telegram/destinations"),
+        ("POST", f"/telegram/destinations/{fake_http.ids['destination']}/enable"),
+        ("GET", "/telegram/automations/options"),
         ("GET", "/telegram/automations/options"),
         ("POST", "/telegram/automations"),
         ("POST", f"/telegram/automations/{fake_http.ids['route']}/activate"),
@@ -959,7 +989,9 @@ def test_smoke_driver_runs_complete_fake_workflow(
     mutations = [request for request in fake_http.requests if request["method"] in {"POST", "PATCH"}]
     assert all(str(request["headers"].get("Idempotency-Key", "")).startswith(report["run_id"]) for request in mutations)
     destination_request = next(request for request in mutations if request["path"] == "/telegram/destinations")
-    assert destination_request["body"]["secret_ref"].startswith("NEWSCRAFT_SMOKE_")
+    assert destination_request["body"]["target"].startswith("@newscraft_smoke_")
+    assert destination_request["body"]["bot_token"].startswith("123456:deterministic-smoke-token-")
+    assert "secret_ref" not in destination_request["body"]
     source_request = next(request for request in mutations if request["path"] == "/telegram/sources")
     assert source_request["body"]["channel_ref"] == "example_channel"
     assert source_request["body"]["access_mode"] == "public_html"

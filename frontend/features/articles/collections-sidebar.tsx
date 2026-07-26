@@ -52,12 +52,12 @@ export function CollectionsSidebar({
       className="sticky top-14 hidden h-[calc(100vh-3.5rem)] min-w-0 overflow-y-auto border-r bg-slate-50/55 min-[900px]:block"
     >
       <div className="space-y-5 p-3 lg:p-4">
-        <nav aria-label="Feed collections">
+        <nav aria-label="Library collections">
           <CollectionButton
             active={selectedId === null}
             count={null}
             icon={Inbox}
-            label="All Feed"
+            label="All articles"
             onClick={() => onSelect(null)}
             buttonRef={allFeedRef}
           />

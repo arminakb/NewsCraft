@@ -7,6 +7,7 @@ import socket
 from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
+from typing import Any
 from urllib.parse import quote, urlsplit
 
 import httpx
@@ -16,6 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import Settings, settings
 from app.publishing.models import Destination, TelegramProxyProfile
 from app.publishing.telegram.client import TelegramBotClient
+from app.publishing.telegram.contracts import TelegramOperationResult, TelegramPublishOperation
 from app.security.auth import SecurityPrincipal
 from app.security.models import EncryptedSecret
 from app.security.secret_store import EncryptedSecretStore, MasterKeyRing, SecretStoreError
@@ -42,6 +44,37 @@ class ValidatedProxyEndpoint:
     host: str
     resolved_ip: str
     port: int
+
+
+class _TestTelegramBotClient(TelegramBotClient):
+    """Deterministic Bot API boundary used only by fixture-backed test runs."""
+
+    def __init__(self) -> None:
+        pass
+
+    async def execute(self, operation: TelegramPublishOperation, token: str) -> TelegramOperationResult:
+        del token
+        return TelegramOperationResult(
+            remote_message_ids=(9_001 + operation.index,),
+            response_metadata={"ok": True, "test_transport": True},
+        )
+
+    async def get_me(self, token: str) -> dict[str, Any]:
+        del token
+        return {"id": 9_001, "username": "newscraft_test_bot"}
+
+    async def get_chat(self, target_ref: str, token: str) -> dict[str, Any]:
+        del token
+        return {
+            "id": -1_009_001,
+            "type": "channel",
+            "username": target_ref.removeprefix("@"),
+            "title": "NewsCraft test channel",
+        }
+
+    async def get_chat_member(self, target_ref: str, user_id: int, token: str) -> dict[str, Any]:
+        del target_ref, user_id, token
+        return {"status": "administrator", "administrator": True}
 
 
 def normalize_telegram_target(raw: str) -> NormalizedTelegramTarget:
@@ -97,8 +130,10 @@ def normalize_proxy_host(raw: str) -> str:
         ascii_host = idna.encode(value, uts46=True, std3_rules=True).decode("ascii").casefold()
     except idna.IDNAError:
         raise TelegramConfigurationError("telegram_proxy_host_invalid") from None
-    if len(ascii_host) > 253 or ascii_host == "localhost" or any(
-        not _HOST_LABEL.fullmatch(label) for label in ascii_host.split(".")
+    if (
+        len(ascii_host) > 253
+        or ascii_host == "localhost"
+        or any(not _HOST_LABEL.fullmatch(label) for label in ascii_host.split("."))
     ):
         raise TelegramConfigurationError("telegram_proxy_host_invalid")
     return ascii_host
@@ -140,6 +175,7 @@ async def validate_proxy_endpoint(
         literal = None
     if literal is not None:
         return ValidatedProxyEndpoint(normalized, _public_address(literal.compressed), port)
+    infos: Any
     try:
         if resolver is None:
             infos = await asyncio.get_running_loop().getaddrinfo(
@@ -151,7 +187,7 @@ async def validate_proxy_endpoint(
         else:
             result = resolver(normalized, port)
             infos = await result if hasattr(result, "__await__") else result
-    except (OSError, UnicodeError):
+    except OSError, UnicodeError:
         raise TelegramConfigurationError("telegram_proxy_dns_failed") from None
     addresses = sorted({_public_address(item[4][0]) for item in infos})
     if not addresses:
@@ -171,7 +207,7 @@ async def check_proxy_reachability(
         )
         writer.close()
         await writer.wait_closed()
-    except (OSError, TimeoutError):
+    except OSError, TimeoutError:
         raise TelegramConfigurationError("telegram_proxy_unreachable") from None
 
 
@@ -242,6 +278,13 @@ class TelegramRouteResolver:
         session: AsyncSession,
         destination: Destination,
     ) -> AsyncIterator[TelegramBotClient]:
+        if (
+            self.config.app_env == "test"
+            and self.config.telegram_acceptance_fixture_path is not None
+            and destination.proxy_profile_id is None
+        ):
+            yield _TestTelegramBotClient()
+            return
         proxy_url: str | None = None
         if destination.proxy_profile_id is not None:
             profile = await session.get(TelegramProxyProfile, destination.proxy_profile_id)
@@ -260,7 +303,7 @@ class TelegramRouteResolver:
                 trust_env=False,
             ) as http:
                 yield TelegramBotClient(http)
-        except (ValueError, ImportError):
+        except ValueError, ImportError:
             raise TelegramConfigurationError("telegram_proxy_client_initialization_failed") from None
 
 

@@ -23,9 +23,3 @@ async def readiness(
     if not snapshot.ready:
         response.status_code = status.HTTP_503_SERVICE_UNAVAILABLE
     return snapshot
-
-
-@router.get("/health")
-async def legacy_health() -> dict[str, str]:
-    """One-release compatibility alias for process liveness."""
-    return {"status": "ok"}

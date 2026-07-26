@@ -1,0 +1,162 @@
+name: Nightly production drills
+
+on:
+  schedule:
+    - cron: "37 2 * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: nightly-production-drills
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  no-mock-stack:
+    name: Credential-free real-stack smoke
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      APP_ENV: test
+      GENERATION_PROVIDER: fake
+      TELEGRAM_PUBLISH_MODE: dry-run
+      OPENROUTER_API_KEY: ""
+      TELEGRAM_SOURCE_EDITOR_API_ID: ""
+      TELEGRAM_SOURCE_EDITOR_API_HASH: ""
+      TELEGRAM_SOURCE_EDITOR_SESSION: ""
+      TELEGRAM_DESTINATION_NEWS_TOKEN: ""
+      HTTP_PROXY: ""
+      HTTPS_PROXY: ""
+      ALL_PROXY: ""
+    steps:
+      - uses: actions/checkout@v4
+      - name: Start isolated acceptance topology
+        run: docker compose -p newscraft-nightly -f docker-compose.yml -f docker-compose.acceptance.yml up -d --build --wait
+      - name: HTTP acceptance and restart recovery
+        run: |
+          python3 scripts/smoke.py --base-url http://127.0.0.1:8000 --provider fake --telegram-mode dry-run --output-dir reports/smoke
+          docker compose -p newscraft-nightly -f docker-compose.yml -f docker-compose.acceptance.yml kill worker-source-generation
+          docker compose -p newscraft-nightly -f docker-compose.yml -f docker-compose.acceptance.yml up -d --no-deps --wait worker-source-generation
+          docker compose -p newscraft-nightly -f docker-compose.yml -f docker-compose.acceptance.yml ps --format json > reports/compose-after-restart.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: nightly-stack-evidence
+          path: reports/
+          retention-days: 30
+      - name: Cleanup
+        if: always()
+        run: docker compose -p newscraft-nightly -f docker-compose.yml -f docker-compose.acceptance.yml down -v --remove-orphans
+
+  backup-restore-contract:
+    name: Encrypted disposable restore drill
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      APP_ENV: test
+      GENERATION_PROVIDER: fake
+      TELEGRAM_PUBLISH_MODE: dry-run
+      OPENROUTER_API_KEY: ""
+      TELEGRAM_SOURCE_EDITOR_API_ID: ""
+      TELEGRAM_SOURCE_EDITOR_API_HASH: ""
+      TELEGRAM_SOURCE_EDITOR_SESSION: ""
+      TELEGRAM_DESTINATION_NEWS_TOKEN: ""
+      HTTP_PROXY: ""
+      HTTPS_PROXY: ""
+      ALL_PROXY: ""
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v7
+        with:
+          version: 0.11.29
+          enable-cache: true
+          cache-dependency-glob: backend/uv.lock
+      - uses: actions/setup-python@v6
+        with:
+          python-version: 3.14.6
+      - name: Frozen install and restore safety suite
+        working-directory: backend
+        run: |
+          uv sync --locked
+          uv run pytest -p no:cacheprovider -q \
+            tests/operations/test_backup_restore_script.py \
+            tests/operations/test_restore_drill_script.py \
+            --junitxml=reports/backup-restore.xml
+      - name: Start source stack and build credential-minimal backup image
+        run: |
+          docker compose -p newscraft-backup-source up -d --build --wait
+          docker compose -p newscraft-backup-source --profile operations build backup
+      - name: Create keys and encrypted quiesced backup
+        run: |
+          umask 077
+          mkdir -p reports/restore-drills reports/backup-source /dev/shm/newscraft-backup
+          docker run --rm newscraft-backup:local age-keygen > /tmp/newscraft-backup-identity.txt
+          docker run --rm -i newscraft-backup:local age-keygen -y \
+            < /tmp/newscraft-backup-identity.txt > /tmp/newscraft-backup-recipient.txt
+          python -c 'import secrets; print(secrets.token_hex(32))' > /tmp/newscraft-backup-canary.txt
+          python -c 'import secrets; print(secrets.token_hex(32))' > /tmp/newscraft-report-hmac.key
+          COMPOSE_PROJECT_NAME=newscraft-backup-source python scripts/backup_restore.py backup \
+            --output-dir reports/backup-source \
+            --recipient-file /tmp/newscraft-backup-recipient.txt \
+            --identity-file /tmp/newscraft-backup-identity.txt \
+            --staging-dir /dev/shm/newscraft-backup
+          COMPOSE_PROJECT_NAME=newscraft-backup-source python scripts/backup_restore.py status \
+            --output-dir reports/backup-source \
+            --identity-file /tmp/newscraft-backup-identity.txt \
+            --max-age-hours 1 \
+            --minimum-free-bytes 0
+      - name: Restore, prove, sign, and clean disposable project
+        run: |
+          ARCHIVE_PATH="$(find reports/backup-source -maxdepth 1 -name '*.newscraft-backup.tar.gz.age' -print -quit)"
+          test -n "$ARCHIVE_PATH"
+          python scripts/restore_drill.py \
+            --archive "$ARCHIVE_PATH" \
+            --identity-file /tmp/newscraft-backup-identity.txt \
+            --secret-canary-file /tmp/newscraft-backup-canary.txt \
+            --report-signing-key-file /tmp/newscraft-report-hmac.key \
+            --project-name newscraft-restore-drill-nightly-a \
+            --api-port 18000 \
+            --output-dir reports/restore-drills \
+            --cleanup
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: nightly-backup-restore-evidence
+          path: |
+            backend/reports/
+            reports/restore-drills/
+          retention-days: 30
+      - name: Cleanup source and disposable projects
+        if: always()
+        run: |
+          docker compose -p newscraft-backup-source down -v --remove-orphans
+          python scripts/cleanup_restore_drill.py \
+            --project-name newscraft-restore-drill-nightly-a \
+            --api-port 18000 || true
+          rm -f /tmp/newscraft-backup-identity.txt /tmp/newscraft-backup-recipient.txt \
+            /tmp/newscraft-backup-canary.txt /tmp/newscraft-report-hmac.key
+          rmdir /dev/shm/newscraft-backup 2>/dev/null || true
+
+  large-list-budget:
+    name: Feed correctness and browser regression
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 26.4.0
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Frozen install and feed correctness suite
+        working-directory: frontend
+        run: |
+          npm ci
+          npm test -- --run tests/articles-page.test.tsx
+      - name: Install pinned Chromium
+        working-directory: frontend
+        run: npx playwright install --with-deps chromium
+      - name: Exercise the current Feed browser workflow
+        working-directory: frontend
+        run: npm run test:e2e -- e2e/feed-desktop.spec.ts

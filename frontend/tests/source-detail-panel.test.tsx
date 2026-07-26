@@ -1,7 +1,7 @@
 import { render, screen } from "@testing-library/react"
 
 import { SourceDetailPanel } from "@/components/dashboard/source-detail-panel"
-import { dashboardMock } from "@/lib/mock-data"
+import { dashboardMock } from "@/tests/fixtures/dashboard-mock"
 
 describe("SourceDetailPanel", () => {
   it("renders selected source details and real fetch interval without fake tabs", () => {

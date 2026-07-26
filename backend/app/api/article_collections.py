@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+from collections.abc import Mapping
 from datetime import datetime
+from typing import Any
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Response, status
@@ -46,13 +48,13 @@ class ArticleCollectionOut(BaseModel):
     updated_at: datetime
 
 
-def _collection_out(row: object) -> ArticleCollectionOut:
+def _collection_out(row: Mapping[Any, Any]) -> ArticleCollectionOut:
     return ArticleCollectionOut(
-        id=row.id,
-        name=row.name,
-        article_count=row.article_count,
-        created_at=row.created_at,
-        updated_at=row.updated_at,
+        id=row["id"],
+        name=row["name"],
+        article_count=row["article_count"],
+        created_at=row["created_at"],
+        updated_at=row["updated_at"],
     )
 
 
@@ -91,9 +93,7 @@ async def _require_unique_name(
     *,
     excluding_id: UUID | None = None,
 ) -> None:
-    statement = select(ArticleCollection.id).where(
-        ArticleCollection.normalized_name == normalized_name
-    )
+    statement = select(ArticleCollection.id).where(ArticleCollection.normalized_name == normalized_name)
     if excluding_id is not None:
         statement = statement.where(ArticleCollection.id != excluding_id)
     if await session.scalar(statement) is not None:
@@ -104,7 +104,9 @@ async def _collection_with_count(
     session: AsyncSession,
     collection_id: UUID,
 ) -> ArticleCollectionOut:
-    row = (await session.execute(_collection_projection().where(ArticleCollection.id == collection_id))).one()
+    row = (
+        (await session.execute(_collection_projection().where(ArticleCollection.id == collection_id))).mappings().one()
+    )
     return _collection_out(row)
 
 
@@ -113,13 +115,17 @@ async def list_article_collections(
     session: AsyncSession = SessionDependency,
 ) -> list[ArticleCollectionOut]:
     rows = (
-        await session.execute(
-            _collection_projection().order_by(
-                ArticleCollection.normalized_name,
-                ArticleCollection.id,
+        (
+            await session.execute(
+                _collection_projection().order_by(
+                    ArticleCollection.normalized_name,
+                    ArticleCollection.id,
+                )
             )
         )
-    ).all()
+        .mappings()
+        .all()
+    )
     return [_collection_out(row) for row in rows]
 
 

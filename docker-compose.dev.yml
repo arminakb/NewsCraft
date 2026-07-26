@@ -1,5 +1,7 @@
 
 services:
+  backup:
+    restart: "no"
   postgres:
     restart: "no"
   postgres-test:

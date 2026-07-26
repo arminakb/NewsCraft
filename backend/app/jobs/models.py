@@ -119,14 +119,10 @@ class RuntimeHeartbeat(Base):
 
     component_id: Mapped[str] = mapped_column(Text, primary_key=True)
     component_type: Mapped[str] = mapped_column(Text, nullable=False)
-    capabilities: Mapped[list[str]] = mapped_column(
-        ARRAY(Text), nullable=False, server_default=text("'{}'::text[]")
-    )
+    capabilities: Mapped[list[str]] = mapped_column(ARRAY(Text), nullable=False, server_default=text("'{}'::text[]"))
     observed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     runtime_metadata: Mapped[dict] = mapped_column(
         "metadata", JSONB, nullable=False, server_default=text("'{}'::jsonb")
     )
 
-    __table_args__ = (
-        Index("ix_runtime_heartbeats_type_observed", "component_type", observed_at.desc()),
-    )
+    __table_args__ = (Index("ix_runtime_heartbeats_type_observed", "component_type", observed_at.desc()),)

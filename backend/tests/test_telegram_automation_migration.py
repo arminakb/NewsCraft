@@ -37,9 +37,7 @@ def test_telegram_vertical_migration_supports_the_locked_long_revision_id():
 
 
 def test_dispatch_sequence_migration_adds_immutable_chronology_after_release_two():
-    migration = Path("alembic/versions/0007_dispatch_creation_sequence.py").read_text(
-        encoding="utf-8"
-    )
+    migration = Path("alembic/versions/0007_dispatch_creation_sequence.py").read_text(encoding="utf-8")
 
     assert 'revision: str = "0007_dispatch_creation_sequence"' in migration
     assert 'down_revision: str | None = "0006_telegram_automation_vertical"' in migration

@@ -82,7 +82,11 @@ describe("RouteDetail", () => {
   it("shows truthful cursor, schedule, policy, health, and dispatch failure/job history", async () => {
     renderDetail()
     expect(await screen.findByRole("heading", { name: "Persian wire" })).toBeInTheDocument()
-    expect(screen.getByText("Ready")).toBeInTheDocument()
+    const readiness = screen.getByRole("region", { name: "Route readiness" })
+    expect(readiness).toHaveTextContent("Ready")
+    expect(readiness).toHaveTextContent("Run a dry run")
+    fireEvent.click(screen.getByText("Advanced route details"))
+    expect(screen.getAllByText("Ready")).toHaveLength(2)
     expect(screen.getByText("Last message 91")).toBeInTheDocument()
     expect(screen.getByText("Next poll")).toBeInTheDocument()
     expect(screen.getAllByText(/Review required/i)).not.toHaveLength(0)

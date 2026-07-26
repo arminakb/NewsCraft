@@ -49,11 +49,7 @@ def _gateway(session: AsyncSession) -> CodexGatewayService:
 
 async def _raise_gateway_error(session: AsyncSession, exc: GatewayError) -> None:
     await session.commit()
-    headers = (
-        {"Retry-After": str(exc.retry_after_seconds)}
-        if exc.retry_after_seconds is not None
-        else None
-    )
+    headers = {"Retry-After": str(exc.retry_after_seconds)} if exc.retry_after_seconds is not None else None
     raise HTTPException(
         exc.status_code,
         detail={"code": exc.code},

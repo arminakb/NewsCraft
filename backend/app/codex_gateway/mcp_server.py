@@ -145,11 +145,7 @@ class GatewayRestClient:
         raise GatewayClientError(
             code,
             response.status_code,
-            retry_after_seconds=(
-                int(retry_after)
-                if retry_after is not None and retry_after.isdecimal()
-                else None
-            ),
+            retry_after_seconds=(int(retry_after) if retry_after is not None and retry_after.isdecimal() else None),
         )
 
     async def aclose(self) -> None:

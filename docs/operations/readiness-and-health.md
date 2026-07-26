@@ -5,7 +5,7 @@ NewsCraft exposes three different health boundaries. They are intentionally not 
 - `GET /health/live` proves only that the API process and event loop can answer. It performs no database or storage IO.
 - `GET /health/ready` proves database connectivity, the exact Alembic schema head, readable/traversable media and export storage, and any capabilities listed in `READINESS_REQUIRED_CAPABILITIES`. It returns HTTP 503 when a required check is not healthy.
 - `GET /operations/health` returns sanitized dependency, component, queue, recent lease-recovery, alert, and metric state. `GET /operations/metrics` exposes the same bounded measures in Prometheus text format.
-- `GET /health` remains a temporary liveness-compatible alias. `GET /operations/diagnostics` remains the existing operator/UI contract, with its timestamp race repaired.
+- `GET /operations/diagnostics` is the operator/UI diagnostics contract.
 
 The JSON diagnostic projections also include the safe outbound proxy summary defined in `docs/operations/outbound-proxy-policy.md`: mode, scheme, bypass count, last connectivity status, and a sanitized configuration error code only. Proxy configuration does not change core database/storage readiness; the owning outbound capability fails safely when its policy is invalid or its configured proxy is unavailable.
 

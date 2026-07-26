@@ -143,11 +143,7 @@ def assemble_telegram_variant(
 ) -> TelegramVariantContent:
     """Combine provider-authored copy with server-trusted Release 2 context."""
 
-    parent = (
-        TelegramVariantContent.model_validate(trusted_parent)
-        if trusted_parent is not None
-        else None
-    )
+    parent = TelegramVariantContent.model_validate(trusted_parent) if trusted_parent is not None else None
     return TelegramVariantContent(
         body=authored.body,
         parse_mode=authored.parse_mode,

@@ -185,9 +185,7 @@ class CodexGatewayService:
             resource_id=pairing.id,
             required_scope="settings:write",
         )
-        pairing_url = (
-            f"{self.config.codex_gateway_public_url.rstrip('/')}/codex-gateway/pair"
-        )
+        pairing_url = f"{self.config.codex_gateway_public_url.rstrip('/')}/codex-gateway/pair"
         pairing_payload = json.dumps(
             {"pairing_code": code},
             separators=(",", ":"),
@@ -260,9 +258,7 @@ class CodexGatewayService:
         pairing = None
         if prefix is not None:
             pairing = await self.session.scalar(
-                select(CodexPairingSession)
-                .where(CodexPairingSession.code_prefix == prefix)
-                .with_for_update()
+                select(CodexPairingSession).where(CodexPairingSession.code_prefix == prefix).with_for_update()
             )
         now = self.clock()
         if (
@@ -350,9 +346,7 @@ class CodexGatewayService:
         connection = None
         if prefix is not None:
             connection = await self.session.scalar(
-                select(CodexConnection)
-                .where(CodexConnection.credential_prefix == prefix)
-                .with_for_update()
+                select(CodexConnection).where(CodexConnection.credential_prefix == prefix).with_for_update()
             )
         now = self.clock()
         code = None
@@ -447,11 +441,7 @@ class CodexGatewayService:
         )
 
     async def list_connections(self) -> list[CodexConnection]:
-        return list(
-            await self.session.scalars(
-                select(CodexConnection).order_by(CodexConnection.created_at.desc())
-            )
-        )
+        return list(await self.session.scalars(select(CodexConnection).order_by(CodexConnection.created_at.desc())))
 
     async def get_connection(
         self,
@@ -459,9 +449,7 @@ class CodexGatewayService:
         *,
         for_update: bool = False,
     ) -> CodexConnection | None:
-        statement: Select[tuple[CodexConnection]] = select(CodexConnection).where(
-            CodexConnection.id == connection_id
-        )
+        statement: Select[tuple[CodexConnection]] = select(CodexConnection).where(CodexConnection.id == connection_id)
         if for_update:
             statement = statement.with_for_update()
         return await self.session.scalar(statement)
@@ -579,9 +567,7 @@ class CodexGatewayService:
             select(SecurityAuditEvent)
             .where(
                 or_(
-                    SecurityAuditEvent.resource_type.in_(
-                        ("codex_connection", "codex_pairing", "codex_rate_limit")
-                    ),
+                    SecurityAuditEvent.resource_type.in_(("codex_connection", "codex_pairing", "codex_rate_limit")),
                     SecurityAuditEvent.action.like("codex_gateway.%"),
                 )
             )

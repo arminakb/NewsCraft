@@ -376,6 +376,8 @@ def test_due_route_query_locks_with_skip_locked_and_requires_ready_state():
     assert "automation_routes.enabled" in sql
     assert "paused_at IS NULL" in sql
     assert "next_poll_at" in sql
-    assert "ready" in str(build_due_route_statement(datetime(2026, 7, 11, tzinfo=UTC)).compile(
-        dialect=postgresql.dialect(), compile_kwargs={"literal_binds": True}
-    ))
+    assert "ready" in str(
+        build_due_route_statement(datetime(2026, 7, 11, tzinfo=UTC)).compile(
+            dialect=postgresql.dialect(), compile_kwargs={"literal_binds": True}
+        )
+    )

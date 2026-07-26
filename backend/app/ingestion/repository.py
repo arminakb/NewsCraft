@@ -29,7 +29,7 @@ from app.db.models import (
 )
 from app.normalization.fingerprints import content_hash, title_date_fingerprint
 from app.normalization.text import fingerprint_text, infer_direction
-from app.normalization.titles import normalize_telegram_title
+from app.normalization.titles import normalize_title
 from app.normalization.urls import hash_value
 from app.sources.base import MediaCandidate, ParsedSourceItem
 
@@ -291,6 +291,7 @@ class IngestionRepository:
         parsed_item: ParsedSourceItem,
         identities: list[dict[str, Any]],
     ) -> ContentItem:
+        await self._lock_strong_identities(identities)
         existing = await self.find_content_item_by_identities(identities)
         values = _content_item_values(source, parsed_item)
         if existing:
@@ -311,6 +312,28 @@ class IngestionRepository:
         await self.upsert_rewrite_candidate(content_item)
         await self.session.flush()
         return content_item
+
+    async def _lock_strong_identities(self, identities: list[dict[str, Any]]) -> None:
+        """Serialize creation for any shared durable identity until transaction end."""
+        lock_keys = sorted(
+            {
+                ":".join(
+                    (
+                        identity["scope"],
+                        str(identity["source_id"] or ""),
+                        identity["identity_type"],
+                        identity["identity_hash"],
+                    )
+                )
+                for identity in identities
+                if identity["is_strong"]
+            }
+        )
+        for lock_key in lock_keys:
+            await self.session.execute(
+                text("SELECT pg_advisory_xact_lock(hashtextextended(:identity_key, 0))"),
+                {"identity_key": lock_key},
+            )
 
     async def upsert_rewrite_candidate(self, content_item: ContentItem) -> None:
         values = plan_rewrite_candidate(content_item)
@@ -529,7 +552,7 @@ def _content_item_values(source: Source, parsed_item: ParsedSourceItem) -> dict[
     now = datetime.now(UTC)
     sort_at = parsed_item.published_at or now
     canonical_url = parsed_item.canonical_url_candidate or parsed_item.source_url_norm
-    title_normalization = _title_normalization(source, parsed_item)
+    title_normalization = normalize_title(parsed_item.title, parsed_item.content_text)
     normalized_item = _parsed_item_with_title(parsed_item, title_normalization.title)
     direction = infer_direction(normalized_item.content_text)
     taxonomy = classify_content_taxonomy(source, normalized_item)
@@ -574,7 +597,7 @@ def _content_item_values(source: Source, parsed_item: ParsedSourceItem) -> dict[
         "classification_reasons": content_classification.reasons,
         "classification_metadata": {
             **content_classification.metadata,
-            "quality_flags": content_classification.quality_flags,
+            "quality_reasons": content_classification.quality_reasons,
         },
         "rewrite_bucket": bucket_assignment.bucket_type,
         "freshness_bucket": score_result.freshness_bucket,
@@ -584,9 +607,7 @@ def _content_item_values(source: Source, parsed_item: ParsedSourceItem) -> dict[
         "score_breakdown": score_result.breakdown,
         "ranking_metadata": score_result.ranking_metadata,
         "quality_status": (
-            "low_signal"
-            if content_classification.content_type == "low_signal" or title_normalization.low_signal
-            else "needs_review"
+            "low_signal" if content_classification.quality_reasons or title_normalization.low_signal else "good"
         ),
         "first_seen_at": now,
         "last_seen_at": now,
@@ -602,12 +623,6 @@ def _content_item_values(source: Source, parsed_item: ParsedSourceItem) -> dict[
         }
     )
     return values
-
-
-def _title_normalization(source: Source, parsed_item: ParsedSourceItem):
-    if source.platform == "telegram_public":
-        return normalize_telegram_title(parsed_item.title, parsed_item.content_text)
-    return normalize_telegram_title(parsed_item.title, parsed_item.title)
 
 
 def _parsed_item_with_title(parsed_item: ParsedSourceItem, title: str) -> ParsedSourceItem:

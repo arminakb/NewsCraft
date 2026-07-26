@@ -14,8 +14,6 @@ from sqlalchemy.pool import NullPool
 
 from app.automations.models import AutomationDispatch
 from app.core.config import Settings
-from app.core.faults import InjectedFault, ScriptedFaultInjector
-from app.generation.handlers import build_canonical_generation_handler
 from app.generation.models import GenerationAttempt, GenerationRun
 from app.jobs.models import WorkflowEvent, WorkflowJob
 from app.jobs.registry import JobContext, JobHandlerRegistry
@@ -27,6 +25,8 @@ from app.research.fake import FakeResearchBackend
 from app.research.handlers import build_research_story_handler
 from app.research.models import ResearchAttempt, ResearchRun
 from app.stories.models import StoryRevision
+from qualification.faults import InjectedFault, ScriptedFaultInjector
+from tests.generation.handler_exports import build_canonical_generation_handler
 from tests.postgres.test_telegram_process_handler import seed_dispatch
 
 CLAIMED_AT = datetime(2026, 7, 13, 8, 0, tzinfo=UTC)
@@ -575,21 +575,22 @@ async def test_final_route_research_crash_marks_subscribed_dispatch_for_review(
                 job_type="research_story",
                 payload={
                     "run_id": str(run.id),
-                    "continuations": None,
-                    "continuation": {
-                        "job_type": "telegram.route.process",
-                        "payload": {
-                            "dispatch_id": str(dispatch.id),
-                            "force_review": False,
-                        },
-                        "idempotency_prefix": (f"telegram-route-process-after-research:{dispatch.id}"),
-                        "subscriber_id": f"telegram-dispatch:{dispatch.id}",
-                        "expected_route_id": str(dispatch.route_id),
-                        "expected_story_id": str(shared["story"].id),
-                        "expected_story_revision_id": str(dispatch.story_revision_id),
-                        "expected_provider_profile_id": str(shared["provider"].id),
-                        "expected_research_mode": "auto_if_incomplete",
-                    },
+                    "continuations": [
+                        {
+                            "job_type": "telegram.route.process",
+                            "payload": {
+                                "dispatch_id": str(dispatch.id),
+                                "force_review": False,
+                            },
+                            "idempotency_prefix": (f"telegram-route-process-after-research:{dispatch.id}"),
+                            "subscriber_id": f"telegram-dispatch:{dispatch.id}",
+                            "expected_route_id": str(dispatch.route_id),
+                            "expected_story_id": str(shared["story"].id),
+                            "expected_story_revision_id": str(dispatch.story_revision_id),
+                            "expected_provider_profile_id": str(shared["provider"].id),
+                            "expected_research_mode": "auto_if_incomplete",
+                        }
+                    ],
                 },
                 idempotency_key=f"research-route-final:{dispatch.id}",
                 origin=JobOrigin.AUTOMATION,

@@ -29,6 +29,7 @@ from app.publishing.models import (
     PublishJob,
     PublishOperationReceipt,
 )
+from app.publishing.telegram import publication as telegram_publication
 from app.publishing.telegram import service as telegram_service
 from app.publishing.telegram.client import (
     TelegramAmbiguousError,
@@ -307,7 +308,7 @@ async def test_pre_dispatch_revalidation_refreshes_control_changed_between_trans
 ):
     fixture = await _seed_publish_fixtures(session_factory)
     client = CountingTelegramClient()
-    original_revalidate = telegram_service._revalidate_claim
+    original_revalidate = telegram_publication._revalidate_claim
     changed = False
 
     async def change_control_then_revalidate(session, context):
@@ -321,7 +322,7 @@ async def test_pre_dispatch_revalidation_refreshes_control_changed_between_trans
         return await original_revalidate(session, context)
 
     monkeypatch.setattr(
-        telegram_service,
+        telegram_publication,
         "_revalidate_claim",
         change_control_then_revalidate,
     )
@@ -352,7 +353,7 @@ async def test_publish_claim_error_redacts_attempt_columns_without_changing_rais
     async def reject_claim(_session, _context):
         raise NeedsReviewJobError(code=code, message=message)
 
-    monkeypatch.setattr(telegram_service, "_revalidate_claim", reject_claim)
+    monkeypatch.setattr(telegram_publication, "_revalidate_claim", reject_claim)
     async with session_factory() as session:
         with pytest.raises(NeedsReviewJobError) as caught:
             await publish_telegram(

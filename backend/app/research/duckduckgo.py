@@ -50,7 +50,9 @@ class DuckDuckGoSearchClient:
             lambda: list(
                 DDGS(
                     proxy=self.proxy_policy.explicit_proxy_url("https://duckduckgo.com"),
-                    timeout=transport_timeout,
+                    # The runtime accepts fractional seconds; the third-party stub
+                    # incorrectly narrows this parameter to int.
+                    timeout=transport_timeout,  # type: ignore[arg-type]
                 ).text(
                     normalized_query,
                     backend="duckduckgo",
@@ -69,10 +71,12 @@ class DuckDuckGoSearchClient:
                 continue
             seen_urls.add(canonical_url)
             results.append(
-                SearchResult(
-                    title=normalized.title,
-                    url=canonical_url,
-                    snippet=normalized.snippet,
+                SearchResult.model_validate(
+                    {
+                        "title": normalized.title,
+                        "url": canonical_url,
+                        "snippet": normalized.snippet,
+                    }
                 )
             )
         return results
@@ -85,12 +89,14 @@ def _normalize_result(raw: Any) -> SearchResult | None:
     if not isinstance(url, str) or not url.strip():
         return None
     try:
-        return SearchResult(
-            title=_clean_text(raw.get("title"), limit=500),
-            url=normalize_url(url.strip()),
-            snippet=_clean_text(raw.get("body") or raw.get("snippet"), limit=2_000),
+        return SearchResult.model_validate(
+            {
+                "title": _clean_text(raw.get("title"), limit=500),
+                "url": normalize_url(url.strip()),
+                "snippet": _clean_text(raw.get("body") or raw.get("snippet"), limit=2_000),
+            }
         )
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         return None
 
 

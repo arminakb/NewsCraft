@@ -198,9 +198,10 @@ def test_hashes_ignore_storage_root_for_identical_bytes(tmp_path: Path):
     second.id = first.id
     revision = _revision(media_asset_ids=[first.id])
     destination = _destination()
-    assert build_publish_plan(revision, [first], destination).payload_hash == build_publish_plan(
-        revision, [second], destination
-    ).payload_hash
+    assert (
+        build_publish_plan(revision, [first], destination).payload_hash
+        == build_publish_plan(revision, [second], destination).payload_hash
+    )
 
 
 def test_wire_mime_and_extension_are_validated_and_hashed(tmp_path: Path):

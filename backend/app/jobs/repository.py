@@ -159,9 +159,6 @@ class JobRepository:
         plural_descriptors = payload.get("continuations")
         if isinstance(plural_descriptors, list):
             descriptors.extend(plural_descriptors)
-        legacy_descriptor = payload.get("continuation")
-        if legacy_descriptor is not None:
-            descriptors.append(legacy_descriptor)
         for descriptor in descriptors:
             try:
                 continuation = TelegramResearchContinuation.model_validate(descriptor).validate_identity()
@@ -605,6 +602,8 @@ class JobRepository:
 
         job.status = JobStatus.SUCCEEDED
         safe_result = redact_secrets(result)
+        if not isinstance(safe_result, dict):  # pragma: no cover - dict input contract
+            raise TypeError("job result must remain a dictionary")
         job.result = safe_result
         job.progress = 100
         job.finished_at = observed_at

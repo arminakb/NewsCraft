@@ -15,7 +15,5 @@ async def list_media_assets(
     limit: int = Query(100, ge=1, le=250),
     session: AsyncSession = SessionDependency,
 ):
-    rows = await session.scalars(
-        select(MediaAsset).order_by(MediaAsset.created_at.desc()).limit(limit)
-    )
+    rows = await session.scalars(select(MediaAsset).order_by(MediaAsset.created_at.desc()).limit(limit))
     return list(rows)
