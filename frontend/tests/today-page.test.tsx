@@ -3,7 +3,7 @@ import { fireEvent, render, screen, waitFor, within } from "@testing-library/rea
 
 import { NoticeProvider } from "@/components/providers/notice-provider"
 import { getAutomationControl } from "@/features/control/api"
-import { cancelJob, getJobs, getJobSummary, retryJob } from "@/features/jobs/api"
+import { getJobs, getJobSummary } from "@/features/jobs/api"
 import type { JobFilters, WorkflowJob } from "@/features/jobs/types"
 import { TodayPage } from "@/features/today/today-page"
 
@@ -14,8 +14,6 @@ vi.mock("@/features/control/api", () => ({
 vi.mock("@/features/jobs/api", () => ({
   getJobs: vi.fn(),
   getJobSummary: vi.fn(),
-  retryJob: vi.fn(),
-  cancelJob: vi.fn(),
 }))
 
 const summary = { queued: 3, running: 1, attention: 2, succeededToday: 4 }
@@ -35,8 +33,6 @@ describe("TodayPage", () => {
     })
     vi.mocked(getJobSummary).mockResolvedValue(summary)
     vi.mocked(getJobs).mockImplementation(async (filters = {}) => jobsFor(filters))
-    vi.mocked(retryJob).mockResolvedValue({ ...failedJob, status: "queued" })
-    vi.mocked(cancelJob).mockResolvedValue({ ...failedJob, status: "cancelled" })
   })
 
   it("shows the Today heading and loading skeletons", () => {
@@ -87,40 +83,15 @@ describe("TodayPage", () => {
     expect(screen.getByText("خطای شبکه")).toHaveAttribute("dir", "auto")
     const priority = screen.getByRole("region", { name: "Highest-priority decision" })
     expect(within(priority).getByText("Resolve failed workflow")).toBeInTheDocument()
-    fireEvent.click(within(priority).getByRole("button", { name: /Resolve failure/ }))
-    await waitFor(() => expect(retryJob).toHaveBeenCalledWith(failedJob.id))
-    expect(screen.getByRole("region", { name: "Recent successes" })).toHaveTextContent(successJob.jobType)
-  })
-
-  it.each([
-    ["success", false],
-    ["error", true],
-  ] as const)("re-enables Retry after a settled %s, including a failed-job refetch", async (_name, rejects) => {
-    if (rejects) vi.mocked(retryJob).mockRejectedValue(new Error("retry rejected"))
-    renderToday()
-
-    const retry = await screen.findByRole("button", { name: "Retry" })
-    fireEvent.click(retry)
-    await waitFor(() => expect(retryJob).toHaveBeenCalledWith(failedJob.id))
-    await waitFor(() => expect(retry).not.toBeDisabled())
-    if (!rejects) expect(getJobs).toHaveBeenCalledTimes(6)
-  })
-
-  it.each([
-    ["success", false],
-    ["error", true],
-  ] as const)("re-enables Cancel after a settled %s", async (_name, rejects) => {
-    const queuedAttention = job({ id: "44444444-4444-4444-8444-444444444444", status: "queued" })
-    vi.mocked(getJobs).mockImplementation(async (filters = {}) =>
-      filters.statuses?.includes("failed") ? [queuedAttention] : jobsFor(filters)
+    expect(within(priority).getByRole("link", { name: /Inspect and retry/ })).toHaveAttribute(
+      "href",
+      `/jobs?status=attention&job=${failedJob.id}`,
     )
-    if (rejects) vi.mocked(cancelJob).mockRejectedValue(new Error("cancel rejected"))
-    renderToday()
-
-    const cancel = await screen.findByRole("button", { name: "Cancel" })
-    fireEvent.click(cancel)
-    await waitFor(() => expect(cancelJob).toHaveBeenCalledWith(queuedAttention.id))
-    await waitFor(() => expect(cancel).not.toBeDisabled())
+    expect(screen.getByRole("link", { name: "Open job" })).toHaveAttribute(
+      "href",
+      `/jobs?status=attention&job=${failedJob.id}`,
+    )
+    expect(screen.getByRole("region", { name: "Recent successes" })).toHaveTextContent(successJob.jobType)
   })
 })
 

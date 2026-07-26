@@ -42,7 +42,7 @@ export function TelegramOutcomes() {
   }
 
   return (
-    <Card size="sm" role="region" aria-label="Telegram publication outcomes">
+    <Card id="telegram-publication-outcomes" size="sm" role="region" aria-label="Telegram publication outcomes">
       <CardHeader className="border-b"><CardTitle>Telegram publication outcomes</CardTitle></CardHeader>
       <CardContent className="space-y-3 p-3">
         {query.isPending ? <div role="status">Loading Telegram outcomes…</div> : null}

@@ -34,6 +34,7 @@ const detail: WorkflowJobDetail = {
 describe("JobsPage", () => {
   beforeEach(() => {
     vi.resetAllMocks()
+    window.history.replaceState({}, "", "/jobs")
     vi.mocked(getJobs).mockResolvedValue([failed])
     vi.mocked(getJob).mockResolvedValue(detail)
     vi.mocked(getJobSummary).mockResolvedValue({ queued: 1, running: 0, attention: 1, succeededToday: 0 })
@@ -150,6 +151,14 @@ describe("JobsPage", () => {
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ["jobs", failed.id] })
     expect(screen.getByText("Retry requested", { selector: "[data-notice-title]" })).toBeInTheDocument()
   })
+
+  it("opens a linked attention job directly while preserving durable retry ownership", async () => {
+    renderJobs({ initialStatus: "attention", initialJobId: failed.id })
+
+    expect(await screen.findByRole("dialog", { name: "Job details" })).toBeInTheDocument()
+    expect(screen.getByRole("button", { name: "Attention" })).toHaveAttribute("aria-pressed", "true")
+    expect(await screen.findByRole("button", { name: "Retry job" })).toBeInTheDocument()
+  })
 })
 
 function job(overrides: Partial<WorkflowJob> = {}): WorkflowJob {
@@ -176,14 +185,14 @@ function job(overrides: Partial<WorkflowJob> = {}): WorkflowJob {
   }
 }
 
-function renderJobs() {
+function renderJobs(props: { initialStatus?: string; initialJobId?: string } = {}) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   return {
     queryClient,
     ...render(
       <QueryClientProvider client={queryClient}>
         <NoticeProvider>
-          <JobsPage />
+          <JobsPage {...props} />
         </NoticeProvider>
       </QueryClientProvider>
     ),

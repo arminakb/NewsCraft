@@ -393,7 +393,7 @@ def _job_attention(job: WorkflowJob) -> AttentionItem:
         kind=kind,
         title=_safe_text(job.job_type, ": ", detail),
         occurred_at=job.updated_at,
-        action_url="/jobs",
+        action_url=f"/jobs?status=attention&job={job.id}",
     )
 
 
@@ -405,7 +405,7 @@ def _source_attention(source: Source) -> AttentionItem:
         kind="source",
         title=_safe_text("Source ", source.name, ": ", detail),
         occurred_at=source.last_failure_at or source.updated_at,
-        action_url="/sources",
+        action_url=f"/sources?source={source.id}",
     )
 
 
@@ -416,7 +416,7 @@ def _destination_attention(destination: Destination) -> AttentionItem:
         kind="destination",
         title=_safe_text("Destination ", destination.name, ": ", destination.health_status),
         occurred_at=destination.last_health_check_at or destination.updated_at,
-        action_url="/automations",
+        action_url="/settings/content#telegram-destinations",
     )
 
 
@@ -482,7 +482,11 @@ def _publish_job_attention(job: PublishJob) -> AttentionItem:
         kind="publication",
         title=_safe_text("Publish job requires attention: ", job.status),
         occurred_at=job.updated_at,
-        action_url="/jobs",
+        action_url=(
+            "/#telegram-publication-outcomes"
+            if job.status == "reconciliation_required"
+            else f"/jobs?status=attention&job={job.workflow_job_id}"
+        ),
     )
 
 
@@ -493,7 +497,7 @@ def _publication_attention(publication: Publication) -> AttentionItem:
         kind="publication",
         title=_safe_text("Publication requires reconciliation: ", publication.reconciliation_status),
         occurred_at=publication.published_at,
-        action_url="/jobs",
+        action_url="/#telegram-publication-outcomes",
     )
 
 
@@ -504,7 +508,7 @@ def _publish_receipt_attention(receipt: PublishOperationReceipt) -> AttentionIte
         kind="publication",
         title=_safe_text("Telegram publish receipt requires attention: ", receipt.status),
         occurred_at=receipt.ambiguous_at or receipt.updated_at,
-        action_url="/jobs",
+        action_url="/#telegram-publication-outcomes",
     )
 
 

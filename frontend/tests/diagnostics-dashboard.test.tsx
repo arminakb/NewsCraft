@@ -60,7 +60,7 @@ describe("DiagnosticsDashboard", () => {
 
     expect(screen.getByText("Source/generation worker status unknown")).toBeInTheDocument()
     expect(screen.getByText("Publishing worker last observed Jul 11, 2026, 11:30 AM")).toBeInTheDocument()
-    expect(screen.getByText("worker-preview-eu")).toBeInTheDocument()
+    expect(screen.getByRole("heading", { name: "worker-preview-eu" })).toBeInTheDocument()
     expect(screen.getByText("Last successful Jul 11, 2026, 11:00 AM")).toBeInTheDocument()
     expect(screen.getByRole("link", { name: "Open Publishing worker action" })).toHaveAttribute(
       "href",
@@ -108,8 +108,8 @@ describe("DiagnosticsDashboard", () => {
     expect(title.closest("[dir]")).toHaveAttribute("dir", "auto")
     expect(screen.getByText("Jul 11, 2026, 11:32 AM")).toBeInTheDocument()
     expect(screen.getByText("Operations paused")).toBeInTheDocument()
-    expect(screen.getByText("Configuration error: proxy_connectivity_failed")).toBeInTheDocument()
-    expect(screen.getByRole("link", { name: "Review تولید محتوا نیاز به بررسی دارد" })).toHaveAttribute(
+    expect(screen.getByText("Configuration error: proxy connectivity failed")).toBeInTheDocument()
+    expect(screen.getByRole("link", { name: "Open repair تولید محتوا نیاز به بررسی دارد" })).toHaveAttribute(
       "href",
       "/jobs?status=needs_review",
     )

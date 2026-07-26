@@ -67,7 +67,14 @@ export function DiagnosticsDashboard({ snapshot }: { snapshot: OperationsSnapsho
                 {queueCounts.map(([status, count]) => (
                   <div className="flex items-center justify-between gap-3 px-3 py-2" key={status}>
                     <dt className="capitalize">{humanize(status)}</dt>
-                    <dd className="font-medium tabular-nums">{count.toLocaleString("en-US")}</dd>
+                    <dd>
+                      <Link
+                        className="font-medium tabular-nums text-primary underline-offset-4 hover:underline"
+                        href={`/jobs?status=${queueStatusFilter(status)}`}
+                      >
+                        {count.toLocaleString("en-US")}
+                      </Link>
+                    </dd>
                   </div>
                 ))}
               </dl>
@@ -101,11 +108,11 @@ export function DiagnosticsDashboard({ snapshot }: { snapshot: OperationsSnapsho
                       </time>
                     </div>
                     <Link
-                      aria-label={`Review ${item.title}`}
+                      aria-label={`${attentionActionLabel(item.kind)} ${item.title}`}
                       className="inline-flex items-center gap-1 text-sm font-medium text-primary underline-offset-4 hover:underline"
                       href={item.actionUrl}
                     >
-                      Review
+                      {attentionActionLabel(item.kind)}
                       <ArrowUpRight aria-hidden="true" className="size-3.5" />
                     </Link>
                   </li>
@@ -123,7 +130,7 @@ export function DiagnosticsDashboard({ snapshot }: { snapshot: OperationsSnapsho
 
 function outboundProxySummary(snapshot: OperationsSnapshot): string {
   const proxy = snapshot.outboundProxy
-  if (proxy.configurationErrorCode) return `Configuration error: ${proxy.configurationErrorCode}`
+  if (proxy.configurationErrorCode) return `Configuration error: ${humanize(proxy.configurationErrorCode)}`
   const route = proxy.mode === "direct" ? "Direct" : `Proxy (${proxy.scheme ?? "unknown"})`
   return `${route} · ${proxy.bypassRuleCount} bypass rules · ${humanize(proxy.lastConnectivityStatus)}`
 }
@@ -137,7 +144,6 @@ function RuntimeComponent({ componentId, value }: { componentId: string; value: 
     <article className="grid gap-3 px-3 py-3 md:grid-cols-[minmax(220px,0.8fr)_minmax(0,1.2fr)_auto] md:items-start">
       <div className="min-w-0 space-y-1">
         <h3 className="font-medium">{label}</h3>
-        <p className="text-xs text-muted-foreground">Component ID: {componentId}</p>
         <Badge variant={presentation.variant}>
           <Icon aria-hidden="true" className="size-3" />
           {value.status}
@@ -165,6 +171,10 @@ function RuntimeComponent({ componentId, value }: { componentId: string; value: 
         <DirectionBoundary className="text-sm text-muted-foreground" direction="auto">
           {value.message}
         </DirectionBoundary>
+        <details className="text-xs text-muted-foreground">
+          <summary className="cursor-pointer">Advanced runtime identity</summary>
+          <p className="mt-1 break-all">{componentId}</p>
+        </details>
       </div>
       {value.actionUrl ? (
         <Link
@@ -172,7 +182,7 @@ function RuntimeComponent({ componentId, value }: { componentId: string; value: 
           className="inline-flex items-center gap-1 text-sm font-medium text-primary underline-offset-4 hover:underline"
           href={value.actionUrl}
         >
-          Open action
+          {runtimeActionLabel(value.actionUrl)}
           <ArrowUpRight aria-hidden="true" className="size-3.5" />
         </Link>
       ) : null}
@@ -206,4 +216,22 @@ export function formatTehranTimestamp(value: string): string {
 
 function humanize(value: string): string {
   return value.replaceAll("_", " ").replaceAll("-", " ")
+}
+
+function queueStatusFilter(status: string): string {
+  return ["failed", "needs_review"].includes(status) ? "attention" : status
+}
+
+function attentionActionLabel(kind: OperationsSnapshot["attention"][number]["kind"]): string {
+  if (kind === "source") return "Open source"
+  if (kind === "destination") return "Repair destination"
+  if (kind === "publication") return "Resolve publication"
+  if (kind === "job") return "Open job"
+  return "Open repair"
+}
+
+function runtimeActionLabel(actionUrl: string): string {
+  if (actionUrl.startsWith("/jobs")) return "Inspect jobs"
+  if (actionUrl.startsWith("/automations")) return "Inspect automations"
+  return "Inspect evidence"
 }

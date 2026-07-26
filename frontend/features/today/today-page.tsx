@@ -1,23 +1,20 @@
 "use client"
 
 import type { ReactNode } from "react"
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import { useQuery } from "@tanstack/react-query"
 import { ArrowRight, CircleAlert, FilePlus2, SquarePen } from "lucide-react"
 import Link from "next/link"
 
-import { useNotices } from "@/components/providers/notice-provider"
 import { Button, buttonVariants } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { GlobalControls } from "@/features/control/global-controls"
-import { cancelJob, getJobs, getJobSummary, retryJob } from "@/features/jobs/api"
+import { getJobs, getJobSummary } from "@/features/jobs/api"
 import { AttentionQueue } from "@/features/jobs/attention-queue"
 import { JobStatusBadge } from "@/features/jobs/job-status-badge"
 import { getApiErrorMessage } from "@/lib/http"
 import { queryKeys } from "@/lib/query-keys"
 
 export function TodayPage({ outcomes }: { outcomes?: ReactNode }) {
-  const queryClient = useQueryClient()
-  const { pushNotice } = useNotices()
   const summaryQuery = useQuery({ queryKey: queryKeys.jobSummary, queryFn: getJobSummary, refetchInterval: 5_000 })
   const runningQuery = useQuery({
     queryKey: queryKeys.jobs({ statuses: ["running"], limit: 25 }),
@@ -33,35 +30,12 @@ export function TodayPage({ outcomes }: { outcomes?: ReactNode }) {
     queryKey: queryKeys.jobs({ statuses: ["succeeded"], limit: 10 }),
     queryFn: () => getJobs({ statuses: ["succeeded"], limit: 10 }),
   })
-  const invalidate = async () => queryClient.invalidateQueries({ queryKey: ["jobs"] })
-  const retryMutation = useMutation({
-    mutationFn: (id: string) => retryJob(id),
-    onSuccess: async () => {
-      await invalidate()
-      pushNotice({ tone: "success", title: "Retry requested", message: "The job was queued again." })
-    },
-    onError: (error) => pushNotice({ tone: "error", title: "Retry failed", message: getApiErrorMessage(error) }),
-  })
-  const cancelMutation = useMutation({
-    mutationFn: (id: string) => cancelJob(id),
-    onSuccess: async () => {
-      await invalidate()
-      pushNotice({ tone: "success", title: "Job cancelled", message: "The queued job was cancelled." })
-    },
-    onError: (error) => pushNotice({ tone: "error", title: "Cancellation failed", message: getApiErrorMessage(error) }),
-  })
-
   const queries = [summaryQuery, runningQuery, attentionQuery, successesQuery]
   const firstError = queries.find((query) => query.isError)?.error
   const loading = queries.some((query) => query.isPending)
   const summary = summaryQuery.data
   const isEmpty = summary && Object.values(summary).every((count) => count === 0)
   const priorityJob = attentionQuery.data?.[0]
-  const pendingJobId = retryMutation.isPending
-    ? retryMutation.variables
-    : cancelMutation.isPending
-      ? cancelMutation.variables
-      : null
 
   const retryAll = () => {
     for (const query of queries) void query.refetch()
@@ -92,11 +66,7 @@ export function TodayPage({ outcomes }: { outcomes?: ReactNode }) {
         <HealthSummary summary={summary} />
       ) : null}
       {!firstError && summary ? (
-        <PriorityDecision
-          job={priorityJob}
-          pending={Boolean(priorityJob && pendingJobId === priorityJob.id)}
-          onResolve={(id) => retryMutation.mutate(id)}
-        />
+        <PriorityDecision job={priorityJob} />
       ) : null}
       <GlobalControls />
       {outcomes}
@@ -105,9 +75,6 @@ export function TodayPage({ outcomes }: { outcomes?: ReactNode }) {
         <div className="grid min-w-0 gap-4 xl:grid-cols-2">
           <AttentionQueue
             jobs={attentionQuery.data ?? []}
-            pendingJobId={pendingJobId}
-            onRetry={(id) => retryMutation.mutate(id)}
-            onCancel={(id) => cancelMutation.mutate(id)}
           />
           <Card size="sm" role="region" aria-label="Running jobs">
             <CardHeader className="border-b"><CardTitle>Running now</CardTitle></CardHeader>
@@ -169,12 +136,8 @@ function HealthSummary({
 
 function PriorityDecision({
   job,
-  pending,
-  onResolve,
 }: {
   job: Awaited<ReturnType<typeof getJobs>>[number] | undefined
-  pending: boolean
-  onResolve: (id: string) => void
 }) {
   if (job?.status === "failed") {
     return (
@@ -184,10 +147,10 @@ function PriorityDecision({
             <div className="flex items-center gap-2 font-semibold"><CircleAlert className="size-5 text-red-700" aria-hidden="true" />Resolve failed workflow</div>
             <p className="mt-1 truncate text-sm text-muted-foreground" dir="auto">{job.jobType}</p>
           </div>
-          <Button disabled={pending} onClick={() => onResolve(job.id)}>
-            Resolve failure
+          <Link className={buttonVariants()} href={`/jobs?status=attention&job=${job.id}`}>
+            Inspect and retry
             <ArrowRight aria-hidden="true" />
-          </Button>
+          </Link>
         </CardContent>
       </Card>
     )

@@ -40,6 +40,7 @@ def test_ambiguous_and_dispatching_receipts_project_publication_attention():
     assert ambiguous.severity == "error"
     assert ambiguous.occurred_at == NOW
     assert "ambiguous" in ambiguous.title
+    assert ambiguous.action_url == "/#telegram-publication-outcomes"
     assert dispatching.severity == "warning"
     assert dispatching.occurred_at == NOW - timedelta(minutes=6)
 
@@ -266,7 +267,7 @@ async def test_snapshot_reads_control_queue_and_newest_attention_without_writes_
     assert snapshot.attention[0].kind == "research"
     assert snapshot.attention[0].severity == "warning"
     assert snapshot.attention[0].occurred_at == newer.updated_at
-    assert snapshot.attention[0].action_url == "/jobs"
+    assert snapshot.attention[0].action_url == f"/jobs?status=attention&job={RESEARCH_JOB_ID}"
     assert snapshot.attention[1].kind == "publication"
     assert snapshot.attention[1].severity == "error"
     assert "hunter2" not in snapshot.attention[0].title
@@ -397,13 +398,13 @@ async def test_snapshot_merges_durable_attention_newest_first_without_duplicates
     assert [item.id for item in snapshot.attention].count(f"route:{ROUTE_ID}") == 1
     assert [item.id for item in snapshot.attention].count(f"publication:{PUBLISH_JOB_ID}") == 1
     assert "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa" in str(snapshot.model_dump())
-    assert snapshot.attention[0].action_url == "/jobs"
+    assert snapshot.attention[0].action_url == f"/jobs?status=attention&job={RESEARCH_JOB_ID}"
     assert snapshot.attention[1].action_url == f"/automations/{ROUTE_ID}"
-    assert snapshot.attention[2].action_url == "/sources"
-    assert snapshot.attention[3].action_url == "/automations"
+    assert snapshot.attention[2].action_url == f"/sources?source={SOURCE_ID}"
+    assert snapshot.attention[3].action_url == "/settings/content#telegram-destinations"
     assert snapshot.attention[4].action_url == "/inbox"
     assert snapshot.attention[5].action_url == "/drafts"
-    assert snapshot.attention[6].action_url == "/jobs"
+    assert snapshot.attention[6].action_url == "/#telegram-publication-outcomes"
     serialized = str(snapshot.model_dump())
     for secret in ("source-secret", "source-token", "dispatch-secret", "research-secret", "generation-secret"):
         assert secret not in serialized
