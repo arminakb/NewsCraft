@@ -102,8 +102,8 @@ export function ContentSettingsPage() {
     {
       href: "#editorial-profiles",
       label: "Editorial profile",
-      ready: profiles.some((item) => item.isDefault),
-      detail: profiles.some((item) => item.isDefault) ? "Default selected" : "Choose a default profile",
+      ready: profiles.some((item) => item.is_default),
+      detail: profiles.some((item) => item.is_default) ? "Default selected" : "Choose a default profile",
     },
     {
       href: "#llm-providers",

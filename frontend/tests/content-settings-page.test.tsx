@@ -67,13 +67,13 @@ vi.mock("@/features/settings/content-settings-api", () => ({
 const profile = {
   id: "11111111-1111-4111-8111-111111111111",
   name: "News desk",
-  outputLanguage: "fa",
+  output_language: "fa",
   tone: "neutral",
-  editorialRules: ["Use verified evidence"],
-  attributionRules: {},
-  defaultHashtags: ["#news"],
-  platformPreferences: {},
-  isDefault: true,
+  editorial_rules: ["Use verified evidence"],
+  attribution_rules: {},
+  default_hashtags: ["#news"],
+  platform_preferences: {},
+  is_default: true,
 }
 
 const template = {
@@ -85,19 +85,19 @@ const template = {
 
 const promptVersion = {
   id: "33333333-3333-4333-8333-333333333333",
-  promptTemplateId: template.id,
+  prompt_template_id: template.id,
   version: 4,
-  systemTemplate: "Use evidence only",
-  userTemplate: "{source_text}",
-  outputSchemaVersion: "telegram_rewrite.v1",
-  outputSchema: {},
-  checksumSha256: "a".repeat(64),
-  isActive: true,
-  activatedAt: "2026-07-20T08:00:00Z",
-  activatedByType: "human_admin",
-  activatedById: "operator",
-  activationReason: "Approved newsroom baseline",
-  createdAt: "2026-07-20T08:00:00Z",
+  system_template: "Use evidence only",
+  user_template: "{source_text}",
+  output_schema_version: "telegram_rewrite.v1",
+  output_schema: {},
+  checksum_sha256: "a".repeat(64),
+  is_active: true,
+  activated_at: "2026-07-20T08:00:00Z",
+  activated_by_type: "human_admin",
+  activated_by_id: "operator",
+  activation_reason: "Approved newsroom baseline",
+  created_at: "2026-07-20T08:00:00Z",
 }
 
 const provider = {
@@ -331,7 +331,7 @@ describe("ContentSettingsPage", () => {
   })
 
   it("keeps raw prompt text directional and activation guarded", async () => {
-    vi.mocked(activatePromptVersion).mockResolvedValue({ ...promptVersion, isActive: true })
+    vi.mocked(activatePromptVersion).mockResolvedValue({ ...promptVersion, is_active: true })
     renderSettings()
 
     const purpose = await screen.findByRole("heading", { name: "Telegram Automation Rewrite" })
@@ -349,8 +349,8 @@ describe("ContentSettingsPage", () => {
     vi.mocked(updateBrandProfile).mockResolvedValue({
       ...profile,
       tone: "analytical",
-      attributionRules: { preserveSources: true },
-      platformPreferences: { telegram: { direction: "rtl" } },
+      attribution_rules: { preserveSources: true },
+      platform_preferences: { telegram: { direction: "rtl" } },
     })
     const { queryClient } = renderSettings()
     queryClient.setQueryData(queryKeys.editorialBrandOptions, [{ id: profile.id, name: profile.name }])
@@ -375,9 +375,9 @@ describe("ContentSettingsPage", () => {
       profile.id,
       expect.objectContaining({
         tone: "analytical",
-        attributionRules: { preserveSources: true },
-        platformPreferences: { telegram: { direction: "rtl" } },
-        isDefault: true,
+        attribution_rules: { preserveSources: true },
+        platform_preferences: { telegram: { direction: "rtl" } },
+        is_default: true,
       }),
     ))
     expect(queryClient.getQueryState(queryKeys.editorialBrandOptions)?.isInvalidated).toBe(true)

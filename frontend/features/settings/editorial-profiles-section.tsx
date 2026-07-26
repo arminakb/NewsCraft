@@ -29,7 +29,7 @@ import {
 
 export function EditorialProfilesSection({ profiles }: { profiles: BrandProfile[] }) {
   const [editing, setEditing] = useState<BrandProfile | "new" | null>(null)
-  const defaultProfile = profiles.find((profile) => profile.isDefault)
+  const defaultProfile = profiles.find((profile) => profile.is_default)
   return (
     <SettingsSection
       id="editorial-profiles"
@@ -51,9 +51,9 @@ export function EditorialProfilesSection({ profiles }: { profiles: BrandProfile[
                 <div>
                   <div className="flex flex-wrap items-center gap-2">
                     <h3 className="font-semibold">{profile.name}</h3>
-                    {profile.isDefault ? <Badge variant="secondary">Default</Badge> : null}
+                    {profile.is_default ? <Badge variant="secondary">Default</Badge> : null}
                   </div>
-                  <p className="mt-1 text-sm text-muted-foreground">{profile.outputLanguage.toUpperCase()} · {profile.tone}</p>
+                  <p className="mt-1 text-sm text-muted-foreground">{profile.output_language.toUpperCase()} · {profile.tone}</p>
                 </div>
                 <Button variant="outline" size="sm" onClick={() => setEditing(profile)}>
                   <Pencil aria-hidden="true" /> Edit
@@ -62,10 +62,10 @@ export function EditorialProfilesSection({ profiles }: { profiles: BrandProfile[
               <details className="mt-3 rounded-lg bg-muted/60 p-3 text-sm">
                 <summary className="cursor-pointer font-medium">Advanced profile details</summary>
                 <dl className="mt-3 grid gap-2 text-muted-foreground">
-                  <div><dt className="font-medium text-foreground">Editorial rules</dt><dd>{profile.editorialRules.length ? profile.editorialRules.join(" · ") : "None"}</dd></div>
-                  <div><dt className="font-medium text-foreground">Attribution policy</dt><dd className="break-words font-mono text-xs">{compactJson(profile.attributionRules)}</dd></div>
-                  <div><dt className="font-medium text-foreground">Default hashtags</dt><dd>{profile.defaultHashtags.length ? profile.defaultHashtags.join(" ") : "None"}</dd></div>
-                  <div><dt className="font-medium text-foreground">Per-platform preferences</dt><dd className="break-words font-mono text-xs">{compactJson(profile.platformPreferences)}</dd></div>
+                  <div><dt className="font-medium text-foreground">Editorial rules</dt><dd>{profile.editorial_rules?.length ? profile.editorial_rules.join(" · ") : "None"}</dd></div>
+                  <div><dt className="font-medium text-foreground">Attribution policy</dt><dd className="break-words font-mono text-xs">{compactJson(profile.attribution_rules ?? {})}</dd></div>
+                  <div><dt className="font-medium text-foreground">Default hashtags</dt><dd>{profile.default_hashtags?.length ? profile.default_hashtags.join(" ") : "None"}</dd></div>
+                  <div><dt className="font-medium text-foreground">Per-platform preferences</dt><dd className="break-words font-mono text-xs">{compactJson(profile.platform_preferences ?? {})}</dd></div>
                 </dl>
               </details>
             </article>
@@ -82,13 +82,13 @@ function EditorialProfileDialog({ profile, onClose }: { profile: BrandProfile | 
   const { pushNotice } = useNotices()
   const initial = {
     name: profile?.name ?? "",
-    outputLanguage: profile?.outputLanguage ?? "fa",
+    outputLanguage: profile?.output_language ?? "fa",
     tone: profile?.tone ?? "neutral",
-    editorialRules: profile?.editorialRules.join("\n") ?? "",
-    attributionRules: formatJsonObject(profile?.attributionRules ?? {}),
-    defaultHashtags: profile?.defaultHashtags.join(" ") ?? "",
-    platformPreferences: formatJsonObject(profile?.platformPreferences ?? {}),
-    isDefault: profile?.isDefault ?? false,
+    editorialRules: profile?.editorial_rules?.join("\n") ?? "",
+    attributionRules: formatJsonObject(profile?.attribution_rules ?? {}),
+    defaultHashtags: profile?.default_hashtags?.join(" ") ?? "",
+    platformPreferences: formatJsonObject(profile?.platform_preferences ?? {}),
+    isDefault: profile?.is_default ?? false,
   }
   const [form, setForm] = useState(initial)
   const [touched, setTouched] = useState(false)
@@ -107,13 +107,13 @@ function EditorialProfileDialog({ profile, onClose }: { profile: BrandProfile | 
     mutationFn: () => {
       const body = {
         name: form.name.trim(),
-        outputLanguage: form.outputLanguage.trim(),
+        output_language: form.outputLanguage.trim(),
         tone: form.tone.trim(),
-        editorialRules: lines(form.editorialRules),
-        attributionRules: attribution.value,
-        defaultHashtags: words(form.defaultHashtags),
-        platformPreferences: platformPreferences.value,
-        isDefault: form.isDefault,
+        editorial_rules: lines(form.editorialRules),
+        attribution_rules: attribution.value,
+        default_hashtags: words(form.defaultHashtags),
+        platform_preferences: platformPreferences.value,
+        is_default: form.isDefault,
       }
       return profile ? updateBrandProfile(profile.id, body) : createBrandProfile(body)
     },

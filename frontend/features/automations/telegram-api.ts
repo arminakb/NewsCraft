@@ -235,26 +235,26 @@ export async function reconcileTelegramPublishJob(
 }
 
 export async function getBrandProfiles(): Promise<BrandProfile[]> {
-  return (await apiRequest<Array<Record<string, unknown>>>("/brand-profiles")).map(mapBrandProfile)
+  return apiRequest<BrandProfile[]>("/brand-profiles")
 }
 export async function createBrandProfile(input: BrandProfileInput): Promise<BrandProfile> {
-  return mapBrandProfile(await apiRequest<Record<string, unknown>>("/brand-profiles", json("POST", brandBody(input))))
+  return apiRequest<BrandProfile>("/brand-profiles", json("POST", input))
 }
 export async function updateBrandProfile(id: string, input: BrandProfilePatch): Promise<BrandProfile> {
-  return mapBrandProfile(await apiRequest<Record<string, unknown>>(`/brand-profiles/${encodeURIComponent(id)}`, json("PATCH", brandBody(input))))
+  return apiRequest<BrandProfile>(`/brand-profiles/${encodeURIComponent(id)}`, json("PATCH", input))
 }
 
 export async function getPromptTemplates(): Promise<PromptTemplate[]> {
   return (await apiRequest<Array<Record<string, unknown>>>("/prompt-templates")).map(mapPromptTemplate)
 }
 export async function getPromptVersions(templateId: string): Promise<PromptVersion[]> {
-  return (await apiRequest<Array<Record<string, unknown>>>(`/prompt-templates/${encodeURIComponent(templateId)}/versions`)).map(mapPromptVersion)
+  return apiRequest<PromptVersion[]>(`/prompt-templates/${encodeURIComponent(templateId)}/versions`)
 }
 export async function createPromptVersion(templateId: string, input: PromptVersionInput): Promise<PromptVersion> {
-  return mapPromptVersion(await apiRequest<Record<string, unknown>>(`/prompt-templates/${encodeURIComponent(templateId)}/versions`, json("POST", { system_template: input.systemTemplate, user_template: input.userTemplate })))
+  return apiRequest<PromptVersion>(`/prompt-templates/${encodeURIComponent(templateId)}/versions`, json("POST", input))
 }
 export async function activatePromptVersion(versionId: string, reason: string): Promise<PromptVersion> {
-  return mapPromptVersion(await apiRequest<Record<string, unknown>>(`/prompt-template-versions/${encodeURIComponent(versionId)}/activate`, json("POST", { reason })))
+  return apiRequest<PromptVersion>(`/prompt-template-versions/${encodeURIComponent(versionId)}/activate`, json("POST", { reason }))
 }
 
 export function mapAutomationControl(row: Record<string, unknown>): AutomationControl {
@@ -318,10 +318,7 @@ function mapJobAccepted(row: BackendJobAccepted): JobAccepted { return { jobId: 
 function mapRouteAccepted(row: { route: BackendTelegramRoute; job: BackendJobAccepted }): TelegramRouteAccepted { return { route: mapTelegramRoute(row.route), job: mapJobAccepted(row.job) } }
 async function routeAccepted(id: string, transition: "activate") { return mapRouteAccepted(await apiRequest<{ route: BackendTelegramRoute; job: BackendJobAccepted }>(`/telegram/automations/${encodeURIComponent(id)}/${transition}`, { method: "POST" })) }
 async function routeTransition(id: string, transition: "pause" | "resume") { return mapTelegramRoute(await apiRequest<BackendTelegramRoute>(`/telegram/automations/${encodeURIComponent(id)}/${transition}`, { method: "POST" })) }
-function brandBody(input: BrandProfileInput | BrandProfilePatch) { return defined({ name: input.name, output_language: input.outputLanguage, tone: input.tone, editorial_rules: input.editorialRules, attribution_rules: input.attributionRules, default_hashtags: input.defaultHashtags, platform_preferences: input.platformPreferences, is_default: input.isDefault }) }
-function mapBrandProfile(row: Record<string, unknown>): BrandProfile { return { id: row.id as string, name: row.name as string, outputLanguage: row.output_language as string, tone: row.tone as string, editorialRules: row.editorial_rules as string[], attributionRules: row.attribution_rules as Record<string, unknown>, defaultHashtags: row.default_hashtags as string[], platformPreferences: row.platform_preferences as Record<string, unknown>, isDefault: row.is_default as boolean } }
 function mapPromptTemplate(row: Record<string, unknown>): PromptTemplate { return { id: row.id as string, purposeKey: row.purpose_key as string, name: row.name as string, description: row.description as string | null } }
-function mapPromptVersion(row: Record<string, unknown>): PromptVersion { return { id: row.id as string, promptTemplateId: row.prompt_template_id as string, version: row.version as number, systemTemplate: row.system_template as string, userTemplate: row.user_template as string, outputSchemaVersion: row.output_schema_version as string, outputSchema: row.output_schema as Record<string, unknown>, checksumSha256: row.checksum_sha256 as string, isActive: row.is_active as boolean, activatedAt: row.activated_at as string | null, activatedByType: row.activated_by_type as string | null, activatedById: row.activated_by_id as string | null, activationReason: row.activation_reason as string | null, createdAt: row.created_at as string } }
 
 function mapCredentialCapabilityState(value: unknown): CredentialCapabilityState {
   const row = value && typeof value === "object" ? value as Record<string, unknown> : {}

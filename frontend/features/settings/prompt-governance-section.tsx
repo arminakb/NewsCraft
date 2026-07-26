@@ -96,7 +96,7 @@ function PromptPurpose({
     queryFn: () => getPromptVersions(template!.id),
     enabled: Boolean(template),
   })
-  const active = versions.data?.find((version) => version.isActive)
+  const active = versions.data?.find((version) => version.is_active)
   return (
     <article className="rounded-xl border bg-background p-4">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
@@ -107,7 +107,7 @@ function PromptPurpose({
           </div>
           <p className="mt-1 text-sm">{meta.pipeline}</p>
           <p className="mt-1 text-sm text-muted-foreground">
-            {!template ? "No template configured." : active ? `Version ${active.version} · ${active.checksumSha256.slice(0, 12)} · Follow-active jobs resolve this version; pinned jobs retain their selection.` : `${versions.data?.length ?? 0} immutable versions · no active version.`}
+            {!template ? "No template configured." : active ? `Version ${active.version} · ${active.checksum_sha256.slice(0, 12)} · Follow-active jobs resolve this version; pinned jobs retain their selection.` : `${versions.data?.length ?? 0} immutable versions · no active version.`}
           </p>
           <div className="mt-2 flex flex-wrap gap-1.5" aria-label={`${meta.label} required variables`}>
             {meta.requiredVariables.map((variable) => <Badge key={variable} variant="secondary">{`{${variable}}`}</Badge>)}
@@ -148,17 +148,17 @@ function PromptAdvancedManager({
   onChanged: () => Promise<void>
 }) {
   const { pushNotice } = useNotices()
-  const active = versions.find((version) => version.isActive)
-  const [systemTemplate, setSystemTemplate] = useState(active?.systemTemplate ?? "")
-  const [userTemplate, setUserTemplate] = useState(active?.userTemplate ?? "")
+  const active = versions.find((version) => version.is_active)
+  const [systemTemplate, setSystemTemplate] = useState(active?.system_template ?? "")
+  const [userTemplate, setUserTemplate] = useState(active?.user_template ?? "")
   const [activationTarget, setActivationTarget] = useState<string | null>(null)
   const [activationReason, setActivationReason] = useState("")
   const [confirmed, setConfirmed] = useState(false)
   const draftError = validatePromptDraft(systemTemplate, userTemplate, requiredVariables)
-  const changedFromActive = Boolean(active) && (active!.systemTemplate !== systemTemplate || active!.userTemplate !== userTemplate)
+  const changedFromActive = Boolean(active) && (active!.system_template !== systemTemplate || active!.user_template !== userTemplate)
   const target = versions.find((version) => version.id === activationTarget)
   const create = useMutation({
-    mutationFn: () => createPromptVersion(template.id, { systemTemplate, userTemplate }),
+    mutationFn: () => createPromptVersion(template.id, { system_template: systemTemplate, user_template: userTemplate }),
     onSuccess: async (created) => {
       setActivationTarget(created.id)
       setConfirmed(false)
@@ -173,8 +173,8 @@ function PromptAdvancedManager({
       setConfirmed(false)
       setActivationTarget(null)
       setActivationReason("")
-      setSystemTemplate(version.systemTemplate)
-      setUserTemplate(version.userTemplate)
+      setSystemTemplate(version.system_template)
+      setUserTemplate(version.user_template)
       await onChanged()
       pushNotice({ tone: "success", title: `${label} activated`, message: `Version ${version.version} is active for future follow-active jobs.` })
     },
@@ -183,8 +183,8 @@ function PromptAdvancedManager({
   const dirty = changedFromActive
   useDirtyNavigation(dirty, "Discard unsaved prompt changes?")
   const resetDraft = () => {
-    setSystemTemplate(active?.systemTemplate ?? "")
-    setUserTemplate(active?.userTemplate ?? "")
+    setSystemTemplate(active?.system_template ?? "")
+    setUserTemplate(active?.user_template ?? "")
   }
   return (
     <div className="mt-4 space-y-4 border-t pt-4">
@@ -198,10 +198,10 @@ function PromptAdvancedManager({
             <Button disabled={!changedFromActive || Boolean(draftError) || create.isPending} onClick={() => create.mutate()}>{create.isPending ? <LoaderCircle className="animate-spin" aria-hidden="true" /> : <Plus aria-hidden="true" />}Create immutable version</Button>
             <Button variant="outline" disabled={!dirty || create.isPending} onClick={resetDraft}>Reset</Button>
           </div>
-          {target && !target.isActive ? (
+          {target && !target.is_active ? (
             <div className="space-y-3 rounded-lg border border-amber-300 bg-amber-50 p-3 text-amber-950 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-100">
               <div><strong>Activate version {target.version}?</strong><p className="text-sm">Follow-active routes and new editorial jobs will resolve this version. Pinned routes and existing revisions remain unchanged.</p></div>
-              {active ? <PromptDiff before={active} systemTemplate={target.systemTemplate} userTemplate={target.userTemplate} /> : null}
+              {active ? <PromptDiff before={active} systemTemplate={target.system_template} userTemplate={target.user_template} /> : null}
               <Field label="Activation reason" required error={activationReason.length > 0 && activationReason.trim().length < 3 ? "Enter at least 3 characters." : null}>
                 <input className={fieldClass} maxLength={500} value={activationReason} onChange={(event) => setActivationReason(event.target.value)} />
               </Field>
@@ -221,16 +221,16 @@ function PromptAdvancedManager({
                 <div className="flex flex-wrap items-center justify-between gap-3">
                   <div>
                     <strong>Version {version.version}</strong>
-                    <div className="break-all text-xs text-muted-foreground">{version.checksumSha256} · {version.isActive ? "Active" : "Inactive"}</div>
-                    {version.activationReason ? (
+                    <div className="break-all text-xs text-muted-foreground">{version.checksum_sha256} · {version.is_active ? "Active" : "Inactive"}</div>
+                    {version.activation_reason ? (
                       <div className="mt-1 text-xs text-muted-foreground">
-                        Activated {formatDate(version.activatedAt)} by {version.activatedByType} {version.activatedById} · {version.activationReason}
+                        Activated {formatDate(version.activated_at)} by {version.activated_by_type} {version.activated_by_id} · {version.activation_reason}
                       </div>
                     ) : null}
                   </div>
-                  <Button variant="outline" disabled={version.isActive || activate.isPending} onClick={() => { setActivationTarget(version.id); setConfirmed(false); setActivationReason("") }}>Review activation</Button>
+                  <Button variant="outline" disabled={version.is_active || activate.isPending} onClick={() => { setActivationTarget(version.id); setConfirmed(false); setActivationReason("") }}>Review activation</Button>
                 </div>
-                <details className="mt-2"><summary className="cursor-pointer text-sm">Inspect raw template</summary><DirectionBoundary as="pre" language={null} className="mt-2 max-h-64 overflow-auto whitespace-pre-wrap break-words rounded bg-muted p-3 text-xs">{version.systemTemplate}{"\n\n"}{version.userTemplate}</DirectionBoundary></details>
+                <details className="mt-2"><summary className="cursor-pointer text-sm">Inspect raw template</summary><DirectionBoundary as="pre" language={null} className="mt-2 max-h-64 overflow-auto whitespace-pre-wrap break-words rounded bg-muted p-3 text-xs">{version.system_template}{"\n\n"}{version.user_template}</DirectionBoundary></details>
               </li>
             ))}
           </ol>
@@ -243,7 +243,7 @@ function PromptAdvancedManager({
 function PromptDiff({ before, systemTemplate, userTemplate }: { before: PromptVersion; systemTemplate: string; userTemplate: string }) {
   return (
     <div className="grid gap-2 rounded-lg border bg-background p-3 text-xs md:grid-cols-2" aria-label={`Diff from version ${before.version}`}>
-      <div><strong>Current version {before.version}</strong><pre className="mt-2 max-h-40 overflow-auto whitespace-pre-wrap break-words rounded bg-red-50 p-2 text-red-950 dark:bg-red-950/30 dark:text-red-100">{before.systemTemplate}{"\n\n"}{before.userTemplate}</pre></div>
+      <div><strong>Current version {before.version}</strong><pre className="mt-2 max-h-40 overflow-auto whitespace-pre-wrap break-words rounded bg-red-50 p-2 text-red-950 dark:bg-red-950/30 dark:text-red-100">{before.system_template}{"\n\n"}{before.user_template}</pre></div>
       <div><strong>Proposed version</strong><pre className="mt-2 max-h-40 overflow-auto whitespace-pre-wrap break-words rounded bg-emerald-50 p-2 text-emerald-950 dark:bg-emerald-950/30 dark:text-emerald-100">{systemTemplate}{"\n\n"}{userTemplate}</pre></div>
     </div>
   )

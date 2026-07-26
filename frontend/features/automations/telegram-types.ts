@@ -1,4 +1,7 @@
 import type { JobStatus } from "@/features/jobs/types"
+import type { components } from "@/lib/api/generated"
+
+type Schemas = components["schemas"]
 
 export type TelegramAccessMode = "public_html" | "mtproto_user"
 export type TelegramResearchMode = "off" | "manual" | "auto_if_incomplete"
@@ -249,35 +252,10 @@ export type AutomationControl = {
   updatedAt: string
 }
 
-export type BrandProfile = {
-  id: string
-  name: string
-  outputLanguage: string
-  tone: string
-  editorialRules: string[]
-  attributionRules: Record<string, unknown>
-  defaultHashtags: string[]
-  platformPreferences: Record<string, unknown>
-  isDefault: boolean
-}
-export type BrandProfileInput = Omit<BrandProfile, "id">
-export type BrandProfilePatch = Partial<BrandProfileInput>
+export type BrandProfile = Schemas["BrandProfileOut"]
+export type BrandProfileInput = Schemas["BrandProfileCreate"]
+export type BrandProfilePatch = Schemas["BrandProfilePatch"]
 
 export type PromptTemplate = { id: string; purposeKey: string; name: string; description: string | null }
-export type PromptVersion = {
-  id: string
-  promptTemplateId: string
-  version: number
-  systemTemplate: string
-  userTemplate: string
-  outputSchemaVersion: string
-  outputSchema: Record<string, unknown>
-  checksumSha256: string
-  isActive: boolean
-  activatedAt: string | null
-  activatedByType: string | null
-  activatedById: string | null
-  activationReason: string | null
-  createdAt: string
-}
-export type PromptVersionInput = { systemTemplate: string; userTemplate: string }
+export type PromptVersion = Schemas["PromptTemplateVersionOut"]
+export type PromptVersionInput = Schemas["PromptTemplateVersionCreate"]

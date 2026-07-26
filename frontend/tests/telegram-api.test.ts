@@ -225,8 +225,8 @@ describe("Telegram automation API", () => {
       { id: ids.prompt, prompt_template_id: ids.brand, version: 2, system_template: "system", user_template: "user", output_schema_version: "telegram_rewrite.v1", output_schema: {}, checksum_sha256: "b".repeat(64), is_active: true, created_at: "2026-07-12T10:00:00Z" },
     )
 
-    await createBrandProfile({ name: "Main", outputLanguage: "fa", tone: "direct", editorialRules: [], attributionRules: {}, defaultHashtags: [], platformPreferences: {}, isDefault: true })
-    await createPromptVersion(ids.brand, { systemTemplate: "system", userTemplate: "user" })
+    await createBrandProfile({ name: "Main", output_language: "fa", tone: "direct", editorial_rules: [], attribution_rules: {}, default_hashtags: [], platform_preferences: {}, is_default: true })
+    await createPromptVersion(ids.brand, { system_template: "system", user_template: "user" })
     await getPromptVersions(ids.brand)
     await activatePromptVersion(ids.prompt, "Editorial approval")
 
