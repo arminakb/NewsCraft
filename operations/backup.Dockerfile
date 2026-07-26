@@ -6,8 +6,5 @@ RUN apt-get update \
     && apt-get install --yes --no-install-recommends age=1.1.1-1+b3 \
     && rm -rf /var/lib/apt/lists/*
 
-RUN groupadd --gid 10002 backup \
-    && useradd --uid 10002 --gid 10002 --create-home --shell /usr/sbin/nologin backup
-
 USER backup
 WORKDIR /work

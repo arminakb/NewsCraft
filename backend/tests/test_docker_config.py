@@ -169,6 +169,14 @@ def test_backup_service_is_credential_minimal_and_storage_read_only():
     )
 
 
+def test_backup_image_reuses_the_pinned_postgres_non_root_user():
+    dockerfile = (ROOT / "operations/backup.Dockerfile").read_text(encoding="utf-8")
+
+    assert "USER backup" in dockerfile
+    assert "groupadd" not in dockerfile
+    assert "useradd" not in dockerfile
+
+
 def test_worker_and_scheduler_are_long_running_backend_services():
     services = _compose_yaml()["services"]
     api = services["api"]
