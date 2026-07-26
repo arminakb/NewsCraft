@@ -109,14 +109,6 @@ export async function fetchReconciliationCases(): Promise<ReconciliationCase[]> 
   return rows.map(mapReconciliationCase)
 }
 
-export async function fetchReconciliationCase(publishJobId: string): Promise<ReconciliationCase> {
-  return mapReconciliationCase(
-    await apiRequest<BackendReconciliationCase>(
-      `/telegram/reconciliation/${encodeURIComponent(publishJobId)}`,
-    ),
-  )
-}
-
 export async function submitReconciliationDecision(
   publishJobId: string,
   decision: ReconciliationDecision,

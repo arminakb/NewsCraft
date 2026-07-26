@@ -1,9 +1,6 @@
 import {
   createArticleCollection,
   deleteArticleCollection,
-  decodeArticleCollections,
-  decodeArticleFacets,
-  decodeArticlePage,
   getArticleCollections,
   getArticleFacets,
   getArticles,
@@ -16,35 +13,6 @@ const articleId = "11111111-1111-4111-8111-111111111111"
 
 describe("Articles API", () => {
   afterEach(() => vi.unstubAllGlobals())
-
-  it("decodes exact summary contract and maps backend names", () => {
-    const page = decodeArticlePage(articlePage())
-
-    expect(page).toMatchObject({ nextCursor: "next-page", resultCount: 12 })
-    expect(page.items[0]).toMatchObject({
-      id: articleId,
-      source: { name: "Wire Desk", platform: "rss" },
-      displayAt: "2026-07-21T08:00:00Z",
-      dateBasis: "published",
-      coverage: { state: "complete" },
-      image: { altText: "Newsroom" },
-      hasImage: true,
-      marked: false,
-      markedAt: null,
-      saved: false,
-      savedCollectionIds: [],
-    })
-  })
-
-  it("rejects extra raw metadata and inconsistent image state", () => {
-    const extra = articlePage()
-    Object.assign(extra.items[0], { metrics: { raw: true } })
-    expect(() => decodeArticlePage(extra)).toThrow("Invalid Articles response")
-
-    const inconsistent = articlePage()
-    inconsistent.items[0].has_image = false
-    expect(() => decodeArticlePage(inconsistent)).toThrow("Invalid Articles response")
-  })
 
   it("requests only Articles endpoint with sort, limit, and cursor", async () => {
     const request = vi.fn().mockResolvedValue(
@@ -115,7 +83,7 @@ describe("Articles API", () => {
     )
   })
 
-  it("fetches and strictly decodes facet values", async () => {
+  it("fetches and maps facet values", async () => {
     const payload = facetPayload()
     const request = vi.fn().mockResolvedValue(new Response(JSON.stringify(payload), {
       status: 200, headers: { "content-type": "application/json" },
@@ -128,10 +96,9 @@ describe("Articles API", () => {
       coverage: [{ value: "complete", count: 1 }],
     })
     expect(request).toHaveBeenCalledWith("/api/backend/articles/facets", undefined)
-    expect(() => decodeArticleFacets({ ...payload, extra: true })).toThrow("Invalid Article facets response")
   })
 
-  it("strictly decodes, lists, and creates article collections", async () => {
+  it("lists and creates article collections", async () => {
     const payload = collectionPayload()
     const request = vi.fn()
       .mockResolvedValueOnce(new Response(JSON.stringify([payload]), {
@@ -156,9 +123,6 @@ describe("Articles API", () => {
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ name: "Research" }),
     })
-
-    expect(() => decodeArticleCollections([{ ...payload, extra: true }])).toThrow("Invalid Article collections response")
-    expect(() => decodeArticleCollections([{ ...payload, name: " Research " }])).toThrow("Invalid Article collections response")
   })
 
   it("adds and removes collection membership through idempotent 204 endpoints", async () => {

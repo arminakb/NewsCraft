@@ -8,7 +8,6 @@ import type {
   CredentialCapabilityState,
   JobAccepted,
   PromptTemplate,
-  PromptTemplateInput,
   PromptVersion,
   PromptVersionInput,
   TelegramAutomationOptions,
@@ -101,10 +100,6 @@ export async function getTelegramAutomationOptions(): Promise<TelegramAutomation
     })),
     aiProviderProfiles: row.ai_provider_profiles.map((item) => ({ id: item.id, name: item.name, providerType: item.provider_type, defaultModel: item.default_model, configured: item.configured, capabilities: item.capabilities, capabilityStates: { generation: mapCredentialCapabilityState(item.capability_states?.generation), research: mapCredentialCapabilityState(item.capability_states?.research) } })),
   }
-}
-
-export async function getTelegramSources(): Promise<TelegramSource[]> {
-  return (await apiRequest<Array<Record<string, unknown>>>("/telegram/sources")).map(mapTelegramSource)
 }
 
 export async function createTelegramSource(input: TelegramSourceInput): Promise<TelegramSource> {
@@ -266,9 +261,6 @@ export async function updateBrandProfile(id: string, input: BrandProfilePatch): 
 
 export async function getPromptTemplates(): Promise<PromptTemplate[]> {
   return (await apiRequest<Array<Record<string, unknown>>>("/prompt-templates")).map(mapPromptTemplate)
-}
-export async function createPromptTemplate(input: PromptTemplateInput): Promise<PromptTemplate> {
-  return mapPromptTemplate(await apiRequest<Record<string, unknown>>("/prompt-templates", json("POST", { purpose_key: input.purposeKey, name: input.name, description: input.description })))
 }
 export async function getPromptVersions(templateId: string): Promise<PromptVersion[]> {
   return (await apiRequest<Array<Record<string, unknown>>>(`/prompt-templates/${encodeURIComponent(templateId)}/versions`)).map(mapPromptVersion)

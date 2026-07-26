@@ -317,7 +317,6 @@ export type BrandProfileInput = Omit<BrandProfile, "id">
 export type BrandProfilePatch = Partial<BrandProfileInput>
 
 export type PromptTemplate = { id: string; purposeKey: string; name: string; description: string | null }
-export type PromptTemplateInput = Omit<PromptTemplate, "id">
 export type PromptVersion = {
   id: string
   promptTemplateId: string

@@ -1,4 +1,5 @@
-import { API_BASE_URL, ApiError, apiRequest } from "@/lib/http"
+import type { components } from "@/lib/api/generated"
+import { apiRequest, apiRequestVoid } from "@/lib/http"
 
 type JsonMethod = "POST" | "PATCH"
 
@@ -10,12 +11,7 @@ const json = (method: JsonMethod, body?: unknown, headers?: Record<string, strin
 
 const id = (value: string) => encodeURIComponent(value)
 
-async function apiRequestVoid(path: string, init?: RequestInit) {
-  const response = await fetch(`${API_BASE_URL}${path}`, init)
-  if (!response.ok) {
-    throw new ApiError(response.statusText || "Request failed", response.status, await response.text())
-  }
-}
+type Schemas = components["schemas"]
 
 export type LLMProviderSettings = {
   timeoutSeconds: number
@@ -62,31 +58,7 @@ export type LLMProviderDependencies = {
   blocked: boolean
 }
 
-type BackendLLMProvider = {
-  id: string
-  name: string
-  protocol: LLMProvider["protocol"]
-  base_url: string | null
-  default_model: string
-  enabled: boolean
-  configured: boolean
-  settings: {
-    timeout_seconds: number
-    max_input_tokens: number
-    max_output_tokens: number
-    research_budgets: Record<string, unknown>
-    pricing: { input_usd_per_million: number; output_usd_per_million: number }
-    attribution_headers: { http_referer: string | null; app_title: string }
-  }
-  health_status: LLMProvider["healthStatus"]
-  generation_capability: LLMProvider["generationCapability"]
-  research_capability: LLMProvider["researchCapability"]
-  generation_ready: boolean
-  research_ready: boolean
-  failure_code: string | null
-  last_checked_at: string | null
-  ownership: LLMProvider["ownership"]
-}
+type BackendLLMProvider = Schemas["LLMProviderOut"]
 
 function mapProvider(row: BackendLLMProvider): LLMProvider {
   return {
@@ -101,14 +73,14 @@ function mapProvider(row: BackendLLMProvider): LLMProvider {
       timeoutSeconds: row.settings.timeout_seconds,
       maxInputTokens: row.settings.max_input_tokens,
       maxOutputTokens: row.settings.max_output_tokens,
-      researchBudgets: row.settings.research_budgets,
+      researchBudgets: row.settings.research_budgets ?? {},
       pricing: {
-        inputUsdPerMillion: Number(row.settings.pricing.input_usd_per_million),
-        outputUsdPerMillion: Number(row.settings.pricing.output_usd_per_million),
+        inputUsdPerMillion: Number(row.settings.pricing?.input_usd_per_million ?? 0),
+        outputUsdPerMillion: Number(row.settings.pricing?.output_usd_per_million ?? 0),
       },
       attributionHeaders: {
-        httpReferer: row.settings.attribution_headers.http_referer,
-        appTitle: row.settings.attribution_headers.app_title,
+        httpReferer: row.settings.attribution_headers?.http_referer ?? null,
+        appTitle: row.settings.attribution_headers?.app_title ?? "",
       },
     },
     healthStatus: row.health_status,
@@ -188,13 +160,9 @@ export async function setLLMProviderEnabled(providerId: string, enabled: boolean
 }
 
 export async function getLLMProviderDependencies(providerId: string): Promise<LLMProviderDependencies> {
-  const row = await apiRequest<{
-    automations: number
-    generation_runs: number
-    research_runs: number
-    active_jobs: number
-    blocked: boolean
-  }>(`/llm-providers/${id(providerId)}/dependencies`)
+  const row = await apiRequest<Schemas["LLMProviderDependenciesOut"]>(
+    `/llm-providers/${id(providerId)}/dependencies`
+  )
   return {
     automations: row.automations,
     generationRuns: row.generation_runs,
@@ -242,42 +210,9 @@ export type TelegramDestination = {
   lastCheckedAt: string | null
 }
 
-type BackendTelegramProxy = {
-  id: string
-  name: string
-  proxy_type: TelegramProxy["proxyType"]
-  host: string
-  port: number
-  enabled: boolean
-  credentials_configured: boolean
-  reachability_status: string
-  failure_code: string | null
-  last_checked_at: string | null
-}
-
-type BackendTelegramDestination = {
-  id: string
-  name: string
-  target_ref: string
-  canonical_target: string
-  target_type: TelegramDestination["targetType"]
-  enabled: boolean
-  health_status: string
-  configured: boolean
-  proxy_profile_id: string | null
-  connection_route: string
-  proxy_health_status: string
-  telegram_health_status: string
-  bot_health_status: string
-  target_health_status: string
-  administrator_status: string
-  failure_code: string | null
-  verified_bot_username: string | null
-  verified_chat_title: string | null
-  last_checked_at: string | null
-}
-
-type BackendJob = { job_id: string; status: string; deduplicated: boolean }
+type BackendTelegramProxy = Schemas["TelegramProxyOut"]
+type BackendTelegramDestination = Schemas["TelegramDestinationOut"]
+type BackendJob = Schemas["JobAcceptedOut"]
 type Accepted<T, K extends string> = { [P in K]: T } & { job: BackendJob }
 
 const mapProxy = (row: BackendTelegramProxy): TelegramProxy => ({
@@ -374,13 +309,9 @@ export async function setTelegramDestinationEnabled(destinationId: string, enabl
 }
 
 export async function getTelegramDestinationDependencies(destinationId: string) {
-  const row = await apiRequest<{
-    automations: number
-    publish_jobs: number
-    publications: number
-    active_jobs: number
-    blocked: boolean
-  }>(`/telegram/destinations/${id(destinationId)}/dependencies`)
+  const row = await apiRequest<Schemas["TelegramDestinationDependenciesOut"]>(
+    `/telegram/destinations/${id(destinationId)}/dependencies`
+  )
   return {
     automations: row.automations,
     publishJobs: row.publish_jobs,
@@ -457,7 +388,7 @@ export async function setTelegramProxyEnabled(proxyId: string, enabled: boolean)
 }
 
 export async function getTelegramProxyDependencies(proxyId: string) {
-  const row = await apiRequest<{ destinations: number; blocked: boolean }>(
+  const row = await apiRequest<Schemas["TelegramProxyDependenciesOut"]>(
     `/telegram/proxies/${id(proxyId)}/dependencies`
   )
   return row
@@ -465,18 +396,6 @@ export async function getTelegramProxyDependencies(proxyId: string) {
 
 export const deleteTelegramProxy = (proxyId: string) =>
   apiRequestVoid(`/telegram/proxies/${id(proxyId)}`, { method: "DELETE" })
-
-export async function getTelegramCheck(jobId: string) {
-  return apiRequest<{
-    job_id: string
-    resource_type: "destination" | "proxy"
-    resource_id: string
-    status: string
-    progress: number
-    progress_message: string | null
-    error_code: string | null
-  }>(`/telegram/destination-checks/${id(jobId)}`)
-}
 
 export type CodexConnection = {
   id: string
@@ -490,17 +409,7 @@ export type CodexConnection = {
   lastRotatedAt: string | null
 }
 
-type BackendCodexConnection = {
-  id: string
-  device_name: string
-  scopes: string[]
-  status: CodexConnection["status"]
-  connection_state: CodexConnection["connectionState"]
-  failure_code: string | null
-  expires_at: string
-  last_heartbeat_at: string | null
-  last_rotated_at: string | null
-}
+type BackendCodexConnection = Schemas["CodexConnectionOut"]
 
 const mapConnection = (row: BackendCodexConnection): CodexConnection => ({
   id: row.id,
@@ -519,15 +428,7 @@ export async function getCodexConnections() {
 }
 
 export async function createCodexPairingSession(deviceName: string, scopes: string[]) {
-  const row = await apiRequest<{
-    id: string
-    device_name: string
-    scopes: string[]
-    status: string
-    expires_at: string
-    pairing_code: string
-    local_command: string
-  }>("/codex-gateway/pairing-sessions", json("POST", {
+  const row = await apiRequest<Schemas["PairingSessionCreatedOut"]>("/codex-gateway/pairing-sessions", json("POST", {
     device_name: deviceName,
     scopes,
     confirm_write_scopes: scopes.some((scope) => scope.endsWith(":write")),
@@ -557,14 +458,7 @@ export const revokeCodexConnection = (connectionId: string) =>
 
 export async function getCodexActivity(connectionId?: string) {
   const query = connectionId ? `?connection_id=${id(connectionId)}&limit=8` : "?limit=8"
-  const rows = await apiRequest<Array<{
-    id: string
-    connection_id: string | null
-    action: string
-    outcome: string
-    reason_code: string | null
-    created_at: string
-  }>>(`/codex-gateway/activity${query}`)
+  const rows = await apiRequest<Schemas["GatewayActivityOut"][]>(`/codex-gateway/activity${query}`)
   return rows.map((row) => ({
     id: row.id,
     connectionId: row.connection_id,
