@@ -29,8 +29,6 @@ export type TelegramPublishStatus =
   | "succeeded"
   | "failed"
 export type TelegramReceiptStatus = "pending" | "dispatching" | "succeeded" | "ambiguous" | "failed"
-export type TelegramReconciliationOutcome = "published" | "not_published"
-
 export type JobAccepted = {
   jobId: string
   status: JobStatus

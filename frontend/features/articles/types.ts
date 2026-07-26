@@ -23,9 +23,7 @@ export type ArticleFilters = {
   dateTo: string | null
 }
 
-export type ArticleSource = Camelized<Schemas["ArticleSourceOut"]>
 export type ArticleImage = Camelized<Schemas["ArticleImageOut"]>
-export type ArticleStorySummary = Camelized<Schemas["ArticleStorySummaryOut"]>
 export type ArticleSummary = Camelized<Schemas["ArticleSummaryOut"]>
 export type ArticlePage = Camelized<Schemas["ArticleListOut"]>
 export type ArticleCollection = Camelized<Schemas["ArticleCollectionOut"]>

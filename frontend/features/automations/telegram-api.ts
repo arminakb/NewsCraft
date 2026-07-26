@@ -131,7 +131,6 @@ export async function createTelegramRoute(input: TelegramRouteInput): Promise<Te
   return mapTelegramRoute(row)
 }
 
-export const activateTelegramRoute = (id: string) => routeAccepted(id, "activate")
 export const pauseTelegramRoute = (id: string) => routeTransition(id, "pause")
 export const resumeTelegramRoute = (id: string) => routeTransition(id, "resume")
 
@@ -288,7 +287,6 @@ function mapTelegramPublication(row: BackendTelegramPublication): TelegramPublic
 }
 function mapJobAccepted(row: BackendJobAccepted): JobAccepted { return { jobId: row.job_id, status: row.status, deduplicated: row.deduplicated } }
 function mapRouteAccepted(row: { route: BackendTelegramRoute; job: BackendJobAccepted }): TelegramRouteAccepted { return { route: mapTelegramRoute(row.route), job: mapJobAccepted(row.job) } }
-async function routeAccepted(id: string, transition: "activate") { return mapRouteAccepted(await apiRequest<{ route: BackendTelegramRoute; job: BackendJobAccepted }>(`/telegram/automations/${encodeURIComponent(id)}/${transition}`, { method: "POST" })) }
 async function routeTransition(id: string, transition: "pause" | "resume") { return mapTelegramRoute(await apiRequest<BackendTelegramRoute>(`/telegram/automations/${encodeURIComponent(id)}/${transition}`, { method: "POST" })) }
 function mapPromptTemplate(row: Record<string, unknown>): PromptTemplate { return { id: row.id as string, purposeKey: row.purpose_key as string, name: row.name as string, description: row.description as string | null } }
 

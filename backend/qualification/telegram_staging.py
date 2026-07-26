@@ -21,7 +21,6 @@ from alembic.script import ScriptDirectory
 from sqlalchemy import select
 
 from app.automations.telegram.handlers import enqueue_telegram_publish_intent
-from app.core.faults import InjectedFault, ScriptedFaultInjector
 from app.core.outbound_proxy import build_outbound_http_client
 from app.core.secrets import FileSecretResolver
 from app.db.session import async_session
@@ -33,6 +32,7 @@ from app.publishing.models import Destination, Publication, PublishJob, PublishO
 from app.publishing.telegram.client import TelegramBotClient
 from app.publishing.telegram.scheduling import _revision_dispatch
 from app.publishing.telegram.service import derive_telegram_permalink, publish_telegram
+from qualification.faults import InjectedFault, ScriptedFaultInjector
 
 _MARKER = re.compile(r"^NC-STAGING-[A-Z0-9-]{8,80}$")
 _SAFE_REFERENCE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._@:/-]{0,127}$")

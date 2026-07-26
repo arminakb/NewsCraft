@@ -8,9 +8,10 @@ import pytest
 from pydantic_settings import SettingsError
 
 from app.core.config import Settings
-from app.core.faults import FaultHit, InjectedFault, NoopFaultInjector, ScriptedFaultInjector
+from app.core.faults import NoopFaultInjector
 from app.jobs.registry import JobHandlerRegistry
 from app.jobs.worker import WorkerRunner
+from qualification.faults import FaultHit, InjectedFault, ScriptedFaultInjector
 
 
 def test_fault_injection_cannot_start_outside_test_environment(monkeypatch: pytest.MonkeyPatch) -> None:

@@ -160,7 +160,8 @@ def test_rendered_prompt_executes_the_immutable_operator_user_template():
 def test_instruction_changes_rendered_telegram_prompt_and_input_hash():
     from types import SimpleNamespace
 
-    from tests.generation.handler_exports import render_prompt_messages, stage_input_hash
+    from app.automations.telegram.handlers import sha256_canonical
+    from tests.generation.handler_exports import render_prompt_messages
 
     prompt = SimpleNamespace(
         system_template="Telegram exact",
@@ -169,7 +170,7 @@ def test_instruction_changes_rendered_telegram_prompt_and_input_hash():
     first = render_prompt_messages(prompt, {"canonical_story_json": "{}", "instruction": "Short"})
     second = render_prompt_messages(prompt, {"canonical_story_json": "{}", "instruction": "Formal"})
     assert first[1].content != second[1].content
-    assert stage_input_hash({"message": first[1].content}) != stage_input_hash({"message": second[1].content})
+    assert sha256_canonical({"message": first[1].content}) != sha256_canonical({"message": second[1].content})
 
 
 def test_qualified_generation_usage_uses_frozen_pricing_as_cost_floor():
@@ -346,10 +347,10 @@ async def test_generation_lifecycle_stops_when_frozen_pack_cost_budget_is_exceed
 
 @pytest.mark.asyncio
 async def test_generation_crash_after_provider_leaves_durable_running_attempt_before_persistence():
-    from app.core.faults import InjectedFault, ScriptedFaultInjector
     from app.generation.models import AIProviderProfile
     from app.generation.providers.base import GenerationProviderResult
     from app.jobs.registry import JobContext
+    from qualification.faults import InjectedFault, ScriptedFaultInjector
     from tests.generation.handler_exports import _invoke
 
     session = _LifecycleSession()

@@ -8,7 +8,6 @@ from sqlalchemy import select
 
 from app.automations.models import AutomationRoute
 from app.automations.telegram.handlers import sha256_canonical
-from app.core.faults import InjectedFault, ScriptedFaultInjector
 from app.db.models import SourceItem
 from app.generation.models import ContentPack, PlatformVariant, PlatformVariantRevision
 from app.generation.telegram_schema import TelegramEvidenceCitation, TelegramVariantContent
@@ -22,6 +21,7 @@ from app.publishing.models import Publication, PublishAttempt, PublishJob, Publi
 from app.publishing.telegram.contracts import TelegramOperationResult
 from app.publishing.telegram.service import get_reconciliation_case, publish_telegram
 from app.stories.models import StoryEvidenceSnapshot
+from qualification.faults import InjectedFault, ScriptedFaultInjector
 from tests.postgres.test_telegram_process_handler import seed_dispatch
 
 CLAIMED_AT = datetime(2026, 7, 13, 8, 0, tzinfo=UTC)

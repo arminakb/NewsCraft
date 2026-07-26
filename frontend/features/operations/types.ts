@@ -5,10 +5,7 @@ type Schemas = components["schemas"]
 
 export const RETENTION_CONFIRMATION = "DELETE PREVIEWED DATA" as const
 
-export type OperationHealthStatus = Schemas["ComponentHealthOut"]["status"]
 export type OperationComponentHealth = Schemas["ComponentHealthOut"]
-export type OperationAttentionItem = Schemas["AttentionItemOut"]
-export type OutboundProxyDiagnostics = Schemas["ProxyDiagnostics"]
 export type OperationsSnapshot = Schemas["OperationsSnapshotOut"]
 
 export type HistoryCategory = Schemas["HistoryCategory"]
@@ -27,7 +24,6 @@ export type HistoryEntry = Schemas["HistoryEntryOut"]
 export type HistoryPage = Schemas["HistoryPageOut"]
 
 export type ReconciliationDestination = Schemas["ReconciliationDestination"]
-export type ReconciliationOperation = Schemas["ReconciliationOperationSummary"]
 export type ReconciliationCase = Schemas["ReconciliationCase"]
 
 export type ReconciliationDecision =
@@ -84,8 +80,6 @@ export type RetentionPolicyValues = Schemas["RetentionPolicyInput"]
 export type RetentionPolicy = Schemas["RetentionPolicyOut"]
 export type RetentionCategory = Schemas["RetentionCategory"]
 export type RetentionRecordType = Schemas["RetentionRecordType"]
-export type RetentionCandidate = Schemas["RetentionCandidateOut"]
-export type RetentionCategorySummary = Schemas["RetentionCategorySummaryOut"]
 export type RetentionPreview = Schemas["RetentionPreviewOut"]
 
 export type RetentionRunAccepted = JobAccepted

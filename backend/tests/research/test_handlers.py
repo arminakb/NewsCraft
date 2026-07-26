@@ -10,18 +10,16 @@ from uuid import UUID, uuid4
 import pytest
 
 from app.automations.models import AutomationDispatch, AutomationRoute
-from app.core.faults import InjectedFault, ScriptedFaultInjector
 from app.generation.models import AIProviderProfile
 from app.generation.provider_settings import default_research_budgets
 from app.jobs.errors import NeedsReviewJobError
 from app.jobs.models import WorkflowEvent, WorkflowJob
 from app.jobs.registry import JobContext
 from app.research.base import ResearchBackendOutput, ResearchRequest, ResearchResult, ResearchUsage
-from app.research.continuations import append_unique_continuation, enqueue_bound_continuation
+from app.research.continuations import append_unique_continuation, enqueue_bound_continuation, normalize_continuation
 from app.research.fake import FakeResearchBackend
 from app.research.handlers import (
     DefaultResearchBackendResolver,
-    _validate_continuation,
     _validate_job_binding,
     _validate_source,
     build_research_story_handler,
@@ -37,6 +35,7 @@ from app.research.schemas import (
 from app.research.service import ResearchRequestError, evidence_set_hash
 from app.stories.evidence import EvidenceRecord
 from app.stories.models import Story, StoryEvidenceLink, StoryEvidenceSnapshot, StoryRevision
+from qualification.faults import InjectedFault, ScriptedFaultInjector
 
 
 def test_handler_recomputes_source_hash_and_key():
@@ -60,7 +59,7 @@ def test_handler_recomputes_source_hash_and_key():
 
 def test_continuation_is_constrained_to_telegram_process():
     with pytest.raises(ValueError, match="type"):
-        _validate_continuation(
+        normalize_continuation(
             {
                 "job_type": "telegram.publish",
                 "payload": {},

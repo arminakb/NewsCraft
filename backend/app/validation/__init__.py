@@ -1,1 +1,0 @@
-"""Content intelligence validation reports."""

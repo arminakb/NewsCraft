@@ -4,7 +4,7 @@ from datetime import UTC, datetime
 from types import SimpleNamespace
 from uuid import uuid4
 
-from app.validation.report import (
+from qualification.content_intelligence_report import (
     DEFAULT_REPORT_PATH,
     build_content_intelligence_report,
     write_content_intelligence_report,

@@ -2,10 +2,10 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react"
 
 import { PlatformEditor } from "@/features/packages/components/platform-editor"
 import type {
-  BlogPlatformRevision,
+  BlogRevision,
   CitationRef,
-  InstagramPlatformRevision,
-  XPlatformRevision,
+  InstagramRevision,
+  XRevision,
 } from "@/features/packages/types"
 import { ApiError } from "@/lib/http"
 
@@ -25,7 +25,7 @@ const secondCitation: CitationRef = {
   excerptSha256: "b".repeat(64),
 }
 
-const instagramRevision: InstagramPlatformRevision = {
+const instagramRevision: InstagramRevision = {
   id: "revision-instagram-2",
   platform: "instagram",
   variantId: "variant-instagram",
@@ -69,7 +69,7 @@ const instagramRevision: InstagramPlatformRevision = {
   createdAt: "2026-07-13T09:00:00Z",
 }
 
-const xRevision: XPlatformRevision = {
+const xRevision: XRevision = {
   ...instagramRevision,
   id: "revision-x-4",
   platform: "x",
@@ -89,7 +89,7 @@ const xRevision: XPlatformRevision = {
   manualChecklist: ["Verify thread order"],
 }
 
-const blogRevision: BlogPlatformRevision = {
+const blogRevision: BlogRevision = {
   ...instagramRevision,
   id: "revision-blog-3",
   platform: "blog",

@@ -595,10 +595,6 @@ def require_prompt_integrity(prompt: PromptTemplateVersion) -> None:
         raise ValueError("generation prompt snapshot checksum is invalid")
 
 
-def stage_input_hash(value: object) -> str:
-    return sha256_canonical(value)
-
-
 def _safe_error_code(value: object, fallback: str) -> str:
     raw = str(value).strip().lower()
     if redact_string(raw) != raw:

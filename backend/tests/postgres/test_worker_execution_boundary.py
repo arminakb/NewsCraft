@@ -4,12 +4,12 @@ import pytest
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from app.core.faults import InjectedFault, ScriptedFaultInjector
 from app.jobs.models import WorkflowEvent, WorkflowJob
 from app.jobs.registry import JobHandlerRegistry
 from app.jobs.repository import JobRepository
 from app.jobs.types import JobExecution, JobOrigin, JobStatus
 from app.jobs.worker import WorkerRunner
+from qualification.faults import InjectedFault, ScriptedFaultInjector
 
 NOW = datetime(2026, 7, 17, 8, 0, tzinfo=UTC)
 

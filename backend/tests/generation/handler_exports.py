@@ -15,7 +15,6 @@ from app.generation.generation_helpers import (
     platform_limits_for,
     render_prompt_messages,
     require_prompt_integrity,
-    stage_input_hash,
 )
 from app.generation.package_generation import (
     _locked_story_evidence,
@@ -47,6 +46,5 @@ __all__ = [
     "render_prompt_messages",
     "require_prompt_integrity",
     "require_revision_write_allowed",
-    "stage_input_hash",
     "validate_payload_media_assignments",
 ]

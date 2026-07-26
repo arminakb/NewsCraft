@@ -1,6 +1,5 @@
 import {
   activatePromptVersion,
-  activateTelegramRoute,
   backfillTelegramRoute,
   createBrandProfile,
   createPromptVersion,
@@ -139,9 +138,8 @@ describe("Telegram automation API", () => {
 
   it("posts exact route lifecycle, dry-run, and bounded backfill requests", async () => {
     const accepted = { route: backendRoute, job: { job_id: ids.publishJob, status: "queued", deduplicated: false } }
-    const fetchSpy = stubFetchSequence(accepted, backendRoute, backendRoute, accepted, accepted, accepted)
+    const fetchSpy = stubFetchSequence(backendRoute, backendRoute, accepted, accepted, accepted)
 
-    await activateTelegramRoute(ids.route)
     await pauseTelegramRoute(ids.route)
     await resumeTelegramRoute(ids.route)
     await dryRunTelegramRoute(ids.route, { sourceMessageId: 91 })
@@ -149,7 +147,6 @@ describe("Telegram automation API", () => {
     await backfillTelegramRoute(ids.route, { since: "2026-07-01T00:00:00Z" })
 
     expect(fetchSpy.mock.calls).toEqual([
-      [`/api/backend/telegram/automations/${ids.route}/activate`, { method: "POST" }],
       [`/api/backend/telegram/automations/${ids.route}/pause`, { method: "POST" }],
       [`/api/backend/telegram/automations/${ids.route}/resume`, { method: "POST" }],
       [`/api/backend/telegram/automations/${ids.route}/dry-run`, jsonPost({ source_message_id: 91 })],

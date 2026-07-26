@@ -601,13 +601,6 @@ def _validate_source(source: DiscoveredSourcePayload) -> None:
         raise CitationIntegrityError("research source integrity check failed")
 
 
-def _validate_continuation(value: Any) -> dict[str, Any]:
-    try:
-        return normalize_continuation(value)
-    except ValueError as exc:
-        raise CitationIntegrityError(str(exc)) from None
-
-
 __all__ = [
     "DefaultResearchBackendResolver",
     "ResearchBackendResolver",

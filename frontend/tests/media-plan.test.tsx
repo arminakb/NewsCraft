@@ -1,9 +1,9 @@
 import { fireEvent, render, screen } from "@testing-library/react"
 
 import { MediaPlan } from "@/features/packages/components/media-plan"
-import type { InstagramPlatformRevision, XPlatformRevision } from "@/features/packages/types"
+import type { InstagramRevision, XRevision } from "@/features/packages/types"
 
-const revision: InstagramPlatformRevision = {
+const revision: InstagramRevision = {
   id: "revision-instagram-2",
   platform: "instagram",
   variantId: "variant-instagram",
@@ -160,7 +160,7 @@ it("renders X media assignments in their declared order", () => {
     manualBrief: "Replace unavailable video manually",
     imagePrompt: null,
   }
-  const xRevision: XPlatformRevision = {
+  const xRevision: XRevision = {
     ...revision,
     platform: "x",
     payload: {
@@ -181,7 +181,7 @@ it("renders X media assignments in their declared order", () => {
 
 it("marks each X post with missing media as a required manual assignment", () => {
   const assigned = revision.payload.carousel[0].media
-  const xRevision: XPlatformRevision = {
+  const xRevision: XRevision = {
     ...revision,
     platform: "x",
     payload: {
@@ -237,7 +237,7 @@ it("marks unavailable Telegram media and unsupported manual-platform media expli
     role: "source",
     order: 3,
   }
-  const unsupportedRevision: InstagramPlatformRevision = {
+  const unsupportedRevision: InstagramRevision = {
     ...revision,
     payload: {
       ...revision.payload,

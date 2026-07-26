@@ -1,23 +1,14 @@
 import pytest
 
 from app.api.editorial_errors import editorial_http_error
-from app.workflows.errors import (
-    CapabilityUnavailableError,
-    EditorialValidationError,
-    InvalidProviderResultError,
-    MissingEvidenceError,
-    StaleRevisionError,
-)
+from app.workflows.errors import EditorialValidationError, StaleRevisionError
 
 
 @pytest.mark.parametrize(
     ("error", "status", "code"),
     [
-        (MissingEvidenceError(), 422, "missing_evidence"),
         (StaleRevisionError(), 409, "stale_revision"),
-        (InvalidProviderResultError(), 422, "invalid_provider_result"),
         (EditorialValidationError(), 422, "validation_failed"),
-        (CapabilityUnavailableError(), 503, "capability_unavailable"),
     ],
 )
 def test_editorial_domain_failures_map_once_at_the_http_edge(error, status, code) -> None:

@@ -4,9 +4,9 @@ from uuid import uuid4
 
 import pytest
 
-from app.core.faults import InjectedFault
 from app.jobs.errors import NeedsReviewJobError
 from qualification import telegram_staging
+from qualification.faults import InjectedFault
 
 
 def _args(scenario="success"):

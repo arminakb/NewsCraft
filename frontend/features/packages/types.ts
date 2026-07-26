@@ -164,13 +164,6 @@ export type InstagramRevision = PlatformRevisionBase<"instagram", InstagramPaylo
 export type XRevision = PlatformRevisionBase<"x", XPayload, MediaAssignment[]>
 export type BlogRevision = PlatformRevisionBase<"blog", BlogPayload, MediaAssignment[]>
 
-// Descriptive aliases keep component imports readable without creating a
-// second revision shape.
-export type TelegramPlatformRevision = TelegramRevision
-export type InstagramPlatformRevision = InstagramRevision
-export type XPlatformRevision = XRevision
-export type BlogPlatformRevision = BlogRevision
-
 export type PlatformRevision = TelegramRevision | InstagramRevision | XRevision | BlogRevision
 
 export type ManualPayloadByPlatform = {

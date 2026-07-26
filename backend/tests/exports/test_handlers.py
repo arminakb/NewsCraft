@@ -81,9 +81,9 @@ async def test_build_export_handler_hits_fault_after_complete_manifest_before_jo
     monkeypatch,
     tmp_path,
 ):
-    from app.core.faults import InjectedFault, ScriptedFaultInjector
     from app.exports.handlers import build_export_handler
     from app.exports.models import ExportArtifact, ExportManifest
+    from qualification.faults import InjectedFault, ScriptedFaultInjector
 
     export_id = uuid4()
     pack_id = uuid4()
@@ -144,10 +144,10 @@ async def test_build_export_handler_hits_fault_after_complete_manifest_before_jo
 
 @pytest.mark.asyncio
 async def test_export_crash_after_real_manifest_retries_without_duplicate_artifact(tmp_path):
-    from app.core.faults import InjectedFault, ScriptedFaultInjector
     from app.exports.handlers import build_export_handler
     from app.exports.models import ExportRequest
     from app.exports.service import ExportService
+    from qualification.faults import InjectedFault, ScriptedFaultInjector
     from tests.exports.test_service import FIXED_NOW, _ExportSession, _pack_fixture
 
     pack, variants, revisions = _pack_fixture()
