@@ -4,7 +4,7 @@ import hashlib
 import json
 from collections.abc import Iterable
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from app.generation.telegram_schema import TelegramVariantContent
 from app.publishing.telegram.contracts import (
@@ -42,6 +42,16 @@ _UPLOAD_FORMATS: dict[tuple[str, str], tuple[set[str], str]] = {
 
 class TelegramPublishNeedsReview(ValueError):
     """Raised when a revision cannot be rendered without an operator decision."""
+
+
+def _upload_media_type(value: str) -> Literal["photo", "video", "document"]:
+    if value == "photo":
+        return "photo"
+    if value == "video":
+        return "video"
+    if value == "document":
+        return "document"
+    raise TelegramPublishNeedsReview("unsupported rendered media type")
 
 
 def validate_renderability_policy(content: TelegramVariantContent) -> None:
@@ -143,7 +153,7 @@ def _operation(
                 attach_name=descriptor["media"].removeprefix("attach://"),
                 filename=descriptor["filename"],
                 mime_type=descriptor["mime_type"],
-                media_type=descriptor["type"],
+                media_type=_upload_media_type(descriptor["type"]),
                 checksum_sha256=descriptor["checksum_sha256"],
             )
             for descriptor, _ in files

@@ -19,6 +19,7 @@ from app.generation.providers.openai_compatible import OpenAICompatibleProvider
 from app.jobs.models import WorkflowJob
 from app.llm_providers.models import LLMProvider
 from app.llm_providers.schemas import (
+    AttributionHeaders,
     LLMProviderCreate,
     LLMProviderDependenciesOut,
     LLMProviderOut,
@@ -80,7 +81,7 @@ async def _default_probe(provider: LLMProvider, api_key: str, configured: LLMPro
         base_url=provider.base_url,
         timeout=configured.timeout_seconds,
     )
-    adapter = OpenAICompatibleProvider(
+    adapter: OpenAICompatibleProvider = OpenAICompatibleProvider(
         http_client=client,
         api_key=api_key,
         base_url=provider.base_url,
@@ -225,7 +226,7 @@ class LLMProviderService:
         if provider.protocol != "openai_compatible":
             raise ValueError("provider secret cannot be rotated")
         if provider.secret_id is None:
-            secret = self._secret_store().create(
+            created_secret = self._secret_store().create(
                 purpose="provider_api_key",
                 owner_type="llm_provider",
                 owner_id=provider.id,
@@ -233,8 +234,8 @@ class LLMProviderService:
                 principal=self.principal,
                 required_scope="providers:write",
             )
-            await self.session.flush([secret])
-            provider.secret_id = secret.id
+            await self.session.flush([created_secret])
+            provider.secret_id = created_secret.id
         else:
             secret = await self.session.get(EncryptedSecret, provider.secret_id)
             if secret is None:
@@ -367,25 +368,27 @@ class LLMProviderService:
 def provider_out(provider: LLMProvider) -> LLMProviderOut:
     configured = provider.protocol == "fake" or provider.secret_id is not None
     settings_value = effective_llm_provider_settings(provider.settings)
-    return LLMProviderOut(
-        id=provider.id,
-        name=provider.name,
-        protocol=provider.protocol,
-        base_url=provider.base_url,
-        default_model=provider.default_model,
-        enabled=provider.enabled,
-        configured=configured,
-        settings=settings_value,
-        health_status=provider.health_status,
-        generation_capability=provider.generation_capability,
-        research_capability=provider.research_capability,
-        generation_ready=provider.enabled and provider.generation_capability == "ready",
-        research_ready=provider.enabled and provider.research_capability == "ready",
-        failure_code=provider.failure_code,
-        last_checked_at=provider.last_checked_at,
-        ownership=provider.ownership,
-        created_at=provider.created_at,
-        updated_at=provider.updated_at,
+    return LLMProviderOut.model_validate(
+        {
+            "id": provider.id,
+            "name": provider.name,
+            "protocol": provider.protocol,
+            "base_url": provider.base_url,
+            "default_model": provider.default_model,
+            "enabled": provider.enabled,
+            "configured": configured,
+            "settings": settings_value,
+            "health_status": provider.health_status,
+            "generation_capability": provider.generation_capability,
+            "research_capability": provider.research_capability,
+            "generation_ready": provider.enabled and provider.generation_capability == "ready",
+            "research_ready": provider.enabled and provider.research_capability == "ready",
+            "failure_code": provider.failure_code,
+            "last_checked_at": provider.last_checked_at,
+            "ownership": provider.ownership,
+            "created_at": provider.created_at,
+            "updated_at": provider.updated_at,
+        }
     )
 
 
@@ -427,10 +430,10 @@ async def seed_legacy_provider_compatibility(session: AsyncSession) -> list[LLMP
                 timeout_seconds=old.timeout_seconds,
                 research_budgets=old.research_budgets or LLMProviderSettings().research_budgets,
                 pricing=old.pricing or LLMProviderSettings().pricing,
-                attribution_headers={
-                    "http_referer": old.http_referer,
-                    "app_title": old.app_title,
-                },
+                attribution_headers=AttributionHeaders(
+                    http_referer=old.http_referer,
+                    app_title=old.app_title,
+                ),
             )
             target = LLMProvider(
                 id=legacy.id,

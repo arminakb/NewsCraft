@@ -89,6 +89,7 @@ from app.workflows.states import require_generation_run_transition
 
 logger = logging.getLogger(__name__)
 
+
 async def enqueue_telegram_publish_intent(
     session: Any,
     *,
@@ -452,7 +453,6 @@ async def _resolve_process_prompt(
     return prompt
 
 
-
 @dataclass(frozen=True, slots=True)
 class TelegramProcessDependencies:
     profile_resolver: Any
@@ -699,14 +699,16 @@ async def _process_route_dispatch(
                 if mapped is exc:
                     raise
                 raise mapped from None
-            rewrite_input = TelegramRewriteInput(
-                source_text=snapshot.content_text,
-                source_url=snapshot.source_url,
-                source_channel=source_item.external_id_norm or str(route.source_id),
-                language=brand.output_language,
-                direction=content_item.direction or "ltr",
-                attribution_policy=route.attribution_policy,
-                custom_footer=route.custom_footer,
+            rewrite_input = TelegramRewriteInput.model_validate(
+                {
+                    "source_text": snapshot.content_text,
+                    "source_url": snapshot.source_url,
+                    "source_channel": source_item.external_id_norm or str(route.source_id),
+                    "language": brand.output_language,
+                    "direction": content_item.direction or "ltr",
+                    "attribution_policy": route.attribution_policy,
+                    "custom_footer": route.custom_footer,
+                }
             )
             values = rewrite_input.model_dump(mode="json")
             try:
@@ -774,7 +776,7 @@ async def _process_route_dispatch(
             dispatch.status = "generating"
             dispatch.error_code = None
             dispatch.error_message = None
-            attempt = GenerationAttempt(
+            created_attempt = GenerationAttempt(
                 generation_run_id=run.id,
                 attempt_number=max((item.attempt_number for item in attempts), default=0) + 1,
                 provider=resolved.provider_type,
@@ -792,18 +794,18 @@ async def _process_route_dispatch(
                 status="running",
                 started_at=datetime.now(UTC),
             )
-            session.add(attempt)
+            session.add(created_attempt)
             await session.flush()
             run.request_payload = _redacted_dict(
                 {
                     **request_payload,
                     "execution": {
                         **request_payload["execution"],
-                        "active_generation_attempt_id": str(attempt.id),
+                        "active_generation_attempt_id": str(created_attempt.id),
                     },
                 }
             )
-            active_attempt_id = attempt.id
+            active_attempt_id = created_attempt.id
             provider = resolved.provider
             provider_request = GenerationProviderRequest(
                 run_id=run.id,
@@ -871,7 +873,7 @@ async def _process_route_dispatch(
                     .with_for_update()
                     .execution_options(populate_existing=True)
                 )
-                if current_run is not None and current_attempt is not None:
+                if current_dispatch is not None and current_run is not None and current_attempt is not None:
                     if current_dispatch.variant_revision_id is not None or (
                         (current_run.request_payload or {}).get("execution") or {}
                     ).get("active_generation_attempt_id") != str(active_attempt_id):
@@ -939,9 +941,9 @@ async def _process_route_dispatch(
                     code="generation_attempt_missing",
                     message="Generation attempt disappeared before persistence",
                 )
-            if ((current_run.request_payload or {}).get("execution") or {}).get(
-                "active_generation_attempt_id"
-            ) != str(active_attempt_id):
+            if ((current_run.request_payload or {}).get("execution") or {}).get("active_generation_attempt_id") != str(
+                active_attempt_id
+            ):
                 return {
                     "dispatch_id": str(payload.dispatch_id),
                     "generation_run_id": str(current_run.id),
@@ -1168,16 +1170,18 @@ async def _process_route_dispatch(
         content_item, media = await _dispatch_media(session, source_item)
         media_ids, media_ready, media_reason = _media_decision(route, media)
         output = TelegramRewriteOutput.model_validate(run.output_payload["output"])
-        content = TelegramVariantContent(
-            body=output.body,
-            parse_mode=output.parse_mode,
-            buttons=output.buttons,
-            source_item_id=dispatch.source_item_id,
-            source_url=source_item.source_url,
-            media_policy=route.media_policy,
-            media_asset_ids=media_ids if route.media_policy == "preserve" else [],
-            direction=content_item.direction or "ltr",
-            dry_run=dispatch.dispatch_kind == "dry_run",
+        content = TelegramVariantContent.model_validate(
+            {
+                "body": output.body,
+                "parse_mode": output.parse_mode,
+                "buttons": output.buttons,
+                "source_item_id": dispatch.source_item_id,
+                "source_url": source_item.source_url,
+                "media_policy": route.media_policy,
+                "media_asset_ids": media_ids if route.media_policy == "preserve" else [],
+                "direction": content_item.direction or "ltr",
+                "dry_run": dispatch.dispatch_kind == "dry_run",
+            }
         ).model_dump(mode="json")
         validation_results = [
             {"gate": "telegram_schema", "ok": True, "reason": None},
@@ -1246,9 +1250,7 @@ async def _process_route_dispatch(
             WorkflowEvent(
                 workflow_job_id=workflow_job_id,
                 event_type=(
-                    "telegram.revision.auto_approved"
-                    if review.approved
-                    else "telegram.revision.review_required"
+                    "telegram.revision.auto_approved" if review.approved else "telegram.revision.review_required"
                 ),
                 actor="automation",
                 event_data=redact_event_data(
@@ -1387,4 +1389,3 @@ async def process_route_dispatch(
             fault_injector=NoopFaultInjector(),
         ),
     )
-

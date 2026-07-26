@@ -89,6 +89,7 @@ from app.workflows.states import require_generation_run_transition
 
 logger = logging.getLogger(__name__)
 
+
 async def _load_route(
     context: JobContext,
     route_id: UUID,
@@ -588,7 +589,7 @@ async def _fetch_bounded_backfill(
     seen_tokens: set[str | None] = set()
     envelopes: dict[str, TelegramEnvelope] = {}
     for _ in range(100):
-        current_token = page_token
+        current_token: str | None = page_token
         if current_token in seen_tokens:
             raise RetryableJobError(
                 code="telegram_backfill_token_repeated",
@@ -641,7 +642,7 @@ async def _fetch_recent(loaded: _LoadedRoute, *, limit: int) -> list[TelegramEnv
     seen_tokens: set[str | None] = set()
     envelopes: dict[str, TelegramEnvelope] = {}
     for _ in range(limit):
-        current_token = page_token
+        current_token: str | None = page_token
         if current_token in seen_tokens:
             raise RetryableJobError(
                 code="telegram_lookback_token_repeated",
@@ -730,9 +731,7 @@ async def initialize_route(
     payload = _parse_payload(InitializeJobPayload, job_payload_copy(job))
     loaded = await _load_route(context, payload.route_id, dependencies.source_registry)
     route = loaded.route
-    deferred = await _defer_if_paused(
-        job, context, loaded, dependencies=dependencies
-    )
+    deferred = await _defer_if_paused(job, context, loaded, dependencies=dependencies)
     if deferred is not None:
         return deferred
     state = dict(route.cursor_state or {})
@@ -914,6 +913,8 @@ async def initialize_route(
                     "reason": pause_reason,
                     "deferred_until": deferred_until.isoformat(),
                 }
+            if predecessor is None:
+                predecessor = 0
             locked_state = dict(locked.cursor_state or {})
             locked_state.update(
                 {
@@ -1103,9 +1104,7 @@ async def poll_route(
     payload = _parse_payload(RouteJobPayload, job_payload_copy(job))
     loaded = await _load_route(context, payload.route_id, dependencies.source_registry)
     route = loaded.route
-    deferred = await _defer_if_paused(
-        job, context, loaded, dependencies=dependencies
-    )
+    deferred = await _defer_if_paused(job, context, loaded, dependencies=dependencies)
     if deferred is not None:
         return deferred
     state = dict(route.cursor_state or {})
@@ -1116,8 +1115,12 @@ async def poll_route(
         )
     expected_activation = state.get("activation_requested_at")
     await context.session.commit()
-    saved_forward = state.get("poll_forward")
-    base_cursor = int((saved_forward or {}).get("base_after_id", state["last_message_id"]))
+    saved_forward_value = state.get("poll_forward")
+    saved_forward = saved_forward_value if isinstance(saved_forward_value, dict) else None
+    base_cursor_value = (saved_forward or {}).get("base_after_id", state["last_message_id"])
+    if not isinstance(base_cursor_value, int):
+        raise PermanentJobError(code="route_cursor_invalid", message="Telegram route cursor is invalid")
+    base_cursor = base_cursor_value
     step = await _fetch_forward_step(
         loaded,
         after_id=base_cursor,
@@ -1255,9 +1258,7 @@ async def backfill_route(
 ) -> dict[str, Any]:
     payload = _parse_payload(BackfillJobPayload, job_payload_copy(job))
     loaded = await _load_route(context, payload.route_id, dependencies.source_registry)
-    deferred = await _defer_if_paused(
-        job, context, loaded, dependencies=dependencies
-    )
+    deferred = await _defer_if_paused(job, context, loaded, dependencies=dependencies)
     if deferred is not None:
         return deferred
     cursor = (loaded.route.cursor_state or {}).get("last_message_id")
@@ -1278,6 +1279,11 @@ async def backfill_route(
         raise PermanentJobError(
             code="backfill_since_out_of_range",
             message="Telegram backfill since must be within the previous 30 days",
+        )
+    if cursor is None:
+        raise PermanentJobError(
+            code="route_not_initialized",
+            message="Telegram route must be initialized before backfill",
         )
     await context.session.commit()
     envelopes = await _fetch_bounded_backfill(
@@ -1312,9 +1318,7 @@ async def dry_run_route(
 ) -> dict[str, Any]:
     payload = _parse_payload(DryRunJobPayload, job_payload_copy(job))
     loaded = await _load_route(context, payload.route_id, dependencies.source_registry)
-    deferred = await _defer_if_paused(
-        job, context, loaded, dependencies=dependencies
-    )
+    deferred = await _defer_if_paused(job, context, loaded, dependencies=dependencies)
     if deferred is not None:
         return deferred
     if not loaded.route.enabled or (loaded.route.cursor_state or {}).get("status") != "ready":
@@ -1395,4 +1399,3 @@ def build_telegram_route_handlers(
         backfill=_bound_handler(backfill_route, dependencies),
         dry_run=_bound_handler(dry_run_route, dependencies),
     )
-

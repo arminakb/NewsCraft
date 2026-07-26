@@ -200,5 +200,3 @@ def _parse_payload(model, payload: dict):
             code="invalid_telegram_route_payload",
             message="Invalid Telegram route job payload",
         ) from None
-
-

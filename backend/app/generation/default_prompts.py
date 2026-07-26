@@ -9,6 +9,7 @@ from string import Formatter
 from typing import Any
 from uuid import uuid4
 
+from pydantic import BaseModel
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -68,7 +69,7 @@ def _relax_manual_schema_node(
         )
 
 
-def manual_generation_provider_schema(payload_type: type) -> dict[str, Any]:
+def manual_generation_provider_schema(payload_type: type[BaseModel]) -> dict[str, Any]:
     """Keep provider output shape strict while deferring publish limits.
 
     Citation and URL constraints are integrity boundaries, not platform

@@ -528,6 +528,8 @@ class ArticleQuery:
         statement = self.filtered(_join_article_projection(select(*_base_article_columns())))
         if self.cursor is not None:
             if self.sort == "newest":
+                if len(self.cursor) != 2:
+                    raise ValueError("newest article cursor shape is invalid")
                 cursor_at, cursor_id = self.cursor
                 statement = statement.where(
                     or_(
@@ -536,6 +538,8 @@ class ArticleQuery:
                     )
                 )
             else:
+                if len(self.cursor) != 3:
+                    raise ValueError("score article cursor shape is invalid")
                 cursor_score, cursor_at, cursor_id = self.cursor
                 statement = statement.where(
                     or_(
@@ -716,7 +720,11 @@ def _domain(value: object | None) -> str | None:
 
 
 def _direction(value: object | None) -> Literal["ltr", "rtl"] | None:
-    return value if value in {"ltr", "rtl"} else None
+    if value == "ltr":
+        return "ltr"
+    if value == "rtl":
+        return "rtl"
+    return None
 
 
 def _source(row: Any) -> ArticleSourceOut:
@@ -807,7 +815,7 @@ async def _text_facets(session: AsyncSession, expression) -> list[ArticleFacetVa
             .order_by(value)
         )
     ).all()
-    return [ArticleFacetValueOut(value=row.value, count=row.count) for row in rows]
+    return [ArticleFacetValueOut(value=row._mapping["value"], count=row._mapping["count"]) for row in rows]
 
 
 def _core_fields(
@@ -1090,11 +1098,17 @@ async def get_article_facets(
                 id=row.id,
                 name=row.name,
                 platform=row.platform,
-                count=row.count,
+                count=row._mapping["count"],
             )
             for row in source_rows
         ],
-        coverage=[ArticleCoverageFacetOut(value=row.coverage_state, count=row.count) for row in coverage_rows],
+        coverage=[
+            ArticleCoverageFacetOut(
+                value=row.coverage_state,
+                count=row._mapping["count"],
+            )
+            for row in coverage_rows
+        ],
     )
 
 

@@ -15,7 +15,7 @@ from app.core.outbound_proxy import ProxyDiagnostics, safe_proxy_diagnostics
 from app.core.redaction import redact_secrets, redact_string
 from app.db.models import Source
 from app.generation.models import GenerationRun
-from app.jobs.models import AutomationControl, WorkflowJob
+from app.jobs.models import AutomationControl, RuntimeHeartbeat, WorkflowJob
 from app.jobs.runtime import RuntimeHeartbeatService
 from app.jobs.types import JobStatus
 from app.operations.health import database_time, normalize_utc, snapshot_high_water
@@ -113,7 +113,7 @@ class OperationsDiagnostics:
 
     async def _generated_at(
         self,
-        heartbeats: Sequence[object],
+        heartbeats: Sequence[RuntimeHeartbeat],
         attention: Sequence[AttentionItem],
     ) -> datetime:
         # Read the clock only after all projected rows. Under PostgreSQL's
@@ -308,7 +308,11 @@ class OperationsDiagnostics:
             if _newer_than_links(
                 item.occurred_at,
                 links["generation"].get(str(run.id)),
-                links["workflow_job"].get(_generation_workflow_job_id(run)),
+                (
+                    links["workflow_job"].get(workflow_job_id)
+                    if (workflow_job_id := _generation_workflow_job_id(run)) is not None
+                    else None
+                ),
             ):
                 candidates.append(item)
         for job in publish_jobs:
@@ -341,20 +345,20 @@ def _now(clock: ClockSource | None) -> datetime:
 
 
 def _component_health(
-    heartbeats: list[object],
+    heartbeats: Sequence[RuntimeHeartbeat],
     *,
     generated_at: datetime,
     expected_component_ids: str,
 ) -> dict[str, ComponentHealth]:
     expected = {value.strip() for value in expected_component_ids.split(",") if value.strip()}
-    by_id: dict[str, object] = {}
+    by_id: dict[str, RuntimeHeartbeat] = {}
     for heartbeat in heartbeats:
         by_id.setdefault(str(heartbeat.component_id), heartbeat)
 
     components: dict[str, ComponentHealth] = {}
     for component_id in sorted(expected | set(by_id)):
-        heartbeat = by_id.get(component_id)
-        if heartbeat is None:
+        current_heartbeat = by_id.get(component_id)
+        if current_heartbeat is None:
             components[component_id] = ComponentHealth(
                 status="unknown",
                 observed_at=None,
@@ -363,8 +367,9 @@ def _component_health(
                 action_url=_component_action_url(component_id, None),
             )
             continue
-        observed_at = normalize_utc(heartbeat.observed_at, field="heartbeat observed_at")
+        observed_at = normalize_utc(current_heartbeat.observed_at, field="heartbeat observed_at")
         age = generated_at - observed_at
+        status: Literal["healthy", "degraded", "down", "unknown"]
         if age <= timedelta(seconds=30):
             status = "healthy"
             message = "Heartbeat observed within 30 seconds"
@@ -379,7 +384,7 @@ def _component_health(
             observed_at=observed_at,
             last_success_at=None,
             message=message,
-            action_url=_component_action_url(component_id, heartbeat),
+            action_url=_component_action_url(component_id, current_heartbeat),
         )
     return components
 
@@ -426,7 +431,7 @@ def _paused_route_attention(route: AutomationRoute) -> AttentionItem:
         severity="warning",
         kind="route",
         title=_safe_text("Automation ", route.name, " is paused"),
-        occurred_at=route.paused_at,
+        occurred_at=route.paused_at or route.updated_at,
         action_url=f"/automations/{route.id}",
     )
 

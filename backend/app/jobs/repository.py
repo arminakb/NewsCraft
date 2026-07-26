@@ -602,6 +602,8 @@ class JobRepository:
 
         job.status = JobStatus.SUCCEEDED
         safe_result = redact_secrets(result)
+        if not isinstance(safe_result, dict):  # pragma: no cover - dict input contract
+            raise TypeError("job result must remain a dictionary")
         job.result = safe_result
         job.progress = 100
         job.finished_at = observed_at

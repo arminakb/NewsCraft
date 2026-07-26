@@ -38,6 +38,7 @@ from app.stories.models import StoryRevision
 
 router = APIRouter(prefix="/telegram/automations", tags=["telegram"])
 SessionDependency = Depends(get_session)
+InjectedSession = Annotated[AsyncSession, Depends(get_session)]
 JobRepositoryDependency = Annotated[JobRepository, Depends(get_job_repository)]
 
 
@@ -59,10 +60,12 @@ _ROUTE_RESPONSE_ATTRIBUTES = tuple(TelegramRouteOut.model_fields)
 
 
 def _job_out(result: EnqueueJobResult) -> JobAcceptedOut:
-    return JobAcceptedOut(
-        job_id=result.job.id,
-        status=result.job.status,
-        deduplicated=not result.created,
+    return JobAcceptedOut.model_validate(
+        {
+            "job_id": result.job.id,
+            "status": result.job.status,
+            "deduplicated": not result.created,
+        }
     )
 
 
@@ -185,8 +188,8 @@ async def list_routes(session: AsyncSession = SessionDependency):
 
 @router.get("/options", response_model=TelegramAutomationOptionsOut)
 async def automation_options(
-    session: AsyncSession = SessionDependency,
-    capability_status: CapabilityStatusDependency = None,
+    session: InjectedSession,
+    capability_status: CapabilityStatusDependency,
 ):
     sources = list(await session.scalars(select(Source).where(Source.platform == "telegram_public")))
     source_configs = list(await session.scalars(select(TelegramSourceConfig)))
@@ -231,26 +234,26 @@ async def automation_options(
                 }
             )
     safe_sources = []
-    for item in sources:
-        if item.id not in configs_by_source:
+    for source in sources:
+        if source.id not in configs_by_source:
             continue
-        state = await capability_status.get("source", item.id, "source")
+        state = await capability_status.get("source", source.id, "source")
         safe_sources.append(
             {
-                "id": item.id,
-                "name": item.name,
-                "access_mode": configs_by_source[item.id].access_mode,
+                "id": source.id,
+                "name": source.name,
+                "access_mode": configs_by_source[source.id].access_mode,
                 "capability_state": state,
             }
         )
     safe_destinations = []
-    for item in destinations:
-        state = await capability_status.get("destination", item.id, "publishing")
+    for destination in destinations:
+        state = await capability_status.get("destination", destination.id, "publishing")
         safe_destinations.append(
             {
-                "id": item.id,
-                "name": item.name,
-                "health_status": item.health_status,
+                "id": destination.id,
+                "name": destination.name,
+                "health_status": destination.health_status,
                 "capability_state": state,
             }
         )
@@ -287,7 +290,14 @@ async def create_route(
         require_active=body.prompt_policy == "follow_active",
     )
     profile = await session.get(AIProviderProfile, body.ai_provider_profile_id)
-    if None in (source, source_config, destination, brand, prompt_version, profile):
+    if (
+        source is None
+        or source_config is None
+        or destination is None
+        or brand is None
+        or prompt_version is None
+        or profile is None
+    ):
         raise HTTPException(422, "Referenced Telegram route configuration is missing")
     if source.platform != "telegram_public" or source_config.access_mode != body.access_mode:
         raise HTTPException(422, "Route source and access mode do not match")
@@ -378,6 +388,8 @@ async def update_prompt_policy(
     if body.prompt_policy == "follow_active":
         version = await _active_telegram_prompt(session)
     else:
+        if body.prompt_template_version_id is None:  # pragma: no cover - request model invariant
+            raise HTTPException(422, "Pinned prompt policy requires a prompt version")
         version = await _telegram_prompt_or_422(
             session,
             body.prompt_template_version_id,
@@ -424,9 +436,9 @@ async def update_research_policy(
 @router.post("/{route_id}/activate", response_model=TelegramRouteAcceptedOut, status_code=202)
 async def activate_route(
     route_id: UUID,
-    session: AsyncSession = SessionDependency,
-    jobs: JobRepositoryDependency = None,
-    capability_status: CapabilityStatusDependency = None,
+    session: InjectedSession,
+    jobs: JobRepositoryDependency,
+    capability_status: CapabilityStatusDependency,
 ):
     route = await session.scalar(select(AutomationRoute).where(AutomationRoute.id == route_id).with_for_update())
     if route is None:
@@ -481,8 +493,8 @@ async def pause_route(route_id: UUID, session: AsyncSession = SessionDependency)
 @router.post("/{route_id}/resume", response_model=TelegramRouteOut)
 async def resume_route(
     route_id: UUID,
-    session: AsyncSession = SessionDependency,
-    capability_status: CapabilityStatusDependency = None,
+    session: InjectedSession,
+    capability_status: CapabilityStatusDependency,
 ):
     route = await _route_or_404(session, route_id)
     await _require_route_capabilities(
@@ -500,9 +512,9 @@ async def resume_route(
 async def dry_run_route(
     route_id: UUID,
     body: TelegramRouteDryRunIn,
-    session: AsyncSession = SessionDependency,
-    jobs: JobRepositoryDependency = None,
-    capability_status: CapabilityStatusDependency = None,
+    session: InjectedSession,
+    jobs: JobRepositoryDependency,
+    capability_status: CapabilityStatusDependency,
 ):
     route = await _route_or_404(session, route_id)
     await _require_route_capabilities(
@@ -534,9 +546,9 @@ async def dry_run_route(
 async def backfill_route(
     route_id: UUID,
     body: TelegramRouteBackfillIn,
-    session: AsyncSession = SessionDependency,
-    jobs: JobRepositoryDependency = None,
-    capability_status: CapabilityStatusDependency = None,
+    session: InjectedSession,
+    jobs: JobRepositoryDependency,
+    capability_status: CapabilityStatusDependency,
 ):
     route = await _route_or_404(session, route_id)
     await _require_route_capabilities(

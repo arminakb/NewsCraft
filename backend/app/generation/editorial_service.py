@@ -28,6 +28,8 @@ from app.generation.platform_schemas import (
     BlogVariantPayload,
     InstagramVariantPayload,
     ManualPlatformEditRequest,
+    Platform,
+    PlatformPayload,
     XVariantPayload,
 )
 from app.generation.platform_validation import validate_platform_payload
@@ -259,19 +261,23 @@ class EditorialService:
         variant: PlatformVariant,
         revision: PlatformVariantRevision,
     ) -> None:
-        payload_types = {
-            "instagram": InstagramVariantPayload,
-            "x": XVariantPayload,
-            "blog": BlogVariantPayload,
-        }
-        payload_type = payload_types.get(variant.platform)
-        if payload_type is None:
-            raise InvalidGenerationRequest("manual platform is unsupported")
+        platform: Platform
+        payload: PlatformPayload
         try:
-            payload = payload_type.model_validate(revision.content)
+            if variant.platform == "instagram":
+                platform = "instagram"
+                payload = InstagramVariantPayload.model_validate(revision.content)
+            elif variant.platform == "x":
+                platform = "x"
+                payload = XVariantPayload.model_validate(revision.content)
+            elif variant.platform == "blog":
+                platform = "blog"
+                payload = BlogVariantPayload.model_validate(revision.content)
+            else:
+                raise InvalidGenerationRequest("manual platform is unsupported")
         except ValueError:
             raise InvalidGenerationRequest("stored platform content is invalid") from None
-        issues = validate_platform_payload(variant.platform, payload)
+        issues = validate_platform_payload(platform, payload)
         if any(issue.severity == "error" for issue in issues):
             raise InvalidGenerationRequest("revision has a failed validation gate")
         expected = [item.model_dump(mode="json") for item in ordered_distinct_citations(payload)]
@@ -279,7 +285,7 @@ class EditorialService:
             raise InvalidGenerationRequest("citation integrity failed", code="citation_integrity")
         records = await self._evidence_records(await self._pack_story_revision(variant))
         try:
-            validate_citations(payload_claims(variant.platform, payload), records)
+            validate_citations(payload_claims(platform, payload), records)
         except ValueError:
             raise InvalidGenerationRequest("citation integrity failed", code="citation_integrity") from None
         authorized_media, _projection = await trusted_story_media(

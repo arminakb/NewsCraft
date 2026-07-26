@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from typing import Literal
 from uuid import UUID, uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
@@ -108,10 +109,12 @@ async def _enqueue_check(
         origin=JobOrigin.MANUAL,
         pause_sensitive=False,
     )
-    return JobAcceptedOut(
-        job_id=result.job.id,
-        status=result.job.status,
-        deduplicated=not result.created,
+    return JobAcceptedOut.model_validate(
+        {
+            "job_id": result.job.id,
+            "status": result.job.status,
+            "deduplicated": not result.created,
+        }
     )
 
 
@@ -320,7 +323,9 @@ async def get_telegram_check(job_id: UUID, session: AsyncSession = SessionDepend
     job = await session.get(WorkflowJob, job_id)
     if job is None or job.job_type not in {"telegram.destination.check", "telegram.proxy.check"}:
         raise HTTPException(404, detail={"code": "telegram_check_not_found"})
-    resource_type = "destination" if job.job_type == "telegram.destination.check" else "proxy"
+    resource_type: Literal["destination", "proxy"] = (
+        "destination" if job.job_type == "telegram.destination.check" else "proxy"
+    )
     key = f"{resource_type}_id"
     try:
         resource_id = UUID(str(job.payload[key]))

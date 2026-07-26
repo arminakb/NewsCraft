@@ -25,6 +25,8 @@ from app.operations.history import (
     HistorySubjectType,
     decode_history_cursor,
 )
+from app.retention.contracts import RetentionPreview
+from app.retention.models import RetentionRun
 from app.retention.service import (
     RetentionCategory,
     RetentionConfirmationError,
@@ -292,10 +294,12 @@ async def enqueue_retention_run(
         raise HTTPException(status_code=409, detail=str(exc)) from None
     except RetentionConfirmationError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from None
-    response = JobAcceptedOut(
-        job_id=result.job.id,
-        status=result.job.status,
-        deduplicated=not result.created,
+    response = JobAcceptedOut.model_validate(
+        {
+            "job_id": result.job.id,
+            "status": result.job.status,
+            "deduplicated": not result.created,
+        }
     )
     await session.commit()
     return response
@@ -333,7 +337,7 @@ def _validate_history_cursor(cursor: str | None) -> None:
         raise HTTPException(status_code=422, detail=str(exc)) from None
 
 
-def _retention_policy_input(value: object) -> RetentionPolicyInput:
+def _retention_policy_input(value: RetentionPolicyInput) -> RetentionPolicyInput:
     return RetentionPolicyInput(
         raw_payload_days=value.raw_payload_days,
         completed_job_days=value.completed_job_days,
@@ -343,7 +347,7 @@ def _retention_policy_input(value: object) -> RetentionPolicyInput:
     )
 
 
-def _retention_preview_out(preview: object) -> RetentionPreviewOut:
+def _retention_preview_out(preview: RetentionPreview) -> RetentionPreviewOut:
     return RetentionPreviewOut(
         run_id=preview.run_id,
         preview_token=preview.preview_token,
@@ -359,20 +363,28 @@ def _retention_preview_out(preview: object) -> RetentionPreviewOut:
     )
 
 
-def _retention_run_out(run: object) -> RetentionRunOut:
-    return RetentionRunOut(
-        id=run.id,
-        workflow_job_id=run.workflow_job_id,
-        status=run.status,
-        schema_revision=run.schema_revision,
-        policy=RetentionPolicyInput.model_validate(run.policy_snapshot),
-        counts=redact_secrets(run.count_snapshot),
-        errors=redact_secrets(run.error_snapshot),
-        previewed_at=run.previewed_at,
-        preview_expires_at=run.preview_expires_at,
-        queued_at=run.queued_at,
-        started_at=run.started_at,
-        finished_at=run.finished_at,
-        created_at=run.created_at,
-        updated_at=run.updated_at,
+def _retention_run_out(run: RetentionRun) -> RetentionRunOut:
+    counts = redact_secrets(run.count_snapshot)
+    errors = redact_secrets(run.error_snapshot)
+    if not isinstance(counts, dict):  # pragma: no cover - persisted mapping contract
+        counts = {}
+    if not isinstance(errors, list):  # pragma: no cover - persisted list contract
+        errors = []
+    return RetentionRunOut.model_validate(
+        {
+            "id": run.id,
+            "workflow_job_id": run.workflow_job_id,
+            "status": run.status,
+            "schema_revision": run.schema_revision,
+            "policy": RetentionPolicyInput.model_validate(run.policy_snapshot),
+            "counts": counts,
+            "errors": errors,
+            "previewed_at": run.previewed_at,
+            "preview_expires_at": run.preview_expires_at,
+            "queued_at": run.queued_at,
+            "started_at": run.started_at,
+            "finished_at": run.finished_at,
+            "created_at": run.created_at,
+            "updated_at": run.updated_at,
+        }
     )

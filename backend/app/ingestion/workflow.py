@@ -99,10 +99,11 @@ def _snapshot_source(source: Source) -> PreparedSource:
 
 @asynccontextmanager
 async def _transaction(session: AsyncSession, label: str):
+    begin: Any = session.begin
     try:
-        context = session.begin(label)
+        context = begin(label)
     except TypeError:
-        context = session.begin()
+        context = begin()
     async with context:
         yield
 

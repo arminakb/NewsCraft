@@ -7,6 +7,7 @@ import socket
 from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
+from typing import Any
 from urllib.parse import quote, urlsplit
 
 import httpx
@@ -142,6 +143,7 @@ async def validate_proxy_endpoint(
         literal = None
     if literal is not None:
         return ValidatedProxyEndpoint(normalized, _public_address(literal.compressed), port)
+    infos: Any
     try:
         if resolver is None:
             infos = await asyncio.get_running_loop().getaddrinfo(

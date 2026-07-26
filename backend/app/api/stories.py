@@ -226,7 +226,9 @@ async def group_pending(
         origin=JobOrigin.MANUAL,
     )
     await session.commit()
-    return JobAcceptedOut(job_id=result.job.id, status=result.job.status, deduplicated=not result.created)
+    return JobAcceptedOut.model_validate(
+        {"job_id": result.job.id, "status": result.job.status, "deduplicated": not result.created}
+    )
 
 
 async def _change_states(
@@ -334,8 +336,10 @@ async def create_manual_intake(
         origin=JobOrigin.MANUAL,
     )
     await session.commit()
-    return JobAcceptedOut(
-        job_id=result.job.id,
-        status=result.job.status,
-        deduplicated=not result.created,
+    return JobAcceptedOut.model_validate(
+        {
+            "job_id": result.job.id,
+            "status": result.job.status,
+            "deduplicated": not result.created,
+        }
     )

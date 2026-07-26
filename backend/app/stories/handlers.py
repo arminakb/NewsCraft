@@ -24,7 +24,7 @@ def _build_job_repository(session):
 
 
 async def handle_manual_intake(job: JobExecution, context: JobContext) -> dict[str, object]:
-    request = TypeAdapter(ManualIntakeRequest).validate_python(job_payload_copy(job))
+    request: ManualIntakeRequest = TypeAdapter(ManualIntakeRequest).validate_python(job_payload_copy(job))
     if request.kind == "url":
         await context.session.commit()
         try:
@@ -101,7 +101,7 @@ async def group_pending_content(job: JobExecution, context: JobContext) -> dict[
     payload = GroupPendingPayload.model_validate(job_payload_copy(job))
     repository = StoryRepository(context.session)
     items = await repository.list_pending_content_items(limit=payload.limit, cursor=payload.cursor)
-    evidence_ids = set()
+    evidence_ids: set[object] = set()
     story_count = 0
     disposition_counts = {
         "grouped": 0,

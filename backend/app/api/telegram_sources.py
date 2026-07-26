@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Annotated
+
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
@@ -14,6 +16,7 @@ from app.jobs.credential_capabilities import CapabilityStatusService
 
 router = APIRouter(prefix="/telegram/sources", tags=["telegram"])
 SessionDependency = Depends(get_session)
+InjectedSession = Annotated[AsyncSession, Depends(get_session)]
 
 
 async def _source_out(
@@ -47,8 +50,8 @@ def _source_matches(source: Source, config: TelegramSourceConfig, body: Telegram
 
 @router.get("", response_model=list[TelegramSourceOut])
 async def list_telegram_sources(
-    session: AsyncSession = SessionDependency,
-    capability_status: CapabilityStatusDependency = None,
+    session: InjectedSession,
+    capability_status: CapabilityStatusDependency,
 ):
     sources = list(
         await session.scalars(select(Source).where(Source.platform == "telegram_public").order_by(Source.name))
@@ -64,8 +67,8 @@ async def list_telegram_sources(
 @router.post("", response_model=TelegramSourceOut, status_code=201)
 async def create_telegram_source(
     body: TelegramSourceCreate,
-    session: AsyncSession = SessionDependency,
-    capability_status: CapabilityStatusDependency = None,
+    session: InjectedSession,
+    capability_status: CapabilityStatusDependency,
 ):
     existing = await session.scalar(
         select(Source).where(

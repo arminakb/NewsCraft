@@ -246,8 +246,8 @@ class RetentionPlanner:
             raw_statement = raw_statement.with_for_update()
         raw_rows = list(await self.session.scalars(raw_statement))
         protected_raw_ids = await self._protected_raw_payload_ids()
-        for row in raw_rows:
-            state = await self._raw_state(row)
+        for raw_payload in raw_rows:
+            state = await self._raw_state(raw_payload)
             source_items = state["source_items"]
             source_duplicates_scrubbed = isinstance(source_items, list) and all(
                 isinstance(item, Mapping)
@@ -267,13 +267,13 @@ class RetentionPlanner:
                 )
                 for item in source_items
             )
-            if row.id in protected_raw_ids or (
-                row.request_url == RAW_PAYLOAD_SCRUBBED_URL
-                and row.final_url is None
-                and row.headers == {}
-                and row.content_type is None
-                and row.raw_text is None
-                and row.parser_warnings == []
+            if raw_payload.id in protected_raw_ids or (
+                raw_payload.request_url == RAW_PAYLOAD_SCRUBBED_URL
+                and raw_payload.final_url is None
+                and raw_payload.headers == {}
+                and raw_payload.content_type is None
+                and raw_payload.raw_text is None
+                and raw_payload.parser_warnings == []
                 and source_duplicates_scrubbed
             ):
                 continue
@@ -281,9 +281,9 @@ class RetentionPlanner:
                 RetentionCandidate(
                     category="raw_payload",
                     record_type="raw_payload",
-                    record_id=row.id,
+                    record_id=raw_payload.id,
                     operation="scrub",
-                    occurred_at=row.captured_at,
+                    occurred_at=raw_payload.captured_at,
                     byte_length=_json_byte_length(state),
                     state_hash=_state_hash(state),
                 )
@@ -325,29 +325,35 @@ class RetentionPlanner:
             completed_statement = completed_statement.where(WorkflowJob.id.in_(completed_ids))
         if lock:
             completed_statement = completed_statement.with_for_update()
-        for row in await self.session.scalars(completed_statement):
-            if row.id in protected_job_ids:
+        for completed_job in await self.session.scalars(completed_statement):
+            if completed_job.id in protected_job_ids:
                 continue
-            state = await self._job_state(row)
+            state = await self._job_state(completed_job)
+            events = state.get("events")
+            events_have_data = isinstance(events, list) and any(
+                isinstance(event, Mapping) and bool(event.get("event_data")) for event in events
+            )
             if not any(
                 (
-                    row.payload,
-                    row.result,
-                    row.error_class,
-                    row.error_code,
-                    row.error_message,
-                    row.progress_message,
-                    any(event["event_data"] for event in state["events"]),
+                    completed_job.payload,
+                    completed_job.result,
+                    completed_job.error_class,
+                    completed_job.error_code,
+                    completed_job.error_message,
+                    completed_job.progress_message,
+                    events_have_data,
                 )
             ):
+                continue
+            if completed_job.finished_at is None:  # pragma: no cover - excluded by the query
                 continue
             candidates.append(
                 RetentionCandidate(
                     category="completed_job",
                     record_type="workflow_job",
-                    record_id=row.id,
+                    record_id=completed_job.id,
                     operation="scrub",
-                    occurred_at=row.finished_at,
+                    occurred_at=completed_job.finished_at,
                     byte_length=_json_byte_length(state),
                     state_hash=_state_hash(state),
                 )
@@ -376,17 +382,27 @@ class RetentionPlanner:
             research_statement = research_statement.where(ResearchAttempt.id.in_(research_ids))
         if lock:
             research_statement = research_statement.with_for_update(of=ResearchAttempt)
-        for row in await self.session.scalars(research_statement):
-            state = self._research_attempt_state(row)
-            if not any((row.queries, row.usage, row.error_class, row.error_code, row.error_message)):
+        for research_attempt in await self.session.scalars(research_statement):
+            state = self._research_attempt_state(research_attempt)
+            if not any(
+                (
+                    research_attempt.queries,
+                    research_attempt.usage,
+                    research_attempt.error_class,
+                    research_attempt.error_code,
+                    research_attempt.error_message,
+                )
+            ):
+                continue
+            if research_attempt.finished_at is None:  # pragma: no cover - excluded by the query
                 continue
             candidates.append(
                 RetentionCandidate(
                     category="attempt_metadata",
                     record_type="research_attempt",
-                    record_id=row.id,
+                    record_id=research_attempt.id,
                     operation="scrub",
-                    occurred_at=row.finished_at,
+                    occurred_at=research_attempt.finished_at,
                     byte_length=_json_byte_length(state),
                     state_hash=_state_hash(state),
                 )
@@ -430,27 +446,29 @@ class RetentionPlanner:
             generation_statement = generation_statement.where(GenerationAttempt.id.in_(generation_ids))
         if lock:
             generation_statement = generation_statement.with_for_update()
-        for row in await self.session.scalars(generation_statement):
-            state = await self._generation_attempt_state(row, lock=lock)
+        for generation_attempt in await self.session.scalars(generation_statement):
+            state = await self._generation_attempt_state(generation_attempt, lock=lock)
             if not any(
                 (
-                    row.prompt_snapshot,
-                    row.response_payload,
-                    row.usage,
-                    row.validation_errors,
-                    row.error_class,
-                    row.error_code,
-                    row.error_message,
+                    generation_attempt.prompt_snapshot,
+                    generation_attempt.response_payload,
+                    generation_attempt.usage,
+                    generation_attempt.validation_errors,
+                    generation_attempt.error_class,
+                    generation_attempt.error_code,
+                    generation_attempt.error_message,
                 )
             ):
+                continue
+            if generation_attempt.finished_at is None:  # pragma: no cover - excluded by the query
                 continue
             candidates.append(
                 RetentionCandidate(
                     category="attempt_metadata",
                     record_type="generation_attempt",
-                    record_id=row.id,
+                    record_id=generation_attempt.id,
                     operation="scrub",
-                    occurred_at=row.finished_at,
+                    occurred_at=generation_attempt.finished_at,
                     # The parent GenerationRun state is bound into every sibling's
                     # hash but scrubbed once, so a per-attempt byte total is unknown.
                     byte_length=None,
@@ -485,25 +503,27 @@ class RetentionPlanner:
             publish_statement = publish_statement.where(PublishAttempt.id.in_(publish_ids))
         if lock:
             publish_statement = publish_statement.with_for_update()
-        for row in await self.session.scalars(publish_statement):
-            state = self._publish_attempt_state(row)
+        for publish_attempt in await self.session.scalars(publish_statement):
+            state = self._publish_attempt_state(publish_attempt)
             if not any(
                 (
-                    row.sanitized_payload,
-                    row.remote_response,
-                    row.error_class,
-                    row.error_code,
-                    row.error_message,
+                    publish_attempt.sanitized_payload,
+                    publish_attempt.remote_response,
+                    publish_attempt.error_class,
+                    publish_attempt.error_code,
+                    publish_attempt.error_message,
                 )
             ):
+                continue
+            if publish_attempt.finished_at is None:  # pragma: no cover - excluded by the query
                 continue
             candidates.append(
                 RetentionCandidate(
                     category="attempt_metadata",
                     record_type="publish_attempt",
-                    record_id=row.id,
+                    record_id=publish_attempt.id,
                     operation="scrub",
-                    occurred_at=row.finished_at,
+                    occurred_at=publish_attempt.finished_at,
                     byte_length=_json_byte_length(state),
                     state_hash=_state_hash(state),
                 )
@@ -519,16 +539,16 @@ class RetentionPlanner:
             export_statement = export_statement.where(WorkflowJob.id.in_(export_ids))
         if lock:
             export_statement = export_statement.with_for_update()
-        for row in await self.session.scalars(export_statement):
+        for export_job in await self.session.scalars(export_statement):
             try:
-                artifact = ExportArtifact.model_validate(row.result)
-                payload = BuildExportPayload.model_validate(row.payload)
+                artifact = ExportArtifact.model_validate(export_job.result)
+                payload = BuildExportPayload.model_validate(export_job.payload)
             except ValueError:
                 continue
-            if artifact.export_id != row.id or artifact.content_pack_id != payload.content_pack_id:
+            if artifact.export_id != export_job.id or artifact.content_pack_id != payload.content_pack_id:
                 continue
             if (
-                artifact.manifest.created_at != row.created_at
+                artifact.manifest.created_at != export_job.created_at
                 or artifact.manifest_sha256
                 != hashlib.sha256(_canonical_json(artifact.manifest.model_dump(mode="json"))).hexdigest()
             ):
@@ -541,21 +561,23 @@ class RetentionPlanner:
                 or [item.platform_variant_id for item in variants] != payload.platform_variant_ids
             ):
                 continue
+            if export_job.finished_at is None:  # pragma: no cover - excluded by the query
+                continue
             state = {
-                "status": str(row.status),
-                "created_at": row.created_at,
-                "finished_at": row.finished_at,
-                "payload": row.payload,
-                "result": row.result,
+                "status": str(export_job.status),
+                "created_at": export_job.created_at,
+                "finished_at": export_job.finished_at,
+                "payload": export_job.payload,
+                "result": export_job.result,
             }
             known_sizes = [item.byte_length for item in artifact.manifest.files]
             candidates.append(
                 RetentionCandidate(
                     category="export_artifact",
                     record_type="workflow_job",
-                    record_id=row.id,
+                    record_id=export_job.id,
                     operation="expire",
-                    occurred_at=row.finished_at,
+                    occurred_at=export_job.finished_at,
                     byte_length=sum(known_sizes),
                     state_hash=_state_hash(state),
                 )
@@ -576,11 +598,11 @@ class RetentionPlanner:
         canonical_media_paths: dict[UUID, str] = {}
         deletion_authorized_ids: set[UUID] = set()
         unclassifiable_media_claim = False
-        for row in all_stored_media:
+        for stored_media in all_stored_media:
             try:
-                canonical_media_paths[row.id] = _media_claim_identity(
+                canonical_media_paths[stored_media.id] = _media_claim_identity(
                     owned_media_root,
-                    str(row.storage_path),
+                    str(stored_media.storage_path),
                 )
             except _UnsafeStoragePath:
                 unclassifiable_media_claim = True
@@ -588,12 +610,12 @@ class RetentionPlanner:
             try:
                 strict_identity = _media_relative_path(
                     owned_media_root,
-                    str(row.storage_path),
+                    str(stored_media.storage_path),
                 )
             except _UnsafeStoragePath:
                 continue
-            if strict_identity == canonical_media_paths[row.id]:
-                deletion_authorized_ids.add(row.id)
+            if strict_identity == canonical_media_paths[stored_media.id]:
+                deletion_authorized_ids.add(stored_media.id)
         if unclassifiable_media_claim:
             deletion_authorized_ids.clear()
         blocked_shared_paths = {
@@ -614,24 +636,24 @@ class RetentionPlanner:
         if lock:
             media_statement = media_statement.with_for_update()
         media_rows = list(await self.session.scalars(media_statement))
-        for row in media_rows:
-            canonical_path = canonical_media_paths.get(row.id)
+        for media_asset in media_rows:
+            canonical_path = canonical_media_paths.get(media_asset.id)
             if (
-                row.id in referenced_media_ids
-                or row.id not in deletion_authorized_ids
+                media_asset.id in referenced_media_ids
+                or media_asset.id not in deletion_authorized_ids
                 or canonical_path is None
                 or canonical_path in blocked_shared_paths
             ):
                 continue
-            state = self._media_state(row)
+            state = self._media_state(media_asset)
             candidates.append(
                 RetentionCandidate(
                     category="unreferenced_media",
                     record_type="media_asset",
-                    record_id=row.id,
+                    record_id=media_asset.id,
                     operation="expire",
-                    occurred_at=row.created_at,
-                    byte_length=int(row.byte_length) if row.byte_length is not None else None,
+                    occurred_at=media_asset.created_at,
+                    byte_length=int(media_asset.byte_length) if media_asset.byte_length is not None else None,
                     state_hash=_state_hash(state),
                 )
             )

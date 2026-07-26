@@ -434,4 +434,3 @@ async def schedule_reviewed_telegram(
         workflow_job=enqueue.job,
         created=True,
     )
-

@@ -99,14 +99,14 @@ class TelegramCaptureRepository:
             )
             if original_dispatch is None:
                 raise ValueError("source edit capture requires an existing source revision")
-            story_id = (
+            story_id_query = (
                 select(StoryRevision.story_id)
                 .where(StoryRevision.id == original_dispatch.story_revision_id)
                 .scalar_subquery()
             )
             parent_revision = await self.session.scalar(
                 select(StoryRevision)
-                .where(StoryRevision.story_id == story_id)
+                .where(StoryRevision.story_id == story_id_query)
                 .order_by(StoryRevision.revision_number.desc())
                 .limit(1)
                 .with_for_update()
@@ -196,12 +196,14 @@ class TelegramCaptureRepository:
         await self.session.flush()
         citations = []
         if snapshot.content_text:
-            citation = CitationRef(
-                evidence_key=snapshot.evidence_key,
-                evidence_snapshot_id=snapshot.id,
-                source_url=snapshot.source_url,
-                locator=f"chars:0-{len(snapshot.content_text)}",
-                excerpt_sha256=snapshot.content_sha256,
+            citation = CitationRef.model_validate(
+                {
+                    "evidence_key": snapshot.evidence_key,
+                    "evidence_snapshot_id": snapshot.id,
+                    "source_url": snapshot.source_url,
+                    "locator": f"chars:0-{len(snapshot.content_text)}",
+                    "excerpt_sha256": snapshot.content_sha256,
+                }
             )
             citations.append(citation.model_dump(mode="json"))
         revision = StoryRevision(

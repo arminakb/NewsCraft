@@ -56,7 +56,7 @@ class FinishAction(BaseModel):
 
 
 ResearchAction = Annotated[SearchAction | FetchAction | FinishAction, Field(discriminator="action")]
-_ACTION_ADAPTER = TypeAdapter(ResearchAction)
+_ACTION_ADAPTER: TypeAdapter[ResearchAction] = TypeAdapter(ResearchAction)
 
 
 class OpenRouterResearchBackend:
@@ -326,6 +326,8 @@ def _required_usage(usage: dict[str, Any]) -> tuple[int, int]:
         isinstance(value, bool) or not isinstance(value, int) or value < 0 for value in (input_tokens, output_tokens)
     ):
         raise _needs_review("openrouter research usage is unavailable", "usage_unavailable")
+    assert isinstance(input_tokens, int)
+    assert isinstance(output_tokens, int)
     return input_tokens, output_tokens
 
 

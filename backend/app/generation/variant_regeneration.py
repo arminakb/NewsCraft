@@ -32,10 +32,15 @@ def build_regenerate_handler(
         variant = await context.session.scalar(
             select(PlatformVariant).where(PlatformVariant.id == variant_id).execution_options(populate_existing=True)
         )
-        pack = await context.session.get(ContentPack, variant.content_pack_id) if variant else None
+        if variant is None:
+            raise PermanentJobError(
+                code="generation_variant_missing",
+                message="Regeneration variant context was not found",
+            )
+        pack = await context.session.get(ContentPack, variant.content_pack_id)
         if pack is None:
             raise PermanentJobError(
-                code=("generation_variant_missing" if variant is None else "generation_content_pack_missing"),
+                code="generation_content_pack_missing",
                 message="Regeneration variant context was not found",
             )
         _required_uuid(payload, "base_revision_id")

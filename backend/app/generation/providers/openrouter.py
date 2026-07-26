@@ -8,7 +8,7 @@ from collections.abc import Mapping
 from datetime import UTC, datetime
 from email.utils import parsedate_to_datetime
 from hashlib import sha256
-from typing import Any
+from typing import Any, Never
 
 import httpx
 from jsonschema import Draft202012Validator, FormatChecker
@@ -61,7 +61,9 @@ _SAFE_IDENTIFIER = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}$")
 
 def _safe_path(parts: object) -> list[str | int]:
     safe: list[str | int] = []
-    for part in parts if isinstance(parts, (list, tuple)) else list(parts):
+    if not isinstance(parts, (list, tuple)):
+        return safe
+    for part in parts:
         if isinstance(part, int) and part >= 0:
             safe.append(part)
         elif isinstance(part, str) and _SAFE_PATH_PART.fullmatch(part):
@@ -222,7 +224,7 @@ class OpenRouterProvider:
         stage: str,
         error: Exception,
         path: object = (),
-    ) -> None:
+    ) -> Never:
         diagnostic = _response_diagnostic(
             response,
             stage=stage,
@@ -514,6 +516,20 @@ class OpenRouterProvider:
                 model=model,
                 stage="normalization",
                 error=exc,
+            )
+        if not isinstance(safe_usage, dict):
+            await self._invalid_output(
+                response,
+                model=model,
+                stage="normalization",
+                error=TypeError(),
+            )
+        if safe_finish_reason is not None and not isinstance(safe_finish_reason, str):
+            await self._invalid_output(
+                response,
+                model=model,
+                stage="normalization",
+                error=TypeError(),
             )
         return GenerationProviderResult(
             provider=self.provider_name,

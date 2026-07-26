@@ -18,17 +18,17 @@ COUNT_RE = re.compile(r"(?P<number>\d+(?:\.\d+)?)\s*(?P<suffix>[KMB])?", re.IGNO
 def parse_public_telegram_page(html: str, channel: str) -> ParsedSourcePayload:
     soup = BeautifulSoup(html, "lxml")
     warnings: list[str] = []
-    items = [
+    parsed_items = [
         _parse_message(block, channel=channel, warnings=warnings)
         for block in soup.select(".tgme_widget_message[data-post]")
     ]
-    items = [item for item in items if item is not None]
+    items = [item for item in parsed_items if item is not None]
     return ParsedSourcePayload(items=items, warnings=warnings, feed_meta={"channel": channel})
 
 
 def _parse_message(block: Tag, channel: str, warnings: list[str]) -> ParsedSourceItem | None:
     data_post = block.get("data-post")
-    if not data_post or "/" not in data_post:
+    if not isinstance(data_post, str) or "/" not in data_post:
         warnings.append("missing_data_post")
         return None
     post_channel, raw_message_id = data_post.rsplit("/", 1)
@@ -110,7 +110,8 @@ def _extract_media_candidates(block: Tag) -> list[MediaCandidate]:
             url = _background_image_url(media_node) or _first_attr(media_node, "video", "src")
             source_field, kind = "message_video", "video"
         else:
-            url = media_node.get("href") or _first_attr(media_node, "a", "href")
+            raw_url = media_node.get("href")
+            url = str(raw_url) if raw_url else _first_attr(media_node, "a", "href")
             source_field, kind = "message_document", "document"
         if url:
             _append_media(candidates, str(url), source_field=source_field, kind=kind)
@@ -138,7 +139,9 @@ def _append_media(candidates: list[MediaCandidate], url: str, source_field: str,
 
 
 def _background_image_url(node: Tag) -> str | None:
-    style = node.get("style") or ""
+    style = node.get("style")
+    if not isinstance(style, str):
+        return None
     match = CSS_URL_RE.search(style)
     if not match:
         return None

@@ -29,9 +29,7 @@ def classify_activation_page(
     )
     newer = tuple(item for item in ordered if (item.published_at, item.anchor_message_id) > (boundary, 0))
     predecessors = [
-        item.anchor_message_id
-        for item in ordered
-        if (item.published_at, item.anchor_message_id) <= (boundary, 0)
+        item.anchor_message_id for item in ordered if (item.published_at, item.anchor_message_id) <= (boundary, 0)
     ]
     if predecessors:
         return ActivationPageDecision(newer, max(predecessors), True)
@@ -85,8 +83,7 @@ def evaluate_media_policy(policy: str, media: Sequence[Any]) -> MediaPolicyDecis
     if any(item.fetch_status == "expired" for item in media):
         return MediaPolicyDecision((), False, terminal_reason="media_expired")
     ready = all(
-        item.fetch_status == "downloaded" and bool(item.storage_path) and bool(item.checksum_sha256)
-        for item in media
+        item.fetch_status == "downloaded" and bool(item.storage_path) and bool(item.checksum_sha256) for item in media
     )
     return MediaPolicyDecision(
         tuple(item.id for item in media),
@@ -111,9 +108,7 @@ def evaluate_review_policy(
     auto_publish_reason: str | None,
 ) -> ReviewDecision:
     force_review = (
-        explicit_force_review
-        or dispatch_kind in {"source_edit", "dry_run"}
-        or media_policy == "replace_manually"
+        explicit_force_review or dispatch_kind in {"source_edit", "dry_run"} or media_policy == "replace_manually"
     )
     approved = publishing_policy == "auto_publish" and auto_publish_allowed and not force_review
     if approved:

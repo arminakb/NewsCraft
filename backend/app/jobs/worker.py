@@ -10,7 +10,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 from uuid import UUID, uuid4
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -430,7 +430,7 @@ class WorkerRunner:
                 await session.commit()
                 return None, None
             try:
-                execution = JobExecution.from_job(job)
+                execution = JobExecution.from_job(cast(Any, job))
             except TypeError, ValueError:
                 invalid_claim = _InvalidClaim(
                     job_id=job.id,

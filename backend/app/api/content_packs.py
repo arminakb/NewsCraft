@@ -115,9 +115,9 @@ async def story_revisions(story_id: UUID, session: AsyncSession = SessionDepende
 async def create_content_pack(
     story_id: UUID,
     body: GeneratePackRequest,
+    capability_status: CapabilityStatusDependency,
     session: AsyncSession = SessionDependency,
     profile_resolver: ProviderProfileResolver | None = ProfileResolverDependency,
-    capability_status: CapabilityStatusDependency = None,
 ):
     await capability_status.require_available(
         "provider",
@@ -267,9 +267,9 @@ async def edit_variant(
 async def regenerate_variant(
     variant_id: UUID,
     body: RegenerateVariantRequest,
+    capability_status: CapabilityStatusDependency,
     session: AsyncSession = SessionDependency,
     profile_resolver: ProviderProfileResolver = ProfileResolverDependency,
-    capability_status: CapabilityStatusDependency = None,
 ):
     await capability_status.require_available(
         "provider",

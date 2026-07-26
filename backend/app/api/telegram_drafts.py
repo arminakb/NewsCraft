@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 from datetime import UTC, datetime
-from typing import Any
+from typing import Annotated, Any
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Response
@@ -59,6 +59,7 @@ __all__ = [
 router = APIRouter(prefix="/telegram", tags=["telegram"])
 draft_router = APIRouter(prefix="/drafts")
 SessionDependency = Depends(get_session)
+InjectedSession = Annotated[AsyncSession, Depends(get_session)]
 
 
 class TelegramContentHashIn(BaseModel):
@@ -78,6 +79,8 @@ class ScheduleTelegramIn(BaseModel):
     @classmethod
     def normalize_scheduled_for(cls, value: datetime) -> datetime:
         return value.astimezone(UTC)
+
+
 class TelegramPublicationOut(BaseModel):
     id: UUID
     publish_job_id: UUID
@@ -111,7 +114,6 @@ class TelegramPublishIntentOut(BaseModel):
 class TelegramPublishAcceptedOut(BaseModel):
     revision_id: UUID
     job: TelegramPublishIntentOut
-
 
 
 def _publish_job_out(
@@ -159,7 +161,9 @@ async def _publication_context_out(
         dispatch_id=dispatch.id if dispatch is not None else None,
         publish_job_id=publish_job.id if publish_job is not None else None,
         publish_status=publish_job.status if publish_job is not None else None,
-        publication=_publication_out(publication) if publication is not None else None,
+        publication=(
+            TelegramPublicationOut.model_validate(_publication_out(publication)) if publication is not None else None
+        ),
     )
 
 
@@ -209,8 +213,8 @@ async def get_telegram_publication_context(
 async def publish_telegram_draft(
     revision_id: UUID,
     body: TelegramContentHashIn,
-    session: AsyncSession = SessionDependency,
-    capability_status: CapabilityStatusDependency = None,
+    session: InjectedSession,
+    capability_status: CapabilityStatusDependency,
 ):
     try:
         async with session.begin():
@@ -240,8 +244,8 @@ async def publish_telegram_draft(
 async def schedule_telegram_revision(
     revision_id: UUID,
     body: ScheduleTelegramIn,
-    session: AsyncSession = SessionDependency,
-    capability_status: CapabilityStatusDependency = None,
+    session: InjectedSession,
+    capability_status: CapabilityStatusDependency,
 ) -> JobAcceptedOut:
     try:
         async with session.begin():
@@ -258,10 +262,12 @@ async def schedule_telegram_revision(
             )
     except ReviewedTelegramScheduleError as exc:
         raise HTTPException(exc.status_code, str(exc)) from None
-    return JobAcceptedOut(
-        job_id=result.workflow_job.id,
-        status=result.workflow_job.status,
-        deduplicated=not result.created,
+    return JobAcceptedOut.model_validate(
+        {
+            "job_id": result.workflow_job.id,
+            "status": result.workflow_job.status,
+            "deduplicated": not result.created,
+        }
     )
 
 
@@ -306,13 +312,12 @@ async def get_telegram_reconciliation_case(
 
 
 @router.post("/publish-jobs/{publish_job_id}/reconcile")
-
 async def reconcile_telegram_publish_job(
     publish_job_id: UUID,
     body: TelegramReconcileIn,
     response: Response,
-    session: AsyncSession = SessionDependency,
-    capability_status: CapabilityStatusDependency = None,
+    session: InjectedSession,
+    capability_status: CapabilityStatusDependency,
 ):
     return await _reconcile_telegram_publish_job(
         publish_job_id,
@@ -321,5 +326,6 @@ async def reconcile_telegram_publish_job(
         session,
         capability_status,
     )
+
 
 router.include_router(draft_router)

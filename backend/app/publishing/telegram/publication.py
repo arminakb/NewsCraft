@@ -382,9 +382,7 @@ async def _load_context(
         }
     dispatching = next((item for item in receipts if item.status == "dispatching"), None)
     if dispatching is not None:
-        dispatch_stale = bool(
-            dispatching.updated_at and dispatching.updated_at < observed_at - timedelta(minutes=5)
-        )
+        dispatch_stale = bool(dispatching.updated_at and dispatching.updated_at < observed_at - timedelta(minutes=5))
         if reconciliation_required(
             receipt_status=dispatching.status,
             dispatch_stale=dispatch_stale,
@@ -827,12 +825,12 @@ async def publish_telegram(
                 code="telegram_publish_reconciliation_required",
                 message="Telegram publish requires reconciliation",
             )
-        retry_at = prepared.get("retry_at")
-        if isinstance(retry_at, datetime):
+        prepared_retry_at = prepared.get("retry_at")
+        if isinstance(prepared_retry_at, datetime):
             raise RetryableJobError(
                 code="telegram_publish_not_due",
                 message="Telegram publish retry is not due",
-                retry_at=retry_at,
+                retry_at=prepared_retry_at,
             )
         return prepared
 
@@ -1128,4 +1126,3 @@ async def publish_telegram(
             "remote_message_ids": remote_ids,
             "permalink": publication.permalink,
         }
-

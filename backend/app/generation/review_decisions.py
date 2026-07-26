@@ -13,7 +13,7 @@ from app.generation.models import ContentPack, PlatformVariant, PlatformVariantR
 from app.generation.platform_schemas import TelegramVariantPayload
 from app.generation.platform_validation import validate_platform_payload
 from app.generation.revision_validation import RevisionValidationError, validate_approvable_revision
-from app.workflows.states import require_content_pack_transition, require_variant_approval_transition
+from app.workflows.states import ContentPackState, require_content_pack_transition, require_variant_approval_transition
 
 
 async def approve_revision(
@@ -137,7 +137,7 @@ async def _refresh_pack_status(service: Any, pack_id: UUID) -> None:
         )
         if state is not None:
             current_states.append(state)
-    target = (
+    target: ContentPackState = (
         "ready"
         if variants and len(current_states) == len(variants) and all(state == "approved" for state in current_states)
         else "draft"

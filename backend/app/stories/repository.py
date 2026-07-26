@@ -168,7 +168,7 @@ def _candidate_identity_statement(
     window_end = max(observed_times) + timedelta(hours=72)
     url_hashes = {hash_value(normalize_url(row.canonical_url)) for row in items if row.canonical_url}
     exact_url = ContentItem.canonical_url_hash.in_(url_hashes) if url_hashes else false()
-    selected_columns = [
+    selected_columns: list[Any] = [
         Story.id.label("story_id"),
         ContentItem.id.label("content_item_id"),
         Story.created_at.label("story_created_at"),
@@ -198,7 +198,7 @@ def _candidate_identity_statement(
         .limit(CANONICAL_CANDIDATE_LIMIT)
     )
     if after is not None:
-        statement = statement.where(tuple_(Story.created_at, Story.id, ContentItem.id) > tuple_(*after))
+        statement = statement.where(tuple_(Story.created_at, Story.id, ContentItem.id) > after)
     return statement
 
 

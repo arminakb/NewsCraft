@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from typing import Annotated
+from typing import Annotated, Literal
 from uuid import UUID, uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -31,7 +31,7 @@ from app.generation.models import AIProviderProfile, BrandProfile, PromptTemplat
 from app.generation.platform_schemas import BlogVariantPayload, InstagramVariantPayload, XVariantPayload
 from app.generation.provider_settings import default_codex_provider_settings
 from app.generation.telegram_schema import TelegramRewriteOutput
-from app.jobs.credential_capabilities import CapabilityStatusService, provider_shape_capabilities
+from app.jobs.credential_capabilities import CapabilityStatus, CapabilityStatusService, provider_shape_capabilities
 from app.security.auth import SecurityPrincipal
 
 router = APIRouter(tags=["generation-settings"])
@@ -128,11 +128,13 @@ async def _profile_out(
     capability_status: CapabilityStatusService,
 ) -> AIProviderProfileOut:
     shaped, codes = provider_shape_capabilities(profile)
-    capability_states = {
+    capability_states: dict[Literal["generation", "research"], CapabilityStatus] = {
         "generation": await capability_status.get("provider", profile.id, "generation"),
         "research": await capability_status.get("provider", profile.id, "research"),
     }
-    capabilities = {name: shaped[name] and state.available for name, state in capability_states.items()}
+    capabilities: dict[Literal["generation", "research"], bool] = {
+        name: shaped[name] and state.available for name, state in capability_states.items()
+    }
     for state in capability_states.values():
         if not state.available and state.failure_code not in codes:
             codes.append(state.failure_code)
@@ -419,8 +421,8 @@ async def activate_prompt_version(
 
 @router.get("/ai-provider-profiles", response_model=list[AIProviderProfileOut])
 async def list_provider_profiles(
+    capability_status: CapabilityStatusDependency,
     session: AsyncSession = SessionDependency,
-    capability_status: CapabilityStatusDependency = None,
 ):
     rows = list(await session.scalars(select(AIProviderProfile).order_by(AIProviderProfile.name)))
     return [await _profile_out(row, capability_status) for row in rows]

@@ -5,7 +5,7 @@ from datetime import datetime
 
 from sqlalchemy import Boolean, CheckConstraint, DateTime, ForeignKey, Index, Integer, Text, UniqueConstraint, text
 from sqlalchemy.dialects.postgresql import JSONB, UUID
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.sql import func
 
 from app.db.base import Base, timestamp_now, uuid_pk
@@ -62,6 +62,7 @@ class PromptTemplateVersion(Base):
     prompt_template_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("prompt_templates.id"), nullable=False
     )
+    prompt_template: Mapped[PromptTemplate] = relationship()
     version: Mapped[int] = mapped_column(Integer, nullable=False)
     system_template: Mapped[str] = mapped_column(Text, nullable=False)
     user_template: Mapped[str] = mapped_column(Text, nullable=False)

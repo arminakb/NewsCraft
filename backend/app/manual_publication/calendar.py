@@ -13,6 +13,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlalchemy import and_, false, or_, select, true
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.sql.elements import ColumnElement
 
 from app.generation.models import PlatformVariant, PlatformVariantRevision
 from app.jobs.models import WorkflowJob
@@ -345,7 +346,7 @@ def _cursor_sql_condition(
         return true()
     occurred_at, cursor_kind, record_id = cursor
     if kind < cursor_kind:
-        equal_time_condition = true()
+        equal_time_condition: ColumnElement[bool] = true()
     elif kind > cursor_kind:
         equal_time_condition = false()
     else:

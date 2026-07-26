@@ -3,7 +3,7 @@ from __future__ import annotations
 # ruff: noqa: F401
 from collections.abc import Iterable
 from datetime import UTC, datetime
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Response
@@ -50,6 +50,7 @@ from app.publishing.telegram.service import (
 router = APIRouter(prefix="/telegram", tags=["telegram"])
 
 SessionDependency = Depends(get_session)
+InjectedSession = Annotated[AsyncSession, Depends(get_session)]
 
 
 class TelegramReconcileIn(BaseModel):
@@ -418,8 +419,8 @@ async def reconcile_telegram_publish_job(
     publish_job_id: UUID,
     body: TelegramReconcileIn,
     response: Response,
-    session: AsyncSession = SessionDependency,
-    capability_status: CapabilityStatusDependency = None,
+    session: InjectedSession,
+    capability_status: CapabilityStatusDependency,
 ):
     async with session.begin():
         publish_job = await session.scalar(select(PublishJob).where(PublishJob.id == publish_job_id).with_for_update())

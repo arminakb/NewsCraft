@@ -10,7 +10,7 @@ import zipfile
 from collections.abc import Iterable
 from datetime import datetime
 from pathlib import Path, PurePosixPath
-from typing import Any
+from typing import Any, Literal
 from uuid import UUID, uuid4
 
 import markdown
@@ -23,20 +23,21 @@ from app.exports.models import (
     BuildExportPayload,
     ExportArtifact,
     ExportFileIdentity,
+    ExportFileKind,
     ExportManifest,
     ExportRequest,
     ExportVariantIdentity,
 )
 from app.generation.models import ContentPack, PlatformVariant, PlatformVariantRevision
-from app.generation.multiplatform import MANUAL_PLATFORM_ADAPTERS, PLATFORM_ORDER
+from app.generation.multiplatform import PLATFORM_ORDER, parse_manual_platform_payload
 from app.generation.platform_renderers import render_platform_markdown
 from app.generation.platform_schemas import Platform, PlatformPayload, TelegramVariantPayload
 from app.generation.platform_validation import validate_platform_payload
 
 FORMAT_ORDER = ("json", "markdown", "html", "zip")
 ZIP_TIMESTAMP = (1980, 1, 1, 0, 0, 0)
-MANIFEST_FILE = "manifest.json"
-ARCHIVE_FILE = "bundle.zip"
+MANIFEST_FILE: Literal["manifest.json"] = "manifest.json"
+ARCHIVE_FILE: Literal["bundle.zip"] = "bundle.zip"
 
 
 class ExportContractError(ValueError):
@@ -104,9 +105,11 @@ def _evidence_urls(revision: PlatformVariantRevision) -> list[str]:
 
 
 def _payload_model(platform: Platform, content: dict[str, Any]) -> PlatformPayload:
-    adapter = TelegramVariantPayload if platform == "telegram" else MANUAL_PLATFORM_ADAPTERS[platform]
     try:
-        payload = adapter.model_validate(content)
+        if platform == "telegram":
+            payload: PlatformPayload = TelegramVariantPayload.model_validate(content)
+        else:
+            _, payload = parse_manual_platform_payload(platform, content)
     except ValidationError as exc:
         raise ExportContractError(
             f"{platform} revision content is not schema-valid",
@@ -468,10 +471,10 @@ class ExportService:
         revision: PlatformVariantRevision,
         identity: ExportVariantIdentity,
         payload: BuildExportPayload,
-    ) -> list[tuple[PurePosixPath, bytes, str]]:
+    ) -> list[tuple[PurePosixPath, bytes, ExportFileKind]]:
         platform: Platform = variant.platform  # type: ignore[assignment]
         base = PurePosixPath(platform, str(revision.id))
-        output: list[tuple[PurePosixPath, bytes, str]] = []
+        output: list[tuple[PurePosixPath, bytes, ExportFileKind]] = []
         if "json" in payload.formats:
             output.append(
                 (
@@ -512,7 +515,7 @@ class ExportService:
     def _file_identity(
         relative: PurePosixPath,
         content: bytes,
-        kind: str,
+        kind: ExportFileKind,
         platform: Platform,
         revision_id: UUID,
         *,
@@ -534,7 +537,7 @@ class ExportService:
         staging: Path,
         relative: PurePosixPath,
         content: bytes,
-        kind: str,
+        kind: ExportFileKind,
         platform: Platform,
         revision_id: UUID,
         *,
@@ -703,13 +706,13 @@ class ExportService:
         ):
             raise ExportContractError("existing export manifest identity is stale")
         self._validate_manifest_file_matrix(manifest, selected, payload)
-        expected_files = {MANIFEST_FILE}
+        expected_files: set[str] = {MANIFEST_FILE}
         for item in manifest.files:
             path = _safe_existing_file(target, item.file_name)
             if path.stat().st_size != item.byte_length or _sha256_path(path) != item.sha256:
                 raise ExportContractError("existing export file checksum mismatch")
             expected_files.add(item.file_name)
-        archive_file = None
+        archive_file: Literal["bundle.zip"] | None = None
         archive_sha256 = None
         if "zip" in payload.formats:
             archive = _safe_existing_file(target, ARCHIVE_FILE)

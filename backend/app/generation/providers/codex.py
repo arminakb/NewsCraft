@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from decimal import Decimal
 from typing import Any
 from uuid import UUID
 
@@ -47,7 +48,7 @@ class CodexGenerationProvider:
             max_model_calls=limits.max_model_calls,
             max_input_tokens=limits.max_input_tokens,
             max_output_tokens=limits.max_output_tokens,
-            max_cost_usd=0,
+            max_cost_usd=Decimal(0),
             max_elapsed_seconds=limits.max_elapsed_seconds,
         )
         prompt = json.dumps(

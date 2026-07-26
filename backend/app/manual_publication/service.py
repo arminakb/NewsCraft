@@ -13,7 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.automations.telegram.handlers import sha256_canonical
 from app.generation.models import PlatformVariant, PlatformVariantRevision
-from app.generation.multiplatform import MANUAL_PLATFORM_ADAPTERS
+from app.generation.multiplatform import parse_manual_platform_payload
 from app.generation.platform_schemas import PlatformPayload
 from app.generation.platform_validation import validate_platform_payload
 from app.jobs.events import redact_event_data
@@ -246,16 +246,15 @@ class ManualPublicationService:
                 code="manual_revision_hash_mismatch",
                 status_code=409,
             )
-        adapter = MANUAL_PLATFORM_ADAPTERS[variant.platform]
         try:
-            payload = adapter.model_validate(revision.content)
+            platform, payload = parse_manual_platform_payload(variant.platform, revision.content)
         except ValidationError as exc:
             raise ManualPublicationError(
                 "revision content is not schema-valid",
                 code="manual_revision_schema_invalid",
                 status_code=409,
             ) from exc
-        issues = validate_platform_payload(variant.platform, payload)
+        issues = validate_platform_payload(platform, payload)
         if any(issue.severity == "error" for issue in issues):
             raise ManualPublicationError(
                 "revision content is not schema-valid",

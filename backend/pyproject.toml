@@ -37,6 +37,8 @@ dev = [
   "pytest-asyncio>=1.0",
   "pytest-cov>=7,<8",
   "ruff>=0.13",
+  "types-markdown>=3.10.2.20260712",
+  "types-python-dateutil>=2.9.0.20260716",
 ]
 
 [build-system]
@@ -65,15 +67,12 @@ select = ["E", "F", "I", "UP", "B"]
 [tool.mypy]
 python_version = "3.14"
 files = [
-  "app/core/config.py",
-  "app/core/outbound_proxy.py",
-  "app/core/redaction.py",
-  "app/core/secrets.py",
-  "app/jobs/types.py",
+  "app",
   "../scripts/backup_restore.py",
   "../scripts/dependency_inventory.py",
 ]
 check_untyped_defs = true
+allow_redefinition = true
 ignore_missing_imports = true
 no_implicit_optional = true
 pretty = true

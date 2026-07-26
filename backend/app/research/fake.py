@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+from decimal import Decimal
 from pathlib import Path
 
 from app.research.base import (
@@ -53,7 +54,7 @@ class FakeResearchBackend:
             model_calls=1,
             input_tokens=0,
             output_tokens=0,
-            estimated_cost_usd=0,
+            estimated_cost_usd=Decimal(0),
             queries=0,
             pages=len(output.sources),
             fetched_characters=sum(len(source.content_text) for source in output.sources),

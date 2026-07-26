@@ -16,14 +16,9 @@ from app.generation.models import (
     PlatformVariantRevision,
     PromptTemplateVersion,
 )
-from app.generation.multiplatform import PLATFORM_ORDER
+from app.generation.multiplatform import PLATFORM_ORDER, parse_manual_platform_payload
 from app.generation.platform_media import trusted_story_media
-from app.generation.platform_schemas import (
-    BlogVariantPayload,
-    InstagramVariantPayload,
-    TelegramVariantPayload,
-    XVariantPayload,
-)
+from app.generation.platform_schemas import Platform, PlatformPayload, TelegramVariantPayload
 from app.generation.platform_validation import validate_platform_payload
 from app.jobs.models import WorkflowJob
 from app.research.schemas import CitationRef
@@ -89,8 +84,10 @@ def _media_plan(platform: str | None, content: dict[str, Any]) -> list[Any]:
 
 async def _source_media_out(
     session: AsyncSession,
-    story_revision: StoryRevision | Any | None,
+    story_revision: StoryRevision | None,
 ) -> list[dict[str, Any]]:
+    if story_revision is None:
+        return []
     raw_citations = getattr(story_revision, "citations", None)
     if not raw_citations:
         return []
@@ -146,17 +143,18 @@ async def _revision_out(session: AsyncSession, row: PlatformVariantRevision) -> 
         else []
     )
     validation_issues: list[dict[str, Any]] = []
-    payload_types = {
-        "telegram": TelegramVariantPayload,
-        "instagram": InstagramVariantPayload,
-        "x": XVariantPayload,
-        "blog": BlogVariantPayload,
-    }
-    if variant is not None and variant.platform in payload_types:
+    if variant is not None:
         try:
-            platform_payload = payload_types[variant.platform].model_validate(row.content)
+            validated_platform: Platform
+            platform_payload: PlatformPayload
+            if variant.platform == "telegram":
+                validated_platform = "telegram"
+                platform_payload = TelegramVariantPayload.model_validate(row.content)
+            else:
+                validated_platform, platform_payload = parse_manual_platform_payload(variant.platform, row.content)
             validation_issues = [
-                issue.model_dump(mode="json") for issue in validate_platform_payload(variant.platform, platform_payload)
+                issue.model_dump(mode="json")
+                for issue in validate_platform_payload(validated_platform, platform_payload)
             ]
         except ValueError:
             validation_issues = [
@@ -227,7 +225,7 @@ async def _revision_out(session: AsyncSession, row: PlatformVariantRevision) -> 
 async def _pack_out(session: AsyncSession, pack: ContentPack) -> dict[str, Any]:
     story_revision = await session.get(StoryRevision, pack.story_revision_id)
     variants = list(await session.scalars(select(PlatformVariant).where(PlatformVariant.content_pack_id == pack.id)))
-    order = {platform: index for index, platform in enumerate(PLATFORM_ORDER)}
+    order: dict[str, int] = {platform: index for index, platform in enumerate(PLATFORM_ORDER)}
     variants.sort(key=lambda item: (order.get(item.platform, len(order)), str(item.id)))
     projected = []
     for item in variants:
@@ -445,6 +443,8 @@ def _research_request_out(job: WorkflowJob) -> list[dict[str, Any]]:
         if not isinstance(descriptor, dict) or descriptor.get("job_type") != "content_pack.generate":
             continue
         payload = descriptor.get("payload")
+        if not isinstance(payload, dict):
+            continue
         try:
             story_id = UUID(str(payload["story_id"]))
         except KeyError, TypeError, ValueError:

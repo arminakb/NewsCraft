@@ -4,7 +4,7 @@ import json
 import re
 from datetime import UTC, datetime
 from decimal import Decimal, InvalidOperation
-from typing import Any, Literal
+from typing import Any, Literal, cast
 from uuid import UUID
 
 from sqlalchemy import select
@@ -629,7 +629,7 @@ def _required_uuid(payload: dict[str, Any], key: str) -> UUID:
 
 def _job_payload(job: JobExecution | object) -> dict[str, Any]:
     try:
-        return job_payload_copy(job)
+        return job_payload_copy(cast(Any, job))
     except TypeError:
         raise PermanentJobError(
             code="generation_job_payload_invalid",
@@ -647,6 +647,8 @@ def _pack_budget_state(job: JobExecution | object, payload: dict[str, Any]) -> t
         if started is None and not isinstance(job, JobExecution):
             # Direct unit-handler doubles predate the immutable execution snapshot.
             started = datetime.now(UTC)
+        if not isinstance(started, datetime):
+            raise ValueError
         if started.tzinfo is None or started.utcoffset() is None:
             raise ValueError
         cost = Decimal(str(raw_cost))

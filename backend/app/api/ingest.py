@@ -32,8 +32,10 @@ async def run_ingest(request: IngestRunRequest, session: AsyncSession = SessionD
         pause_sensitive=False,
     )
     await session.commit()
-    return JobAcceptedOut(
-        job_id=result.job.id,
-        status=result.job.status,
-        deduplicated=not result.created,
+    return JobAcceptedOut.model_validate(
+        {
+            "job_id": result.job.id,
+            "status": result.job.status,
+            "deduplicated": not result.created,
+        }
     )

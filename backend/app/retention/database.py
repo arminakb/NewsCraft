@@ -65,10 +65,15 @@ class RetentionDatabaseExecutor:
         expired = execution.get("expired")
         database_skipped = execution.get("database_skipped")
         filesystem_deleted = execution.get("filesystem_deleted")
-        if not all(isinstance(values, Mapping) for values in (scrubbed, expired, database_skipped, filesystem_deleted)):
+        if (
+            not isinstance(scrubbed, Mapping)
+            or not isinstance(expired, Mapping)
+            or not isinstance(database_skipped, Mapping)
+            or not isinstance(filesystem_deleted, Mapping)
+        ):
             return False
         if any(
-            int(values.get(category, 0))
+            int(values.get(category, 0)) > 0
             for values in (scrubbed, expired, filesystem_deleted)
             for category in RETENTION_CATEGORIES
         ):
@@ -180,27 +185,27 @@ class RetentionDatabaseExecutor:
 
     async def _scrub_attempt(self, candidate: RetentionCandidate) -> None:
         if candidate.record_type == "research_attempt":
-            row = await self.session.get(ResearchAttempt, candidate.record_id)
-            if row is None:
+            research_attempt = await self.session.get(ResearchAttempt, candidate.record_id)
+            if research_attempt is None:
                 return
-            row.queries = []
-            row.usage = {}
-            row.error_class = None
-            row.error_code = None
-            row.error_message = None
+            research_attempt.queries = []
+            research_attempt.usage = {}
+            research_attempt.error_class = None
+            research_attempt.error_code = None
+            research_attempt.error_message = None
             return
         if candidate.record_type == "generation_attempt":
-            row = await self.session.get(GenerationAttempt, candidate.record_id)
-            if row is None:
+            generation_attempt = await self.session.get(GenerationAttempt, candidate.record_id)
+            if generation_attempt is None:
                 return
-            row.prompt_snapshot = {}
-            row.response_payload = {}
-            row.usage = {}
-            row.validation_errors = []
-            row.error_class = None
-            row.error_code = None
-            row.error_message = None
-            generation_run = await self.session.get(GenerationRun, row.generation_run_id)
+            generation_attempt.prompt_snapshot = {}
+            generation_attempt.response_payload = {}
+            generation_attempt.usage = {}
+            generation_attempt.validation_errors = []
+            generation_attempt.error_class = None
+            generation_attempt.error_code = None
+            generation_attempt.error_message = None
+            generation_run = await self.session.get(GenerationRun, generation_attempt.generation_run_id)
             if generation_run is not None:
                 generation_run.request_payload = {}
                 generation_run.output_payload = {}
@@ -209,14 +214,14 @@ class RetentionDatabaseExecutor:
                 generation_run.error_message = None
             return
         if candidate.record_type == "publish_attempt":
-            row = await self.session.get(PublishAttempt, candidate.record_id)
-            if row is None:
+            publish_attempt = await self.session.get(PublishAttempt, candidate.record_id)
+            if publish_attempt is None:
                 return
-            row.sanitized_payload = {}
-            row.remote_response = {}
-            row.error_class = None
-            row.error_code = None
-            row.error_message = None
+            publish_attempt.sanitized_payload = {}
+            publish_attempt.remote_response = {}
+            publish_attempt.error_class = None
+            publish_attempt.error_code = None
+            publish_attempt.error_message = None
             return
         raise RetentionConflict(f"unsupported attempt record type {candidate.record_type!r}")
 
@@ -339,10 +344,12 @@ class RetentionDatabaseExecutor:
         for candidate in candidates:
             if candidate.record_type != "generation_attempt":
                 continue
-            row = generation_attempt_rows[candidate.record_id]
+            generation_attempt = generation_attempt_rows[candidate.record_id]
             current_candidate = current.get((candidate.category, candidate.record_type, candidate.record_id))
-            if row is not None and (current_candidate is None or current_candidate.state_hash != candidate.state_hash):
-                invalid_generation_run_ids.add(row.generation_run_id)
+            if generation_attempt is not None and (
+                current_candidate is None or current_candidate.state_hash != candidate.state_hash
+            ):
+                invalid_generation_run_ids.add(generation_attempt.generation_run_id)
 
         for candidate in candidates:
             identity = (candidate.category, candidate.record_type, candidate.record_id)
@@ -375,8 +382,8 @@ class RetentionDatabaseExecutor:
                 if media is None or media.storage_path is None:
                     self._increment(counts, "skipped", candidate.category)
                     continue
-                relative_path = canonical_media_paths.get(media.id)
-                if relative_path is None:
+                canonical_path = canonical_media_paths.get(media.id)
+                if canonical_path is None:
                     errors.append(
                         {
                             "category": candidate.category,
@@ -388,7 +395,7 @@ class RetentionDatabaseExecutor:
                     )
                     self._increment(counts, "skipped", candidate.category)
                     continue
-                if relative_path in invalid_canonical_paths:
+                if canonical_path in invalid_canonical_paths:
                     self._increment(counts, "skipped", candidate.category)
                     continue
                 media.storage_path = None

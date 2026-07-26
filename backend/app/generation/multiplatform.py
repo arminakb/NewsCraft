@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterable
+from typing import Literal
 from uuid import UUID
 
 from pydantic import BaseModel
@@ -13,6 +14,23 @@ from app.generation.platform_schemas import (
     XVariantPayload,
 )
 from app.research.schemas import CitationRef, Claim
+
+type ManualPlatform = Literal["instagram", "x", "blog"]
+type ManualPlatformPayload = InstagramVariantPayload | XVariantPayload | BlogVariantPayload
+
+
+def parse_manual_platform_payload(
+    platform: str,
+    value: object,
+) -> tuple[ManualPlatform, ManualPlatformPayload]:
+    if platform == "instagram":
+        return "instagram", InstagramVariantPayload.model_validate(value)
+    if platform == "x":
+        return "x", XVariantPayload.model_validate(value)
+    if platform == "blog":
+        return "blog", BlogVariantPayload.model_validate(value)
+    raise ValueError("unsupported manual platform")
+
 
 PLATFORM_PROMPT_PURPOSE: dict[Platform, str] = {
     "telegram": "telegram_pack",

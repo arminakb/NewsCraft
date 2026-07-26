@@ -9,13 +9,14 @@ from pydantic import BaseModel, TypeAdapter, ValidationError
 from pydantic_core import to_jsonable_python
 
 from app.generation.default_prompts import manual_generation_provider_schema
-from app.generation.multiplatform import MANUAL_PLATFORM_ADAPTERS, payload_claims
+from app.generation.multiplatform import payload_claims
 from app.generation.platform_schemas import (
     BlogVariantPayload,
     InstagramSlide,
     InstagramVariantPayload,
     MediaAssignment,
     Platform,
+    PlatformPayload,
     XPost,
     XVariantPayload,
 )
@@ -28,13 +29,12 @@ from app.research.citations import validate_citations
 from app.stories.evidence import EvidenceRecord
 
 
-def _manual_output_with_ordinary_issues(
-    platform: Platform,
+def _strict_or_loose_payload[T: BaseModel](
+    payload_type: type[T],
     raw: dict[str, Any],
-) -> tuple[Any, list[ValidationIssue]]:
-    payload_type = MANUAL_PLATFORM_ADAPTERS[platform]
+) -> T:
     try:
-        payload = payload_type.model_validate(raw)
+        return payload_type.model_validate(raw)
     except ValidationError:
         schema = manual_generation_provider_schema(payload_type)
         errors = list(
@@ -45,11 +45,28 @@ def _manual_output_with_ordinary_issues(
         )
         if errors:
             raise ValueError("manual platform output failed structural validation") from None
-        payload = _construct_manual_payload(payload_type, raw)
-        if platform in {"instagram", "x"}:
-            payload.reject_citation_userinfo()
-        else:
-            payload.reject_url_userinfo()
+        return _construct_manual_payload(payload_type, raw)
+
+
+def _manual_output_with_ordinary_issues(
+    platform: Platform,
+    raw: dict[str, Any],
+) -> tuple[Any, list[ValidationIssue]]:
+    payload: PlatformPayload
+    if platform == "instagram":
+        payload = _strict_or_loose_payload(InstagramVariantPayload, raw)
+    elif platform == "x":
+        payload = _strict_or_loose_payload(XVariantPayload, raw)
+    elif platform == "blog":
+        payload = _strict_or_loose_payload(BlogVariantPayload, raw)
+    else:
+        raise ValueError("manual platform output requires a manual platform")
+    validator: Any
+    if isinstance(payload, InstagramVariantPayload | XVariantPayload):
+        validator = payload.reject_citation_userinfo
+    else:
+        validator = payload.reject_url_userinfo
+    validator()
     return payload, validate_platform_payload(platform, payload)
 
 
@@ -93,10 +110,10 @@ def _construct_manual_value(annotation: Any, value: Any) -> Any:
     return TypeAdapter(annotation).validate_python(value)
 
 
-def _construct_manual_payload(
-    model_type: type[BaseModel],
+def _construct_manual_payload[T: BaseModel](
+    model_type: type[T],
     raw: dict[str, Any],
-) -> BaseModel:
+) -> T:
     values = {
         name: _construct_manual_value(model_type.model_fields[name].annotation, value) for name, value in raw.items()
     }

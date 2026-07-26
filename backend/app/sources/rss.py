@@ -138,7 +138,19 @@ def _entry_date(entry: Any, default_timezone: str) -> tuple[str | None, datetime
 
     parsed_tuple = entry.get("published_parsed") or entry.get("updated_parsed")
     if parsed_tuple:
-        return None, datetime(*parsed_tuple[:6], tzinfo=UTC), "parsed_struct_time"
+        return (
+            None,
+            datetime(
+                parsed_tuple[0],
+                parsed_tuple[1],
+                parsed_tuple[2],
+                parsed_tuple[3],
+                parsed_tuple[4],
+                parsed_tuple[5],
+                tzinfo=UTC,
+            ),
+            "parsed_struct_time",
+        )
     return None, None, "missing"
 
 

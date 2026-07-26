@@ -153,7 +153,11 @@ test("review-first route preserves manual research, dry-run review, and durable 
     publishing_policy: "review_required",
     confirm_auto_publish: false,
   })
-  await expect(page.getByText("Manual", { exact: true })).toBeVisible()
+  const advancedDetails = page.locator("details", {
+    has: page.locator("summary", { hasText: "Advanced route details" }),
+  })
+  await advancedDetails.locator("summary").click()
+  await expect(advancedDetails.getByText("Manual", { exact: true })).toBeVisible()
   await expect(page.getByRole("link", { name: "Research more" })).toHaveCount(0)
 
   await page.getByLabel("Source message ID (optional)").fill("91")
@@ -189,7 +193,11 @@ test("automatic route requires explicit confirmation and exposes auto research o
     confirm_auto_publish: true,
     content_filters: { research_provider_profile_id: ids.provider },
   })
-  await expect(page.getByText("Auto If Incomplete", { exact: true })).toBeVisible()
+  const advancedDetails = page.locator("details", {
+    has: page.locator("summary", { hasText: "Advanced route details" }),
+  })
+  await advancedDetails.locator("summary").click()
+  await expect(advancedDetails.getByText("Auto If Incomplete", { exact: true })).toBeVisible()
   await expect(page.getByText(/Research succeeded/)).toBeVisible()
   await expect(page.getByText("Fake acceptance provider · fake", { exact: true })).toBeVisible()
   expect(backend.unhandled).toEqual([])

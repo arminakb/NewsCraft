@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import Callable, Iterable
+from collections.abc import Iterable
 from typing import Literal
 from uuid import UUID
 
@@ -93,7 +93,7 @@ def _empty_checklist_issues(platform: str, checklist: list[str]) -> list[Validat
     return issues
 
 
-def _media_length_issues(platform: str, path: str, assignment: object) -> list[ValidationIssue]:
+def _media_length_issues(platform: str, path: str, assignment: MediaAssignment) -> list[ValidationIssue]:
     issues: list[ValidationIssue] = []
     alt_text = assignment.alt_text
     if len(alt_text) > MEDIA_ALT_TEXT_MAX:
@@ -576,35 +576,42 @@ def _validate_blog(payload: BlogVariantPayload) -> list[ValidationIssue]:
     return issues
 
 
-_Validator = Callable[[object], list[ValidationIssue]]
-PLATFORM_VALIDATORS: dict[Platform, _Validator] = {
-    "telegram": _validate_telegram,
-    "instagram": _validate_instagram,
-    "x": _validate_x,
-    "blog": _validate_blog,
-}
-_PLATFORM_PAYLOAD_TYPES: dict[Platform, type[BaseModel]] = {
-    "telegram": TelegramVariantPayload,
-    "instagram": InstagramVariantPayload,
-    "x": XVariantPayload,
-    "blog": BlogVariantPayload,
-}
-
-
 def validate_platform_payload(platform: Platform, payload: PlatformPayload) -> list[ValidationIssue]:
-    validator = PLATFORM_VALIDATORS.get(platform)
-    expected_type = _PLATFORM_PAYLOAD_TYPES.get(platform)
-    if validator is None or expected_type is None:
-        raise ValueError(f"Unsupported platform: {platform}")
-    if not isinstance(payload, expected_type):
-        return [
-            _issue(
-                "platform_payload_type_mismatch",
-                "platform",
-                f"Platform {platform} requires {expected_type.__name__}",
-            )
-        ]
-    return validator(payload)
+    if platform == "telegram":
+        if not isinstance(payload, TelegramVariantPayload):
+            return [
+                _issue(
+                    "platform_payload_type_mismatch",
+                    "platform",
+                    "Platform telegram requires TelegramVariantPayload",
+                )
+            ]
+        return _validate_telegram(payload)
+    if platform == "instagram":
+        if not isinstance(payload, InstagramVariantPayload):
+            return [
+                _issue(
+                    "platform_payload_type_mismatch",
+                    "platform",
+                    "Platform instagram requires InstagramVariantPayload",
+                )
+            ]
+        return _validate_instagram(payload)
+    if platform == "x":
+        if not isinstance(payload, XVariantPayload):
+            return [_issue("platform_payload_type_mismatch", "platform", "Platform x requires XVariantPayload")]
+        return _validate_x(payload)
+    if platform == "blog":
+        if not isinstance(payload, BlogVariantPayload):
+            return [
+                _issue(
+                    "platform_payload_type_mismatch",
+                    "platform",
+                    "Platform blog requires BlogVariantPayload",
+                )
+            ]
+        return _validate_blog(payload)
+    raise ValueError(f"Unsupported platform: {platform}")
 
 
 def revision_gates_from_issues(issues: list[ValidationIssue]) -> list[dict[str, object]]:

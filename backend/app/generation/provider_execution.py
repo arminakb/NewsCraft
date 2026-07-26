@@ -482,8 +482,9 @@ def _validation_errors(exc: Exception) -> list[Any]:
             }
             for item in exc.errors(include_input=False, include_url=False)
         ]
-    if isinstance(getattr(exc, "diagnostic", None), dict):
-        return [exc.diagnostic]
+    diagnostic = getattr(exc, "diagnostic", None)
+    if isinstance(diagnostic, dict):
+        return [diagnostic]
     if isinstance(exc, CitationIntegrityError):
         return [
             {

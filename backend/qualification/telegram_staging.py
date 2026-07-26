@@ -31,7 +31,8 @@ from app.jobs.errors import NeedsReviewJobError
 from app.jobs.models import AutomationControl, RuntimeHeartbeat, WorkflowJob
 from app.publishing.models import Destination, Publication, PublishJob, PublishOperationReceipt
 from app.publishing.telegram.client import TelegramBotClient
-from app.publishing.telegram.service import _revision_dispatch, derive_telegram_permalink, publish_telegram
+from app.publishing.telegram.scheduling import _revision_dispatch
+from app.publishing.telegram.service import derive_telegram_permalink, publish_telegram
 
 _MARKER = re.compile(r"^NC-STAGING-[A-Z0-9-]{8,80}$")
 _SAFE_REFERENCE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._@:/-]{0,127}$")

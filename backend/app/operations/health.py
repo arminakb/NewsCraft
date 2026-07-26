@@ -539,7 +539,7 @@ class OperationalHealthService:
             .order_by(WorkflowJob.job_type)
         )
         result = await self.session.execute(statement)
-        return list(result.mappings())
+        return [dict(row) for row in result.mappings()]
 
     async def _recovery_rows(self, observed_at: datetime) -> list[Mapping[str, Any]]:
         cutoff = observed_at - timedelta(seconds=self.config.recovery_observation_window_seconds)
@@ -574,11 +574,11 @@ class OperationalHealthService:
             .limit(25)
         )
         result = await self.session.execute(statement)
-        return list(result.mappings())
+        return [dict(row) for row in result.mappings()]
 
 
 def build_component_health(
-    heartbeats: Sequence[object],
+    heartbeats: Sequence[RuntimeHeartbeat],
     *,
     reference_time: datetime,
     config: Settings,
@@ -591,7 +591,7 @@ def build_component_health(
         field="database reference time",
     )
     expected = {value.strip() for value in (expected_component_ids or "").split(",") if value.strip()}
-    latest: dict[str, object] = {}
+    latest: dict[str, RuntimeHeartbeat] = {}
     for heartbeat in sorted(
         heartbeats,
         key=lambda row: normalize_utc(row.observed_at, field="heartbeat observed_at"),
@@ -602,9 +602,9 @@ def build_component_health(
     components: dict[str, ComponentOperationalHealth] = {}
     healthy_job_coverage: dict[str, int] = {}
     for raw_id in sorted(expected | set(latest)):
-        heartbeat = latest.get(raw_id)
+        current_heartbeat = latest.get(raw_id)
         component_id = _safe_component_id(raw_id)
-        if heartbeat is None:
+        if current_heartbeat is None:
             component_type = "scheduler" if "scheduler" in raw_id.casefold() else "worker"
             components[component_id] = ComponentOperationalHealth(
                 component_id=component_id,
@@ -623,10 +623,10 @@ def build_component_health(
             )
             continue
 
-        component_type = _safe_component_type(getattr(heartbeat, "component_type", "unknown"))
-        capabilities = _safe_capabilities(getattr(heartbeat, "capabilities", ()))
-        observed_at = normalize_utc(heartbeat.observed_at, field="heartbeat observed_at")
-        metadata = getattr(heartbeat, "runtime_metadata", None)
+        component_type = _safe_component_type(getattr(current_heartbeat, "component_type", "unknown"))
+        capabilities = _safe_capabilities(getattr(current_heartbeat, "capabilities", ()))
+        observed_at = normalize_utc(current_heartbeat.observed_at, field="heartbeat observed_at")
+        metadata = getattr(current_heartbeat, "runtime_metadata", None)
         metadata = metadata if isinstance(metadata, Mapping) else {}
         last_success_at = _metadata_timestamp(metadata, "last_success_at")
         active_started_at = _metadata_timestamp(metadata, "active_work_started_at")

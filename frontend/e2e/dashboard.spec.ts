@@ -35,7 +35,7 @@ test.describe("NewsCraft command center", () => {
     await expect(page.locator("[data-summary=succeeded]")).toHaveText("4")
     const priority = page.getByRole("region", { name: "Highest-priority decision" })
     await expect(priority.getByText("Resolve failed workflow", { exact: true })).toBeVisible()
-    await expect(priority.getByRole("button", { name: "Resolve failure" })).toBeVisible()
+    await expect(priority.getByRole("link", { name: "Inspect and retry" })).toBeVisible()
 
     const hasHorizontalOverflow = await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth)
     expect(hasHorizontalOverflow).toBe(false)

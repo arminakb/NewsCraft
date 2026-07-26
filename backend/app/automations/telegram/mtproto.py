@@ -12,6 +12,7 @@ from app.automations.telegram.contracts import (
     TelegramEnvelope,
     TelegramFetchRequest,
     TelegramFetchResult,
+    TelegramMediaKind,
     TelegramMediaReference,
 )
 from app.automations.telegram.public_html import (
@@ -146,6 +147,7 @@ class MtprotoTelegramAdapter:
         if snapshot_head is None:
             snapshot_head = max((int(item.id) for item in messages), default=0)
             snapshot_token = _encode_token("snapshot", {"head": snapshot_head})
+        assert snapshot_token is not None
         pinned = [item for item in raw_envelopes if item.anchor_message_id <= snapshot_head]
         filtered = [item for item in pinned if _within_bounds(item, request)]
         selected_list = sorted(filtered, key=_envelope_coordinate, reverse=True)[: request.limit]
@@ -353,7 +355,7 @@ def _mtproto_media_reference(message: Any, channel_ref: str, position: int) -> T
     )
 
 
-def _mtproto_media_kind(message: Any) -> str:
+def _mtproto_media_kind(message: Any) -> TelegramMediaKind:
     if getattr(message, "photo", None) is not None or message.media.__class__.__name__.lower().endswith("photo"):
         return "photo"
     mime_type = getattr(getattr(message, "file", None), "mime_type", "") or ""
