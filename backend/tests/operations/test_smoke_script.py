@@ -197,10 +197,10 @@ class FakeSmokeAPI:
                 "is_default": False,
             }
             return 201, {"id": ids["brand"], **body}
-        if (method, path) == ("POST", "/ai-provider-profiles"):
+        if (method, path) == ("POST", "/llm-providers"):
             assert body == {
                 "name": f"{self._run_id()}-provider",
-                "provider_type": "fake",
+                "protocol": "fake",
                 "default_model": "fake-v1",
                 "enabled": True,
             }
@@ -209,8 +209,8 @@ class FakeSmokeAPI:
                 **body,
                 "settings": {},
                 "configured": True,
-                "capabilities": {"generation": True, "research": True},
-                "unavailability_codes": [],
+                "generation_ready": True,
+                "research_ready": True,
             }
         if (method, path) == ("POST", "/telegram/sources"):
             return 201, {
@@ -885,7 +885,7 @@ def test_smoke_driver_runs_complete_fake_workflow(
         ("GET", "/automation-control"),
         ("PATCH", "/automation-control"),
         ("POST", "/brand-profiles"),
-        ("POST", "/ai-provider-profiles"),
+        ("POST", "/llm-providers"),
         ("POST", "/telegram/sources"),
         ("POST", "/telegram/destinations"),
         ("GET", "/telegram/automations/options"),

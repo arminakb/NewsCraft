@@ -497,10 +497,10 @@ class SmokeDriver:
         provider = _as_dict(
             self._request(
                 "POST",
-                "/ai-provider-profiles",
+                "/llm-providers",
                 body={
                     "name": f"{self.run_id}-provider",
-                    "provider_type": "fake",
+                    "protocol": "fake",
                     "default_model": "fake-v1",
                     "enabled": True,
                 },
@@ -509,15 +509,11 @@ class SmokeDriver:
             "provider_response_invalid",
         )
         provider_id = _required_id(provider.get("id"), "provider_id_missing")
-        capabilities = _as_dict(
-            provider.get("capabilities"),
-            "provider_capabilities_invalid",
-        )
         _require(
-            provider.get("provider_type") == self.provider
+            provider.get("protocol") == self.provider
             and provider.get("configured") is True
-            and capabilities.get("generation") is True
-            and capabilities.get("research") is True,
+            and provider.get("generation_ready") is True
+            and provider.get("research_ready") is True,
             "fake_provider_not_ready",
         )
 

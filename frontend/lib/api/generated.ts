@@ -14,29 +14,11 @@ export interface paths {
         /** List Provider Profiles */
         get: operations["list_provider_profiles_ai_provider_profiles_get"];
         put?: never;
-        /** Create Provider Profile */
-        post: operations["create_provider_profile_ai_provider_profiles_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/ai-provider-profiles/{provider_profile_id}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
         post?: never;
         delete?: never;
         options?: never;
         head?: never;
-        /** Patch Provider Profile */
-        patch: operations["patch_provider_profile_ai_provider_profiles__provider_profile_id__patch"];
+        patch?: never;
         trace?: never;
     };
     "/article-collections": {
@@ -2297,29 +2279,6 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
-        /** AIProviderProfileCreate */
-        AIProviderProfileCreate: {
-            /** Default Model */
-            default_model?: string | null;
-            /**
-             * Enabled
-             * @default true
-             */
-            enabled: boolean;
-            /** Name */
-            name: string;
-            /**
-             * Provider Type
-             * @enum {string}
-             */
-            provider_type: "fake" | "openrouter" | "codex";
-            /** Secret Ref */
-            secret_ref?: string | null;
-            /** Settings */
-            settings?: {
-                [key: string]: unknown;
-            } | null;
-        };
         /** AIProviderProfileOut */
         AIProviderProfileOut: {
             /** Capabilities */
@@ -2351,21 +2310,6 @@ export interface components {
             };
             /** Unavailability Codes */
             unavailability_codes: string[];
-        };
-        /** AIProviderProfilePatch */
-        AIProviderProfilePatch: {
-            /** Default Model */
-            default_model?: string | null;
-            /** Enabled */
-            enabled?: boolean | null;
-            /** Name */
-            name?: string | null;
-            /** Secret Ref */
-            secret_ref?: string | null;
-            /** Settings */
-            settings?: {
-                [key: string]: unknown;
-            } | null;
         };
         /** ApprovalRequest */
         ApprovalRequest: {
@@ -6180,74 +6124,6 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["AIProviderProfileOut"][];
-                };
-            };
-        };
-    };
-    create_provider_profile_ai_provider_profiles_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["AIProviderProfileCreate"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["AIProviderProfileOut"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    patch_provider_profile_ai_provider_profiles__provider_profile_id__patch: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                provider_profile_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["AIProviderProfilePatch"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["AIProviderProfileOut"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };

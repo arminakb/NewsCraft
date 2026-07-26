@@ -52,7 +52,7 @@ def mutation_rule(method: str, path: str) -> MutationRule | None:
         scope, resource = "settings:write", "editorial_profile"
     elif first in {"prompt-templates", "prompt-template-versions"}:
         scope, resource = "prompts:write", "prompt"
-    elif first in {"ai-provider-profiles", "llm-providers"}:
+    elif first == "llm-providers":
         scope, resource = "providers:write", "llm_provider"
     elif parts[:2] == ["telegram", "destinations"]:
         scope, resource = "destinations:write", "telegram_destination"
