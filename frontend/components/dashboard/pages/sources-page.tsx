@@ -8,9 +8,14 @@ import { OperationsPageFrame } from "@/components/dashboard/pages/operations-pag
 import { SourceDetailPanel } from "@/components/dashboard/source-detail-panel"
 import { SourceHealthTable } from "@/components/dashboard/source-health-table"
 import { Button } from "@/components/ui/button"
-import { getSource, getSources, runIngest, seedSources } from "@/lib/api-client"
+import {
+  getSource,
+  getSources,
+  runIngest,
+  seedSources,
+} from "@/features/operations/ingestion-api"
+import type { SourceSummary } from "@/features/operations/ingestion-types"
 import { queryKeys } from "@/lib/query-keys"
-import type { SourceSummary } from "@/lib/types"
 
 export function SourcesPage({
   initialSources = [],

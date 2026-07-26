@@ -6,7 +6,7 @@ import { AlertTriangle, CheckCircle2, CircleHelp, XCircle } from "lucide-react"
 import { OperationsPageFrame } from "@/components/dashboard/pages/operations-page-frame"
 import { Badge } from "@/components/ui/badge"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { getDiagnostics } from "@/lib/api-client"
+import { getDiagnostics } from "@/features/operations/ingestion-api"
 import { queryKeys } from "@/lib/query-keys"
 
 const healthIcon = {

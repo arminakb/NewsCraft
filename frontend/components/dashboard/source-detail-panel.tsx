@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button"
 import { Separator } from "@/components/ui/separator"
 import { formatNumber, formatPlatform } from "@/lib/format"
 import { cn } from "@/lib/utils"
-import type { SourceSummary } from "@/lib/types"
+import type { SourceSummary } from "@/features/operations/ingestion-types"
 
 const statusDotClass: Record<SourceSummary["status"], string> = {
   healthy: "bg-emerald-600",

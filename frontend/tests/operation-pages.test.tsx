@@ -6,11 +6,12 @@ import { SourcesPage } from "@/components/dashboard/pages/sources-page"
 import { QueryProvider } from "@/components/providers/query-provider"
 import { dashboardMock } from "@/tests/fixtures/dashboard-mock"
 
-vi.mock("@/lib/api-client", async () => {
-  const actual = await vi.importActual<typeof import("@/lib/api-client")>("@/lib/api-client")
+vi.mock("@/features/operations/ingestion-api", async () => {
+  const actual = await vi.importActual<
+    typeof import("@/features/operations/ingestion-api")
+  >("@/features/operations/ingestion-api")
   return {
     ...actual,
-    getDashboardSummary: vi.fn(async () => dashboardMock.counts),
     getSources: vi.fn(async () => dashboardMock.sources),
     getIngestRuns: vi.fn(async () => dashboardMock.runs),
     getDiagnostics: vi.fn(async () => ({

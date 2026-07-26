@@ -2,7 +2,7 @@ import { Circle } from "lucide-react"
 
 import { Badge } from "@/components/ui/badge"
 import { cn } from "@/lib/utils"
-import type { SourceStatus } from "@/lib/types"
+import type { SourceStatus } from "@/features/operations/ingestion-types"
 
 const statusStyles: Record<SourceStatus, string> = {
   healthy: "border-emerald-200 bg-emerald-50 text-emerald-700",
