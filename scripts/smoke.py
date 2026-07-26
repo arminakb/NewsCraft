@@ -534,17 +534,17 @@ class SmokeDriver:
         source_id = _required_id(source_response.get("id"), "source_id_missing")
         _require(source_response.get("access_mode") == "public_html", "source_mode_invalid")
 
-        secret_ref = f"NEWSCRAFT_SMOKE_{self.run_id.rsplit('-', 1)[1].upper()}"
-        self._state["secret_canary"] = secret_ref
+        suffix = self.run_id.rsplit("-", 1)[1]
+        bot_token = f"123456:deterministic-smoke-token-{suffix}"
+        self._state["secret_canary"] = bot_token
         destination_response = _as_dict(
             self._request(
                 "POST",
                 "/telegram/destinations",
                 body={
                     "name": f"{self.run_id}-destination",
-                    "target_ref": f"@{self.run_id}",
-                    "secret_ref": secret_ref,
-                    "allow_auto_publish": False,
+                    "target": f"@newscraft_smoke_{suffix}",
+                    "bot_token": bot_token,
                 },
                 expected_statuses=frozenset({202}),
             ).data,
@@ -555,10 +555,34 @@ class SmokeDriver:
             "destination_response_invalid",
         )
         destination_id = _required_id(destination.get("id"), "destination_id_missing")
-        _require(destination.get("configured") is False, "destination_must_be_unconfigured")
+        _require(destination.get("configured") is True, "destination_must_be_configured")
+        _require(destination.get("enabled") is False, "destination_must_start_disabled")
         destination_job_id = self._job_id(
             destination_response.get("job"),
             "destination_job_invalid",
+        )
+        destination_job = self._poll_job(destination_job_id)
+        _require(destination_job.get("status") == "succeeded", "destination_check_failed")
+        enabled_destination = _as_dict(
+            self._request(
+                "POST",
+                f"/telegram/destinations/{destination_id}/enable",
+                body={},
+            ).data,
+            "destination_enable_response_invalid",
+        )
+        _require(
+            enabled_destination.get("configured") is True,
+            "destination_configuration_lost",
+        )
+        _require(enabled_destination.get("enabled") is True, "destination_not_enabled")
+        _require(
+            enabled_destination.get("health_status") == "healthy",
+            "destination_not_healthy",
+        )
+        _require(
+            enabled_destination.get("administrator_status") == "administrator",
+            "destination_not_administrator",
         )
 
         options = _as_dict(
@@ -696,9 +720,10 @@ class SmokeDriver:
                 "route_id": route_id,
                 "activation_job_id": activation_job_id,
             },
-            statuses={"route": "ready", "destination": "unconfigured"},
+            statuses={"route": "ready", "destination": "healthy"},
             invariants=(
-                "credential_free_configuration",
+                "synthetic_encrypted_destination_credential",
+                "deterministic_destination_health_check",
                 "unique_persian_brand_and_fake_provider",
                 "whole_run_dry_run_safety",
                 "new_post_only_route_activation",

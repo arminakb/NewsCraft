@@ -4,10 +4,12 @@
 from __future__ import annotations
 
 import argparse
+import base64
 import hashlib
 import hmac
 import json
 import os
+import secrets
 import shutil
 import socket
 import subprocess
@@ -178,10 +180,20 @@ def run_drill(
         raise BackupRestoreError("canary must be >=16 bytes and report signing key >=32 bytes")
 
     repository = Path(__file__).resolve().parents[1]
-    prior_environment = {key: os.environ.get(key) for key in ("COMPOSE_PROJECT_NAME", "COMPOSE_FILE", "DRILL_API_PORT")}
+    prior_environment = {
+        key: os.environ.get(key)
+        for key in (
+            "COMPOSE_PROJECT_NAME",
+            "COMPOSE_FILE",
+            "DRILL_API_PORT",
+            "SECRET_MASTER_KEY",
+        )
+    }
     os.environ["COMPOSE_PROJECT_NAME"] = project_name
     os.environ["COMPOSE_FILE"] = os.pathsep.join(str(repository / name) for name in COMPOSE_FILES)
     os.environ["DRILL_API_PORT"] = str(api_port)
+    if not os.environ.get("SECRET_MASTER_KEY"):
+        os.environ["SECRET_MASTER_KEY"] = base64.urlsafe_b64encode(secrets.token_bytes(32)).decode("ascii").rstrip("=")
     started = datetime.now(UTC)
     monotonic_started = time.monotonic()
     report_path = output_dir / f"{project_name}.json"

@@ -222,21 +222,33 @@ class FakeSmokeAPI:
                 "configured": True,
             }
         if (method, path) == ("POST", "/telegram/destinations"):
+            assert body["target"].startswith("@newscraft_smoke_")
+            assert body["bot_token"].startswith("123456:deterministic-smoke-token-")
             return 202, {
                 "destination": {
                     "id": ids["destination"],
                     "name": body["name"],
-                    "target_ref": body["target_ref"],
-                    "enabled": True,
+                    "target_ref": body["target"],
+                    "enabled": False,
                     "health_status": "unknown",
-                    "configured": False,
-                    "settings": {"allow_auto_publish": False},
+                    "configured": True,
+                    "administrator_status": "checking",
                 },
                 "job": {
                     "job_id": ids["destination_job"],
                     "status": "queued",
                     "deduplicated": False,
                 },
+            }
+        if (method, path) == ("POST", f"/telegram/destinations/{ids['destination']}/enable"):
+            return 200, {
+                "id": ids["destination"],
+                "name": "Smoke destination",
+                "target_ref": "@newscraft_smoke_test",
+                "enabled": True,
+                "health_status": "healthy",
+                "configured": True,
+                "administrator_status": "administrator",
             }
         if (method, path) == ("GET", "/telegram/automations/options"):
             return 200, {
@@ -558,6 +570,7 @@ class FakeSmokeAPI:
         if self.job_reads[job_id] == 1:
             return {"id": job_id, "status": "running", "result": {}}
         results = {
+            ids["destination_job"]: {"destination_id": ids["destination"]},
             ids["activation_job"]: {"route_id": ids["route"]},
             ids["manual_job"]: {"story_id": ids["story"]},
             ids["research_job"]: {
@@ -864,6 +877,7 @@ def test_smoke_driver_runs_complete_fake_workflow(
         fake_http.ids[key]
         for key in (
             "activation_job",
+            "destination_job",
             "manual_job",
             "research_job",
             "generation_job",
@@ -888,6 +902,7 @@ def test_smoke_driver_runs_complete_fake_workflow(
         ("POST", "/llm-providers"),
         ("POST", "/telegram/sources"),
         ("POST", "/telegram/destinations"),
+        ("POST", f"/telegram/destinations/{fake_http.ids['destination']}/enable"),
         ("GET", "/telegram/automations/options"),
         ("POST", "/telegram/automations"),
         ("POST", f"/telegram/automations/{fake_http.ids['route']}/activate"),
@@ -959,7 +974,9 @@ def test_smoke_driver_runs_complete_fake_workflow(
     mutations = [request for request in fake_http.requests if request["method"] in {"POST", "PATCH"}]
     assert all(str(request["headers"].get("Idempotency-Key", "")).startswith(report["run_id"]) for request in mutations)
     destination_request = next(request for request in mutations if request["path"] == "/telegram/destinations")
-    assert destination_request["body"]["secret_ref"].startswith("NEWSCRAFT_SMOKE_")
+    assert destination_request["body"]["target"].startswith("@newscraft_smoke_")
+    assert destination_request["body"]["bot_token"].startswith("123456:deterministic-smoke-token-")
+    assert "secret_ref" not in destination_request["body"]
     source_request = next(request for request in mutations if request["path"] == "/telegram/sources")
     assert source_request["body"]["channel_ref"] == "example_channel"
     assert source_request["body"]["access_mode"] == "public_html"

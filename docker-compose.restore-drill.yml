@@ -28,6 +28,7 @@ services:
     environment:
       APP_ENV: test
       GENERATION_PROVIDER: fake
+      TELEGRAM_ACCEPTANCE_FIXTURE_PATH: /acceptance-fixtures/telegram_public_album.html
       TELEGRAM_PUBLISH_MODE: dry-run
       OPENROUTER_API_KEY: ""
       TELEGRAM_SOURCE_EDITOR_API_ID: ""
@@ -36,6 +37,8 @@ services:
       HTTP_PROXY: ""
       HTTPS_PROXY: ""
       ALL_PROXY: ""
+    volumes:
+      - ./backend/tests/fixtures:/acceptance-fixtures:ro
   worker-publishing:
     environment:
       APP_ENV: test

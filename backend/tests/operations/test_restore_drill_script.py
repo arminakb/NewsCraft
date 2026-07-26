@@ -74,6 +74,8 @@ def test_drill_override_removes_primary_ports_and_live_authority() -> None:
     override = (ROOT / "docker-compose.restore-drill.yml").read_text(encoding="utf-8")
     assert "ports: !reset []" in override
     assert "GENERATION_PROVIDER: fake" in override
+    assert "TELEGRAM_ACCEPTANCE_FIXTURE_PATH: /acceptance-fixtures/telegram_public_album.html" in override
+    assert "./backend/tests/fixtures:/acceptance-fixtures:ro" in override
     assert "TELEGRAM_PUBLISH_MODE: dry-run" in override
     for secret_name in (
         "OPENROUTER_API_KEY",

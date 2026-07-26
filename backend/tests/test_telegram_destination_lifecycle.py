@@ -8,7 +8,7 @@ from pydantic import ValidationError
 
 from app.api.telegram_schemas import TelegramDestinationCreate, TelegramProxyCreate
 from app.core.config import Settings
-from app.publishing.models import TelegramProxyProfile
+from app.publishing.models import Destination, TelegramProxyProfile
 from app.publishing.telegram.client import TelegramBotClient
 from app.publishing.telegram.routing import (
     TelegramConfigurationError,
@@ -170,3 +170,30 @@ async def test_bot_health_calls_validate_identity_target_and_admin_without_leaki
     assert member == {"status": "administrator", "administrator": True}
     assert json.loads(requests[-1].content) == {"chat_id": "@news", "user_id": 99}
     assert token not in repr((bot, chat, member))
+
+
+async def test_test_environment_route_resolver_uses_no_network_bot_client():
+    resolver = TelegramRouteResolver(
+        key_ring=None,
+        principal=SecurityPrincipal("internal_service", "test", frozenset({"destinations:read"})),
+        config=Settings(
+            _env_file=None,
+            app_env="test",
+            telegram_acceptance_fixture_path="/acceptance-fixtures/telegram_public_album.html",
+        ),
+    )
+    destination = Destination(
+        platform="telegram",
+        name="Smoke",
+        target_ref="@newscraft_smoke",
+        secret_ref="encrypted:test",
+    )
+
+    async with resolver.client_for_destination(None, destination) as client:
+        bot = await client.get_me("synthetic-token")
+        chat = await client.get_chat(destination.target_ref, "synthetic-token")
+        member = await client.get_chat_member(destination.target_ref, bot["id"], "synthetic-token")
+
+    assert bot == {"id": 9001, "username": "newscraft_test_bot"}
+    assert chat["username"] == "newscraft_smoke"
+    assert member == {"status": "administrator", "administrator": True}
