@@ -389,6 +389,47 @@ def test_publication_and_reconciliation_routes_are_public():
     assert "/telegram/revisions/{revision_id}/publication-context" in paths
 
 
+@pytest.mark.asyncio
+async def test_publication_outcomes_bulk_load_related_rows_and_inherit_dispatch():
+    variant_id = uuid4()
+    parent = SimpleNamespace(
+        id=uuid4(),
+        platform_variant_id=variant_id,
+        parent_revision_id=None,
+        revision_number=1,
+        approval_state="approved",
+    )
+    child = SimpleNamespace(
+        id=uuid4(),
+        platform_variant_id=variant_id,
+        parent_revision_id=parent.id,
+        revision_number=2,
+        approval_state="approved",
+    )
+    dispatch = SimpleNamespace(id=uuid4(), route_id=uuid4(), variant_revision_id=parent.id)
+    publish_job = _publish_job(status="succeeded")
+    publish_job.platform_variant_revision_id = child.id
+    publication = _publication(publish_job, remote_message_ids=[700])
+
+    class BulkSession:
+        def __init__(self):
+            self.results = iter(([child, parent], [dispatch], [publish_job], [publication]))
+            self.query_count = 0
+
+        async def scalars(self, _statement):
+            self.query_count += 1
+            return next(self.results)
+
+    session = BulkSession()
+    outcomes = await telegram_api.list_telegram_publication_outcomes(session)
+
+    assert session.query_count == 4
+    assert outcomes[0].dispatch_id == dispatch.id
+    assert outcomes[0].publish_job_id == publish_job.id
+    assert outcomes[0].publication is not None
+    assert outcomes[0].publication.remote_message_ids == [700]
+
+
 def test_reconciliation_case_routes_use_strict_read_only_service_projections(monkeypatch):
     now = datetime(2026, 7, 13, 12, tzinfo=UTC)
     publish_job_id = uuid4()

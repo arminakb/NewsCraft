@@ -11,6 +11,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.capabilities import CapabilityStatusDependency
+from app.automations.models import AutomationDispatch
 from app.db.session import get_session
 from app.generation.models import PlatformVariant, PlatformVariantRevision
 from app.jobs.schemas import JobAcceptedOut
@@ -152,6 +153,15 @@ async def _publication_context_out(
         if publish_job is not None
         else None
     )
+    return _publication_context(revision, dispatch, publish_job, publication)
+
+
+def _publication_context(
+    revision: PlatformVariantRevision,
+    dispatch: AutomationDispatch | None,
+    publish_job: PublishJob | None,
+    publication: Publication | None,
+) -> TelegramPublicationContextOut:
     return TelegramPublicationContextOut(
         revision_id=revision.id,
         platform_variant_id=revision.platform_variant_id,
@@ -181,7 +191,58 @@ async def list_telegram_publication_outcomes(
         )
     )
     revisions = list(await session.scalars(statement))
-    return [await _publication_context_out(session, revision) for revision in revisions]
+    if not revisions:
+        return []
+
+    revision_by_id = {revision.id: revision for revision in revisions}
+    revision_ids = list(revision_by_id)
+    dispatches = list(
+        await session.scalars(
+            select(AutomationDispatch)
+            .where(AutomationDispatch.variant_revision_id.in_(revision_ids))
+            .order_by(AutomationDispatch.created_at.desc())
+        )
+    )
+    direct_dispatches: dict[UUID, AutomationDispatch] = {}
+    for dispatch in dispatches:
+        if dispatch.variant_revision_id is not None:
+            direct_dispatches.setdefault(dispatch.variant_revision_id, dispatch)
+
+    publish_jobs = list(
+        await session.scalars(
+            select(PublishJob)
+            .where(PublishJob.platform_variant_revision_id.in_(revision_ids))
+            .order_by(PublishJob.created_at.desc())
+        )
+    )
+    latest_jobs: dict[UUID, PublishJob] = {}
+    for publish_job in publish_jobs:
+        latest_jobs.setdefault(publish_job.platform_variant_revision_id, publish_job)
+
+    latest_job_ids = [publish_job.id for publish_job in latest_jobs.values()]
+    publications = (
+        list(await session.scalars(select(Publication).where(Publication.publish_job_id.in_(latest_job_ids))))
+        if latest_job_ids
+        else []
+    )
+    publication_by_job = {publication.publish_job_id: publication for publication in publications}
+
+    def inherited_dispatch(revision: PlatformVariantRevision) -> AutomationDispatch | None:
+        current: PlatformVariantRevision | None = revision
+        seen: set[UUID] = set()
+        while current is not None and current.id not in seen:
+            seen.add(current.id)
+            if dispatch := direct_dispatches.get(current.id):
+                return dispatch
+            current = revision_by_id.get(current.parent_revision_id) if current.parent_revision_id is not None else None
+        return None
+
+    outcomes: list[TelegramPublicationContextOut] = []
+    for revision in revisions:
+        latest_job = latest_jobs.get(revision.id)
+        publication = publication_by_job.get(latest_job.id) if latest_job is not None else None
+        outcomes.append(_publication_context(revision, inherited_dispatch(revision), latest_job, publication))
+    return outcomes
 
 
 @router.get(
