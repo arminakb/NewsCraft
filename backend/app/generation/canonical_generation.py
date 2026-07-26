@@ -48,11 +48,17 @@ def build_canonical_generation_handler(
     *,
     fault_injector: FaultInjector | None = None,
 ):
-    return partial(
+    handler = partial(
         handle_canonical_generation,
         profile_resolver=profile_resolver,
         fault_injector=fault_injector or NoopFaultInjector(),
     )
+    handler.__annotations__ = {
+        "job": JobExecution,
+        "context": JobContext,
+        "return": dict[str, Any],
+    }
+    return handler
 
 
 async def handle_canonical_generation(

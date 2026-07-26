@@ -1,19 +1,22 @@
 import { expect, test } from "@playwright/test"
 
+import { fulfillMockJson, installMockBackend } from "./support/mock-backend"
+
 test("Drafts separates review, handoff, and failed work at mobile width", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 })
+  const unhandledRequests = await installMockBackend(page)
   await page.route("**/api/backend/content-pack-requests", async (route) => {
-    await route.fulfill({
-      contentType: "application/json",
-      body: JSON.stringify([
+    await fulfillMockJson(
+      route,
+      [
         request("review", "succeeded", "draft"),
         request("ready", "ready", "ready"),
         {
           ...request("failed", "failed", null),
           last_failure: "Provider output failed validation",
         },
-      ]),
-    })
+      ],
+    )
   })
 
   await page.goto("/drafts")
@@ -31,6 +34,7 @@ test("Drafts separates review, handoff, and failed work at mobile width", async 
   await expect(blocker).toHaveAttribute("open", "")
   await expect(page.getByText("Last failure: Provider output failed validation")).toBeVisible()
   await expect(page.locator("body")).not.toHaveCSS("overflow-x", "scroll")
+  expect(unhandledRequests).toEqual([])
 })
 
 function request(id: string, status: string, packStatus: string | null) {

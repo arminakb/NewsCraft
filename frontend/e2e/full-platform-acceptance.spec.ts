@@ -322,7 +322,7 @@ test("keyboard-only editor creates and approves an immutable Persian revision", 
   const backend = await installAcceptanceBackend(page)
   await page.setViewportSize(viewports[0])
   await page.goto(`/drafts/${ids.contentPack}`)
-  await expect(page.getByRole("heading", { name: "Multi-platform editorial studio" })).toBeVisible()
+  await expect(page.getByRole("heading", { name: "Editorial review" })).toBeVisible()
 
   const message = page.getByLabel("Telegram message")
   await tabTo(page, message)
@@ -332,7 +332,16 @@ test("keyboard-only editor creates and approves an immutable Persian revision", 
   await tabTo(page, save)
   await page.keyboard.press("Enter")
   await expect.poll(() => backend.childCreated).toBe(true)
-  await expect(page.getByText(new RegExp(`Loaded revision ${ids.childRevision}`))).toBeVisible()
+  const advancedDetails = page
+    .getByRole("tabpanel", { name: "Telegram package" })
+    .locator("summary")
+    .filter({ hasText: "Advanced Telegram details" })
+  await tabTo(page, advancedDetails)
+  await page.keyboard.press("Enter")
+  await expect(advancedDetails.locator("..")).toHaveAttribute("open", "")
+  await expect(
+    advancedDetails.locator("..").getByText(new RegExp(`Loaded revision ${ids.childRevision}`)),
+  ).toBeVisible()
   expect(backend.telegramEditRequest).toMatchObject({
     base_revision_id: ids.revisions.telegram,
     base_content_hash: "1".repeat(64),

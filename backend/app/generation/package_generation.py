@@ -768,8 +768,14 @@ def build_pack_generation_handler(
     *,
     fault_injector: FaultInjector | None = None,
 ):
-    return partial(
+    handler = partial(
         handle_pack_generation,
         profile_resolver=profile_resolver,
         injector=fault_injector if fault_injector is not None else NoopFaultInjector(),
     )
+    handler.__annotations__ = {
+        "job": JobExecution,
+        "context": JobContext,
+        "return": dict[str, Any],
+    }
+    return handler
