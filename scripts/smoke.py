@@ -1081,7 +1081,7 @@ class SmokeDriver:
             "telegram_album_not_preserved",
         )
         _require(
-            dispatch.get("status") in {"captured", "researching", "generating", "needs_review"},
+            dispatch.get("status") in {"captured", "researching", "generating", "needs_review", "pending_review"},
             "telegram_dry_run_status_invalid",
         )
 

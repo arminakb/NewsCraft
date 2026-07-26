@@ -12,6 +12,9 @@ services:
 
   api:
     restart: "no"
+    environment:
+      APP_ENV: test
+      SECRET_MASTER_KEY: AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
 
   frontend:
     restart: "no"
@@ -20,6 +23,7 @@ services:
     restart: "no"
     environment:
       APP_ENV: test
+      SECRET_MASTER_KEY: AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
       TELEGRAM_ACCEPTANCE_FIXTURE_PATH: /acceptance-fixtures/telegram_public_album.html
     volumes:
       - ./backend/tests/fixtures:/acceptance-fixtures:ro
@@ -28,6 +32,7 @@ services:
     restart: "no"
     environment:
       APP_ENV: test
+      SECRET_MASTER_KEY: AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
       TELEGRAM_ACCEPTANCE_FIXTURE_PATH: /acceptance-fixtures/telegram_public_album.html
     volumes:
       - ./backend/tests/fixtures:/acceptance-fixtures:ro

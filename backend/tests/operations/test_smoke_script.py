@@ -432,7 +432,7 @@ class FakeSmokeAPI:
                     "source_fingerprint": _sha("album"),
                     "source_message_ids": [42, 43, 44],
                     "dispatch_kind": "dry_run",
-                    "status": "needs_review",
+                    "status": "pending_review",
                     "variant_revision_id": ids["edited_revision"],
                 }
             ]

@@ -590,9 +590,15 @@ def test_acceptance_compose_enables_fixture_for_source_and_publishing_workers():
     source_worker = acceptance["services"]["worker-source-generation"]
     publishing_worker = acceptance["services"]["worker-publishing"]
 
+    test_key = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
+    assert acceptance["services"]["api"]["environment"] == {
+        "APP_ENV": "test",
+        "SECRET_MASTER_KEY": test_key,
+    }
     for worker in (source_worker, publishing_worker):
         assert worker["environment"] == {
             "APP_ENV": "test",
+            "SECRET_MASTER_KEY": test_key,
             "TELEGRAM_ACCEPTANCE_FIXTURE_PATH": ("/acceptance-fixtures/telegram_public_album.html"),
         }
         assert worker["volumes"] == ["./backend/tests/fixtures:/acceptance-fixtures:ro"]
