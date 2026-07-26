@@ -406,7 +406,7 @@ class RetentionDatabaseExecutor:
                         category="unreferenced_media",
                         record_id=candidate.record_id,
                         operation="delete_file",
-                        relative_path=relative_path,
+                        relative_path=canonical_path,
                     )
                 )
                 self._increment(counts, "expired", candidate.category)

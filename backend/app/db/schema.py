@@ -1,3 +1,3 @@
 """Application schema identity used by bounded readiness checks."""
 
-SCHEMA_HEAD = "0018_editorial_profile_default"
+SCHEMA_HEAD = "0021_editorial_state_contracts"
