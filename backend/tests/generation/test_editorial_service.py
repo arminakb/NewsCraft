@@ -1256,11 +1256,11 @@ async def test_canonical_handler_rechecks_exact_active_prompt_immediately_before
         raise AssertionError("drifted canonical prompt reached provider")
 
     monkeypatch.setattr(
-        "app.generation.handlers._require_exact_active_canonical_prompt",
+        "app.generation.canonical_generation._require_exact_active_canonical_prompt",
         recheck,
         raising=False,
     )
-    monkeypatch.setattr("app.generation.handlers._invoke", invoke)
+    monkeypatch.setattr("app.generation.canonical_generation._invoke", invoke)
 
     with pytest.raises(PermanentJobError) as caught:
         await build_canonical_generation_handler(SimpleNamespace())(

@@ -250,7 +250,7 @@ async def test_editorial_telegram_and_manual_writers_reject_live_regeneration_fe
         raise RegenerationFenceConflict("Variant regeneration is in progress")
 
     monkeypatch.setattr(
-        "app.generation.editorial_service.require_revision_write_allowed",
+        "app.generation.manual_edit.require_revision_write_allowed",
         reject_fence,
     )
     telegram_request = EditVariantRequest(

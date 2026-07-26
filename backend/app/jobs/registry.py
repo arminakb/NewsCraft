@@ -108,11 +108,9 @@ def build_default_registry(
     if "generation" in selected:
         from app.automations.telegram.handlers import build_telegram_process_handler
         from app.exports.handlers import build_export_handler
-        from app.generation.handlers import (
-            build_canonical_generation_handler,
-            build_pack_generation_handler,
-            build_regenerate_handler,
-        )
+        from app.generation.canonical_generation import build_canonical_generation_handler
+        from app.generation.package_generation import build_pack_generation_handler
+        from app.generation.variant_regeneration import build_regenerate_handler
         from app.retention.handlers import build_retention_handler
 
         registry.register(

@@ -267,7 +267,7 @@ async def test_cached_regeneration_replay_does_not_deadlock_with_manual_edit(
         await allow_edit_revision_lock.wait()
 
     monkeypatch.setattr(
-        "app.generation.editorial_service.require_revision_write_allowed",
+        "app.generation.manual_edit.require_revision_write_allowed",
         pause_after_edit_variant_lock,
     )
 
@@ -284,7 +284,7 @@ async def test_cached_regeneration_replay_does_not_deadlock_with_manual_edit(
         return replay
 
     monkeypatch.setattr(
-        "app.generation.handlers.build_pack_generation_handler",
+        "app.generation.variant_regeneration.build_pack_generation_handler",
         cached_replay_builder,
     )
     job = SimpleNamespace(
@@ -436,7 +436,7 @@ async def test_cached_regeneration_replay_does_not_invert_normal_pack_lock_order
         return replay
 
     monkeypatch.setattr(
-        "app.generation.handlers.build_pack_generation_handler",
+        "app.generation.variant_regeneration.build_pack_generation_handler",
         cached_replay_builder,
     )
     job = SimpleNamespace(
