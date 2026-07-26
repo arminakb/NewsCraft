@@ -5,9 +5,10 @@ from typing import Any
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 
 from app.generation.telegram_schema import TelegramEvidenceCitation, TelegramVariantContent
+from app.workflows.errors import EditorialValidationError
 
 
-class RevisionValidationError(ValueError):
+class RevisionValidationError(EditorialValidationError):
     pass
 
 

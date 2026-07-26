@@ -32,6 +32,7 @@ from app.research.schemas import DiscoveredSourcePayload, ResearchBudget
 from app.research.service import ResearchRequestError, ResearchService, evidence_set_hash
 from app.stories.evidence import EvidenceRecord, build_evidence_key
 from app.stories.models import Story, StoryEvidenceLink, StoryEvidenceSnapshot, StoryRevision
+from app.workflows.states import require_research_run_transition
 
 type ResearchBackendResolver = Callable[[AIProviderProfile], ResearchBackend | Awaitable[ResearchBackend]]
 
@@ -257,7 +258,7 @@ def build_research_story_handler(
                 started_at=datetime.now(UTC),
             )
             session.add(attempt)
-            run.status = "running"
+            run.status = require_research_run_transition(run.status, "running")
             run.started_at = run.started_at or datetime.now(UTC)
             await session.flush()
             active_attempt_id = attempt.id
@@ -439,7 +440,7 @@ def build_research_story_handler(
                 durable_usage = redact_secrets(result.usage.model_dump(mode="json"))
                 attempt.usage = durable_usage if isinstance(durable_usage, dict) else {}
                 attempt.finished_at = now
-                run.status = "succeeded"
+                run.status = require_research_run_transition(run.status, "succeeded")
                 run.result_story_revision_id = revision.id
                 run.finished_at = now
                 session.add(
@@ -515,7 +516,8 @@ def build_research_story_handler(
                 stale_attempt_ignored = not owns_current
                 now = datetime.now(UTC)
                 if owns_current and run is not None:
-                    run.status = "needs_review" if error_class == "needs_review" else "failed"
+                    target_status = "needs_review" if error_class == "needs_review" else "failed"
+                    run.status = require_research_run_transition(run.status, target_status)
                     run.finished_at = now
                 if owns_current and attempt is not None:
                     attempt.status = "needs_review" if error_class == "needs_review" else "failed"

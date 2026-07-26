@@ -98,6 +98,7 @@ from app.research.schemas import CitationRef, Claim
 from app.stories.evidence import EvidenceRecord
 from app.stories.models import Story, StoryEvidenceSnapshot, StoryRevision
 from app.stories.states import DRAFTED, decide_story_transition
+from app.workflows.states import require_content_pack_transition, require_generation_run_transition
 
 
 def platform_limits_for(platform: Platform) -> dict[str, int]:
@@ -759,7 +760,7 @@ async def _invoke(
                 stale.error_code = "generation_attempt_interrupted"
                 stale.error_message = "Prior generation attempt was interrupted"
                 stale.finished_at = now
-        run.status = "running"
+        run.status = require_generation_run_transition(run.status, "running")
         run.error_class = run.error_code = run.error_message = None
         run.finished_at = None
     attempt = GenerationAttempt(
@@ -1007,7 +1008,7 @@ async def _invoke(
                                 }
                             ]
                         )
-                    current_run.status = "failed"
+                    current_run.status = require_generation_run_transition(current_run.status, "failed")
                     current_run.error_class = error_class
                     current_run.error_code = durable_error_code
                     current_run.error_message = durable_error_message
@@ -1045,7 +1046,7 @@ async def _invoke(
         current_attempt.status = "succeeded"
         current_attempt.finished_at = datetime.now(UTC)
         current_run.output_payload = durable_output
-        current_run.status = "succeeded"
+        current_run.status = require_generation_run_transition(current_run.status, "succeeded")
         current_run.finished_at = datetime.now(UTC)
         current_run.error_class = current_run.error_code = current_run.error_message = None
     return current_run, current_attempt, validated
@@ -1782,6 +1783,8 @@ def build_pack_generation_handler(
                             message="Story cannot enter drafted state",
                         )
                     locked_story.status = DRAFTED
+            elif pack.status != "draft":
+                pack.status = require_content_pack_transition(pack.status, "draft")
             variant = await context.session.scalar(
                 select(PlatformVariant)
                 .where(PlatformVariant.content_pack_id == pack.id, PlatformVariant.platform == platform)

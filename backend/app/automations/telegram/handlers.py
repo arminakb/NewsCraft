@@ -60,6 +60,7 @@ from app.jobs.types import JobExecution, JobOrigin, job_payload_copy
 from app.media.reference_fence import fence_platform_revision_media_write
 from app.publishing.models import Destination, PublishJob
 from app.stories.models import StoryEvidenceLink, StoryEvidenceSnapshot, StoryRevision
+from app.workflows.states import require_generation_run_transition
 
 logger = logging.getLogger(__name__)
 
@@ -2113,7 +2114,7 @@ def build_telegram_process_handler(
                             code="telegram_generation_input_drift",
                             message="Generation retry input differs from the durable request",
                         )
-                    run.status = "running"
+                    run.status = require_generation_run_transition(run.status, "running")
                     run.error_class = None
                     run.error_code = None
                     run.error_message = None
@@ -2259,7 +2260,7 @@ def build_telegram_process_handler(
                                 ]
                             )
                         current_attempt.finished_at = datetime.now(UTC)
-                        current_run.status = "failed"
+                        current_run.status = require_generation_run_transition(current_run.status, "failed")
                         current_run.error_class = error_class
                         current_run.error_code = durable_error_code
                         current_run.error_message = durable_error_message
@@ -2304,7 +2305,7 @@ def build_telegram_process_handler(
                 current_attempt.status = "completed"
                 current_attempt.finished_at = datetime.now(UTC)
                 current_run.output_payload = _redacted_dict(durable_output)
-                current_run.status = "completed"
+                current_run.status = require_generation_run_transition(current_run.status, "completed")
                 current_run.finished_at = datetime.now(UTC)
                 current_run.error_class = None
                 current_run.error_code = None

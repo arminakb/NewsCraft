@@ -9,6 +9,7 @@ from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.sql import func
 
 from app.db.base import Base, timestamp_now, uuid_pk
+from app.workflows.states import ContentPackState, GenerationRunState, VariantApprovalState
 
 
 class BrandProfile(Base):
@@ -122,7 +123,7 @@ class GenerationRun(Base):
         UUID(as_uuid=True), ForeignKey("prompt_template_versions.id"), nullable=False
     )
     requested_model: Mapped[str | None] = mapped_column(Text, nullable=True)
-    status: Mapped[str] = mapped_column(Text, nullable=False)
+    status: Mapped[GenerationRunState] = mapped_column(Text, nullable=False)
     input_hash: Mapped[str] = mapped_column(Text, nullable=False)
     request_payload: Mapped[dict] = mapped_column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
     output_payload: Mapped[dict] = mapped_column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
@@ -133,7 +134,13 @@ class GenerationRun(Base):
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = timestamp_now()
 
-    __table_args__ = (Index("ix_generation_runs_status_created", "status", created_at.desc()),)
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('running', 'succeeded', 'completed', 'failed')",
+            name="ck_generation_runs_status",
+        ),
+        Index("ix_generation_runs_status_created", "status", created_at.desc()),
+    )
 
 
 class GenerationAttempt(Base):
@@ -171,13 +178,16 @@ class ContentPack(Base):
     brand_profile_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("brand_profiles.id"), nullable=False
     )
-    status: Mapped[str] = mapped_column(Text, nullable=False, server_default="draft")
+    status: Mapped[ContentPackState] = mapped_column(Text, nullable=False, server_default="draft")
     created_at: Mapped[datetime] = timestamp_now()
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now()
     )
 
-    __table_args__ = (UniqueConstraint("story_revision_id", "brand_profile_id", name="uq_content_pack_story_brand"),)
+    __table_args__ = (
+        CheckConstraint("status IN ('draft', 'ready')", name="ck_content_packs_status"),
+        UniqueConstraint("story_revision_id", "brand_profile_id", name="uq_content_pack_story_brand"),
+    )
 
 
 class PlatformVariant(Base):
@@ -211,7 +221,7 @@ class PlatformVariantRevision(Base):
     content_hash: Mapped[str] = mapped_column(Text, nullable=False)
     evidence_map: Mapped[list] = mapped_column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
     validation_results: Mapped[list] = mapped_column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
-    approval_state: Mapped[str] = mapped_column(Text, nullable=False, server_default="draft")
+    approval_state: Mapped[VariantApprovalState] = mapped_column(Text, nullable=False, server_default="draft")
     approval_note: Mapped[str | None] = mapped_column(Text, nullable=True)
     approved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_by: Mapped[str] = mapped_column(Text, nullable=False)

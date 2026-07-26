@@ -13,12 +13,13 @@ from pydantic import HttpUrl, TypeAdapter, ValidationError
 from app.normalization.urls import normalize_url
 from app.research.schemas import CandidateClaim, CandidateResearchBrief, CitationRef, Claim, ResearchBrief
 from app.stories.evidence import EvidenceRecord
+from app.workflows.errors import EditorialValidationError
 
 _LOCATOR_PATTERN = re.compile(r"chars:(\d+)-(\d+)")
 _HTTP_URL_ADAPTER = TypeAdapter(HttpUrl)
 
 
-class CitationIntegrityError(ValueError):
+class CitationIntegrityError(EditorialValidationError):
     pass
 
 

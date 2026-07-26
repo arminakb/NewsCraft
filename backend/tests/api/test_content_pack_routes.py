@@ -470,7 +470,10 @@ async def test_edit_route_maps_stale_and_platform_conflicts_to_http_409(monkeypa
         await edit_variant_route(uuid4(), _manual_route_request(), SimpleNamespace())
 
     assert caught.value.status_code == 409
-    assert caught.value.detail == message
+    assert caught.value.detail == {
+        "code": "stale_revision",
+        "message": message,
+    }
 
 
 @pytest.mark.asyncio
@@ -489,8 +492,9 @@ async def test_edit_route_maps_fabricated_evidence_to_typed_http_422(monkeypatch
 
     assert caught.value.status_code == 422
     assert caught.value.detail == {
-        "code": "citation_integrity",
+        "code": "validation_failed",
         "message": "citation integrity failed",
+        "reason_code": "citation_integrity",
     }
 
 
@@ -516,7 +520,10 @@ async def test_telegram_edit_route_maps_reverse_platform_conflict_to_http_409(mo
         await edit_variant_route(uuid4(), request, SimpleNamespace())
 
     assert caught.value.status_code == 409
-    assert caught.value.detail == "platform conflicts with Telegram edit"
+    assert caught.value.detail == {
+        "code": "stale_revision",
+        "message": "platform conflicts with Telegram edit",
+    }
 
 
 @pytest.mark.asyncio

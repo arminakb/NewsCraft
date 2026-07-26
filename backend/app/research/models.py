@@ -4,11 +4,12 @@ import uuid
 from datetime import datetime
 from decimal import Decimal
 
-from sqlalchemy import DateTime, ForeignKey, Integer, Numeric, Text, UniqueConstraint, text
+from sqlalchemy import CheckConstraint, DateTime, ForeignKey, Integer, Numeric, Text, UniqueConstraint, text
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base, timestamp_now, uuid_pk
+from app.workflows.states import ResearchRunState
 
 
 class ResearchRun(Base):
@@ -20,7 +21,7 @@ class ResearchRun(Base):
     provider_profile_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("ai_provider_profiles.id"), nullable=True
     )
-    status: Mapped[str] = mapped_column(Text, nullable=False)
+    status: Mapped[ResearchRunState] = mapped_column(Text, nullable=False)
     query_budget: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
     page_budget: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
     time_budget_seconds: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
@@ -30,6 +31,13 @@ class ResearchRun(Base):
     created_at: Mapped[datetime] = timestamp_now()
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('queued', 'running', 'succeeded', 'needs_review', 'failed')",
+            name="ck_research_runs_status",
+        ),
+    )
 
 
 class ResearchAttempt(Base):

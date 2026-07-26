@@ -34,10 +34,18 @@ from app.research.continuations import (
 from app.research.models import ResearchAttempt, ResearchRun, ResearchSource
 from app.research.schemas import CompletenessReport, ResearchBudget
 from app.stories.models import Story, StoryEvidenceSnapshot, StoryRevision
+from app.workflows.errors import EditorialErrorCode, EditorialWorkflowError
 
 
-class ResearchRequestError(ValueError):
-    pass
+class ResearchRequestError(EditorialWorkflowError):
+    def __init__(
+        self,
+        message: str,
+        *,
+        category: EditorialErrorCode = "validation_failed",
+        code: str | None = None,
+    ) -> None:
+        super().__init__(message, category=category, code=code)
 
 
 def _redacted_dict(value: object) -> dict:
@@ -271,7 +279,7 @@ class ResearchService:
                 job_type="research_story",
             )
         if not snapshots:
-            raise ResearchRequestError("Story has no persisted evidence")
+            raise ResearchRequestError("Story has no persisted evidence", category="missing_evidence")
         evidence_hash = evidence_set_hash(snapshots)
         run = ResearchRun(
             story_id=story.id,

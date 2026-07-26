@@ -62,15 +62,16 @@ from app.research.schemas import CitationRef, Claim
 from app.research.service import ResearchRequestError, ResearchService
 from app.stories.evidence import EvidenceRecord
 from app.stories.models import Story, StoryEvidenceSnapshot, StoryRevision
+from app.workflows.errors import EditorialValidationError, StaleRevisionError
+from app.workflows.states import require_content_pack_transition, require_variant_approval_transition
 
 
-class InvalidGenerationRequest(ValueError):
+class InvalidGenerationRequest(EditorialValidationError):
     def __init__(self, message: str, *, code: str | None = None) -> None:
-        super().__init__(message)
-        self.code = code
+        super().__init__(message, code=code)
 
 
-class RevisionConflict(ValueError):
+class RevisionConflict(StaleRevisionError):
     pass
 
 
@@ -553,11 +554,12 @@ class EditorialService:
         )
         if latest_id != revision.id:
             raise RevisionConflict("revision is not current")
-        revision.approval_state = "approved"
+        revision.approval_state = require_variant_approval_transition(revision.approval_state, "approved")
         revision.approval_note = request.note
         revision.approved_at = datetime.now(UTC)
         self._event("content_pack.revision.approved", revision)
         await self.session.flush()
+        await self._refresh_pack_status(variant.content_pack_id)
         return revision
 
     async def reject_revision(self, revision_id: UUID, request: ApprovalRequest) -> PlatformVariantRevision:
@@ -568,11 +570,14 @@ class EditorialService:
             raise RevisionConflict("content hash changed")
         if revision.approval_state != "pending_review":
             raise RevisionConflict("revision is not pending review")
-        revision.approval_state = "rejected"
+        revision.approval_state = require_variant_approval_transition(revision.approval_state, "rejected")
         revision.approval_note = request.note
         revision.approved_at = None
         self._event("content_pack.revision.rejected", revision)
         await self.session.flush()
+        variant = await self.session.get(PlatformVariant, revision.platform_variant_id)
+        if variant is not None:
+            await self._refresh_pack_status(variant.content_pack_id)
         return revision
 
     async def regenerate_variant(self, variant_id: UUID, request: RegenerateVariantRequest) -> JobAcceptedOut:
@@ -621,6 +626,40 @@ class EditorialService:
         if revision is None:
             raise InvalidGenerationRequest("content pack story revision is missing")
         return revision
+
+    async def _refresh_pack_status(self, pack_id: UUID) -> None:
+        pack = await self.session.scalar(select(ContentPack).where(ContentPack.id == pack_id).with_for_update())
+        if pack is None:
+            raise RevisionConflict("content pack not found")
+        variants = list(
+            await self.session.scalars(
+                select(PlatformVariant).where(PlatformVariant.content_pack_id == pack_id).order_by(PlatformVariant.id)
+            )
+        )
+        current_states: list[str] = []
+        for variant in variants:
+            state = await self.session.scalar(
+                select(PlatformVariantRevision.approval_state)
+                .where(PlatformVariantRevision.platform_variant_id == variant.id)
+                .order_by(
+                    PlatformVariantRevision.revision_number.desc(),
+                    PlatformVariantRevision.created_at.desc(),
+                    PlatformVariantRevision.id.desc(),
+                )
+                .limit(1)
+            )
+            if state is not None:
+                current_states.append(state)
+        target = (
+            "ready"
+            if variants
+            and len(current_states) == len(variants)
+            and all(state == "approved" for state in current_states)
+            else "draft"
+        )
+        if pack.status != target:
+            pack.status = require_content_pack_transition(pack.status, target)
+            await self.session.flush()
 
     async def _evidence_records(self, story_revision: StoryRevision) -> dict[UUID, EvidenceRecord]:
         try:

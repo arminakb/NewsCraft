@@ -9,6 +9,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.capabilities import CapabilityStatusDependency
+from app.api.editorial_errors import editorial_http_error
 from app.api.stories import _story_summary
 from app.core.redaction import redact_secrets, redact_string
 from app.db.session import get_session
@@ -441,13 +442,6 @@ def _research_request_out(job: WorkflowJob) -> list[dict[str, Any]]:
     return rows
 
 
-def _service_error(exc: Exception) -> HTTPException:
-    if isinstance(exc, RevisionConflict):
-        return HTTPException(409, str(exc))
-    code = getattr(exc, "code", None)
-    return HTTPException(422, {"code": code, "message": str(exc)} if code else str(exc))
-
-
 @router.get("/stories/{story_id}")
 async def get_story(story_id: UUID, session: AsyncSession = SessionDependency):
     story = await session.get(Story, story_id)
@@ -518,7 +512,7 @@ async def create_content_pack(
     try:
         result = await EditorialService(session, profile_resolver=profile_resolver).request_content_pack(story_id, body)
     except InvalidGenerationRequest as exc:
-        raise _service_error(exc) from None
+        raise editorial_http_error(exc) from None
     await session.commit()
     return result
 
@@ -641,7 +635,7 @@ async def edit_variant(
             else await service.edit_variant(variant_id, body)
         )
     except (InvalidGenerationRequest, RevisionConflict) as exc:
-        raise _service_error(exc) from None
+        raise editorial_http_error(exc) from None
     await session.commit()
     return await _revision_out(session, result)
 
@@ -663,7 +657,7 @@ async def regenerate_variant(
     try:
         result = await EditorialService(session, profile_resolver=profile_resolver).regenerate_variant(variant_id, body)
     except (InvalidGenerationRequest, RevisionConflict) as exc:
-        raise _service_error(exc) from None
+        raise editorial_http_error(exc) from None
     await session.commit()
     return result
 
@@ -673,7 +667,7 @@ async def approve_revision(revision_id: UUID, body: ApprovalRequest, session: As
     try:
         result = await EditorialService(session).approve_revision(revision_id, body)
     except (InvalidGenerationRequest, RevisionConflict) as exc:
-        raise _service_error(exc) from None
+        raise editorial_http_error(exc) from None
     await session.commit()
     return await _revision_out(session, result)
 
@@ -683,6 +677,6 @@ async def reject_revision(revision_id: UUID, body: ApprovalRequest, session: Asy
     try:
         result = await EditorialService(session).reject_revision(revision_id, body)
     except (InvalidGenerationRequest, RevisionConflict) as exc:
-        raise _service_error(exc) from None
+        raise editorial_http_error(exc) from None
     await session.commit()
     return await _revision_out(session, result)

@@ -12,6 +12,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import exists, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.editorial_errors import editorial_http_error
 from app.db.models import ContentItem
 from app.db.session import get_session
 from app.jobs.events import redact_event_data
@@ -301,7 +302,7 @@ async def create_research_run(
             query_hint=payload.query_hint,
         )
     except ResearchRequestError as exc:
-        raise HTTPException(422, str(exc)) from None
+        raise editorial_http_error(exc) from None
     await session.commit()
     return result
 

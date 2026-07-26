@@ -18,7 +18,7 @@ from app.generation.editorial_service import (
     EditVariantRequest,
     GeneratePackRequest,
 )
-from app.generation.models import GenerationRun, PlatformVariantRevision
+from app.generation.models import ContentPack, GenerationRun, PlatformVariant, PlatformVariantRevision
 from app.generation.providers.registry import build_default_provider_registry
 from app.generation.telegram_schema import TelegramRewriteOutput
 from app.jobs.models import WorkflowEvent, WorkflowJob
@@ -158,6 +158,10 @@ async def test_http_manual_story_research_generation_edit_and_exact_approval(app
     )
     assert approved["id"] == edited["id"]
     assert approved["approval_state"] == "approved"
+    async with app_harness.session_factory() as session:
+        variant = await session.get(PlatformVariant, generated.platform_variant_id)
+        content_pack = await session.get(ContentPack, variant.content_pack_id)
+        assert content_pack.status == "ready"
 
     eligible = await app_harness.client.post(
         f"/telegram/drafts/{edited['id']}/publish",
