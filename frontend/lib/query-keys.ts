@@ -34,7 +34,6 @@ export const queryKeys = {
   codexActivity: ["settings", "codex-activity"] as const,
   editorialProviderOptions: ["settings", "ai-provider-profiles", "editorial-options"] as const,
   editorialBrandOptions: ["settings", "brand-profiles", "editorial-options"] as const,
-  editorialPromptOptions: ["settings", "prompt-templates", "editorial-options"] as const,
   stories: (filters: StoryFilters = {}) => ["stories", filters] as const,
   story: (id: string) => ["stories", id] as const,
   evidence: (storyId: string) => ["stories", storyId, "evidence"] as const,
@@ -64,7 +63,6 @@ export const operationsQueryKeys = {
 export const editorialQueryKeys = {
   editorialProviderOptions: queryKeys.editorialProviderOptions,
   editorialBrandOptions: queryKeys.editorialBrandOptions,
-  editorialPromptOptions: queryKeys.editorialPromptOptions,
   stories: queryKeys.stories,
   story: queryKeys.story,
   evidence: queryKeys.evidence,

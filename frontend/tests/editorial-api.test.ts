@@ -125,11 +125,11 @@ describe("editorial API", () => {
     await saveVariantRevision("variant-1", { baseRevisionId: "revision-1", baseContentHash: hash, content: { body: "Edited", parseMode: "HTML", buttons: [] }, mediaAssetIds: ["media-1"], editNote: "Corrected wording" })
     await approveVariantRevision("revision-1", { expectedContentHash: hash, note: null })
     await rejectVariantRevision("revision-1", { reason: "Unsupported claim" }, hash)
-    await regenerateVariant("variant-1", { providerProfileId: "provider-uuid", platformPromptTemplateVersionId: "prompt-uuid", instruction: null })
+    await regenerateVariant("variant-1", { providerProfileId: "provider-uuid", instruction: null })
     expect(fetchSpy).toHaveBeenNthCalledWith(1, "/api/backend/platform-variants/variant-1/revisions", expect.objectContaining({ body: JSON.stringify({ base_revision_id: "revision-1", base_content_hash: hash, content: { body: "Edited", parse_mode: "HTML", buttons: [] }, media_asset_ids: ["media-1"], edit_note: "Corrected wording" }) }))
     expect(fetchSpy).toHaveBeenNthCalledWith(2, "/api/backend/platform-variant-revisions/revision-1/approve", expect.objectContaining({ body: JSON.stringify({ expected_content_hash: hash, note: null }) }))
     expect(fetchSpy).toHaveBeenNthCalledWith(3, "/api/backend/platform-variant-revisions/revision-1/reject", expect.objectContaining({ body: JSON.stringify({ expected_content_hash: hash, note: "Unsupported claim" }) }))
-    expect(fetchSpy).toHaveBeenNthCalledWith(4, "/api/backend/platform-variants/variant-1/regenerate", expect.objectContaining({ body: JSON.stringify({ generation_provider_profile_id: "provider-uuid", platform_prompt_template_version_id: "prompt-uuid", instruction: null }) }))
+    expect(fetchSpy).toHaveBeenNthCalledWith(4, "/api/backend/platform-variants/variant-1/regenerate", expect.objectContaining({ body: JSON.stringify({ generation_provider_profile_id: "provider-uuid", instruction: null }) }))
     expect(JSON.stringify(vi.mocked(fetchSpy).mock.calls)).not.toContain("provider_type")
   })
 

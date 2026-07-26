@@ -29,7 +29,6 @@ import type {
 } from "@/features/packages/types"
 import {
   getAIProviderOptions,
-  getPromptVersionOptions,
   getStoryEvidence,
   regenerateVariant,
   saveVariantRevision,
@@ -78,11 +77,6 @@ export function ContentPackWorkspace({ packId, initialRevisionId = null }: { pac
   const providers = useQuery({
     queryKey: queryKeys.editorialProviderOptions,
     queryFn: getAIProviderOptions,
-    enabled: activeVariant?.platform === "telegram",
-  })
-  const prompts = useQuery({
-    queryKey: queryKeys.editorialPromptOptions,
-    queryFn: getPromptVersionOptions,
     enabled: activeVariant?.platform === "telegram",
   })
   const evidence = useQuery({
@@ -153,7 +147,7 @@ export function ContentPackWorkspace({ packId, initialRevisionId = null }: { pac
     onSuccess: refreshRevision,
   })
   const regenerate = useMutation({
-    mutationFn: (input: { variantId: string; providerProfileId: string; platformPromptTemplateVersionId: string; instruction: string | null }) => regenerateVariant(input.variantId, input),
+    mutationFn: (input: { variantId: string; providerProfileId: string; instruction: string | null }) => regenerateVariant(input.variantId, input),
     onSuccess: async (_job, input) => refreshPackageAndHistory(input.variantId),
   })
   const workspaceBusy = telegramSave.isPending || manualSave.isPending || approve.isPending || reject.isPending || regenerate.isPending
@@ -162,13 +156,13 @@ export function ContentPackWorkspace({ packId, initialRevisionId = null }: { pac
     ?? initialRevision.error
     ?? revisionHistory.error
     ?? evidence.error
-    ?? (activeVariant?.platform === "telegram" ? providers.error ?? prompts.error : null)
+    ?? (activeVariant?.platform === "telegram" ? providers.error : null)
   if (queryError) return <section role="alert" dir="auto" className="p-6 text-red-700">{getApiErrorMessage(queryError, "Editorial workspace or captured evidence could not be loaded")}</section>
   const loading = pack.isPending
     || (Boolean(initialRevisionId) && initialRevision.isPending)
     || (Boolean(pack.data?.storyId) && evidence.isPending)
     || (Boolean(activeVariant) && revisionHistory.isPending)
-    || (activeVariant?.platform === "telegram" && (providers.isPending || prompts.isPending))
+    || (activeVariant?.platform === "telegram" && providers.isPending)
   if (loading) return <section role="status" className="p-6">Loading editorial workspace and captured evidence…</section>
   if (!pack.data) return <section role="alert" className="p-6 text-red-700">Content package data is unavailable.</section>
 
@@ -227,7 +221,6 @@ export function ContentPackWorkspace({ packId, initialRevisionId = null }: { pac
           {revision.platform === "telegram" ? <VariantEditor
             revision={telegramEditorRevision(revision)}
             availableProviders={providers.data ?? []}
-            availablePromptVersions={prompts.data ?? []}
             onSave={(input) => telegramSave.mutateAsync(input)}
             onApprove={async (input) => {
               const updated = await approve.mutateAsync(input)

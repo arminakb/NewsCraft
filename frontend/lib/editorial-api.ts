@@ -100,7 +100,7 @@ export function saveVariantRevision(variantId: string, input: EditVariantInput):
 }
 export function approveVariantRevision(revisionId: string, input: { expectedContentHash: string; note: string | null }): Promise<VariantRevision> { return apiRequest<BackendRevision>(`/platform-variant-revisions/${revisionId}/approve`, jsonInit("POST", { expected_content_hash: input.expectedContentHash, note: input.note })).then(mapRevision) }
 export function rejectVariantRevision(revisionId: string, input: { reason: string }, expectedContentHash = ""): Promise<VariantRevision> { return apiRequest<BackendRevision>(`/platform-variant-revisions/${revisionId}/reject`, jsonInit("POST", { expected_content_hash: expectedContentHash, note: input.reason })).then(mapRevision) }
-export function regenerateVariant(variantId: string, input: { providerProfileId: string; platformPromptTemplateVersionId: string; instruction: string | null }): Promise<JobAccepted> { return jsonPost<{ job_id: string; status: string; deduplicated: boolean }>(`/platform-variants/${variantId}/regenerate`, { generation_provider_profile_id: input.providerProfileId, platform_prompt_template_version_id: input.platformPromptTemplateVersionId, instruction: input.instruction }).then(mapJob) }
+export function regenerateVariant(variantId: string, input: { providerProfileId: string; instruction: string | null }): Promise<JobAccepted> { return jsonPost<{ job_id: string; status: string; deduplicated: boolean }>(`/platform-variants/${variantId}/regenerate`, { generation_provider_profile_id: input.providerProfileId, instruction: input.instruction }).then(mapJob) }
 
 type BackendResearchRun = {
   id: string; story_id: string; requested_mode: "manual" | "auto_if_incomplete"; status: string

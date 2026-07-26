@@ -15,7 +15,7 @@ vi.mock("@/features/packages/components/copy-export-actions", () => ({
     intendedRevisions: Array<{ variantId: string; revisionId: string | null; approvalState: PlatformRevision["approvalState"] | null }>
   }) => <div aria-label="Copy and export binding">Copy/export revision {revision.id}; intended {intendedRevisions.map((item) => `${item.variantId}:${item.revisionId ?? "missing"}:${item.approvalState ?? "missing"}`).join(",")}</div>,
 }))
-vi.mock("@/lib/editorial-api", () => ({ getAIProviderOptions: vi.fn(), getPromptVersionOptions: vi.fn(), getStoryEvidence: vi.fn(), regenerateVariant: vi.fn(), saveVariantRevision: vi.fn() }))
+vi.mock("@/lib/editorial-api", () => ({ getAIProviderOptions: vi.fn(), getStoryEvidence: vi.fn(), regenerateVariant: vi.fn(), saveVariantRevision: vi.fn() }))
 
 const revision: VariantRevision = { id: "rev-1", variantId: "variant-1", contentPackId: "pack-1", storyId: "story-1", parentRevisionId: null, generationAttemptId: null, revisionNumber: 1, content: { body: "Draft", parseMode: "HTML", buttons: [], mediaAssetIds: [], sourceUrl: null, mediaPolicy: "preserve", direction: "ltr", dryRun: false }, contentHash: "a".repeat(64), evidenceMap: [], validationResults: [{ gate: "telegram_schema", ok: true, reason: null }], approvalState: "pending_review", approvalNote: null, approvedAt: null, createdBy: "generation", origin: "generation", createdAt: "2026-07-12T08:00:00Z", providerProfile: null, resolvedModel: null }
 const telegramRevision = (current: VariantRevision): TelegramRevision => ({ id: current.id, platform: "telegram", variantId: current.variantId, contentPackId: current.contentPackId, storyId: current.storyId, parentRevisionId: current.parentRevisionId, generationAttemptId: current.generationAttemptId, revisionNumber: current.revisionNumber, payload: { body: current.content.body, parseMode: current.content.parseMode, buttons: current.content.buttons, sourceItemId: null, sourceUrl: current.content.sourceUrl, mediaPolicy: current.content.mediaPolicy as TelegramRevision["payload"]["mediaPolicy"], mediaAssetIds: current.content.mediaAssetIds, direction: current.content.direction === "auto" ? "ltr" : current.content.direction, dryRun: current.content.dryRun }, contentHash: current.contentHash, evidenceCitations: current.evidenceMap, manualChecklist: [], validationResults: current.validationResults, validation: [], mediaPlan: current.content.mediaAssetIds, sourceMedia: [], approvalState: current.approvalState, approvalNote: current.approvalNote, approvedAt: current.approvedAt, createdBy: current.createdBy, origin: current.origin, providerProfile: current.providerProfile, resolvedModel: current.resolvedModel, promptVersion: null, createdAt: current.createdAt })
@@ -24,7 +24,6 @@ const pack = (current: PlatformRevision, variants: ContentPackage["variants"] = 
 function mockCommonQueries() {
   vi.mocked(api.getStoryEvidence).mockResolvedValue([])
   vi.mocked(api.getAIProviderOptions).mockResolvedValue([])
-  vi.mocked(api.getPromptVersionOptions).mockResolvedValue([])
 }
 
 beforeEach(() => vi.resetAllMocks())

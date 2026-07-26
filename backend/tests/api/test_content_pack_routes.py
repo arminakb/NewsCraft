@@ -149,6 +149,13 @@ def test_content_pack_request_uses_plural_platforms_and_safe_prompt_resolution()
     )
     assert legacy.platforms == ["telegram"]
     assert "platform_prompt_template_version_id" not in legacy.model_dump()
+    with pytest.raises(ValueError):
+        RegenerateVariantRequest.model_validate(
+            {
+                "generation_provider_profile_id": str(uuid4()),
+                "platform_prompt_template_version_id": str(uuid4()),
+            }
+        )
 
 
 @pytest.mark.asyncio

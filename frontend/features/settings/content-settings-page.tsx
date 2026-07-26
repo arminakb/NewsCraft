@@ -1181,7 +1181,6 @@ function PromptPurpose({
             await Promise.all([
               queryClient.invalidateQueries({ queryKey: ["settings", "prompt-templates"] }),
               queryClient.invalidateQueries({ queryKey: queryKeys.telegramOptions }),
-              queryClient.invalidateQueries({ queryKey: queryKeys.editorialPromptOptions }),
             ])
             pushNotice({ tone: "success", title: "Prompt governance updated", message: meta.label })
           }}

@@ -38,13 +38,6 @@ it("uses automatic direction for Telegram labels and operator prose without affe
         capabilities: { generation: true, research: true },
         unavailableReason: null,
       }]}
-      availablePromptVersions={[{
-        id: "prompt-uuid",
-        purpose: "telegram_pack",
-        version: 1,
-        checksumSha256: "c".repeat(64),
-        active: true,
-      }]}
     />
   )
 
@@ -78,13 +71,13 @@ it("handles a stale save without discarding operator edits", async () => {
   expect(screen.getByLabelText("Telegram message")).toHaveValue("Draft Added context")
 })
 
-it("submits only configured provider and prompt UUIDs for regeneration", () => {
+it("submits the provider while the backend resolves the active prompt", () => {
   const regenerate = vi.fn().mockResolvedValue({ jobId: "job-1", status: "queued", deduplicated: false })
-  render(<VariantEditor revision={revision} availableProviders={[{ id: "provider-uuid", name: "Codex CLI", providerType: "codex", defaultModel: "gpt-5.4", capabilities: { generation: true, research: true }, unavailableReason: null }]} availablePromptVersions={[{ id: "prompt-uuid", purpose: "telegram_pack", version: 1, checksumSha256: "c".repeat(64), active: true }]} onRegenerate={regenerate} />)
+  render(<VariantEditor revision={revision} availableProviders={[{ id: "provider-uuid", name: "Codex CLI", providerType: "codex", defaultModel: "gpt-5.4", capabilities: { generation: true, research: true }, unavailableReason: null }]} onRegenerate={regenerate} />)
   fireEvent.change(screen.getByLabelText("AI provider"), { target: { value: "provider-uuid" } })
-  fireEvent.change(screen.getByLabelText("Telegram pack prompt"), { target: { value: "prompt-uuid" } })
   fireEvent.click(screen.getByRole("button", { name: "Regenerate" }))
-  expect(regenerate).toHaveBeenCalledWith({ variantId: "variant-1", providerProfileId: "provider-uuid", platformPromptTemplateVersionId: "prompt-uuid", instruction: null })
+  expect(regenerate).toHaveBeenCalledWith({ variantId: "variant-1", providerProfileId: "provider-uuid", instruction: null })
+  expect(screen.getByText(/active Telegram prompt is resolved/i)).toBeInTheDocument()
 })
 
 it("cannot approve a revision with a failed persisted media gate even after a forced click", () => {

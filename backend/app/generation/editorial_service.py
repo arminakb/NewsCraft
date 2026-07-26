@@ -113,14 +113,6 @@ class RegenerateVariantRequest(BaseModel):
     generation_provider_profile_id: UUID
     instruction: str | None = Field(default=None, max_length=1_000)
 
-    @model_validator(mode="before")
-    @classmethod
-    def discard_release_three_prompt_choice(cls, value: Any):
-        if isinstance(value, dict) and "platform_prompt_template_version_id" in value:
-            value = dict(value)
-            value.pop("platform_prompt_template_version_id")
-        return value
-
 
 class ApprovalRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
