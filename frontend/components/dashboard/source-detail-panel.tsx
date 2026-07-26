@@ -42,7 +42,7 @@ export function SourceDetailPanel({
       aria-label="Source details"
       data-open={open}
       className={cn(
-        "fixed inset-y-0 right-0 z-30 w-[min(100vw,440px)] flex-col border-l bg-white shadow-xl transition-transform xl:sticky xl:top-0 xl:flex xl:h-screen xl:translate-x-0 xl:shadow-none",
+        "fixed inset-y-0 right-0 z-30 w-[min(100vw,440px)] flex-col border-l bg-background shadow-xl transition-transform xl:sticky xl:top-0 xl:flex xl:h-screen xl:translate-x-0 xl:shadow-none",
         open ? "flex translate-x-0" : "hidden translate-x-full xl:flex xl:translate-x-0"
       )}
     >
@@ -72,7 +72,7 @@ export function SourceDetailPanel({
         <Separator className="my-4" />
         <div className="mt-4 grid grid-cols-3 gap-3">
           {metrics.map(([label, value]) => (
-            <div key={label} className="rounded-md border bg-white p-3">
+            <div key={label} className="rounded-md border bg-background p-3">
               <div className="text-xs text-muted-foreground">{label}</div>
               <div className="mt-2 text-2xl tabular-nums">{value}</div>
             </div>

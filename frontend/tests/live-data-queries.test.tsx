@@ -3,6 +3,7 @@ import { render, screen, waitFor } from "@testing-library/react"
 
 import { RunsPage } from "@/components/dashboard/pages/runs-page"
 import { SourcesPage } from "@/components/dashboard/pages/sources-page"
+import { NoticeProvider } from "@/components/providers/notice-provider"
 import {
   getIngestRuns,
   getSources,
@@ -56,6 +57,10 @@ function renderWithClient(ui: React.ReactElement) {
   })
   return {
     queryClient,
-    ...render(<QueryClientProvider client={queryClient}>{ui}</QueryClientProvider>),
+    ...render(
+      <QueryClientProvider client={queryClient}>
+        <NoticeProvider>{ui}</NoticeProvider>
+      </QueryClientProvider>
+    ),
   }
 }

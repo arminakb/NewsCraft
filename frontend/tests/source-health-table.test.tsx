@@ -19,6 +19,8 @@ describe("SourceHealthTable", () => {
     expect(screen.getByRole("tab", { name: /telegram 1/i })).toBeInTheDocument()
     expect(screen.getByText("Healthy")).toBeInTheDocument()
     expect(screen.getByText("Degraded")).toBeInTheDocument()
+    expect(screen.getByRole("columnheader", { name: "Items" })).toBeInTheDocument()
+    expect(screen.queryByRole("columnheader", { name: /news|new/i })).not.toBeInTheDocument()
     expect(screen.queryByRole("columnheader", { name: "Next run" })).not.toBeInTheDocument()
     expect(screen.queryByRole("button", { name: /source table options/i })).not.toBeInTheDocument()
     expect(screen.queryByRole("button", { name: /view all sources/i })).not.toBeInTheDocument()
@@ -89,5 +91,40 @@ describe("SourceHealthTable", () => {
     )
 
     expect(onSelectSource).toHaveBeenCalledWith("telegram_dw_persian")
+  })
+
+  it("switches between RSS and Telegram sources without a render loop", () => {
+    render(
+      <SourceHealthTable
+        sources={dashboardMock.sources}
+        selectedSourceId={dashboardMock.sources[0].id}
+        onSelectSource={() => undefined}
+      />
+    )
+
+    fireEvent.click(screen.getByRole("tab", { name: /rss 1/i }))
+    expect(screen.getByRole("row", { name: /techcrunch/i })).toBeInTheDocument()
+    expect(screen.queryByRole("row", { name: /dw persian/i })).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole("tab", { name: /telegram 1/i }))
+    expect(screen.getByRole("row", { name: /dw persian/i })).toBeInTheDocument()
+    expect(screen.queryByRole("row", { name: /techcrunch/i })).not.toBeInTheDocument()
+  })
+
+  it("requests confirmation before deleting a source", () => {
+    const onDeleteSource = vi.fn()
+
+    render(
+      <SourceHealthTable
+        sources={dashboardMock.sources}
+        selectedSourceId={dashboardMock.sources[0].id}
+        onDeleteSource={onDeleteSource}
+        onSelectSource={() => undefined}
+      />
+    )
+
+    fireEvent.click(screen.getByRole("button", { name: /delete techcrunch/i }))
+
+    expect(onDeleteSource).toHaveBeenCalledWith(dashboardMock.sources[0])
   })
 })

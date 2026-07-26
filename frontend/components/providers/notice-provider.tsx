@@ -43,7 +43,7 @@ export function NoticeProvider({ children }: { children: React.ReactNode }) {
         {notices.map((notice) => (
           <div
             key={notice.id}
-            className={`rounded-md border bg-white p-3 shadow-lg ${notice.tone === "error" ? "border-red-200" : "border-emerald-200"}`}
+            className={`rounded-md border bg-background p-3 shadow-lg ${notice.tone === "error" ? "border-red-200 dark:border-red-800" : "border-emerald-200 dark:border-emerald-800"}`}
           >
             <div data-notice-title className="font-semibold">
               {notice.title}
