@@ -101,10 +101,6 @@ With Docker Compose:
 docker compose run --rm api alembic upgrade head
 ```
 
-## Legacy SQLite
-
-`backend/scripts/migrate_legacy_sqlite.py` currently provides a minimal reader for legacy `news.db` article rows. It does not write into PostgreSQL yet.
-
 ## Content Scoring
 
 Every parsed item is normalized, classified, bucketed, scored, and checked for rewrite readiness before it is stored as a `content_items` row. The pipeline keeps one canonical deduplicated content item record and stores content intelligence metadata on that row.

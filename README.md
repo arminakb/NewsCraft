@@ -13,7 +13,6 @@ The active backend lives in `backend/`. The ingestion dashboard lives in `fronte
 - Supports evidence-backed research, multi-platform package generation, immutable editorial revisions, exact approval, deterministic exports, reviewed Telegram scheduling/publishing, and manual publication tracking for Instagram, X, and blog.
 - Provides source health diagnostics, validation reports, and manual ingestion endpoints.
 - Provides a Next.js ingestion dashboard for source health, runs, content queue, media extraction, and source detail review.
-- Includes a minimal legacy SQLite article reader for user-provided old `news.db` files.
 
 ## Tech Stack
 
@@ -368,4 +367,3 @@ manual stops, rollback, or backup/restore work.
 ## Notes
 
 - Local databases, virtual environments, generated media, cache files, and `.env` files are ignored by Git.
-- The legacy SQLite reader only reads old article rows; it does not write into PostgreSQL yet.
