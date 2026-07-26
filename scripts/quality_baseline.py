@@ -7,6 +7,7 @@ import argparse
 import json
 import re
 import subprocess
+import sys
 from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -16,6 +17,13 @@ BACKEND = ROOT / "backend"
 FRONTEND = ROOT / "frontend"
 FRONTEND_SOURCE_DIRS = ("app", "components", "features", "lib")
 GENERATED_FRONTEND_FILES = {Path("lib/api/generated.ts")}
+CHECK_FINDING_BUDGETS = {
+    "Normal Ruff": 0,
+    "Ruff complex functions": 53,
+    "Ruff excessive statements": 25,
+    "TypeScript unused code": 0,
+    "Full backend mypy": 0,
+}
 
 
 @dataclass(frozen=True)
@@ -234,10 +242,7 @@ def render_markdown(baseline: dict[str, object]) -> str:
         lines.extend(
             (
                 "",
-                "Complexity, strict-unused, and full-backend mypy findings are informational "
-                "during the initial baseline.",
-                "The command exits successfully after reporting them so existing debt does not "
-                "become blocking accidentally.",
+                "Use `--check` to enforce zero Ruff/type/unused findings and the committed complexity-debt budgets.",
             )
         )
     lines.extend(("", "## Largest files", ""))
@@ -261,13 +266,40 @@ def parse_args() -> argparse.Namespace:
         help="Skip installed-tool static analysis",
     )
     parser.add_argument("--json", action="store_true", help="Emit JSON instead of Markdown")
+    parser.add_argument(
+        "--check",
+        action="store_true",
+        help="Fail when a required tool is unavailable or a static-analysis budget is exceeded",
+    )
     parser.add_argument("--output", type=Path, help="Write the report to this path instead of stdout")
     return parser.parse_args()
 
 
+def quality_gate_failures(baseline: dict[str, object]) -> list[str]:
+    checks = baseline.get("checks")
+    if not isinstance(checks, list):
+        return ["static analysis was not collected"]
+    failures: list[str] = []
+    observed = {str(check["name"]): check for check in checks if isinstance(check, dict)}
+    for name, budget in CHECK_FINDING_BUDGETS.items():
+        check = observed.get(name)
+        if check is None:
+            failures.append(f"{name}: result is missing")
+            continue
+        if not check.get("available"):
+            failures.append(f"{name}: tool is unavailable")
+            continue
+        findings = check.get("findings")
+        if not isinstance(findings, int):
+            failures.append(f"{name}: finding count is unavailable")
+        elif findings > budget:
+            failures.append(f"{name}: {findings} findings exceeds budget {budget}")
+    return failures
+
+
 def main() -> int:
     args = parse_args()
-    baseline = collect_baseline(run_checks=not args.metrics_only)
+    baseline = collect_baseline(run_checks=args.check or not args.metrics_only)
     output = json.dumps(baseline, indent=2, sort_keys=True) + "\n" if args.json else render_markdown(baseline)
     if args.output:
         destination = args.output if args.output.is_absolute() else ROOT / args.output
@@ -275,6 +307,11 @@ def main() -> int:
         destination.write_text(output, encoding="utf-8")
     else:
         print(output, end="")
+    failures = quality_gate_failures(baseline) if args.check else []
+    if failures:
+        for failure in failures:
+            print(f"quality gate failed: {failure}", file=sys.stderr)
+        return 1
     return 0
 
 

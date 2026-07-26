@@ -51,3 +51,24 @@ def test_quality_baseline_collects_the_current_repository() -> None:
     assert baseline["frontend"]["files"] > 0
     assert baseline["frontend"]["lines"] > 0
     assert set(baseline["frontend"]["thresholds"]) == {"300", "500"}
+
+
+def test_quality_gate_rejects_missing_tools_and_budget_regressions() -> None:
+    module = _module()
+    checks = [
+        {
+            "name": name,
+            "available": True,
+            "findings": budget,
+        }
+        for name, budget in module.CHECK_FINDING_BUDGETS.items()
+    ]
+
+    assert module.quality_gate_failures({"checks": checks}) == []
+
+    checks[0]["available"] = False
+    checks[1]["findings"] += 1
+    assert module.quality_gate_failures({"checks": checks}) == [
+        "Normal Ruff: tool is unavailable",
+        "Ruff complex functions: 54 findings exceeds budget 53",
+    ]
