@@ -209,7 +209,7 @@ async def test_automation_revision_writer_waits_for_live_regeneration_fence(monk
         raise RegenerationFenceConflict("Variant regeneration is in progress")
 
     monkeypatch.setattr(
-        "app.automations.telegram.process_operations.require_revision_write_allowed",
+        "app.automations.telegram.process_support.require_revision_write_allowed",
         reject,
     )
     with pytest.raises(RetryableJobError) as caught:

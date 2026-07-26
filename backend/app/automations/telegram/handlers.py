@@ -12,13 +12,15 @@ from app.automations.telegram.handler_contracts import (
     validate_evidence_snapshot,
 )
 from app.automations.telegram.process_operations import (
+    build_telegram_process_handler,
+    process_route_dispatch,
+)
+from app.automations.telegram.process_support import (
     _dispatch_media,
     _media_decision,
     _require_automation_variant_write_allowed,
     _resolve_process_prompt,
-    build_telegram_process_handler,
     enqueue_telegram_publish_intent,
-    process_route_dispatch,
 )
 from app.automations.telegram.route_operations import build_telegram_route_handlers
 
