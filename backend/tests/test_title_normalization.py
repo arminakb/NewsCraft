@@ -3,12 +3,12 @@ from uuid import uuid4
 
 from app.db.models import Source
 from app.ingestion.repository import _content_item_values
-from app.normalization.titles import normalize_telegram_title
+from app.normalization.titles import normalize_title
 from app.sources.base import ParsedSourceItem
 
 
 def test_generates_persian_title_from_emoji_only_title():
-    result = normalize_telegram_title("✅", "آموزش ساخت بات هوش مصنوعی با پایتون\nادامه متن")
+    result = normalize_title("✅", "آموزش ساخت بات هوش مصنوعی با پایتون\nادامه متن")
 
     assert result.title == "آموزش ساخت بات هوش مصنوعی با پایتون"
     assert result.quality == "generated"
@@ -16,21 +16,19 @@ def test_generates_persian_title_from_emoji_only_title():
 
 
 def test_generates_english_title_from_emoji_only_title():
-    result = normalize_telegram_title("🔥", "OpenAI releases a new API for developers.\nMore details follow.")
+    result = normalize_title("🔥", "OpenAI releases a new API for developers.\nMore details follow.")
 
     assert result.title == "OpenAI releases a new API for developers"
     assert result.was_generated is True
 
 
 def test_generates_title_for_empty_or_symbol_only_title():
-    assert normalize_telegram_title("", "A useful update about vector databases.").title.startswith("A useful update")
-    assert normalize_telegram_title("!!!", "A useful update about vector databases.").title.startswith(
-        "A useful update"
-    )
+    assert normalize_title("", "A useful update about vector databases.").title.startswith("A useful update")
+    assert normalize_title("!!!", "A useful update about vector databases.").title.startswith("A useful update")
 
 
 def test_keeps_meaningful_title_unchanged():
-    result = normalize_telegram_title("AI funding round announced", "Body text")
+    result = normalize_title("AI funding round announced", "Body text")
 
     assert result.title == "AI funding round announced"
     assert result.quality == "good"
@@ -38,14 +36,14 @@ def test_keeps_meaningful_title_unchanged():
 
 
 def test_generated_title_is_limited_to_100_characters():
-    result = normalize_telegram_title("✅", "This is a very long Telegram post title candidate " * 5)
+    result = normalize_title("✅", "This is a very long Telegram post title candidate " * 5)
 
     assert len(result.title) <= 100
     assert result.was_generated is True
 
 
 def test_low_signal_when_no_meaningful_title_can_be_generated():
-    result = normalize_telegram_title("✅", "🔥 ✅ !!!")
+    result = normalize_title("✅", "🔥 ✅ !!!")
 
     assert result.quality == "low_signal"
     assert result.low_signal is True

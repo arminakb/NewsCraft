@@ -1,6 +1,6 @@
-from datetime import UTC
+from datetime import UTC, datetime
 
-from app.normalization.dates import parse_source_datetime
+from app.normalization.dates import normalize_source_datetime, parse_source_datetime
 from app.normalization.fingerprints import content_hash, title_date_fingerprint
 from app.normalization.text import fingerprint_text, infer_direction
 from app.normalization.urls import normalize_url
@@ -20,6 +20,18 @@ def test_parse_source_datetime_uses_default_timezone():
 
     assert parsed.tzinfo == UTC
     assert status == "assumed_timezone"
+
+
+def test_normalize_source_datetime_preserves_aware_instant():
+    parsed, status = normalize_source_datetime("2026-07-03T22:15:00+03:30")
+
+    assert parsed == datetime(2026, 7, 3, 18, 45, tzinfo=UTC)
+    assert status == "parsed"
+
+
+def test_normalize_source_datetime_reports_missing_and_malformed():
+    assert normalize_source_datetime(None) == (None, "missing")
+    assert normalize_source_datetime("not-a-date") == (None, "failed")
 
 
 def test_hashes_are_stable():

@@ -5,7 +5,7 @@ from datetime import datetime
 
 from bs4 import BeautifulSoup, Tag
 
-from app.normalization.dates import parse_source_datetime
+from app.normalization.dates import normalize_source_datetime
 from app.normalization.media import infer_media_kind, is_http_media_url
 from app.normalization.text import infer_direction
 from app.normalization.urls import normalize_url
@@ -62,7 +62,7 @@ def _parse_message(block: Tag, channel: str, warnings: list[str]) -> ParsedSourc
         source_url=source_url,
         source_url_norm=normalize_url(source_url),
         canonical_url_candidate=normalize_url(source_url),
-        title=_message_title(content_text, message_id),
+        title="",
         summary=content_text,
         content_html=content_html,
         content_text=content_text,
@@ -85,25 +85,13 @@ def _parse_message(block: Tag, channel: str, warnings: list[str]) -> ParsedSourc
     )
 
 
-def _message_title(content_text: str, message_id: int) -> str:
-    for line in content_text.splitlines():
-        stripped = line.strip()
-        if stripped:
-            return stripped[:140]
-    return f"Telegram post {message_id}"
-
-
 def _message_datetime(block: Tag) -> tuple[str | None, datetime | None, str]:
     time_node = block.select_one("time[datetime]")
     if not time_node:
         return None, None, "missing"
-    raw = time_node.get("datetime")
-    if not raw:
-        return None, None, "missing"
-    try:
-        parsed, status = parse_source_datetime(raw, default_timezone="UTC")
-    except TypeError, ValueError, OverflowError:
-        return raw, None, "failed"
+    raw_value = time_node.get("datetime")
+    raw = str(raw_value) if raw_value else None
+    parsed, status = normalize_source_datetime(raw)
     return raw, parsed, status
 
 

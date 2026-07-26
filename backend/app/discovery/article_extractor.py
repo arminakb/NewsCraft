@@ -9,7 +9,7 @@ import httpx
 from bs4 import BeautifulSoup
 
 from app.discovery.models import DiscoveryItem, ExtractedArticle
-from app.normalization.dates import parse_source_datetime
+from app.normalization.dates import normalize_source_datetime
 
 try:
     import trafilatura
@@ -260,12 +260,7 @@ def _fallback_text(soup: BeautifulSoup) -> str:
 
 
 def _parse_datetime(value: str | None) -> datetime | None:
-    if not value:
-        return None
-    try:
-        return parse_source_datetime(value)[0]
-    except ValueError, TypeError, OverflowError:
-        return None
+    return normalize_source_datetime(value)[0]
 
 
 def _failed_article(item: DiscoveryItem, warning: str) -> ExtractedArticle:
