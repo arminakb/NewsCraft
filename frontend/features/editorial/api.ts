@@ -1,12 +1,12 @@
 import type { Platform } from "@/features/packages/types"
 import type { components } from "@/lib/api/generated"
+import { camelize } from "@/lib/camelize"
 import { apiRequest } from "@/lib/http"
 
 import type {
   AIProviderOption,
   Completeness,
   ContentPackRequestSummary,
-  ContentPackSummary,
   EvidenceDetail,
   ResearchRunDetail,
 } from "./types"
@@ -18,7 +18,7 @@ type BackendEvidence = {
   content_text: string
   content_sha256: string
   source_url: string | null
-  authors?: string[]
+  authors: string[]
   published_at: string | null
   captured_at: string
 }
@@ -45,8 +45,6 @@ type BackendPack = {
   status: string
   created_at: string
   updated_at: string
-  last_failure?: string | null
-  job_id?: string | null
   variants: Array<{ id: string; platform: Platform }>
 }
 type BackendContentPackRequest = {
@@ -67,17 +65,7 @@ export async function getStoryCompleteness(id: string): Promise<Completeness> {
 
 export async function getStoryEvidence(id: string): Promise<EvidenceDetail[]> {
   const rows = await apiRequest<BackendEvidence[]>(`/stories/${encodeURIComponent(id)}/evidence`)
-  return rows.map((row) => ({
-    id: row.id,
-    evidenceKey: row.evidence_key,
-    title: row.title,
-    contentText: row.content_text,
-    contentSha256: row.content_sha256,
-    sourceUrl: row.source_url,
-    authors: row.authors ?? [],
-    publishedAt: row.published_at,
-    capturedAt: row.captured_at,
-  }))
+  return camelize(rows)
 }
 
 export async function getResearchRuns(storyId: string): Promise<ResearchRunDetail[]> {
@@ -106,16 +94,7 @@ export async function getAIProviderOptions(): Promise<AIProviderOption[]> {
 
 export async function getContentPackRequests(): Promise<ContentPackRequestSummary[]> {
   const rows = await apiRequest<BackendContentPackRequest[]>("/content-pack-requests")
-  return rows.map((row) => ({
-    id: row.id,
-    jobId: row.job_id,
-    storyId: row.story_id,
-    status: row.status,
-    lastFailure: row.last_failure,
-    createdAt: row.created_at,
-    updatedAt: row.updated_at,
-    pack: row.pack ? mapPack(row.pack) : null,
-  }))
+  return camelize(rows)
 }
 
 function mapResearchRun(row: BackendResearchRun): ResearchRunDetail {
@@ -150,22 +129,6 @@ function mapResearchRun(row: BackendResearchRun): ResearchRunDetail {
       publishedAt: item.published_at ?? null,
     })),
     resultStoryRevisionId: row.result_revision_id ?? null,
-  }
-}
-
-function mapPack(row: BackendPack): ContentPackSummary {
-  if (!row.story_id) throw new Error("Content pack story identity is unavailable")
-  return {
-    id: row.id,
-    storyId: row.story_id,
-    storyRevisionId: row.story_revision_id,
-    brandProfileId: row.brand_profile_id,
-    status: row.status,
-    createdAt: row.created_at,
-    updatedAt: row.updated_at,
-    lastFailure: row.last_failure ?? null,
-    jobId: row.job_id ?? null,
-    variants: row.variants,
   }
 }
 

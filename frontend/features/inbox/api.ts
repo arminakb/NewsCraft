@@ -1,26 +1,12 @@
+import { camelize, type Camelized } from "@/lib/camelize"
 import { apiRequest } from "@/lib/http"
 
 export type InboxView = "needs-decision" | "ready-to-generate" | "research-incomplete"
 
-export type InboxStory = {
-  id: string
-  title: string
-  status: "inbox" | "shortlisted" | "rejected" | "drafted"
-  primaryLanguage: string
-  evidenceCount: number
-  latestEvidenceAt: string | null
-  completeness: {
-    complete: boolean
-    score: number
-    reasons: string[]
-  }
-  updatedAt: string
-}
-
 type StoryWire = {
   id: string
   title: string
-  status: InboxStory["status"]
+  status: "inbox" | "shortlisted" | "rejected" | "drafted"
   primary_language: string
   evidence_count: number
   latest_evidence_at: string | null
@@ -31,6 +17,8 @@ type StoryWire = {
   }
   updated_at: string
 }
+
+export type InboxStory = Camelized<StoryWire>
 
 type StoryPageWire = {
   items: StoryWire[]
@@ -48,16 +36,7 @@ export async function getInboxStories(view: InboxView): Promise<InboxStory[]> {
   const params = new URLSearchParams({ editorial_state: filter.editorialState, limit: "200" })
   if (filter.completeness) params.set("completeness", filter.completeness)
   const page = await apiRequest<StoryPageWire>(`/stories?${params.toString()}`)
-  return page.items.map((story) => ({
-    id: story.id,
-    title: story.title,
-    status: story.status,
-    primaryLanguage: story.primary_language,
-    evidenceCount: story.evidence_count,
-    latestEvidenceAt: story.latest_evidence_at,
-    completeness: story.completeness,
-    updatedAt: story.updated_at,
-  }))
+  return camelize(page.items)
 }
 
 export async function changeStoryState(

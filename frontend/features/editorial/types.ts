@@ -103,8 +103,6 @@ export type ContentPackSummary = {
   status: string
   createdAt: string
   updatedAt: string
-  lastFailure: string | null
-  jobId: string | null
   variants: Array<{ id: string; platform: Platform }>
 }
 
