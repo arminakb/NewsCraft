@@ -115,6 +115,16 @@ Do not use `docker-compose.acceptance.yml` as a deployment configuration. See th
 [Release 5 acceptance evidence](docs/operations/release-acceptance.md) for the complete test,
 migration, browser, Compose, and environmental-gate checklist.
 
+Run the real-PostgreSQL acceptance journeys for collection/deduplication/story
+grouping, research/generation/exact approval, multi-platform export, Telegram
+publication, and crash recovery:
+
+```bash
+scripts/test_acceptance.sh
+```
+
+This command owns the disposable test database through `scripts/test_postgres.sh`.
+
 ### Research and generation
 
 Manual source intake and evidence-backed research are operated from Inbox. Generated Telegram,

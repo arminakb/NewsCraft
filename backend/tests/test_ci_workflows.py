@@ -10,6 +10,7 @@ NIGHTLY_PATH = ROOT / ".github/workflows/nightly.yml"
 PERSIAN_EVALUATION_PATH = ROOT / ".github/workflows/persian-generation-evaluation.yml"
 TELEGRAM_STAGING_PATH = ROOT / ".github/workflows/live-telegram-staging.yml"
 POSTGRES_TEST_PATH = ROOT / "scripts/test_postgres.sh"
+ACCEPTANCE_TEST_PATH = ROOT / "scripts/test_acceptance.sh"
 BLOCKING_JOBS = {
     "backend-static",
     "backend-unit",
@@ -116,6 +117,21 @@ def test_local_postgres_command_starts_migrates_and_runs_every_database_suite() 
     ):
         assert suite in text
     assert "down -v --remove-orphans" in text
+
+
+def test_acceptance_command_pins_all_five_core_journeys_to_real_tests() -> None:
+    text = ACCEPTANCE_TEST_PATH.read_text(encoding="utf-8")
+    assert '"$repo_root/scripts/test_postgres.sh"' in text
+    for proof in (
+        "test_two_session_manual_replay_serializes_to_one_complete_materialization",
+        "test_group_content_items_reuses_story_and_captures_one_snapshot_per_hash",
+        "test_http_manual_story_research_generation_edit_and_exact_approval",
+        "test_four_platform_pack_exports_and_manual_completion",
+        "test_concurrent_publish_claim_sends_once_and_creates_one_publication",
+        "test_crash_after_remote_send_requires_reconciliation_and_replay_does_not_duplicate",
+        "test_worker_death_after_claim_requeues_one_lease_and_runs_handler_once",
+    ):
+        assert proof in text
 
 
 def test_protected_external_workflows_keep_provider_keys_out_of_job_environment() -> None:

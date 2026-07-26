@@ -36,11 +36,16 @@ export PYTHONPATH="$repo_root/backend"
 
 cd "$repo_root/backend"
 .venv/bin/alembic upgrade head
-.venv/bin/python -m pytest -p no:cacheprovider -q \
-  tests/postgres \
-  tests/integration \
-  tests/stories/test_manual_intake_postgres.py \
-  tests/stories/test_repository.py \
-  tests/test_dispatch_sequence_migration_postgres.py \
-  tests/test_runtime_heartbeat.py \
-  "$@"
+if (( $# > 0 )); then
+  test_targets=("$@")
+else
+  test_targets=(
+    tests/postgres
+    tests/integration
+    tests/stories/test_manual_intake_postgres.py
+    tests/stories/test_repository.py
+    tests/test_dispatch_sequence_migration_postgres.py
+    tests/test_runtime_heartbeat.py
+  )
+fi
+.venv/bin/python -m pytest -p no:cacheprovider -q "${test_targets[@]}"
