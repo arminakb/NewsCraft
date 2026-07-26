@@ -5,9 +5,9 @@ import binascii
 import hashlib
 import json
 from collections import defaultdict
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from datetime import datetime
-from typing import Annotated, Any, Literal
+from typing import Annotated, Any, Literal, cast
 from urllib.parse import urlsplit
 from uuid import UUID
 
@@ -73,21 +73,13 @@ class ArticleFilters:
     collection_id: UUID | None = None
 
     def fingerprint(self) -> str:
-        payload = {
-            "q": self.search_query,
-            "language": self.languages,
-            "topic": self.topics,
-            "content_type": self.content_types,
-            "source_id": tuple(str(value) for value in self.source_ids),
-            "coverage": self.coverage,
-            "has_image": self.has_image,
-            "score_min": self.score_min,
-            "score_max": self.score_max,
-            "date_from": self.date_from.isoformat() if self.date_from else None,
-            "date_to": self.date_to.isoformat() if self.date_to else None,
-            "collection_id": str(self.collection_id) if self.collection_id else None,
-        }
-        raw = json.dumps(payload, ensure_ascii=True, sort_keys=True, separators=(",", ":")).encode()
+        raw = json.dumps(
+            asdict(self),
+            default=str,
+            ensure_ascii=True,
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode()
         return hashlib.sha256(raw).hexdigest()
 
 
@@ -96,10 +88,6 @@ _EMPTY_FILTER_KEY = ArticleFilters().fingerprint()
 
 def _display_at_expression():
     return func.coalesce(ContentItem.published_at, ContentItem.sort_at)
-
-
-def _topic_expression():
-    return ContentItem.metrics["classification"]["category"].astext
 
 
 def _article_classification_expressions():
@@ -274,7 +262,7 @@ def _base_article_columns() -> tuple:
         topic.label("topic"),
         language.label("language"),
         ContentItem.content_type.label("raw_content_type"),
-        _topic_expression().label("raw_topic"),
+        ContentItem.metrics["classification"]["category"].astext.label("raw_topic"),
         ContentItem.classification_metadata["source_domain"].astext.label("domain"),
         ContentItem.language_code.label("raw_language_code"),
         ContentItem.direction,
@@ -548,9 +536,7 @@ def _bounded_excerpt(summary: str | None, content: str | None) -> str | None:
 
 
 def _label(value: object | None) -> str | None:
-    if value is None:
-        return None
-    normalized = " ".join(str(value).split())
+    normalized = " ".join(str(value).split()) if value is not None else ""
     return normalized or None
 
 
@@ -566,11 +552,7 @@ def _domain(value: object | None) -> str | None:
 
 
 def _direction(value: object | None) -> Literal["ltr", "rtl"] | None:
-    if value == "ltr":
-        return "ltr"
-    if value == "rtl":
-        return "rtl"
-    return None
+    return cast(Literal["ltr", "rtl"], value) if value in {"ltr", "rtl"} else None
 
 
 def _source(row: Any) -> ArticleSourceOut:
@@ -641,13 +623,9 @@ def _coverage(associations: list[tuple[Story, dict]]) -> ArticleCoverageOut:
         )
         for story, summary in active
     ]
-    state: CoverageState
-    if not stories:
-        state = "ungrouped"
-    elif any(story.complete for story in stories):
-        state = "complete"
-    else:
-        state = "incomplete"
+    state: CoverageState = (
+        "complete" if any(story.complete for story in stories) else "incomplete" if stories else "ungrouped"
+    )
     return ArticleCoverageOut(state=state, stories=stories)
 
 
@@ -679,11 +657,7 @@ async def _classification_facets(session: AsyncSession) -> dict[str, list[Articl
             .group_by(expression)
         )
     rows = (await session.execute(union_all(*statements).order_by("facet", "value"))).all()
-    output: dict[str, list[ArticleFacetValueOut]] = {
-        "content_types": [],
-        "topics": [],
-        "languages": [],
-    }
+    output: dict[str, list[ArticleFacetValueOut]] = {name: [] for name in ("content_types", "topics", "languages")}
     for row in rows:
         output[row.facet].append(ArticleFacetValueOut(value=row.value, count=row._mapping["count"]))
     return output
@@ -715,8 +689,6 @@ def _core_fields(
         "coverage": coverage,
         "image": image,
         "has_image": image is not None,
-        "marked": False,
-        "marked_at": None,
         "saved": bool(saved_collection_ids),
         "saved_collection_ids": saved_collection_ids,
     }

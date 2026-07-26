@@ -787,8 +787,6 @@ function article(index: number, savedCollectionIds: string[] = []) {
     article_readiness: { ready: true },
     image,
     has_image: image !== null,
-    marked: false,
-    marked_at: null,
     saved: savedCollectionIds.length > 0,
     saved_collection_ids: savedCollectionIds,
   }

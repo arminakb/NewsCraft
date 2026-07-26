@@ -128,8 +128,6 @@ async def test_articles_summary_and_detail_contracts_are_composed_and_bounded(db
         "coverage",
         "image",
         "has_image",
-        "marked",
-        "marked_at",
         "saved",
         "saved_collection_ids",
         "article_readiness",
@@ -151,7 +149,6 @@ async def test_articles_summary_and_detail_contracts_are_composed_and_bounded(db
     }
     assert summary["image"]["alt_text"] == "Article image"
     assert summary["has_image"] is True
-    assert summary["marked"] is False and summary["marked_at"] is None
     assert summary["saved"] is False and summary["saved_collection_ids"] == []
     assert summary["article_readiness"] == {"ready": True}
     for forbidden in (
@@ -188,8 +185,6 @@ async def test_articles_summary_and_detail_contracts_are_composed_and_bounded(db
         "coverage",
         "image",
         "has_image",
-        "marked",
-        "marked_at",
         "saved",
         "saved_collection_ids",
         "article_readiness",

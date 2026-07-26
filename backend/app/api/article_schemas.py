@@ -83,8 +83,6 @@ class ArticleCoreOut(BaseModel):
     coverage: ArticleCoverageOut
     image: ArticleImageOut | None
     has_image: bool
-    marked: Literal[False] = False
-    marked_at: None = None
     saved: bool
     saved_collection_ids: list[UUID]
 

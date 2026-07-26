@@ -236,8 +236,6 @@ function articlePage() {
         fetch_status: "remote_only",
       },
       has_image: true,
-      marked: false,
-      marked_at: null,
       saved: false,
       saved_collection_ids: [],
     }],

@@ -2465,14 +2465,6 @@ export interface components {
             image: components["schemas"]["ArticleImageOut"] | null;
             /** Language */
             language: string | null;
-            /**
-             * Marked
-             * @default false
-             * @constant
-             */
-            marked: false;
-            /** Marked At */
-            marked_at?: null;
             /** Media */
             media: components["schemas"]["ArticleMediaOut"][];
             /** Published At */
@@ -2743,14 +2735,6 @@ export interface components {
             image: components["schemas"]["ArticleImageOut"] | null;
             /** Language */
             language: string | null;
-            /**
-             * Marked
-             * @default false
-             * @constant
-             */
-            marked: false;
-            /** Marked At */
-            marked_at?: null;
             /** Published At */
             published_at: string | null;
             /** Saved */

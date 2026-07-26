@@ -514,16 +514,6 @@
             ],
             "title": "Language"
           },
-          "marked": {
-            "const": false,
-            "default": false,
-            "title": "Marked",
-            "type": "boolean"
-          },
-          "marked_at": {
-            "title": "Marked At",
-            "type": "null"
-          },
           "media": {
             "items": {
               "$ref": "#/components/schemas/ArticleMediaOut"
@@ -1428,16 +1418,6 @@
               }
             ],
             "title": "Language"
-          },
-          "marked": {
-            "const": false,
-            "default": false,
-            "title": "Marked",
-            "type": "boolean"
-          },
-          "marked_at": {
-            "title": "Marked At",
-            "type": "null"
           },
           "published_at": {
             "anyOf": [

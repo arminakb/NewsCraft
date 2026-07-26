@@ -1029,8 +1029,6 @@ function article(overrides: Partial<ArticleSummary> = {}): ArticleSummary {
     articleReadiness: { ready: true },
     image: null,
     hasImage: false,
-    marked: false,
-    markedAt: null,
     saved: false,
     savedCollectionIds: [],
     ...overrides,
