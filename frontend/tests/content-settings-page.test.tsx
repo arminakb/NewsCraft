@@ -199,6 +199,7 @@ describe("ContentSettingsPage", () => {
     renderSettings()
 
     expect(await screen.findByRole("heading", { name: "Content settings" })).toBeInTheDocument()
+    expect(screen.getByRole("heading", { name: "Setup checklist" })).toBeInTheDocument()
     for (const heading of [
       "Editorial profiles",
       "LLM providers",
