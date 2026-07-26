@@ -3,9 +3,8 @@ from uuid import uuid4
 import pytest
 
 
-@pytest.mark.asyncio
-async def test_canonical_generation_rejects_unknown_citation():
-    from app.generation.canonical import CanonicalStoryOutput, generate_canonical_revision
+def test_canonical_validation_rejects_unknown_citation():
+    from app.generation.canonical import CanonicalStoryOutput, validate_canonical_output
     from app.research import CitationIntegrityError
     from app.research.schemas import CitationRef, Claim
 
@@ -31,4 +30,4 @@ async def test_canonical_generation_rejects_unknown_citation():
         missing_information=[],
     )
     with pytest.raises(CitationIntegrityError):
-        await generate_canonical_revision(output, {})
+        validate_canonical_output(output, {})

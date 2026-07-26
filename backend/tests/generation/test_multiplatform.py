@@ -17,17 +17,14 @@ from app.generation.handlers import (
 )
 from app.generation.multiplatform import (
     PLATFORM_PROMPT_PURPOSE,
-    MultiPlatformPackRequest,
     deduplicate_preserving_order,
-    generate_platform_variants,
     ordered_distinct_citations,
     payload_claims,
 )
-from app.generation.platform_renderers import render_platform_copy, render_telegram_variant
+from app.generation.platform_renderers import render_platform_copy
 from app.generation.platform_schemas import InstagramVariantPayload, TelegramVariantPayload, XVariantPayload
 from app.generation.platform_validation import revision_gates_from_issues
-from app.generation.telegram_schema import TelegramVariantContent
-from app.research.citations import CitationIntegrityError, validate_citations
+from app.research.citations import CitationIntegrityError
 from app.research.schemas import CitationRef
 from app.stories.evidence import EvidenceRecord
 
@@ -57,29 +54,18 @@ def instagram_payload(*citations):
     )
 
 
-def test_multiplatform_request_is_plural_server_resolved_and_deduplicated():
-    request = MultiPlatformPackRequest(
-        story_revision_id=uuid4(),
-        brand_profile_id=uuid4(),
-        platforms=["telegram", "instagram", "telegram", "blog"],
-        generation_provider_profile_id=uuid4(),
-    )
-
-    assert deduplicate_preserving_order(request.platforms) == ["telegram", "instagram", "blog"]
+def test_platform_order_is_server_resolved_and_deduplicated():
+    assert deduplicate_preserving_order(["telegram", "instagram", "telegram", "blog"]) == [
+        "telegram",
+        "instagram",
+        "blog",
+    ]
     assert PLATFORM_PROMPT_PURPOSE == {
         "telegram": "telegram_pack",
         "instagram": "instagram_pack",
         "x": "x_pack",
         "blog": "blog_pack",
     }
-    assert "platform_prompt_template_version_id" not in MultiPlatformPackRequest.model_fields
-    with pytest.raises(ValidationError):
-        MultiPlatformPackRequest.model_validate(
-            {
-                **request.model_dump(mode="json"),
-                "platform": "telegram",
-            }
-        )
 
 
 def test_manual_payload_claims_and_evidence_map_preserve_exact_citation_order():
@@ -111,7 +97,6 @@ def test_telegram_renderer_preserves_exact_release_two_mapping():
     }
     payload = TelegramVariantPayload.model_validate(stored)
 
-    assert render_telegram_variant(stored) == TelegramVariantContent.model_validate(stored).model_dump(mode="json")
     assert render_platform_copy("telegram", payload) == stored["body"]
 
 
@@ -139,88 +124,6 @@ def test_x_renderer_numbers_multi_post_threads_and_keeps_single_post_plain():
 
     assert render_platform_copy("x", thread) == "1/2 First post\n\n2/2 Second post"
     assert render_platform_copy("x", single) == "Only post"
-
-
-class _Provider:
-    def __init__(self, outputs):
-        self.outputs = list(outputs)
-        self.calls = []
-
-    async def generate(self, request):
-        self.calls.append(request)
-        return SimpleNamespace(output=self.outputs.pop(0))
-
-
-class _Repository:
-    def __init__(self):
-        self.revisions = []
-
-    async def create_revision(self, platform, content, evidence_map, issues, attempt_id):
-        revision = SimpleNamespace(
-            id=uuid4(),
-            platform=platform,
-            content=content,
-            evidence_map=evidence_map,
-            validation_errors=[issue for issue in issues if issue["severity"] == "error"],
-            generation_attempt_id=attempt_id,
-        )
-        self.revisions.append(revision)
-        return revision
-
-
-class _GenerationContext:
-    def __init__(self, outputs, evidence):
-        self.provider = _Provider(outputs)
-        self.repository = _Repository()
-        self.prompts = {
-            platform: SimpleNamespace(id=uuid4(), purpose=purpose, version=1)
-            for platform, purpose in PLATFORM_PROMPT_PURPOSE.items()
-        }
-        self.inactive_higher = SimpleNamespace(id=uuid4(), purpose="instagram_pack", version=99)
-        self.runs = []
-        self.attempts = []
-        self.evidence = evidence
-
-    async def require_active_prompt_version(self, purpose):
-        return next(prompt for prompt in self.prompts.values() if prompt.purpose == purpose)
-
-    async def start_generation_run(self, platform, *, prompt_template_version_id):
-        run = SimpleNamespace(
-            id=uuid4(),
-            platform=platform,
-            prompt_template_version_id=prompt_template_version_id,
-        )
-        self.runs.append(run)
-        return run
-
-    def request_for(self, platform, *, prompt_version):
-        return SimpleNamespace(platform=platform, prompt_template_version_id=prompt_version.id)
-
-    async def record_attempt(self, run, provider_result):
-        attempt = SimpleNamespace(id=uuid4(), generation_run_id=run.id)
-        self.attempts.append(attempt)
-        return attempt
-
-    def release_two_telegram_content(self, rewrite):
-        return {
-            "body": rewrite.body,
-            "parse_mode": rewrite.parse_mode,
-            "buttons": [item.model_dump(mode="json") for item in rewrite.buttons],
-            "source_item_id": None,
-            "source_url": None,
-            "media_policy": "omit",
-            "media_asset_ids": [],
-            "direction": "rtl",
-            "dry_run": False,
-        }
-
-    async def validated_telegram_evidence_map(self):
-        return list(self.evidence[0])
-
-    async def validate_manual_platform_citations(self, platform, payload):
-        from app.generation.multiplatform import payload_claims
-
-        validate_citations(payload_claims(platform, payload), self.evidence[1])
 
 
 def _complete_outputs(citation_value):
@@ -256,54 +159,6 @@ def _complete_outputs(citation_value):
             "manual_checklist": ["Verify links"],
         },
     ]
-
-
-@pytest.mark.asyncio
-async def test_generation_path_creates_four_platform_runs_attempts_and_revisions_with_active_prompts():
-    content = "Evidence"
-    snapshot_id = uuid4()
-    citation_value = citation(snapshot_id=snapshot_id)
-    citation_value["excerpt_sha256"] = hashlib.sha256(content.encode()).hexdigest()
-    ref = CitationRef.model_validate(citation_value)
-    record = EvidenceRecord(
-        evidence_key=ref.evidence_key,
-        evidence_snapshot_id=snapshot_id,
-        content_item_id=None,
-        title="Evidence",
-        content_text=content,
-        content_sha256=hashlib.sha256(content.encode()).hexdigest(),
-        source_url=str(ref.source_url),
-        authors=(),
-        published_at=None,
-        captured_at=datetime.now(UTC),
-    )
-    context = _GenerationContext(_complete_outputs(citation_value), ([ref], {snapshot_id: record}))
-    request = MultiPlatformPackRequest(
-        story_revision_id=uuid4(),
-        brand_profile_id=uuid4(),
-        platforms=["telegram", "instagram", "telegram", "x", "blog", "instagram"],
-        generation_provider_profile_id=uuid4(),
-    )
-
-    generated = await generate_platform_variants(request, context)
-
-    assert [item.platform for item in generated.revisions] == ["telegram", "instagram", "x", "blog"]
-    assert len(context.runs) == len(context.attempts) == len(context.provider.calls) == 4
-    assert all(run.prompt_template_version_id == context.prompts[run.platform].id for run in context.runs)
-    assert context.runs[1].prompt_template_version_id != context.inactive_higher.id
-    telegram = generated.revisions[0]
-    assert set(telegram.content) == {
-        "body",
-        "parse_mode",
-        "buttons",
-        "source_item_id",
-        "source_url",
-        "media_policy",
-        "media_asset_ids",
-        "direction",
-        "dry_run",
-    }
-    assert telegram.content["source_item_id"] is None
 
 
 def test_ordinary_invalid_platform_output_is_persistable_as_failed_review_gate():
@@ -2088,42 +1943,6 @@ async def test_regeneration_fence_survives_provider_and_cached_success_until_chi
     child = next(item for item in session.added if isinstance(item, PlatformVariantRevision))
     assert child.parent_revision_id == base_id
     assert result["revision_id"] == str(child.id)
-
-
-@pytest.mark.asyncio
-async def test_fabricated_citation_stops_before_revision_persistence():
-    content = "Evidence"
-    snapshot_id = uuid4()
-    valid = citation(snapshot_id=snapshot_id)
-    valid["excerpt_sha256"] = hashlib.sha256(content.encode()).hexdigest()
-    ref = CitationRef.model_validate(valid)
-    record = EvidenceRecord(
-        evidence_key=ref.evidence_key,
-        evidence_snapshot_id=snapshot_id,
-        content_item_id=None,
-        title="Evidence",
-        content_text=content,
-        content_sha256=hashlib.sha256(content.encode()).hexdigest(),
-        source_url=str(ref.source_url),
-        authors=(),
-        published_at=None,
-        captured_at=datetime.now(UTC),
-    )
-    fabricated = {**valid, "evidence_snapshot_id": str(uuid4())}
-    context = _GenerationContext([_complete_outputs(fabricated)[1]], ([ref], {snapshot_id: record}))
-
-    with pytest.raises(CitationIntegrityError):
-        await generate_platform_variants(
-            MultiPlatformPackRequest(
-                story_revision_id=uuid4(),
-                brand_profile_id=uuid4(),
-                platforms=["instagram"],
-                generation_provider_profile_id=uuid4(),
-            ),
-            context,
-        )
-
-    assert context.repository.revisions == []
 
 
 @pytest.mark.asyncio

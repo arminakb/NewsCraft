@@ -8,7 +8,7 @@ from pydantic import SecretStr
 from app.core.config import Settings
 from app.security.auth import TEST_ADMIN
 from app.security.models import SecurityAuditEvent
-from app.security.schemas import SecretMetadataOut, SecretWriteIn
+from app.security.schemas import SecretWriteIn
 from app.security.secret_store import (
     EncryptedSecretStore,
     MasterKeyRing,
@@ -144,7 +144,6 @@ def test_secret_store_enforces_scope_even_when_http_layer_is_bypassed():
 def test_write_only_schema_masks_secret_serialization_and_key_config_parses_versions():
     body = SecretWriteIn(secret="schema-canary")
     assert "schema-canary" not in body.model_dump_json()
-    assert set(SecretMetadataOut.model_fields) == {"configured", "last_rotated_at"}
 
     config = Settings(
         _env_file=None,

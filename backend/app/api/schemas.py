@@ -94,19 +94,6 @@ class IngestRunRequest(BaseModel):
     source_ids: list[str] | None = None
 
 
-class IngestRunOut(BaseModel):
-    model_config = ConfigDict(extra="allow")
-
-    status: str | None = None
-    checked: int = 0
-    fetched: int = 0
-    skipped: int = 0
-    failed: int = 0
-    items: int = 0
-    media_candidates: int = 0
-    errors: list[dict] = []
-
-
 class IngestRunSummaryOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
