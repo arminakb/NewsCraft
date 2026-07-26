@@ -1,8 +1,8 @@
 import type { components } from "@/lib/api/generated"
+import { camelize } from "@/lib/camelize"
 import { apiRequest } from "@/lib/http"
 
 import type {
-  AutomationControl,
   BrandProfile,
   BrandProfileInput,
   BrandProfilePatch,
@@ -174,29 +174,19 @@ export async function getTelegramDispatches(routeId: string): Promise<TelegramDi
 }
 
 export async function getTelegramPublicationOutcomes(): Promise<TelegramPublicationContext[]> {
-  const rows = await apiRequest<BackendTelegramPublicationContext[]>("/telegram/publication-outcomes")
-  return rows.map(mapTelegramPublicationContext)
+  return camelize(await apiRequest<BackendTelegramPublicationContext[]>("/telegram/publication-outcomes"))
 }
 
 export async function getTelegramPublicationContext(id: string): Promise<TelegramPublicationContext> {
-  const row = await apiRequest<BackendTelegramPublicationContext>(
+  return camelize(await apiRequest<BackendTelegramPublicationContext>(
     `/telegram/revisions/${encodeURIComponent(id)}/publication-context`,
-  )
-  return mapTelegramPublicationContext(row)
+  ))
 }
 
 export async function publishTelegramDraft(id: string, contentHash: string): Promise<TelegramPublishAccepted> {
-  const row = await apiRequest<Schemas["TelegramPublishAcceptedOut"]>(
+  return camelize(await apiRequest<Schemas["TelegramPublishAcceptedOut"]>(
     `/telegram/drafts/${encodeURIComponent(id)}/publish`, json("POST", { content_hash: contentHash })
-  )
-  return {
-    revisionId: row.revision_id,
-    job: {
-      publishJobId: row.job.publish_job_id,
-      workflowJobId: row.job.workflow_job_id,
-      status: row.job.status,
-    },
-  }
+  ))
 }
 
 export async function getTelegramPublishJob(id: string): Promise<TelegramPublishJob> {
@@ -257,10 +247,6 @@ export async function activatePromptVersion(versionId: string, reason: string): 
   return apiRequest<PromptVersion>(`/prompt-template-versions/${encodeURIComponent(versionId)}/activate`, json("POST", { reason }))
 }
 
-export function mapAutomationControl(row: Record<string, unknown>): AutomationControl {
-  return { globalPause: row.global_pause as boolean, dryRun: row.dry_run as boolean, pauseReason: row.pause_reason as string | null, pausedAt: row.paused_at as string | null, updatedAt: row.updated_at as string }
-}
-
 export function mapTelegramRoute(row: BackendTelegramRoute): TelegramRoute {
   const filters = row.content_filters
   const retry = row.retry_policy
@@ -281,20 +267,6 @@ export function mapTelegramRoute(row: BackendTelegramRoute): TelegramRoute {
   }
 }
 
-function mapTelegramPublicationContext(row: BackendTelegramPublicationContext): TelegramPublicationContext {
-  return {
-    revisionId: row.revision_id,
-    platformVariantId: row.platform_variant_id,
-    revisionNumber: row.revision_number,
-    approvalState: row.approval_state as TelegramPublicationContext["approvalState"],
-    routeId: row.route_id,
-    dispatchId: row.dispatch_id,
-    publishJobId: row.publish_job_id,
-    publishStatus: row.publish_status as TelegramPublicationContext["publishStatus"],
-    publication: row.publication ? mapTelegramPublication(row.publication) : null,
-  }
-}
-
 export function mapTelegramPublishJob(row: BackendTelegramPublishJob): TelegramPublishJob {
   return { publishJobId: row.publish_job_id, workflowJobId: row.workflow_job_id, destinationId: row.destination_id, platformVariantRevisionId: row.platform_variant_revision_id, status: row.status, payloadHash: row.payload_hash, scheduledFor: row.scheduled_for, createdAt: row.created_at, updatedAt: row.updated_at, receipts: row.receipts.map(mapTelegramReceipt), publication: row.publication ? mapTelegramPublication(row.publication) : null }
 }
@@ -312,7 +284,7 @@ function mapTelegramReceipt(row: BackendTelegramReceipt): TelegramPublishReceipt
   return { id: row.id, operationIndex: row.operation_index, operationKey: row.operation_key, method: row.method, requestHash: row.request_hash, status: row.status, attemptCount: row.attempt_count, remoteMessageIds: row.remote_message_ids, responseMetadata: row.response_metadata, nextAttemptAt: row.next_attempt_at, ambiguousAt: row.ambiguous_at, completedAt: row.completed_at, createdAt: row.created_at, updatedAt: row.updated_at }
 }
 function mapTelegramPublication(row: BackendTelegramPublication): TelegramPublication {
-  return { id: row.id, publishJobId: row.publish_job_id, destinationId: row.destination_id, platformVariantRevisionId: row.platform_variant_revision_id, remoteMessageIds: row.remote_message_ids, permalink: row.permalink, payloadHash: row.payload_hash, publishedAt: row.published_at, reconciliationStatus: row.reconciliation_status as TelegramPublication["reconciliationStatus"] }
+  return camelize(row)
 }
 function mapJobAccepted(row: BackendJobAccepted): JobAccepted { return { jobId: row.job_id, status: row.status, deduplicated: row.deduplicated } }
 function mapRouteAccepted(row: { route: BackendTelegramRoute; job: BackendJobAccepted }): TelegramRouteAccepted { return { route: mapTelegramRoute(row.route), job: mapJobAccepted(row.job) } }

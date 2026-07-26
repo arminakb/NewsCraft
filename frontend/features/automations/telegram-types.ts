@@ -1,5 +1,6 @@
 import type { JobStatus } from "@/features/jobs/types"
 import type { components } from "@/lib/api/generated"
+import type { Camelized } from "@/lib/camelize"
 
 type Schemas = components["schemas"]
 
@@ -9,7 +10,6 @@ export type TelegramMediaPolicy = "preserve" | "omit" | "replace_manually"
 export type TelegramAttributionPolicy = "preserve" | "remove" | "custom"
 export type TelegramPublishingPolicy = "review_required" | "auto_publish"
 export type TelegramPromptPolicy = "pinned" | "follow_active"
-export type TelegramApprovalState = "draft" | "pending_review" | "approved" | "rejected"
 export type TelegramDestinationHealth = "unknown" | "healthy" | "unhealthy"
 export type CredentialCapabilityStatus = "available" | "unavailable" | "unknown" | "stale"
 export type CredentialCapabilityState = {
@@ -177,32 +177,9 @@ export type TelegramAutomationOptions = {
   >
 }
 
-export type TelegramPublication = {
-  id: string
-  publishJobId: string
-  destinationId: string
-  platformVariantRevisionId: string
-  remoteMessageIds: number[]
-  permalink: string | null
-  payloadHash: string
-  publishedAt: string
-  reconciliationStatus: "confirmed"
-}
-export type TelegramPublicationContext = {
-  revisionId: string
-  platformVariantId: string
-  revisionNumber: number
-  approvalState: TelegramApprovalState
-  routeId: string | null
-  dispatchId: string | null
-  publishJobId: string | null
-  publishStatus: TelegramPublishStatus | null
-  publication: TelegramPublication | null
-}
-export type TelegramPublishAccepted = {
-  revisionId: string
-  job: { publishJobId: string; workflowJobId: string | null; status: string }
-}
+export type TelegramPublication = Camelized<Schemas["TelegramPublicationOut"]>
+export type TelegramPublicationContext = Camelized<Schemas["TelegramPublicationContextOut"]>
+export type TelegramPublishAccepted = Camelized<Schemas["TelegramPublishAcceptedOut"]>
 
 export type TelegramPublishReceipt = {
   id: string
@@ -242,14 +219,6 @@ export type TelegramReconciliationResult = {
   receipts: TelegramPublishReceipt[]
   publication?: TelegramPublication
   job?: JobAccepted
-}
-
-export type AutomationControl = {
-  globalPause: boolean
-  dryRun: boolean
-  pauseReason: string | null
-  pausedAt: string | null
-  updatedAt: string
 }
 
 export type BrandProfile = Schemas["BrandProfileOut"]
