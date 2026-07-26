@@ -653,7 +653,10 @@ async def test_new_ambiguity_generation_can_be_decided_and_records_complete_reda
     async def fake_enqueue(_repository, **_kwargs):
         return SimpleNamespace(job=requeued_job, created=True)
 
-    monkeypatch.setattr(telegram_api.JobRepository, "enqueue_job", fake_enqueue)
+    monkeypatch.setattr(
+        "app.publishing.telegram.reconciliation_operation.JobRepository.enqueue_job",
+        fake_enqueue,
+    )
 
     response = Response()
     result = await reconcile_telegram_publish_job(
@@ -736,7 +739,10 @@ async def test_stale_exact_decision_from_older_generation_is_rejected(monkeypatc
             created=True,
         )
 
-    monkeypatch.setattr(telegram_api.JobRepository, "enqueue_job", fake_enqueue)
+    monkeypatch.setattr(
+        "app.publishing.telegram.reconciliation_operation.JobRepository.enqueue_job",
+        fake_enqueue,
+    )
 
     with pytest.raises(HTTPException) as error:
         await reconcile_telegram_publish_job(
