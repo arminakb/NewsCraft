@@ -8,6 +8,7 @@ import { useCallback, useEffect, useRef, useState } from "react"
 import {
   advancedNavSections,
   isCurrentPath,
+  isNavItemCurrent,
   newsroomNavItems,
   workflowNavItems,
 } from "@/components/newsroom/newsroom-sidebar"
@@ -106,7 +107,7 @@ export function MobileNewsroomNav() {
               <div className="space-y-1">
                 {workflowNavItems.map((item, index) => {
                   const Icon = item.icon
-                  const active = isCurrentPath(pathname, "activeHref" in item ? item.activeHref : item.href)
+                  const active = isNavItemCurrent(pathname, item)
                   return (
                     <Link
                       key={item.href}

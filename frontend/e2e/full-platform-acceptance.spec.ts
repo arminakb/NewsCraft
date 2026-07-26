@@ -305,7 +305,7 @@ test("mobile navigation omits legacy surfaces and reaches surviving routes witho
   await expect(navigation).toBeVisible()
   await expect(navigation.getByRole("link", { name: "Inbox", exact: true })).toHaveAttribute("href", "/inbox")
   await expect(navigation.getByRole("link", { name: "Content", exact: true })).toHaveCount(0)
-  await expect(navigation.getByRole("link", { name: "Library", exact: true })).toHaveCount(0)
+  await expect(navigation.getByRole("link", { name: "Library", exact: true })).toHaveAttribute("href", "/feed")
   await expect(navigation.getByRole("link", { name: "Media", exact: true })).toHaveCount(0)
   await navigation.getByRole("link", { name: "Inbox", exact: true }).click()
   await expect(page.getByRole("heading", { name: "Inbox", exact: true })).toBeVisible()

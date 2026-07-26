@@ -254,7 +254,7 @@ export function ArticlesPage() {
       <p aria-live="polite" className="sr-only" role="status">{announcement}</p>
       <header className="flex flex-col gap-4 border-b pb-4 sm:flex-row sm:items-end sm:justify-between">
         <div>
-          <h1 id="feed-heading" className="text-3xl font-semibold tracking-tight">Feed</h1>
+          <h1 id="feed-heading" className="text-2xl font-semibold tracking-tight">Library</h1>
           <p className="mt-1 text-sm text-muted-foreground" aria-live="polite">
             {resultCount === undefined
               ? "Loading result count…"
@@ -324,10 +324,10 @@ export function ArticlesPage() {
             <div>
               <h2 className="font-semibold">Collection no longer available</h2>
               <p className="mt-1 text-sm text-muted-foreground">
-                This collection may have been deleted in another session. Return to All Feed to continue.
+                This collection may have been deleted in another session. Return to all articles to continue.
               </p>
             </div>
-            <Button onClick={() => selectCollection(null)} variant="outline">Return to All Feed</Button>
+            <Button onClick={() => selectCollection(null)} variant="outline">Return to all articles</Button>
           </CardContent>
         </Card>
       ) : null}
@@ -383,7 +383,7 @@ export function ArticlesPage() {
           </p>
           <div
             className="feed-card-grid"
-            aria-label="Feed results"
+            aria-label="Library results"
           >
             {articles.map((article) => (
               <ArticleCard

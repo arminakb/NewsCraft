@@ -187,11 +187,11 @@ export function StatusBadge({ value }: { value: string }) {
   const normalized = value.toLowerCase()
   const bad = ["unhealthy", "unavailable", "red", "revoked", "disabled", "failed", "not configured"].includes(normalized)
   const good = ["healthy", "ready", "green", "active", "enabled", "reachable", "verified", "administrator"].includes(normalized)
-  return <Badge variant={bad ? "destructive" : good ? "secondary" : "outline"}>{safeCode(value)}</Badge>
+  return <Badge variant={bad ? "error" : good ? "success" : "neutral"}>{safeCode(value)}</Badge>
 }
 
 export function ReadinessLabel({ label, ready, value }: { label: string; ready: boolean; value: string }) {
-  return <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 ${ready ? "bg-emerald-50 text-emerald-800 dark:bg-emerald-950/50 dark:text-emerald-300" : "bg-amber-50 text-amber-900 dark:bg-amber-950/50 dark:text-amber-200"}`}>{ready ? <CheckCircle2 className="size-3.5" aria-hidden="true" /> : <CircleAlert className="size-3.5" aria-hidden="true" />}{label}: {safeCode(value)}</span>
+  return <Badge className="h-auto gap-1.5 px-2.5 py-1" variant={ready ? "success" : "warning"}>{ready ? <CheckCircle2 className="size-3.5" aria-hidden="true" /> : <CircleAlert className="size-3.5" aria-hidden="true" />}{label}: {safeCode(value)}</Badge>
 }
 
 export function HealthStage({ label, value }: { label: string; value: string }) {

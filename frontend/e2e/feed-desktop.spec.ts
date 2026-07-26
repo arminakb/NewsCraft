@@ -1,4 +1,4 @@
-import { expect, test, type Page, type Route } from "@playwright/test"
+import { expect, test, type Locator, type Page, type Route } from "@playwright/test"
 
 import { fulfillMockJson } from "./support/mock-backend"
 
@@ -17,7 +17,7 @@ test("Feed renders a consistent responsive desktop card grid", async ({ page }, 
   ]) {
     await page.setViewportSize(viewport)
     await page.goto("/feed")
-    await expect(page.getByRole("heading", { name: "Feed", exact: true })).toBeVisible()
+    await expect(page.getByRole("heading", { name: "Library", exact: true })).toBeVisible()
     await expect(page.getByText("7 articles · source monitoring and saved collections", { exact: true })).toBeVisible()
     await expect(page.getByRole("article")).toHaveCount(6)
     await expect(page.getByPlaceholder("Search in articles")).toBeVisible()
@@ -44,7 +44,7 @@ test("Feed renders a consistent responsive desktop card grid", async ({ page }, 
     await expect(sourceLink).toBeFocused()
     expect(await sourceLink.evaluate((element) => getComputedStyle(element).outlineStyle)).not.toBe("none")
 
-    const grid = page.getByLabel("Feed results")
+    const grid = page.getByLabel("Library results")
     expect(await grid.evaluate((element) => getComputedStyle(element).gridTemplateColumns.split(" ").length))
       .toBe(viewport.columns)
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
@@ -73,9 +73,11 @@ test("Feed renders a consistent responsive desktop card grid", async ({ page }, 
     if (maxScroll > 100) {
       await page.keyboard.press("PageDown")
       await expect.poll(() => scrollContainer.evaluate((element) => element.scrollTop)).toBeGreaterThan(0)
+      await waitForScrollToSettle(scrollContainer)
       const afterPageDown = await scrollContainer.evaluate((element) => element.scrollTop)
       await page.keyboard.press("PageUp")
-      await expect.poll(() => scrollContainer.evaluate((element) => element.scrollTop)).toBeLessThan(afterPageDown)
+      await waitForScrollToSettle(scrollContainer)
+      expect(await scrollContainer.evaluate((element) => element.scrollTop)).toBeLessThan(afterPageDown)
       await page.getByRole("button", { name: "Load more" }).focus()
       await expect.poll(() => scrollContainer.evaluate((element) => element.scrollTop)).toBeGreaterThan(0)
       await expect(page.getByRole("button", { name: "Load more" })).toBeFocused()
@@ -105,6 +107,19 @@ test("Feed renders a consistent responsive desktop card grid", async ({ page }, 
   expect(diagnostics.failedRequests).toEqual([])
   expect(diagnostics.badResponses).toEqual([])
 })
+
+async function waitForScrollToSettle(container: Locator) {
+  await container.evaluate(async (element) => {
+    let previous = element.scrollTop
+    let stableFrames = 0
+    while (stableFrames < 3) {
+      await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
+      const current = element.scrollTop
+      stableFrames = current === previous ? stableFrames + 1 : 0
+      previous = current
+    }
+  })
+}
 
 test("Feed images keep accessible alt text and stable missing or broken fallbacks", async ({ page }) => {
   const diagnostics = await installFeedBackend(page)
@@ -171,7 +186,7 @@ test("article search preserves URL state, pagination, and history", async ({ pag
   await expect(page).toHaveURL(`/feed?language=en&collection_id=${researchCollectionId}&sort=score`)
   await expect(page.getByText("2 articles · source monitoring and saved collections", { exact: true })).toBeVisible()
 
-  await page.getByRole("button", { name: "All Feed" }).click()
+  await page.getByRole("button", { name: "All articles" }).click()
   await expect(page).toHaveURL("/feed?language=en&sort=score")
   await search.fill("English editorial")
   await expect(page.getByText("5 articles · source monitoring and saved collections", { exact: true })).toBeVisible()
@@ -230,19 +245,19 @@ test("compact global rail exposes primary routes, tooltips, counts, and Advanced
     ["Today", "/"],
     ["Inbox", "/inbox"],
     ["Drafts", "/drafts"],
-    ["Review & Publish", "/drafts?approval_state=pending_review"],
     ["Calendar", "/calendar"],
+    ["Library", "/feed"],
   ] as const
   for (const [label, href] of expectedPrimary) {
     await expect(rail.getByRole("link", { name: label })).toHaveAttribute("href", href)
   }
-  await expect(rail.getByRole("link", { name: "Library" })).toHaveCount(0)
+  await expect(rail.getByRole("link", { name: "Library" })).toHaveAttribute("aria-current", "page")
   await expect(rail.getByRole("link", { name: "Inbox" })).not.toHaveAttribute("aria-current")
-  await expect(rail.getByRole("button", { name: "Advanced navigation" })).toHaveAttribute("aria-current", "page")
+  await expect(rail.getByRole("button", { name: "Advanced navigation" })).not.toHaveAttribute("aria-current")
   await rail.getByRole("link", { name: "Calendar" }).hover()
   await expect(rail.getByText("Calendar", { exact: true })).toBeVisible()
-  await rail.getByRole("link", { name: "Review & Publish" }).focus()
-  await expect(rail.getByText("Review & Publish", { exact: true })).toBeVisible()
+  await rail.getByRole("link", { name: "Library" }).focus()
+  await expect(rail.getByText("Library", { exact: true })).toBeVisible()
 
   const advanced = rail.getByRole("button", { name: "Advanced navigation" })
   await advanced.click()
@@ -339,7 +354,7 @@ test("collections selection, creation, errors, and URL history coexist with Feed
   await expect(sidebar.getByRole("button", { name: /Research.*2 articles/ })).toHaveAttribute("aria-current", "page")
   await page.goBack()
   await expect(page).toHaveURL("/feed?language=en")
-  await expect(sidebar.getByRole("button", { name: "All Feed" })).toHaveAttribute("aria-current", "page")
+  await expect(sidebar.getByRole("button", { name: "All articles" })).toHaveAttribute("aria-current", "page")
   await page.goForward()
   await expect(sidebar.getByRole("button", { name: /Research.*2 articles/ })).toHaveAttribute("aria-current", "page")
 
@@ -389,10 +404,10 @@ test("collection management renames and deletes while preserving URL state", asy
   await page.goto(`/feed?language=en&collection_id=${researchCollectionId}&sort=score`)
   const sidebar = page.getByRole("complementary", { name: "Collections" })
 
-  const allFeed = sidebar.getByRole("button", { name: "All Feed" })
+  const allFeed = sidebar.getByRole("button", { name: "All articles" })
   await allFeed.click({ button: "right" })
   await expect(page.getByRole("menu")).toHaveCount(0)
-  await page.getByRole("heading", { name: "Feed" }).click({ button: "right" })
+  await page.getByRole("heading", { name: "Library" }).click({ button: "right" })
   await expect(page.getByRole("menu")).toHaveCount(0)
 
   const researchRow = sidebar.getByRole("button", { name: /Research.*2 articles/ })
@@ -439,7 +454,7 @@ test("collection management renames and deletes while preserving URL state", asy
 
   const emptyRow = sidebar.getByRole("button", { name: /Empty.*0 articles/ })
   await emptyRow.click({ button: "right" })
-  await page.getByRole("heading", { name: "Feed" }).click()
+  await page.getByRole("heading", { name: "Library" }).click()
   await expect(page.getByRole("menu")).toHaveCount(0)
   await emptyRow.focus()
   await page.keyboard.press("Shift+F10")
@@ -459,7 +474,7 @@ test("collection management renames and deletes while preserving URL state", asy
   await selectedDelete.getByRole("button", { name: "Delete Collection" }).click()
   await expect(selectedDelete).toBeHidden()
   await expect(page).toHaveURL("/feed?language=en&sort=score")
-  await expect(sidebar.getByRole("button", { name: "All Feed" })).toHaveAttribute("aria-current", "page")
+  await expect(sidebar.getByRole("button", { name: "All articles" })).toHaveAttribute("aria-current", "page")
   await expect(page.getByRole("article")).toHaveCount(6)
 
   expect(diagnostics.consoleErrors).toEqual([

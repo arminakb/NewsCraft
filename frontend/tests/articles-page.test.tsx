@@ -101,7 +101,7 @@ describe("Feed page", () => {
     })
     renderArticles()
 
-    expect(screen.getByRole("heading", { name: "Feed", level: 1 })).toBeInTheDocument()
+    expect(screen.getByRole("heading", { name: "Library", level: 1 })).toBeInTheDocument()
     expect(await screen.findByText("2 articles · source monitoring and saved collections")).toBeInTheDocument()
     expect(screen.getByText("English report").closest("[data-testid='direction-boundary']"))
       .toHaveAttribute("dir", "ltr")
@@ -128,7 +128,7 @@ describe("Feed page", () => {
     expect(sourceLink).toHaveTextContent("Source")
     expect(sourceLink).toHaveClass("text-xs")
     expect(screen.getAllByRole("article")).toHaveLength(2)
-    expect(screen.getByLabelText("Feed results")).toHaveClass("feed-card-grid")
+    expect(screen.getByLabelText("Library results")).toHaveClass("feed-card-grid")
     for (const card of screen.getAllByRole("article")) expect(card).toHaveClass("h-full")
     fireEvent.error(screen.getByRole("img", { name: "Editorial image" }))
     expect(screen.getByRole("img", { name: "Image unavailable for English report" })).toBeInTheDocument()
@@ -408,7 +408,7 @@ describe("Feed page", () => {
     expect(navigation.push).toHaveBeenLastCalledWith(`/feed?language=en&collection_id=${collectionId}`)
     expect(collectionButton).toHaveAttribute("aria-current", "page")
 
-    fireEvent.click(screen.getByRole("button", { name: "All Feed" }))
+    fireEvent.click(screen.getByRole("button", { name: "All articles" }))
     expect(navigation.push).toHaveBeenLastCalledWith("/feed?language=en")
     expect(getArticles).toHaveBeenLastCalledWith({
       sort: "newest",
@@ -540,7 +540,7 @@ describe("Feed page", () => {
 
     expect(await screen.findByText("Collection no longer available")).toBeInTheDocument()
     expect(getArticles).not.toHaveBeenCalled()
-    fireEvent.click(screen.getByRole("button", { name: "Return to All Feed" }))
+    fireEvent.click(screen.getByRole("button", { name: "Return to all articles" }))
     expect(navigation.push).toHaveBeenLastCalledWith("/feed")
     firstRender.unmount()
 
@@ -774,7 +774,7 @@ describe("Feed page", () => {
     vi.mocked(getArticles).mockResolvedValue({ items: [article()], nextCursor: null, resultCount: 1 })
     renderArticles()
 
-    const allFeed = await screen.findByRole("button", { name: "All Feed" })
+    const allFeed = await screen.findByRole("button", { name: "All articles" })
     const browserMenuEvent = createEvent.contextMenu(allFeed, { clientX: 20, clientY: 20 })
     fireEvent(allFeed, browserMenuEvent)
     expect(browserMenuEvent.defaultPrevented).toBe(false)
@@ -891,7 +891,7 @@ describe("Feed page", () => {
     expect(navigation.search).toBe(`language=en&collection_id=${collectionId}&sort=score`)
     expect(screen.getByRole("button", { name: /Research.*3 articles/ })).toHaveAttribute("aria-current", "page")
     expect(screen.queryByText("Empty")).not.toBeInTheDocument()
-    await waitFor(() => expect(screen.getByRole("button", { name: "All Feed" })).toHaveFocus())
+    await waitFor(() => expect(screen.getByRole("button", { name: "All articles" })).toHaveFocus())
   })
 
   it("keeps delete confirmation open after failure and prevents duplicate submission", async () => {
@@ -942,7 +942,7 @@ describe("Feed page", () => {
     fireEvent.click(within(dialog).getByRole("button", { name: "Delete Collection" }))
 
     await waitFor(() => expect(navigation.push).toHaveBeenLastCalledWith("/feed?language=en&sort=score"))
-    expect(screen.getByRole("button", { name: "All Feed" })).toHaveAttribute("aria-current", "page")
+    expect(screen.getByRole("button", { name: "All articles" })).toHaveAttribute("aria-current", "page")
     expect(await screen.findByRole("article")).toBeInTheDocument()
     expect(screen.getByText("Collection Research deleted. Articles remain in NewsCraft.")).toBeInTheDocument()
   })

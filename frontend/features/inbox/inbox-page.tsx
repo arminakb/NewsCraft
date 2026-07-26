@@ -72,7 +72,7 @@ export function InboxPage() {
     <section className="mx-auto min-w-0 max-w-[1400px] space-y-5 p-4 md:p-6" aria-labelledby="inbox-heading">
       <header className="flex flex-wrap items-end justify-between gap-3 border-b pb-4">
         <div>
-          <h1 id="inbox-heading" className="text-3xl font-semibold tracking-tight">Inbox</h1>
+          <h1 id="inbox-heading" className="text-2xl font-semibold tracking-tight">Inbox</h1>
           <p className="mt-1 text-sm text-muted-foreground">Make the next editorial decision, then move on.</p>
         </div>
         <Button onClick={() => setAddOpen(true)}>
