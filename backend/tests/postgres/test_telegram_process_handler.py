@@ -171,6 +171,7 @@ async def seed_dispatch(
     *,
     route_name: str = "Route",
     publishing_policy: str = "review_required",
+    allow_auto: bool = False,
     shared: dict | None = None,
 ):
     shared = shared or {}
@@ -187,7 +188,7 @@ async def seed_dispatch(
         secret_ref="TELEGRAM_DESTINATION_TOKEN",
         enabled=True,
         health_status="healthy",
-        settings={},
+        settings={"allow_auto_publish": allow_auto},
     )
     brand = shared.get("brand") or BrandProfile(
         name="Brand",
@@ -224,6 +225,10 @@ async def seed_dispatch(
         output_schema=TelegramRewriteOutput.model_json_schema(),
         checksum_sha256="a" * 64,
         is_active=True,
+        activated_at=datetime.now(UTC),
+        activated_by_type="system",
+        activated_by_id="test-suite",
+        activation_reason="Test fixture",
     )
     session.add(prompt)
     await session.flush()
