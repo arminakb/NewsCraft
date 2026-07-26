@@ -3,8 +3,8 @@ from __future__ import annotations
 import asyncio
 from collections.abc import Awaitable, Callable
 from dataclasses import replace
-from datetime import UTC, datetime, timedelta
-from decimal import Decimal, InvalidOperation
+from datetime import UTC, datetime
+from decimal import Decimal
 from typing import Any
 from uuid import UUID, uuid4
 
@@ -18,7 +18,6 @@ from app.generation.generation_helpers import (
     _prompt_snapshot,
     _redacted_dict,
     _redacted_list,
-    _safe_error_code,
     render_prompt_messages,
     require_prompt_integrity,
 )
@@ -29,6 +28,11 @@ from app.generation.models import (
     PromptTemplateVersion,
 )
 from app.generation.provider_identity import provider_identity_for_profile
+from app.generation.provider_results import (
+    map_provider_failure,
+    normalize_provider_usage,
+    validate_provider_output,
+)
 from app.generation.providers.base import GenerationProviderRequest
 from app.jobs.errors import NeedsReviewJobError, PermanentJobError, RetryableJobError
 from app.jobs.registry import JobContext
@@ -123,18 +127,7 @@ async def _invoke(
                 message="Durable generation attempt is missing",
             )
         durable_output = {key: value for key, value in dict(existing.output_payload).items() if key != "_artifact"}
-        try:
-            validated = validate_output(durable_output)
-        except CitationIntegrityError:
-            raise NeedsReviewJobError(
-                code="citation_integrity",
-                message="Generation citations failed integrity validation",
-            ) from None
-        except ValidationError, ValueError:
-            raise NeedsReviewJobError(
-                code="generation_output_invalid",
-                message="Generation output failed validation",
-            ) from None
+        validated = validate_provider_output(durable_output, validate_output)
         return existing, completed, validated
     now = datetime.now(UTC)
     try:
@@ -308,7 +301,7 @@ async def _invoke(
                     message="Generation pack elapsed-time budget is exhausted",
                 ) from None
         provider_completed = True
-        normalized_usage, call_cost = _usage_with_qualified_pricing(result.usage, resolved)
+        normalized_usage, call_cost = normalize_provider_usage(result.usage, resolved)
         result = replace(result, usage=normalized_usage)
         max_pack_cost_usd = getattr(resolved, "max_pack_cost_usd", None)
         if max_pack_cost_usd is not None and prior_pack_cost_usd + call_cost > max_pack_cost_usd:
@@ -328,58 +321,12 @@ async def _invoke(
         validated = validate_output(result.output)
     except Exception as exc:
         await context.session.rollback()
-        error_class = getattr(exc, "classification", getattr(exc, "error_class", None))
-        provider_code = _safe_error_code(getattr(exc, "code", ""), "generation_provider_failed")
-        mapped: RetryableJobError | NeedsReviewJobError | PermanentJobError
-        if isinstance(exc, PermanentJobError):
-            mapped = exc
-            error_class = "permanent"
-        elif isinstance(exc, NeedsReviewJobError):
-            mapped = exc
-            error_class = "needs_review"
-        elif isinstance(exc, RetryableJobError):
-            mapped = exc
-            error_class = "retryable"
-        elif provider_completed and isinstance(exc, CitationIntegrityError):
-            mapped = NeedsReviewJobError(
-                code="citation_integrity",
-                message="Generation citations failed integrity validation",
-            )
-            error_class = "needs_review"
-        elif provider_completed and isinstance(exc, (ValidationError, ValueError)):
-            mapped = NeedsReviewJobError(
-                code="generation_output_invalid",
-                message="Generation output failed validation",
-            )
-            error_class = "needs_review"
-        elif error_class == "permanent":
-            mapped = PermanentJobError(
-                code=provider_code,
-                message="Generation provider rejected the request",
-            )
-        elif error_class == "needs_review":
-            mapped = NeedsReviewJobError(
-                code=provider_code,
-                message="Generation requires operator review",
-            )
-        elif isinstance(exc, ValueError):
-            mapped = PermanentJobError(
-                code="generation_provider_contract_invalid",
-                message="Generation provider contract is invalid",
-            )
-            error_class = "permanent"
-        else:
-            retry_after_seconds = getattr(exc, "retry_after_seconds", None)
-            if retry_after_seconds is None:
-                base_delay = min(120, 5 * (2 ** max(0, workflow_attempt - 1)))
-                jitter_seed = int.from_bytes(workflow_job_id.bytes[-2:], byteorder="big") / 65_535
-                retry_after_seconds = base_delay + (base_delay * 0.2 * jitter_seed)
-            mapped = RetryableJobError(
-                code=provider_code,
-                message="Generation provider call failed",
-                retry_at=datetime.now(UTC) + timedelta(seconds=retry_after_seconds),
-            )
-            error_class = "retryable"
+        mapped, error_class = map_provider_failure(
+            exc,
+            provider_completed=provider_completed,
+            workflow_attempt=workflow_attempt,
+            workflow_job_id=workflow_job_id,
+        )
         async with context.session.begin():
             current_run = await context.session.scalar(
                 select(GenerationRun)
@@ -474,47 +421,4 @@ async def _invoke(
     return current_run, current_attempt, validated
 
 
-def _usage_with_qualified_pricing(usage: dict[str, Any], resolved: Any) -> tuple[dict[str, Any], Decimal]:
-    """Normalize a call cost and use frozen profile pricing when the provider omits it."""
-
-    normalized = dict(usage)
-    try:
-        supplied = Decimal(str(normalized.get("cost_usd", 0)))
-        input_tokens = Decimal(str(normalized.get("input_tokens", 0)))
-        output_tokens = Decimal(str(normalized.get("output_tokens", 0)))
-    except InvalidOperation, TypeError, ValueError:
-        raise NeedsReviewJobError(
-            code="generation_provider_usage_invalid",
-            message="Generation provider usage metadata is invalid",
-        ) from None
-    if (
-        not supplied.is_finite()
-        or not input_tokens.is_finite()
-        or not output_tokens.is_finite()
-        or supplied < 0
-        or input_tokens < 0
-        or output_tokens < 0
-    ):
-        raise NeedsReviewJobError(
-            code="generation_provider_usage_invalid",
-            message="Generation provider usage metadata is invalid",
-        )
-    max_output_tokens = getattr(resolved, "max_output_tokens", None)
-    if max_output_tokens is not None and output_tokens > max_output_tokens:
-        raise NeedsReviewJobError(
-            code="generation_provider_output_budget_exhausted",
-            message="Generation provider output-token budget is exhausted",
-        )
-    priced = Decimal("0")
-    if (
-        getattr(resolved, "pricing_input_usd_per_million", None) is not None
-        and getattr(resolved, "pricing_output_usd_per_million", None) is not None
-    ):
-        priced = (
-            input_tokens * resolved.pricing_input_usd_per_million
-            + output_tokens * resolved.pricing_output_usd_per_million
-        ) / Decimal(1_000_000)
-    effective = max(supplied, priced)
-    normalized["cost_usd"] = float(effective)
-    normalized["cost_basis"] = "provider_or_profile_max" if priced else "provider"
-    return normalized, effective
+_usage_with_qualified_pricing = normalize_provider_usage
