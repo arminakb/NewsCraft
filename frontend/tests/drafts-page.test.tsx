@@ -1,9 +1,9 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { render, screen } from "@testing-library/react"
 import DraftsPage from "@/app/drafts/page"
-import { getContentPackRequests } from "@/lib/editorial-api"
+import { getContentPackRequests } from "@/features/editorial/api"
 
-vi.mock("@/lib/editorial-api", () => ({ getContentPackRequests: vi.fn() }))
+vi.mock("@/features/editorial/api", () => ({ getContentPackRequests: vi.fn() }))
 vi.mock("@/features/drafts/telegram-draft-list", () => ({
   TelegramDraftList: () => <a href="/review/legacy-revision">Review legacy revision</a>,
 }))

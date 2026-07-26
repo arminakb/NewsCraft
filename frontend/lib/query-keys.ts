@@ -1,15 +1,11 @@
 import type { JobFilters } from "@/features/jobs/types"
 import type { HistoryFilters } from "@/features/operations/types"
 import type { TelegramDraftFilters } from "@/features/automations/telegram-types"
-import type { StoryFilters } from "@/lib/editorial-types"
 
 export const queryKeys = {
-  dashboardSummary: ["dashboard-summary"] as const,
   sources: ["sources"] as const,
   source: (id: string) => ["sources", id] as const,
   runs: ["ingest-runs"] as const,
-  contentItems: ["content-items"] as const,
-  dashboardSnapshot: ["dashboard-snapshot"] as const,
   diagnostics: ["diagnostics"] as const,
   jobs: (filters: JobFilters = {}) => ["jobs", filters] as const,
   job: (id: string) => ["jobs", id] as const,
@@ -34,7 +30,6 @@ export const queryKeys = {
   codexActivity: ["settings", "codex-activity"] as const,
   editorialProviderOptions: ["settings", "ai-provider-profiles", "editorial-options"] as const,
   editorialBrandOptions: ["settings", "brand-profiles", "editorial-options"] as const,
-  stories: (filters: StoryFilters = {}) => ["stories", filters] as const,
   story: (id: string) => ["stories", id] as const,
   evidence: (storyId: string) => ["stories", storyId, "evidence"] as const,
   researchRuns: (storyId: string) => ["stories", storyId, "research-runs"] as const,
@@ -58,16 +53,4 @@ export const operationsQueryKeys = {
   reconciliations: ["publications", "reconciliation"] as const,
   retentionPolicy: ["operations", "retention-policy"] as const,
   retentionPreview: (policyHash: string) => ["operations", "retention-preview", policyHash] as const,
-}
-
-export const editorialQueryKeys = {
-  editorialProviderOptions: queryKeys.editorialProviderOptions,
-  editorialBrandOptions: queryKeys.editorialBrandOptions,
-  stories: queryKeys.stories,
-  story: queryKeys.story,
-  evidence: queryKeys.evidence,
-  researchRuns: queryKeys.researchRuns,
-  contentPacks: queryKeys.contentPacks,
-  contentPack: queryKeys.contentPack,
-  variantRevisions: queryKeys.variantRevisions,
 }

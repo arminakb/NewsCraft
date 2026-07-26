@@ -18,6 +18,10 @@ import {
   rejectPlatformRevision,
   saveManualPlatformRevision,
 } from "@/features/packages/api"
+import {
+  regeneratePlatformVariant,
+  saveTelegramPlatformRevision,
+} from "@/features/packages/telegram-api"
 import type {
   CitationRef,
   ContentPackageVariant,
@@ -30,10 +34,11 @@ import type {
 import {
   getAIProviderOptions,
   getStoryEvidence,
-  regenerateVariant,
-  saveVariantRevision,
-} from "@/lib/editorial-api"
-import type { EvidenceCitation, VariantRevision } from "@/lib/editorial-types"
+} from "@/features/editorial/api"
+import type {
+  EvidenceCitation,
+  VariantRevision,
+} from "@/features/editorial/types"
 import { getApiErrorMessage } from "@/lib/http"
 import { queryKeys } from "@/lib/query-keys"
 
@@ -127,7 +132,7 @@ export function ContentPackWorkspace({ packId, initialRevisionId = null }: { pac
   }
 
   const telegramSave = useMutation({
-    mutationFn: (input: Parameters<typeof saveVariantRevision>[1] & { variantId: string }) => saveVariantRevision(input.variantId, input),
+    mutationFn: (input: Parameters<typeof saveTelegramPlatformRevision>[1] & { variantId: string }) => saveTelegramPlatformRevision(input.variantId, input),
     onSuccess: async (created) => {
       setSelectedRevisionId(created.id)
       setEditorDirty(false)
@@ -147,7 +152,7 @@ export function ContentPackWorkspace({ packId, initialRevisionId = null }: { pac
     onSuccess: refreshRevision,
   })
   const regenerate = useMutation({
-    mutationFn: (input: { variantId: string; providerProfileId: string; instruction: string | null }) => regenerateVariant(input.variantId, input),
+    mutationFn: (input: { variantId: string; providerProfileId: string; instruction: string | null }) => regeneratePlatformVariant(input.variantId, input),
     onSuccess: async (_job, input) => refreshPackageAndHistory(input.variantId),
   })
   const workspaceBusy = telegramSave.isPending || manualSave.isPending || approve.isPending || reject.isPending || regenerate.isPending
@@ -221,7 +226,7 @@ export function ContentPackWorkspace({ packId, initialRevisionId = null }: { pac
           {revision.platform === "telegram" ? <VariantEditor
             revision={telegramEditorRevision(revision)}
             availableProviders={providers.data ?? []}
-            onSave={(input) => telegramSave.mutateAsync(input)}
+            onSave={async (input) => telegramEditorRevision(await telegramSave.mutateAsync(input))}
             onApprove={async (input) => {
               const updated = await approve.mutateAsync(input)
               if (updated.platform !== "telegram") throw new Error("Telegram approval returned a different platform")

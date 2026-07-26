@@ -16,7 +16,10 @@ import {
   rejectTelegramDraft,
 } from "@/features/automations/telegram-api"
 import { TelegramReviewWorkspace } from "@/features/review/telegram-review-workspace"
-import { getResearchRuns, getStory } from "@/lib/editorial-api"
+import {
+  getResearchRuns,
+  getStoryCompleteness,
+} from "@/features/editorial/api"
 import { queryKeys } from "@/lib/query-keys"
 
 const push = vi.fn()
@@ -34,7 +37,7 @@ vi.mock("@/features/automations/telegram-api", () => ({
   rejectTelegramDraft: vi.fn(),
   publishTelegramDraft: vi.fn(),
 }))
-vi.mock("@/lib/editorial-api", () => ({ getStory: vi.fn(), getResearchRuns: vi.fn() }))
+vi.mock("@/features/editorial/api", () => ({ getStoryCompleteness: vi.fn(), getResearchRuns: vi.fn() }))
 
 const revision = {
   id: "11111111-1111-4111-8111-111111111111",
@@ -87,7 +90,7 @@ describe("TelegramReviewWorkspace", () => {
     vi.resetAllMocks()
     vi.mocked(getTelegramDraft).mockResolvedValue(revision as never)
     vi.mocked(getTelegramDispatches).mockResolvedValue([{ id: revision.dispatchId, storyId: "story-1", status: "generated", errorCode: null }] as never)
-    vi.mocked(getStory).mockResolvedValue({ completeness: { complete: true, score: 100, reasons: [] } } as never)
+    vi.mocked(getStoryCompleteness).mockResolvedValue({ complete: true, score: 100, reasons: [] })
     vi.mocked(getResearchRuns).mockResolvedValue([])
     vi.mocked(getTelegramRoute).mockResolvedValue({
       id: revision.routeId,

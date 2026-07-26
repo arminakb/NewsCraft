@@ -3,7 +3,11 @@
 import { useEffect, useMemo, useState } from "react"
 import { Button } from "@/components/ui/button"
 import { ApiError, getApiErrorMessage } from "@/lib/http"
-import type { AIProviderOption, JobAccepted, VariantRevision } from "@/lib/editorial-types"
+import type {
+  AIProviderOption,
+  VariantRevision,
+} from "@/features/editorial/types"
+import type { JobAccepted } from "@/features/jobs/types"
 import { useDirtyNavigation } from "@/components/editorial/use-dirty-navigation"
 import { DirectionBoundary } from "@/components/newsroom/direction-boundary"
 

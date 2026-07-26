@@ -6,6 +6,10 @@ import {
   rejectPlatformRevision,
   saveManualPlatformRevision,
 } from "@/features/packages/api"
+import {
+  regeneratePlatformVariant,
+  saveTelegramPlatformRevision,
+} from "@/features/packages/telegram-api"
 import type {
   BlogPayload,
   CitationRef,
@@ -206,6 +210,66 @@ describe("multi-platform package API", () => {
       evidence_map: [citationWire],
       edit_note: "Shortened the caption",
     })
+  })
+
+  it("posts Telegram edits through the shared package decoder", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(JSON.stringify(revisionWire("telegram")), {
+        status: 201,
+        headers: { "content-type": "application/json" },
+      }),
+    )
+
+    await expect(saveTelegramPlatformRevision(ids.variant, {
+      baseRevisionId: ids.revision,
+      baseContentHash: "b".repeat(64),
+      content: { body: "Edited", parseMode: "HTML", buttons: [] },
+      mediaAssetIds: [ids.media],
+      editNote: "Corrected wording",
+    })).resolves.toMatchObject({ platform: "telegram", variantId: ids.variant })
+
+    expect(fetchSpy).toHaveBeenCalledWith(
+      `/api/backend/platform-variants/${ids.variant}/revisions`,
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({
+          base_revision_id: ids.revision,
+          base_content_hash: "b".repeat(64),
+          content: { body: "Edited", parse_mode: "HTML", buttons: [] },
+          media_asset_ids: [ids.media],
+          edit_note: "Corrected wording",
+        }),
+      }),
+    )
+  })
+
+  it("queues regeneration without a discarded prompt choice", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(JSON.stringify({
+        job_id: "99999999-9999-4999-8999-999999999999",
+        status: "queued",
+        deduplicated: false,
+      }), { status: 202, headers: { "content-type": "application/json" } }),
+    )
+
+    await expect(regeneratePlatformVariant(ids.variant, {
+      providerProfileId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+      instruction: null,
+    })).resolves.toEqual({
+      jobId: "99999999-9999-4999-8999-999999999999",
+      status: "queued",
+      deduplicated: false,
+    })
+    expect(fetchSpy).toHaveBeenCalledWith(
+      `/api/backend/platform-variants/${ids.variant}/regenerate`,
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({
+          generation_provider_profile_id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+          instruction: null,
+        }),
+      }),
+    )
   })
 
   it("rejects a manual edit whose evidence map differs from ordered content citations", async () => {

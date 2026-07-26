@@ -2,8 +2,8 @@ import { render, screen } from "@testing-library/react"
 import { fireEvent } from "@testing-library/react"
 
 import { VariantEditor } from "@/components/editorial/variant-editor"
+import type { VariantRevision } from "@/features/editorial/types"
 import { ApiError } from "@/lib/http"
-import type { VariantRevision } from "@/lib/editorial-types"
 
 const revision: VariantRevision = {
   id: "rev-2", variantId: "variant-1", contentPackId: "pack-1", storyId: "story-1", parentRevisionId: "rev-1", generationAttemptId: null,

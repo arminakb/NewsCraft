@@ -3,7 +3,7 @@
 import { useQuery } from "@tanstack/react-query"
 import Link from "next/link"
 import { TelegramDraftList } from "@/features/drafts/telegram-draft-list"
-import { getContentPackRequests } from "@/lib/editorial-api"
+import { getContentPackRequests } from "@/features/editorial/api"
 import { getApiErrorMessage } from "@/lib/http"
 import { queryKeys } from "@/lib/query-keys"
 
