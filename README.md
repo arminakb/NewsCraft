@@ -227,6 +227,16 @@ backend/.venv/bin/python scripts/quality_baseline.py
 The legacy complexity, unused-code, and mypy findings are informational until
 their owning refactor phase makes them blocking.
 
+Capture the representative PostgreSQL query-count and timing baseline:
+
+```bash
+scripts/performance_baseline.sh
+```
+
+The command owns a disposable migrated test database and emits the complete
+measurement as JSON. The recorded Phase 0 dataset and interpretation are in
+[docs/refactor-performance-baseline.md](docs/refactor-performance-baseline.md).
+
 ## Useful Endpoints
 
 - `GET /health`
