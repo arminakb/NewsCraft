@@ -9,7 +9,7 @@ import httpx
 from app.daily_bundle import __main__ as daily_bundle_main
 from app.daily_bundle.__main__ import DailyBundleDependencies, parse_args, run_daily_bundle
 from app.discovery.models import DiscoveryItem, ExtractedArticle
-from app.ingestion import service as ingestion_service
+from app.ingestion import workflow as ingestion_workflow
 
 
 def test_parse_args_accepts_daily_bundle_flags(tmp_path):
@@ -58,7 +58,7 @@ async def test_run_daily_bundle_orchestrates_ingestion_discovery_extraction_down
     deps = DailyBundleDependencies(
         session_factory=lambda: FakeSessionContext(events),
         http_client_factory=lambda: FakeClientContext(events),
-        ingestion_service_factory=lambda session, client: FakeIngestionService(events),
+        ingestion_workflow_factory=lambda client: FakeIngestionWorkflow(events),
         repository_factory=lambda session: FakeRepository(events, run_id),
         discovery_service_factory=lambda session, repository: FakeDiscoveryService(events),
         media_downloader_factory=lambda session, client: FakeMediaDownloader(events),
@@ -116,7 +116,7 @@ async def test_http_client_builders_ignore_blank_proxy_settings(monkeypatch):
         "no_proxy",
     ):
         monkeypatch.setenv(name, "  ")
-    for module in (daily_bundle_main, ingestion_service):
+    for module in (daily_bundle_main, ingestion_workflow):
         client = module._build_http_client()
         assert client._trust_env is False
         assert client._transport.__class__.__name__ == "OutboundProxyTransport"
@@ -129,7 +129,7 @@ async def test_run_daily_bundle_records_discovery_errors_without_aborting(tmp_pa
     deps = DailyBundleDependencies(
         session_factory=lambda: FakeSessionContext(events),
         http_client_factory=lambda: FakeClientContext(events),
-        ingestion_service_factory=lambda session, client: FakeIngestionService(events),
+        ingestion_workflow_factory=lambda client: FakeIngestionWorkflow(events),
         repository_factory=lambda session: FakeRepository(events, uuid4()),
         discovery_service_factory=lambda session, repository: FakeDiscoveryService(events),
         media_downloader_factory=lambda session, client: FakeMediaDownloader(events),
@@ -159,7 +159,7 @@ async def test_run_daily_bundle_redacts_discovery_errors_before_persisting_or_pr
     deps = DailyBundleDependencies(
         session_factory=lambda: FakeSessionContext(events),
         http_client_factory=lambda: FakeClientContext(events),
-        ingestion_service_factory=lambda session, client: FakeIngestionService(events),
+        ingestion_workflow_factory=lambda client: FakeIngestionWorkflow(events),
         repository_factory=lambda session: FakeRepository(events, uuid4()),
         discovery_service_factory=lambda session, repository: FakeDiscoveryService(events),
         media_downloader_factory=lambda session, client: FakeMediaDownloader(events),
@@ -213,11 +213,13 @@ class FakeClientContext:
         self.events.append(("client_exit",))
 
 
-class FakeIngestionService:
+class FakeIngestionWorkflow:
     def __init__(self, events):
         self.events = events
 
-    async def run_once(self, platforms, trigger):
+    async def run(self, *, session, platforms, source_ids, trigger):
+        assert session is not None
+        assert source_ids is None
         self.events.append(("existing_ingestion", tuple(platforms), trigger))
         return {"items": 2}
 

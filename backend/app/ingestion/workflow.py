@@ -13,21 +13,13 @@ import httpx
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
-from app.core.redaction import redact_string
+from app.core.outbound_proxy import build_outbound_http_client
+from app.core.redaction import redact_secrets, redact_string
 from app.db.models import Source
 from app.ingestion.repository import IngestionRepository, build_item_identities
-from app.ingestion.service import (
-    _build_http_client,
-    _is_suitable_item,
-    _parse_source_payload,
-    _payload_kind,
-    _record_source_failure,
-    _record_source_not_modified,
-    _record_source_success,
-    _request_headers,
-    _sanitized_stats,
-    _source_request_url,
-)
+from app.sources.registry import parser_for_source
+
+DEFAULT_HEADERS = {"User-Agent": "NewsCraftBot/1.0"}
 
 
 @dataclass(frozen=True, slots=True)
@@ -416,3 +408,135 @@ class _PersistedResponse:
     def __init__(self, batch: FetchedSourceBatch) -> None:
         self.status_code = batch.http_status
         self.headers = batch.headers
+
+
+def _build_http_client() -> httpx.AsyncClient:
+    return build_outbound_http_client(timeout=20.0)
+
+
+def _source_request_url(source: Source) -> str:
+    if source.platform in {"rss", "atom"} and source.feed_url:
+        return source.feed_url
+    if source.platform == "telegram_public" and source.telegram_username:
+        return f"https://t.me/s/{source.telegram_username}"
+    raise ValueError(f"Source {source.name} is missing fetch URL data")
+
+
+def _request_headers(source: Source) -> dict[str, str]:
+    headers = dict(DEFAULT_HEADERS)
+    if source.etag:
+        headers["If-None-Match"] = source.etag
+    if source.last_modified:
+        headers["If-Modified-Since"] = source.last_modified
+    return headers
+
+
+def _payload_kind(source: Source) -> str:
+    if source.platform in {"rss", "atom"}:
+        return "feed_xml"
+    if source.platform == "telegram_public":
+        return "telegram_html"
+    return "raw"
+
+
+def _parse_source_payload(source: Source, raw_text: str, request_url: str):
+    parser = parser_for_source(source)
+    if source.platform in {"rss", "atom"}:
+        return parser(
+            raw_text,
+            source_name=source.name,
+            source_url=source.feed_url or request_url,
+            default_timezone=source.default_timezone or "UTC",
+        )
+    if source.platform == "telegram_public":
+        return parser(raw_text, channel=source.telegram_username)
+    raise ValueError(f"Unsupported source platform: {source.platform}")
+
+
+def _record_source_success(
+    source: Source,
+    response: httpx.Response,
+    *,
+    parse_count: int,
+    suitable_count: int,
+    media_count: int,
+    parser_warnings: list[str],
+) -> None:
+    now = datetime.now(UTC)
+    source.last_fetch_at = now
+    source.last_http_status = response.status_code
+    source.last_success_at = now
+    source.last_parse_count = parse_count
+    source.last_suitable_count = suitable_count
+    source.last_media_count = media_count
+
+    error_type, error_message = _source_quality_issue(parse_count, suitable_count, parser_warnings)
+    if _source_is_disabled(source):
+        source.health_status = "disabled"
+        return
+    if error_type:
+        source.health_status = "degraded"
+        source.last_failure_at = now
+        source.failure_count = int(source.failure_count or 0) + 1
+        source.last_error_type = redact_string(error_type)
+        source.last_error_message = redact_string(error_message) if error_message is not None else None
+        return
+
+    source.health_status = "healthy"
+    source.failure_count = 0
+    source.last_error_type = None
+    source.last_error_message = None
+
+
+def _record_source_not_modified(source: Source, response: httpx.Response) -> None:
+    now = datetime.now(UTC)
+    source.last_fetch_at = now
+    source.last_http_status = response.status_code
+    source.last_success_at = now
+    if _source_is_disabled(source):
+        source.health_status = "disabled"
+
+
+def _record_source_failure(
+    source: Source,
+    error: Exception,
+    *,
+    http_status: int | None = None,
+    error_type: str | None = None,
+) -> None:
+    now = datetime.now(UTC)
+    source.last_fetch_at = now
+    source.last_failure_at = now
+    source.failure_count = int(source.failure_count or 0) + 1
+    source.last_http_status = http_status
+    source.last_error_type = redact_string(error_type or error.__class__.__name__)
+    source.last_error_message = redact_string(str(error))
+    source.health_status = "disabled" if _source_is_disabled(source) else "broken"
+
+
+def _source_quality_issue(
+    parse_count: int,
+    suitable_count: int,
+    parser_warnings: list[str],
+) -> tuple[str | None, str | None]:
+    bozo_warnings = [warning for warning in parser_warnings if warning.startswith("bozo_feed:")]
+    if bozo_warnings:
+        return "malformed_feed", "; ".join(bozo_warnings)
+    if parse_count == 0:
+        return "zero_parsed_items", "Parser returned no items."
+    if suitable_count == 0:
+        return "zero_suitable_items", "Parser returned no items with usable text."
+    return None, None
+
+
+def _is_suitable_item(item) -> bool:
+    return bool((item.content_text or "").strip() and (item.title or "").strip())
+
+
+def _source_is_disabled(source: Source) -> bool:
+    return not source.active or bool(source.disabled_reason)
+
+
+def _sanitized_stats(stats: dict[str, Any]) -> dict[str, Any]:
+    sanitized = redact_secrets(stats)
+    return sanitized if isinstance(sanitized, dict) else {}

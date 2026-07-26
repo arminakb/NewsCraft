@@ -78,7 +78,7 @@ async def test_ingest_run_endpoint_enqueues_one_idempotent_job_without_network(m
     def fail_if_constructed(*_args, **_kwargs):
         raise AssertionError("the API must not construct the network ingestion service")
 
-    monkeypatch.setattr("app.ingestion.service.IngestionService.__init__", fail_if_constructed)
+    monkeypatch.setattr("app.ingestion.workflow.IngestionWorkflow.__init__", fail_if_constructed)
     _override_session(fake_session)
 
     payload = {
@@ -115,15 +115,7 @@ async def test_ingest_run_endpoint_enqueues_one_idempotent_job_without_network(m
     assert fake_session.commit_count == 2
 
 
-async def test_ingest_run_endpoint_requires_request_id(monkeypatch):
-    class LegacyNetworkService:
-        async def run_once(self, **_kwargs):
-            return {"status": "succeeded"}
-
-    monkeypatch.setattr(
-        "app.ingestion.service.IngestionService.__init__",
-        lambda self, _session: setattr(self, "run_once", LegacyNetworkService().run_once),
-    )
+async def test_ingest_run_endpoint_requires_request_id():
     _override_session(FakeSession([]))
     try:
         response = await _post("/ingest/run", json={"platforms": ["rss"]})

@@ -33,8 +33,8 @@ The command treats `--start` as inclusive local midnight and `--end` as exclusiv
 
 Phase 1 sources are:
 
-- Existing curated RSS and Atom feeds through `IngestionService`.
-- Existing public Telegram channels through `IngestionService`.
+- Existing curated RSS and Atom feeds through `IngestionWorkflow`.
+- Existing public Telegram channels through `IngestionWorkflow`.
 - GDELT document API for broad no-signup global news discovery.
 - Google News RSS topic searches.
 - Hacker News top, new, and best stories for AI, startup, and technical trend signals.

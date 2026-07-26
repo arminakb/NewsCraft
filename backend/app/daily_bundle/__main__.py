@@ -24,7 +24,7 @@ from app.discovery.hackernews import discover_hackernews
 from app.discovery.models import DiscoveryItem, ExtractedArticle
 from app.discovery.service import DiscoveryIngestionService
 from app.ingestion.repository import IngestionRepository
-from app.ingestion.service import IngestionService
+from app.ingestion.workflow import IngestionWorkflow
 from app.media.downloader import MediaDownloader
 
 DEFAULT_DISCOVERY_PLATFORMS = ("rss", "atom", "telegram_public")
@@ -36,8 +36,8 @@ DEFAULT_EXTRACTION_CONCURRENCY = 8
 class DailyBundleDependencies:
     session_factory: Callable[[], Any] = async_session
     http_client_factory: Callable[[], Any] = lambda: _build_http_client()
-    ingestion_service_factory: Callable[[Any, httpx.AsyncClient], IngestionService] = lambda session, client: (
-        IngestionService(session, http_client=client)
+    ingestion_workflow_factory: Callable[[httpx.AsyncClient], IngestionWorkflow] = lambda client: IngestionWorkflow(
+        http_client=client
     )
     repository_factory: Callable[[Any], IngestionRepository] = lambda session: IngestionRepository(session)
     discovery_service_factory: Callable[[Any, IngestionRepository], DiscoveryIngestionService] = (
@@ -92,9 +92,11 @@ async def run_daily_bundle(
         async with deps.session_factory() as session:
             repository = deps.repository_factory(session)
             try:
-                ingestion_service = deps.ingestion_service_factory(session, client)
-                stats["existing_ingestion"] = await ingestion_service.run_once(
+                ingestion_workflow = deps.ingestion_workflow_factory(client)
+                stats["existing_ingestion"] = await ingestion_workflow.run(
+                    session=session,
                     platforms=list(DEFAULT_DISCOVERY_PLATFORMS),
+                    source_ids=None,
                     trigger="daily_bundle",
                 )
 
