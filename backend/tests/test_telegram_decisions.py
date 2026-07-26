@@ -32,6 +32,10 @@ from app.publishing.telegram.client import (
 NOW = datetime(2026, 7, 11, 9, tzinfo=UTC)
 
 
+class SimulatedProcessDeath(BaseException):
+    pass
+
+
 def envelope(message_id: int, offset_seconds: int) -> TelegramEnvelope:
     return TelegramEnvelope(
         source_key=f"telegram:source:{message_id}",
@@ -154,6 +158,7 @@ def test_review_policy_never_auto_publishes_an_exception(overrides, expected):
         (TelegramRetryableBeforeDispatch("connect"), PublicationFailureDecision("retry", 30)),
         (TelegramAmbiguousError("timeout"), PublicationFailureDecision("reconcile")),
         (RuntimeError("unknown send outcome"), PublicationFailureDecision("reconcile")),
+        (SimulatedProcessDeath(), PublicationFailureDecision("reconcile")),
         (TelegramPermanentError("rejected"), PublicationFailureDecision("terminal")),
         (PermanentJobError(code="invalid", message="invalid"), PublicationFailureDecision("terminal")),
     ],

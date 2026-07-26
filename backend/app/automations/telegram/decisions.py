@@ -136,7 +136,6 @@ class PublicationFailureDecision:
 def classify_publication_failure(error: BaseException) -> PublicationFailureDecision:
     from app.jobs.errors import PermanentJobError
     from app.publishing.telegram.client import (
-        TelegramAmbiguousError,
         TelegramPermanentError,
         TelegramRateLimited,
         TelegramRetryableBeforeDispatch,
@@ -148,9 +147,7 @@ def classify_publication_failure(error: BaseException) -> PublicationFailureDeci
         return PublicationFailureDecision("retry", 30)
     if isinstance(error, (TelegramPermanentError, PermanentJobError)):
         return PublicationFailureDecision("terminal")
-    if isinstance(error, TelegramAmbiguousError) or isinstance(error, Exception):
-        return PublicationFailureDecision("reconcile")
-    raise error
+    return PublicationFailureDecision("reconcile")
 
 
 def reconciliation_required(*, receipt_status: str, dispatch_stale: bool = False) -> bool:
