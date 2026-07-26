@@ -70,6 +70,7 @@ for (const viewport of [
     await navigate(page, "Automations", viewport.name === "mobile")
     await page.getByRole("link", { name: "Persian breaking route" }).click()
     await expect(page.getByText("Initializing")).toBeVisible()
+    await page.getByText("Advanced route details").click()
     await expect(page.getByText("Last message 90")).toBeVisible()
     await expectNoHorizontalOverflow(page)
     await page.getByLabel("Source message ID (optional)").fill("91")
@@ -78,8 +79,8 @@ for (const viewport of [
     expect(backend.requests.dryRun).toEqual({ source_message_id: 91 })
 
     await navigate(page, "Drafts", viewport.name === "mobile")
-    await expect(page.getByText("pending review")).toBeVisible()
-    await expect(page.getByRole("link", { name: "Open editorial studio" })).toBeVisible()
+    await expect(page.getByText(/Needs review ·/)).toBeVisible()
+    await expect(page.getByRole("link", { name: "Continue review" })).toBeVisible()
     await expectNoHorizontalOverflow(page)
     await page.goto(`/review/${ids.dryDraft}`)
     await expect(page.getByText("Draft dry run blocks publishing")).toBeVisible()
@@ -88,15 +89,15 @@ for (const viewport of [
 
     await navigate(page, "Drafts", viewport.name === "mobile")
     await page.reload()
-    await expect(page.getByText("pending review")).toBeVisible()
-    await page.getByRole("link", { name: "Open editorial studio" }).click()
+    await expect(page.getByText(/Needs review ·/)).toBeVisible()
+    await page.getByRole("link", { name: "Continue review" }).click()
     await expect(page.getByText("Captured Telegram source")).toBeVisible()
     await expect(page.getByText("image · image/jpeg")).toBeVisible()
     await expect(page.getByLabel("Telegram message")).toHaveAttribute("dir", "rtl")
     await expectNoHorizontalOverflow(page)
     await page.getByLabel("Telegram message").fill("نسخه دوم با زمینه تأییدشده")
     await page.getByRole("button", { name: "Save new revision" }).click()
-    await expect(page.getByText(new RegExp(`Loaded revision ${ids.draft2}`))).toBeVisible()
+    await expect(page.getByRole("status").filter({ hasText: "New pending review revision created" }).first()).toBeVisible()
     expect(backend.requests.edit).toMatchObject({
       base_revision_id: ids.draft1,
       base_content_hash: "a".repeat(64),

@@ -46,7 +46,7 @@ const initialForm: FormState = {
   sessionRef: "",
   destinationId: "",
   brandProfileId: "",
-  promptPolicy: "",
+  promptPolicy: "pinned",
   promptTemplateVersionId: "",
   aiProviderProfileId: "",
   researchMode: "off",
@@ -134,30 +134,40 @@ export function RouteBuilder({ onCreated }: { onCreated?: (routeId: string) => v
     <section className="mx-auto w-full max-w-4xl space-y-4 p-4 md:p-6" aria-labelledby="route-builder-heading">
       <div>
         <h1 id="route-builder-heading" className="text-2xl font-semibold">New Telegram automation</h1>
-        <p className="text-muted-foreground">Connect a source and destination with review-first newsroom defaults.</p>
+        <p className="text-muted-foreground">Connect a source and destination with conservative, review-first defaults.</p>
       </div>
+      <ol aria-label="Automation setup steps" className="grid gap-2 text-sm sm:grid-cols-3">
+        <li className="rounded-lg border bg-card p-3"><strong>1. Source</strong><br /><span className="text-muted-foreground">Name the route and Telegram channel.</span></li>
+        <li className="rounded-lg border bg-card p-3"><strong>2. Destination</strong><br /><span className="text-muted-foreground">Choose a verified newsroom destination.</span></li>
+        <li className="rounded-lg border bg-card p-3"><strong>3. Review policy</strong><br /><span className="text-muted-foreground">Confirm how drafts reach editors.</span></li>
+      </ol>
       {optionsQuery.isPending ? <div role="status">Loading safe configuration options</div> : null}
       {optionsQuery.isError ? <div role="alert" dir="auto">{getApiErrorMessage(optionsQuery.error)}</div> : null}
       {options ? (
         <form className="space-y-4" onSubmit={(event) => { event.preventDefault(); setOutcome(""); mutation.mutate() }}>
           <Card>
-            <CardHeader><CardTitle>Source and destination</CardTitle></CardHeader>
+            <CardHeader><CardTitle>Steps 1–2 · Source and destination</CardTitle></CardHeader>
             <CardContent className="grid gap-4 md:grid-cols-2">
               <Field label="Automation name"><input required className={fieldClass} value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} /></Field>
               <Field label="Source name"><input required className={fieldClass} value={form.sourceName} onChange={(e) => setForm({ ...form, sourceName: e.target.value })} /></Field>
               <Field label="Source channel"><input required className={fieldClass} value={form.channelRef} onChange={(e) => setForm({ ...form, channelRef: e.target.value })} /></Field>
-              <Field label="Access mode">
-                <select className={fieldClass} value={form.accessMode} onChange={(e) => setForm({ ...form, accessMode: e.target.value as FormState["accessMode"] })}>
-                  <option value="public_html">Public HTML</option><option value="mtproto_user">MTProto user session</option>
-                </select>
-              </Field>
-              {form.accessMode === "mtproto_user" ? (
-                <div className="grid gap-4 md:col-span-2 md:grid-cols-3">
-                  <EnvironmentField label="API ID environment variable" value={form.apiIdRef} onChange={(apiIdRef) => setForm({ ...form, apiIdRef })} />
-                  <EnvironmentField label="API hash environment variable" value={form.apiHashRef} onChange={(apiHashRef) => setForm({ ...form, apiHashRef })} />
-                  <EnvironmentField label="Session environment variable" value={form.sessionRef} onChange={(sessionRef) => setForm({ ...form, sessionRef })} />
+              <details className="rounded-lg border p-3 md:col-span-2">
+                <summary className="cursor-pointer font-medium">Advanced source access</summary>
+                <div className="mt-4 grid gap-4 md:grid-cols-2">
+                  <Field label="Access mode">
+                    <select className={fieldClass} value={form.accessMode} onChange={(e) => setForm({ ...form, accessMode: e.target.value as FormState["accessMode"] })}>
+                      <option value="public_html">Public HTML</option><option value="mtproto_user">MTProto user session</option>
+                    </select>
+                  </Field>
+                  {form.accessMode === "mtproto_user" ? (
+                    <div className="grid gap-4 md:col-span-2 md:grid-cols-3">
+                      <EnvironmentField label="API ID environment variable" value={form.apiIdRef} onChange={(apiIdRef) => setForm({ ...form, apiIdRef })} />
+                      <EnvironmentField label="API hash environment variable" value={form.apiHashRef} onChange={(apiHashRef) => setForm({ ...form, apiHashRef })} />
+                      <EnvironmentField label="Session environment variable" value={form.sessionRef} onChange={(sessionRef) => setForm({ ...form, sessionRef })} />
+                    </div>
+                  ) : null}
                 </div>
-              ) : null}
+              </details>
               <div className="grid gap-2 md:col-span-2">
                 <Field label="Telegram destination">
                   <select
@@ -190,7 +200,7 @@ export function RouteBuilder({ onCreated }: { onCreated?: (routeId: string) => v
           </Card>
 
           <Card>
-            <CardHeader><CardTitle>Editorial policy</CardTitle></CardHeader>
+            <CardHeader><CardTitle>Step 3 · Review policy</CardTitle></CardHeader>
             <CardContent className="grid gap-4 md:grid-cols-2">
               <Field label="Brand"><select className={fieldClass} value={choose(form.brandProfileId, options.brandProfiles[0]?.id)} onChange={(e) => setForm({ ...form, brandProfileId: e.target.value })}>{options.brandProfiles.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></Field>
               <Field label="Prompt update policy">
@@ -222,7 +232,12 @@ export function RouteBuilder({ onCreated }: { onCreated?: (routeId: string) => v
               {form.researchMode !== "off" ? <Field label="Research provider"><select className={fieldClass} value={choose(form.researchProviderProfileId, researchProfiles[0]?.id)} onChange={(e) => setForm({ ...form, researchProviderProfileId: e.target.value })}><option value="">Select an available research profile</option>{researchProfiles.map((item) => <option key={item.id} value={item.id}>{item.name} · {item.defaultModel ?? "default model"}</option>)}</select></Field> : null}
               <Field label="Media policy"><select className={fieldClass} value={form.mediaPolicy} onChange={(e) => setForm({ ...form, mediaPolicy: e.target.value as FormState["mediaPolicy"] })}><option value="preserve">Preserve</option><option value="omit">Omit</option><option value="replace_manually">Replace manually</option></select></Field>
               <Field label="Publishing policy"><select className={fieldClass} value={form.publishingPolicy} onChange={(e) => setForm({ ...form, publishingPolicy: e.target.value as FormState["publishingPolicy"], confirmAutoPublish: false })}><option value="review_required">Review required</option><option value="auto_publish">Automatic publish</option></select></Field>
-              <Field label="Poll interval in seconds"><input required min={60} max={86400} type="number" className={fieldClass} value={form.pollIntervalSeconds} onChange={(e) => setForm({ ...form, pollIntervalSeconds: Number(e.target.value) })} /></Field>
+              <details className="rounded-lg border p-3 md:col-span-2">
+                <summary className="cursor-pointer font-medium">Advanced timing</summary>
+                <div className="mt-4 max-w-sm">
+                  <Field label="Poll interval in seconds"><input required min={60} max={86400} type="number" className={fieldClass} value={form.pollIntervalSeconds} onChange={(e) => setForm({ ...form, pollIntervalSeconds: Number(e.target.value) })} /></Field>
+                </div>
+              </details>
               {form.publishingPolicy === "auto_publish" ? (
                 <label className="flex items-start gap-2 md:col-span-2"><input type="checkbox" className="mt-1" checked={form.confirmAutoPublish} onChange={(e) => setForm({ ...form, confirmAutoPublish: e.target.checked })} /><span><strong>Confirm automatic publishing</strong><br /><span className="text-muted-foreground">Approved content can be sent without another operator action.</span></span></label>
               ) : null}

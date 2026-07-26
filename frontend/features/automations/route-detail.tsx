@@ -70,6 +70,14 @@ export function RouteDetail({ routeId }: { routeId: string }) {
   if (routeQuery.isError) return <div role="alert" dir="auto" className="p-6">{getApiErrorMessage(routeQuery.error)}</div>
   if (!route) return null
   const cursorStatus = String(route.cursorState.status ?? "unknown")
+  const readiness = routeReadiness({
+    enabled: route.enabled,
+    paused: Boolean(route.pausedAt),
+    cursorStatus,
+    destinationHealth: destination?.healthStatus,
+    destinationPending: optionsQuery.isPending,
+    destinationFailed: optionsQuery.isError,
+  })
 
   return (
     <section className="min-w-0 space-y-4 p-4 md:p-6" aria-labelledby="route-heading">
@@ -88,22 +96,53 @@ export function RouteDetail({ routeId }: { routeId: string }) {
           <Button variant="outline" disabled={actionPending} onClick={() => route.pausedAt ? resumeMutation.mutate() : pauseMutation.mutate()}>{route.pausedAt ? "Resume route" : "Pause route"}</Button>
         </div>
       </div>
-      <div className="grid gap-4 lg:grid-cols-3">
-        <Card><CardHeader><CardTitle>Cursor and schedule</CardTitle></CardHeader><CardContent className="space-y-2"><Badge>{labelValue(cursorStatus)}</Badge><p>{route.cursorState.lastMessageId == null ? "Last message not available" : `Last message ${route.cursorState.lastMessageId}`}</p><KeyValue label="Next poll" value={route.nextPollAt ? formatDate(route.nextPollAt) : "Not scheduled"} /><KeyValue label="Last poll" value={route.lastPolledAt ? formatDate(route.lastPolledAt) : "Not polled"} /></CardContent></Card>
-        <Card><CardHeader><CardTitle>Policy</CardTitle></CardHeader><CardContent className="space-y-2"><KeyValue label="Prompt updates" value={labelValue(route.promptPolicy)} /><KeyValue label="Publishing" value={labelValue(route.publishingPolicy)} /><KeyValue label="Research" value={labelValue(route.researchMode)} /><KeyValue label="Research provider" value={route.contentFilters.researchProviderProfileId ? optionsQuery.data?.aiProviderProfiles.find((item) => item.id === route.contentFilters.researchProviderProfileId)?.name ?? "Configured profile" : "Not selected"} /><KeyValue label="Access" value={labelValue(route.accessMode)} /><KeyValue label="Media" value={labelValue(route.mediaPolicy)} /><KeyValue label="Polling" value={`${route.pollIntervalSeconds} seconds`} /><KeyValue label="Retry limit" value={`${route.retryPolicy.maxAttempts} attempts`} /><KeyValue label="Quiet hours" value={route.quietHours ? `${route.quietHours.start}–${route.quietHours.end} (${route.quietHours.timezone})` : "Not configured"} /></CardContent></Card>
-        <Card><CardHeader><CardTitle>Destination health</CardTitle></CardHeader><CardContent className="space-y-2">{optionsQuery.isError ? <><div role="alert" dir="auto" className="text-red-700">Destination health request failed: {getApiErrorMessage(optionsQuery.error)}</div><Button variant="outline" onClick={() => void optionsQuery.refetch()}>Retry destination health</Button></> : <><p>{destination ? labelValue(destination.healthStatus) : optionsQuery.isPending ? "Checking" : "Destination not configured"}</p><p className="text-muted-foreground">{destination?.name ?? "Destination details unavailable"}</p></>}</CardContent></Card>
-      </div>
+      <Card role="region" aria-label="Route readiness">
+        <CardHeader className="pb-2">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <CardTitle>Route readiness</CardTitle>
+            <Badge variant={readiness.ready ? "default" : "secondary"}>{readiness.label}</Badge>
+          </div>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <div>
+            <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Next action</p>
+            <p>{readiness.nextAction}</p>
+          </div>
+          {optionsQuery.isError ? (
+            <div className="space-y-2">
+              <div role="alert" dir="auto" className="text-red-700">
+                Destination health request failed: {getApiErrorMessage(optionsQuery.error)}
+              </div>
+              <Button variant="outline" onClick={() => void optionsQuery.refetch()}>Retry destination health</Button>
+            </div>
+          ) : null}
+        </CardContent>
+      </Card>
+
+      <details className="rounded-xl border bg-card p-4">
+        <summary className="cursor-pointer font-medium">Advanced route details</summary>
+        <div className="mt-4 grid gap-4 lg:grid-cols-3">
+          <Card><CardHeader><CardTitle>Cursor and schedule</CardTitle></CardHeader><CardContent className="space-y-2"><Badge>{labelValue(cursorStatus)}</Badge><p>{route.cursorState.lastMessageId == null ? "Last message not available" : `Last message ${route.cursorState.lastMessageId}`}</p><KeyValue label="Next poll" value={route.nextPollAt ? formatDate(route.nextPollAt) : "Not scheduled"} /><KeyValue label="Last poll" value={route.lastPolledAt ? formatDate(route.lastPolledAt) : "Not polled"} /></CardContent></Card>
+          <Card><CardHeader><CardTitle>Policy</CardTitle></CardHeader><CardContent className="space-y-2"><KeyValue label="Prompt updates" value={labelValue(route.promptPolicy)} /><KeyValue label="Publishing" value={labelValue(route.publishingPolicy)} /><KeyValue label="Research" value={labelValue(route.researchMode)} /><KeyValue label="Research provider" value={route.contentFilters.researchProviderProfileId ? optionsQuery.data?.aiProviderProfiles.find((item) => item.id === route.contentFilters.researchProviderProfileId)?.name ?? "Configured profile" : "Not selected"} /><KeyValue label="Access" value={labelValue(route.accessMode)} /><KeyValue label="Media" value={labelValue(route.mediaPolicy)} /><KeyValue label="Polling" value={`${route.pollIntervalSeconds} seconds`} /><KeyValue label="Retry limit" value={`${route.retryPolicy.maxAttempts} attempts`} /><KeyValue label="Quiet hours" value={route.quietHours ? `${route.quietHours.start}–${route.quietHours.end} (${route.quietHours.timezone})` : "Not configured"} /></CardContent></Card>
+          <Card><CardHeader><CardTitle>Destination health</CardTitle></CardHeader><CardContent className="space-y-2"><p>{destination ? labelValue(destination.healthStatus) : optionsQuery.isPending ? "Checking" : "Destination not configured"}</p><p className="text-muted-foreground">{destination?.name ?? "Destination details unavailable"}</p></CardContent></Card>
+        </div>
+      </details>
 
       {optionsQuery.data ? (
-        <PromptPolicyControl
-          key={`${route.promptPolicy}:${route.promptTemplateVersionId}`}
-          route={route}
-          options={optionsQuery.data}
-          onUpdated={(updated) => {
-            updateRouteTruth(updated)
-            setActionState({ tone: "success", message: "Prompt update policy changed." })
-          }}
-        />
+        <details className="rounded-xl border bg-card p-4">
+          <summary className="cursor-pointer font-medium">Edit automation settings</summary>
+          <div className="mt-4">
+            <PromptPolicyControl
+              key={`${route.promptPolicy}:${route.promptTemplateVersionId}`}
+              route={route}
+              options={optionsQuery.data}
+              onUpdated={(updated) => {
+                updateRouteTruth(updated)
+                setActionState({ tone: "success", message: "Prompt update policy changed." })
+              }}
+            />
+          </div>
+        </details>
       ) : null}
 
       <div className="grid gap-4 lg:grid-cols-2">
@@ -174,3 +213,28 @@ function labelValue(value: string) {
   return value.split("_").map((part) => part[0]?.toUpperCase() + part.slice(1)).join(" ")
 }
 function formatDate(value: string) { return new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" }).format(new Date(value)) }
+
+function routeReadiness({
+  enabled,
+  paused,
+  cursorStatus,
+  destinationHealth,
+  destinationPending,
+  destinationFailed,
+}: {
+  enabled: boolean
+  paused: boolean
+  cursorStatus: string
+  destinationHealth?: string
+  destinationPending: boolean
+  destinationFailed: boolean
+}) {
+  if (!enabled) return { ready: false, label: "Activation required", nextAction: "Activate this route before expecting new stories." }
+  if (paused) return { ready: false, label: "Paused", nextAction: "Resume the route when collection should continue." }
+  if (destinationFailed) return { ready: false, label: "Health unavailable", nextAction: "Retry the destination health check before publishing." }
+  if (destinationPending) return { ready: false, label: "Checking", nextAction: "Wait for destination readiness to finish." }
+  if (!destinationHealth) return { ready: false, label: "Blocked", nextAction: "Configure a Telegram destination for this route." }
+  if (destinationHealth !== "healthy") return { ready: false, label: "Destination blocked", nextAction: "Repair and verify the Telegram destination." }
+  if (cursorStatus !== "ready") return { ready: false, label: "Initializing", nextAction: "Wait for the activation boundary to finish, then run a dry run." }
+  return { ready: true, label: "Ready", nextAction: "Run a dry run for a safe end-to-end check, or leave the route collecting." }
+}
