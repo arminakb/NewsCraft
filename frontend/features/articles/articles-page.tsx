@@ -228,7 +228,7 @@ export function ArticlesPage() {
     } catch (cause) {
       setDirectRemovalError({
         article,
-        message: getApiErrorMessage(cause, "Article was removed, but the Feed could not be refreshed. Retry to reconcile."),
+        message: getApiErrorMessage(cause, "Article was removed, but the Library could not be refreshed. Retry to reconcile."),
       })
     } finally {
       directRemovalBusyRef.current = false
@@ -362,7 +362,7 @@ export function ArticlesPage() {
               {titleQuery
                 ? "Try a different article search or clear it."
                 : selectedCollection?.articleCount === 0
-                ? "Use Save to Collection on a Feed card to add articles here."
+                ? "Use Save to Collection on a Library card to add articles here."
                 : filterCount
                   ? "Try removing one or more filters."
                   : "New RSS and Telegram items will appear here."}

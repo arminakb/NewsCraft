@@ -209,60 +209,15 @@ def validate_prompt_template_fields(
 
 async def seed_default_telegram_prompt(session: AsyncSession) -> PromptTemplateVersion:
     await _lock_seed_transaction(session)
-    templates = list(await session.scalars(select(PromptTemplate).with_for_update()))
-    template = next(
-        (item for item in templates if item.purpose_key == "telegram_rewrite"),
-        None,
-    )
-    if template is None:
-        template = PromptTemplate(
-            id=uuid4(),
-            purpose_key="telegram_rewrite",
-            name="Telegram Rewrite",
-            description="Safe structured Telegram rewrite prompt",
-        )
-        template = await _add_with_conflict_reload(
-            session,
-            template,
-            select(PromptTemplate).where(PromptTemplate.purpose_key == "telegram_rewrite"),
-        )
-
-    output_schema = TelegramRewriteOutput.model_json_schema()
-    checksum = telegram_prompt_checksum(
-        DEFAULT_TELEGRAM_SYSTEM_TEMPLATE,
-        DEFAULT_TELEGRAM_USER_TEMPLATE,
-        output_schema,
-    )
-    versions = [
-        item
-        for item in await session.scalars(select(PromptTemplateVersion).with_for_update())
-        if item.prompt_template_id == template.id
-    ]
-    active = max((item for item in versions if item.is_active), key=lambda item: item.version, default=None)
-    if active is not None:
-        return active
-    if versions:
-        return max(versions, key=lambda item: item.version)
-    version = PromptTemplateVersion(
-        id=uuid4(),
-        prompt_template_id=template.id,
-        version=max((item.version for item in versions), default=0) + 1,
+    return await _seed_prompt_version(
+        session,
+        purpose_key="telegram_rewrite",
+        name="Telegram Rewrite",
+        description="Safe structured Telegram rewrite prompt",
         system_template=DEFAULT_TELEGRAM_SYSTEM_TEMPLATE,
         user_template=DEFAULT_TELEGRAM_USER_TEMPLATE,
         output_schema_version="telegram_rewrite.v1",
-        output_schema=output_schema,
-        checksum_sha256=checksum,
-        is_active=True,
-        activated_at=datetime.now(UTC),
-        **_SYSTEM_ACTIVATION,
-    )
-    return await _add_with_conflict_reload(
-        session,
-        version,
-        select(PromptTemplateVersion).where(
-            PromptTemplateVersion.prompt_template_id == template.id,
-            PromptTemplateVersion.version == version.version,
-        ),
+        output_schema=TelegramRewriteOutput.model_json_schema(),
     )
 
 
