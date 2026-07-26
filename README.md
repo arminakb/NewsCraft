@@ -202,6 +202,19 @@ curl -X POST http://localhost:8000/ingest/run \
   -d '{"request_id":"123e4567-e89b-42d3-a456-426614174000","platforms":["rss"]}'
 ```
 
+### Refactor quality baseline
+
+After installing the backend and frontend development dependencies, reproduce
+the handwritten production LOC, largest-file, Ruff complexity, strict
+TypeScript unused-code, and full-backend mypy baseline:
+
+```bash
+backend/.venv/bin/python scripts/quality_baseline.py
+```
+
+The legacy complexity, unused-code, and mypy findings are informational until
+their owning refactor phase makes them blocking.
+
 ## Useful Endpoints
 
 - `GET /health`
