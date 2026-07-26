@@ -23,7 +23,7 @@ import {
   revokeCodexConnection,
   rotateCodexConnection,
 } from "./content-settings-api"
-import type { CodexConnection } from "./content-settings-api"
+import type { CodexActivity, CodexConnection } from "./content-settings-api"
 import {
   ActionButton,
   connectionColor,
@@ -56,7 +56,7 @@ export function CodexSection({
   onRetry,
 }: {
   connections: CodexConnection[]
-  activity: Array<{ id: string; action: string; outcome: string; reasonCode: string | null; createdAt: string }>
+  activity: CodexActivity[]
   error: string | null
   loading: boolean
   refreshing: boolean
@@ -75,19 +75,19 @@ export function CodexSection({
     setBusy(`${connection.id}:rotate`)
     try {
       const result = await rotateCodexConnection(connection.id)
-      setIssued({ title: `Rotated credential for ${connection.deviceName}`, secret: result.credential })
+      setIssued({ title: `Rotated credential for ${connection.device_name}`, secret: result.credential })
       await refresh()
     } catch (cause) {
       pushNotice({ tone: "error", title: "Credential rotation failed", message: getApiErrorMessage(cause) })
     } finally { setBusy(null) }
   }
   const revoke = async (connection: CodexConnection) => {
-    if (!window.confirm(`Revoke ${connection.deviceName}? Access stops immediately.`)) return
+    if (!window.confirm(`Revoke ${connection.device_name}? Access stops immediately.`)) return
     setBusy(`${connection.id}:revoke`)
     try {
       await revokeCodexConnection(connection.id)
       await refresh()
-      pushNotice({ tone: "success", title: "Codex connection revoked", message: connection.deviceName })
+      pushNotice({ tone: "success", title: "Codex connection revoked", message: connection.device_name })
     } catch (cause) {
       pushNotice({ tone: "error", title: "Revocation failed", message: getApiErrorMessage(cause) })
     } finally { setBusy(null) }
@@ -123,17 +123,17 @@ export function CodexSection({
               <div className="min-w-0 flex-1">
                 <div className="flex flex-wrap items-center gap-2">
                   <span className={`size-2.5 rounded-full ${connectionColor(connection.status)}`} aria-hidden="true" />
-                  <h3 className="font-semibold">{connection.deviceName}</h3>
-                  <StatusBadge value={connection.connectionState} />
+                  <h3 className="font-semibold">{connection.device_name}</h3>
+                  <StatusBadge value={connection.connection_state} />
                   <StatusBadge value={connection.status} />
                 </div>
                 <p className="mt-1 text-sm text-muted-foreground">
-                  Last seen {formatDate(connection.lastHeartbeatAt, "never")} · Expires {formatDate(connection.expiresAt)}
+                  Last seen {formatDate(connection.last_heartbeat_at, "never")} · Expires {formatDate(connection.expires_at)}
                 </p>
                 <div className="mt-3 flex flex-wrap gap-1.5">
                   {connection.scopes.map((scope) => <Badge key={scope} variant="outline">{scope}</Badge>)}
                 </div>
-                {connection.failureCode ? <p className="mt-2 text-sm text-amber-800 dark:text-amber-300">{safeCode(connection.failureCode)}</p> : null}
+                {connection.failure_code ? <p className="mt-2 text-sm text-amber-800 dark:text-amber-300">{safeCode(connection.failure_code)}</p> : null}
               </div>
               <div className="flex flex-wrap gap-2">
                 <ActionButton label="Rotate" icon={RotateCw} busy={busy === `${connection.id}:rotate`} onClick={() => void rotate(connection)} />
@@ -150,7 +150,7 @@ export function CodexSection({
             {activity.map((event) => (
               <li key={event.id} className="flex flex-wrap items-center justify-between gap-2 py-2 text-sm">
                 <span>{safeCode(event.action)} · {safeCode(event.outcome)}</span>
-                <time className="text-muted-foreground">{formatDate(event.createdAt)}</time>
+                <time className="text-muted-foreground">{formatDate(event.created_at)}</time>
               </li>
             ))}
           </ol> : <p className="mt-2 text-sm text-muted-foreground">No recent gateway activity.</p>}
@@ -173,7 +173,7 @@ function CodexPairingDialog({ onClose, onIssued }: { onClose: () => void; onIssu
   const dirty = form.deviceName !== "" || form.scopes.length !== readScopes.length
   const mutation = useMutation({
     mutationFn: () => createCodexPairingSession(form.deviceName.trim(), form.scopes),
-    onSuccess: (session) => onIssued({ title: `Pair ${session.deviceName}`, secret: session.pairingCode, command: session.localCommand }),
+    onSuccess: (session) => onIssued({ title: `Pair ${session.device_name}`, secret: session.pairing_code, command: session.local_command }),
     onError: (cause) => pushNotice({ tone: "error", title: "Pairing session failed", message: getApiErrorMessage(cause) }),
   })
   return (

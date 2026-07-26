@@ -41,14 +41,14 @@ export function ContentSettingsPage() {
     queryKey: queryKeys.telegramDestinations,
     queryFn: getTelegramDestinations,
     refetchInterval: (query) => query.state.data?.some((item) =>
-      [item.healthStatus, item.proxyHealthStatus, item.telegramHealthStatus].includes("checking")
+      [item.health_status, item.proxy_health_status, item.telegram_health_status].includes("checking")
     ) ? 3_000 : false,
   })
   const proxies = useQuery({
     queryKey: queryKeys.telegramProxies,
     queryFn: getTelegramProxies,
     refetchInterval: (query) =>
-      query.state.data?.some((item) => item.reachabilityStatus === "checking") ? 3_000 : false,
+      query.state.data?.some((item) => item.reachability_status === "checking") ? 3_000 : false,
   })
   const connections = useQuery({
     queryKey: queryKeys.codexConnections,
@@ -89,7 +89,7 @@ export function ContentSettingsPage() {
   const telegramDestinations = destinations.data ?? []
   const promptTemplates = templates.data ?? []
   const enabledProviders = llmProviders.filter((item) => item.enabled)
-  const healthyDestinations = telegramDestinations.filter((item) => item.healthStatus === "healthy")
+  const healthyDestinations = telegramDestinations.filter((item) => item.health_status === "healthy")
   const greenConnections = connections.data?.filter((item) => item.status === "green") ?? []
   const codexSummary = codexError
     ? "Authentication required"
@@ -108,8 +108,8 @@ export function ContentSettingsPage() {
     {
       href: "#llm-providers",
       label: "LLM provider",
-      ready: enabledProviders.some((item) => item.generationReady),
-      detail: enabledProviders.some((item) => item.generationReady)
+      ready: enabledProviders.some((item) => item.generation_ready),
+      detail: enabledProviders.some((item) => item.generation_ready)
         ? "Generation ready"
         : "Connect and test a provider",
     },
@@ -147,7 +147,7 @@ export function ContentSettingsPage() {
           icon={BrainCircuit}
           label="LLM providers"
           value={`${enabledProviders.length} enabled`}
-          ready={enabledProviders.some((item) => item.generationReady)}
+          ready={enabledProviders.some((item) => item.generation_ready)}
         />
         <SummaryCard
           icon={Bot}

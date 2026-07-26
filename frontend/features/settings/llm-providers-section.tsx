@@ -64,7 +64,7 @@ export function LLMProvidersSection({ providers }: { providers: LLMProvider[] })
         pushNotice({ tone: "success", title: provider.enabled ? "Provider disabled" : "Provider enabled", message: provider.name })
       } else {
         const dependencies = await getLLMProviderDependencies(provider.id)
-        const summary = `${dependencies.automations} automations, ${dependencies.generationRuns} generation runs, ${dependencies.researchRuns} research runs, ${dependencies.activeJobs} active jobs`
+        const summary = `${dependencies.automations} automations, ${dependencies.generation_runs} generation runs, ${dependencies.research_runs} research runs, ${dependencies.active_jobs} active jobs`
         if (action === "dependencies") {
           pushNotice({ tone: dependencies.blocked ? "error" : "success", title: "Provider dependencies", message: summary })
         } else if (!dependencies.blocked && window.confirm(`Delete ${provider.name}? This cannot be undone.`)) {
@@ -97,16 +97,16 @@ export function LLMProvidersSection({ providers }: { providers: LLMProvider[] })
                 <div className="flex flex-wrap items-center gap-2">
                   <h3 className="font-semibold">{provider.name}</h3>
                   <StatusBadge value={provider.enabled ? "enabled" : "disabled"} />
-                  <StatusBadge value={provider.healthStatus} />
+                  <StatusBadge value={provider.health_status} />
                 </div>
-                <p className="mt-1 truncate text-sm text-muted-foreground">{provider.defaultModel} · {provider.baseUrl}</p>
+                <p className="mt-1 truncate text-sm text-muted-foreground">{provider.default_model} · {provider.base_url}</p>
                 <div className="mt-3 flex flex-wrap gap-2 text-xs">
-                  <ReadinessLabel label="Generation" ready={provider.generationReady} value={provider.generationCapability} />
-                  <ReadinessLabel label="Research" ready={provider.researchReady} value={provider.researchCapability} />
+                  <ReadinessLabel label="Generation" ready={provider.generation_ready} value={provider.generation_capability} />
+                  <ReadinessLabel label="Research" ready={provider.research_ready} value={provider.research_capability} />
                   <span className="rounded-full bg-muted px-2.5 py-1">{provider.configured ? "API key configured" : "API key missing"}</span>
-                  <span className="rounded-full bg-muted px-2.5 py-1">{formatDate(provider.lastCheckedAt, "Never checked")}</span>
+                  <span className="rounded-full bg-muted px-2.5 py-1">{formatDate(provider.last_checked_at, "Never checked")}</span>
                 </div>
-                {provider.failureCode ? <p className="mt-2 text-sm text-amber-800 dark:text-amber-300" role="status">{safeCode(provider.failureCode)}</p> : null}
+                {provider.failure_code ? <p className="mt-2 text-sm text-amber-800 dark:text-amber-300" role="status">{safeCode(provider.failure_code)}</p> : null}
               </div>
               <div className="flex flex-wrap gap-2">
                 <ActionButton label="Test" busy={busy === `${provider.id}:test`} onClick={() => void run(provider, "test")} icon={RefreshCw} />
@@ -120,9 +120,9 @@ export function LLMProvidersSection({ providers }: { providers: LLMProvider[] })
             <details className="mt-3 rounded-lg bg-muted/60 p-3 text-sm">
               <summary className="cursor-pointer font-medium">Advanced diagnostics</summary>
               <dl className="mt-3 grid gap-2 sm:grid-cols-3">
-                <Metric label="Timeout" value={`${provider.settings.timeoutSeconds}s`} />
-                <Metric label="Max input" value={provider.settings.maxInputTokens.toLocaleString()} />
-                <Metric label="Max output" value={provider.settings.maxOutputTokens.toLocaleString()} />
+                <Metric label="Timeout" value={`${provider.settings.timeout_seconds}s`} />
+                <Metric label="Max input" value={provider.settings.max_input_tokens.toLocaleString()} />
+                <Metric label="Max output" value={provider.settings.max_output_tokens.toLocaleString()} />
               </dl>
             </details>
           </article>
@@ -150,12 +150,12 @@ function ProviderDialog({ provider, onClose }: { provider: LLMProvider | null; o
   const { pushNotice } = useNotices()
   const initial = {
     name: provider?.name ?? "",
-    baseUrl: provider?.baseUrl ?? "https://api.openai.com/v1",
-    model: provider?.defaultModel ?? "",
+    baseUrl: provider?.base_url ?? "https://api.openai.com/v1",
+    model: provider?.default_model ?? "",
     apiKey: "",
-    timeout: provider?.settings.timeoutSeconds ?? 60,
-    maxInput: provider?.settings.maxInputTokens ?? 60_000,
-    maxOutput: provider?.settings.maxOutputTokens ?? 12_000,
+    timeout: provider?.settings.timeout_seconds ?? 60,
+    maxInput: provider?.settings.max_input_tokens ?? 60_000,
+    maxOutput: provider?.settings.max_output_tokens ?? 12_000,
   }
   const [form, setForm] = useState(initial)
   const [touched, setTouched] = useState(false)

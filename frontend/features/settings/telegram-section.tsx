@@ -117,20 +117,20 @@ export function TelegramSection({ destinations, proxies }: { destinations: Teleg
                 <div className="flex flex-wrap items-center gap-2">
                   <h3 className="font-semibold">{destination.name}</h3>
                   <StatusBadge value={destination.enabled ? "enabled" : "disabled"} />
-                  <StatusBadge value={destination.healthStatus} />
+                  <StatusBadge value={destination.health_status} />
                 </div>
-                <p className="mt-1 text-sm text-muted-foreground">{destination.canonicalTarget} · {destination.connectionRoute}</p>
+                <p className="mt-1 text-sm text-muted-foreground">{destination.canonical_target} · {destination.connection_route}</p>
                 <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-5">
-                  <HealthStage label="Proxy" value={destination.proxyHealthStatus} />
-                  <HealthStage label="Telegram API" value={destination.telegramHealthStatus} />
-                  <HealthStage label="Bot" value={destination.botHealthStatus} />
-                  <HealthStage label="Target" value={destination.targetHealthStatus} />
-                  <HealthStage label="Administrator" value={destination.administratorStatus} />
+                  <HealthStage label="Proxy" value={destination.proxy_health_status} />
+                  <HealthStage label="Telegram API" value={destination.telegram_health_status} />
+                  <HealthStage label="Bot" value={destination.bot_health_status} />
+                  <HealthStage label="Target" value={destination.target_health_status} />
+                  <HealthStage label="Administrator" value={destination.administrator_status} />
                 </div>
                 <p className="mt-3 text-xs text-muted-foreground">
-                  {destination.verifiedChatTitle ?? "Target not verified"} · {destination.verifiedBotUsername ? `@${destination.verifiedBotUsername}` : "Bot not verified"} · {formatDate(destination.lastCheckedAt, "Never checked")}
+                  {destination.verified_chat_title ?? "Target not verified"} · {destination.verified_bot_username ? `@${destination.verified_bot_username}` : "Bot not verified"} · {formatDate(destination.last_checked_at, "Never checked")}
                 </p>
-                {destination.failureCode ? <p className="mt-2 text-sm text-amber-800 dark:text-amber-300">{safeCode(destination.failureCode)}</p> : null}
+                {destination.failure_code ? <p className="mt-2 text-sm text-amber-800 dark:text-amber-300">{safeCode(destination.failure_code)}</p> : null}
               </div>
               <div className="flex flex-wrap gap-2 xl:max-w-md xl:justify-end">
                 <ActionButton label="Edit" icon={Pencil} onClick={() => setEditing(destination)} />
@@ -152,8 +152,8 @@ export function TelegramSection({ destinations, proxies }: { destinations: Teleg
           {proxies.map((proxy) => (
             <div key={proxy.id} className="flex flex-col gap-3 rounded-lg border bg-background p-3 lg:flex-row lg:items-center">
               <div className="min-w-0 flex-1">
-                <div className="flex flex-wrap items-center gap-2"><strong>{proxy.name}</strong><StatusBadge value={proxy.enabled ? "enabled" : "disabled"} /><StatusBadge value={proxy.reachabilityStatus} /></div>
-                <div className="mt-1 text-sm text-muted-foreground">{proxy.proxyType === "http_connect" ? "HTTP CONNECT" : "SOCKS5"} · {proxy.host}:{proxy.port} · {proxy.credentialsConfigured ? "Credentials configured" : "No credentials"}</div>
+                <div className="flex flex-wrap items-center gap-2"><strong>{proxy.name}</strong><StatusBadge value={proxy.enabled ? "enabled" : "disabled"} /><StatusBadge value={proxy.reachability_status} /></div>
+                <div className="mt-1 text-sm text-muted-foreground">{proxy.proxy_type === "http_connect" ? "HTTP CONNECT" : "SOCKS5"} · {proxy.host}:{proxy.port} · {proxy.credentials_configured ? "Credentials configured" : "No credentials"}</div>
               </div>
               <div className="flex flex-wrap gap-2">
                 <ActionButton label="Edit" icon={Pencil} onClick={() => setProxyEditing(proxy)} />
@@ -185,12 +185,12 @@ function DestinationDialog({
 }) {
   const queryClient = useQueryClient()
   const { pushNotice } = useNotices()
-  const initial = { name: destination?.name ?? "", target: destination?.targetRef ?? "", botToken: "", proxyProfileId: destination?.proxyProfileId ?? "" }
+  const initial = { name: destination?.name ?? "", target: destination?.target_ref ?? "", botToken: "", proxyProfileId: destination?.proxy_profile_id ?? "" }
   const [form, setForm] = useState(initial)
   const [showProxyCreate, setShowProxyCreate] = useState(false)
   const [newProxy, setNewProxy] = useState({
     name: "",
-    proxyType: "http_connect" as TelegramProxy["proxyType"],
+    proxyType: "http_connect" as TelegramProxy["proxy_type"],
     host: "",
     port: 8080,
     username: "",
@@ -258,7 +258,7 @@ function DestinationDialog({
         <div className="flex gap-2">
           <select className={fieldClass} value={form.proxyProfileId} disabled={mutation.isPending} onChange={(event) => setForm({ ...form, proxyProfileId: event.target.value })}>
             <option value="">Direct connection</option>
-            {proxies.filter((proxy) => proxy.enabled).map((proxy) => <option key={proxy.id} value={proxy.id}>{proxy.name} · {proxy.proxyType === "http_connect" ? "HTTP CONNECT" : "SOCKS5"}</option>)}
+            {proxies.filter((proxy) => proxy.enabled).map((proxy) => <option key={proxy.id} value={proxy.id}>{proxy.name} · {proxy.proxy_type === "http_connect" ? "HTTP CONNECT" : "SOCKS5"}</option>)}
           </select>
           <Button type="button" variant="outline" onClick={() => setShowProxyCreate((value) => !value)}>{showProxyCreate ? "Cancel proxy" : "New proxy"}</Button>
         </div>
@@ -268,7 +268,7 @@ function DestinationDialog({
           <legend className="px-1 font-medium">Create proxy inline</legend>
           <div className="grid gap-4 sm:grid-cols-2">
             <Field label="Proxy name" required><input className={fieldClass} value={newProxy.name} disabled={createProxy.isPending} onChange={(event) => setNewProxy({ ...newProxy, name: event.target.value })} /></Field>
-            <Field label="Proxy type"><select className={fieldClass} value={newProxy.proxyType} disabled={createProxy.isPending} onChange={(event) => setNewProxy({ ...newProxy, proxyType: event.target.value as TelegramProxy["proxyType"] })}><option value="http_connect">HTTP CONNECT</option><option value="socks5">SOCKS5</option></select></Field>
+            <Field label="Proxy type"><select className={fieldClass} value={newProxy.proxyType} disabled={createProxy.isPending} onChange={(event) => setNewProxy({ ...newProxy, proxyType: event.target.value as TelegramProxy["proxy_type"] })}><option value="http_connect">HTTP CONNECT</option><option value="socks5">SOCKS5</option></select></Field>
             <Field label="Host" required error={newProxy.host.includes("://") ? "Use a plain host without a scheme." : null}><input className={fieldClass} value={newProxy.host} disabled={createProxy.isPending} onChange={(event) => setNewProxy({ ...newProxy, host: event.target.value })} /></Field>
             <NumberField label="Port" value={newProxy.port} min={1} max={65535} onChange={(port) => setNewProxy({ ...newProxy, port })} />
             <Field label="Username" error={proxyCredentialsInvalid ? "Username and password must be supplied together." : null}><input className={fieldClass} autoComplete="off" value={newProxy.username} disabled={createProxy.isPending} onChange={(event) => setNewProxy({ ...newProxy, username: event.target.value })} /></Field>
@@ -284,7 +284,7 @@ function DestinationDialog({
 function ProxyDialog({ proxy, onClose }: { proxy: TelegramProxy | null; onClose: () => void }) {
   const queryClient = useQueryClient()
   const { pushNotice } = useNotices()
-  const initial = { name: proxy?.name ?? "", proxyType: proxy?.proxyType ?? "http_connect" as const, host: proxy?.host ?? "", port: proxy?.port ?? 8080, username: "", password: "" }
+  const initial = { name: proxy?.name ?? "", proxyType: proxy?.proxy_type ?? "http_connect" as const, host: proxy?.host ?? "", port: proxy?.port ?? 8080, username: "", password: "" }
   const [form, setForm] = useState(initial)
   const [touched, setTouched] = useState(false)
   const dirty = JSON.stringify(form) !== JSON.stringify(initial)
@@ -367,7 +367,7 @@ function ProxyCredentialsDialog({ proxy, onClose }: { proxy: TelegramProxy; onCl
           <input type="password" className={fieldClass} autoComplete="new-password" value={password} disabled={pending || remove} onChange={(event) => setPassword(event.target.value)} />
         </Field>
       </div>
-      {proxy.credentialsConfigured ? <label className="flex min-h-11 items-center gap-2 rounded-lg border px-3 text-sm"><input type="checkbox" checked={remove} disabled={pending} onChange={(event) => { setRemove(event.target.checked); if (event.target.checked) { setUsername(""); setPassword("") } }} />Remove configured credentials</label> : null}
+      {proxy.credentials_configured ? <label className="flex min-h-11 items-center gap-2 rounded-lg border px-3 text-sm"><input type="checkbox" checked={remove} disabled={pending} onChange={(event) => { setRemove(event.target.checked); if (event.target.checked) { setUsername(""); setPassword("") } }} />Remove configured credentials</label> : null}
     </SettingsDialog>
   )
 }

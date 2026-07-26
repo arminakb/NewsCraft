@@ -18,11 +18,11 @@ describe("content settings API", () => {
     await expect(getLLMProviders()).resolves.toEqual([
       expect.objectContaining({
         name: "Newsroom model",
-        baseUrl: "https://llm.example/v1",
-        defaultModel: "vendor/model",
-        generationReady: true,
-        researchReady: false,
-        settings: expect.objectContaining({ timeoutSeconds: 60, maxInputTokens: 60000 }),
+        base_url: "https://llm.example/v1",
+        default_model: "vendor/model",
+        generation_ready: true,
+        research_ready: false,
+        settings: expect.objectContaining({ timeout_seconds: 60, max_input_tokens: 60000 }),
       }),
     ])
 
@@ -68,9 +68,9 @@ describe("content settings API", () => {
       proxyProfileId: "55555555-5555-4555-8555-555555555555",
     })).resolves.toMatchObject({
       destination: {
-        canonicalTarget: "@newscraft",
-        connectionRoute: "Publishing proxy",
-        administratorStatus: "administrator",
+        canonical_target: "@newscraft",
+        connection_route: "Publishing proxy",
+        administrator_status: "administrator",
       },
       jobId: "job-1",
     })
