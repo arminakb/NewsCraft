@@ -2,17 +2,11 @@ import hashlib
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from types import SimpleNamespace
-from unittest.mock import AsyncMock
 from uuid import uuid4
 
 import pytest
-from fastapi import HTTPException
 from pydantic import ValidationError
 
-from app.api.telegram_drafts import (
-    TelegramContentHashIn,
-    approve_telegram_draft,
-)
 from app.automations.telegram.handlers import sha256_canonical
 from app.generation.editorial_service import (
     ApprovalRequest,
@@ -721,7 +715,6 @@ async def test_telegram_approval_requires_exact_ordered_locked_story_evidence(ev
     assert caught.value.code == "citation_integrity"
     assert revision.approval_state == "pending_review"
 
-
 @pytest.mark.asyncio
 async def test_telegram_approval_revalidates_platform_policy_instead_of_trusting_green_gate():
     revision, session = _telegram_approval_fixture(media_policy="replace_manually")
@@ -758,82 +751,3 @@ async def test_telegram_approval_rejects_fabricated_but_syntactically_valid_evid
 
     assert caught.value.code == "citation_integrity"
     assert revision.approval_state == "pending_review"
-
-
-@pytest.mark.parametrize(
-    "case",
-    ["fabricated", "subset", "tampered", "forged_replace_manually_gate"],
-)
-@pytest.mark.asyncio
-async def test_legacy_telegram_approval_route_rejects_strict_integrity_failures(
-    monkeypatch,
-    case,
-):
-    revision, session = _telegram_approval_fixture(
-        evidence_order=(0,) if case == "subset" else (0, 1),
-        media_policy="replace_manually" if case == "forged_replace_manually_gate" else "omit",
-    )
-    if case == "fabricated":
-        revision.evidence_map = [
-            CitationRef(
-                evidence_key="evidence:fabricated",
-                evidence_snapshot_id=uuid4(),
-                source_url="https://fabricated.example/report",
-                locator="chars:0-8",
-                excerpt_sha256="f" * 64,
-            ).model_dump(mode="json")
-        ]
-    elif case == "tampered":
-        revision.evidence_map[0] = {
-            **revision.evidence_map[0],
-            "evidence_key": "evidence:tampered",
-        }
-    revision.validation_results = [{"gate": "telegram_schema", "ok": True, "reason": None}]
-    revision.content_hash = sha256_canonical({"content": revision.content, "evidence_map": revision.evidence_map})
-
-    async def draft_out(session_value, approved):
-        return {"id": approved.id, "approval_state": approved.approval_state}
-
-    locked_revision = AsyncMock(return_value=revision)
-    monkeypatch.setattr("app.api.telegram_drafts._locked_revision", locked_revision)
-    monkeypatch.setattr("app.api.telegram_drafts._draft_out", draft_out)
-
-    with pytest.raises(HTTPException) as caught:
-        await approve_telegram_draft(
-            revision.id,
-            TelegramContentHashIn(content_hash=revision.content_hash),
-            session,
-        )
-
-    assert caught.value.status_code == 409
-    locked_revision.assert_awaited_once_with(session, revision.id)
-    assert revision.approval_state == "pending_review"
-    assert session.added == []
-
-
-@pytest.mark.asyncio
-async def test_legacy_telegram_approval_route_preserves_valid_response_and_events(monkeypatch):
-    from app.jobs.models import WorkflowEvent
-
-    revision, session = _telegram_approval_fixture()
-
-    async def draft_out(session_value, approved):
-        assert session_value is session
-        return {"id": approved.id, "approval_state": approved.approval_state}
-
-    locked_revision = AsyncMock(return_value=revision)
-    monkeypatch.setattr("app.api.telegram_drafts._locked_revision", locked_revision)
-    monkeypatch.setattr("app.api.telegram_drafts._draft_out", draft_out)
-
-    response = await approve_telegram_draft(
-        revision.id,
-        TelegramContentHashIn(content_hash=revision.content_hash),
-        session,
-    )
-
-    assert response == {"id": revision.id, "approval_state": "approved"}
-    locked_revision.assert_awaited_once_with(session, revision.id)
-    assert [event.event_type for event in session.added if isinstance(event, WorkflowEvent)] == [
-        "content_pack.revision.approved",
-        "telegram.revision.approved",
-    ]

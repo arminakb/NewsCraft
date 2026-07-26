@@ -1,6 +1,5 @@
 import type { JobFilters } from "@/features/jobs/types"
 import type { HistoryFilters } from "@/features/operations/types"
-import type { TelegramDraftFilters } from "@/features/automations/telegram-types"
 
 export const queryKeys = {
   sources: ["sources"] as const,
@@ -17,8 +16,8 @@ export const queryKeys = {
   telegramRoutes: ["telegram", "routes"] as const,
   telegramRoute: (id: string) => ["telegram", "routes", id] as const,
   telegramDispatches: (routeId: string) => ["telegram", "routes", routeId, "dispatches"] as const,
-  telegramDrafts: (filters: TelegramDraftFilters = {}) => ["telegram", "drafts", filters] as const,
-  telegramDraft: (id: string) => ["telegram", "drafts", id] as const,
+  telegramPublicationContext: (id: string) => ["telegram", "publication-context", id] as const,
+  telegramPublicationOutcomes: ["telegram", "publication-outcomes"] as const,
   telegramPublishJob: (id: string) => ["telegram", "publish-jobs", id] as const,
   brandProfiles: ["settings", "brand-profiles"] as const,
   promptTemplates: ["settings", "prompt-templates"] as const,

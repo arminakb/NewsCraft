@@ -1,22 +1,20 @@
 import {
   activatePromptVersion,
   activateTelegramRoute,
-  approveTelegramDraft,
   backfillTelegramRoute,
   createBrandProfile,
   createPromptVersion,
   createTelegramRoute,
   createTelegramSource,
   dryRunTelegramRoute,
-  editTelegramDraft,
   getPromptVersions,
   getTelegramAutomationOptions,
-  getTelegramDrafts,
+  getTelegramPublicationContext,
+  getTelegramPublicationOutcomes,
   getTelegramPublishJob,
   pauseTelegramRoute,
   publishTelegramDraft,
   reconcileTelegramPublishJob,
-  rejectTelegramDraft,
   resumeTelegramRoute,
 } from "@/features/automations/telegram-api"
 import { queryKeys } from "@/lib/query-keys"
@@ -160,31 +158,33 @@ describe("Telegram automation API", () => {
     ])
   })
 
-  it("maps draft evidence/media/publication and sends exact review mutations", async () => {
-    const backendDraft = makeBackendDraft()
+  it("maps publication contexts and sends exact publish intent", async () => {
+    const backendContext = makeBackendPublicationContext()
     const fetchSpy = stubFetchSequence(
-      [backendDraft], backendDraft, backendDraft, backendDraft,
-      { revision: backendDraft, job: { publish_job_id: ids.publishJob, workflow_job_id: ids.provider, status: "queued" } }
+      [backendContext],
+      backendContext,
+      {
+        revision_id: ids.revision,
+        job: { publish_job_id: ids.publishJob, workflow_job_id: ids.provider, status: "queued" },
+      },
     )
 
-    const [draft] = await getTelegramDrafts({ routeId: ids.route, approvalState: "pending_review" })
-    expect(draft).toEqual(expect.objectContaining({
-      revisionNumber: 2, contentHash: "a".repeat(64), approvalState: "pending_review",
-      content: expect.objectContaining({ mediaPolicy: "preserve", mediaAssetIds: [ids.source], dryRun: false }),
-      evidence: [expect.objectContaining({ evidenceSnapshotId: ids.brand, contentText: "source evidence" })],
-      media: [expect.objectContaining({ mimeType: "image/jpeg", fetchStatus: "downloaded" })],
+    const [outcome] = await getTelegramPublicationOutcomes()
+    expect(outcome).toEqual(expect.objectContaining({
+      revisionId: ids.revision,
+      revisionNumber: 2,
+      approvalState: "approved",
       publication: expect.objectContaining({ remoteMessageIds: [501, 502] }),
     }))
-    await editTelegramDraft(ids.revision, { content: { body: "edited", parse_mode: "HTML", buttons: [] }, media_asset_ids: [ids.source] })
-    await approveTelegramDraft(ids.revision, "a".repeat(64))
-    await rejectTelegramDraft(ids.revision, "a".repeat(64), "Needs attribution")
-    await publishTelegramDraft(ids.revision, "a".repeat(64))
+    await expect(getTelegramPublicationContext(ids.revision)).resolves.toEqual(outcome)
+    await expect(publishTelegramDraft(ids.revision, "a".repeat(64))).resolves.toEqual({
+      revisionId: ids.revision,
+      job: { publishJobId: ids.publishJob, workflowJobId: ids.provider, status: "queued" },
+    })
 
     expect(fetchSpy.mock.calls).toEqual([
-      [`/api/backend/telegram/drafts?route_id=${ids.route}&approval_state=pending_review`, undefined],
-      [`/api/backend/telegram/drafts/${ids.revision}/revisions`, jsonPost({ content: { body: "edited", parse_mode: "HTML", buttons: [] }, media_asset_ids: [ids.source] })],
-      [`/api/backend/telegram/drafts/${ids.revision}/approve`, jsonPost({ content_hash: "a".repeat(64) })],
-      [`/api/backend/telegram/drafts/${ids.revision}/reject`, jsonPost({ content_hash: "a".repeat(64), note: "Needs attribution" })],
+      ["/api/backend/telegram/publication-outcomes", undefined],
+      [`/api/backend/telegram/revisions/${ids.revision}/publication-context`, undefined],
       [`/api/backend/telegram/drafts/${ids.revision}/publish`, jsonPost({ content_hash: "a".repeat(64) })],
     ])
   })
@@ -239,26 +239,27 @@ describe("Telegram automation API", () => {
   })
 
   it("provides stable granular query keys", () => {
-    const filters = { routeId: ids.route, approvalState: "pending_review" as const }
     expect(queryKeys.telegramSources).toEqual(["telegram", "sources"])
     expect(queryKeys.telegramDestinations).toEqual(["telegram", "destinations"])
     expect(queryKeys.telegramRoutes).toEqual(["telegram", "routes"])
     expect(queryKeys.telegramRoute(ids.route)).toEqual(["telegram", "routes", ids.route])
     expect(queryKeys.telegramDispatches(ids.route)).toEqual(["telegram", "routes", ids.route, "dispatches"])
-    expect(queryKeys.telegramDrafts(filters)).toEqual(["telegram", "drafts", filters])
-    expect(queryKeys.telegramDraft(ids.revision)).toEqual(["telegram", "drafts", ids.revision])
+    expect(queryKeys.telegramPublicationOutcomes).toEqual(["telegram", "publication-outcomes"])
+    expect(queryKeys.telegramPublicationContext(ids.revision)).toEqual(["telegram", "publication-context", ids.revision])
     expect(queryKeys.telegramPublishJob(ids.publishJob)).toEqual(["telegram", "publish-jobs", ids.publishJob])
   })
 })
 
-function makeBackendDraft() {
+function makeBackendPublicationContext() {
   return {
-    id: ids.revision, platform_variant_id: ids.provider, parent_revision_id: null, generation_attempt_id: null,
-    revision_number: 2, content: { body: "خبر", parse_mode: "HTML", buttons: [], source_item_id: ids.source, source_url: "https://t.me/wire/91", media_policy: "preserve", media_asset_ids: [ids.source], direction: "rtl", dry_run: false },
-    content_hash: "a".repeat(64), evidence_map: [], evidence: [{ evidence_snapshot_id: ids.brand, evidence_key: "telegram:91", source_url: "https://t.me/wire/91", content_text: "source evidence", content_sha256: "b".repeat(64) }],
-    media: [{ id: ids.source, kind: "image", mime_type: "image/jpeg", fetch_status: "downloaded", checksum_sha256: "c".repeat(64) }],
-    validation_results: [], approval_state: "pending_review", approval_note: null, approved_at: null, created_by: "generator", created_at: "2026-07-12T10:00:00Z",
-    route_id: ids.route, dispatch_id: ids.destination, publish_job_id: ids.publishJob, publish_status: "confirmed",
+    revision_id: ids.revision,
+    platform_variant_id: ids.provider,
+    revision_number: 2,
+    approval_state: "approved",
+    route_id: ids.route,
+    dispatch_id: ids.destination,
+    publish_job_id: ids.publishJob,
+    publish_status: "succeeded",
     publication: makeBackendPublishJob().publication,
   }
 }

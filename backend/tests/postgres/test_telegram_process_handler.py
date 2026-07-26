@@ -12,12 +12,9 @@ from httpx import ASGITransport, AsyncClient
 from sqlalchemy import select
 
 from app.api.capabilities import get_capability_status_service
-from app.api.content_packs import get_variant_revision
+from app.api.content_packs import approve_revision, edit_variant, get_variant_revision
 from app.api.telegram_drafts import (
     TelegramContentHashIn,
-    TelegramDraftEditIn,
-    approve_telegram_draft,
-    edit_telegram_draft,
     publish_telegram_draft,
 )
 from app.automations.models import AutomationDispatch, AutomationRoute
@@ -27,6 +24,7 @@ from app.automations.telegram.handlers import (
 )
 from app.db.models import ContentItem, ItemMedia, MediaAsset, Source, SourceItem
 from app.db.session import get_session
+from app.generation.editorial_service import ApprovalRequest, EditVariantRequest
 from app.generation.models import (
     AIProviderProfile,
     BrandProfile,
@@ -1127,17 +1125,20 @@ async def test_manual_child_approval_and_publish_bind_exact_hash_and_route_ances
         )
 
     async with session_factory() as session:
-        edited = await edit_telegram_draft(
-            UUID(generated["revision_id"]),
-            TelegramDraftEditIn.model_validate(
-                {
-                    "content": {
-                        "body": "ویرایش اپراتور",
-                        "parse_mode": "HTML",
-                        "buttons": [],
-                    },
-                    "media_asset_ids": [],
-                }
+        parent_id = UUID(generated["revision_id"])
+        parent = await session.get(PlatformVariantRevision, parent_id)
+        edited = await edit_variant(
+            parent.platform_variant_id,
+            EditVariantRequest(
+                base_revision_id=parent_id,
+                base_content_hash=parent.content_hash,
+                content=TelegramRewriteOutput(
+                    body="ویرایش اپراتور",
+                    parse_mode="HTML",
+                    buttons=[],
+                ),
+                media_asset_ids=[],
+                edit_note="Operator edit",
             ),
             session,
         )
@@ -1153,17 +1154,17 @@ async def test_manual_child_approval_and_publish_bind_exact_hash_and_route_ances
 
     async with session_factory() as session:
         with pytest.raises(HTTPException) as stale:
-            await approve_telegram_draft(
+            await approve_revision(
                 child_id,
-                TelegramContentHashIn(content_hash="b" * 64),
+                ApprovalRequest(expected_content_hash="b" * 64),
                 session,
             )
         assert stale.value.status_code == 409
 
     async with session_factory() as session:
-        approved = await approve_telegram_draft(
+        approved = await approve_revision(
             child_id,
-            TelegramContentHashIn(content_hash=child_hash),
+            ApprovalRequest(expected_content_hash=child_hash),
             session,
         )
         assert approved["approval_state"] == "approved"
@@ -1175,7 +1176,7 @@ async def test_manual_child_approval_and_publish_bind_exact_hash_and_route_ances
             session,
             AVAILABLE_CAPABILITIES,
         )
-        publish_job_id = published["job"]["publish_job_id"]
+        publish_job_id = published.job.publish_job_id
 
     async with session_factory() as session:
         replayed = await publish_telegram_draft(
@@ -1184,7 +1185,7 @@ async def test_manual_child_approval_and_publish_bind_exact_hash_and_route_ances
             session,
             AVAILABLE_CAPABILITIES,
         )
-        assert replayed["job"]["publish_job_id"] == publish_job_id
+        assert replayed.job.publish_job_id == publish_job_id
         dispatch = await session.get(AutomationDispatch, dispatch_id)
         assert dispatch.publish_job_id is None
         jobs = list(
@@ -1194,7 +1195,7 @@ async def test_manual_child_approval_and_publish_bind_exact_hash_and_route_ances
 
 
 @pytest.mark.asyncio
-async def test_draft_http_contract_enforces_states_filters_and_telegram_platform(
+async def test_content_pack_review_and_telegram_publication_contracts_are_composable(
     session_factory,
 ):
     async with session_factory() as session:
@@ -1234,6 +1235,8 @@ async def test_draft_http_contract_enforces_states_filters_and_telegram_platform
             )
             session.add(other_revision)
         other_id = other_revision.id
+        telegram_variant_id = telegram_variant.id
+        generated_content_hash = generated_revision.content_hash
 
     async def override_session():
         async with session_factory() as session:
@@ -1246,36 +1249,44 @@ async def test_draft_http_contract_enforces_states_filters_and_telegram_platform
             transport=ASGITransport(app=app),
             base_url="http://test",
         ) as client:
-            listed = await client.get(
-                "/telegram/drafts",
-                params={"route_id": str(route_id), "approval_state": "pending_review"},
+            context = await client.get(
+                f"/telegram/revisions/{generated_id}/publication-context",
             )
-            assert listed.status_code == 200
-            assert [item["id"] for item in listed.json()] == [str(generated_id)]
+            assert context.status_code == 200
+            assert context.json() == {
+                "revision_id": str(generated_id),
+                "platform_variant_id": str(telegram_variant_id),
+                "revision_number": 1,
+                "approval_state": "pending_review",
+                "route_id": str(route_id),
+                "dispatch_id": context.json()["dispatch_id"],
+                "publish_job_id": None,
+                "publish_status": None,
+                "publication": None,
+            }
+            assert "content" not in context.json()
+            outcomes = await client.get("/telegram/publication-outcomes")
+            assert outcomes.status_code == 200
+            assert str(generated_id) in {item["revision_id"] for item in outcomes.json()}
             assert (
-                await client.get(
-                    "/telegram/drafts",
-                    params={"approval_state": "review_required"},
-                )
-            ).status_code == 422
-            assert (await client.get(f"/telegram/drafts/{uuid4()}")).status_code == 404
-            assert (await client.get(f"/telegram/drafts/{other_id}")).status_code == 404
+                await client.get(f"/telegram/revisions/{uuid4()}/publication-context")
+            ).status_code == 404
             assert (
-                await client.post(
-                    f"/telegram/drafts/{other_id}/approve",
-                    json={"content_hash": "f" * 64},
-                )
+                await client.get(f"/telegram/revisions/{other_id}/publication-context")
             ).status_code == 404
 
             edited = await client.post(
-                f"/telegram/drafts/{generated_id}/revisions",
+                f"/platform-variants/{telegram_variant_id}/revisions",
                 json={
+                    "base_revision_id": str(generated_id),
+                    "base_content_hash": generated_content_hash,
                     "content": {
                         "body": "HTTP edit",
                         "parse_mode": "HTML",
                         "buttons": [],
                     },
                     "media_asset_ids": [],
+                    "edit_note": "HTTP operator edit",
                 },
             )
             assert edited.status_code == 201
@@ -1283,13 +1294,13 @@ async def test_draft_http_contract_enforces_states_filters_and_telegram_platform
             assert child["approval_state"] == "pending_review"
             assert (
                 await client.post(
-                    f"/telegram/drafts/{child['id']}/approve",
-                    json={"content_hash": "0" * 64},
+                    f"/platform-variant-revisions/{child['id']}/approve",
+                    json={"expected_content_hash": "0" * 64},
                 )
             ).status_code == 409
             approved = await client.post(
-                f"/telegram/drafts/{child['id']}/approve",
-                json={"content_hash": child["content_hash"]},
+                f"/platform-variant-revisions/{child['id']}/approve",
+                json={"expected_content_hash": child["content_hash"]},
             )
             assert approved.status_code == 200
             assert approved.json()["approval_state"] == "approved"
@@ -1300,20 +1311,23 @@ async def test_draft_http_contract_enforces_states_filters_and_telegram_platform
             assert published.status_code == 202
 
             rejected_child = await client.post(
-                f"/telegram/drafts/{child['id']}/revisions",
+                f"/platform-variants/{telegram_variant_id}/revisions",
                 json={
+                    "base_revision_id": child["id"],
+                    "base_content_hash": child["content_hash"],
                     "content": {
                         "body": "Reject me",
                         "parse_mode": "HTML",
                         "buttons": [],
                     },
                     "media_asset_ids": [],
+                    "edit_note": "Reject-path edit",
                 },
             )
             rejected = await client.post(
-                f"/telegram/drafts/{rejected_child.json()['id']}/reject",
+                f"/platform-variant-revisions/{rejected_child.json()['id']}/reject",
                 json={
-                    "content_hash": rejected_child.json()["content_hash"],
+                    "expected_content_hash": rejected_child.json()["content_hash"],
                     "note": "operator rejected",
                 },
             )
@@ -1321,8 +1335,8 @@ async def test_draft_http_contract_enforces_states_filters_and_telegram_platform
             assert rejected.json()["approval_state"] == "rejected"
             assert (
                 await client.post(
-                    f"/telegram/drafts/{rejected_child.json()['id']}/approve",
-                    json={"content_hash": rejected_child.json()["content_hash"]},
+                    f"/platform-variant-revisions/{rejected_child.json()['id']}/approve",
+                    json={"expected_content_hash": rejected_child.json()["content_hash"]},
                 )
             ).status_code == 409
     finally:
@@ -1348,6 +1362,9 @@ async def test_manual_edit_rejects_cross_story_and_unrelated_or_unready_preserve
             JobContext(session=session, providers=build_default_provider_registry()),
         )
         generated_id = UUID(generated["revision_id"])
+        generated_revision = await session.get(PlatformVariantRevision, generated_id)
+        variant_id = generated_revision.platform_variant_id
+        base_content_hash = generated_revision.content_hash
 
     async with session_factory() as session:
         async with session.begin():
@@ -1367,17 +1384,18 @@ async def test_manual_edit_rejects_cross_story_and_unrelated_or_unready_preserve
 
     async with session_factory() as session:
         with pytest.raises(HTTPException) as unrelated_error:
-            await edit_telegram_draft(
-                generated_id,
-                TelegramDraftEditIn.model_validate(
-                    {
-                        "content": {
-                            "body": "unrelated",
-                            "parse_mode": "HTML",
-                            "buttons": [],
-                        },
-                        "media_asset_ids": [unrelated_id],
-                    }
+            await edit_variant(
+                variant_id,
+                EditVariantRequest(
+                    base_revision_id=generated_id,
+                    base_content_hash=base_content_hash,
+                    content=TelegramRewriteOutput(
+                        body="unrelated",
+                        parse_mode="HTML",
+                        buttons=[],
+                    ),
+                    media_asset_ids=[unrelated_id],
+                    edit_note="Unrelated media check",
                 ),
                 session,
             )
@@ -1402,17 +1420,18 @@ async def test_manual_edit_rejects_cross_story_and_unrelated_or_unready_preserve
             )
     async with session_factory() as session:
         with pytest.raises(HTTPException) as unready_error:
-            await edit_telegram_draft(
-                generated_id,
-                TelegramDraftEditIn.model_validate(
-                    {
-                        "content": {
-                            "body": "unready",
-                            "parse_mode": "HTML",
-                            "buttons": [],
-                        },
-                        "media_asset_ids": [unrelated_id],
-                    }
+            await edit_variant(
+                variant_id,
+                EditVariantRequest(
+                    base_revision_id=generated_id,
+                    base_content_hash=base_content_hash,
+                    content=TelegramRewriteOutput(
+                        body="unready",
+                        parse_mode="HTML",
+                        buttons=[],
+                    ),
+                    media_asset_ids=[unrelated_id],
+                    edit_note="Unready media check",
                 ),
                 session,
             )
@@ -1452,18 +1471,19 @@ async def test_manual_edit_rejects_cross_story_and_unrelated_or_unready_preserve
             ]
     async with session_factory() as session:
         with pytest.raises(HTTPException) as cross_story:
-            await edit_telegram_draft(
-                generated_id,
-                TelegramDraftEditIn.model_validate(
-                    {
-                        "content": {
-                            "body": "cross story",
-                            "parse_mode": "HTML",
-                            "buttons": [],
-                        },
-                        "media_asset_ids": [],
-                    }
+            await edit_variant(
+                variant_id,
+                EditVariantRequest(
+                    base_revision_id=generated_id,
+                    base_content_hash=base_content_hash,
+                    content=TelegramRewriteOutput(
+                        body="cross story",
+                        parse_mode="HTML",
+                        buttons=[],
+                    ),
+                    media_asset_ids=[],
+                    edit_note="Cross-story evidence check",
                 ),
                 session,
             )
-        assert cross_story.value.status_code == 409
+        assert cross_story.value.status_code == 422

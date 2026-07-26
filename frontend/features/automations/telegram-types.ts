@@ -7,8 +7,6 @@ export type TelegramAttributionPolicy = "preserve" | "remove" | "custom"
 export type TelegramPublishingPolicy = "review_required" | "auto_publish"
 export type TelegramPromptPolicy = "pinned" | "follow_active"
 export type TelegramApprovalState = "draft" | "pending_review" | "approved" | "rejected"
-export type TelegramDirection = "ltr" | "rtl"
-export type TelegramParseMode = "HTML"
 export type TelegramDestinationHealth = "unknown" | "healthy" | "unhealthy"
 export type CredentialCapabilityStatus = "available" | "unavailable" | "unknown" | "stale"
 export type CredentialCapabilityState = {
@@ -176,40 +174,6 @@ export type TelegramAutomationOptions = {
   >
 }
 
-export type TelegramButton = { text: string; url: string }
-export type TelegramRewriteContent = {
-  body: string
-  parseMode: TelegramParseMode
-  buttons: TelegramButton[]
-  sourceItemId: string | null
-  sourceUrl: string | null
-  mediaPolicy: TelegramMediaPolicy
-  mediaAssetIds: string[]
-  direction: TelegramDirection
-  dryRun: boolean
-}
-export type TelegramEvidenceCitation = {
-  evidenceSnapshotId: string
-  evidenceKey: string
-  sourceUrl: string | null
-  locator: string
-  excerptSha256: string
-}
-export type TelegramEvidence = {
-  evidenceSnapshotId: string
-  evidenceKey: string
-  sourceUrl: string | null
-  contentText: string
-  contentSha256: string
-}
-export type TelegramDraftMedia = {
-  id: string
-  kind: string
-  mimeType: string | null
-  fetchStatus: string
-  checksumSha256: string | null
-  previewUrl: string
-}
 export type TelegramPublication = {
   id: string
   publishJobId: string
@@ -221,37 +185,20 @@ export type TelegramPublication = {
   publishedAt: string
   reconciliationStatus: "confirmed"
 }
-export type TelegramDraft = {
-  id: string
+export type TelegramPublicationContext = {
+  revisionId: string
   platformVariantId: string
-  parentRevisionId: string | null
-  generationAttemptId: string | null
   revisionNumber: number
-  content: TelegramRewriteContent
-  contentHash: string
-  evidenceMap: TelegramEvidenceCitation[]
-  evidence: TelegramEvidence[]
-  media: TelegramDraftMedia[]
-  validationResults: unknown[]
   approvalState: TelegramApprovalState
-  approvalNote: string | null
-  approvedAt: string | null
-  createdBy: string
-  createdAt: string
   routeId: string | null
   dispatchId: string | null
   publishJobId: string | null
   publishStatus: TelegramPublishStatus | null
   publication: TelegramPublication | null
 }
-export type TelegramDraftFilters = { routeId?: string; approvalState?: TelegramApprovalState }
-export type TelegramDraftEditInput = {
-  content: { body: string; parse_mode: TelegramParseMode; buttons: TelegramButton[] }
-  media_asset_ids: string[]
-}
-export type TelegramDraftPublishAccepted = {
-  revision: TelegramDraft
-  job: { publishJobId: string; workflowJobId: string; status: TelegramPublishStatus }
+export type TelegramPublishAccepted = {
+  revisionId: string
+  job: { publishJobId: string; workflowJobId: string | null; status: string }
 }
 
 export type TelegramPublishReceipt = {

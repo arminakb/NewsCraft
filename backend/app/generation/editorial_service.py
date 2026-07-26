@@ -397,13 +397,15 @@ class EditorialService:
             raise RevisionConflict("base revision not found")
         if parent.content_hash != request.base_content_hash:
             raise RevisionConflict("content hash changed")
+        story_revision = await self._pack_story_revision(variant)
         citations = [TelegramEvidenceCitation.model_validate(item) for item in parent.evidence_map or []]
         if not citations:
             raise InvalidGenerationRequest("revision evidence map is empty")
         snapshots = list(
             await self.session.scalars(
                 select(StoryEvidenceSnapshot).where(
-                    StoryEvidenceSnapshot.id.in_([item.evidence_snapshot_id for item in citations])
+                    StoryEvidenceSnapshot.id.in_([item.evidence_snapshot_id for item in citations]),
+                    StoryEvidenceSnapshot.story_id == story_revision.story_id,
                 )
             )
         )

@@ -2054,74 +2054,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/telegram/drafts": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** List Telegram Drafts */
-        get: operations["list_telegram_drafts_telegram_drafts_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/telegram/drafts/{revision_id}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Get Telegram Draft */
-        get: operations["get_telegram_draft_telegram_drafts__revision_id__get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/telegram/drafts/{revision_id}/approve": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Approve Telegram Draft */
-        post: operations["approve_telegram_draft_telegram_drafts__revision_id__approve_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/telegram/drafts/{revision_id}/media/{media_asset_id}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Get Telegram Draft Media */
-        get: operations["get_telegram_draft_media_telegram_drafts__revision_id__media__media_asset_id__get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/telegram/drafts/{revision_id}/publish": {
         parameters: {
             query?: never;
@@ -2133,40 +2065,6 @@ export interface paths {
         put?: never;
         /** Publish Telegram Draft */
         post: operations["publish_telegram_draft_telegram_drafts__revision_id__publish_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/telegram/drafts/{revision_id}/reject": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Reject Telegram Draft */
-        post: operations["reject_telegram_draft_telegram_drafts__revision_id__reject_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/telegram/drafts/{revision_id}/revisions": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Edit Telegram Draft */
-        post: operations["edit_telegram_draft_telegram_drafts__revision_id__revisions_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -2312,6 +2210,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/telegram/publication-outcomes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Telegram Publication Outcomes */
+        get: operations["list_telegram_publication_outcomes_telegram_publication_outcomes_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/telegram/publish-jobs/{publish_job_id}": {
         parameters: {
             query?: never;
@@ -2372,6 +2287,23 @@ export interface paths {
         };
         /** Get Telegram Reconciliation Case */
         get: operations["get_telegram_reconciliation_case_telegram_reconciliation__publish_job_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/telegram/revisions/{revision_id}/publication-context": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Telegram Publication Context */
+        get: operations["get_telegram_publication_context_telegram_revisions__revision_id__publication_context_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -5750,12 +5682,6 @@ export interface components {
             /** Total */
             total: number;
         };
-        /** TelegramDraftEditIn */
-        TelegramDraftEditIn: {
-            content: components["schemas"]["TelegramRewriteOutput"];
-            /** Media Asset Ids */
-            media_asset_ids: string[];
-        };
         /** TelegramPromptPolicyInput */
         TelegramPromptPolicyInput: {
             /** Confirm Change */
@@ -5857,6 +5783,89 @@ export interface components {
             /** Proxy Type */
             proxy_type?: ("http_connect" | "socks5") | null;
         };
+        /** TelegramPublicationContextOut */
+        TelegramPublicationContextOut: {
+            /** Approval State */
+            approval_state: string;
+            /** Dispatch Id */
+            dispatch_id: string | null;
+            /**
+             * Platform Variant Id
+             * Format: uuid
+             */
+            platform_variant_id: string;
+            publication: components["schemas"]["TelegramPublicationOut"] | null;
+            /** Publish Job Id */
+            publish_job_id: string | null;
+            /** Publish Status */
+            publish_status: string | null;
+            /**
+             * Revision Id
+             * Format: uuid
+             */
+            revision_id: string;
+            /** Revision Number */
+            revision_number: number;
+            /** Route Id */
+            route_id: string | null;
+        };
+        /** TelegramPublicationOut */
+        TelegramPublicationOut: {
+            /**
+             * Destination Id
+             * Format: uuid
+             */
+            destination_id: string;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Payload Hash */
+            payload_hash: string;
+            /** Permalink */
+            permalink: string | null;
+            /**
+             * Platform Variant Revision Id
+             * Format: uuid
+             */
+            platform_variant_revision_id: string;
+            /**
+             * Publish Job Id
+             * Format: uuid
+             */
+            publish_job_id: string;
+            /**
+             * Published At
+             * Format: date-time
+             */
+            published_at: string;
+            /** Reconciliation Status */
+            reconciliation_status: string;
+            /** Remote Message Ids */
+            remote_message_ids: number[];
+        };
+        /** TelegramPublishAcceptedOut */
+        TelegramPublishAcceptedOut: {
+            job: components["schemas"]["TelegramPublishIntentOut"];
+            /**
+             * Revision Id
+             * Format: uuid
+             */
+            revision_id: string;
+        };
+        /** TelegramPublishIntentOut */
+        TelegramPublishIntentOut: {
+            /**
+             * Publish Job Id
+             * Format: uuid
+             */
+            publish_job_id: string;
+            /** Status */
+            status: string;
+            /** Workflow Job Id */
+            workflow_job_id: string | null;
+        };
         /** TelegramQuietHours */
         TelegramQuietHours: {
             /** End */
@@ -5882,13 +5891,6 @@ export interface components {
             permalink?: string | null;
             /** Remote Message Ids */
             remote_message_ids?: number[];
-        };
-        /** TelegramRejectIn */
-        TelegramRejectIn: {
-            /** Content Hash */
-            content_hash: string;
-            /** Note */
-            note?: string | null;
         };
         /** TelegramResearchPolicyInput */
         TelegramResearchPolicyInput: {
@@ -10417,136 +10419,6 @@ export interface operations {
             };
         };
     };
-    list_telegram_drafts_telegram_drafts_get: {
-        parameters: {
-            query?: {
-                approval_state?: ("draft" | "pending_review" | "approved" | "rejected") | null;
-                route_id?: string | null;
-            };
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": unknown;
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    get_telegram_draft_telegram_drafts__revision_id__get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                revision_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": unknown;
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    approve_telegram_draft_telegram_drafts__revision_id__approve_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                revision_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["TelegramContentHashIn"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": unknown;
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    get_telegram_draft_media_telegram_drafts__revision_id__media__media_asset_id__get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                media_asset_id: string;
-                revision_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": unknown;
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
     publish_telegram_draft_telegram_drafts__revision_id__publish_post: {
         parameters: {
             query?: never;
@@ -10568,77 +10440,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    reject_telegram_draft_telegram_drafts__revision_id__reject_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                revision_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["TelegramRejectIn"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": unknown;
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    edit_telegram_draft_telegram_drafts__revision_id__revisions_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                revision_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["TelegramDraftEditIn"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["TelegramPublishAcceptedOut"];
                 };
             };
             /** @description Validation Error */
@@ -10994,6 +10796,26 @@ export interface operations {
             };
         };
     };
+    list_telegram_publication_outcomes_telegram_publication_outcomes_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TelegramPublicationContextOut"][];
+                };
+            };
+        };
+    };
     get_telegram_publish_job_telegram_publish_jobs__publish_job_id__get: {
         parameters: {
             query?: never;
@@ -11098,6 +10920,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ReconciliationCase"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_telegram_publication_context_telegram_revisions__revision_id__publication_context_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                revision_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TelegramPublicationContextOut"];
                 };
             };
             /** @description Validation Error */

@@ -578,11 +578,11 @@ async function installAcceptanceBackend(page: Page, options: BackendOptions = {}
       return json(route, state.routeResearchMode === "auto_if_incomplete" ? [dispatchWire()] : [])
     }
     if (path === `/telegram/automations/${ids.route}` && method === "GET") return json(route, routeWire(state))
-    if (path === "/telegram/drafts" && method === "GET") {
-      return json(route, state.reconciliation ? [] : [telegramDraftWire(state)])
+    if (path === "/telegram/publication-outcomes" && method === "GET") {
+      return json(route, state.reconciliation ? [] : [telegramPublicationContextWire(state)])
     }
-    if (path.startsWith("/telegram/drafts/") && method === "GET") {
-      return json(route, telegramDraftWire(state, path.split("/")[3]!))
+    if (path.startsWith("/telegram/revisions/") && path.endsWith("/publication-context") && method === "GET") {
+      return json(route, telegramPublicationContextWire(state, path.split("/")[3]!))
     }
 
     if (path === "/telegram/reconciliation" && method === "GET") {
@@ -1000,26 +1000,14 @@ function dispatchWire() {
   }
 }
 
-function telegramDraftWire(state: BackendState, requestedId?: string) {
+function telegramPublicationContextWire(state: BackendState, requestedId?: string) {
   const revisionId = requestedId === ids.childRevision || state.childCreated ? ids.childRevision : ids.revisions.telegram
   const revision = revisionWire("telegram", state, revisionId)
   return {
-    id: revision.id,
+    revision_id: revision.id,
     platform_variant_id: revision.platform_variant_id,
-    parent_revision_id: revision.parent_revision_id,
-    generation_attempt_id: revision.generation_attempt_id,
     revision_number: revision.revision_number,
-    content: revision.content,
-    content_hash: revision.content_hash,
-    evidence_map: revision.evidence_map,
-    evidence: [{ evidence_snapshot_id: ids.evidence, evidence_key: "report:today", source_url: evidenceUrl, content_text: evidenceWire().content_text, content_sha256: evidenceWire().content_sha256 }],
-    media: [],
-    validation_results: revision.validation_results,
     approval_state: revision.approval_state,
-    approval_note: revision.approval_note,
-    approved_at: revision.approved_at,
-    created_by: revision.created_by,
-    created_at: revision.created_at,
     route_id: ids.route,
     dispatch_id: dispatchWire().id,
     publish_job_id: null,

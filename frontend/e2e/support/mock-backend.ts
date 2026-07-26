@@ -145,7 +145,7 @@ export async function installMockBackend(
       await fulfillContractJson(route, method, path, { items: [] })
       return
     }
-    if (method === "GET" && path === "/telegram/drafts") {
+    if (method === "GET" && path === "/telegram/publication-outcomes") {
       await fulfillContractJson(route, method, path, [])
       return
     }

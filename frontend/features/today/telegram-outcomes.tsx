@@ -4,8 +4,8 @@ import { useQuery, useQueryClient } from "@tanstack/react-query"
 import Link from "next/link"
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { getTelegramDrafts } from "@/features/automations/telegram-api"
-import type { TelegramDraft } from "@/features/automations/telegram-types"
+import { getTelegramPublicationOutcomes } from "@/features/automations/telegram-api"
+import type { TelegramPublicationContext } from "@/features/automations/telegram-types"
 import { fetchReconciliationCases } from "@/features/operations/api"
 import { ReconciliationPanel } from "@/features/operations/reconciliation-panel"
 import type { ReconciliationCase } from "@/features/operations/types"
@@ -15,8 +15,8 @@ import { operationsQueryKeys, queryKeys } from "@/lib/query-keys"
 export function TelegramOutcomes() {
   const queryClient = useQueryClient()
   const query = useQuery({
-    queryKey: queryKeys.telegramDrafts({}),
-    queryFn: () => getTelegramDrafts({}),
+    queryKey: queryKeys.telegramPublicationOutcomes,
+    queryFn: getTelegramPublicationOutcomes,
     refetchInterval: 5_000,
   })
   const reconciliationsQuery = useQuery({
@@ -25,11 +25,11 @@ export function TelegramOutcomes() {
     refetchInterval: 5_000,
   })
   const latestDrafts = Array.from(
-    (query.data ?? []).reduce((latest, draft) => {
-      const current = latest.get(draft.platformVariantId)
-      if (!current || draft.revisionNumber > current.revisionNumber) latest.set(draft.platformVariantId, draft)
+    (query.data ?? []).reduce((latest, outcome) => {
+      const current = latest.get(outcome.platformVariantId)
+      if (!current || outcome.revisionNumber > current.revisionNumber) latest.set(outcome.platformVariantId, outcome)
       return latest
-    }, new Map<string, TelegramDraft>()).values()
+    }, new Map<string, TelegramPublicationContext>()).values()
   )
   const outcomes = latestDrafts.filter((draft) => draft.publishJobId || draft.publication || draft.approvalState === "pending_review")
   const reconciliationCases = reconciliationsQuery.data ?? []
@@ -37,7 +37,7 @@ export function TelegramOutcomes() {
   async function refreshResolvedCase() {
     await Promise.all([
       queryClient.invalidateQueries({ queryKey: operationsQueryKeys.reconciliations }),
-      queryClient.invalidateQueries({ queryKey: queryKeys.telegramDrafts() }),
+      queryClient.invalidateQueries({ queryKey: queryKeys.telegramPublicationOutcomes }),
     ])
   }
 
@@ -68,7 +68,7 @@ export function TelegramOutcomes() {
           && !reconciliationCases.length ? (
             <p className="p-4 text-center text-muted-foreground">No Telegram outcomes yet.</p>
           ) : null}
-        {outcomes.map((draft) => <TelegramOutcomeCard key={draft.id} draft={draft} />)}
+        {outcomes.map((draft) => <TelegramOutcomeCard key={draft.revisionId} draft={draft} />)}
       </CardContent>
     </Card>
   )
@@ -86,11 +86,11 @@ function reconciliationGenerationKey(value: ReconciliationCase): string {
   ])
 }
 
-function TelegramOutcomeCard({ draft }: { draft: TelegramDraft }) {
+function TelegramOutcomeCard({ draft }: { draft: TelegramPublicationContext }) {
   return (
     <article className="min-w-0 space-y-2 rounded-md border p-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <Link href={`/review/${draft.id}`} className="font-medium text-primary underline">Revision {draft.revisionNumber}</Link>
+        <Link href={`/review/${draft.revisionId}`} className="font-medium text-primary underline">Revision {draft.revisionNumber}</Link>
         <span>{outcomeLabel(draft)}</span>
       </div>
       {draft.publication ? (
@@ -104,7 +104,7 @@ function TelegramOutcomeCard({ draft }: { draft: TelegramDraft }) {
   )
 }
 
-function outcomeLabel(draft: TelegramDraft) {
+function outcomeLabel(draft: TelegramPublicationContext) {
   if (draft.publication) return "Published"
   if (draft.publishStatus === "reconciliation_required") return "Reconciliation required"
   if (draft.publishStatus === "attention") return "Publish failed"

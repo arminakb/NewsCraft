@@ -1,3 +1,4 @@
+import type { components } from "@/lib/api/generated"
 import { apiRequest } from "@/lib/http"
 
 import type {
@@ -13,11 +14,9 @@ import type {
   TelegramAutomationOptions,
   TelegramDestination,
   TelegramDispatch,
-  TelegramDraft,
-  TelegramDraftEditInput,
-  TelegramDraftFilters,
-  TelegramDraftPublishAccepted,
   TelegramPublication,
+  TelegramPublicationContext,
+  TelegramPublishAccepted,
   TelegramPublishJob,
   TelegramPublishReceipt,
   TelegramReconcileInput,
@@ -32,6 +31,7 @@ import type {
 } from "./telegram-types"
 
 type BackendJobAccepted = { job_id: string; status: JobAccepted["status"]; deduplicated: boolean }
+type Schemas = components["schemas"]
 type BackendTelegramRoute = {
   id: string; name: string; source_id: string; destination_id: string; brand_profile_id: string
   prompt_template_version_id: string; ai_provider_profile_id: string; access_mode: TelegramRoute["accessMode"]
@@ -43,21 +43,8 @@ type BackendTelegramRoute = {
   cursor_state: Record<string, unknown>; enabled: boolean; paused_at: string | null
   last_polled_at: string | null; next_poll_at: string | null; created_at: string; updated_at: string
 }
-type BackendTelegramPublication = {
-  id: string; publish_job_id: string; destination_id: string; platform_variant_revision_id: string
-  remote_message_ids: number[]; permalink: string | null; payload_hash: string; published_at: string
-  reconciliation_status: string
-}
-type BackendTelegramDraft = {
-  id: string; platform_variant_id: string; parent_revision_id: string | null; generation_attempt_id: string | null
-  revision_number: number; content: Record<string, unknown>; content_hash: string
-  evidence_map: Array<Record<string, unknown>>; evidence: Array<Record<string, unknown>>
-  media: Array<Record<string, unknown>>; validation_results: unknown[]
-  approval_state: TelegramDraft["approvalState"]; approval_note: string | null; approved_at: string | null
-  created_by: string; created_at: string; route_id: string | null; dispatch_id: string | null
-  publish_job_id: string | null; publish_status: TelegramDraft["publishStatus"]
-  publication: BackendTelegramPublication | null
-}
+type BackendTelegramPublication = Schemas["TelegramPublicationOut"]
+type BackendTelegramPublicationContext = Schemas["TelegramPublicationContextOut"]
 type BackendTelegramReceipt = {
   id: string; operation_index: number; operation_key: string; method: TelegramPublishReceipt["method"]
   request_hash: string; status: TelegramPublishReceipt["status"]; attempt_count: number
@@ -186,32 +173,30 @@ export async function getTelegramDispatches(routeId: string): Promise<TelegramDi
   return rows.map(mapTelegramDispatch)
 }
 
-export async function getTelegramDrafts(filters: TelegramDraftFilters = {}): Promise<TelegramDraft[]> {
-  const params = new URLSearchParams()
-  if (filters.routeId) params.set("route_id", filters.routeId)
-  if (filters.approvalState) params.set("approval_state", filters.approvalState)
-  const query = params.toString()
-  return (await apiRequest<BackendTelegramDraft[]>(`/telegram/drafts${query ? `?${query}` : ""}`)).map(mapTelegramDraft)
+export async function getTelegramPublicationOutcomes(): Promise<TelegramPublicationContext[]> {
+  const rows = await apiRequest<BackendTelegramPublicationContext[]>("/telegram/publication-outcomes")
+  return rows.map(mapTelegramPublicationContext)
 }
 
-export async function getTelegramDraft(id: string): Promise<TelegramDraft> {
-  return mapTelegramDraft(await apiRequest<BackendTelegramDraft>(`/telegram/drafts/${encodeURIComponent(id)}`))
+export async function getTelegramPublicationContext(id: string): Promise<TelegramPublicationContext> {
+  const row = await apiRequest<BackendTelegramPublicationContext>(
+    `/telegram/revisions/${encodeURIComponent(id)}/publication-context`,
+  )
+  return mapTelegramPublicationContext(row)
 }
 
-export async function editTelegramDraft(id: string, input: TelegramDraftEditInput): Promise<TelegramDraft> {
-  return mapTelegramDraft(await apiRequest<BackendTelegramDraft>(
-    `/telegram/drafts/${encodeURIComponent(id)}/revisions`, json("POST", input)
-  ))
-}
-
-export const approveTelegramDraft = (id: string, contentHash: string) => draftHashMutation(id, "approve", { content_hash: contentHash })
-export const rejectTelegramDraft = (id: string, contentHash: string, note?: string) => draftHashMutation(id, "reject", defined({ content_hash: contentHash, note }))
-
-export async function publishTelegramDraft(id: string, contentHash: string): Promise<TelegramDraftPublishAccepted> {
-  const row = await apiRequest<{ revision: BackendTelegramDraft; job: { publish_job_id: string; workflow_job_id: string; status: TelegramPublishJob["status"] } }>(
+export async function publishTelegramDraft(id: string, contentHash: string): Promise<TelegramPublishAccepted> {
+  const row = await apiRequest<Schemas["TelegramPublishAcceptedOut"]>(
     `/telegram/drafts/${encodeURIComponent(id)}/publish`, json("POST", { content_hash: contentHash })
   )
-  return { revision: mapTelegramDraft(row.revision), job: { publishJobId: row.job.publish_job_id, workflowJobId: row.job.workflow_job_id, status: row.job.status } }
+  return {
+    revisionId: row.revision_id,
+    job: {
+      publishJobId: row.job.publish_job_id,
+      workflowJobId: row.job.workflow_job_id,
+      status: row.job.status,
+    },
+  }
 }
 
 export async function getTelegramPublishJob(id: string): Promise<TelegramPublishJob> {
@@ -296,19 +281,16 @@ export function mapTelegramRoute(row: BackendTelegramRoute): TelegramRoute {
   }
 }
 
-export function mapTelegramDraft(row: BackendTelegramDraft): TelegramDraft {
-  const content = row.content
+function mapTelegramPublicationContext(row: BackendTelegramPublicationContext): TelegramPublicationContext {
   return {
-    id: row.id, platformVariantId: row.platform_variant_id, parentRevisionId: row.parent_revision_id,
-    generationAttemptId: row.generation_attempt_id, revisionNumber: row.revision_number,
-    content: { body: content.body as string, parseMode: content.parse_mode as "HTML", buttons: content.buttons as TelegramDraft["content"]["buttons"], sourceItemId: content.source_item_id as string | null, sourceUrl: content.source_url as string | null, mediaPolicy: content.media_policy as TelegramDraft["content"]["mediaPolicy"], mediaAssetIds: content.media_asset_ids as string[], direction: content.direction as TelegramDraft["content"]["direction"], dryRun: content.dry_run as boolean },
-    contentHash: row.content_hash,
-    evidenceMap: row.evidence_map.map((item) => ({ evidenceSnapshotId: item.evidence_snapshot_id as string, evidenceKey: item.evidence_key as string, sourceUrl: item.source_url as string | null, locator: item.locator as string, excerptSha256: item.excerpt_sha256 as string })),
-    evidence: row.evidence.map((item) => ({ evidenceSnapshotId: item.evidence_snapshot_id as string, evidenceKey: item.evidence_key as string, sourceUrl: item.source_url as string | null, contentText: item.content_text as string, contentSha256: item.content_sha256 as string })),
-    media: row.media.map((item) => ({ id: item.id as string, kind: item.kind as string, mimeType: item.mime_type as string | null, fetchStatus: item.fetch_status as string, checksumSha256: item.checksum_sha256 as string | null, previewUrl: `/api/backend${item.preview_url as string}` })),
-    validationResults: row.validation_results, approvalState: row.approval_state, approvalNote: row.approval_note,
-    approvedAt: row.approved_at, createdBy: row.created_by, createdAt: row.created_at, routeId: row.route_id,
-    dispatchId: row.dispatch_id, publishJobId: row.publish_job_id, publishStatus: row.publish_status,
+    revisionId: row.revision_id,
+    platformVariantId: row.platform_variant_id,
+    revisionNumber: row.revision_number,
+    approvalState: row.approval_state as TelegramPublicationContext["approvalState"],
+    routeId: row.route_id,
+    dispatchId: row.dispatch_id,
+    publishJobId: row.publish_job_id,
+    publishStatus: row.publish_status as TelegramPublicationContext["publishStatus"],
     publication: row.publication ? mapTelegramPublication(row.publication) : null,
   }
 }
@@ -336,8 +318,6 @@ function mapJobAccepted(row: BackendJobAccepted): JobAccepted { return { jobId: 
 function mapRouteAccepted(row: { route: BackendTelegramRoute; job: BackendJobAccepted }): TelegramRouteAccepted { return { route: mapTelegramRoute(row.route), job: mapJobAccepted(row.job) } }
 async function routeAccepted(id: string, transition: "activate") { return mapRouteAccepted(await apiRequest<{ route: BackendTelegramRoute; job: BackendJobAccepted }>(`/telegram/automations/${encodeURIComponent(id)}/${transition}`, { method: "POST" })) }
 async function routeTransition(id: string, transition: "pause" | "resume") { return mapTelegramRoute(await apiRequest<BackendTelegramRoute>(`/telegram/automations/${encodeURIComponent(id)}/${transition}`, { method: "POST" })) }
-async function draftHashMutation(id: string, transition: "approve" | "reject", body: Record<string, unknown>) { return mapTelegramDraft(await apiRequest<BackendTelegramDraft>(`/telegram/drafts/${encodeURIComponent(id)}/${transition}`, json("POST", body))) }
-
 function brandBody(input: BrandProfileInput | BrandProfilePatch) { return defined({ name: input.name, output_language: input.outputLanguage, tone: input.tone, editorial_rules: input.editorialRules, attribution_rules: input.attributionRules, default_hashtags: input.defaultHashtags, platform_preferences: input.platformPreferences, is_default: input.isDefault }) }
 function mapBrandProfile(row: Record<string, unknown>): BrandProfile { return { id: row.id as string, name: row.name as string, outputLanguage: row.output_language as string, tone: row.tone as string, editorialRules: row.editorial_rules as string[], attributionRules: row.attribution_rules as Record<string, unknown>, defaultHashtags: row.default_hashtags as string[], platformPreferences: row.platform_preferences as Record<string, unknown>, isDefault: row.is_default as boolean } }
 function mapPromptTemplate(row: Record<string, unknown>): PromptTemplate { return { id: row.id as string, purposeKey: row.purpose_key as string, name: row.name as string, description: row.description as string | null } }

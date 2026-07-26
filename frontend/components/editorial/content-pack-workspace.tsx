@@ -116,8 +116,6 @@ export function ContentPackWorkspace({ packId, initialRevisionId = null }: { pac
     queryClient.setQueryData<PlatformRevision[]>(queryKeys.variantRevisions(updated.variantId), (current) => upsertRevision(current, updated))
     await Promise.all([
       refreshPackageAndHistory(updated.variantId),
-      queryClient.invalidateQueries({ queryKey: queryKeys.telegramDraft(updated.id) }),
-      queryClient.invalidateQueries({ queryKey: queryKeys.telegramDrafts() }),
       queryClient.invalidateQueries({ queryKey: queryKeys.telegramRoutes }),
     ])
   }

@@ -9497,28 +9497,6 @@
         "title": "TelegramDestinationsSummaryOut",
         "type": "object"
       },
-      "TelegramDraftEditIn": {
-        "additionalProperties": false,
-        "properties": {
-          "content": {
-            "$ref": "#/components/schemas/TelegramRewriteOutput"
-          },
-          "media_asset_ids": {
-            "items": {
-              "format": "uuid",
-              "type": "string"
-            },
-            "title": "Media Asset Ids",
-            "type": "array"
-          }
-        },
-        "required": [
-          "content",
-          "media_asset_ids"
-        ],
-        "title": "TelegramDraftEditIn",
-        "type": "object"
-      },
       "TelegramPromptPolicyInput": {
         "additionalProperties": false,
         "properties": {
@@ -9858,6 +9836,216 @@
         "title": "TelegramProxyPatch",
         "type": "object"
       },
+      "TelegramPublicationContextOut": {
+        "properties": {
+          "approval_state": {
+            "title": "Approval State",
+            "type": "string"
+          },
+          "dispatch_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Dispatch Id"
+          },
+          "platform_variant_id": {
+            "format": "uuid",
+            "title": "Platform Variant Id",
+            "type": "string"
+          },
+          "publication": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TelegramPublicationOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "publish_job_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Publish Job Id"
+          },
+          "publish_status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Publish Status"
+          },
+          "revision_id": {
+            "format": "uuid",
+            "title": "Revision Id",
+            "type": "string"
+          },
+          "revision_number": {
+            "title": "Revision Number",
+            "type": "integer"
+          },
+          "route_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Route Id"
+          }
+        },
+        "required": [
+          "revision_id",
+          "platform_variant_id",
+          "revision_number",
+          "approval_state",
+          "route_id",
+          "dispatch_id",
+          "publish_job_id",
+          "publish_status",
+          "publication"
+        ],
+        "title": "TelegramPublicationContextOut",
+        "type": "object"
+      },
+      "TelegramPublicationOut": {
+        "properties": {
+          "destination_id": {
+            "format": "uuid",
+            "title": "Destination Id",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "payload_hash": {
+            "title": "Payload Hash",
+            "type": "string"
+          },
+          "permalink": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Permalink"
+          },
+          "platform_variant_revision_id": {
+            "format": "uuid",
+            "title": "Platform Variant Revision Id",
+            "type": "string"
+          },
+          "publish_job_id": {
+            "format": "uuid",
+            "title": "Publish Job Id",
+            "type": "string"
+          },
+          "published_at": {
+            "format": "date-time",
+            "title": "Published At",
+            "type": "string"
+          },
+          "reconciliation_status": {
+            "title": "Reconciliation Status",
+            "type": "string"
+          },
+          "remote_message_ids": {
+            "items": {
+              "type": "integer"
+            },
+            "title": "Remote Message Ids",
+            "type": "array"
+          }
+        },
+        "required": [
+          "id",
+          "publish_job_id",
+          "destination_id",
+          "platform_variant_revision_id",
+          "remote_message_ids",
+          "permalink",
+          "payload_hash",
+          "published_at",
+          "reconciliation_status"
+        ],
+        "title": "TelegramPublicationOut",
+        "type": "object"
+      },
+      "TelegramPublishAcceptedOut": {
+        "properties": {
+          "job": {
+            "$ref": "#/components/schemas/TelegramPublishIntentOut"
+          },
+          "revision_id": {
+            "format": "uuid",
+            "title": "Revision Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "revision_id",
+          "job"
+        ],
+        "title": "TelegramPublishAcceptedOut",
+        "type": "object"
+      },
+      "TelegramPublishIntentOut": {
+        "properties": {
+          "publish_job_id": {
+            "format": "uuid",
+            "title": "Publish Job Id",
+            "type": "string"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "workflow_job_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Workflow Job Id"
+          }
+        },
+        "required": [
+          "publish_job_id",
+          "workflow_job_id",
+          "status"
+        ],
+        "title": "TelegramPublishIntentOut",
+        "type": "object"
+      },
       "TelegramQuietHours": {
         "additionalProperties": false,
         "properties": {
@@ -9934,33 +10122,6 @@
           "outcome"
         ],
         "title": "TelegramReconcileIn",
-        "type": "object"
-      },
-      "TelegramRejectIn": {
-        "additionalProperties": false,
-        "properties": {
-          "content_hash": {
-            "pattern": "^[0-9a-f]{64}$",
-            "title": "Content Hash",
-            "type": "string"
-          },
-          "note": {
-            "anyOf": [
-              {
-                "maxLength": 500,
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Note"
-          }
-        },
-        "required": [
-          "content_hash"
-        ],
-        "title": "TelegramRejectIn",
         "type": "object"
       },
       "TelegramResearchPolicyInput": {
@@ -17060,219 +17221,6 @@
         ]
       }
     },
-    "/telegram/drafts": {
-      "get": {
-        "operationId": "list_telegram_drafts_telegram_drafts_get",
-        "parameters": [
-          {
-            "in": "query",
-            "name": "route_id",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "format": "uuid",
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Route Id"
-            }
-          },
-          {
-            "in": "query",
-            "name": "approval_state",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "enum": [
-                    "draft",
-                    "pending_review",
-                    "approved",
-                    "rejected"
-                  ],
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Approval State"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "List Telegram Drafts",
-        "tags": [
-          "telegram"
-        ]
-      }
-    },
-    "/telegram/drafts/{revision_id}": {
-      "get": {
-        "operationId": "get_telegram_draft_telegram_drafts__revision_id__get",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "revision_id",
-            "required": true,
-            "schema": {
-              "format": "uuid",
-              "title": "Revision Id",
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Get Telegram Draft",
-        "tags": [
-          "telegram"
-        ]
-      }
-    },
-    "/telegram/drafts/{revision_id}/approve": {
-      "post": {
-        "operationId": "approve_telegram_draft_telegram_drafts__revision_id__approve_post",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "revision_id",
-            "required": true,
-            "schema": {
-              "format": "uuid",
-              "title": "Revision Id",
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/TelegramContentHashIn"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Approve Telegram Draft",
-        "tags": [
-          "telegram"
-        ]
-      }
-    },
-    "/telegram/drafts/{revision_id}/media/{media_asset_id}": {
-      "get": {
-        "operationId": "get_telegram_draft_media_telegram_drafts__revision_id__media__media_asset_id__get",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "revision_id",
-            "required": true,
-            "schema": {
-              "format": "uuid",
-              "title": "Revision Id",
-              "type": "string"
-            }
-          },
-          {
-            "in": "path",
-            "name": "media_asset_id",
-            "required": true,
-            "schema": {
-              "format": "uuid",
-              "title": "Media Asset Id",
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Get Telegram Draft Media",
-        "tags": [
-          "telegram"
-        ]
-      }
-    },
     "/telegram/drafts/{revision_id}/publish": {
       "post": {
         "operationId": "publish_telegram_draft_telegram_drafts__revision_id__publish_post",
@@ -17302,7 +17250,9 @@
           "202": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/TelegramPublishAcceptedOut"
+                }
               }
             },
             "description": "Successful Response"
@@ -17319,108 +17269,6 @@
           }
         },
         "summary": "Publish Telegram Draft",
-        "tags": [
-          "telegram"
-        ]
-      }
-    },
-    "/telegram/drafts/{revision_id}/reject": {
-      "post": {
-        "operationId": "reject_telegram_draft_telegram_drafts__revision_id__reject_post",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "revision_id",
-            "required": true,
-            "schema": {
-              "format": "uuid",
-              "title": "Revision Id",
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/TelegramRejectIn"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Reject Telegram Draft",
-        "tags": [
-          "telegram"
-        ]
-      }
-    },
-    "/telegram/drafts/{revision_id}/revisions": {
-      "post": {
-        "operationId": "edit_telegram_draft_telegram_drafts__revision_id__revisions_post",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "revision_id",
-            "required": true,
-            "schema": {
-              "format": "uuid",
-              "title": "Revision Id",
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/TelegramDraftEditIn"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "201": {
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Edit Telegram Draft",
         "tags": [
           "telegram"
         ]
@@ -17896,6 +17744,31 @@
         ]
       }
     },
+    "/telegram/publication-outcomes": {
+      "get": {
+        "operationId": "list_telegram_publication_outcomes_telegram_publication_outcomes_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/TelegramPublicationContextOut"
+                  },
+                  "title": "Response List Telegram Publication Outcomes Telegram Publication Outcomes Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "List Telegram Publication Outcomes",
+        "tags": [
+          "telegram"
+        ]
+      }
+    },
     "/telegram/publish-jobs/{publish_job_id}": {
       "get": {
         "operationId": "get_telegram_publish_job_telegram_publish_jobs__publish_job_id__get",
@@ -18051,6 +17924,49 @@
           }
         },
         "summary": "Get Telegram Reconciliation Case",
+        "tags": [
+          "telegram"
+        ]
+      }
+    },
+    "/telegram/revisions/{revision_id}/publication-context": {
+      "get": {
+        "operationId": "get_telegram_publication_context_telegram_revisions__revision_id__publication_context_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "revision_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Revision Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TelegramPublicationContextOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Telegram Publication Context",
         "tags": [
           "telegram"
         ]
