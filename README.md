@@ -180,7 +180,7 @@ The dashboard is available at `http://localhost:3000` and proxies API calls thro
 Check health:
 
 ```bash
-curl http://localhost:8000/health
+curl http://localhost:8000/health/live
 ```
 
 Seed sources:
@@ -238,8 +238,9 @@ measurement as JSON. The recorded Phase 0 dataset and interpretation are in
 
 ## Useful Endpoints
 
-- `GET /health`
-- `GET /diagnostics`
+- `GET /health/live`
+- `GET /health/ready`
+- `GET /operations/diagnostics`
 - `GET /sources`
 - `GET /sources/{source_id}`
 - `POST /sources/seed`

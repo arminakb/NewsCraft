@@ -36,10 +36,3 @@ export type IngestionRunSummary = {
   duration: string
   items: number
 }
-
-export type DiagnosticsSnapshot = {
-  status: string
-  checks: Record<string, string>
-  sourceHealth: Record<string, number>
-  problemSources: Array<Record<string, unknown>>
-}

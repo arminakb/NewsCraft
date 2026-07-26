@@ -13,14 +13,14 @@ from app.main import app
 
 
 async def test_health_endpoint_returns_ok():
-    response = await _get("/health")
+    response = await _get("/health/live")
 
     assert response.status_code == 200
-    assert response.json() == {"status": "ok"}
+    assert response.json() == {"status": "alive"}
 
 
 async def test_cors_allows_frontend_origin():
-    response = await _get("/health", headers={"Origin": "http://localhost:3000"})
+    response = await _get("/health/live", headers={"Origin": "http://localhost:3000"})
     preflight = await _options(
         "/ingest/run",
         headers={

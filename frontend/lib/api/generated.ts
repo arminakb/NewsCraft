@@ -641,23 +641,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/diagnostics": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Diagnostics */
-        get: operations["diagnostics_diagnostics_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/exports": {
         parameters: {
             query?: never;
@@ -701,26 +684,6 @@ export interface paths {
         };
         /** Download Export */
         get: operations["download_export_exports__export_id__download__file_name__get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/health": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Legacy Health
-         * @description One-release compatibility alias for process liveness.
-         */
-        get: operations["legacy_health_health_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -3401,24 +3364,6 @@ export interface components {
             /** Runbook Url */
             runbook_url: string;
             state: components["schemas"]["HealthState"];
-        };
-        /** DiagnosticsOut */
-        DiagnosticsOut: {
-            /** Checks */
-            checks: {
-                [key: string]: string;
-            };
-            outbound_proxy: components["schemas"]["ProxyDiagnostics"];
-            /** Problem Sources */
-            problem_sources?: {
-                [key: string]: unknown;
-            }[];
-            /** Source Health */
-            source_health?: {
-                [key: string]: number;
-            };
-            /** Status */
-            status: string;
         };
         /** EditorialProfilesSummaryOut */
         EditorialProfilesSummaryOut: {
@@ -7516,26 +7461,6 @@ export interface operations {
             };
         };
     };
-    diagnostics_diagnostics_get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["DiagnosticsOut"];
-                };
-            };
-        };
-    };
     list_exports_exports_get: {
         parameters: {
             query?: {
@@ -7627,28 +7552,6 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    legacy_health_health_get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        [key: string]: string;
-                    };
                 };
             };
         };

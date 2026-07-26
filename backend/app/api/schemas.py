@@ -5,7 +5,6 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from app.core.outbound_proxy import ProxyDiagnostics
 from app.core.redaction import redact_secrets
 
 
@@ -131,14 +130,6 @@ class MediaAssetListOut(MediaAssetOut):
 
 class SourceDetailOut(SourceOut):
     pass
-
-
-class DiagnosticsOut(BaseModel):
-    status: str
-    checks: dict[str, str]
-    source_health: dict[str, int] = Field(default_factory=dict)
-    problem_sources: list[dict[str, Any]] = Field(default_factory=list)
-    outbound_proxy: ProxyDiagnostics
 
 
 class ApproveContentItemIn(BaseModel):

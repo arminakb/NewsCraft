@@ -3340,46 +3340,6 @@
         "title": "DependencyHealth",
         "type": "object"
       },
-      "DiagnosticsOut": {
-        "properties": {
-          "checks": {
-            "additionalProperties": {
-              "type": "string"
-            },
-            "title": "Checks",
-            "type": "object"
-          },
-          "outbound_proxy": {
-            "$ref": "#/components/schemas/ProxyDiagnostics"
-          },
-          "problem_sources": {
-            "items": {
-              "additionalProperties": true,
-              "type": "object"
-            },
-            "title": "Problem Sources",
-            "type": "array"
-          },
-          "source_health": {
-            "additionalProperties": {
-              "type": "integer"
-            },
-            "title": "Source Health",
-            "type": "object"
-          },
-          "status": {
-            "title": "Status",
-            "type": "string"
-          }
-        },
-        "required": [
-          "status",
-          "checks",
-          "outbound_proxy"
-        ],
-        "title": "DiagnosticsOut",
-        "type": "object"
-      },
       "EditVariantRequest": {
         "additionalProperties": false,
         "properties": {
@@ -12959,24 +12919,6 @@
         "summary": "Create Export"
       }
     },
-    "/diagnostics": {
-      "get": {
-        "operationId": "diagnostics_diagnostics_get",
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/DiagnosticsOut"
-                }
-              }
-            },
-            "description": "Successful Response"
-          }
-        },
-        "summary": "Diagnostics"
-      }
-    },
     "/exports": {
       "get": {
         "operationId": "list_exports_exports_get",
@@ -13120,32 +13062,6 @@
           }
         },
         "summary": "Download Export"
-      }
-    },
-    "/health": {
-      "get": {
-        "description": "One-release compatibility alias for process liveness.",
-        "operationId": "legacy_health_health_get",
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "additionalProperties": {
-                    "type": "string"
-                  },
-                  "title": "Response Legacy Health Health Get",
-                  "type": "object"
-                }
-              }
-            },
-            "description": "Successful Response"
-          }
-        },
-        "summary": "Legacy Health",
-        "tags": [
-          "health"
-        ]
       }
     },
     "/health/live": {

@@ -323,43 +323,6 @@ test("filters, sort, URL history, and cursor pagination coexist", async ({ page 
   expect(diagnostics.badResponses).toEqual([])
 })
 
-test("legacy Articles URL redirects to Feed with query state intact", async ({ page }) => {
-  const diagnostics = await installFeedBackend(page)
-  await page.goto("/articles?language=en&topic=AI&sort=score")
-  await expect(page).toHaveURL("/feed?language=en&topic=AI&sort=score")
-  await expect(page.getByRole("heading", { name: "Feed", exact: true })).toBeVisible()
-  expect(diagnostics.consoleErrors).toEqual([])
-  expect(diagnostics.pageErrors).toEqual([])
-  expect(diagnostics.failedRequests).toEqual([])
-  expect(diagnostics.badResponses).toEqual([])
-})
-
-test("legacy Inbox, Content, Library, and Media URLs redirect to Feed with query state intact", async ({ page }) => {
-  const diagnostics = await installFeedBackend(page)
-  const legacyPaths = [
-    "/inbox",
-    "/inbox/stories/legacy",
-    "/content",
-    "/content/items/legacy",
-    "/library",
-    "/library/research/legacy",
-    "/media",
-    "/media/assets/legacy",
-  ]
-
-  for (const legacyPath of legacyPaths) {
-    await page.goto(`${legacyPath}?language=en&topic=AI&sort=score`)
-    await expect(page).toHaveURL("/feed?language=en&topic=AI&sort=score")
-    await expect(page.getByRole("heading", { name: "Feed", exact: true })).toBeVisible()
-    await page.waitForLoadState("networkidle")
-  }
-
-  expect(diagnostics.consoleErrors).toEqual([])
-  expect(diagnostics.pageErrors).toEqual([])
-  expect(diagnostics.failedRequests).toEqual([])
-  expect(diagnostics.badResponses).toEqual([])
-})
-
 test("collections selection, creation, errors, and URL history coexist with Feed", async ({ page }, testInfo) => {
   const diagnostics = await installFeedBackend(page)
   await page.setViewportSize({ width: 1440, height: 1000 })

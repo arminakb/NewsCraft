@@ -68,7 +68,7 @@ empty files for direct mode; never reuse a shared proxy secret file across worke
 
 ## Safe diagnostics and failures
 
-`/diagnostics`, `/operations/diagnostics`, and `/operations/health` expose only:
+`/operations/diagnostics` and `/operations/health` expose only:
 
 - mode: `direct` or `proxy`;
 - proxy scheme, or `mixed` when configured HTTP/HTTPS routes use different reviewed schemes;

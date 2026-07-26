@@ -434,8 +434,8 @@ class SmokeDriver:
         return _required_id(data.get("job_id"), code)
 
     def _health(self) -> StepEvidence:
-        response = _as_dict(self._request("GET", "/health").data, "health_response_invalid")
-        _require(response.get("status") == "ok", "health_not_ok")
+        response = _as_dict(self._request("GET", "/health/live").data, "health_response_invalid")
+        _require(response.get("status") == "alive", "health_not_ok")
         return StepEvidence(
             statuses={"api": "ok"},
             invariants=("api_health",),

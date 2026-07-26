@@ -1,5 +1,4 @@
 import {
-  getDiagnostics,
   getIngestRuns,
   getSource,
   getSources,
@@ -112,20 +111,6 @@ describe("ingestion API", () => {
     stubFetch({ upserted: 50 })
 
     await expect(seedSources()).resolves.toEqual({ upserted: 50 })
-  })
-
-  it("maps diagnostics and defaults optional collections", async () => {
-    stubFetch({
-      status: "ok",
-      checks: { database: "ok" },
-    })
-
-    await expect(getDiagnostics()).resolves.toEqual({
-      status: "ok",
-      checks: { database: "ok" },
-      sourceHealth: {},
-      problemSources: [],
-    })
   })
 
   it("uses the typed ingest client with a generated request UUID", async () => {

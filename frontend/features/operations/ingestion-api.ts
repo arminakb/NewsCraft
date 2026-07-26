@@ -4,7 +4,6 @@ import { apiRequest } from "@/lib/http"
 import type { components } from "@/lib/api/generated"
 
 import type {
-  DiagnosticsSnapshot,
   IngestionRunSummary,
   SourcePlatform,
   SourceStatus,
@@ -15,7 +14,6 @@ type BackendSource =
   | components["schemas"]["SourceOut"]
   | components["schemas"]["SourceDetailOut"]
 type BackendRun = components["schemas"]["IngestRunSummaryOut"]
-type BackendDiagnostics = components["schemas"]["DiagnosticsOut"]
 
 export async function getSources(): Promise<SourceSummary[]> {
   const rows = await apiRequest<BackendSource[]>("/sources")
@@ -29,16 +27,6 @@ export async function getSource(id: string): Promise<SourceSummary> {
 
 export function seedSources(): Promise<{ upserted: number }> {
   return apiRequest("/sources/seed", { method: "POST" })
-}
-
-export async function getDiagnostics(): Promise<DiagnosticsSnapshot> {
-  const row = await apiRequest<BackendDiagnostics>("/diagnostics")
-  return {
-    status: row.status,
-    checks: row.checks,
-    sourceHealth: row.source_health ?? {},
-    problemSources: row.problem_sources ?? [],
-  }
 }
 
 export function runIngest(input: {

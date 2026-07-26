@@ -1,11 +1,9 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { render, screen, waitFor } from "@testing-library/react"
 
-import { DiagnosticsPage } from "@/components/dashboard/pages/diagnostics-page"
 import { RunsPage } from "@/components/dashboard/pages/runs-page"
 import { SourcesPage } from "@/components/dashboard/pages/sources-page"
 import {
-  getDiagnostics,
   getIngestRuns,
   getSources,
 } from "@/features/operations/ingestion-api"
@@ -17,7 +15,6 @@ vi.mock("@/features/operations/ingestion-api", async () => {
   >("@/features/operations/ingestion-api")
   return {
     ...actual,
-    getDiagnostics: vi.fn(async () => ({ status: "ok", checks: {}, sourceHealth: {}, problemSources: [] })),
     getIngestRuns: vi.fn(async () => []),
     getSources: vi.fn(async () => []),
   }
@@ -29,7 +26,6 @@ describe("live data queries", () => {
   it.each([
     ["sources", <SourcesPage initialSources={[]} />, getSources],
     ["runs", <RunsPage initialRuns={[]} />, getIngestRuns],
-    ["diagnostics", <DiagnosticsPage />, getDiagnostics],
   ])("fetches %s immediately when the route starts empty", async (_name, page, request) => {
     renderWithClient(page)
 

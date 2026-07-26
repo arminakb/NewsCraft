@@ -172,8 +172,8 @@ class FakeSmokeAPI:
         query: dict[str, list[str]],
     ) -> tuple[int, object]:
         ids = self.ids
-        if (method, path) == ("GET", "/health"):
-            return 200, {"status": "ok", "token": SECRET_CANARY}
+        if (method, path) == ("GET", "/health/live"):
+            return 200, {"status": "alive", "token": SECRET_CANARY}
         if (method, path) == ("GET", "/automation-control"):
             return 200, self.control
         if (method, path) == ("PATCH", "/automation-control"):
@@ -881,7 +881,7 @@ def test_smoke_driver_runs_complete_fake_workflow(
         if not str(request["path"]).startswith("/jobs/")
     ]
     assert non_poll_sequence == [
-        ("GET", "/health"),
+        ("GET", "/health/live"),
         ("GET", "/automation-control"),
         ("PATCH", "/automation-control"),
         ("POST", "/brand-profiles"),

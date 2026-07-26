@@ -28,7 +28,7 @@ describe("generated OpenAPI mock contract", () => {
   })
 
   it("rejects an undocumented operation or status", () => {
-    expect(() => assertContractResponse("GET", "/diagnostics", 200, {})).toThrow()
+    expect(() => assertContractResponse("GET", "/removed-route", 200, {})).toThrow()
     expect(() =>
       assertContractResponse("GET", "/operations/diagnostics", 201, OPERATIONS_FIXTURE),
     ).toThrow()

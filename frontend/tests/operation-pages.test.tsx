@@ -1,6 +1,5 @@
 import { render, screen } from "@testing-library/react"
 
-import { DiagnosticsPage } from "@/components/dashboard/pages/diagnostics-page"
 import { RunsPage } from "@/components/dashboard/pages/runs-page"
 import { SourcesPage } from "@/components/dashboard/pages/sources-page"
 import { QueryProvider } from "@/components/providers/query-provider"
@@ -14,12 +13,6 @@ vi.mock("@/features/operations/ingestion-api", async () => {
     ...actual,
     getSources: vi.fn(async () => dashboardMock.sources),
     getIngestRuns: vi.fn(async () => dashboardMock.runs),
-    getDiagnostics: vi.fn(async () => ({
-      status: "ok",
-      checks: { database: "ok", sources: "ok" },
-      sourceHealth: { healthy: 2, partial: 1, failed: 0, unknown: 0 },
-      problemSources: [{ id: "telegram_dw_persian", name: "DW Persian", status: "partial" }],
-    })),
   }
 })
 
@@ -34,13 +27,9 @@ describe("operational pages", () => {
     expect(screen.getAllByText("TechCrunch").length).toBeGreaterThan(0)
   })
 
-  it("renders runs and diagnostics pages", async () => {
+  it("renders the ingestion runs page", async () => {
     renderWithQuery(<RunsPage initialRuns={dashboardMock.runs} enableQueries={false} />)
     expect(await screen.findByRole("heading", { name: /ingestion runs/i })).toBeInTheDocument()
-
-    renderWithQuery(<DiagnosticsPage />)
-    expect(await screen.findByRole("heading", { name: /diagnostics/i })).toBeInTheDocument()
-    expect(await screen.findByText("DW Persian")).toBeInTheDocument()
   })
 })
 
