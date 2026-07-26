@@ -18,6 +18,7 @@ from app.automations.telegram.handlers import (
     validate_evidence_snapshot,
 )
 from app.automations.telegram.policy import evaluate_auto_publish
+from app.automations.telegram.process_operations import _process_route_dispatch
 from app.db.models import ContentItem, MediaAsset, SourceItem
 from app.generation.models import (
     AIProviderProfile,
@@ -146,7 +147,7 @@ def test_auto_publish_gate_is_fail_closed(override, allowed, reason):
 def test_generation_finalization_locks_variant_before_runtime_controls():
     """Keep the writer, reviewed scheduler, and publish worker acyclic."""
 
-    source = inspect.getsource(build_telegram_process_handler)
+    source = inspect.getsource(_process_route_dispatch)
     finalization = source[source.index("session.expire_all()") :]
 
     variant_lock = finalization.index("await _content_pack_and_variant")
@@ -208,7 +209,7 @@ async def test_automation_revision_writer_waits_for_live_regeneration_fence(monk
         raise RegenerationFenceConflict("Variant regeneration is in progress")
 
     monkeypatch.setattr(
-        "app.automations.telegram.handlers.require_revision_write_allowed",
+        "app.automations.telegram.process_operations.require_revision_write_allowed",
         reject,
     )
     with pytest.raises(RetryableJobError) as caught:
