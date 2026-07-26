@@ -127,7 +127,7 @@ def test_dockerfile_runs_backend_api():
 
     assert "python:3.14.6-slim-bookworm@sha256:" in dockerfile
     assert "ghcr.io/astral-sh/uv:0.11.29@sha256:" in dockerfile
-    assert "uv sync --locked --no-dev --no-editable" in dockerfile
+    assert "uv sync --locked --no-dev --no-editable --reinstall-package newscraft-backend" in dockerfile
     assert "USER newscraft" in dockerfile
     assert ".[dev]" not in dockerfile
     assert "pip install" not in dockerfile

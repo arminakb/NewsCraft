@@ -86,7 +86,7 @@ def test_backend_runtime_is_frozen_non_editable_and_excludes_dev_tools() -> None
     dockerfile = (BACKEND / "Dockerfile").read_text(encoding="utf-8")
 
     assert "uv sync --locked --no-dev --no-install-project" in dockerfile
-    assert "uv sync --locked --no-dev --no-editable" in dockerfile
+    assert "uv sync --locked --no-dev --no-editable --reinstall-package newscraft-backend" in dockerfile
     assert "USER newscraft" in dockerfile
     assert "pip install" not in dockerfile
     assert ".[dev]" not in dockerfile
