@@ -177,7 +177,7 @@ def collect_baseline(*, run_checks: bool, root: Path = ROOT) -> dict[str, object
     baseline: dict[str, object] = {
         "format": "newscraft-quality-baseline-v1",
         "backend": size_metrics(backend_files(root), (500, 1000), root),
-        "frontend": size_metrics(frontend_files(root), (300, 500), root),
+        "frontend": size_metrics(frontend_files(root), (300, 500, 1000), root),
     }
     if run_checks:
         checks = [
@@ -294,6 +294,14 @@ def quality_gate_failures(baseline: dict[str, object]) -> list[str]:
             failures.append(f"{name}: finding count is unavailable")
         elif findings > budget:
             failures.append(f"{name}: {findings} findings exceeds budget {budget}")
+    for area in ("backend", "frontend"):
+        metrics = baseline.get(area)
+        thresholds = metrics.get("thresholds") if isinstance(metrics, dict) else None
+        oversized = thresholds.get("1000") if isinstance(thresholds, dict) else None
+        if not isinstance(oversized, list):
+            failures.append(f"{area}: 1000-line threshold result is missing")
+        elif oversized:
+            failures.append(f"{area}: {len(oversized)} application modules are at least 1000 lines")
     return failures
 
 
