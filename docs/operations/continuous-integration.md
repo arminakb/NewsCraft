@@ -24,6 +24,6 @@ Repository administration is external state and cannot be enforced by workflow Y
 
 ## Nightly production drills
 
-`Nightly production drills` runs a credential-free Compose stack with the fake generation provider and Telegram dry-run mode, captures HTTP smoke evidence, exercises worker restart recovery, runs backup/restore safety tests, and preserves the current story-inbox performance regression. Later phases may strengthen these jobs with their phase-owned live or scale fixtures; pull requests remain deterministic and side-effect free.
+`Nightly production drills` runs a credential-free Compose stack with the fake generation provider and Telegram dry-run mode, captures HTTP smoke evidence, exercises worker restart recovery, runs backup/restore safety tests, and exercises the current Feed unit and browser workflow. Later phases may strengthen these jobs with their phase-owned live or scale fixtures; pull requests remain deterministic and side-effect free.
 
 Run workflow syntax checks locally with `actionlint .github/workflows/*.yml` when actionlint is available. The repository tests also validate required job names, trigger shape, frozen installs, database naming, artifact retention, and the absence of live-secret expressions.

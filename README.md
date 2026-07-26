@@ -152,11 +152,13 @@ disposable restore drill.
 Run the PostgreSQL queue contract suite:
 
 ```bash
-docker compose --profile test up -d --wait postgres-test
-cd backend
-TEST_DATABASE_URL=postgresql+asyncpg://newscraft:newscraft@127.0.0.1:55432/newscraft_test \
-  PYTHONPATH=. .venv/bin/python -m pytest tests/postgres -q
+scripts/test_postgres.sh
 ```
+
+The command starts an isolated test database, migrates it, runs every
+PostgreSQL/process-crash suite, and removes the database afterward. It fails
+before pytest if the database cannot become healthy; set
+`NEWSCRAFT_KEEP_TEST_DATABASE=1` only when retaining it for local diagnosis.
 
 Run the dashboard with the API and database:
 

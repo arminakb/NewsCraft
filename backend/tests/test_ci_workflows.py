@@ -9,6 +9,7 @@ CI_PATH = ROOT / ".github/workflows/ci.yml"
 NIGHTLY_PATH = ROOT / ".github/workflows/nightly.yml"
 PERSIAN_EVALUATION_PATH = ROOT / ".github/workflows/persian-generation-evaluation.yml"
 TELEGRAM_STAGING_PATH = ROOT / ".github/workflows/live-telegram-staging.yml"
+POSTGRES_TEST_PATH = ROOT / "scripts/test_postgres.sh"
 BLOCKING_JOBS = {
     "backend-static",
     "backend-unit",
@@ -92,10 +93,29 @@ def test_nightly_has_real_stack_restart_restore_and_large_list_drills() -> None:
     assert "test_restore_drill_script.py" in text
     assert "restore_drill.py" in text
     assert "newscraft-restore-drill-nightly-a" in text
-    assert "story-inbox.test.tsx" in text
+    assert "articles-page.test.tsx" in text
     assert "playwright install --with-deps chromium" in text
-    assert "story-inbox-performance.spec.ts" in text
+    assert "feed-desktop.spec.ts" in text
+    assert "story-inbox.test.tsx" not in text
+    assert "story-inbox-performance.spec.ts" not in text
     assert "retention-days: 30" in text
+
+
+def test_local_postgres_command_starts_migrates_and_runs_every_database_suite() -> None:
+    text = POSTGRES_TEST_PATH.read_text(encoding="utf-8")
+    assert "up -d --wait postgres-test" in text
+    assert 'export TEST_DATABASE_URL="$database_url"' in text
+    assert ".venv/bin/alembic upgrade head" in text
+    for suite in (
+        "tests/postgres",
+        "tests/integration",
+        "tests/stories/test_manual_intake_postgres.py",
+        "tests/stories/test_repository.py",
+        "tests/test_dispatch_sequence_migration_postgres.py",
+        "tests/test_runtime_heartbeat.py",
+    ):
+        assert suite in text
+    assert "down -v --remove-orphans" in text
 
 
 def test_protected_external_workflows_keep_provider_keys_out_of_job_environment() -> None:

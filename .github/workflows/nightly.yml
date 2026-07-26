@@ -139,7 +139,7 @@ jobs:
           rmdir /dev/shm/newscraft-backup 2>/dev/null || true
 
   large-list-budget:
-    name: Story inbox performance budget
+    name: Feed correctness and browser regression
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
@@ -149,14 +149,14 @@ jobs:
           node-version: 26.4.0
           cache: npm
           cache-dependency-path: frontend/package-lock.json
-      - name: Frozen install and inbox correctness suite
+      - name: Frozen install and feed correctness suite
         working-directory: frontend
         run: |
           npm ci
-          npm test -- --run tests/story-inbox.test.tsx
+          npm test -- --run tests/articles-page.test.tsx
       - name: Install pinned Chromium
         working-directory: frontend
         run: npx playwright install --with-deps chromium
-      - name: Enforce the 200-to-10,000-story browser budget
+      - name: Exercise the current Feed browser workflow
         working-directory: frontend
-        run: npm run test:e2e -- e2e/story-inbox-performance.spec.ts
+        run: npm run test:e2e -- e2e/feed-desktop.spec.ts

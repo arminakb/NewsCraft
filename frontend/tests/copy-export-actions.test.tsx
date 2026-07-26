@@ -196,9 +196,11 @@ it("keeps failed clipboard content focused and selected behind a durable error",
   expect(fallback).toHaveValue(expected)
   expect(fallback).toHaveAttribute("data-testid", "direction-boundary")
   expect(fallback).toHaveAttribute("dir", "auto")
-  expect(fallback).toHaveFocus()
-  expect(fallback).toHaveProperty("selectionStart", 0)
-  expect(fallback).toHaveProperty("selectionEnd", expected.length)
+  await waitFor(() => {
+    expect(fallback).toHaveFocus()
+    expect(fallback).toHaveProperty("selectionStart", 0)
+    expect(fallback).toHaveProperty("selectionEnd", expected.length)
+  })
 })
 
 it("submits export choices, polls the durable job, and exposes downloads only after success", async () => {

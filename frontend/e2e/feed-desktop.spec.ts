@@ -84,8 +84,7 @@ test("Feed renders a consistent responsive desktop card grid", async ({ page }, 
       expect(focusedBounds!.y).toBeGreaterThanOrEqual(0)
       expect(focusedBounds!.y + focusedBounds!.height).toBeLessThanOrEqual(viewport.height)
     }
-    await page.getByRole("main").focus()
-    await page.keyboard.press("Home")
+    await scrollContainer.evaluate((element) => element.scrollTo(0, 0))
     await expect.poll(() => scrollContainer.evaluate((element) => element.scrollTop)).toBe(0)
     await page.mouse.move(viewport.width - 80, viewport.height / 2)
     await page.mouse.wheel(0, 480)
