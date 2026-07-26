@@ -97,6 +97,7 @@ from app.research.models import ResearchRun
 from app.research.schemas import CitationRef, Claim
 from app.stories.evidence import EvidenceRecord
 from app.stories.models import Story, StoryEvidenceSnapshot, StoryRevision
+from app.stories.states import DRAFTED, decide_story_transition
 
 
 def platform_limits_for(platform: Platform) -> dict[str, int]:
@@ -1774,7 +1775,13 @@ def build_pack_generation_handler(
                 context.session.add(pack)
                 await context.session.flush()
                 if first_story_pack_id is None:
-                    locked_story.status = "drafted"
+                    transition = decide_story_transition(locked_story.status, DRAFTED)
+                    if not transition.allowed:
+                        raise NeedsReviewJobError(
+                            code="story_transition_invalid",
+                            message="Story cannot enter drafted state",
+                        )
+                    locked_story.status = DRAFTED
             variant = await context.session.scalar(
                 select(PlatformVariant)
                 .where(PlatformVariant.content_pack_id == pack.id, PlatformVariant.platform == platform)

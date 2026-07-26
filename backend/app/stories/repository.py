@@ -5,7 +5,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass, replace
 from datetime import datetime, timedelta
 from hashlib import sha256
-from typing import Any, NoReturn
+from typing import Any, Literal, NoReturn
 from uuid import UUID
 
 from sqlalchemy import case, exists, false, func, or_, select, tuple_
@@ -17,6 +17,7 @@ from app.normalization.urls import hash_value, normalize_url
 from app.stories.evidence import EvidenceInput, EvidenceRecord, build_evidence_key, capture_evidence
 from app.stories.grouping import GroupingInput, decide_group
 from app.stories.models import Story, StoryEvidenceLink, StoryEvidenceSnapshot
+from app.stories.states import INBOX, TELEGRAM_PROVISIONAL
 
 CANONICAL_CANDIDATE_LIMIT = 500
 STORY_GROUPING_ADVISORY_LOCK_KEY = 0x4E4353544F5259
@@ -24,6 +25,25 @@ STORY_GROUPING_ADVISORY_LOCK_KEY = 0x4E4353544F5259
 
 class EvidenceKeyCollision(ValueError):
     pass
+
+
+@dataclass(frozen=True, slots=True)
+class GroupedItemResult:
+    content_item_id: UUID
+    disposition: Literal["grouped", "skipped", "duplicate", "conflicted"]
+    reason: str
+
+
+@dataclass(frozen=True, slots=True)
+class StoryGroupingResult:
+    story: Story | None
+    items: tuple[GroupedItemResult, ...]
+
+    @property
+    def id(self) -> UUID:
+        if self.story is None:
+            raise ValueError("conflicted grouping result has no story")
+        return self.story.id
 
 
 @dataclass(frozen=True, slots=True)
@@ -165,7 +185,7 @@ def _candidate_identity_statement(
         .join(StoryEvidenceSnapshot, StoryEvidenceSnapshot.story_id == Story.id)
         .join(ContentItem, ContentItem.id == StoryEvidenceSnapshot.content_item_id)
         .where(
-            Story.status != "telegram_provisional",
+            Story.status != TELEGRAM_PROVISIONAL,
             Story.superseded_by_id.is_(None),
             exact_url
             if exact_only
@@ -281,7 +301,7 @@ class StoryRepository:
 
         story = Story(
             title=evidence.title if evidence.title is not None else "Untitled story",
-            status="inbox",
+            status=INBOX,
             primary_language="und",
         )
         self.session.add(story)
@@ -343,7 +363,7 @@ class StoryRepository:
             .join(Story, Story.id == StoryEvidenceSnapshot.story_id)
             .where(
                 StoryEvidenceSnapshot.content_item_id == ContentItem.id,
-                Story.status == "telegram_provisional",
+                Story.status == TELEGRAM_PROVISIONAL,
                 Story.superseded_by_id.is_(None),
             )
         )
@@ -419,7 +439,7 @@ class StoryRepository:
                 select(Story)
                 .where(
                     Story.id.in_(story_ids),
-                    Story.status != "telegram_provisional",
+                    Story.status != TELEGRAM_PROVISIONAL,
                     Story.superseded_by_id.is_(None),
                 )
                 .order_by(Story.id)
@@ -444,11 +464,16 @@ class StoryRepository:
         ]
         return _choose_oldest_matching_canonical(items, candidates)
 
-    async def group_content_items(self, content_item_ids: Sequence[UUID]) -> Story:
+    async def group_content_items(self, content_item_ids: Sequence[UUID]) -> StoryGroupingResult:
         await self.session.execute(_story_grouping_lock_statement())
         requested_ids = tuple(dict.fromkeys(content_item_ids))
         if not requested_ids:
             raise ValueError("content_item_ids must not be empty")
+        repeated_ids = tuple(
+            content_item_id
+            for index, content_item_id in enumerate(content_item_ids)
+            if content_item_id in content_item_ids[:index]
+        )
 
         items = list(
             await self.session.scalars(
@@ -460,8 +485,17 @@ class StoryRepository:
         )
         if len(items) != len(requested_ids):
             found = {row.id for row in items}
-            missing = next(value for value in requested_ids if value not in found)
-            raise LookupError(f"content item {missing} was not found")
+            return StoryGroupingResult(
+                story=None,
+                items=tuple(
+                    GroupedItemResult(
+                        content_item_id=value,
+                        disposition="skipped" if value in found else "conflicted",
+                        reason="batch_contains_missing_item" if value in found else "content_item_not_found",
+                    )
+                    for value in requested_ids
+                ),
+            )
 
         matching_snapshots = list(
             await self.session.scalars(
@@ -513,9 +547,16 @@ class StoryRepository:
                 )
 
         active_canonicals = sorted(
-            (row for row in stories if row.status != "telegram_provisional" and row.superseded_by_id is None),
+            (row for row in stories if row.status != TELEGRAM_PROVISIONAL and row.superseded_by_id is None),
             key=lambda row: (row.created_at, row.id),
         )
+        if len(active_canonicals) > 1:
+            return StoryGroupingResult(
+                story=None,
+                items=tuple(
+                    GroupedItemResult(value, "conflicted", "multiple_active_stories") for value in requested_ids
+                ),
+            )
         canonical = active_canonicals[0] if active_canonicals else None
         if canonical is None:
             canonical = await self._matching_active_canonical(items)
@@ -539,7 +580,7 @@ class StoryRepository:
                             .with_for_update()
                         )
                     )
-        provisionals = [row for row in stories if row.status == "telegram_provisional" and row.superseded_by_id is None]
+        provisionals = [row for row in stories if row.status == TELEGRAM_PROVISIONAL and row.superseded_by_id is None]
         provisional_ids = {row.id for row in provisionals}
         provisional_snapshots = [row for row in all_story_snapshots if row.story_id in provisional_ids]
         assigned_item_ids = {row.content_item_id for row in matching_snapshots if row.content_item_id is not None}
@@ -573,7 +614,7 @@ class StoryRepository:
                 title = sorted(provisionals, key=lambda row: (row.created_at, row.id))[0].title
             canonical = Story(
                 title=title or "Untitled story",
-                status="inbox",
+                status=INBOX,
                 primary_language=next((row.language_code for row in items if row.language_code), "und"),
             )
             self.session.add(canonical)
@@ -600,4 +641,22 @@ class StoryRepository:
         for provisional in provisionals:
             provisional.superseded_by_id = canonical.id
         await self.session.flush()
-        return canonical
+        provisional_item_ids = {row.content_item_id for row in provisional_snapshots if row.content_item_id is not None}
+        item_results = [
+            GroupedItemResult(
+                content_item_id=value,
+                disposition=(
+                    "duplicate" if value in assigned_item_ids and value not in provisional_item_ids else "grouped"
+                ),
+                reason=(
+                    "already_grouped"
+                    if value in assigned_item_ids and value not in provisional_item_ids
+                    else "provisional_story_merged"
+                    if value in provisional_item_ids
+                    else "evidence_attached"
+                ),
+            )
+            for value in requested_ids
+        ]
+        item_results.extend(GroupedItemResult(value, "skipped", "repeated_request") for value in repeated_ids)
+        return StoryGroupingResult(story=canonical, items=tuple(item_results))

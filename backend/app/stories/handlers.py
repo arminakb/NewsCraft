@@ -14,7 +14,7 @@ from app.jobs.repository import JobRepository
 from app.jobs.types import JobExecution, JobOrigin, job_payload_copy
 from app.stories import manual_intake
 from app.stories.evidence import EvidenceInput
-from app.stories.grouping import GroupingInput, decide_group
+from app.stories.grouping import GroupingInput, group_components
 from app.stories.repository import StoryRepository
 from app.stories.schemas import GroupPendingPayload, GroupPendingResult, ManualIntakeRequest
 
@@ -85,20 +85,6 @@ async def handle_manual_intake(job: JobExecution, context: JobContext) -> dict[s
 
 
 def _group_components(items: list[Any]) -> list[list[Any]]:
-    parents = list(range(len(items)))
-
-    def find(index: int) -> int:
-        while parents[index] != index:
-            parents[index] = parents[parents[index]]
-            index = parents[index]
-        return index
-
-    def union(left: int, right: int) -> None:
-        left_root = find(left)
-        right_root = find(right)
-        if left_root != right_root:
-            parents[right_root] = left_root
-
     inputs = [
         GroupingInput(
             content_item_id=str(row.id),
@@ -108,15 +94,7 @@ def _group_components(items: list[Any]) -> list[list[Any]]:
         )
         for row in items
     ]
-    for left_index, left in enumerate(inputs):
-        for right_index in range(left_index + 1, len(inputs)):
-            if decide_group(left, inputs[right_index]).grouped:
-                union(left_index, right_index)
-
-    components: dict[int, list[Any]] = {}
-    for index, item in enumerate(items):
-        components.setdefault(find(index), []).append(item)
-    return list(components.values())
+    return [[items[index] for index in component] for component in group_components(inputs)]
 
 
 async def group_pending_content(job: JobExecution, context: JobContext) -> dict[str, Any]:
@@ -125,8 +103,19 @@ async def group_pending_content(job: JobExecution, context: JobContext) -> dict[
     items = await repository.list_pending_content_items(limit=payload.limit, cursor=payload.cursor)
     evidence_ids = set()
     story_count = 0
+    disposition_counts = {
+        "grouped": 0,
+        "skipped": 0,
+        "duplicate": 0,
+        "conflicted": 0,
+    }
     for component in _group_components(items):
-        story = await repository.group_content_items([row.id for row in component])
+        grouping = await repository.group_content_items([row.id for row in component])
+        for item_result in grouping.items:
+            disposition_counts[item_result.disposition] += 1
+        if grouping.story is None:
+            continue
+        story = grouping.story
         story_count += 1
         evidence_ids.update(row.evidence_snapshot_id for row in await repository.list_evidence(story.id))
 
@@ -134,6 +123,10 @@ async def group_pending_content(job: JobExecution, context: JobContext) -> dict[
         selected_count=len(items),
         grouped_story_count=story_count,
         evidence_snapshot_count=len(evidence_ids),
+        grouped_item_count=disposition_counts["grouped"],
+        skipped_item_count=disposition_counts["skipped"],
+        duplicate_item_count=disposition_counts["duplicate"],
+        conflicted_item_count=disposition_counts["conflicted"],
         next_cursor=items[-1].id if len(items) == payload.limit else None,
     )
     if result.next_cursor is not None:

@@ -24,6 +24,7 @@ from app.jobs.types import JobOrigin
 from app.research.schemas import CitationRef
 from app.sources.base import MediaCandidate, ParsedSourceItem
 from app.stories.models import Story, StoryEvidenceLink, StoryEvidenceSnapshot, StoryRevision
+from app.stories.states import TELEGRAM_PROVISIONAL
 
 DispatchKind = Literal["live", "backfill", "dry_run", "source_edit"]
 
@@ -156,7 +157,7 @@ class TelegramCaptureRepository:
         if parent_revision is None:
             story = Story(
                 title=_story_title(envelope),
-                status="telegram_provisional",
+                status=TELEGRAM_PROVISIONAL,
                 primary_language=source.language_hint or "und",
             )
             self.session.add(story)

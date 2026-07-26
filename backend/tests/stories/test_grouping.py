@@ -1,6 +1,6 @@
 from datetime import UTC, datetime, timedelta
 
-from app.stories.grouping import GroupingInput, decide_group
+from app.stories.grouping import GroupingInput, decide_group, group_components
 
 
 def item(item_id: str, title: str, url: str, hours: int = 0) -> GroupingInput:
@@ -57,3 +57,13 @@ def test_empty_normalized_titles_have_zero_similarity():
 
     assert result.grouped is False
     assert result.score == 0.0
+
+
+def test_group_components_is_pure_and_transitive():
+    values = [
+        item("a", "First", "https://example.com/shared"),
+        item("b", "Second", "https://example.com/shared?utm_source=feed"),
+        item("c", "Third", "https://example.com/other"),
+    ]
+
+    assert group_components(values) == ((0, 1), (2,))

@@ -396,9 +396,29 @@ async def test_group_content_items_reuses_story_and_captures_one_snapshot_per_ha
     replay = await repository.group_content_items([first.id, second.id])
 
     assert replay.id == story.id
+    assert [item.disposition for item in story.items] == ["grouped", "grouped"]
+    assert [item.disposition for item in replay.items] == ["duplicate", "duplicate"]
     snapshots = await repository.list_evidence(story.id)
     assert [snapshot.content_text for snapshot in snapshots] == ["Evidence A", "Evidence B"]
     assert len({snapshot.content_sha256 for snapshot in snapshots}) == 2
+
+
+@pytest.mark.asyncio
+async def test_grouping_result_reports_missing_and_repeated_inputs(db_session: AsyncSession):
+    existing = await content_item(
+        db_session,
+        title="Existing report",
+        canonical_url="https://example.com/existing",
+        content_text="Evidence",
+    )
+    repository = StoryRepository(db_session)
+
+    conflict = await repository.group_content_items([existing.id, uuid4()])
+    repeated = await repository.group_content_items([existing.id, existing.id])
+
+    assert conflict.story is None
+    assert [item.disposition for item in conflict.items] == ["skipped", "conflicted"]
+    assert [item.disposition for item in repeated.items] == ["grouped", "skipped"]
 
 
 @pytest.mark.asyncio

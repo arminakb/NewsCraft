@@ -49,7 +49,7 @@ async def test_concurrent_exact_create_replay_has_one_active_plan_and_one_event(
     db_session: AsyncSession,
     session_factory: async_sessionmaker[AsyncSession],
 ):
-    story = Story(id=uuid4(), title="Manual publication race", status="open", primary_language="en")
+    story = Story(id=uuid4(), title="Manual publication race", status="inbox", primary_language="en")
     story_revision = StoryRevision(
         id=uuid4(),
         story_id=story.id,
