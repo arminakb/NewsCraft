@@ -2389,7 +2389,7 @@ async def test_regeneration_idempotency_is_bound_to_locked_current_revision():
 @pytest.mark.asyncio
 async def test_regeneration_wrapper_holds_no_row_locks_across_pack_delegation(monkeypatch):
     from app.generation.handlers import build_regenerate_handler
-    from app.generation.models import ContentPack, PlatformVariant, PlatformVariantRevision
+    from app.generation.models import ContentPack, PlatformVariant
     from app.jobs.registry import JobContext
 
     variant = SimpleNamespace(id=uuid4(), content_pack_id=uuid4(), platform="instagram")
@@ -2411,10 +2411,8 @@ async def test_regeneration_wrapper_holds_no_row_locks_across_pack_delegation(mo
             entity = statement.column_descriptions[0]["entity"]
             assert statement._for_update_arg is None
             events.append(f"read_{entity.__name__}")
-            if entity is PlatformVariant:
-                return variant
-            assert entity is PlatformVariantRevision
-            return current
+            assert entity is PlatformVariant
+            return variant
 
     def pack_builder(profile_resolver):
         async def handle(job, context):
@@ -2444,7 +2442,6 @@ async def test_regeneration_wrapper_holds_no_row_locks_across_pack_delegation(mo
     assert events == [
         "read_PlatformVariant",
         "get_pack",
-        "read_PlatformVariantRevision",
         "delegate",
     ]
 
@@ -2645,7 +2642,6 @@ async def test_regeneration_retry_replays_actual_committed_artifact_bound_to_imm
         prompts=[fixture.prompts["instagram"]],
         scalar_values=[
             variant,
-            child,
             fixture.story,
             pack.id,
             fixture.story,
@@ -2688,89 +2684,7 @@ async def test_regeneration_retry_replays_actual_committed_artifact_bound_to_imm
 
 
 @pytest.mark.asyncio
-async def test_release_three_queued_telegram_regeneration_normalizes_current_base_and_prompt(monkeypatch):
-    from app.generation.default_prompts import prompt_checksum
-    from app.generation.handlers import build_regenerate_handler
-    from app.generation.models import ContentPack, PlatformVariant, PlatformVariantRevision, PromptTemplateVersion
-    from app.jobs.registry import JobContext
-
-    variant = SimpleNamespace(id=uuid4(), content_pack_id=uuid4(), platform="telegram")
-    pack = SimpleNamespace(
-        id=variant.content_pack_id,
-        story_revision_id=uuid4(),
-        brand_profile_id=uuid4(),
-    )
-    current = SimpleNamespace(id=uuid4(), content_hash="b" * 64)
-    system_template = "Grounded Telegram system"
-    user_template = "Story={canonical_story_json}"
-    output_schema = {}
-    prompt = SimpleNamespace(
-        id=uuid4(),
-        system_template=system_template,
-        user_template=user_template,
-        output_schema=output_schema,
-        checksum_sha256=prompt_checksum(system_template, user_template, output_schema),
-    )
-
-    class Session:
-        async def get(self, model, identifier):
-            if model is PlatformVariant and identifier == variant.id:
-                return variant
-            if model is ContentPack and identifier == pack.id:
-                return pack
-            return None
-
-        async def scalar(self, statement):
-            entity = statement.column_descriptions[0]["entity"]
-            if entity is PlatformVariant:
-                return variant
-            if entity is PlatformVariantRevision:
-                return current
-            if entity is PromptTemplateVersion:
-                return prompt
-            return None
-
-        async def scalars(self, statement):
-            assert statement._for_update_arg is None
-            return [prompt]
-
-    delegated_payloads = []
-
-    def pack_builder(profile_resolver):
-        async def handle(job, context):
-            delegated_payloads.append(dict(job.payload))
-            return {"normalized": True}
-
-        return handle
-
-    monkeypatch.setattr("app.generation.handlers.build_pack_generation_handler", pack_builder)
-    job = SimpleNamespace(
-        payload={
-            "variant_id": str(variant.id),
-            "generation_provider_profile_id": str(uuid4()),
-            "platform_prompt_template_version_id": str(prompt.id),
-            "instruction": "Try again",
-        }
-    )
-
-    result = await build_regenerate_handler(SimpleNamespace())(
-        job,
-        JobContext(session=Session(), providers=SimpleNamespace()),
-    )
-
-    assert result == {"normalized": True}
-    normalized = delegated_payloads[0]
-    assert normalized["platforms"] == ["telegram"]
-    assert normalized["base_revision_id"] == str(current.id)
-    assert normalized["base_content_hash"] == current.content_hash
-    assert normalized["platform_prompt_template_version_ids"] == {"telegram": str(prompt.id)}
-    assert normalized["platform_prompt_checksums"] == {"telegram": prompt.checksum_sha256}
-    assert "platform_prompt_template_version_id" not in normalized
-
-
-@pytest.mark.parametrize("case", ["manual_legacy", "platform_mismatch"])
-@pytest.mark.asyncio
-async def test_regeneration_handler_rejects_ambiguous_legacy_or_target_platform_mismatch(monkeypatch, case):
+async def test_regeneration_handler_rejects_target_platform_mismatch(monkeypatch):
     from app.generation.handlers import build_regenerate_handler
     from app.generation.models import ContentPack, PlatformVariant, PlatformVariantRevision
     from app.jobs.errors import PermanentJobError
@@ -2813,16 +2727,13 @@ async def test_regeneration_handler_rejects_ambiguous_legacy_or_target_platform_
         "variant_id": str(variant.id),
         "generation_provider_profile_id": str(uuid4()),
     }
-    if case == "manual_legacy":
-        payload["platform_prompt_template_version_id"] = str(uuid4())
-    else:
-        payload |= {
-            "base_revision_id": str(current.id),
-            "base_content_hash": current.content_hash,
-            "platforms": ["blog"],
-            "platform_prompt_template_version_ids": {"blog": str(uuid4())},
-            "platform_prompt_checksums": {"blog": "c" * 64},
-        }
+    payload |= {
+        "base_revision_id": str(current.id),
+        "base_content_hash": current.content_hash,
+        "platforms": ["blog"],
+        "platform_prompt_template_version_ids": {"blog": str(uuid4())},
+        "platform_prompt_checksums": {"blog": "c" * 64},
+    }
 
     with pytest.raises(PermanentJobError):
         await build_regenerate_handler(SimpleNamespace())(

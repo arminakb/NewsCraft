@@ -159,9 +159,6 @@ class JobRepository:
         plural_descriptors = payload.get("continuations")
         if isinstance(plural_descriptors, list):
             descriptors.extend(plural_descriptors)
-        legacy_descriptor = payload.get("continuation")
-        if legacy_descriptor is not None:
-            descriptors.append(legacy_descriptor)
         for descriptor in descriptors:
             try:
                 continuation = TelegramResearchContinuation.model_validate(descriptor).validate_identity()

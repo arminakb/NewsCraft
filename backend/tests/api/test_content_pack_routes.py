@@ -138,22 +138,11 @@ def test_content_pack_request_uses_plural_platforms_and_safe_prompt_resolution()
     assert "canonical_prompt_template_version_id" not in GeneratePackRequest.model_fields
     assert "platform_prompt_template_version_id" not in GeneratePackRequest.model_fields
     assert "platform_prompt_template_version_id" not in RegenerateVariantRequest.model_fields
-    legacy = GeneratePackRequest.model_validate(
-        {
-            "brand_profile_id": str(uuid4()),
-            "platform": "telegram",
-            "generation_provider_profile_id": str(uuid4()),
-            "canonical_prompt_template_version_id": str(uuid4()),
-            "platform_prompt_template_version_id": str(uuid4()),
-        }
-    )
-    assert legacy.platforms == ["telegram"]
-    assert "platform_prompt_template_version_id" not in legacy.model_dump()
     with pytest.raises(ValueError):
-        RegenerateVariantRequest.model_validate(
+        GeneratePackRequest.model_validate(
             {
+                "platform": "telegram",
                 "generation_provider_profile_id": str(uuid4()),
-                "platform_prompt_template_version_id": str(uuid4()),
             }
         )
 

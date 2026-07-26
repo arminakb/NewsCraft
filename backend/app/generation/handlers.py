@@ -1949,89 +1949,23 @@ def build_regenerate_handler(
                 code=("generation_variant_missing" if variant is None else "generation_content_pack_missing"),
                 message="Regeneration variant context was not found",
             )
-        legacy_required = {
-            "variant_id",
-            "generation_provider_profile_id",
-            "platform_prompt_template_version_id",
-        }
-        legacy_allowed = legacy_required | {"instruction"}
-        is_release_three_legacy = legacy_required.issubset(payload) and set(payload).issubset(legacy_allowed)
-        current = await context.session.scalar(
-            select(PlatformVariantRevision)
-            .where(PlatformVariantRevision.platform_variant_id == variant.id)
-            .order_by(
-                PlatformVariantRevision.revision_number.desc(),
-                PlatformVariantRevision.created_at.desc(),
-                PlatformVariantRevision.id.desc(),
+        _required_uuid(payload, "base_revision_id")
+        base_content_hash = payload.get("base_content_hash")
+        if not isinstance(base_content_hash, str) or re.fullmatch(r"[0-9a-f]{64}", base_content_hash) is None:
+            raise PermanentJobError(
+                code="generation_regeneration_base_invalid",
+                message="Regeneration base revision is invalid",
             )
-            .limit(1)
-            .execution_options(populate_existing=True)
-        )
-        if is_release_three_legacy:
-            if variant.platform != "telegram":
-                raise PermanentJobError(
-                    code="generation_regeneration_legacy_unsupported",
-                    message="Legacy regeneration is supported only for Telegram variants",
-                )
-            prompt_id = _required_uuid(payload, "platform_prompt_template_version_id")
-            active = list(
-                await context.session.scalars(
-                    select(PromptTemplateVersion)
-                    .join(PromptTemplate, PromptTemplate.id == PromptTemplateVersion.prompt_template_id)
-                    .where(
-                        PromptTemplateVersion.is_active.is_(True),
-                        PromptTemplate.purpose_key == "telegram_pack",
-                    )
-                    .execution_options(populate_existing=True)
-                )
+        if payload.get("platforms") != [variant.platform]:
+            raise PermanentJobError(
+                code="generation_regeneration_platform_invalid",
+                message="Regeneration platform does not match the target variant",
             )
-            if len(active) != 1 or active[0].id != prompt_id:
-                raise PermanentJobError(
-                    code="generation_platform_prompt_configuration_invalid",
-                    message="Platform prompt configuration is invalid",
-                )
-            try:
-                require_prompt_integrity(active[0])
-            except ValueError:
-                raise PermanentJobError(
-                    code="generation_prompt_integrity_failed",
-                    message="Generation prompt snapshot integrity failed",
-                ) from None
-            if current is None:
-                raise NeedsReviewJobError(
-                    code="generation_regeneration_base_stale",
-                    message="Regeneration variant has no current revision",
-                )
-            payload = {key: value for key, value in payload.items() if key != "platform_prompt_template_version_id"} | {
-                "base_revision_id": str(current.id),
-                "base_content_hash": current.content_hash,
-                "platforms": ["telegram"],
-                "platform_prompt_template_version_ids": {"telegram": str(active[0].id)},
-                "platform_prompt_checksums": {"telegram": active[0].checksum_sha256},
-            }
-        else:
-            if "platform_prompt_template_version_id" in payload:
-                raise PermanentJobError(
-                    code="generation_regeneration_legacy_unsupported",
-                    message="Legacy regeneration payload is ambiguous",
-                )
-            _required_uuid(payload, "base_revision_id")
-            base_content_hash = payload.get("base_content_hash")
-            if not isinstance(base_content_hash, str) or re.fullmatch(r"[0-9a-f]{64}", base_content_hash) is None:
-                raise PermanentJobError(
-                    code="generation_regeneration_base_invalid",
-                    message="Regeneration base revision is invalid",
-                )
-            if payload.get("platforms") != [variant.platform]:
-                raise PermanentJobError(
-                    code="generation_regeneration_platform_invalid",
-                    message="Regeneration platform does not match the target variant",
-                )
-            # Do not reject solely because the committed child is now current:
-            # a worker may have crashed after the pack handler durably stored
-            # its exact artifact. The pack handler either replays that artifact
-            # and verifies its immutable parent, or its pre-provider callback
-            # rejects a genuinely stale base before another paid call.
+        # Do not reject solely because the committed child is now current:
+        # a worker may have crashed after the pack handler durably stored
+        # its exact artifact. The pack handler either replays that artifact
+        # and verifies its immutable parent, or its pre-provider callback
+        # rejects a genuinely stale base before another paid call.
         payload.update(
             {"story_revision_id": str(pack.story_revision_id), "brand_profile_id": str(pack.brand_profile_id)}
         )

@@ -575,8 +575,7 @@ async def test_final_route_research_crash_marks_subscribed_dispatch_for_review(
                 job_type="research_story",
                 payload={
                     "run_id": str(run.id),
-                    "continuations": None,
-                    "continuation": {
+                    "continuations": [{
                         "job_type": "telegram.route.process",
                         "payload": {
                             "dispatch_id": str(dispatch.id),
@@ -589,7 +588,7 @@ async def test_final_route_research_crash_marks_subscribed_dispatch_for_review(
                         "expected_story_revision_id": str(dispatch.story_revision_id),
                         "expected_provider_profile_id": str(shared["provider"].id),
                         "expected_research_mode": "auto_if_incomplete",
-                    },
+                    }],
                 },
                 idempotency_key=f"research-route-final:{dispatch.id}",
                 origin=JobOrigin.AUTOMATION,

@@ -6,7 +6,7 @@ from datetime import UTC, datetime
 from typing import Any, Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -82,21 +82,6 @@ class GeneratePackRequest(BaseModel):
     research_mode: Literal["off", "manual", "auto_if_incomplete"] = "off"
     research_provider_profile_id: UUID | None = None
     research_run_id: UUID | None = None
-
-    @model_validator(mode="before")
-    @classmethod
-    def translate_release_three_telegram_request(cls, value: Any):
-        if not isinstance(value, dict) or "platform" not in value:
-            return value
-        if "platforms" in value or value.get("platform") != "telegram":
-            return value
-        translated = dict(value)
-        translated["platforms"] = [translated.pop("platform")]
-        # Release 4 resolves active immutable prompts server-side. Legacy IDs
-        # are accepted only as a transition shim and are never trusted.
-        translated.pop("canonical_prompt_template_version_id", None)
-        translated.pop("platform_prompt_template_version_id", None)
-        return translated
 
 
 class EditVariantRequest(BaseModel):

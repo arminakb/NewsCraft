@@ -66,34 +66,6 @@ class ContentPackContinuationPayload(BaseModel):
     canonical_prompt_checksum: str
     platform_prompt_checksums: dict[Platform, str]
 
-    @model_validator(mode="before")
-    @classmethod
-    def translate_release_three_telegram_payload(cls, value: object):
-        if not isinstance(value, dict):
-            return value
-        legacy_keys = {
-            "platform",
-            "platform_prompt_template_version_id",
-            "platform_prompt_checksum",
-        }
-        present_legacy = legacy_keys.intersection(value)
-        if not present_legacy:
-            return value
-        plural_keys = {
-            "platforms",
-            "platform_prompt_template_version_ids",
-            "platform_prompt_checksums",
-        }
-        if present_legacy != legacy_keys or plural_keys.intersection(value) or value.get("platform") != "telegram":
-            raise ValueError("legacy content pack continuation payload is ambiguous or unsupported")
-        translated = dict(value)
-        translated["platforms"] = [translated.pop("platform")]
-        translated["platform_prompt_template_version_ids"] = {
-            "telegram": translated.pop("platform_prompt_template_version_id")
-        }
-        translated["platform_prompt_checksums"] = {"telegram": translated.pop("platform_prompt_checksum")}
-        return translated
-
     @model_validator(mode="after")
     def prompt_maps_match_requested_platforms(self):
         requested = set(self.platforms)
@@ -137,9 +109,6 @@ def normalize_continuation(value: object) -> dict:
 
 def append_unique_continuation(payload: dict, continuation: dict | None) -> tuple[dict, bool]:
     existing_values = list(payload.get("continuations") or [])
-    legacy = payload.get("continuation")
-    if legacy is not None:
-        existing_values.append(legacy)
     normalized: list[dict] = []
     seen: set[str] = set()
     for value in existing_values:
