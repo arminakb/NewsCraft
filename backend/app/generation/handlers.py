@@ -894,12 +894,12 @@ async def _invoke(
             )
         await injector.hit(
             "generation.after_provider_before_persist",
-                {
-                    "workflow_job_id": str(workflow_job_id),
-                    "generation_run_id": str(run_id),
-                    "generation_attempt_id": str(attempt_id),
-                    "purpose": purpose,
-                },
+            {
+                "workflow_job_id": str(workflow_job_id),
+                "generation_run_id": str(run_id),
+                "generation_attempt_id": str(attempt_id),
+                "purpose": purpose,
+            },
         )
         validated = validate_output(result.output)
     except Exception as exc:
