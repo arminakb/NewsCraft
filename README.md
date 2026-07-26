@@ -239,7 +239,6 @@ measurement as JSON. The recorded Phase 0 dataset and interpretation are in
 ## Useful Endpoints
 
 - `GET /health`
-- `GET /dashboard/summary`
 - `GET /diagnostics`
 - `GET /sources`
 - `GET /sources/{source_id}`

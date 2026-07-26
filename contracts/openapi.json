@@ -3300,37 +3300,6 @@
         "title": "CredentialIssuedOut",
         "type": "object"
       },
-      "DashboardSummaryOut": {
-        "properties": {
-          "content_items": {
-            "default": 0,
-            "title": "Content Items",
-            "type": "integer"
-          },
-          "media_assets": {
-            "default": 0,
-            "title": "Media Assets",
-            "type": "integer"
-          },
-          "rss_feeds": {
-            "default": 0,
-            "title": "Rss Feeds",
-            "type": "integer"
-          },
-          "telegram_channels": {
-            "default": 0,
-            "title": "Telegram Channels",
-            "type": "integer"
-          },
-          "warnings": {
-            "default": 0,
-            "title": "Warnings",
-            "type": "integer"
-          }
-        },
-        "title": "DashboardSummaryOut",
-        "type": "object"
-      },
       "DependencyHealth": {
         "additionalProperties": false,
         "properties": {
@@ -12827,24 +12796,6 @@
           }
         },
         "summary": "Create Export"
-      }
-    },
-    "/dashboard/summary": {
-      "get": {
-        "operationId": "dashboard_summary_dashboard_summary_get",
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/DashboardSummaryOut"
-                }
-              }
-            },
-            "description": "Successful Response"
-          }
-        },
-        "summary": "Dashboard Summary"
       }
     },
     "/diagnostics": {

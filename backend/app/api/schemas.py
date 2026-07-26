@@ -108,14 +108,6 @@ class IngestRunOut(BaseModel):
     errors: list[dict] = []
 
 
-class DashboardSummaryOut(BaseModel):
-    rss_feeds: int = 0
-    telegram_channels: int = 0
-    content_items: int = 0
-    media_assets: int = 0
-    warnings: int = 0
-
-
 class IngestRunSummaryOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 

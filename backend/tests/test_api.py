@@ -284,22 +284,6 @@ async def test_content_item_detail_endpoint_returns_404_for_missing_item():
     assert response.json()["detail"] == "content item not found"
 
 
-async def test_dashboard_summary_endpoint_returns_counts():
-    _override_session(FakeSession([], scalar_results=[50, 3, 1284, 912, 18]))
-
-    response = await _get("/dashboard/summary")
-
-    app.dependency_overrides.clear()
-    assert response.status_code == 200
-    assert response.json() == {
-        "rss_feeds": 50,
-        "telegram_channels": 3,
-        "content_items": 1284,
-        "media_assets": 912,
-        "warnings": 18,
-    }
-
-
 async def test_ingest_runs_endpoint_returns_latest_runs():
     run = IngestRun(
         id=uuid4(),

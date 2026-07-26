@@ -641,23 +641,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/dashboard/summary": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Dashboard Summary */
-        get: operations["dashboard_summary_dashboard_summary_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/diagnostics": {
         parameters: {
             query?: never;
@@ -3469,34 +3452,6 @@ export interface components {
             connection: components["schemas"]["CodexConnectionOut"];
             /** Credential */
             credential: string;
-        };
-        /** DashboardSummaryOut */
-        DashboardSummaryOut: {
-            /**
-             * Content Items
-             * @default 0
-             */
-            content_items: number;
-            /**
-             * Media Assets
-             * @default 0
-             */
-            media_assets: number;
-            /**
-             * Rss Feeds
-             * @default 0
-             */
-            rss_feeds: number;
-            /**
-             * Telegram Channels
-             * @default 0
-             */
-            telegram_channels: number;
-            /**
-             * Warnings
-             * @default 0
-             */
-            warnings: number;
         };
         /** DependencyHealth */
         DependencyHealth: {
@@ -7555,26 +7510,6 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    dashboard_summary_dashboard_summary_get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["DashboardSummaryOut"];
                 };
             };
         };
