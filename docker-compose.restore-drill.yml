@@ -42,8 +42,11 @@ services:
   worker-publishing:
     environment:
       APP_ENV: test
+      TELEGRAM_ACCEPTANCE_FIXTURE_PATH: /acceptance-fixtures/telegram_public_album.html
       TELEGRAM_PUBLISH_MODE: dry-run
       TELEGRAM_DESTINATION_NEWS_TOKEN: ""
       HTTP_PROXY: ""
       HTTPS_PROXY: ""
       ALL_PROXY: ""
+    volumes:
+      - ./backend/tests/fixtures:/acceptance-fixtures:ro
