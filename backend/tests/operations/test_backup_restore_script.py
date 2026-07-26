@@ -988,6 +988,9 @@ def test_restore_stops_replaces_and_restarts_actual_split_services(
     )
     media_index = next(i for i, command in enumerate(runner.commands) if "/data/media" in command)
     export_index = next(i for i, command in enumerate(runner.commands) if "/data/exports" in command)
+    for volume_index in (media_index, export_index):
+        assert "worker-source-generation" in runner.commands[volume_index]
+        assert "api" not in runner.commands[volume_index]
     migrate_index = runner.commands.index(
         [
             "docker",

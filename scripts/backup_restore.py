@@ -819,7 +819,7 @@ class BackupRestore:
                 "--rm",
                 "--no-deps",
                 "-T",
-                "api",
+                "worker-source-generation",
                 "sh",
                 "-ceu",
                 script,
