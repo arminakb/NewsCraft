@@ -574,6 +574,76 @@ async def test_generation_lifecycle_rechecks_prompt_after_durable_attempt_and_cl
 
 
 @pytest.mark.asyncio
+async def test_generation_revalidates_with_session_resolver_and_shared_identity_fallback():
+    from app.generation.handlers import _invoke
+    from app.generation.models import AIProviderProfile
+    from app.generation.provider_identity import provider_identity_for_profile
+    from app.generation.providers.base import GenerationProviderResult
+    from app.jobs.registry import JobContext
+
+    session = _LifecycleSession()
+    profile = AIProviderProfile(
+        id=uuid4(),
+        name="Fake",
+        provider_type="fake",
+        default_model="fake-v1",
+        secret_ref=None,
+        settings={},
+        enabled=True,
+    )
+    session.profile = profile
+    calls = 0
+
+    class Provider:
+        async def generate(self, request):
+            return GenerationProviderResult(
+                provider="fake",
+                requested_model="fake-v1",
+                resolved_model="fake-v1",
+                output={"ok": True},
+                raw_text='{"ok":true}',
+                usage={},
+                finish_reason="stop",
+            )
+
+    class Resolver:
+        async def resolve(self, profile_value, model):
+            raise AssertionError("session-aware resolver must be used")
+
+        async def resolve_with_session(self, profile_value, model, *, session):
+            nonlocal calls
+            calls += 1
+            return SimpleNamespace(
+                provider=Provider(),
+                provider_type="fake",
+                model="fake-v1",
+                configuration_revision="",
+                configuration_checksum="",
+            )
+
+    identity = provider_identity_for_profile(profile)
+    run, attempt, _validated = await _invoke(
+        JobContext(session=session, providers=SimpleNamespace()),
+        profile_resolver=Resolver(),
+        profile_id=profile.id,
+        prompt=_lifecycle_prompt(),
+        purpose="test",
+        story_revision_id=None,
+        input_payload={"value": "executed"},
+        input_hash="a" * 64,
+        workflow_job_id=uuid4(),
+        workflow_attempt=1,
+        validate_output=lambda output: output,
+        expected_provider_configuration_revision=identity.revision,
+        expected_provider_configuration_checksum=identity.checksum,
+    )
+
+    assert calls == 2
+    assert session.commits == 2
+    assert run.status == attempt.status == "succeeded"
+
+
+@pytest.mark.asyncio
 async def test_generation_validation_failure_is_durable_needs_review_not_false_success():
     from app.generation.handlers import _invoke
     from app.generation.models import AIProviderProfile

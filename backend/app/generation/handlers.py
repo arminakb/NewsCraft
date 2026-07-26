@@ -78,6 +78,7 @@ from app.generation.platform_validation import (
     revision_gates_from_issues,
     validate_platform_payload,
 )
+from app.generation.provider_identity import provider_identity_for_profile
 from app.generation.providers.base import GenerationProviderRequest, ProviderMessage
 from app.generation.revision_fence import (
     RegenerationFenceConflict,
@@ -788,10 +789,12 @@ async def _invoke(
         }
     )
     await context.session.flush()
+    run_id = run.id
+    attempt_id = attempt.id
     await context.session.commit()
 
     request = GenerationProviderRequest(
-        run_id=run.id,
+        run_id=run_id,
         purpose=purpose,
         requested_model=resolved.model,
         messages=messages,
@@ -813,7 +816,11 @@ async def _invoke(
         if expected_provider_configuration_revision is not None or expected_provider_configuration_checksum is not None:
             await context.session.refresh(profile)
             try:
-                latest = await profile_resolver.resolve(profile, None)
+                latest = (
+                    await resolve_with_session(profile, None, session=context.session)
+                    if resolve_with_session is not None
+                    else await profile_resolver.resolve(profile, None)
+                )
             except Exception:
                 old_client = getattr(resolved.provider, "http_client", None)
                 if old_client is not None and hasattr(old_client, "aclose"):
@@ -822,12 +829,18 @@ async def _invoke(
                     code="generation_provider_configuration_changed",
                     message="Generation provider configuration changed after enqueue",
                 ) from None
+            latest_revision = latest.configuration_revision
+            latest_checksum = latest.configuration_checksum
+            if not latest_checksum:
+                fallback_identity = provider_identity_for_profile(profile)
+                latest_revision = fallback_identity.revision
+                latest_checksum = fallback_identity.checksum
             if (
                 expected_provider_configuration_revision is not None
-                and latest.configuration_revision != expected_provider_configuration_revision
+                and latest_revision != expected_provider_configuration_revision
             ) or (
                 expected_provider_configuration_checksum is not None
-                and latest.configuration_checksum != expected_provider_configuration_checksum
+                and latest_checksum != expected_provider_configuration_checksum
             ):
                 latest_client = getattr(latest.provider, "http_client", None)
                 if latest_client is not None and hasattr(latest_client, "aclose"):
@@ -843,6 +856,7 @@ async def _invoke(
             if old_client is not None and old_client is not getattr(latest.provider, "http_client", None):
                 await old_client.aclose()
             resolved = latest
+            await context.session.commit()
         max_attempts = getattr(resolved, "max_attempts", None)
         if max_attempts is not None and attempt.attempt_number > max_attempts:
             raise NeedsReviewJobError(
@@ -880,12 +894,12 @@ async def _invoke(
             )
         await injector.hit(
             "generation.after_provider_before_persist",
-            {
-                "workflow_job_id": str(workflow_job_id),
-                "generation_run_id": str(run.id),
-                "generation_attempt_id": str(attempt.id),
-                "purpose": purpose,
-            },
+                {
+                    "workflow_job_id": str(workflow_job_id),
+                    "generation_run_id": str(run_id),
+                    "generation_attempt_id": str(attempt_id),
+                    "purpose": purpose,
+                },
         )
         validated = validate_output(result.output)
     except Exception as exc:
@@ -945,19 +959,19 @@ async def _invoke(
         async with context.session.begin():
             current_run = await context.session.scalar(
                 select(GenerationRun)
-                .where(GenerationRun.id == run.id)
+                .where(GenerationRun.id == run_id)
                 .with_for_update()
                 .execution_options(populate_existing=True)
             )
             current_attempt = await context.session.scalar(
                 select(GenerationAttempt)
-                .where(GenerationAttempt.id == attempt.id)
+                .where(GenerationAttempt.id == attempt_id)
                 .with_for_update()
                 .execution_options(populate_existing=True)
             )
             if current_run is not None and current_attempt is not None:
                 active = ((current_run.request_payload or {}).get("execution") or {}).get("active_attempt_id")
-                if active == str(attempt.id):
+                if active == str(attempt_id):
                     durable_error_code = redact_string(mapped.code)
                     durable_error_message = redact_string(mapped.message)
                     current_attempt.status = "failed"
@@ -1002,13 +1016,13 @@ async def _invoke(
     async with context.session.begin():
         current_run = await context.session.scalar(
             select(GenerationRun)
-            .where(GenerationRun.id == run.id)
+            .where(GenerationRun.id == run_id)
             .with_for_update()
             .execution_options(populate_existing=True)
         )
         current_attempt = await context.session.scalar(
             select(GenerationAttempt)
-            .where(GenerationAttempt.id == attempt.id)
+            .where(GenerationAttempt.id == attempt_id)
             .with_for_update()
             .execution_options(populate_existing=True)
         )
@@ -1018,7 +1032,7 @@ async def _invoke(
                 message="Generation stage disappeared before persistence",
             )
         active = ((current_run.request_payload or {}).get("execution") or {}).get("active_attempt_id")
-        if active != str(attempt.id) or current_attempt.status != "running":
+        if active != str(attempt_id) or current_attempt.status != "running":
             raise RetryableJobError(
                 code="generation_stage_superseded",
                 message="Generation stage was superseded by another lease",
