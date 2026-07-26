@@ -256,7 +256,7 @@ describe("multi-platform package API", () => {
       providerProfileId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
       instruction: null,
     })).resolves.toEqual({
-      jobId: "99999999-9999-4999-8999-999999999999",
+      job_id: "99999999-9999-4999-8999-999999999999",
       status: "queued",
       deduplicated: false,
     })

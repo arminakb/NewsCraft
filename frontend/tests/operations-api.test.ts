@@ -28,9 +28,9 @@ describe("operations generated wire/domain boundary", () => {
     })
 
     await expect(fetchOperationsDiagnostics()).resolves.toMatchObject({
-      generatedAt: "2026-07-13T08:00:00Z",
-      queueCounts: { queued: 2 },
-      outboundProxy: { scheme: null, configurationErrorCode: null },
+      generated_at: "2026-07-13T08:00:00Z",
+      queue_counts: { queued: 2 },
+      outbound_proxy: { scheme: null, configuration_error_code: null },
     })
     expect(apiRequest).toHaveBeenCalledWith("/operations/diagnostics")
   })
@@ -57,17 +57,17 @@ describe("operations generated wire/domain boundary", () => {
       items: [
         {
           id: "event-1",
-          occurredAt: "2026-07-13T08:00:00Z",
+          occurred_at: "2026-07-13T08:00:00Z",
           category: "reconcile",
           status: "confirmed",
           title: "Publication reconciled",
           summary: "Operator confirmed the remote publication.",
-          jobId: null,
-          subjectUrl: "/diagnostics",
-          sanitizedMetadata: { operation_count: 1 },
+          job_id: null,
+          subject_url: "/diagnostics",
+          sanitized_metadata: { operation_count: 1 },
         },
       ],
-      nextCursor: null,
+      next_cursor: null,
     })
     expect(apiRequest).toHaveBeenCalledWith("/operations/history?limit=25")
   })

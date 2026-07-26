@@ -1,54 +1,15 @@
-export type JobStatus = "queued" | "running" | "succeeded" | "failed" | "needs_review" | "cancelled"
-export type JobErrorClass = "retryable" | "needs_review" | "permanent"
-export type JobOrigin = "manual" | "scheduler" | "automation" | "retry"
+import type { components } from "@/lib/api/generated"
 
-export type WorkflowJob = {
-  id: string
-  jobType: string
-  status: JobStatus
-  origin: JobOrigin
-  priority: number
-  pauseSensitive: boolean
-  scheduledFor: string
-  attemptCount: number
-  maxAttempts: number
-  progress: number
-  progressMessage: string | null
-  errorClass: JobErrorClass | null
-  errorCode: string | null
-  errorMessage: string | null
-  startedAt: string | null
-  finishedAt: string | null
-  createdAt: string
-  updatedAt: string
-}
+type Schemas = components["schemas"]
 
-export type JobEvent = {
-  id: string
-  eventType: string
-  actor: string
-  eventData: Record<string, unknown>
-  createdAt: string
-}
-
-export type WorkflowJobDetail = WorkflowJob & {
-  payload: Record<string, unknown>
-  result: Record<string, unknown>
-  events: JobEvent[]
-}
-
-export type JobSummary = {
-  queued: number
-  running: number
-  attention: number
-  succeededToday: number
-}
-
-export type JobAccepted = {
-  jobId: string
-  status: JobStatus
-  deduplicated: boolean
-}
+export type JobStatus = Schemas["JobStatus"]
+export type JobErrorClass = Schemas["JobErrorClass"]
+export type JobOrigin = Schemas["JobOrigin"]
+export type WorkflowJob = Schemas["JobOut"]
+export type JobEvent = Schemas["JobEventOut"]
+export type WorkflowJobDetail = Schemas["JobDetailOut"]
+export type JobSummary = Schemas["JobSummaryOut"]
+export type JobAccepted = Schemas["JobAcceptedOut"]
 
 export type JobFilters = {
   statuses?: readonly JobStatus[]

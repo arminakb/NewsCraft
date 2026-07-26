@@ -15,16 +15,16 @@ vi.mock("@/features/operations/reconciliation-panel", () => ({
     value,
   }: {
     onResolved?: (result: unknown) => void | Promise<void>
-    value: { ambiguousAt: string | null; publishJobId: string }
+    value: { ambiguous_at: string | null; publish_job_id: string }
   }) => {
-    const [mountedGeneration] = useState(value.ambiguousAt)
+    const [mountedGeneration] = useState(value.ambiguous_at)
     return (
       <button
         data-testid="safe-reconciliation-panel"
         onClick={() => void onResolved?.({ reconciliationStatus: "requeued" })}
         type="button"
       >
-        Safe reconciliation for {value.publishJobId}; mounted {mountedGeneration}
+        Safe reconciliation for {value.publish_job_id}; mounted {mountedGeneration}
       </button>
     )
   },
@@ -32,13 +32,13 @@ vi.mock("@/features/operations/reconciliation-panel", () => ({
 
 const publishJobId = "11111111-1111-4111-8111-111111111111"
 const reconciliationCase = {
-  publishJobId,
-  ambiguousOperationKey: "telegram:publish:0",
-  ambiguousAt: "2026-07-13T08:00:00Z",
+  publish_job_id: publishJobId,
+  ambiguous_operation_key: "telegram:publish:0",
+  ambiguous_at: "2026-07-13T08:00:00Z",
   operations: [
     {
-      operationKey: "telegram:publish:0",
-      attemptCount: 1,
+      operation_key: "telegram:publish:0",
+      attempt_count: 1,
     },
   ],
 }
@@ -88,8 +88,8 @@ it("discovers every authoritative case even when a newer draft supersedes its re
   client.setQueryData(operationsQueryKeys.reconciliations, [
     {
       ...reconciliationCase,
-      ambiguousAt: "2026-07-13T08:10:00Z",
-      operations: [{ ...reconciliationCase.operations[0], attemptCount: 2 }],
+      ambiguous_at: "2026-07-13T08:10:00Z",
+      operations: [{ ...reconciliationCase.operations[0], attempt_count: 2 }],
     },
   ])
   expect(await screen.findByText(/mounted 2026-07-13T08:10:00Z/)).toBeInTheDocument()

@@ -30,20 +30,20 @@ export function JobTable({
         {jobs.map((job) => (
           <TableRow key={job.id} data-state={selectedId === job.id ? "selected" : undefined}>
             <TableCell>
-              <div className="font-medium">{job.jobType}</div>
+              <div className="font-medium">{job.job_type}</div>
               <div className="text-xs text-muted-foreground">{job.id}</div>
             </TableCell>
             <TableCell><JobStatusBadge status={job.status} /></TableCell>
             <TableCell className="capitalize">{job.origin}</TableCell>
             <TableCell>
               <span dir="auto">{job.progress}%</span>
-              {job.progressMessage ? <div dir="auto" className="max-w-56 truncate text-xs text-muted-foreground">{job.progressMessage}</div> : null}
+              {job.progress_message ? <div dir="auto" className="max-w-56 truncate text-xs text-muted-foreground">{job.progress_message}</div> : null}
             </TableCell>
-            <TableCell><time dateTime={job.updatedAt}>{formatTimestamp(job.updatedAt)}</time></TableCell>
+            <TableCell><time dateTime={job.updated_at}>{formatTimestamp(job.updated_at)}</time></TableCell>
             <TableCell className="text-right">
               <Button
                 variant="ghost"
-                aria-label={`View ${job.jobType} job ${job.id}`}
+                aria-label={`View ${job.job_type} job ${job.id}`}
                 onClick={(event) => onSelect(job, event.currentTarget)}
               >
                 <Eye aria-hidden="true" />

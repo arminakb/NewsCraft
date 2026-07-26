@@ -44,23 +44,23 @@ describe("job API", () => {
     ).resolves.toEqual([
       {
         id: "11111111-1111-4111-8111-111111111111",
-        jobType: "ingest.collect",
+        job_type: "ingest.collect",
         status: "failed",
         origin: "manual",
         priority: 7,
-        pauseSensitive: false,
-        scheduledFor: "2026-07-12T08:00:00Z",
-        attemptCount: 2,
-        maxAttempts: 3,
+        pause_sensitive: false,
+        scheduled_for: "2026-07-12T08:00:00Z",
+        attempt_count: 2,
+        max_attempts: 3,
         progress: 45,
-        progressMessage: "Fetching sources",
-        errorClass: "retryable",
-        errorCode: "ingest_partial",
-        errorMessage: "One source failed",
-        startedAt: "2026-07-12T08:01:00Z",
-        finishedAt: "2026-07-12T08:02:00Z",
-        createdAt: "2026-07-12T07:59:00Z",
-        updatedAt: "2026-07-12T08:02:00Z",
+        progress_message: "Fetching sources",
+        error_class: "retryable",
+        error_code: "ingest_partial",
+        error_message: "One source failed",
+        started_at: "2026-07-12T08:01:00Z",
+        finished_at: "2026-07-12T08:02:00Z",
+        created_at: "2026-07-12T07:59:00Z",
+        updated_at: "2026-07-12T08:02:00Z",
       },
     ])
     expect(fetchSpy).toHaveBeenCalledWith(
@@ -96,28 +96,28 @@ describe("job API", () => {
 
     expect(detail).toEqual(
       expect.objectContaining({
-        jobType: "ingest.collect",
+        job_type: "ingest.collect",
         payload: { source_ids: ["source-1"] },
         result: { fetched: 4 },
         events: [
           {
             id: "33333333-3333-4333-8333-333333333333",
-            eventType: "job.failed",
+            event_type: "job.failed",
             actor: "worker-1",
-            eventData: { error_code: "ingest_partial" },
-            createdAt: "2026-07-12T08:02:00Z",
+            event_data: { error_code: "ingest_partial" },
+            created_at: "2026-07-12T08:02:00Z",
           },
           {
             id: "22222222-2222-4222-8222-222222222222",
-            eventType: "job.claimed",
+            event_type: "job.claimed",
             actor: "worker-1",
-            eventData: { attempt: 2 },
-            createdAt: "2026-07-12T08:01:00Z",
+            event_data: { attempt: 2 },
+            created_at: "2026-07-12T08:01:00Z",
           },
         ],
       })
     )
-    expect(detail).not.toHaveProperty("leaseOwner")
+    expect(detail).not.toHaveProperty("lease_owner")
     expect(fetchSpy).toHaveBeenCalledWith(
       "/api/backend/jobs/11111111-1111-4111-8111-111111111111",
       undefined
@@ -131,7 +131,7 @@ describe("job API", () => {
       queued: 3,
       running: 2,
       attention: 4,
-      succeededToday: 9,
+      succeeded_today: 9,
     })
   })
 
@@ -142,7 +142,7 @@ describe("job API", () => {
     const fetchSpy = stubFetch(backendJob)
 
     await expect(request(backendJob.id)).resolves.toEqual(
-      expect.objectContaining({ id: backendJob.id, jobType: "ingest.collect" })
+      expect.objectContaining({ id: backendJob.id, job_type: "ingest.collect" })
     )
     expect(fetchSpy).toHaveBeenCalledWith(`/api/backend/jobs/${backendJob.id}/${transition}`, {
       method: "POST",
@@ -163,7 +163,7 @@ describe("job API", () => {
         sourceIds: ["source-1"],
       })
     ).resolves.toEqual({
-      jobId: backendJob.id,
+      job_id: backendJob.id,
       status: "queued",
       deduplicated: false,
     })

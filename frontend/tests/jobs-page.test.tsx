@@ -14,7 +14,7 @@ vi.mock("@/features/jobs/api", () => ({
   retryJob: vi.fn(),
 }))
 
-const failed = job({ status: "failed", errorClass: "retryable", errorMessage: "Network timeout" })
+const failed = job({ status: "failed", error_class: "retryable", error_message: "Network timeout" })
 const queued = job({ id: "22222222-2222-4222-8222-222222222222", status: "queued" })
 const detail: WorkflowJobDetail = {
   ...failed,
@@ -23,10 +23,10 @@ const detail: WorkflowJobDetail = {
   events: [
     {
       id: "33333333-3333-4333-8333-333333333333",
-      eventType: "job.failed",
+      event_type: "job.failed",
       actor: "worker-1",
-      eventData: { error_code: "network_timeout" },
-      createdAt: "2026-07-12T08:02:00Z",
+      event_data: { error_code: "network_timeout" },
+      created_at: "2026-07-12T08:02:00Z",
     },
   ],
 }
@@ -37,7 +37,7 @@ describe("JobsPage", () => {
     window.history.replaceState({}, "", "/jobs")
     vi.mocked(getJobs).mockResolvedValue([failed])
     vi.mocked(getJob).mockResolvedValue(detail)
-    vi.mocked(getJobSummary).mockResolvedValue({ queued: 1, running: 0, attention: 1, succeededToday: 0 })
+    vi.mocked(getJobSummary).mockResolvedValue({ queued: 1, running: 0, attention: 1, succeeded_today: 0 })
     vi.mocked(retryJob).mockResolvedValue({ ...failed, status: "queued" })
     vi.mocked(cancelJob).mockResolvedValue({ ...queued, status: "cancelled" })
   })
@@ -164,23 +164,23 @@ describe("JobsPage", () => {
 function job(overrides: Partial<WorkflowJob> = {}): WorkflowJob {
   return {
     id: "11111111-1111-4111-8111-111111111111",
-    jobType: "ingest.collect",
+    job_type: "ingest.collect",
     status: "queued",
     origin: "manual",
     priority: 0,
-    pauseSensitive: false,
-    scheduledFor: "2026-07-12T08:00:00Z",
-    attemptCount: 1,
-    maxAttempts: 3,
+    pause_sensitive: false,
+    scheduled_for: "2026-07-12T08:00:00Z",
+    attempt_count: 1,
+    max_attempts: 3,
     progress: 0,
-    progressMessage: null,
-    errorClass: null,
-    errorCode: null,
-    errorMessage: null,
-    startedAt: null,
-    finishedAt: null,
-    createdAt: "2026-07-12T08:00:00Z",
-    updatedAt: "2026-07-12T08:00:00Z",
+    progress_message: null,
+    error_class: null,
+    error_code: null,
+    error_message: null,
+    started_at: null,
+    finished_at: null,
+    created_at: "2026-07-12T08:00:00Z",
+    updated_at: "2026-07-12T08:00:00Z",
     ...overrides,
   }
 }

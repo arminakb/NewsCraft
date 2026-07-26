@@ -19,36 +19,36 @@ describe("HistoryTimeline", () => {
         items: [
           {
             id: "event-2",
-            occurredAt: "2026-07-11T08:02:00Z",
+            occurred_at: "2026-07-11T08:02:00Z",
             category: "reconcile",
             status: "needs_review",
             title: "Telegram verification required",
             summary: "ارسال تلگرام باید توسط اپراتور بررسی شود",
-            jobId: "22222222-2222-4222-8222-222222222222",
-            subjectUrl: `/inbox?story_id=33333333-3333-4333-8333-333333333333`,
-            sanitizedMetadata: {
+            job_id: "22222222-2222-4222-8222-222222222222",
+            subject_url: `/inbox?story_id=33333333-3333-4333-8333-333333333333`,
+            sanitized_metadata: {
               operation_keys: ["telegram:publish:0"],
               audit: { attempt: 2 },
             },
           },
         ],
-        nextCursor: "opaque+cursor/with=query?",
+        next_cursor: "opaque+cursor/with=query?",
       })
       .mockResolvedValueOnce({
         items: [
           {
             id: "event-1",
-            occurredAt: "2026-07-11T07:30:00Z",
+            occurred_at: "2026-07-11T07:30:00Z",
             category: "collection",
             status: "captured",
             title: "Route poll captured an item",
             summary: "One durable source item was captured.",
-            jobId: null,
-            subjectUrl: `/automations/${routeId}`,
-            sanitizedMetadata: { item_count: 1 },
+            job_id: null,
+            subject_url: `/automations/${routeId}`,
+            sanitized_metadata: { item_count: 1 },
           },
         ],
-        nextCursor: null,
+        next_cursor: null,
       })
 
     renderTimeline()
@@ -90,7 +90,7 @@ describe("HistoryTimeline", () => {
     expect(screen.getByRole("alert")).toHaveAttribute("dir", "auto")
     first.unmount()
 
-    vi.mocked(fetchOperationsHistory).mockResolvedValueOnce({ items: [], nextCursor: null })
+    vi.mocked(fetchOperationsHistory).mockResolvedValueOnce({ items: [], next_cursor: null })
     renderTimeline()
     expect(await screen.findByText("No durable history has been recorded for this route.")).toBeInTheDocument()
   })

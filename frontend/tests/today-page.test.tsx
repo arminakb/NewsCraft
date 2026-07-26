@@ -16,9 +16,9 @@ vi.mock("@/features/jobs/api", () => ({
   getJobSummary: vi.fn(),
 }))
 
-const summary = { queued: 3, running: 1, attention: 2, succeededToday: 4 }
-const runningJob = job({ status: "running", progress: 42, progressMessage: "در حال پردازش منابع" })
-const failedJob = job({ id: "22222222-2222-4222-8222-222222222222", status: "failed", errorMessage: "خطای شبکه" })
+const summary = { queued: 3, running: 1, attention: 2, succeeded_today: 4 }
+const runningJob = job({ status: "running", progress: 42, progress_message: "در حال پردازش منابع" })
+const failedJob = job({ id: "22222222-2222-4222-8222-222222222222", status: "failed", error_message: "خطای شبکه" })
 const successJob = job({ id: "33333333-3333-4333-8333-333333333333", status: "succeeded", progress: 100 })
 
 describe("TodayPage", () => {
@@ -58,7 +58,7 @@ describe("TodayPage", () => {
   })
 
   it("renders the exact all-zero empty state", async () => {
-    vi.mocked(getJobSummary).mockResolvedValue({ queued: 0, running: 0, attention: 0, succeededToday: 0 })
+    vi.mocked(getJobSummary).mockResolvedValue({ queued: 0, running: 0, attention: 0, succeeded_today: 0 })
     vi.mocked(getJobs).mockResolvedValue([])
     renderToday()
 
@@ -91,7 +91,7 @@ describe("TodayPage", () => {
       "href",
       `/jobs?status=attention&job=${failedJob.id}`,
     )
-    expect(screen.getByRole("region", { name: "Recent successes" })).toHaveTextContent(successJob.jobType)
+    expect(screen.getByRole("region", { name: "Recent successes" })).toHaveTextContent(successJob.job_type)
   })
 })
 
@@ -105,23 +105,23 @@ function jobsFor(filters: JobFilters): WorkflowJob[] {
 function job(overrides: Partial<WorkflowJob> = {}): WorkflowJob {
   return {
     id: "11111111-1111-4111-8111-111111111111",
-    jobType: "ingest.collect",
+    job_type: "ingest.collect",
     status: "queued",
     origin: "manual",
     priority: 0,
-    pauseSensitive: false,
-    scheduledFor: "2026-07-12T08:00:00Z",
-    attemptCount: 0,
-    maxAttempts: 3,
+    pause_sensitive: false,
+    scheduled_for: "2026-07-12T08:00:00Z",
+    attempt_count: 0,
+    max_attempts: 3,
     progress: 0,
-    progressMessage: null,
-    errorClass: null,
-    errorCode: null,
-    errorMessage: null,
-    startedAt: null,
-    finishedAt: null,
-    createdAt: "2026-07-12T08:00:00Z",
-    updatedAt: "2026-07-12T08:00:00Z",
+    progress_message: null,
+    error_class: null,
+    error_code: null,
+    error_message: null,
+    started_at: null,
+    finished_at: null,
+    created_at: "2026-07-12T08:00:00Z",
+    updated_at: "2026-07-12T08:00:00Z",
     ...overrides,
   }
 }

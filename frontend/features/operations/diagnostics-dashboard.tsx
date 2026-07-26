@@ -25,17 +25,17 @@ const statusPresentation = {
 
 export function DiagnosticsDashboard({ snapshot }: { snapshot: OperationsSnapshot }) {
   const components = Object.entries(snapshot.components)
-  const queueCounts = Object.entries(snapshot.queueCounts)
+  const queueCounts = Object.entries(snapshot.queue_counts)
 
   return (
     <div className="space-y-4">
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <TruthCard label="Snapshot generated" value={formatTehranTimestamp(snapshot.generatedAt)} />
+        <TruthCard label="Snapshot generated" value={formatTehranTimestamp(snapshot.generated_at)} />
         <TruthCard
           label="Automation control"
-          value={snapshot.globalPaused ? "Operations paused" : "Operations active"}
+          value={snapshot.global_paused ? "Operations paused" : "Operations active"}
         />
-        <TruthCard label="Publication mode" value={snapshot.dryRun ? "Dry run enabled" : "Live mode enabled"} />
+        <TruthCard label="Publication mode" value={snapshot.dry_run ? "Dry run enabled" : "Live mode enabled"} />
         <TruthCard label="Outbound network" value={outboundProxySummary(snapshot)} />
       </div>
 
@@ -103,14 +103,14 @@ export function DiagnosticsDashboard({ snapshot }: { snapshot: OperationsSnapsho
                       <DirectionBoundary className="font-medium" direction="auto">
                         {item.title}
                       </DirectionBoundary>
-                      <time className="block text-xs text-muted-foreground" dateTime={item.occurredAt}>
-                        {formatTehranTimestamp(item.occurredAt)}
+                      <time className="block text-xs text-muted-foreground" dateTime={item.occurred_at}>
+                        {formatTehranTimestamp(item.occurred_at)}
                       </time>
                     </div>
                     <Link
                       aria-label={`${attentionActionLabel(item.kind)} ${item.title}`}
                       className="inline-flex items-center gap-1 text-sm font-medium text-primary underline-offset-4 hover:underline"
-                      href={item.actionUrl}
+                      href={item.action_url}
                     >
                       {attentionActionLabel(item.kind)}
                       <ArrowUpRight aria-hidden="true" className="size-3.5" />
@@ -129,10 +129,10 @@ export function DiagnosticsDashboard({ snapshot }: { snapshot: OperationsSnapsho
 }
 
 function outboundProxySummary(snapshot: OperationsSnapshot): string {
-  const proxy = snapshot.outboundProxy
-  if (proxy.configurationErrorCode) return `Configuration error: ${humanize(proxy.configurationErrorCode)}`
+  const proxy = snapshot.outbound_proxy
+  if (proxy.configuration_error_code) return `Configuration error: ${humanize(proxy.configuration_error_code)}`
   const route = proxy.mode === "direct" ? "Direct" : `Proxy (${proxy.scheme ?? "unknown"})`
-  return `${route} · ${proxy.bypassRuleCount} bypass rules · ${humanize(proxy.lastConnectivityStatus)}`
+  return `${route} · ${proxy.bypass_rule_count} bypass rules · ${humanize(proxy.last_connectivity_status)}`
 }
 
 function RuntimeComponent({ componentId, value }: { componentId: string; value: OperationComponentHealth }) {
@@ -150,19 +150,19 @@ function RuntimeComponent({ componentId, value }: { componentId: string; value: 
         </Badge>
       </div>
       <div className="min-w-0 space-y-1 text-sm">
-        {value.observedAt ? (
+        {value.observed_at ? (
           <p>
-            <time dateTime={value.observedAt}>
-              {label} last observed {formatTehranTimestamp(value.observedAt)}
+            <time dateTime={value.observed_at}>
+              {label} last observed {formatTehranTimestamp(value.observed_at)}
             </time>
           </p>
         ) : (
           <p>{label} status {value.status}</p>
         )}
         <p className="text-xs text-muted-foreground">
-          {value.lastSuccessAt ? (
-            <time dateTime={value.lastSuccessAt}>
-              Last successful {formatTehranTimestamp(value.lastSuccessAt)}
+          {value.last_success_at ? (
+            <time dateTime={value.last_success_at}>
+              Last successful {formatTehranTimestamp(value.last_success_at)}
             </time>
           ) : (
             "No successful observation recorded"
@@ -176,13 +176,13 @@ function RuntimeComponent({ componentId, value }: { componentId: string; value: 
           <p className="mt-1 break-all">{componentId}</p>
         </details>
       </div>
-      {value.actionUrl ? (
+      {value.action_url ? (
         <Link
           aria-label={`Open ${label} action`}
           className="inline-flex items-center gap-1 text-sm font-medium text-primary underline-offset-4 hover:underline"
-          href={value.actionUrl}
+          href={value.action_url}
         >
-          {runtimeActionLabel(value.actionUrl)}
+          {runtimeActionLabel(value.action_url)}
           <ArrowUpRight aria-hidden="true" className="size-3.5" />
         </Link>
       ) : null}

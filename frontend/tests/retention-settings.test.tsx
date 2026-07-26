@@ -25,56 +25,56 @@ vi.mock("@/features/operations/api", () => ({
 
 const policy: RetentionPolicy = {
   id: "global",
-  rawPayloadDays: 30,
-  completedJobDays: 90,
-  attemptMetadataDays: 90,
-  exportArtifactDays: 14,
-  unreferencedMediaDays: 30,
-  createdAt: "2026-07-11T07:00:00Z",
-  updatedAt: "2026-07-11T08:00:00Z",
+  raw_payload_days: 30,
+  completed_job_days: 90,
+  attempt_metadata_days: 90,
+  export_artifact_days: 14,
+  unreferenced_media_days: 30,
+  created_at: "2026-07-11T07:00:00Z",
+  updated_at: "2026-07-11T08:00:00Z",
 }
 
 const preview: RetentionPreview = {
-  runId: "11111111-1111-4111-8111-111111111111",
-  previewToken: "a".repeat(64),
-  schemaRevision: "0009_operational_retention",
+  run_id: "11111111-1111-4111-8111-111111111111",
+  preview_token: "a".repeat(64),
+  schema_revision: "0009_operational_retention",
   policy: {
-    rawPayloadDays: 30,
-    completedJobDays: 90,
-    attemptMetadataDays: 90,
-    exportArtifactDays: 14,
-    unreferencedMediaDays: 30,
+    raw_payload_days: 30,
+    completed_job_days: 90,
+    attempt_metadata_days: 90,
+    export_artifact_days: 14,
+    unreferenced_media_days: 30,
   },
   candidates: [
     {
       category: "export_artifact",
-      recordType: "media_asset",
-      recordId: "99999999-9999-4999-8999-999999999999",
+      record_type: "media_asset",
+      record_id: "99999999-9999-4999-8999-999999999999",
       operation: "expire",
-      occurredAt: "2026-06-01T08:00:00Z",
-      byteLength: 125_829_120,
+      occurred_at: "2026-06-01T08:00:00Z",
+      byte_length: 125_829_120,
     },
   ],
   counts: {
     raw_payload: {
       count: 3,
-      byteLength: null,
-      oldestAt: "2026-05-01T08:00:00Z",
-      newestAt: "2026-05-03T08:00:00Z",
+      byte_length: null,
+      oldest_at: "2026-05-01T08:00:00Z",
+      newest_at: "2026-05-03T08:00:00Z",
     },
     export_artifact: {
       count: 14,
-      byteLength: 125_829_120,
-      oldestAt: "2026-05-01T08:00:00Z",
-      newestAt: "2026-06-01T08:00:00Z",
+      byte_length: 125_829_120,
+      oldest_at: "2026-05-01T08:00:00Z",
+      newest_at: "2026-06-01T08:00:00Z",
     },
   },
-  previewedAt: "2026-07-11T08:00:00Z",
-  previewExpiresAt: "2026-07-11T09:00:00Z",
+  previewed_at: "2026-07-11T08:00:00Z",
+  preview_expires_at: "2026-07-11T09:00:00Z",
 }
 
 const accepted: RetentionRunAccepted = {
-  jobId: "22222222-2222-4222-8222-222222222222",
+  job_id: "22222222-2222-4222-8222-222222222222",
   status: "queued",
   deduplicated: false,
 }
@@ -113,13 +113,13 @@ describe("RetentionSettings", () => {
   it("invalidates preview and typed confirmation on edits and saves before allowing a fresh preview", async () => {
     vi.mocked(updateRetentionPolicy).mockResolvedValue({
       ...policy,
-      exportArtifactDays: 21,
-      updatedAt: "2026-07-11T08:30:00Z",
+      export_artifact_days: 21,
+      updated_at: "2026-07-11T08:30:00Z",
     })
     vi.mocked(createRetentionPreview).mockResolvedValue({
       ...preview,
-      previewToken: "b".repeat(64),
-      policy: { ...preview.policy, exportArtifactDays: 21 },
+      preview_token: "b".repeat(64),
+      policy: { ...preview.policy, export_artifact_days: 21 },
     })
     render(<RetentionSettings policy={policy} preview={preview} />)
 
@@ -137,11 +137,11 @@ describe("RetentionSettings", () => {
     fireEvent.click(screen.getByRole("button", { name: "Save retention policy" }))
     await waitFor(() => {
       expect(updateRetentionPolicy).toHaveBeenCalledWith({
-        rawPayloadDays: 30,
-        completedJobDays: 90,
-        attemptMetadataDays: 90,
-        exportArtifactDays: 21,
-        unreferencedMediaDays: 30,
+        raw_payload_days: 30,
+        completed_job_days: 90,
+        attempt_metadata_days: 90,
+        export_artifact_days: 21,
+        unreferenced_media_days: 30,
       })
     })
     expect(await screen.findByRole("status")).toHaveTextContent("Retention policy saved")
@@ -168,8 +168,8 @@ describe("RetentionSettings", () => {
       <RetentionSettings
         policy={{
           ...policy,
-          rawPayloadDays: 45,
-          updatedAt: "2026-07-11T08:45:00Z",
+          raw_payload_days: 45,
+          updated_at: "2026-07-11T08:45:00Z",
         }}
       />,
     )
@@ -183,7 +183,7 @@ describe("RetentionSettings", () => {
   it("rejects a preview whose server policy snapshot differs from the saved policy", async () => {
     vi.mocked(createRetentionPreview).mockResolvedValue({
       ...preview,
-      policy: { ...preview.policy, rawPayloadDays: 45 },
+      policy: { ...preview.policy, raw_payload_days: 45 },
     })
     render(<RetentionSettings policy={policy} />)
 
@@ -205,8 +205,8 @@ describe("RetentionSettings", () => {
       <RetentionSettings
         policy={{
           ...policy,
-          rawPayloadDays: 45,
-          updatedAt: "2026-07-11T08:45:00Z",
+          raw_payload_days: 45,
+          updated_at: "2026-07-11T08:45:00Z",
         }}
       />,
     )
@@ -223,8 +223,8 @@ describe("RetentionSettings", () => {
   it("updates the retention policy query cache after a successful save", async () => {
     const saved = {
       ...policy,
-      exportArtifactDays: 21,
-      updatedAt: "2026-07-11T08:30:00Z",
+      export_artifact_days: 21,
+      updated_at: "2026-07-11T08:30:00Z",
     }
     vi.mocked(fetchRetentionPolicy).mockResolvedValue(policy)
     vi.mocked(updateRetentionPolicy).mockResolvedValue(saved)
@@ -255,13 +255,13 @@ describe("RetentionSettings", () => {
     })
     fireEvent.click(screen.getByRole("button", { name: "Run cleanup" }))
 
-    await waitFor(() => expect(enqueueRetentionRun).toHaveBeenCalledWith(preview.previewToken))
+    await waitFor(() => expect(enqueueRetentionRun).toHaveBeenCalledWith(preview.preview_token))
     expect(JSON.stringify(vi.mocked(enqueueRetentionRun).mock.calls)).not.toContain(
       "99999999-9999-4999-8999-999999999999",
     )
     expect(screen.queryByLabelText("Type DELETE PREVIEWED DATA")).not.toBeInTheDocument()
     expect(screen.queryByRole("button", { name: "Run cleanup" })).not.toBeInTheDocument()
-    expect(await screen.findByRole("status")).toHaveTextContent(accepted.jobId)
+    expect(await screen.findByRole("status")).toHaveTextContent(accepted.job_id)
   })
 
   it("clears a conflicting preview and requires a fresh preview after a 409", async () => {

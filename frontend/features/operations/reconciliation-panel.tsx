@@ -34,14 +34,14 @@ export function ReconciliationPanel({
   const [successMessage, setSuccessMessage] = useState<string | null>(null)
 
   const operations = [...value.operations].sort(
-    (left, right) => left.operationIndex - right.operationIndex,
+    (left, right) => left.operation_index - right.operation_index,
   )
   const ambiguousOperation = operations.find(
-    (operation) => operation.operationKey === value.ambiguousOperationKey,
+    (operation) => operation.operation_key === value.ambiguous_operation_key,
   )
   const canConfirmPublished = ambiguousOperation?.status === "ambiguous"
     && operations.every(
-      (operation) => operation.operationKey === value.ambiguousOperationKey || operation.status === "succeeded",
+      (operation) => operation.operation_key === value.ambiguous_operation_key || operation.status === "succeeded",
     )
   const publishedBlockedReasonId = `${instanceId}-published-blocked-reason`
   const allowsMultipleIds = ambiguousOperation?.method === "sendMediaGroup"
@@ -62,7 +62,7 @@ export function ReconciliationPanel({
     setError(null)
     setSuccessMessage(null)
     try {
-      const result = await submitReconciliationDecision(value.publishJobId, decision)
+      const result = await submitReconciliationDecision(value.publish_job_id, decision)
       setSuccessMessage(resultMessage(result))
       try {
         await onResolved?.(result)
@@ -79,7 +79,7 @@ export function ReconciliationPanel({
   return (
     <Card
       aria-busy={isSubmitting}
-      aria-label={`Telegram reconciliation for ${value.destination.targetRef}`}
+      aria-label={`Telegram reconciliation for ${value.destination.target_ref}`}
       className="rounded-md py-0"
       role="region"
       size="sm"
@@ -101,17 +101,17 @@ export function ReconciliationPanel({
               {value.destination.name}
             </DirectionBoundary>
             <bdi className="block text-sm text-muted-foreground" dir="ltr">
-              {value.destination.targetRef}
+              {value.destination.target_ref}
             </bdi>
           </div>
           <div>
             <h2 className="text-xs font-medium text-muted-foreground">Ambiguity</h2>
             <DirectionBoundary className="mt-1" direction="auto">
-              {value.ambiguityReason}
+              {value.ambiguity_reason}
             </DirectionBoundary>
-            {value.ambiguousAt ? (
-              <time className="block text-xs text-muted-foreground" dateTime={value.ambiguousAt}>
-                Ambiguous at {formatTehranTimestamp(value.ambiguousAt)}
+            {value.ambiguous_at ? (
+              <time className="block text-xs text-muted-foreground" dateTime={value.ambiguous_at}>
+                Ambiguous at {formatTehranTimestamp(value.ambiguous_at)}
               </time>
             ) : (
               <p className="text-xs text-muted-foreground">No ambiguity timestamp was persisted.</p>
@@ -126,28 +126,28 @@ export function ReconciliationPanel({
               <li
                 className="grid gap-3 rounded-md border bg-slate-50 p-3 text-sm md:grid-cols-2"
                 data-testid="reconciliation-operation"
-                key={operation.operationKey}
+                key={operation.operation_key}
               >
                 <dl className="space-y-2">
                   <div>
                     <dt className="text-xs text-muted-foreground">Operation key</dt>
-                    <dd><code className="break-all" dir="ltr">{operation.operationKey}</code></dd>
+                    <dd><code className="break-all" dir="ltr">{operation.operation_key}</code></dd>
                   </div>
                   <div>
                     <dt className="text-xs text-muted-foreground">Request hash</dt>
-                    <dd><code className="break-all" dir="ltr">{operation.requestHash}</code></dd>
+                    <dd><code className="break-all" dir="ltr">{operation.request_hash}</code></dd>
                   </div>
                 </dl>
                 <dl className="space-y-2">
                   <div>
                     <dt className="text-xs text-muted-foreground">Method and status</dt>
-                    <dd>{operation.method} · {humanize(operation.status)} · attempt {operation.attemptCount}</dd>
+                    <dd>{operation.method} · {humanize(operation.status)} · attempt {operation.attempt_count}</dd>
                   </div>
                   <div>
                     <dt className="text-xs text-muted-foreground">Durable send time</dt>
                     <dd>
-                      {operation.sentAt ? (
-                        <time dateTime={operation.sentAt}>{formatTehranTimestamp(operation.sentAt)}</time>
+                      {operation.sent_at ? (
+                        <time dateTime={operation.sent_at}>{formatTehranTimestamp(operation.sent_at)}</time>
                       ) : (
                         "No durable send time recorded"
                       )}
@@ -164,9 +164,9 @@ export function ReconciliationPanel({
             Verify in Telegram before choosing an outcome
           </h2>
           <ol className="list-decimal space-y-1 ps-5 text-sm">
-            <li>Open <bdi dir="ltr">{value.destination.targetRef}</bdi> in Telegram.</li>
+            <li>Open <bdi dir="ltr">{value.destination.target_ref}</bdi> in Telegram.</li>
             <li>
-              Locate messages around {formatTehranTimestamp(ambiguousOperation?.sentAt ?? value.ambiguousAt ?? "")}.
+              Locate messages around {formatTehranTimestamp(ambiguousOperation?.sent_at ?? value.ambiguous_at ?? "")}.
             </li>
             <li>Compare the persisted operation key and request hash with the intended Telegram payload.</li>
             <li>Choose published only when the remote message IDs can be verified exactly.</li>

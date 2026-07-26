@@ -16,7 +16,7 @@ describe("NewsroomSidebar", () => {
   })
 
   it("keeps primary routes in the compact rail and every advanced route in its panel", async () => {
-    render(<NewsroomSidebar summary={{ queued: 3, running: 1, attention: 2, succeededToday: 5 }} />)
+    render(<NewsroomSidebar summary={{ queued: 3, running: 1, attention: 2, succeeded_today: 5 }} />)
 
     const navigation = screen.getByRole("navigation", { name: "Newsroom navigation" })
     expect(within(navigation).getAllByRole("link").map((link) => link.getAttribute("aria-label"))).toEqual([

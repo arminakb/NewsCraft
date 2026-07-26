@@ -76,13 +76,13 @@ export function TelegramOutcomes() {
 
 function reconciliationGenerationKey(value: ReconciliationCase): string {
   const ambiguousOperation = value.operations.find(
-    (operation) => operation.operationKey === value.ambiguousOperationKey,
+    (operation) => operation.operation_key === value.ambiguous_operation_key,
   )
   return JSON.stringify([
-    value.publishJobId,
-    value.ambiguousOperationKey,
-    ambiguousOperation?.attemptCount ?? null,
-    value.ambiguousAt,
+    value.publish_job_id,
+    value.ambiguous_operation_key,
+    ambiguousOperation?.attempt_count ?? null,
+    value.ambiguous_at,
   ])
 }
 

@@ -16,8 +16,8 @@ export function AttentionQueue({
         {jobs.length ? jobs.map((job) => (
           <div key={job.id} className="flex flex-wrap items-center gap-3 px-3 py-3">
             <div className="min-w-0 flex-1">
-              <div className="font-medium">{job.jobType}</div>
-              <div dir="auto" className="text-sm text-red-700">{job.errorMessage ?? job.errorCode ?? "Action required"}</div>
+              <div className="font-medium">{job.job_type}</div>
+              <div dir="auto" className="text-sm text-red-700">{job.error_message ?? job.error_code ?? "Action required"}</div>
             </div>
             <JobStatusBadge status={job.status} />
             {job.status === "failed" ? (

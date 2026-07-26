@@ -32,35 +32,35 @@ const policyFields: Array<{
   min: number
 }> = [
   {
-    key: "rawPayloadDays",
+    key: "raw_payload_days",
     label: "Raw payload retention days",
     description: "Source response bodies and transport payloads.",
     min: 7,
     max: 3650,
   },
   {
-    key: "completedJobDays",
+    key: "completed_job_days",
     label: "Completed job retention days",
     description: "Terminal workflow job records.",
     min: 14,
     max: 3650,
   },
   {
-    key: "attemptMetadataDays",
+    key: "attempt_metadata_days",
     label: "Attempt metadata retention days",
     description: "Research, generation, and publication attempt metadata.",
     min: 14,
     max: 3650,
   },
   {
-    key: "exportArtifactDays",
+    key: "export_artifact_days",
     label: "Export artifact retention days",
     description: "Generated export archives and package files.",
     min: 1,
     max: 3650,
   },
   {
-    key: "unreferencedMediaDays",
+    key: "unreferenced_media_days",
     label: "Unreferenced media retention days",
     description: "Media assets that no durable record still references.",
     min: 7,
@@ -189,14 +189,14 @@ export function RetentionSettings({
 
   async function runCleanup() {
     if (!currentPreview || confirmation !== RETENTION_CONFIRMATION || busy) return
-    const previewToken = currentPreview.previewToken
+    const previewToken = currentPreview.preview_token
     invalidatePreview()
     setActiveOperation("run")
     setError(null)
     setSuccess(null)
     try {
       const accepted = await enqueueRetentionRun(previewToken)
-      setSuccess(`Cleanup job ${accepted.jobId} was queued.`)
+      setSuccess(`Cleanup job ${accepted.job_id} was queued.`)
     } catch (caught) {
       setError(
         caught instanceof ApiError && caught.status === 409
@@ -333,7 +333,7 @@ function RetentionPreviewCard({
       <CardHeader>
         <CardTitle>Cleanup preview</CardTitle>
         <CardDescription>
-          Previewed {formatTehranTimestamp(preview.previewedAt)} · expires {formatTehranTimestamp(preview.previewExpiresAt)}
+          Previewed {formatTehranTimestamp(preview.previewed_at)} · expires {formatTehranTimestamp(preview.preview_expires_at)}
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
@@ -341,7 +341,7 @@ function RetentionPreviewCard({
           <ul aria-label="Cleanup candidate aggregates" className="divide-y rounded-md border">
             {summaries.map(({ category, summary }) => (
               <li className="px-3 py-2" key={category}>
-                {formatSummary(category, summary.count, summary.byteLength)}
+                {formatSummary(category, summary.count, summary.byte_length ?? null)}
               </li>
             ))}
           </ul>
@@ -381,41 +381,41 @@ function RetentionPreviewCard({
 
 function draftFromPolicy(policy: RetentionPolicyValues): PolicyDraft {
   return {
-    rawPayloadDays: String(policy.rawPayloadDays),
-    completedJobDays: String(policy.completedJobDays),
-    attemptMetadataDays: String(policy.attemptMetadataDays),
-    exportArtifactDays: String(policy.exportArtifactDays),
-    unreferencedMediaDays: String(policy.unreferencedMediaDays),
+    raw_payload_days: String(policy.raw_payload_days),
+    completed_job_days: String(policy.completed_job_days),
+    attempt_metadata_days: String(policy.attempt_metadata_days),
+    export_artifact_days: String(policy.export_artifact_days),
+    unreferenced_media_days: String(policy.unreferenced_media_days),
   }
 }
 
 function policyValues(policy: RetentionPolicyValues): RetentionPolicyValues {
   return {
-    rawPayloadDays: policy.rawPayloadDays,
-    completedJobDays: policy.completedJobDays,
-    attemptMetadataDays: policy.attemptMetadataDays,
-    exportArtifactDays: policy.exportArtifactDays,
-    unreferencedMediaDays: policy.unreferencedMediaDays,
+    raw_payload_days: policy.raw_payload_days,
+    completed_job_days: policy.completed_job_days,
+    attempt_metadata_days: policy.attempt_metadata_days,
+    export_artifact_days: policy.export_artifact_days,
+    unreferenced_media_days: policy.unreferenced_media_days,
   }
 }
 
 function retentionPolicySignature(policy: RetentionPolicy): string {
   return [
-    policy.updatedAt,
-    policy.rawPayloadDays,
-    policy.completedJobDays,
-    policy.attemptMetadataDays,
-    policy.exportArtifactDays,
-    policy.unreferencedMediaDays,
+    policy.updated_at,
+    policy.raw_payload_days,
+    policy.completed_job_days,
+    policy.attempt_metadata_days,
+    policy.export_artifact_days,
+    policy.unreferenced_media_days,
   ].join(":")
 }
 
 function parsePolicyDraft(draft: PolicyDraft): RetentionPolicyValues | null {
-  const rawPayloadDays = parseBoundedInteger(draft.rawPayloadDays, 7, 3650)
-  const completedJobDays = parseBoundedInteger(draft.completedJobDays, 14, 3650)
-  const attemptMetadataDays = parseBoundedInteger(draft.attemptMetadataDays, 14, 3650)
-  const exportArtifactDays = parseBoundedInteger(draft.exportArtifactDays, 1, 3650)
-  const unreferencedMediaDays = parseBoundedInteger(draft.unreferencedMediaDays, 7, 3650)
+  const rawPayloadDays = parseBoundedInteger(draft.raw_payload_days, 7, 3650)
+  const completedJobDays = parseBoundedInteger(draft.completed_job_days, 14, 3650)
+  const attemptMetadataDays = parseBoundedInteger(draft.attempt_metadata_days, 14, 3650)
+  const exportArtifactDays = parseBoundedInteger(draft.export_artifact_days, 1, 3650)
+  const unreferencedMediaDays = parseBoundedInteger(draft.unreferenced_media_days, 7, 3650)
   if (
     rawPayloadDays === null
     || completedJobDays === null
@@ -424,11 +424,11 @@ function parsePolicyDraft(draft: PolicyDraft): RetentionPolicyValues | null {
     || unreferencedMediaDays === null
   ) return null
   return {
-    rawPayloadDays,
-    completedJobDays,
-    attemptMetadataDays,
-    exportArtifactDays,
-    unreferencedMediaDays,
+    raw_payload_days: rawPayloadDays,
+    completed_job_days: completedJobDays,
+    attempt_metadata_days: attemptMetadataDays,
+    export_artifact_days: exportArtifactDays,
+    unreferenced_media_days: unreferencedMediaDays,
   }
 }
 

@@ -81,12 +81,12 @@ export function TodayPage({ outcomes }: { outcomes?: ReactNode }) {
             <CardContent className="divide-y px-0">
               {(runningQuery.data ?? []).length ? runningQuery.data?.map((job) => (
                 <div key={job.id} className="space-y-2 px-3 py-3">
-                  <div className="flex justify-between gap-3"><span className="font-medium">{job.jobType}</span><JobStatusBadge status={job.status} /></div>
+                  <div className="flex justify-between gap-3"><span className="font-medium">{job.job_type}</span><JobStatusBadge status={job.status} /></div>
                   <div className="h-2 overflow-hidden rounded-full bg-muted" role="progressbar" aria-valuenow={job.progress} aria-valuemin={0} aria-valuemax={100}>
                     <div className="h-full bg-primary" style={{ width: `${job.progress}%` }} />
                   </div>
                   <div className="flex justify-between gap-3 text-sm text-muted-foreground">
-                    <span dir="auto">{job.progressMessage ?? "Running"}</span>
+                    <span dir="auto">{job.progress_message ?? "Running"}</span>
                     <span data-progress-label dir="auto">{job.progress}%</span>
                   </div>
                 </div>
@@ -98,7 +98,7 @@ export function TodayPage({ outcomes }: { outcomes?: ReactNode }) {
             <CardContent className="divide-y px-0">
               {(successesQuery.data ?? []).length ? successesQuery.data?.map((job) => (
                 <div key={job.id} className="flex items-center justify-between gap-3 px-3 py-3">
-                  <span className="font-medium">{job.jobType}</span><JobStatusBadge status={job.status} />
+                  <span className="font-medium">{job.job_type}</span><JobStatusBadge status={job.status} />
                 </div>
               )) : <div className="p-6 text-center text-muted-foreground">No successful jobs today</div>}
             </CardContent>
@@ -112,13 +112,13 @@ export function TodayPage({ outcomes }: { outcomes?: ReactNode }) {
 function HealthSummary({
   summary,
 }: {
-  summary: { queued: number; running: number; attention: number; succeededToday: number }
+  summary: { queued: number; running: number; attention: number; succeeded_today: number }
 }) {
   const values = [
     ["Queued", summary.queued, "queued"],
     ["Running", summary.running, "running"],
     ["Attention", summary.attention, "attention"],
-    ["Succeeded", summary.succeededToday, "succeeded"],
+    ["Succeeded", summary.succeeded_today, "succeeded"],
   ] as const
   return (
     <Card size="sm" aria-label="Workflow health" role="region">
@@ -145,7 +145,7 @@ function PriorityDecision({
         <CardContent className="flex flex-wrap items-center justify-between gap-4 p-4">
           <div className="min-w-0">
             <div className="flex items-center gap-2 font-semibold"><CircleAlert className="size-5 text-red-700" aria-hidden="true" />Resolve failed workflow</div>
-            <p className="mt-1 truncate text-sm text-muted-foreground" dir="auto">{job.jobType}</p>
+            <p className="mt-1 truncate text-sm text-muted-foreground" dir="auto">{job.job_type}</p>
           </div>
           <Link className={buttonVariants()} href={`/jobs?status=attention&job=${job.id}`}>
             Inspect and retry

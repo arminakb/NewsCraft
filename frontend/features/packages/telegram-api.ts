@@ -48,15 +48,10 @@ export async function regeneratePlatformVariant(
     generation_provider_profile_id: input.providerProfileId,
     instruction: input.instruction,
   }
-  const row = await apiRequest<components["schemas"]["JobAcceptedOut"]>(
+  return apiRequest<components["schemas"]["JobAcceptedOut"]>(
     `/platform-variants/${variantId}/regenerate`,
     jsonRequest(body),
   )
-  return {
-    jobId: row.job_id,
-    status: row.status,
-    deduplicated: row.deduplicated,
-  }
 }
 
 function jsonRequest(body: object): RequestInit {
