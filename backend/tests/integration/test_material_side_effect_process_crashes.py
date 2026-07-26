@@ -83,7 +83,7 @@ async def _resolve_destination_secret(secret_ref: str) -> str:
 
 def _build_handler(job_type: str, config: dict[str, str], injector):
     if job_type == "content_pack.generate":
-        from app.generation.handlers import build_canonical_generation_handler
+        from tests.generation.handler_exports import build_canonical_generation_handler
         from tests.integration.conftest import _AcceptanceProfileResolver
 
         return build_canonical_generation_handler(
@@ -91,7 +91,7 @@ def _build_handler(job_type: str, config: dict[str, str], injector):
             fault_injector=injector,
         )
     if job_type == "content_pack.generate_telegram":
-        from app.generation.handlers import build_pack_generation_handler
+        from tests.generation.handler_exports import build_pack_generation_handler
         from tests.integration.conftest import _AcceptanceProfileResolver
 
         return build_pack_generation_handler(
@@ -99,7 +99,7 @@ def _build_handler(job_type: str, config: dict[str, str], injector):
             fault_injector=injector,
         )
     if job_type == "content_pack.regenerate":
-        from app.generation.handlers import build_regenerate_handler
+        from tests.generation.handler_exports import build_regenerate_handler
         from tests.integration.conftest import _AcceptanceProfileResolver
 
         return build_regenerate_handler(

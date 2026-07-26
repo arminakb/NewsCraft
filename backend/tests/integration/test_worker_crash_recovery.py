@@ -15,7 +15,6 @@ from sqlalchemy.pool import NullPool
 from app.automations.models import AutomationDispatch
 from app.core.config import Settings
 from app.core.faults import InjectedFault, ScriptedFaultInjector
-from app.generation.handlers import build_canonical_generation_handler
 from app.generation.models import GenerationAttempt, GenerationRun
 from app.jobs.models import WorkflowEvent, WorkflowJob
 from app.jobs.registry import JobContext, JobHandlerRegistry
@@ -27,6 +26,7 @@ from app.research.fake import FakeResearchBackend
 from app.research.handlers import build_research_story_handler
 from app.research.models import ResearchAttempt, ResearchRun
 from app.stories.models import StoryRevision
+from tests.generation.handler_exports import build_canonical_generation_handler
 from tests.postgres.test_telegram_process_handler import seed_dispatch
 
 CLAIMED_AT = datetime(2026, 7, 13, 8, 0, tzinfo=UTC)

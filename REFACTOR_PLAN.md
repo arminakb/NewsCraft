@@ -810,9 +810,9 @@ another overlapping refactor plan.
 
 | Measure | Baseline | Final | Result |
 | --- | ---: | ---: | --- |
-| Backend application | 51,060 lines / 218 files | 52,245 lines / 247 files | +1,185 lines |
+| Backend application | 51,060 lines / 218 files | 52,190 lines / 245 files | +1,130 lines |
 | Handwritten frontend | 16,858 lines / 115 files | 16,927 lines / 116 files | +69 lines |
-| Total handwritten production | 67,918 lines | 69,172 lines | +1,254 lines (+1.8%) |
+| Total handwritten production | 67,918 lines | 69,117 lines | +1,199 lines (+1.8%) |
 | Application modules at least 1,000 lines | 9 | 0 | eliminated |
 | Ruff complex functions (`C901`) | 83 | 53 | 30 removed |
 | Ruff excessive statements (`PLR0915`) | 39 | 25 | 14 removed |

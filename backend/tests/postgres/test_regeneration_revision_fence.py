@@ -15,7 +15,6 @@ from app.generation.editorial_service import (
     RegenerateVariantRequest,
     RevisionConflict,
 )
-from app.generation.handlers import build_regenerate_handler
 from app.generation.models import (
     AIProviderProfile,
     BrandProfile,
@@ -35,6 +34,7 @@ from app.jobs.models import WorkflowJob
 from app.jobs.registry import JobContext
 from app.research.schemas import CitationRef
 from app.stories.models import Story, StoryRevision
+from tests.generation.handler_exports import build_regenerate_handler
 
 
 @pytest.mark.asyncio

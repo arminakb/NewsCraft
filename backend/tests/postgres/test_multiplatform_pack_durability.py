@@ -10,7 +10,6 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.generation.default_prompts import prompt_checksum
-from app.generation.handlers import build_pack_generation_handler
 from app.generation.models import (
     BrandProfile,
     ContentPack,
@@ -26,6 +25,7 @@ from app.jobs.models import WorkflowJob
 from app.jobs.registry import JobContext
 from app.jobs.types import JobExecution
 from app.stories.models import Story, StoryEvidenceSnapshot, StoryRevision
+from tests.generation.handler_exports import build_pack_generation_handler
 
 
 @pytest.mark.asyncio

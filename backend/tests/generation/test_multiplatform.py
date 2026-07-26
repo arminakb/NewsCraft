@@ -6,15 +6,6 @@ from uuid import uuid4
 import pytest
 from pydantic import ValidationError
 
-from app.generation.handlers import (
-    _artifact_requires_review,
-    _manual_output_with_ordinary_issues,
-    _platform_stage_input,
-    _require_exact_active_prompt,
-    _trusted_story_media,
-    platform_limits_for,
-    validate_payload_media_assignments,
-)
 from app.generation.multiplatform import (
     PLATFORM_PROMPT_PURPOSE,
     deduplicate_preserving_order,
@@ -27,6 +18,15 @@ from app.generation.platform_validation import revision_gates_from_issues
 from app.research.citations import CitationIntegrityError
 from app.research.schemas import CitationRef
 from app.stories.evidence import EvidenceRecord
+from tests.generation.handler_exports import (
+    _artifact_requires_review,
+    _manual_output_with_ordinary_issues,
+    _platform_stage_input,
+    _require_exact_active_prompt,
+    _trusted_story_media,
+    platform_limits_for,
+    validate_payload_media_assignments,
+)
 
 
 def citation(*, snapshot_id=None, key="evidence:one", url="https://example.com/report"):
@@ -449,8 +449,8 @@ def test_telegram_trusted_assembly_preserves_locked_parent_context_and_ignores_p
 @pytest.mark.asyncio
 async def test_telegram_artifact_replay_reconstructs_expected_content_from_immutable_parent():
     from app.automations.telegram.handlers import sha256_canonical
-    from app.generation.handlers import _artifact_requires_review
     from app.generation.telegram_schema import TelegramRewriteOutput, assemble_telegram_variant
+    from tests.generation.handler_exports import _artifact_requires_review
 
     fixture = _pack_handler_fixture(platforms=("telegram",))
     pack_id, variant_id, parent_id, revision_id, attempt_id = (
@@ -1024,10 +1024,10 @@ async def test_prompt_checksum_drift_before_provider_is_permanent():
 
 @pytest.mark.asyncio
 async def test_all_selected_prompts_lock_in_canonical_order_before_first_provider(monkeypatch):
-    from app.generation.handlers import build_pack_generation_handler
     from app.generation.models import PromptTemplateVersion
     from app.jobs.errors import PermanentJobError
     from app.jobs.registry import JobContext
+    from tests.generation.handler_exports import build_pack_generation_handler
 
     class PromptOrderSession(_PackHandlerSession):
         async def scalars(self, statement):
@@ -1216,9 +1216,9 @@ def _pack_handler_fixture(*, platforms=("instagram",), media_asset_id=None):
 
 @pytest.mark.asyncio
 async def test_pack_handler_wires_safe_media_limits_hash_and_prompt_recheck_before_provider(monkeypatch):
-    from app.generation.handlers import build_pack_generation_handler
     from app.generation.models import PlatformVariantRevision
     from app.jobs.registry import JobContext
+    from tests.generation.handler_exports import build_pack_generation_handler
 
     media_asset_id = uuid4()
     fixture = _pack_handler_fixture(media_asset_id=media_asset_id)
@@ -1317,8 +1317,8 @@ async def test_pack_handler_wires_safe_media_limits_hash_and_prompt_recheck_befo
 
 @pytest.mark.asyncio
 async def test_release_three_queued_telegram_job_uses_singular_prompt_checksum_fallback(monkeypatch):
-    from app.generation.handlers import build_pack_generation_handler
     from app.jobs.registry import JobContext
+    from tests.generation.handler_exports import build_pack_generation_handler
 
     fixture = _pack_handler_fixture(platforms=("telegram",))
     fixture.raw = _complete_outputs(fixture.ref.model_dump(mode="json"))[0]
@@ -1379,10 +1379,10 @@ async def test_release_three_queued_telegram_job_uses_singular_prompt_checksum_f
 
 @pytest.mark.asyncio
 async def test_existing_telegram_variant_generation_preserves_exact_trusted_parent_context(monkeypatch):
-    from app.generation.handlers import build_pack_generation_handler
     from app.generation.models import PlatformVariantRevision
     from app.jobs.errors import NeedsReviewJobError
     from app.jobs.registry import JobContext
+    from tests.generation.handler_exports import build_pack_generation_handler
 
     fixture = _pack_handler_fixture(platforms=("telegram",))
     fixture.raw = _complete_outputs(fixture.ref.model_dump(mode="json"))[0]
@@ -1472,10 +1472,10 @@ async def test_existing_telegram_variant_generation_preserves_exact_trusted_pare
 
 @pytest.mark.asyncio
 async def test_pack_handler_relocks_media_after_provider_and_rejects_unlinked_assignment(monkeypatch):
-    from app.generation.handlers import build_pack_generation_handler
     from app.generation.models import PlatformVariantRevision
     from app.jobs.errors import NeedsReviewJobError
     from app.jobs.registry import JobContext
+    from tests.generation.handler_exports import build_pack_generation_handler
 
     media_asset_id = uuid4()
     fixture = _pack_handler_fixture(media_asset_id=media_asset_id)
@@ -1528,10 +1528,10 @@ async def test_pack_handler_relocks_media_after_provider_and_rejects_unlinked_as
 
 @pytest.mark.asyncio
 async def test_pack_handler_rejects_unauthorized_provider_media_before_revision(monkeypatch):
-    from app.generation.handlers import build_pack_generation_handler
     from app.generation.models import PlatformVariantRevision
     from app.jobs.errors import NeedsReviewJobError
     from app.jobs.registry import JobContext
+    from tests.generation.handler_exports import build_pack_generation_handler
 
     fixture = _pack_handler_fixture(media_asset_id=uuid4())
     run_id = uuid4()
@@ -1574,10 +1574,10 @@ async def test_pack_handler_rejects_unauthorized_provider_media_before_revision(
 @pytest.mark.asyncio
 async def test_pack_handler_retry_uses_linked_failed_artifact_and_persists_needs_review_result(monkeypatch):
     from app.automations.telegram.handlers import sha256_canonical
-    from app.generation.handlers import build_pack_generation_handler
     from app.generation.models import ContentPack, PlatformVariant, PlatformVariantRevision
     from app.jobs.errors import NeedsReviewJobError
     from app.jobs.registry import JobContext
+    from tests.generation.handler_exports import build_pack_generation_handler
 
     fixture = _pack_handler_fixture()
     fixture.raw["caption"] = "x" * 2_201
@@ -1647,9 +1647,9 @@ async def test_pack_handler_retry_uses_linked_failed_artifact_and_persists_needs
 
 @pytest.mark.asyncio
 async def test_pack_handler_records_incremental_result_before_later_platform_failure(monkeypatch):
-    from app.generation.handlers import build_pack_generation_handler
     from app.jobs.errors import NeedsReviewJobError
     from app.jobs.registry import JobContext
+    from tests.generation.handler_exports import build_pack_generation_handler
 
     fixture = _pack_handler_fixture(platforms=("instagram", "blog"))
     run_id, attempt_id = uuid4(), uuid4()
@@ -1700,10 +1700,10 @@ async def test_pack_handler_records_incremental_result_before_later_platform_fai
 
 @pytest.mark.asyncio
 async def test_pack_handler_persists_full_schema_max_violation_then_requires_review(monkeypatch):
-    from app.generation.handlers import build_pack_generation_handler
     from app.generation.models import PlatformVariantRevision
     from app.jobs.errors import NeedsReviewJobError
     from app.jobs.registry import JobContext
+    from tests.generation.handler_exports import build_pack_generation_handler
 
     fixture = _pack_handler_fixture()
     fixture.raw["caption"] = "x" * 2_201
@@ -1759,10 +1759,10 @@ async def test_pack_handler_persists_full_schema_max_violation_then_requires_rev
 
 @pytest.mark.asyncio
 async def test_regeneration_rechecks_base_before_provider_and_creates_no_child(monkeypatch):
-    from app.generation.handlers import build_pack_generation_handler
     from app.generation.models import PlatformVariantRevision
     from app.jobs.errors import NeedsReviewJobError
     from app.jobs.registry import JobContext
+    from tests.generation.handler_exports import build_pack_generation_handler
 
     fixture = _pack_handler_fixture()
     pack_id, variant_id = uuid4(), uuid4()
@@ -1834,13 +1834,13 @@ async def test_regeneration_fence_survives_provider_and_cached_success_until_chi
     monkeypatch,
     cached_success,
 ):
-    from app.generation.handlers import build_pack_generation_handler
     from app.generation.models import ContentPack, PlatformVariant, PlatformVariantRevision
     from app.generation.revision_fence import (
         REGENERATION_FENCE_RESULT_KEY,
         RegenerationFenceOwner,
     )
     from app.jobs.registry import JobContext
+    from tests.generation.handler_exports import build_pack_generation_handler
 
     fixture = _pack_handler_fixture()
     pack_id, variant_id, base_id = uuid4(), uuid4(), uuid4()
@@ -1948,9 +1948,9 @@ async def test_regeneration_fence_survives_provider_and_cached_success_until_chi
 @pytest.mark.asyncio
 async def test_platform_stage_retry_reuses_durable_attempt_without_second_provider_call():
     from app.automations.telegram.handlers import sha256_canonical
-    from app.generation.handlers import _invoke
     from app.generation.models import AIProviderProfile, GenerationAttempt, GenerationRun
     from app.jobs.registry import JobContext
+    from tests.generation.handler_exports import _invoke
     from tests.generation.test_editorial_service import _lifecycle_prompt, _LifecycleSession
 
     profile = AIProviderProfile(
@@ -2043,10 +2043,10 @@ async def test_durable_success_revalidation_failure_is_sanitized_needs_review_wi
     expected_code,
 ):
     from app.automations.telegram.handlers import sha256_canonical
-    from app.generation.handlers import _invoke
     from app.generation.models import AIProviderProfile, GenerationAttempt, GenerationRun
     from app.jobs.errors import NeedsReviewJobError
     from app.jobs.registry import JobContext
+    from tests.generation.handler_exports import _invoke
     from tests.generation.test_editorial_service import _lifecycle_prompt, _LifecycleSession
 
     profile = AIProviderProfile(
@@ -2207,9 +2207,9 @@ async def test_regeneration_idempotency_is_bound_to_locked_current_revision():
 
 @pytest.mark.asyncio
 async def test_regeneration_wrapper_holds_no_row_locks_across_pack_delegation(monkeypatch):
-    from app.generation.handlers import build_regenerate_handler
     from app.generation.models import ContentPack, PlatformVariant
     from app.jobs.registry import JobContext
+    from tests.generation.handler_exports import build_regenerate_handler
 
     variant = SimpleNamespace(id=uuid4(), content_pack_id=uuid4(), platform="instagram")
     pack = SimpleNamespace(
@@ -2267,9 +2267,9 @@ async def test_regeneration_wrapper_holds_no_row_locks_across_pack_delegation(mo
 
 @pytest.mark.asyncio
 async def test_regeneration_retry_delegates_after_committed_child_becomes_current(monkeypatch):
-    from app.generation.handlers import build_regenerate_handler
     from app.generation.models import ContentPack, PlatformVariant
     from app.jobs.registry import JobContext
+    from tests.generation.handler_exports import build_regenerate_handler
 
     variant_id = uuid4()
     pack_id = uuid4()
@@ -2325,11 +2325,11 @@ async def test_regeneration_retry_delegates_after_committed_child_becomes_curren
 
 @pytest.mark.asyncio
 async def test_regeneration_terminal_failure_clears_exact_owned_fence(monkeypatch):
-    from app.generation.handlers import build_regenerate_handler
     from app.generation.models import ContentPack, PlatformVariant
     from app.generation.revision_fence import RegenerationFenceOwner
     from app.jobs.errors import NeedsReviewJobError
     from app.jobs.registry import JobContext
+    from tests.generation.handler_exports import build_regenerate_handler
 
     variant = SimpleNamespace(id=uuid4(), content_pack_id=uuid4(), platform="instagram")
     pack = SimpleNamespace(
@@ -2408,9 +2408,9 @@ async def test_regeneration_terminal_failure_clears_exact_owned_fence(monkeypatc
 @pytest.mark.asyncio
 async def test_regeneration_retry_replays_actual_committed_artifact_bound_to_immutable_base(monkeypatch):
     from app.automations.telegram.handlers import sha256_canonical
-    from app.generation.handlers import build_regenerate_handler
     from app.generation.models import ContentPack, PlatformVariant
     from app.jobs.registry import JobContext
+    from tests.generation.handler_exports import build_regenerate_handler
 
     fixture = _pack_handler_fixture()
     pack_id, variant_id, base_id, revision_id, run_id, attempt_id = (
@@ -2504,10 +2504,10 @@ async def test_regeneration_retry_replays_actual_committed_artifact_bound_to_imm
 
 @pytest.mark.asyncio
 async def test_regeneration_handler_rejects_target_platform_mismatch(monkeypatch):
-    from app.generation.handlers import build_regenerate_handler
     from app.generation.models import ContentPack, PlatformVariant, PlatformVariantRevision
     from app.jobs.errors import PermanentJobError
     from app.jobs.registry import JobContext
+    from tests.generation.handler_exports import build_regenerate_handler
 
     target_platform = "instagram"
     variant = SimpleNamespace(id=uuid4(), content_pack_id=uuid4(), platform=target_platform)

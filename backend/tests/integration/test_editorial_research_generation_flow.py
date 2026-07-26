@@ -244,7 +244,7 @@ async def test_supplemental_direct_service_flow(
         )
         await session.commit()
 
-        from app.generation.handlers import (
+        from tests.generation.handler_exports import (
             build_canonical_generation_handler,
             build_pack_generation_handler,
         )

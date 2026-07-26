@@ -1,3 +1,10 @@
+"""Test-only access to generation operation boundaries.
+
+Production callers register the concrete operation modules directly. Tests keep
+this small import surface so focused lifecycle fixtures can select an operation
+without restoring the removed production compatibility facade.
+"""
+
 from app.generation.canonical_generation import build_canonical_generation_handler
 from app.generation.generation_helpers import (
     _artifact_requires_review,
@@ -15,12 +22,8 @@ from app.generation.package_generation import (
     _manual_output_with_ordinary_issues,
     build_pack_generation_handler,
 )
-from app.generation.platform_media import (
-    trusted_story_media as _trusted_story_media,
-)
-from app.generation.platform_media import (
-    validate_payload_media_assignments,
-)
+from app.generation.platform_media import trusted_story_media as _trusted_story_media
+from app.generation.platform_media import validate_payload_media_assignments
 from app.generation.provider_execution import _invoke, _usage_with_qualified_pricing
 from app.generation.revision_fence import clear_regeneration_fence, require_revision_write_allowed
 from app.generation.variant_regeneration import build_regenerate_handler

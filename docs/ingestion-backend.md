@@ -204,26 +204,15 @@ or from Python by calling `seed_sources(session)`.
 
 ## Trigger Ingestion
 
-Run the worker manually:
-
-```bash
-cd backend
-.venv/bin/python -m app.worker --trigger manual --platform rss --download-media
-```
-
-With Docker Compose:
-
-```bash
-docker compose run --rm worker
-```
-
-The API endpoint is:
+With the Compose stack running, enqueue an ingestion job through the API:
 
 ```bash
 curl -X POST http://localhost:8000/ingest/run \
   -H 'content-type: application/json' \
-  -d '{"platforms":["rss"]}'
+  -d '{"request_id":"123e4567-e89b-42d3-a456-426614174000","platforms":["rss"]}'
 ```
+
+The API records the durable job and `worker-source-generation` claims it.
 
 ## Media Storage
 
