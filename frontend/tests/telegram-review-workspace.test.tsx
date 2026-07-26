@@ -173,6 +173,7 @@ describe("TelegramReviewWorkspace", () => {
 
     expect(await screen.findByText(new RegExp(label, "i"))).toBeInTheDocument()
     expect(screen.getByRole("button", { name: "Publish exact revision" })).toBeDisabled()
+    expect(screen.getByText("Advanced publication details — blocker context").closest("details")).toHaveAttribute("open")
   })
 
   it("fails closed when the expected dispatch is unavailable", async () => {

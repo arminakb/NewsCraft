@@ -80,7 +80,7 @@ it("switches platforms without mixing their immutable revision histories", async
 
   render(<TestApp client={client}><ContentPackWorkspace packId="pack-1" /></TestApp>)
 
-  expect(await screen.findByRole("heading", { name: "Multi-platform editorial studio" })).toBeInTheDocument()
+  expect(await screen.findByRole("heading", { name: "Editorial review" })).toBeInTheDocument()
   expect(screen.getByRole("tablist", { name: "Package platforms" })).toBeInTheDocument()
   expect(screen.getAllByRole("tab").map((tab) => tab.textContent)).toEqual(["Telegram", "Instagram", "X", "Blog"])
   expect(screen.getByLabelText("Copy and export binding")).toHaveTextContent("Copy/export revision rev-1")
@@ -90,6 +90,22 @@ it("switches platforms without mixing their immutable revision histories", async
   expect(screen.getByRole("tab", { name: "Instagram" })).toHaveAttribute("aria-selected", "true")
   expect(screen.getByRole("button", { name: /Revision 4/ })).toBeInTheDocument()
   expect(screen.queryByRole("button", { name: /Revision 1/ })).not.toBeInTheDocument()
+})
+
+it("shows validation blockers beside the preview and opens their advanced context", async () => {
+  const blocked = telegramRevision({
+    ...revision,
+    validationResults: [{ gate: "media_integrity", ok: false, reason: "Verified media is missing" }],
+  })
+  vi.mocked(packageApi.getPackage).mockResolvedValue(pack(blocked))
+  vi.mocked(packageApi.getPlatformRevisions).mockResolvedValue([blocked])
+  mockCommonQueries()
+
+  render(<TestApp client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}><ContentPackWorkspace packId="pack-1" /></TestApp>)
+
+  expect(await screen.findByRole("heading", { name: "Resolve before approval" })).toBeInTheDocument()
+  expect(screen.getAllByText("Verified media is missing").length).toBeGreaterThan(0)
+  expect(screen.getByText("Advanced revision details — validation blocker").closest("details")).toHaveAttribute("open")
 })
 
 it("keeps historical copy bound to the selection while exporting the exact current revision of every pack variant", async () => {

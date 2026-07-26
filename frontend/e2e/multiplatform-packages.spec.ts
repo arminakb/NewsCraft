@@ -73,7 +73,7 @@ for (const viewport of [
     await page.setViewportSize(viewport)
 
     await page.goto(`/drafts/${ids.contentPack}`)
-    await expect(page.getByRole("heading", { name: "Multi-platform editorial studio" })).toBeVisible()
+    await expect(page.getByRole("heading", { name: "Editorial review" })).toBeVisible()
 
     for (const [tabName, previewName] of [
       ["Telegram", "Telegram preview"],

@@ -145,7 +145,6 @@ export function TelegramReviewWorkspace({ revision }: { revision: TelegramRevisi
       <Card size="sm">
         <CardHeader><CardTitle>Exact revision {revision.revisionNumber}</CardTitle></CardHeader>
         <CardContent className="space-y-4">
-          <p className="break-all text-sm text-muted-foreground">Exact hash: {revision.contentHash}</p>
           {revision.approvalState !== "approved" ? (
             <div role="status">Approve this exact revision before publishing.</div>
           ) : null}
@@ -154,6 +153,15 @@ export function TelegramReviewWorkspace({ revision }: { revision: TelegramRevisi
               {blockers.map((blocker) => <div key={blocker}>{blocker}</div>)}
             </div>
           ) : null}
+          <details className="rounded-md border p-3" open={blockers.length > 0}>
+            <summary className="cursor-pointer font-medium">Advanced publication details{blockers.length ? " — blocker context" : ""}</summary>
+            <div className="mt-2 space-y-1 text-sm text-muted-foreground">
+              <p className="break-all">Exact hash: {revision.contentHash}</p>
+              <p className="break-all">Revision ID: {revision.id}</p>
+              <p>Route: {context?.routeId ?? "Unavailable"}</p>
+              <p>Destination: {destination?.name ?? "Unavailable"}</p>
+            </div>
+          </details>
           <Button onClick={() => publishMutation.mutate()} disabled={!canPublish}>Publish exact revision</Button>
           {publishOutcome ? (
             <div ref={outcomeRef} tabIndex={-1} role="status" className="rounded-md border p-3" dir="auto">
