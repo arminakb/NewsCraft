@@ -23,7 +23,6 @@ from app.llm_providers.service import (
     LLMProviderService,
     ProviderDependencyConflict,
     provider_out,
-    seed_legacy_provider_compatibility,
 )
 from app.main import app
 from app.security.auth import TEST_ADMIN
@@ -155,45 +154,6 @@ async def test_lifecycle_worker_resolution_rotation_and_dependency_protection(db
     await db_session.commit()
     assert await db_session.get(LLMProvider, provider.id) is None
     assert await db_session.scalar(select(EncryptedSecret).where(EncryptedSecret.owner_id == provider.id)) is None
-
-
-async def test_migrated_openrouter_accepts_explicit_credential_import_and_survives_restart(
-    db_session: AsyncSession,
-    session_factory,
-):
-    legacy = AIProviderProfile(
-        id=uuid4(),
-        name="Migrated OpenRouter",
-        provider_type="openrouter",
-        default_model="model-one",
-        secret_ref="OPENROUTER_API_KEY",
-        settings={"base_url": "https://openrouter.ai/api/v1"},
-        enabled=True,
-    )
-    db_session.add(legacy)
-    await seed_legacy_provider_compatibility(db_session)
-    await db_session.commit()
-    provider = await db_session.get(LLMProvider, legacy.id)
-    assert provider.secret_id is None
-    assert provider.failure_code == "credential_import_required"
-
-    config = _config()
-    service = LLMProviderService(
-        db_session,
-        principal=TEST_ADMIN,
-        key_ring=MasterKeyRing.from_settings(config),
-        config=config,
-    )
-    await service.rotate_secret(provider, "imported-secret-canary")
-    await db_session.commit()
-
-    async with session_factory() as restarted:
-        persisted = await restarted.get(LLMProvider, provider.id)
-        secret = await restarted.get(EncryptedSecret, persisted.secret_id)
-        assert persisted.enabled is False
-        assert persisted.health_status == "unchecked"
-        assert secret.owner_id == provider.id
-        assert b"imported-secret-canary" not in secret.ciphertext
 
 
 async def test_fake_provider_api_supports_full_operator_lifecycle(

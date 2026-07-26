@@ -13,13 +13,12 @@ from app.automations.models import AutomationRoute
 from app.core.config import Settings, settings
 from app.core.outbound_proxy import build_outbound_http_client
 from app.generation.models import AIProviderProfile, GenerationRun
-from app.generation.provider_settings import OpenRouterProviderSettings, merge_provider_settings
+from app.generation.provider_settings import merge_provider_settings
 from app.generation.providers.base import GenerationProviderRequest, ProviderMessage
 from app.generation.providers.openai_compatible import OpenAICompatibleProvider
 from app.jobs.models import WorkflowJob
 from app.llm_providers.models import LLMProvider
 from app.llm_providers.schemas import (
-    AttributionHeaders,
     LLMProviderCreate,
     LLMProviderDependenciesOut,
     LLMProviderOut,
@@ -392,74 +391,8 @@ def provider_out(provider: LLMProvider) -> LLMProviderOut:
     )
 
 
-async def seed_legacy_provider_compatibility(session: AsyncSession) -> list[LLMProvider]:
-    """Create only missing target rows while legacy callers remain during migration."""
-
-    legacy_rows = list(
-        await session.scalars(
-            select(AIProviderProfile).where(AIProviderProfile.provider_type.in_({"fake", "openrouter"}))
-        )
-    )
-    existing_ids = set(await session.scalars(select(LLMProvider.id)))
-    created: list[LLMProvider] = []
-    for legacy in legacy_rows:
-        if legacy.id in existing_ids:
-            continue
-        if legacy.provider_type == "fake":
-            target = LLMProvider(
-                id=legacy.id,
-                name=legacy.name,
-                protocol="fake",
-                base_url=None,
-                default_model=legacy.default_model or "fake-v1",
-                enabled=legacy.enabled,
-                secret_id=None,
-                settings=LLMProviderSettings().model_dump(mode="json"),
-                health_status="healthy" if legacy.enabled else "unchecked",
-                generation_capability="ready" if legacy.enabled else "unavailable",
-                research_capability="ready" if legacy.enabled else "unavailable",
-                failure_code=None if legacy.enabled else "disabled",
-                ownership="system_managed",
-            )
-        else:
-            try:
-                old = OpenRouterProviderSettings.model_validate(dict(legacy.settings or {}))
-            except ValueError:
-                old = OpenRouterProviderSettings()
-            target_settings = LLMProviderSettings(
-                timeout_seconds=old.timeout_seconds,
-                research_budgets=old.research_budgets or LLMProviderSettings().research_budgets,
-                pricing=old.pricing or LLMProviderSettings().pricing,
-                attribution_headers=AttributionHeaders(
-                    http_referer=old.http_referer,
-                    app_title=old.app_title,
-                ),
-            )
-            target = LLMProvider(
-                id=legacy.id,
-                name=legacy.name,
-                protocol="openai_compatible",
-                base_url=str(old.base_url).rstrip("/"),
-                default_model=legacy.default_model or "unconfigured",
-                enabled=False,
-                secret_id=None,
-                settings=target_settings.model_dump(mode="json"),
-                health_status="unchecked",
-                generation_capability="unavailable",
-                research_capability="unavailable",
-                failure_code="credential_import_required",
-                ownership="system_managed",
-            )
-        session.add(target)
-        created.append(target)
-    if created:
-        await session.flush()
-    return created
-
-
 __all__ = [
     "LLMProviderService",
     "ProviderDependencyConflict",
     "provider_out",
-    "seed_legacy_provider_compatibility",
 ]
