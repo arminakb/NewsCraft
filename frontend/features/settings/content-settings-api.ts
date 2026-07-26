@@ -1,4 +1,5 @@
 import type { components } from "@/lib/api/generated"
+import { camelize } from "@/lib/camelize"
 import { apiRequest, apiRequestVoid } from "@/lib/http"
 
 type JsonMethod = "POST" | "PATCH"
@@ -178,16 +179,9 @@ export async function setTelegramDestinationEnabled(destinationId: string, enabl
 }
 
 export async function getTelegramDestinationDependencies(destinationId: string) {
-  const row = await apiRequest<Schemas["TelegramDestinationDependenciesOut"]>(
+  return camelize(await apiRequest<Schemas["TelegramDestinationDependenciesOut"]>(
     `/telegram/destinations/${id(destinationId)}/dependencies`
-  )
-  return {
-    automations: row.automations,
-    publishJobs: row.publish_jobs,
-    publications: row.publications,
-    activeJobs: row.active_jobs,
-    blocked: row.blocked,
-  }
+  ))
 }
 
 export const deleteTelegramDestination = (destinationId: string) =>

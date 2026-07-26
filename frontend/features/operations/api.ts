@@ -1,3 +1,4 @@
+import { camelize } from "@/lib/camelize"
 import { apiRequest } from "@/lib/http"
 import type { components } from "@/lib/api/generated"
 
@@ -8,12 +9,9 @@ import type {
   HistoryPage,
   HistorySubjectType,
   OperationsSnapshot,
-  ReconciledPublication,
   ReconciliationCase,
   ReconciliationDecision,
   ReconciliationDecisionResult,
-  ReconciliationReceipt,
-  RequeuedReconciliation,
   RetentionPolicy,
   RetentionPolicyValues,
   RetentionPreview,
@@ -115,9 +113,16 @@ export async function submitReconciliationDecision(
       operator_note: decision.operatorNote,
     }),
   )
-  return row.reconciliation_status === "requeued"
-    ? mapRequeuedReconciliation(row)
-    : mapReconciledPublication(row)
+  if (row.reconciliation_status !== "requeued") return camelize(row)
+  const converted = camelize(row)
+  return {
+    ...converted,
+    job: row.job,
+    receipts: converted.receipts.map((receipt, index) => ({
+      ...receipt,
+      responseMetadata: row.receipts[index].response_metadata,
+    })),
+  }
 }
 
 export async function fetchRetentionPolicy(): Promise<RetentionPolicy> {
@@ -148,48 +153,6 @@ export async function enqueueRetentionRun(previewToken: string): Promise<Retenti
       confirmation: RETENTION_CONFIRMATION,
     }),
   )
-}
-
-function mapReconciledPublication(row: BackendReconciledPublication): ReconciledPublication {
-  return {
-    id: row.id,
-    publishJobId: row.publish_job_id,
-    destinationId: row.destination_id,
-    platformVariantRevisionId: row.platform_variant_revision_id,
-    remoteMessageIds: row.remote_message_ids,
-    permalink: row.permalink,
-    payloadHash: row.payload_hash,
-    publishedAt: row.published_at,
-    reconciliationStatus: row.reconciliation_status,
-  }
-}
-
-function mapRequeuedReconciliation(row: BackendRequeuedReconciliation): RequeuedReconciliation {
-  return {
-    publishJobId: row.publish_job_id,
-    reconciliationStatus: row.reconciliation_status,
-    job: row.job,
-    receipts: row.receipts.map(mapReconciliationReceipt),
-  }
-}
-
-function mapReconciliationReceipt(row: BackendReconciliationReceipt): ReconciliationReceipt {
-  return {
-    id: row.id,
-    operationIndex: row.operation_index,
-    operationKey: row.operation_key,
-    method: row.method,
-    requestHash: row.request_hash,
-    status: row.status,
-    attemptCount: row.attempt_count,
-    remoteMessageIds: row.remote_message_ids,
-    responseMetadata: row.response_metadata,
-    nextAttemptAt: row.next_attempt_at,
-    ambiguousAt: row.ambiguous_at,
-    completedAt: row.completed_at,
-    createdAt: row.created_at,
-    updatedAt: row.updated_at,
-  }
 }
 
 function setOptional(
