@@ -1014,6 +1014,20 @@ def test_restore_stops_replaces_and_restarts_actual_split_services(
             assert archive.getmembers()
 
 
+def test_restore_can_leave_runtime_stopped_for_offline_verification(valid_archive: Path) -> None:
+    runner = FakeRunner()
+
+    BackupRestore(runner=runner).restore(
+        valid_archive,
+        confirm_replace=True,
+        restart_services=False,
+    )
+
+    assert STOP_COMMAND in runner.commands
+    assert START_COMMAND not in runner.commands
+    assert any("pg_restore" in command and "--exit-on-error" in command for command in runner.commands)
+
+
 def test_restore_failure_restops_services_and_prints_exact_recovery_command(
     valid_archive: Path,
     capsys: pytest.CaptureFixture[str],

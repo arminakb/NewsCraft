@@ -508,6 +508,7 @@ class BackupRestore:
         *,
         confirm_replace: bool = False,
         identity_file: Path | str | None = None,
+        restart_services: bool = True,
     ) -> dict[str, Any]:
         if not confirm_replace:
             raise BackupRestoreError("restore requires --confirm-replace")
@@ -618,7 +619,8 @@ class BackupRestore:
                         "migrate",
                     ]
                 )
-                self.runner.run(START_COMMAND)
+                if restart_services:
+                    self.runner.run(START_COMMAND)
             except BaseException:
                 if stop_attempted:
                     stopped_confirmed = self._contain_runtime_services()

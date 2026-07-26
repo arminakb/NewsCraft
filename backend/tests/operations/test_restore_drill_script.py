@@ -83,3 +83,24 @@ def test_drill_override_removes_primary_ports_and_live_authority() -> None:
         "TELEGRAM_DESTINATION_NEWS_TOKEN",
     ):
         assert f'{secret_name}: ""' in override
+
+
+def test_drill_starts_restored_runtime_only_through_waiting_helper(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    commands: list[list[str]] = []
+    monkeypatch.setattr(restore_drill, "_run", lambda command, **_kwargs: commands.append(list(command)) or "")
+
+    restore_drill._start_restored_runtime()
+
+    assert commands == [
+        [
+            "docker",
+            "compose",
+            "up",
+            "-d",
+            "--no-deps",
+            "--wait",
+            *restore_drill.RUNTIME_SERVICES,
+        ]
+    ]

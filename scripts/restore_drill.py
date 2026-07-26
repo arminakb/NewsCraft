@@ -24,6 +24,7 @@ from backup_restore import (
     DATABASE_INVENTORY_SQL,
     EXPORT_ARCHIVE_NAME,
     MEDIA_ARCHIVE_NAME,
+    RUNTIME_SERVICES,
     BackupRestore,
     BackupRestoreError,
     _inventory_nested_archive,
@@ -146,6 +147,10 @@ def _write_signed_report(report: dict[str, object], path: Path, signing_key: byt
     signature_path.chmod(0o600)
 
 
+def _start_restored_runtime() -> None:
+    _run(_compose("up", "-d", "--no-deps", "--wait", *RUNTIME_SERVICES))
+
+
 def run_drill(
     *,
     archive: Path,
@@ -185,7 +190,12 @@ def run_drill(
         _run(_compose("--profile", "operations", "build", "backup"))
         manifest = workflow.verify(archive, identity_file=identity)
         _run(_compose("--profile", "operations", "up", "-d", "--build", "--wait", "postgres"))
-        workflow.restore(archive, confirm_replace=True, identity_file=identity)
+        workflow.restore(
+            archive,
+            confirm_replace=True,
+            identity_file=identity,
+            restart_services=False,
+        )
 
         with tempfile.TemporaryDirectory(prefix="newscraft-restore-proof-") as raw_dir:
             evidence = Path(raw_dir)
@@ -260,6 +270,7 @@ def run_drill(
         )
         if invalid_constraints != "0":
             raise BackupRestoreError(f"restored database has {invalid_constraints} unvalidated constraints")
+        _start_restored_runtime()
         ready_url = f"http://127.0.0.1:{api_port}/health/ready"
         with urllib.request.urlopen(ready_url, timeout=10) as response:
             if response.status != 200:
