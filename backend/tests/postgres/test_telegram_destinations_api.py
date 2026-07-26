@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import base64
+from datetime import UTC, datetime
+from uuid import uuid4
 
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -8,9 +10,16 @@ from sqlalchemy.ext.asyncio import AsyncSession
 import app.api.telegram_destinations as telegram_api
 from app.core.config import Settings
 from app.db.session import get_session
+from app.generation.providers.registry import build_default_provider_registry
+from app.jobs.registry import JobContext
+from app.jobs.types import JobExecution, JobOrigin
 from app.main import app
 from app.publishing.models import Destination, TelegramProxyProfile
+from app.publishing.telegram.handlers import build_telegram_publish_handlers
+from app.publishing.telegram.routing import TelegramRouteResolver
+from app.security.auth import SecurityPrincipal
 from app.security.models import EncryptedSecret
+from app.security.secret_store import MasterKeyRing
 
 
 def _encoded(byte: int) -> str:
@@ -116,6 +125,61 @@ async def test_destination_enable_requires_every_health_stage(
     enabled = await _request(db_session, "POST", f"/telegram/destinations/{destination_id}/enable")
     assert enabled.status_code == 200
     assert enabled.json()["enabled"] is True
+
+
+async def test_fixture_backed_destination_check_closes_secret_read_transaction(
+    db_session: AsyncSession,
+    monkeypatch,
+):
+    config = _config().model_copy(
+        update={"telegram_acceptance_fixture_path": "/acceptance-fixtures/telegram_public_album.html"}
+    )
+    monkeypatch.setattr(telegram_api, "settings", config)
+    created = await _request(
+        db_session,
+        "POST",
+        "/telegram/destinations",
+        json={"name": "Smoke", "target": "@newscraft_smoke", "bot_token": "123:synthetic-token"},
+    )
+    assert created.status_code == 202, created.text
+    destination_id = created.json()["destination"]["id"]
+    route_resolver = TelegramRouteResolver(
+        key_ring=MasterKeyRing.from_settings(config),
+        principal=SecurityPrincipal(
+            "internal_service",
+            "worker-publishing",
+            frozenset({"destinations:read"}),
+        ),
+        config=config,
+    )
+    handlers = build_telegram_publish_handlers(
+        object(),
+        object(),
+        route_resolver=route_resolver,
+    )
+    execution = JobExecution(
+        id=uuid4(),
+        job_type="telegram.destination.check",
+        payload={"destination_id": destination_id},
+        attempt_count=1,
+        max_attempts=1,
+        origin=JobOrigin.MANUAL,
+        lease_owner="test-worker",
+        created_at=datetime.now(UTC),
+        scheduled_for=None,
+        priority=0,
+        pause_sensitive=False,
+    )
+
+    result = await handlers.destination_check(
+        execution,
+        JobContext(session=db_session, providers=build_default_provider_registry()),
+    )
+
+    assert result["health_status"] == "healthy"
+    destination = await db_session.get(Destination, destination_id)
+    assert destination.health_status == "healthy"
+    assert destination.administrator_status == "administrator"
 
 
 async def _request(session: AsyncSession, method: str, path: str, **kwargs):

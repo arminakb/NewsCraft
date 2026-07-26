@@ -280,6 +280,7 @@ async def destination_check(
         elif stages["administrator_status"] == "checking":
             stages["administrator_status"] = "not_administrator"
 
+    await context.session.commit()
     configuration_changed = False
     async with context.session.begin():
         current = await context.session.scalar(
