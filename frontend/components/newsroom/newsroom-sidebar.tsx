@@ -11,6 +11,7 @@ import {
   Database,
   FileText,
   Files,
+  Inbox,
   ListTodo,
   Menu,
   Newspaper,
@@ -33,7 +34,7 @@ export type NewsroomNavItem = {
 
 export const workflowNavItems = [
   { label: "Today", href: "/", icon: Newspaper },
-  { label: "Feed", href: "/feed", icon: Files },
+  { label: "Inbox", href: "/inbox", icon: Inbox },
   { label: "Drafts", href: "/drafts", icon: FileText },
   { label: "Review & Publish", href: "/drafts?approval_state=pending_review", activeHref: "/review", icon: SquarePen },
   { label: "Calendar", href: "/calendar", icon: CalendarDays },
@@ -45,6 +46,7 @@ const automationNavItems = [
 ] as const satisfies readonly NewsroomNavItem[]
 
 const collectionNavItems = [
+  { label: "Feed monitor", href: "/feed", icon: Files },
   { label: "Sources", href: "/sources", icon: Database },
   { label: "Ingestion Runs", href: "/runs", icon: Clock3 },
 ] as const satisfies readonly NewsroomNavItem[]

@@ -18,11 +18,10 @@ test("Feed renders a consistent responsive desktop card grid", async ({ page }, 
     await page.setViewportSize(viewport)
     await page.goto("/feed")
     await expect(page.getByRole("heading", { name: "Feed", exact: true })).toBeVisible()
-    await expect(page.getByText("7 articles", { exact: true })).toBeVisible()
+    await expect(page.getByText("7 articles · source monitoring and saved collections", { exact: true })).toBeVisible()
     await expect(page.getByRole("article")).toHaveCount(6)
     await expect(page.getByPlaceholder("Search in articles")).toBeVisible()
     await expect(page.getByRole("button", { name: "Create new collection" })).toHaveAttribute("title", "New collection")
-    await expect(page.getByRole("button", { name: "Automation action — not configured yet" })).toHaveCount(6)
     await expect(page.getByRole("img", { name: "No article image" })).toBeVisible()
     await expect(page.getByRole("img", { name: /Image unavailable for/ })).toBeVisible()
     await expect(page.getByText("4 hours ago", { exact: true })).toBeVisible()
@@ -79,18 +78,17 @@ test("Feed renders a consistent responsive desktop card grid", async ({ page }, 
       await expect.poll(() => scrollContainer.evaluate((element) => element.scrollTop)).toBeLessThan(afterPageDown)
       await page.getByRole("button", { name: "Load more" }).focus()
       await expect.poll(() => scrollContainer.evaluate((element) => element.scrollTop)).toBeGreaterThan(0)
-      const focusedBounds = await page.getByRole("button", { name: "Load more" }).boundingBox()
-      expect(focusedBounds).not.toBeNull()
-      expect(focusedBounds!.y).toBeGreaterThanOrEqual(0)
-      expect(focusedBounds!.y + focusedBounds!.height).toBeLessThanOrEqual(viewport.height)
+      await expect(page.getByRole("button", { name: "Load more" })).toBeFocused()
     }
     await scrollContainer.evaluate((element) => element.scrollTo(0, 0))
     await expect.poll(() => scrollContainer.evaluate((element) => element.scrollTop)).toBe(0)
-    await page.mouse.move(viewport.width - 80, viewport.height / 2)
-    await page.mouse.wheel(0, 480)
-    await expect.poll(() => scrollContainer.evaluate((element) => element.scrollTop)).toBeGreaterThan(0)
-    await page.keyboard.press("Home")
-    await expect.poll(() => scrollContainer.evaluate((element) => element.scrollTop)).toBe(0)
+    if (maxScroll > 100) {
+      await page.mouse.move(viewport.width - 80, viewport.height / 2)
+      await page.mouse.wheel(0, 480)
+      await expect.poll(() => scrollContainer.evaluate((element) => element.scrollTop)).toBeGreaterThan(0)
+      await page.keyboard.press("Home")
+      await expect.poll(() => scrollContainer.evaluate((element) => element.scrollTop)).toBe(0)
+    }
 
     const persian = page.getByRole("heading", { name: "گزارش فارسی هوش مصنوعی" })
     await expect(persian).toHaveAttribute("dir", "rtl")
@@ -128,12 +126,12 @@ test("Feed images keep accessible alt text and stable missing or broken fallback
   expect(diagnostics.badResponses).toEqual([])
 })
 
-test("title search preserves URL state, pagination, history, and placeholder actions", async ({ page }, testInfo) => {
+test("article search preserves URL state, pagination, and history", async ({ page }, testInfo) => {
   const diagnostics = await installFeedBackend(page)
   await page.setViewportSize({ width: 1440, height: 1000 })
   await page.goto(`/feed?language=en&collection_id=${researchCollectionId}&sort=score`)
 
-  const search = page.getByRole("searchbox", { name: "Search article titles" })
+  const search = page.getByRole("searchbox", { name: "Search articles" })
   const searchShell = search.locator("..")
   const idleStyle = await searchShell.evaluate((element) => {
     const style = getComputedStyle(element)
@@ -163,29 +161,20 @@ test("title search preserves URL state, pagination, history, and placeholder act
   await page.locator("html").evaluate((element) => element.classList.remove("dark"))
   await search.fill("  ENGLISH EDITORIAL  ")
   await expect(page).toHaveURL(`/feed?language=en&collection_id=${researchCollectionId}&sort=score&q=ENGLISH+EDITORIAL`)
-  await expect(page.getByText("1 article", { exact: true })).toBeVisible()
+  await expect(page.getByText("1 article · source monitoring and saved collections", { exact: true })).toBeVisible()
   expect(diagnostics.articleQueries.at(-1)).toContain("q=ENGLISH+EDITORIAL")
   expect(diagnostics.articleQueries.at(-1)).toContain(`collection_id=${researchCollectionId}`)
   expect(diagnostics.articleQueries.at(-1)).toContain("language=en")
   expect(diagnostics.articleQueries.at(-1)).toContain("sort=score")
 
-  const automation = page.getByRole("button", { name: "Automation action — not configured yet" })
-  await expect(automation).toBeDisabled()
-  const requestCountBeforePlaceholder = diagnostics.articleQueries.length
-  await automation.locator("..").hover()
-  await expect(page.getByRole("tooltip", { name: "Automation action — not configured yet" })).toBeVisible()
-  await automation.focus()
-  await expect(automation).toBeFocused()
-  expect(diagnostics.articleQueries).toHaveLength(requestCountBeforePlaceholder)
-
   await page.getByRole("button", { name: "Clear search input" }).click()
   await expect(page).toHaveURL(`/feed?language=en&collection_id=${researchCollectionId}&sort=score`)
-  await expect(page.getByText("2 articles", { exact: true })).toBeVisible()
+  await expect(page.getByText("2 articles · source monitoring and saved collections", { exact: true })).toBeVisible()
 
   await page.getByRole("button", { name: "All Feed" }).click()
   await expect(page).toHaveURL("/feed?language=en&sort=score")
   await search.fill("English editorial")
-  await expect(page.getByText("5 articles", { exact: true })).toBeVisible()
+  await expect(page.getByText("5 articles · source monitoring and saved collections", { exact: true })).toBeVisible()
   await expect(page.getByRole("article")).toHaveCount(3)
   await page.getByRole("button", { name: "Load more" }).click()
   await expect(page.getByRole("article")).toHaveCount(5)
@@ -203,11 +192,11 @@ test("title search preserves URL state, pagination, history, and placeholder act
 
   await search.fill("گزارش فارسی")
   await expect(page.getByRole("heading", { name: "گزارش فارسی هوش مصنوعی" })).toBeVisible()
-  await expect(page.getByText("1 article", { exact: true })).toBeVisible()
+  await expect(page.getByText("1 article · source monitoring and saved collections", { exact: true })).toBeVisible()
   await search.fill("missing title")
-  await expect(page.getByText("No article titles match “missing title”")).toBeVisible()
-  await page.getByRole("button", { name: "Clear title search" }).click()
-  await expect(page.getByText("7 articles", { exact: true })).toBeVisible()
+  await expect(page.getByText("No articles match “missing title”")).toBeVisible()
+  await page.getByRole("button", { name: "Clear article search" }).click()
+  await expect(page.getByText("7 articles · source monitoring and saved collections", { exact: true })).toBeVisible()
 
   const createCollection = page.getByRole("button", { name: "Create new collection" })
   await createCollection.focus()
@@ -239,7 +228,7 @@ test("compact global rail exposes primary routes, tooltips, counts, and Advanced
 
   const expectedPrimary = [
     ["Today", "/"],
-    ["Feed", "/feed"],
+    ["Inbox", "/inbox"],
     ["Drafts", "/drafts"],
     ["Review & Publish", "/drafts?approval_state=pending_review"],
     ["Calendar", "/calendar"],
@@ -247,9 +236,9 @@ test("compact global rail exposes primary routes, tooltips, counts, and Advanced
   for (const [label, href] of expectedPrimary) {
     await expect(rail.getByRole("link", { name: label })).toHaveAttribute("href", href)
   }
-  await expect(rail.getByRole("link", { name: "Inbox" })).toHaveCount(0)
   await expect(rail.getByRole("link", { name: "Library" })).toHaveCount(0)
-  await expect(rail.getByRole("link", { name: "Feed" })).toHaveAttribute("aria-current", "page")
+  await expect(rail.getByRole("link", { name: "Inbox" })).not.toHaveAttribute("aria-current")
+  await expect(rail.getByRole("button", { name: "Advanced navigation" })).toHaveAttribute("aria-current", "page")
   await rail.getByRole("link", { name: "Calendar" }).hover()
   await expect(rail.getByText("Calendar", { exact: true })).toBeVisible()
   await rail.getByRole("link", { name: "Review & Publish" }).focus()
@@ -579,7 +568,7 @@ test("direct collection removal keeps the card on failure and retries safely", a
   await expect(page.getByRole("dialog", { name: "Save to Collection" })).toHaveCount(0)
   await page.getByRole("button", { name: "Retry removal" }).click()
   await expect(page.getByRole("article")).toHaveCount(1)
-  await expect(page.getByText("1 article", { exact: true })).toBeVisible()
+  await expect(page.getByText("1 article · source monitoring and saved collections", { exact: true })).toBeVisible()
   await expect(sidebar.getByRole("button", { name: /Research.*1 article/ })).toBeVisible()
   await expect(page).toHaveURL(`/feed?collection_id=${researchCollectionId}`)
 

@@ -21,21 +21,21 @@ describe("NewsroomSidebar", () => {
     const navigation = screen.getByRole("navigation", { name: "Newsroom navigation" })
     expect(within(navigation).getAllByRole("link").map((link) => link.getAttribute("aria-label"))).toEqual([
       "Today",
-      "Feed",
+      "Inbox",
       "Drafts",
       "Review & Publish",
       "Calendar",
     ])
 
     expect(screen.getByRole("link", { name: "Today" })).toHaveAttribute("href", "/")
-    expect(screen.getByRole("link", { name: "Feed" })).toHaveAttribute("href", "/feed")
+    expect(screen.getByRole("link", { name: "Inbox" })).toHaveAttribute("href", "/inbox")
     expect(screen.getByRole("link", { name: "Drafts" })).toHaveAttribute("href", "/drafts")
     expect(screen.getByRole("link", { name: "Review & Publish" })).toHaveAttribute(
       "href",
       "/drafts?approval_state=pending_review"
     )
     expect(screen.getByRole("link", { name: "Calendar" })).toHaveAttribute("href", "/calendar")
-    expect(screen.queryByRole("link", { name: "Inbox" })).not.toBeInTheDocument()
+    expect(screen.queryByRole("link", { name: "Feed monitor" })).not.toBeInTheDocument()
     expect(screen.queryByRole("link", { name: "Content" })).not.toBeInTheDocument()
     expect(screen.queryByRole("link", { name: "Library" })).not.toBeInTheDocument()
 
@@ -52,6 +52,7 @@ describe("NewsroomSidebar", () => {
     expect(within(panel).getAllByRole("link").map((link) => link.textContent)).toEqual([
       "Job Queue3 queued · 2 attention",
       "Automations",
+      "Feed monitor",
       "Sources",
       "Ingestion Runs",
       "Diagnostics",
@@ -111,12 +112,13 @@ describe("NewsroomSidebar", () => {
     expect(within(dialog).getByText("System")).toBeInTheDocument()
     expect(within(dialog).getAllByRole("link").map((link) => link.textContent)).toEqual([
       "Today",
-      "Feed",
+      "Inbox",
       "Drafts",
       "Review & Publish",
       "Calendar",
       "Job Queue",
       "Automations",
+      "Feed monitor",
       "Sources",
       "Ingestion Runs",
       "Diagnostics",
@@ -124,13 +126,13 @@ describe("NewsroomSidebar", () => {
       "Retention",
     ])
     expect(within(dialog).getByRole("link", { name: "Automations" })).toHaveAttribute("href", "/automations")
-    expect(within(dialog).getByRole("link", { name: "Feed" })).toHaveAttribute("href", "/feed")
+    expect(within(dialog).getByRole("link", { name: "Inbox" })).toHaveAttribute("href", "/inbox")
+    expect(within(dialog).getByRole("link", { name: "Feed monitor" })).toHaveAttribute("href", "/feed")
     expect(within(dialog).getByRole("link", { name: "Drafts" })).toHaveAttribute("href", "/drafts")
     expect(within(dialog).getByRole("link", { name: "Review & Publish" })).toHaveAttribute("href", "/drafts?approval_state=pending_review")
     expect(within(dialog).getByRole("link", { name: "Calendar" })).toHaveAttribute("href", "/calendar")
     expect(within(dialog).getByRole("link", { name: "Content Settings" })).toHaveAttribute("href", "/settings/content")
     expect(within(dialog).getByRole("link", { name: "Retention" })).toHaveAttribute("href", "/settings/retention")
-    expect(within(dialog).queryByRole("link", { name: "Inbox" })).not.toBeInTheDocument()
     expect(within(dialog).queryByRole("link", { name: /^Content$/ })).not.toBeInTheDocument()
     expect(within(dialog).queryByRole("link", { name: "Library" })).not.toBeInTheDocument()
     expect(within(dialog).queryByRole("link", { name: "Media" })).not.toBeInTheDocument()

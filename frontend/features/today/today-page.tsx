@@ -2,9 +2,11 @@
 
 import type { ReactNode } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import { ArrowRight, CircleAlert, FilePlus2, SquarePen } from "lucide-react"
+import Link from "next/link"
 
 import { useNotices } from "@/components/providers/notice-provider"
-import { Button } from "@/components/ui/button"
+import { Button, buttonVariants } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { GlobalControls } from "@/features/control/global-controls"
 import { cancelJob, getJobs, getJobSummary, retryJob } from "@/features/jobs/api"
@@ -54,6 +56,7 @@ export function TodayPage({ outcomes }: { outcomes?: ReactNode }) {
   const loading = queries.some((query) => query.isPending)
   const summary = summaryQuery.data
   const isEmpty = summary && Object.values(summary).every((count) => count === 0)
+  const priorityJob = attentionQuery.data?.[0]
   const pendingJobId = retryMutation.isPending
     ? retryMutation.variables
     : cancelMutation.isPending
@@ -70,8 +73,6 @@ export function TodayPage({ outcomes }: { outcomes?: ReactNode }) {
         <h1 id="today-heading" className="text-2xl font-semibold">Today</h1>
         <p className="text-muted-foreground">Live workflow truth and the work that needs an operator.</p>
       </div>
-      <GlobalControls />
-      {outcomes}
       {loading ? (
         <div role="status" aria-label="Loading Today" className="grid grid-cols-2 gap-3 md:grid-cols-4">
           {Array.from({ length: 4 }, (_, index) => (
@@ -88,13 +89,17 @@ export function TodayPage({ outcomes }: { outcomes?: ReactNode }) {
         </Card>
       ) : null}
       {summary ? (
-        <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-          <SummaryCard label="Queued" value={summary.queued} kind="queued" />
-          <SummaryCard label="Running" value={summary.running} kind="running" />
-          <SummaryCard label="Attention" value={summary.attention} kind="attention" />
-          <SummaryCard label="Succeeded today" value={summary.succeededToday} kind="succeeded" />
-        </div>
+        <HealthSummary summary={summary} />
       ) : null}
+      {!firstError && summary ? (
+        <PriorityDecision
+          job={priorityJob}
+          pending={Boolean(priorityJob && pendingJobId === priorityJob.id)}
+          onResolve={(id) => retryMutation.mutate(id)}
+        />
+      ) : null}
+      <GlobalControls />
+      {outcomes}
       {isEmpty ? <Card size="sm"><CardContent className="p-8 text-center text-muted-foreground">No workflow jobs yet</CardContent></Card> : null}
       {!firstError && !isEmpty && summary ? (
         <div className="grid min-w-0 gap-4 xl:grid-cols-2">
@@ -137,6 +142,84 @@ export function TodayPage({ outcomes }: { outcomes?: ReactNode }) {
   )
 }
 
-function SummaryCard({ label, value, kind }: { label: string; value: number; kind: "queued" | "running" | "attention" | "succeeded" }) {
-  return <Card size="sm"><CardContent className="p-4"><div className="text-sm text-muted-foreground">{label}</div><div data-summary={kind} className="mt-1 text-2xl font-semibold tabular-nums">{value}</div></CardContent></Card>
+function HealthSummary({
+  summary,
+}: {
+  summary: { queued: number; running: number; attention: number; succeededToday: number }
+}) {
+  const values = [
+    ["Queued", summary.queued, "queued"],
+    ["Running", summary.running, "running"],
+    ["Attention", summary.attention, "attention"],
+    ["Succeeded", summary.succeededToday, "succeeded"],
+  ] as const
+  return (
+    <Card size="sm" aria-label="Workflow health" role="region">
+      <CardContent className="grid grid-cols-2 divide-x divide-y p-0 sm:grid-cols-4 sm:divide-y-0">
+        {values.map(([label, value, kind]) => (
+          <div className="flex items-baseline justify-between gap-3 px-4 py-3 sm:block" key={kind}>
+            <span className="text-xs text-muted-foreground">{label}</span>
+            <strong className="text-xl tabular-nums sm:mt-1 sm:block" data-summary={kind}>{value}</strong>
+          </div>
+        ))}
+      </CardContent>
+    </Card>
+  )
+}
+
+function PriorityDecision({
+  job,
+  pending,
+  onResolve,
+}: {
+  job: Awaited<ReturnType<typeof getJobs>>[number] | undefined
+  pending: boolean
+  onResolve: (id: string) => void
+}) {
+  if (job?.status === "failed") {
+    return (
+      <Card size="sm" role="region" aria-label="Highest-priority decision">
+        <CardContent className="flex flex-wrap items-center justify-between gap-4 p-4">
+          <div className="min-w-0">
+            <div className="flex items-center gap-2 font-semibold"><CircleAlert className="size-5 text-red-700" aria-hidden="true" />Resolve failed workflow</div>
+            <p className="mt-1 truncate text-sm text-muted-foreground" dir="auto">{job.jobType}</p>
+          </div>
+          <Button disabled={pending} onClick={() => onResolve(job.id)}>
+            Resolve failure
+            <ArrowRight aria-hidden="true" />
+          </Button>
+        </CardContent>
+      </Card>
+    )
+  }
+  if (job?.status === "needs_review") {
+    return (
+      <Card size="sm" role="region" aria-label="Highest-priority decision">
+        <CardContent className="flex flex-wrap items-center justify-between gap-4 p-4">
+          <div>
+            <div className="flex items-center gap-2 font-semibold"><SquarePen className="size-5 text-amber-700" aria-hidden="true" />Editorial review is waiting</div>
+            <p className="mt-1 text-sm text-muted-foreground">Continue with the oldest item needing a decision.</p>
+          </div>
+          <Link className={buttonVariants()} href="/drafts?approval_state=pending_review">
+            Continue review
+            <ArrowRight aria-hidden="true" />
+          </Link>
+        </CardContent>
+      </Card>
+    )
+  }
+  return (
+    <Card size="sm" role="region" aria-label="Highest-priority decision">
+      <CardContent className="flex flex-wrap items-center justify-between gap-4 p-4">
+        <div>
+          <div className="flex items-center gap-2 font-semibold"><FilePlus2 className="size-5 text-teal-700" aria-hidden="true" />Start the next story</div>
+          <p className="mt-1 text-sm text-muted-foreground">No failures or reviews are blocking today.</p>
+        </div>
+        <Link className={buttonVariants()} href="/inbox?add=story">
+          Add story
+          <ArrowRight aria-hidden="true" />
+        </Link>
+      </CardContent>
+    </Card>
+  )
 }

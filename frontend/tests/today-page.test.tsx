@@ -67,6 +67,8 @@ describe("TodayPage", () => {
     renderToday()
 
     expect(await screen.findByText("No workflow jobs yet")).toBeInTheDocument()
+    const priority = screen.getByRole("region", { name: "Highest-priority decision" })
+    expect(within(priority).getByRole("link", { name: /Add story/ })).toHaveAttribute("href", "/inbox?add=story")
   })
 
   it("renders summary-only counts, exact attention statuses, progress API text, and successes", async () => {
@@ -83,6 +85,10 @@ describe("TodayPage", () => {
     expect(progressText).toHaveAttribute("dir", "auto")
     expect(screen.getByText("42%", { selector: "[data-progress-label]" })).toHaveAttribute("dir", "auto")
     expect(screen.getByText("خطای شبکه")).toHaveAttribute("dir", "auto")
+    const priority = screen.getByRole("region", { name: "Highest-priority decision" })
+    expect(within(priority).getByText("Resolve failed workflow")).toBeInTheDocument()
+    fireEvent.click(within(priority).getByRole("button", { name: /Resolve failure/ }))
+    await waitFor(() => expect(retryJob).toHaveBeenCalledWith(failedJob.id))
     expect(screen.getByRole("region", { name: "Recent successes" })).toHaveTextContent(successJob.jobType)
   })
 

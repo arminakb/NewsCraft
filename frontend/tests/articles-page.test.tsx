@@ -102,7 +102,7 @@ describe("Feed page", () => {
     renderArticles()
 
     expect(screen.getByRole("heading", { name: "Feed", level: 1 })).toBeInTheDocument()
-    expect(await screen.findByText((_, element) => element?.textContent === "2 articles")).toBeInTheDocument()
+    expect(await screen.findByText("2 articles · source monitoring and saved collections")).toBeInTheDocument()
     expect(screen.getByText("English report").closest("[data-testid='direction-boundary']"))
       .toHaveAttribute("dir", "ltr")
     expect(screen.getByText("گزارش فارسی").closest("[data-testid='direction-boundary']"))
@@ -132,10 +132,7 @@ describe("Feed page", () => {
     for (const card of screen.getAllByRole("article")) expect(card).toHaveClass("h-full")
     fireEvent.error(screen.getByRole("img", { name: "Editorial image" }))
     expect(screen.getByRole("img", { name: "Image unavailable for English report" })).toBeInTheDocument()
-    const automationButtons = screen.getAllByRole("button", { name: "Automation action — not configured yet" })
-    expect(automationButtons).toHaveLength(2)
-    for (const button of automationButtons) expect(button).toHaveAttribute("aria-disabled", "true")
-    fireEvent.click(automationButtons[0])
+    expect(screen.queryByRole("button", { name: "Automation action — not configured yet" })).not.toBeInTheDocument()
     expect(saveArticleToCollection).not.toHaveBeenCalled()
     expect(removeArticleFromCollection).not.toHaveBeenCalled()
   })
@@ -148,7 +145,7 @@ describe("Feed page", () => {
     renderArticles()
     await screen.findByText("Climate report")
 
-    const input = screen.getByRole("searchbox", { name: "Search article titles" })
+    const input = screen.getByRole("searchbox", { name: "Search articles" })
     expect(input.parentElement).toHaveClass("has-[:focus-visible]:border-ring")
     expect(input.parentElement).not.toHaveClass("focus-within:ring-2", "focus-within:ring-ring")
     fireEvent.change(input, { target: { value: "  Climate  " } })
@@ -175,17 +172,17 @@ describe("Feed page", () => {
     })
   })
 
-  it("restores title search from URL and shows title-specific empty state", async () => {
+  it("restores article search from URL and shows the query empty state", async () => {
     setSearch("q=%DA%AF%D8%B2%D8%A7%D8%B1%D8%B4&topic=Tech")
     vi.mocked(getArticles).mockResolvedValue({ items: [], nextCursor: null, resultCount: 0 })
     renderArticles()
 
-    expect(await screen.findByText("No article titles match “گزارش”")).toBeInTheDocument()
-    expect(screen.getByRole("searchbox", { name: "Search article titles" })).toHaveValue("گزارش")
+    expect(await screen.findByText("No articles match “گزارش”")).toBeInTheDocument()
+    expect(screen.getByRole("searchbox", { name: "Search articles" })).toHaveValue("گزارش")
     expect(getArticles).toHaveBeenLastCalledWith({
       sort: "newest", query: "گزارش", filters: { ...emptyFilters(), topics: ["Tech"] }, cursor: null, limit: 50,
     })
-    fireEvent.click(screen.getByRole("button", { name: "Clear title search" }))
+    fireEvent.click(screen.getByRole("button", { name: "Clear article search" }))
     await waitFor(() => expect(window.history.pushState).toHaveBeenLastCalledWith(null, "", "/feed?topic=Tech"))
   })
 
@@ -969,7 +966,7 @@ describe("Feed page", () => {
     await waitFor(() => expect(removeArticleFromCollection).toHaveBeenCalledWith(collectionId, "article"))
     expect(removeArticleFromCollection).toHaveBeenCalledTimes(1)
     expect(await screen.findByText("Research is empty")).toBeInTheDocument()
-    expect(screen.getByText("0 articles")).toBeInTheDocument()
+    expect(screen.getByText("0 articles · source monitoring and saved collections")).toBeInTheDocument()
     expect(screen.getByRole("button", { name: /Research.*0 articles/ })).toBeInTheDocument()
     expect(screen.getByRole("button", { name: /Archive.*1 article/ })).toBeInTheDocument()
     expect(navigation.search).toBe(`language=en&collection_id=${collectionId}&sort=score`)

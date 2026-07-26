@@ -6,6 +6,7 @@ import { installMockBackend } from "./support/mock-backend"
 
 const ROUTES = [
   { path: "/", name: "Today", readyText: "No workflow jobs yet" },
+  { path: "/inbox", name: "Inbox", readyText: "This view is clear" },
   { path: "/automations", name: "Telegram automations", readyText: "No Telegram automations yet" },
   { path: "/drafts", name: "Drafts", readyText: "No durable generation requests yet." },
   { path: "/calendar", name: "Publication calendar", readyText: "No publication events in this calendar window." },

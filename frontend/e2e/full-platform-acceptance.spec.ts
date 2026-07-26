@@ -75,6 +75,7 @@ type BackendState = {
   controlRequests: Array<Record<string, unknown>>
   copyReady: boolean
   dryRunRequests: Array<Record<string, unknown>>
+  editorialRequests: Array<Record<string, unknown>>
   emptyCalendar: boolean
   emptyInbox: boolean
   exportPolls: number
@@ -294,11 +295,18 @@ test("mobile navigation omits legacy surfaces and reaches surviving routes witho
   await page.getByRole("button", { name: "Open navigation" }).click()
   const navigation = page.getByRole("dialog", { name: "Newsroom navigation" })
   await expect(navigation).toBeVisible()
-  await expect(navigation.getByRole("link", { name: "Inbox", exact: true })).toHaveCount(0)
+  await expect(navigation.getByRole("link", { name: "Inbox", exact: true })).toHaveAttribute("href", "/inbox")
   await expect(navigation.getByRole("link", { name: "Content", exact: true })).toHaveCount(0)
   await expect(navigation.getByRole("link", { name: "Library", exact: true })).toHaveCount(0)
   await expect(navigation.getByRole("link", { name: "Media", exact: true })).toHaveCount(0)
-  await navigation.getByRole("link", { name: "Drafts", exact: true }).click()
+  await navigation.getByRole("link", { name: "Inbox", exact: true }).click()
+  await expect(page.getByRole("heading", { name: "Inbox", exact: true })).toBeVisible()
+  await page.getByRole("button", { name: "Shortlist", exact: true }).click()
+  await expect.poll(() => backend.editorialRequests).toEqual([{ state: "shortlisted" }])
+  await expectNoHorizontalOverflow(page)
+
+  await page.getByRole("button", { name: "Open navigation" }).click()
+  await page.getByRole("dialog", { name: "Newsroom navigation" }).getByRole("link", { name: "Drafts", exact: true }).click()
   await expect(page).toHaveURL(/\/drafts$/)
   await expect(page.getByRole("heading", { name: "Drafts", exact: true })).toBeVisible()
   await expectNoHorizontalOverflow(page)
@@ -403,6 +411,7 @@ async function installAcceptanceBackend(page: Page, options: BackendOptions = {}
     controlRequests: [],
     copyReady: false,
     dryRunRequests: [],
+    editorialRequests: [],
     emptyCalendar: Boolean(options.emptyCalendar),
     emptyInbox: Boolean(options.emptyInbox),
     exportPolls: 0,
@@ -456,6 +465,10 @@ async function installAcceptanceBackend(page: Page, options: BackendOptions = {}
     }
 
     if (path === "/stories" && method === "GET") return json(route, { items: state.emptyInbox ? [] : [storySummaryWire()], next_cursor: null })
+    if (path === `/stories/${ids.story}/editorial-state` && method === "PATCH" && body) {
+      state.editorialRequests.push(body)
+      return json(route, { ...storySummaryWire(), status: body.state })
+    }
     if (path === `/stories/${ids.story}` && method === "GET") return json(route, storySummaryWire())
     if (path === `/stories/${ids.story}/evidence` && method === "GET") return json(route, [evidenceWire()])
     if (path === "/stories/manual" && method === "POST" && body) {
