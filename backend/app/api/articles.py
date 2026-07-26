@@ -13,7 +13,7 @@ from uuid import UUID
 
 import nh3
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import case, exists, func, literal_column, or_, select
+from sqlalchemy import case, exists, func, literal, literal_column, or_, select, union_all
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 from sqlalchemy.sql import Select
@@ -41,11 +41,9 @@ from app.api.article_schemas import (
 )
 from app.api.stories import _story_summaries
 from app.content.article_metadata import (
-    canonical_article_expressions,
     canonical_content_type,
     canonical_language,
     canonical_topic,
-    canonicalize_article_classification,
 )
 from app.db.models import ArticleCollection, ArticleCollectionItem, ContentItem, ItemMedia, MediaAsset, Source
 from app.db.session import get_session
@@ -105,10 +103,10 @@ def _topic_expression():
 
 
 def _article_classification_expressions():
-    return canonical_article_expressions(
-        ContentItem.content_type,
-        _topic_expression(),
-        ContentItem.language_code,
+    return (
+        ContentItem.canonical_classification["content_type"].astext,
+        ContentItem.canonical_classification["topic"].astext,
+        ContentItem.canonical_classification["language"].astext,
     )
 
 
@@ -219,7 +217,49 @@ def _coverage_state_expression():
     )
 
 
+def _coverage_facet_statement() -> Select:
+    active_link = aliased(StoryEvidenceSnapshot)
+    active_story = aliased(Story)
+    active_items = (
+        select(active_link.content_item_id.label("content_item_id"))
+        .join(active_story, active_story.id == active_link.story_id)
+        .where(active_story.superseded_by_id.is_(None))
+        .group_by(active_link.content_item_id)
+        .subquery("active_story_items")
+    )
+    complete_link = aliased(StoryEvidenceSnapshot)
+    complete_story = aliased(Story)
+    completeness = _story_completeness_subquery()
+    complete_items = (
+        select(complete_link.content_item_id.label("content_item_id"))
+        .join(complete_story, complete_story.id == complete_link.story_id)
+        .join(completeness, completeness.c.story_id == complete_story.id)
+        .where(
+            complete_story.superseded_by_id.is_(None),
+            completeness.c.source_count >= 2,
+            completeness.c.body_character_count >= 800,
+            completeness.c.has_primary.is_(True),
+        )
+        .group_by(complete_link.content_item_id)
+        .subquery("complete_story_items")
+    )
+    coverage_state = case(
+        (complete_items.c.content_item_id.is_not(None), "complete"),
+        (active_items.c.content_item_id.is_not(None), "incomplete"),
+        else_="ungrouped",
+    ).label("coverage_state")
+    return (
+        select(coverage_state, func.count(ContentItem.id).label("count"))
+        .select_from(ContentItem)
+        .outerjoin(active_items, active_items.c.content_item_id == ContentItem.id)
+        .outerjoin(complete_items, complete_items.c.content_item_id == ContentItem.id)
+        .group_by(coverage_state)
+        .order_by(coverage_state)
+    )
+
+
 def _base_article_columns() -> tuple:
+    content_type, topic, language = _article_classification_expressions()
     return (
         ContentItem.id,
         ContentItem.title,
@@ -230,6 +270,9 @@ def _base_article_columns() -> tuple:
         ContentItem.sort_at,
         _display_at_expression().label("display_at"),
         ContentItem.score,
+        content_type.label("content_type"),
+        topic.label("topic"),
+        language.label("language"),
         ContentItem.content_type.label("raw_content_type"),
         _topic_expression().label("raw_topic"),
         ContentItem.classification_metadata["source_domain"].astext.label("domain"),
@@ -608,17 +651,42 @@ def _coverage(associations: list[tuple[Story, dict]]) -> ArticleCoverageOut:
     return ArticleCoverageOut(state=state, stories=stories)
 
 
-async def _text_facets(session: AsyncSession, expression) -> list[ArticleFacetValueOut]:
-    value = expression.label("value")
-    rows = (
-        await session.execute(
-            select(value, func.count(ContentItem.id).label("count"))
-            .where(value.is_not(None))
-            .group_by(value)
-            .order_by(value)
+async def _classification_facets(session: AsyncSession) -> dict[str, list[ArticleFacetValueOut]]:
+    content_type, topic, language = _article_classification_expressions()
+    classifications = (
+        select(
+            content_type.label("content_type"),
+            topic.label("topic"),
+            language.label("language"),
         )
-    ).all()
-    return [ArticleFacetValueOut(value=row._mapping["value"], count=row._mapping["count"]) for row in rows]
+        .cte("article_classifications")
+        .prefix_with("MATERIALIZED")
+    )
+    statements = []
+    for facet, expression in (
+        ("content_types", classifications.c.content_type),
+        ("topics", classifications.c.topic),
+        ("languages", classifications.c.language),
+    ):
+        statements.append(
+            select(
+                literal(facet).label("facet"),
+                expression.label("value"),
+                func.count().label("count"),
+            )
+            .select_from(classifications)
+            .where(expression.is_not(None))
+            .group_by(expression)
+        )
+    rows = (await session.execute(union_all(*statements).order_by("facet", "value"))).all()
+    output: dict[str, list[ArticleFacetValueOut]] = {
+        "content_types": [],
+        "topics": [],
+        "languages": [],
+    }
+    for row in rows:
+        output[row.facet].append(ArticleFacetValueOut(value=row.value, count=row._mapping["count"]))
+    return output
 
 
 def _core_fields(
@@ -627,11 +695,6 @@ def _core_fields(
     saved_collection_ids: list[UUID],
 ) -> dict[str, Any]:
     image = _primary_image(row)
-    classification = canonicalize_article_classification(
-        content_type=row.raw_content_type,
-        topic=row.raw_topic,
-        language=row.raw_language_code,
-    )
     return {
         "id": row.id,
         "title": row.title,
@@ -644,10 +707,10 @@ def _core_fields(
         "display_at": row.display_at,
         "date_basis": "published" if row.published_at is not None else "collected",
         "score": row.score,
-        "content_type": classification.content_type,
-        "topic": classification.topic,
+        "content_type": row.content_type,
+        "topic": row.topic,
         "domain": _domain(row.domain),
-        "language": classification.language,
+        "language": row.language,
         "direction": _direction(row.direction),
         "coverage": coverage,
         "image": image,
@@ -882,20 +945,12 @@ async def get_article_facets(
             .order_by(Source.name, Source.platform, Source.id)
         )
     ).all()
-    coverage_state = _coverage_state_expression().label("coverage_state")
-    coverage_rows = (
-        await session.execute(
-            select(coverage_state, func.count(ContentItem.id).label("count"))
-            .select_from(ContentItem)
-            .group_by(coverage_state)
-            .order_by(coverage_state)
-        )
-    ).all()
-    content_type, topic, language = _article_classification_expressions()
+    coverage_rows = (await session.execute(_coverage_facet_statement())).all()
+    classification_facets = await _classification_facets(session)
     return ArticleFacetsOut(
-        languages=await _text_facets(session, language),
-        topics=await _text_facets(session, topic),
-        content_types=await _text_facets(session, content_type),
+        languages=classification_facets["languages"],
+        topics=classification_facets["topics"],
+        content_types=classification_facets["content_types"],
         sources=[
             ArticleSourceFacetOut(
                 id=row.id,

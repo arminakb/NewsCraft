@@ -8,6 +8,7 @@ from sqlalchemy import (
     BigInteger,
     Boolean,
     CheckConstraint,
+    Computed,
     DateTime,
     ForeignKey,
     Index,
@@ -136,6 +137,13 @@ class ContentItem(Base):
     content_type_confidence: Mapped[Decimal] = mapped_column(Numeric, nullable=False, server_default="0")
     classification_reasons: Mapped[list] = mapped_column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
     classification_metadata: Mapped[dict] = mapped_column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
+    canonical_classification: Mapped[dict] = mapped_column(
+        JSONB,
+        Computed(
+            "newscraft_canonical_article_classification("
+            "content_type, metrics -> 'classification' ->> 'category', language_code)"
+        ),
+    )
     rewrite_bucket: Mapped[str | None] = mapped_column(Text)
     freshness_bucket: Mapped[str] = mapped_column(Text, nullable=False, server_default="unknown")
     source_tier: Mapped[str] = mapped_column(Text, nullable=False, server_default="unknown")
