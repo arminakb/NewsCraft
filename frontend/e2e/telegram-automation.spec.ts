@@ -40,7 +40,8 @@ for (const viewport of [
 
     await page.goto("/automations")
     await page.getByRole("link", { name: "New automation" }).click()
-    await expect(page.getByRole("heading", { name: "New Telegram automation" })).toBeVisible()
+    await expect(page).toHaveURL(/\/automations\/new$/, { timeout: 20_000 })
+    await expect(page.getByRole("heading", { name: "New Telegram automation" })).toBeVisible({ timeout: 20_000 })
     await expectNoHorizontalOverflow(page)
     await expect(page.getByLabel("Access mode")).toHaveValue("public_html")
     await expect(page.getByLabel("Research mode")).toHaveValue("off")

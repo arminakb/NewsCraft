@@ -14,6 +14,7 @@ const chromiumLaunchOptions =
 export default defineConfig({
   testDir: "./e2e",
   outputDir: "./test-results",
+  workers: 2,
   use: {
     baseURL: playwrightBaseUrl,
     trace: "retain-on-failure",

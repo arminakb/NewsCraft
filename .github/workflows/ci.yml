@@ -34,9 +34,17 @@ jobs:
       - uses: actions/setup-python@v6
         with:
           python-version: ${{ env.PYTHON_VERSION }}
+      - uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
       - name: Frozen development install
         working-directory: backend
         run: uv sync --locked
+      - name: Frozen frontend static install
+        working-directory: frontend
+        run: npm ci
       - name: Compile, lint, format, and typecheck
         working-directory: backend
         run: |

@@ -82,6 +82,21 @@ def test_ci_uses_frozen_installs_test_database_guard_and_retained_artifacts() ->
     )
 
 
+def test_static_quality_job_installs_frontend_toolchain_before_cross_stack_gate() -> None:
+    workflow = _workflow(CI_PATH)
+    steps = workflow["jobs"]["backend-static"]["steps"]
+    setup_node_index = next(index for index, step in enumerate(steps) if step.get("uses") == "actions/setup-node@v6")
+    frontend_install_index = next(
+        index
+        for index, step in enumerate(steps)
+        if step.get("working-directory") == "frontend" and step.get("run") == "npm ci"
+    )
+    quality_gate_index = next(
+        index for index, step in enumerate(steps) if "quality_baseline.py --check" in str(step.get("run", ""))
+    )
+    assert setup_node_index < frontend_install_index < quality_gate_index
+
+
 def test_nightly_has_real_stack_restart_restore_and_large_list_drills() -> None:
     workflow = _workflow(NIGHTLY_PATH)
     jobs = workflow["jobs"]

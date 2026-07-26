@@ -622,12 +622,8 @@ class SmokeDriver:
                 None,
             )
             source_state = source_option.get("capability_state") if source_option is not None else None
-            destination_state = (
-                destination_option.get("capability_state") if destination_option is not None else None
-            )
-            option_capabilities = (
-                provider_option.get("capabilities") if provider_option is not None else None
-            )
+            destination_state = destination_option.get("capability_state") if destination_option is not None else None
+            option_capabilities = provider_option.get("capabilities") if provider_option is not None else None
             ready = (
                 brand_option is not None
                 and prompt is not None
@@ -916,7 +912,10 @@ class SmokeDriver:
             _required_id(variant.get("id"), "platform_variant_id_missing")
             _required_id(revision.get("id"), "platform_revision_id_missing")
             _required_hash(revision.get("content_hash"), "platform_content_hash_invalid")
-            _require(revision.get("approval_state") == "pending_review", "platform_review_state_invalid")
+            _require(
+                revision.get("approval_state") == "pending_review",
+                "platform_review_state_invalid",
+            )
             if platform == "telegram":
                 _require(
                     bool(content.get("body")) and content.get("parse_mode") == "HTML",
@@ -1195,13 +1194,19 @@ class SmokeDriver:
             )
         _require(len(names) == len(set(names)), "export_file_names_not_unique")
         archive_file = artifact.get("archive_file")
-        _require(isinstance(archive_file, str) and bool(archive_file), "export_archive_missing")
+        _require(
+            isinstance(archive_file, str) and bool(archive_file),
+            "export_archive_missing",
+        )
         archive_hash = _required_hash(
             artifact.get("archive_sha256"),
             "export_archive_checksum_invalid",
         )
         manifest_file = artifact.get("manifest_file")
-        _require(isinstance(manifest_file, str) and bool(manifest_file), "export_manifest_file_missing")
+        _require(
+            isinstance(manifest_file, str) and bool(manifest_file),
+            "export_manifest_file_missing",
+        )
         expected_downloads: dict[str, tuple[str, int | None]] = {
             str(manifest_file): (expected_manifest_hash, len(canonical_manifest)),
             str(archive_file): (archive_hash, None),
@@ -1217,9 +1222,15 @@ class SmokeDriver:
         downloaded: dict[str, bytes] = {}
         prefix = f"/exports/{job_id}/download/"
         for path in downloads:
-            _require(isinstance(path, str) and path.startswith(prefix), "export_download_path_invalid")
+            _require(
+                isinstance(path, str) and path.startswith(prefix),
+                "export_download_path_invalid",
+            )
             file_name = str(path).removeprefix(prefix)
-            _require(file_name in expected_downloads and file_name not in downloaded, "export_download_set_invalid")
+            _require(
+                file_name in expected_downloads and file_name not in downloaded,
+                "export_download_set_invalid",
+            )
             content = self._request_bytes(str(path)).data
             expected_hash, expected_length = expected_downloads[file_name]
             _require(
@@ -1421,7 +1432,11 @@ class SmokeDriver:
         _require(completed_job.get("status") == "succeeded", "paused_backfill_not_resumed")
         return StepEvidence(
             ids={"route_id": route_id, "backfill_job_id": backfill_job_id},
-            statuses={"global_pause": "resumed", "route": "resumed", "backfill": "succeeded"},
+            statuses={
+                "global_pause": "resumed",
+                "route": "resumed",
+                "backfill": "succeeded",
+            },
             invariants=(
                 "global_pause_override",
                 "route_pause_and_resume",
@@ -1445,7 +1460,11 @@ class SmokeDriver:
             self._request(
                 "GET",
                 "/operations/history",
-                query={"subject_type": "automation_route", "subject_id": route_id, "limit": 50},
+                query={
+                    "subject_type": "automation_route",
+                    "subject_id": route_id,
+                    "limit": 50,
+                },
             ).data,
             "route_history_invalid",
         )
@@ -1479,7 +1498,10 @@ class SmokeDriver:
             "pause_history_category_invalid",
         )
         serialized = json.dumps(pages, ensure_ascii=False, sort_keys=True)
-        _require(str(self._state["secret_canary"]) not in serialized, "history_secret_canary_leaked")
+        _require(
+            str(self._state["secret_canary"]) not in serialized,
+            "history_secret_canary_leaked",
+        )
         return StepEvidence(
             ids={
                 "story_id": story_id,
@@ -1516,7 +1538,10 @@ class SmokeDriver:
         for name in sorted(EXPECTED_RUNTIME_COMPONENTS):
             component = _as_dict(components[name], "diagnostics_component_invalid")
             status = component.get("status")
-            _require(status in {"healthy", "degraded", "down", "unknown"}, "component_status_invalid")
+            _require(
+                status in {"healthy", "degraded", "down", "unknown"},
+                "component_status_invalid",
+            )
             observed_at = _parse_time(
                 component.get("observed_at"),
                 "component_observed_at_invalid",

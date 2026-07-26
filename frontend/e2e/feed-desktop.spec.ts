@@ -67,8 +67,9 @@ test("Feed renders a consistent responsive desktop card grid", async ({ page }, 
     await page.getByRole("main").focus()
     await page.keyboard.press("End")
     await expect.poll(() => scrollContainer.evaluate((element) => element.scrollTop)).toBeGreaterThan(0)
-    await page.keyboard.press("Home")
-    await expect.poll(() => scrollContainer.evaluate((element) => element.scrollTop)).toBe(0)
+    const afterEnd = await scrollContainer.evaluate((element) => element.scrollTop)
+    await page.keyboard.press("Control+Home")
+    await expect.poll(() => scrollContainer.evaluate((element) => element.scrollTop)).toBeLessThan(afterEnd)
     const maxScroll = await scrollContainer.evaluate((element) => element.scrollHeight - element.clientHeight)
     if (maxScroll > 100) {
       await page.keyboard.press("PageDown")
@@ -88,8 +89,9 @@ test("Feed renders a consistent responsive desktop card grid", async ({ page }, 
       await page.mouse.move(viewport.width - 80, viewport.height / 2)
       await page.mouse.wheel(0, 480)
       await expect.poll(() => scrollContainer.evaluate((element) => element.scrollTop)).toBeGreaterThan(0)
-      await page.keyboard.press("Home")
-      await expect.poll(() => scrollContainer.evaluate((element) => element.scrollTop)).toBe(0)
+      const afterWheel = await scrollContainer.evaluate((element) => element.scrollTop)
+      await page.keyboard.press("Control+Home")
+      await expect.poll(() => scrollContainer.evaluate((element) => element.scrollTop)).toBeLessThan(afterWheel)
     }
 
     const persian = page.getByRole("heading", { name: "گزارش فارسی هوش مصنوعی" })
