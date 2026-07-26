@@ -3,8 +3,8 @@ from uuid import uuid4
 
 import pytest
 
-from app.validation import persian_generation
-from app.validation.persian_generation import (
+from qualification import persian_generation
+from qualification.persian_generation import (
     EvaluationDataError,
     build_execution_plan,
     load_corpus,

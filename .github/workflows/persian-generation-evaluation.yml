@@ -59,7 +59,7 @@ jobs:
           PYTHONPATH=. uv run python -m app.jobs.worker --capability generation &
           worker_pid=$!
           trap 'kill "$worker_pid" 2>/dev/null || true' EXIT
-          PYTHONPATH=. uv run python -m app.validation.persian_generation \
+          PYTHONPATH=. uv run python -m qualification.persian_generation \
             --corpus ../validation/persian-generation/corpus-v1.json \
             --provider-profile-id "$PROVIDER_PROFILE_ID" \
             --repeats 2 \

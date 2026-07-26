@@ -1,3 +1,5 @@
+"""Protected Persian generation qualification CLI."""
+
 from __future__ import annotations
 
 import argparse

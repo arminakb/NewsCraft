@@ -98,7 +98,7 @@ jobs:
         working-directory: backend
         run: |
           mkdir -p ../reports/live-telegram-staging
-          uv run python -m app.validation.telegram_staging \
+          uv run python -m qualification.telegram_staging \
             --scenario "$SCENARIO" \
             --destination-id "$DESTINATION_ID" \
             --revision-id "$REVISION_ID" \

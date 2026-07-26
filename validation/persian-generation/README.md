@@ -42,7 +42,7 @@ Score and sign the completed review set only in the protected environment:
 
 ```bash
 cd backend
-PYTHONPATH=. python -m app.validation.persian_generation score \
+PYTHONPATH=. python -m qualification.persian_generation score \
   --run ../validation/persian-generation/run-v1.json \
   --reviews ../validation/persian-generation/reviews-v1.json \
   --output ../validation/persian-generation/report-v1.json \

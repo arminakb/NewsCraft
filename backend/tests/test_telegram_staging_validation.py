@@ -6,7 +6,7 @@ import pytest
 
 from app.core.faults import InjectedFault
 from app.jobs.errors import NeedsReviewJobError
-from app.validation import telegram_staging
+from qualification import telegram_staging
 
 
 def _args(scenario="success"):
