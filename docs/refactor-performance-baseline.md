@@ -61,6 +61,21 @@ command.
 - Inbox, Raw Content, Jobs, and Library remain bounded on this dataset and are
   useful controls for later comparisons.
 
-Later phases should rerun this command after each query refactor and compare
-both query counts and timings. A faster wall-clock result does not compensate
-for an unbounded query or full-table application-memory scan.
+## Final refactor measurement
+
+The same command was rerun after Phase 7:
+
+| Surface | Queries | p50 | p95 | Outcome |
+| --- | ---: | ---: | ---: | --- |
+| Today | 1,009 | 570.98 ms | 593.05 ms | remaining N+1 debt |
+| Inbox | 2 | 11.80 ms | 13.25 ms | bounded |
+| Feed | 10 | 732.07 ms | 754.63 ms | query count improved; scan latency remains |
+| Raw Content | 1 | 30.45 ms | 30.83 ms | bounded |
+| Drafts | 752 | 489.73 ms | 541.12 ms | improved from 1,753 queries; remaining N+1 debt |
+| Jobs | 5 | 11.37 ms | 11.49 ms | bounded |
+| Library | 3 | 17.27 ms | 17.98 ms | bounded |
+
+The refactor materially reduced Drafts and slightly reduced Feed query counts,
+but did not close the Today/Drafts projection fan-out or the Feed scan latency.
+Those are recorded maintenance debt, not accepted performance budgets. Timing
+is machine-sensitive; the query counts are the stronger comparison.

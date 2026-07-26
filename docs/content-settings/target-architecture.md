@@ -1,6 +1,6 @@
-# Content Settings Target Architecture
+# Content Settings Architecture
 
-Status: architecture lock for Phases 1–7
+Status: current architecture
 Date: 2026-07-22
 
 ## Boundaries and ownership

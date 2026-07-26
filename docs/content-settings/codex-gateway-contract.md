@@ -1,6 +1,6 @@
 # Codex Gateway Contract
 
-Status: architecture lock for Phases 4–5
+Status: current gateway contract
 Date: 2026-07-22
 
 ## Principles

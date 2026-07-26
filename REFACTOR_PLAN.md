@@ -1,6 +1,6 @@
 # NewsCraft Maintainability, Correctness, and UX Refactor Plan
 
-**Status:** Current execution plan
+**Status:** Completed on 2026-07-26 with recorded quantitative exceptions
 
 **Date:** 2026-07-26
 
@@ -10,7 +10,8 @@
 
 ## 1. Authority and scope
 
-This is the current entrypoint for code-quality, correctness, and UX refactoring.
+This is the completed execution record for the code-quality, correctness, and
+UX refactor.
 
 - The approved product behavior in
   `docs/superpowers/specs/2026-07-11-newscraft-content-platform-rescue-design.md`
@@ -751,9 +752,9 @@ PostgreSQL, deterministic acceptance, and restore commands from the current
 runbooks remain mandatory at the relevant phase gates. `docker compose config`
 alone is not runtime proof.
 
-## 10. First bounded implementation batch
+## 10. Original first bounded implementation batch
 
-Start with this batch only:
+Execution started with this safety-net batch:
 
 1. Add the repeatable LOC/complexity/type baseline command.
 2. Repair the stale nightly test references.
@@ -766,7 +767,7 @@ Start with this batch only:
 Do not begin moving the large handler modules until this batch is green. It
 creates the safety net required for aggressive deletion and simplification.
 
-## 11. Planning estimate
+## 11. Original planning estimate
 
 For one focused engineer, expect:
 
@@ -775,6 +776,85 @@ For one focused engineer, expect:
 - Telegram automation/publishing and operations: 3-5 weeks;
 - global UX, transitional deletion, and final proof: 2-3 weeks.
 
-The whole plan is approximately 9-15 focused engineering weeks. The first
-operator-visible improvements should land during Phase 2; completion should not
-be delayed for one giant final merge.
+The original estimate was 9-15 focused engineering weeks. Work was delivered in
+small behavioral commits rather than one final merge.
+
+## 12. Completed result
+
+All seven implementation phases and the Phase 0 safety-net work are complete.
+The repository retains this section as the final result instead of introducing
+another overlapping refactor plan.
+
+### Product and correctness outcome
+
+- The primary newsroom is Today, Inbox, Drafts, Calendar, and Library;
+  collection, automation, jobs, diagnostics, settings, and retention are under
+  Advanced.
+- Manual/RSS/Atom/Telegram collection, deterministic normalization and
+  deduplication, story decisions, evidence-bound research, four-platform
+  generation, immutable editing, exact approval, export, Telegram dry-run and
+  reviewed publishing, retry, and reconciliation share one durable workflow.
+- PostgreSQL remains the source of truth. Publication idempotency, exact
+  revision hashes, lease recovery, route activation boundaries, and
+  ambiguous-delivery reconciliation are covered by real-PostgreSQL acceptance
+  tests.
+- The largest generation, Telegram automation, publication, settings,
+  retention, article-response, operational-health, and package-validation
+  modules were separated by behavior. No handwritten application module is
+  1,000 lines or larger.
+- The provider startup migration shim and other last-caller compatibility code
+  were removed. Current provider writes maintain only the same-ID compatibility
+  projection required by existing durable foreign keys.
+
+### Before and after
+
+| Measure | Baseline | Final | Result |
+| --- | ---: | ---: | --- |
+| Backend application | 51,060 lines / 218 files | 52,245 lines / 247 files | +1,185 lines |
+| Handwritten frontend | 16,858 lines / 115 files | 16,927 lines / 116 files | +69 lines |
+| Total handwritten production | 67,918 lines | 69,172 lines | +1,254 lines (+1.8%) |
+| Application modules at least 1,000 lines | 9 | 0 | eliminated |
+| Ruff complex functions (`C901`) | 83 | 53 | 30 removed |
+| Ruff excessive statements (`PLR0915`) | 39 | 25 | 14 removed |
+| Full-backend mypy | 322 errors / 58 files | 0 | blocking |
+| TypeScript unused-code findings | 5 | 0 | blocking |
+
+The repository did **not** meet the planned 10-15% production-LOC reduction.
+Correctness fixes, explicit domain contracts, worker capability boundaries,
+runtime evidence, and operator-facing UX replaced more code than deletion
+removed. This exception is retained openly; LOC was not compressed at the cost
+of the new verified behavior.
+
+### Final performance evidence
+
+The representative PostgreSQL dataset remains 20,000 content items, 1,000
+stories, and 10,000 jobs. Inbox (2 queries), Raw Content (1), Jobs (5), and
+Library (3) remain bounded. Feed improved from 12 to 10 queries, and Drafts from
+1,753 to 752 queries. Today remains at 1,009 queries; Today and Drafts therefore
+retain N+1 projection debt. Feed p95 remains 754.63 ms. Exact timings and the
+before/after table are in `docs/refactor-performance-baseline.md`.
+
+### Final verification
+
+| Gate | Final evidence |
+| --- | --- |
+| Backend static | Ruff and formatting passed; full-app mypy passed; quality budgets passed |
+| Backend unit | 1,753 passed, 213 PostgreSQL-dependent tests skipped |
+| PostgreSQL/integration | 234 passed against a disposable migrated PostgreSQL 18 database |
+| Frontend | 50 Vitest files / 379 tests passed; strict typecheck and production build passed |
+| Browser | 65 Playwright Chromium tests passed with desktop/mobile, RTL, keyboard, and axe coverage |
+| Contracts | OpenAPI regenerated with no contract or generated-client drift |
+| Deployment | Every supported Compose topology rendered; production backend/frontend images built and content-smoked |
+| Acceptance | Seven real-PostgreSQL critical journeys passed |
+| Restore | Encrypted drill `newscraft-restore-drill-refactor-final-g` passed with matching inventories, zero unvalidated constraints, RPO 35 s, RTO 103.345 s, readiness/smoke success, signed report, and label-verified cleanup |
+
+### Remaining maintenance debt
+
+1. Reduce Today and Drafts projection query fan-out.
+2. Replace the remaining Feed scan latency with a bounded query plan.
+3. Continue reducing the committed complexity budgets below 53 `C901` and 25
+   `PLR0915` findings as those functions are next changed.
+
+These items do not invalidate the refactor's correctness, workflow, module-size,
+typing, browser, acceptance, deployment, or recovery outcomes, but they remain
+explicit follow-up debt rather than silently reclassified success.

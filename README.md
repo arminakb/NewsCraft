@@ -1,8 +1,9 @@
 # NewsCraft
 
-NewsCraft is a FastAPI and PostgreSQL backend for collecting, normalizing, ranking, and reviewing news content from public sources.
-
-The active backend lives in `backend/`. The ingestion dashboard lives in `frontend/`. The legacy Streamlit MVP has been removed; new ingestion and review workflows should use the backend service, worker, API, and dashboard.
+NewsCraft is a local, single-operator newsroom for collecting source material,
+making editorial decisions, researching stories, producing exact revisions, and
+publishing or exporting reviewed content. FastAPI workers and PostgreSQL own the
+durable workflow; the Next.js application is the operator interface.
 
 ## Features
 
@@ -12,7 +13,9 @@ The active backend lives in `backend/`. The ingestion dashboard lives in `fronte
 - Classifies, scores, buckets, and readiness-checks content for downstream rewriting.
 - Supports evidence-backed research, multi-platform package generation, immutable editorial revisions, exact approval, deterministic exports, reviewed Telegram scheduling/publishing, and manual publication tracking for Instagram, X, and blog.
 - Provides source health diagnostics, validation reports, and manual ingestion endpoints.
-- Provides a Next.js ingestion dashboard for source health, runs, content queue, media extraction, and source detail review.
+- Provides a responsive newsroom with Today, Inbox, Drafts, Calendar, and
+  Library as the primary workflow, with collection, automation, diagnostics,
+  settings, and retention tools under Advanced.
 
 ## Tech Stack
 
@@ -76,6 +79,9 @@ API restart loop.
 
 - Newsroom: http://127.0.0.1:3000
 - API: http://127.0.0.1:8000
+- Primary navigation: Today, Inbox, Drafts, Calendar, and Library.
+- Advanced navigation: Jobs, Automations, Sources, Ingestion Runs, Diagnostics,
+  Content Settings, and Retention.
 - Global pause holds scheduled/automation work; manual Run ingest remains available.
 - Review is the default. No live credentials or publishing are used by default tests.
 
@@ -92,7 +98,7 @@ Source access uses `TELEGRAM_SOURCE_EDITOR_API_ID`, `TELEGRAM_SOURCE_EDITOR_API_
 
 ### Deterministic release acceptance
 
-The Release 5 smoke uses the fake AI provider, dry-run-only publishing, and a bundled Telegram
+The release smoke uses the fake AI provider, dry-run-only publishing, and a bundled Telegram
 album fixture. It needs no external credentials or network requests. The acceptance override
 enables that fixture only in the source/generation worker with `APP_ENV=test`; the backend
 rejects the fixture setting in every other environment.
@@ -111,7 +117,7 @@ docker compose -f docker-compose.yml -f docker-compose.acceptance.yml ps
 ```
 
 Do not use `docker-compose.acceptance.yml` as a deployment configuration. See the
-[Release 5 acceptance evidence](docs/operations/release-acceptance.md) for the complete test,
+[release acceptance evidence](docs/operations/release-acceptance.md) for the complete test,
 migration, browser, Compose, and environmental-gate checklist.
 
 Run the real-PostgreSQL acceptance journeys for collection/deduplication/story
@@ -201,7 +207,9 @@ docker compose run --rm \
   --download-media
 ```
 
-The bundle command first runs the existing RSS, Atom, and public Telegram ingestion path, then adds no-signup discovery from GDELT, Google News RSS, and Hacker News. It writes `index.md`, `items.json`, `sources.json`, article markdown files, and image references under the selected output folder.
+The bundle command runs the canonical configured RSS, Atom, and public Telegram
+ingestion path, then writes `index.md`, `items.json`, `sources.json`, article
+markdown files, and image references under the selected output folder.
 
 Or trigger ingestion through the API:
 
@@ -218,11 +226,12 @@ the handwritten production LOC, largest-file, Ruff complexity, strict
 TypeScript unused-code, and full-backend mypy baseline:
 
 ```bash
-backend/.venv/bin/python scripts/quality_baseline.py
+backend/.venv/bin/python scripts/quality_baseline.py --check
 ```
 
-The legacy complexity, unused-code, and mypy findings are informational until
-their owning refactor phase makes them blocking.
+This is a blocking gate. It enforces normal Ruff, zero full-app mypy and
+TypeScript unused-code findings, the committed complexity budgets, and the
+absence of application modules at or above 1,000 lines.
 
 Capture the representative PostgreSQL query-count and timing baseline:
 
@@ -295,11 +304,12 @@ npm run test:e2e
 
 The Compose stack is local-only by default: it binds PostgreSQL, API, and frontend host ports to `127.0.0.1`.
 
-Playwright uses its managed Chromium browser unless `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH` is set. On this host, browser verification requires the installed Chromium binary and single-process mode:
+Playwright uses its managed Chromium browser unless
+`PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH` is set. To use the system browser on this
+host:
 
 ```bash
-PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=/home/wingman/.cache/puppeteer/chrome-headless-shell/linux-150.0.7871.24/chrome-headless-shell-linux64/chrome-headless-shell \
-PLAYWRIGHT_CHROMIUM_SINGLE_PROCESS=1 \
+PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=/usr/bin/chromium \
 npm run test:e2e
 ```
 
@@ -352,12 +362,14 @@ manual stops, rollback, or backup/restore work.
 
 ## Documentation
 
-- Release 5 acceptance: [evidence and rerun checklist](docs/operations/release-acceptance.md)
+- Release acceptance: [evidence and rerun checklist](docs/operations/release-acceptance.md)
 - Multi-platform manual publishing: [operator runbook](docs/operations/manual-publishing-packages.md)
 - Research and generation: [operator runbook](docs/operations/research-and-generation.md)
 - Outbound networking: [proxy policy and operations](docs/operations/outbound-proxy-policy.md)
 - Credentials: [service topology, worker observations, and rotation](docs/operations/credential-topology.md)
 - Restart supervision: [policies, recovery drills, poison jobs, and rollback](docs/operations/restart-supervision.md)
+- Continuous integration: [blocking checks and release-gate ownership](docs/operations/continuous-integration.md)
+- Backup and restore: [encrypted backup and disposable restore drill](docs/operations/backup-and-restore.md)
 - Backend ingestion details: `docs/ingestion-backend.md`
 - Source catalog notes: `docs/ingestion-source-catalog.md`
 - Selective integration audit: `docs/armin-selective-audit.md`

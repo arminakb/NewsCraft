@@ -1,6 +1,6 @@
 # Secret Storage Threat Model
 
-Status: architecture lock for Phase 1
+Status: current security contract
 Date: 2026-07-22
 
 ## Assets
