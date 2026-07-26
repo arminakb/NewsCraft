@@ -19,6 +19,12 @@ from app.automations.telegram.contracts import (
     TelegramFetchRequest,
     telegram_envelope_fingerprint,
 )
+from app.automations.telegram.decisions import (
+    classify_activation_page,
+    evaluate_backfill_eligibility,
+    evaluate_media_policy,
+    evaluate_review_policy,
+)
 from app.automations.telegram.policy import evaluate_auto_publish
 from app.automations.telegram.registry import TelegramSourceRegistry
 from app.automations.telegram.route_policy import evaluate_content_filter, next_allowed_at, retry_at
@@ -906,15 +912,14 @@ def build_telegram_route_handlers(
                             message="Telegram activation pages made no unique progress",
                         )
                     last_scanned = page_minimum
-                newer = [item for item in ordered if _coordinate(item) > (boundary, 0)]
-                initial_envelopes.extend(newer)
-                predecessors = [item for item in ordered if _coordinate(item) <= (boundary, 0)]
-                if predecessors:
-                    predecessor = max(item.anchor_message_id for item in predecessors)
-                    proven = True
-                    break
-                if result.complete:
-                    predecessor = 0
+                boundary_decision = classify_activation_page(
+                    ordered,
+                    boundary=boundary,
+                    complete=result.complete,
+                )
+                initial_envelopes.extend(boundary_decision.newer)
+                if boundary_decision.boundary_proven:
+                    predecessor = boundary_decision.predecessor_id
                     proven = True
                     break
                 if not ordered:
@@ -1343,18 +1348,23 @@ def build_telegram_route_handlers(
             return deferred
         cursor = (loaded.route.cursor_state or {}).get("last_message_id")
         expected_activation = (loaded.route.cursor_state or {}).get("activation_requested_at")
-        if not loaded.route.enabled or (loaded.route.cursor_state or {}).get("status") != "ready" or cursor is None:
+        eligibility = evaluate_backfill_eligibility(
+            enabled=loaded.route.enabled,
+            route_status=(loaded.route.cursor_state or {}).get("status"),
+            cursor=int(cursor) if cursor is not None else None,
+            since=payload.since,
+            now=now(),
+        )
+        if eligibility.reason == "route_not_initialized":
             raise PermanentJobError(
                 code="route_not_initialized",
                 message="Telegram route must be initialized before backfill",
             )
-        if payload.since is not None:
-            observed_at = now()
-            if payload.since > observed_at or payload.since < observed_at - timedelta(days=30):
-                raise PermanentJobError(
-                    code="backfill_since_out_of_range",
-                    message="Telegram backfill since must be within the previous 30 days",
-                )
+        if eligibility.reason == "backfill_since_out_of_range":
+            raise PermanentJobError(
+                code="backfill_since_out_of_range",
+                message="Telegram backfill since must be within the previous 30 days",
+            )
         await context.session.commit()
         envelopes = await _fetch_bounded_backfill(
             loaded,
@@ -1576,19 +1586,13 @@ async def _dispatch_media(
 
 
 def _media_decision(route: AutomationRoute, media: tuple[MediaAsset, ...]) -> tuple[list[UUID], bool, str | None]:
-    if route.media_policy == "omit":
-        return [], True, None
-    if route.media_policy == "replace_manually":
-        return [], False, "media_replacement_required"
-    if any(item.fetch_status == "expired" for item in media):
+    decision = evaluate_media_policy(route.media_policy, media)
+    if decision.terminal_reason == "media_expired":
         raise NeedsReviewJobError(
             code="telegram_media_expired",
             message="Captured Telegram media expired before revision persistence",
         )
-    ready = all(
-        item.fetch_status == "downloaded" and bool(item.storage_path) and bool(item.checksum_sha256) for item in media
-    )
-    return [item.id for item in media], ready, None if ready else "media_not_ready"
+    return list(decision.media_asset_ids), decision.ready, decision.reason
 
 
 async def _route_parent_revision(
@@ -2557,13 +2561,14 @@ def build_telegram_process_handler(
                 evidence_ready=True,
                 media_ready=media_ready,
             )
-            auto_requested = route.publishing_policy == "auto_publish"
-            force_review = (
-                payload.force_review
-                or dispatch.dispatch_kind in {"source_edit", "dry_run"}
-                or route.media_policy == "replace_manually"
+            review = evaluate_review_policy(
+                publishing_policy=route.publishing_policy,
+                explicit_force_review=payload.force_review,
+                dispatch_kind=dispatch.dispatch_kind,
+                media_policy=route.media_policy,
+                auto_publish_allowed=gate.allowed,
+                auto_publish_reason=gate.reason,
             )
-            approved = auto_requested and gate.allowed and not force_review
             revision = PlatformVariantRevision(
                 platform_variant_id=variant.id,
                 parent_revision_id=parent.id if parent is not None else None,
@@ -2573,21 +2578,19 @@ def build_telegram_process_handler(
                 content_hash=sha256_canonical({"content": content, "evidence_map": evidence_map}),
                 evidence_map=evidence_map,
                 validation_results=validation_results,
-                approval_state="approved" if approved else "pending_review",
-                approval_note=None
-                if approved
-                else ("forced_review" if force_review else gate.reason or "review_required"),
-                approved_at=datetime.now(UTC) if approved else None,
+                approval_state="approved" if review.approved else "pending_review",
+                approval_note=review.note,
+                approved_at=datetime.now(UTC) if review.approved else None,
                 created_by=f"automation:{route.id}",
             )
             session.add(revision)
             await session.flush()
             dispatch.variant_revision_id = revision.id
-            dispatch.status = "approved" if approved else "pending_review"
+            dispatch.status = "approved" if review.approved else "pending_review"
             dispatch.error_code = None
             dispatch.error_message = None
             publish_job = None
-            if approved:
+            if review.approved:
                 publish_job = await enqueue_telegram_publish_intent(
                     session,
                     revision=revision,
@@ -2597,7 +2600,11 @@ def build_telegram_process_handler(
             session.add(
                 WorkflowEvent(
                     workflow_job_id=workflow_job_id,
-                    event_type=("telegram.revision.auto_approved" if approved else "telegram.revision.review_required"),
+                    event_type=(
+                        "telegram.revision.auto_approved"
+                        if review.approved
+                        else "telegram.revision.review_required"
+                    ),
                     actor="automation",
                     event_data=redact_event_data(
                         {
@@ -2605,7 +2612,7 @@ def build_telegram_process_handler(
                             "dispatch_id": str(dispatch.id),
                             "revision_id": str(revision.id),
                             "content_hash": revision.content_hash,
-                            "reason": None if approved else revision.approval_note,
+                            "reason": None if review.approved else revision.approval_note,
                         }
                     ),
                 )
@@ -2633,7 +2640,7 @@ def build_telegram_process_handler(
                 "dispatch_id": str(dispatch.id),
                 "generation_run_id": str(run.id),
                 "revision_id": str(revision.id),
-                "review_required": not approved,
+                "review_required": not review.approved,
                 "publish_job_id": str(publish_job.id) if publish_job is not None else None,
             }
 

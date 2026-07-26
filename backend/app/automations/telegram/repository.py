@@ -14,6 +14,7 @@ from app.automations.telegram.contracts import (
     TelegramEnvelope,
     telegram_envelope_fingerprint,
 )
+from app.automations.telegram.decisions import advance_poll_cursor
 from app.automations.telegram.media import StoredTelegramMedia, TelegramMediaStore
 from app.db.models import Source
 from app.ingestion.repository import IngestionRepository, build_item_identities
@@ -380,6 +381,8 @@ def _update_cursor(
     state["recent_fingerprints"] = dict(retained)
     if dispatch_kind == "live":
         current = state.get("last_message_id")
-        highest = max(envelope.message_ids)
-        state["last_message_id"] = max(int(current), highest) if current is not None else highest
+        state["last_message_id"] = advance_poll_cursor(
+            int(current) if current is not None else None,
+            envelope.message_ids,
+        )
     route.cursor_state = state

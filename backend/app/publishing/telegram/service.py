@@ -13,6 +13,10 @@ from sqlalchemy import exists, func, select
 from sqlalchemy.exc import IntegrityError
 
 from app.automations.models import AutomationDispatch, AutomationRoute
+from app.automations.telegram.decisions import (
+    classify_publication_failure,
+    reconciliation_required,
+)
 from app.core.faults import FaultInjector, NoopFaultInjector
 from app.core.redaction import redact_secrets, redact_string
 from app.db.models import ItemMedia, MediaAsset, SourceItem
@@ -35,9 +39,7 @@ from app.publishing.models import (
     PublishOperationReceipt,
 )
 from app.publishing.telegram.client import (
-    TelegramAmbiguousError,
     TelegramClientError,
-    TelegramPermanentError,
     TelegramRateLimited,
     TelegramRetryableBeforeDispatch,
 )
@@ -1022,7 +1024,7 @@ async def _load_context(
         raise NeedsReviewJobError(code=exc.code, message=str(exc)) from None
     publish_job.payload_hash = plan.payload_hash
 
-    ambiguous = next((item for item in receipts if item.status == "ambiguous"), None)
+    ambiguous = next((item for item in receipts if reconciliation_required(receipt_status=item.status)), None)
     if ambiguous is not None:
         publish_job.status = "reconciliation_required"
         return {
@@ -1031,7 +1033,13 @@ async def _load_context(
         }
     dispatching = next((item for item in receipts if item.status == "dispatching"), None)
     if dispatching is not None:
-        if dispatching.updated_at and dispatching.updated_at < observed_at - timedelta(minutes=5):
+        dispatch_stale = bool(
+            dispatching.updated_at and dispatching.updated_at < observed_at - timedelta(minutes=5)
+        )
+        if reconciliation_required(
+            receipt_status=dispatching.status,
+            dispatch_stale=dispatch_stale,
+        ):
             dispatching.status = "ambiguous"
             dispatching.ambiguous_at = observed_at
             publish_job.status = "reconciliation_required"
@@ -1364,8 +1372,9 @@ async def _record_failure(
             status = safe_metadata.get("http_status")
             if isinstance(status, int) and not isinstance(status, bool):
                 attempt.http_status = status
-        if isinstance(error, TelegramRateLimited):
-            retry_at = observed_at + timedelta(seconds=error.retry_after)
+        decision = classify_publication_failure(error)
+        if decision.kind == "retry" and isinstance(error, TelegramRateLimited):
+            retry_at = observed_at + timedelta(seconds=decision.retry_delay_seconds or 0)
             receipt.status = "pending"
             receipt.next_attempt_at = retry_at
             publish_job.status = "queued"
@@ -1379,8 +1388,8 @@ async def _record_failure(
                 message="Telegram rate limit exceeded",
                 retry_at=retry_at,
             )
-        if isinstance(error, TelegramRetryableBeforeDispatch):
-            retry_at = observed_at + timedelta(seconds=30)
+        if decision.kind == "retry":
+            retry_at = observed_at + timedelta(seconds=decision.retry_delay_seconds or 0)
             receipt.status = "pending"
             receipt.next_attempt_at = retry_at
             publish_job.status = "queued"
@@ -1394,9 +1403,7 @@ async def _record_failure(
                 message="Telegram connection failed before dispatch",
                 retry_at=retry_at,
             )
-        if isinstance(error, TelegramAmbiguousError) or not isinstance(
-            error, (TelegramPermanentError, PermanentJobError)
-        ):
+        if decision.kind == "reconcile":
             receipt.status = "ambiguous"
             receipt.ambiguous_at = observed_at
             publish_job.status = "reconciliation_required"
