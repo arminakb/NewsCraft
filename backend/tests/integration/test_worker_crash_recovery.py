@@ -575,20 +575,22 @@ async def test_final_route_research_crash_marks_subscribed_dispatch_for_review(
                 job_type="research_story",
                 payload={
                     "run_id": str(run.id),
-                    "continuations": [{
-                        "job_type": "telegram.route.process",
-                        "payload": {
-                            "dispatch_id": str(dispatch.id),
-                            "force_review": False,
-                        },
-                        "idempotency_prefix": (f"telegram-route-process-after-research:{dispatch.id}"),
-                        "subscriber_id": f"telegram-dispatch:{dispatch.id}",
-                        "expected_route_id": str(dispatch.route_id),
-                        "expected_story_id": str(shared["story"].id),
-                        "expected_story_revision_id": str(dispatch.story_revision_id),
-                        "expected_provider_profile_id": str(shared["provider"].id),
-                        "expected_research_mode": "auto_if_incomplete",
-                    }],
+                    "continuations": [
+                        {
+                            "job_type": "telegram.route.process",
+                            "payload": {
+                                "dispatch_id": str(dispatch.id),
+                                "force_review": False,
+                            },
+                            "idempotency_prefix": (f"telegram-route-process-after-research:{dispatch.id}"),
+                            "subscriber_id": f"telegram-dispatch:{dispatch.id}",
+                            "expected_route_id": str(dispatch.route_id),
+                            "expected_story_id": str(shared["story"].id),
+                            "expected_story_revision_id": str(dispatch.story_revision_id),
+                            "expected_provider_profile_id": str(shared["provider"].id),
+                            "expected_research_mode": "auto_if_incomplete",
+                        }
+                    ],
                 },
                 idempotency_key=f"research-route-final:{dispatch.id}",
                 origin=JobOrigin.AUTOMATION,

@@ -715,6 +715,7 @@ async def test_telegram_approval_requires_exact_ordered_locked_story_evidence(ev
     assert caught.value.code == "citation_integrity"
     assert revision.approval_state == "pending_review"
 
+
 @pytest.mark.asyncio
 async def test_telegram_approval_revalidates_platform_policy_instead_of_trusting_green_gate():
     revision, session = _telegram_approval_fixture(media_policy="replace_manually")

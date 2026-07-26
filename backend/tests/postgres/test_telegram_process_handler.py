@@ -1268,12 +1268,8 @@ async def test_content_pack_review_and_telegram_publication_contracts_are_compos
             outcomes = await client.get("/telegram/publication-outcomes")
             assert outcomes.status_code == 200
             assert str(generated_id) in {item["revision_id"] for item in outcomes.json()}
-            assert (
-                await client.get(f"/telegram/revisions/{uuid4()}/publication-context")
-            ).status_code == 404
-            assert (
-                await client.get(f"/telegram/revisions/{other_id}/publication-context")
-            ).status_code == 404
+            assert (await client.get(f"/telegram/revisions/{uuid4()}/publication-context")).status_code == 404
+            assert (await client.get(f"/telegram/revisions/{other_id}/publication-context")).status_code == 404
 
             edited = await client.post(
                 f"/platform-variants/{telegram_variant_id}/revisions",

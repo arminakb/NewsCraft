@@ -7,9 +7,9 @@ import argparse
 import json
 import re
 import subprocess
+from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Sequence
 
 ROOT = Path(__file__).resolve().parents[1]
 BACKEND = ROOT / "backend"
@@ -29,9 +29,7 @@ class CheckResult:
 
 
 def source_files(root: Path, suffixes: tuple[str, ...]) -> list[Path]:
-    return sorted(
-        path for path in root.rglob("*") if path.is_file() and path.suffix in suffixes
-    )
+    return sorted(path for path in root.rglob("*") if path.is_file() and path.suffix in suffixes)
 
 
 def backend_files(root: Path = ROOT) -> list[Path]:
@@ -53,42 +51,30 @@ def line_count(path: Path) -> int:
         return sum(1 for _ in handle)
 
 
-def size_metrics(
-    files: Sequence[Path], thresholds: Sequence[int], root: Path = ROOT
-) -> dict[str, object]:
+def size_metrics(files: Sequence[Path], thresholds: Sequence[int], root: Path = ROOT) -> dict[str, object]:
     sizes = [(path.relative_to(root).as_posix(), line_count(path)) for path in files]
     sizes.sort(key=lambda item: (-item[1], item[0]))
     return {
         "files": len(sizes),
         "lines": sum(size for _, size in sizes),
         "thresholds": {
-            str(threshold): [
-                {"path": path, "lines": size}
-                for path, size in sizes
-                if size >= threshold
-            ]
+            str(threshold): [{"path": path, "lines": size} for path, size in sizes if size >= threshold]
             for threshold in thresholds
         },
     }
 
 
-def _run(
-    command: Sequence[str], *, cwd: Path
-) -> subprocess.CompletedProcess[str] | None:
+def _run(command: Sequence[str], *, cwd: Path) -> subprocess.CompletedProcess[str] | None:
     executable = Path(command[0])
     if (executable.is_absolute() or "/" in command[0]) and not executable.exists():
         return None
     try:
-        return subprocess.run(
-            command, cwd=cwd, capture_output=True, check=False, text=True
-        )
+        return subprocess.run(command, cwd=cwd, capture_output=True, check=False, text=True)
     except FileNotFoundError:
         return None
 
 
-def _ruff_check(
-    name: str, selectors: str | None = None, root: Path = ROOT
-) -> CheckResult:
+def _ruff_check(name: str, selectors: str | None = None, root: Path = ROOT) -> CheckResult:
     executable = root / "backend/.venv/bin/ruff"
     command = [str(executable), "check", "app"]
     if selectors is None:
@@ -99,9 +85,7 @@ def _ruff_check(
     completed = _run(command, cwd=root / "backend")
     display = " ".join(command)
     if completed is None:
-        return CheckResult(
-            name, display, False, None, None, "backend/.venv/bin/ruff is unavailable"
-        )
+        return CheckResult(name, display, False, None, None, "backend/.venv/bin/ruff is unavailable")
     try:
         parsed = json.loads(completed.stdout or "[]")
         findings = len(parsed) if isinstance(parsed, list) else None
@@ -171,13 +155,9 @@ def _mypy(root: Path = ROOT) -> CheckResult:
         )
     output = completed.stdout + completed.stderr
     match = re.search(r"Found (\d+) errors? in (\d+) files?", output)
-    findings = (
-        int(match.group(1)) if match else (0 if completed.returncode == 0 else None)
-    )
+    findings = int(match.group(1)) if match else (0 if completed.returncode == 0 else None)
     summary = match.group(0) if match else _last_line(output)
-    return CheckResult(
-        "Full backend mypy", display, True, completed.returncode, findings, summary
-    )
+    return CheckResult("Full backend mypy", display, True, completed.returncode, findings, summary)
 
 
 def _last_line(output: str) -> str:
@@ -248,18 +228,16 @@ def render_markdown(baseline: dict[str, object]) -> str:
         )
         for check in checks:
             assert isinstance(check, dict)
-            findings = (
-                check["findings"] if check["findings"] is not None else "unavailable"
-            )
-            returncode = (
-                check["returncode"] if check["returncode"] is not None else "n/a"
-            )
+            findings = check["findings"] if check["findings"] is not None else "unavailable"
+            returncode = check["returncode"] if check["returncode"] is not None else "n/a"
             lines.append(f"| {check['name']} | {findings} | {returncode} |")
         lines.extend(
             (
                 "",
-                "Complexity, strict-unused, and full-backend mypy findings are informational during the initial baseline.",
-                "The command exits successfully after reporting them so existing debt does not become blocking accidentally.",
+                "Complexity, strict-unused, and full-backend mypy findings are informational "
+                "during the initial baseline.",
+                "The command exits successfully after reporting them so existing debt does not "
+                "become blocking accidentally.",
             )
         )
     lines.extend(("", "## Largest files", ""))
@@ -282,23 +260,15 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Skip installed-tool static analysis",
     )
-    parser.add_argument(
-        "--json", action="store_true", help="Emit JSON instead of Markdown"
-    )
-    parser.add_argument(
-        "--output", type=Path, help="Write the report to this path instead of stdout"
-    )
+    parser.add_argument("--json", action="store_true", help="Emit JSON instead of Markdown")
+    parser.add_argument("--output", type=Path, help="Write the report to this path instead of stdout")
     return parser.parse_args()
 
 
 def main() -> int:
     args = parse_args()
     baseline = collect_baseline(run_checks=not args.metrics_only)
-    output = (
-        json.dumps(baseline, indent=2, sort_keys=True) + "\n"
-        if args.json
-        else render_markdown(baseline)
-    )
+    output = json.dumps(baseline, indent=2, sort_keys=True) + "\n" if args.json else render_markdown(baseline)
     if args.output:
         destination = args.output if args.output.is_absolute() else ROOT / args.output
         destination.parent.mkdir(parents=True, exist_ok=True)

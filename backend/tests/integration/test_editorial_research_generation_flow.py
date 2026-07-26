@@ -272,7 +272,6 @@ async def test_supplemental_direct_service_flow(
         with pytest.raises(HTTPException):
             require_revision_transition(
                 edited,
-                action="publish",
                 content_hash=edited.content_hash,
             )
         approved = await editorial.approve_revision(
@@ -285,7 +284,6 @@ async def test_supplemental_direct_service_flow(
         await session.commit()
         require_revision_transition(
             approved,
-            action="publish",
             content_hash=approved.content_hash,
         )
         assert approved.id == edited.id

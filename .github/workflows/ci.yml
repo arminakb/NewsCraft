@@ -40,7 +40,7 @@ jobs:
       - name: Compile, lint, format, and typecheck
         working-directory: backend
         run: |
-          uv run python -m compileall -q app tests ../scripts
+          uv run python -m compileall -q app qualification tests ../scripts
           uv run ruff check . ../scripts
           uv run ruff format --check . ../scripts
           uv run mypy
