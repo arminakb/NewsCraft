@@ -291,6 +291,214 @@ async def _require_exact_regeneration_dispatch(
         ) from None
 
 
+def _checkpoint_ids(artifact: dict[str, Any]) -> tuple[UUID, UUID, UUID]:
+    try:
+        return (
+            UUID(str(artifact["content_pack_id"])),
+            UUID(str(artifact["variant_id"])),
+            UUID(str(artifact["revision_id"])),
+        )
+    except KeyError, TypeError, ValueError:
+        raise NeedsReviewJobError(
+            code="generation_checkpoint_invalid",
+            message="Generation checkpoint is invalid",
+        ) from None
+
+
+async def _checkpoint_rows(
+    session: Any,
+    *,
+    pack_id: UUID,
+    variant_id: UUID,
+    revision_id: UUID,
+) -> tuple[ContentPack | None, PlatformVariant | None, PlatformVariantRevision | None]:
+    pack = await session.scalar(
+        select(ContentPack).where(ContentPack.id == pack_id).execution_options(populate_existing=True)
+    )
+    variant = await session.scalar(
+        select(PlatformVariant)
+        .where(PlatformVariant.id == variant_id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
+    revision = await session.scalar(
+        select(PlatformVariantRevision)
+        .where(PlatformVariantRevision.id == revision_id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
+    return pack, variant, revision
+
+
+async def _checkpoint_parent(
+    session: Any,
+    revision: PlatformVariantRevision | None,
+    *,
+    expected_platform: Platform,
+    expected_regeneration_base: tuple[UUID, str] | None,
+) -> PlatformVariantRevision | None:
+    if revision is None or (expected_platform != "telegram" and expected_regeneration_base is None):
+        return None
+    parent = None
+    if revision.parent_revision_id is not None:
+        parent = await session.scalar(
+            select(PlatformVariantRevision)
+            .where(PlatformVariantRevision.id == revision.parent_revision_id)
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )
+        if parent is None or parent.platform_variant_id != revision.platform_variant_id:
+            raise NeedsReviewJobError(
+                code="generation_checkpoint_invalid",
+                message="Generation checkpoint parent linkage is invalid",
+            )
+    if expected_regeneration_base is not None:
+        expected_parent_id, expected_parent_hash = expected_regeneration_base
+        if (
+            revision.parent_revision_id != expected_parent_id
+            or parent is None
+            or parent.content_hash != expected_parent_hash
+        ):
+            raise NeedsReviewJobError(
+                code="generation_checkpoint_invalid",
+                message="Generation checkpoint regeneration base is invalid",
+            )
+    return parent
+
+
+def _telegram_checkpoint_expectations(
+    authored: Any,
+    *,
+    parent: PlatformVariantRevision | None,
+    default_direction: Literal["ltr", "rtl"] | None,
+) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    try:
+        assert default_direction is not None
+        content = assemble_telegram_variant(
+            authored,
+            trusted_parent=parent.content if parent is not None else None,
+            default_direction=default_direction,
+        ).model_dump(mode="json")
+        payload = TelegramVariantPayload.model_validate(content)
+        return content, revision_gates_from_issues(validate_platform_payload("telegram", payload))
+    except TypeError, ValueError:
+        raise NeedsReviewJobError(
+            code="generation_checkpoint_invalid",
+            message="Generation checkpoint Telegram context is invalid",
+        ) from None
+
+
+def _require_checkpoint_linkage(
+    artifact: dict[str, Any],
+    *,
+    ids: tuple[UUID, UUID, UUID],
+    pack: ContentPack | None,
+    variant: PlatformVariant | None,
+    revision: PlatformVariantRevision | None,
+    expected_platform: Platform,
+    expected_story_revision_id: UUID,
+    expected_brand_profile_id: UUID,
+    expected_attempt_id: UUID,
+    expected_content: dict[str, Any] | None,
+    expected_evidence_map: list[dict[str, Any]],
+    expected_validation_results: list[dict[str, Any]] | None,
+) -> None:
+    pack_id, variant_id, revision_id = ids
+    valid = (
+        revision is not None
+        and variant is not None
+        and pack is not None
+        and revision.id == revision_id
+        and variant.id == variant_id
+        and pack.id == pack_id
+        and artifact.get("platform") == expected_platform
+        and variant.platform == expected_platform
+        and revision.platform_variant_id == variant.id
+        and variant.content_pack_id == pack.id
+        and pack.story_revision_id == expected_story_revision_id
+        and pack.brand_profile_id == expected_brand_profile_id
+        and revision.generation_attempt_id == expected_attempt_id
+        and revision.content == expected_content
+        and revision.evidence_map == expected_evidence_map
+        and revision.validation_results == expected_validation_results
+        and revision.content_hash
+        == sha256_canonical({"content": revision.content, "evidence_map": revision.evidence_map})
+    )
+    if not valid:
+        raise NeedsReviewJobError(
+            code="generation_checkpoint_invalid",
+            message="Generation checkpoint linkage is invalid",
+        )
+
+
+def _checkpoint_gates(revision: PlatformVariantRevision) -> list[dict[str, Any]]:
+    gates = revision.validation_results
+    valid = (
+        isinstance(gates, list)
+        and bool(gates)
+        and all(
+            isinstance(gate, dict) and isinstance(gate.get("gate"), str) and isinstance(gate.get("ok"), bool)
+            for gate in gates
+        )
+    )
+    if not valid:
+        raise NeedsReviewJobError(
+            code="generation_checkpoint_invalid",
+            message="Generation checkpoint validation results are invalid",
+        )
+    return gates
+
+
+def _require_checkpoint_citations(
+    *,
+    platform: Platform,
+    authored: Any,
+    expected_evidence_map: list[dict[str, Any]],
+    evidence: dict[UUID, EvidenceRecord],
+) -> None:
+    try:
+        claims = (
+            [
+                Claim(
+                    text="Telegram package",
+                    citations=[CitationRef.model_validate(item) for item in expected_evidence_map],
+                )
+            ]
+            if platform == "telegram"
+            else payload_claims(platform, authored)
+        )
+        validate_citations(claims, evidence)
+    except TypeError, ValueError:
+        raise NeedsReviewJobError(
+            code="citation_integrity",
+            message="Generation checkpoint citations failed integrity validation",
+        ) from None
+
+
+async def _require_checkpoint_media(
+    session: Any,
+    *,
+    platform: Platform,
+    authored: Any,
+    evidence: dict[UUID, EvidenceRecord],
+    trusted_media_loader: Any,
+) -> None:
+    if platform == "telegram":
+        return
+    authorized_media, _source_media = await trusted_media_loader(
+        session,
+        evidence,
+        lock_rows=True,
+    )
+    try:
+        validate_payload_media_assignments(authored, authorized_media)
+    except CitationIntegrityError:
+        raise NeedsReviewJobError(
+            code="media_integrity",
+            message="Generation checkpoint media failed integrity validation",
+        ) from None
+
+
 async def _artifact_requires_review(
     session: Any,
     artifact: dict[str, Any],
@@ -308,133 +516,54 @@ async def _artifact_requires_review(
     expected_regeneration_base: tuple[UUID, str] | None = None,
     trusted_media_loader: Any = _trusted_story_media,
 ) -> bool:
-    try:
-        pack_id = UUID(str(artifact["content_pack_id"]))
-        variant_id = UUID(str(artifact["variant_id"]))
-        revision_id = UUID(str(artifact["revision_id"]))
-    except KeyError, TypeError, ValueError:
-        raise NeedsReviewJobError(
-            code="generation_checkpoint_invalid",
-            message="Generation checkpoint is invalid",
-        ) from None
-    pack = await session.scalar(
-        select(ContentPack).where(ContentPack.id == pack_id).execution_options(populate_existing=True)
+    ids = _checkpoint_ids(artifact)
+    pack, variant, revision = await _checkpoint_rows(
+        session,
+        pack_id=ids[0],
+        variant_id=ids[1],
+        revision_id=ids[2],
     )
-    variant = await session.scalar(
-        select(PlatformVariant)
-        .where(PlatformVariant.id == variant_id)
-        .with_for_update()
-        .execution_options(populate_existing=True)
+    locked_parent = await _checkpoint_parent(
+        session,
+        revision,
+        expected_platform=expected_platform,
+        expected_regeneration_base=expected_regeneration_base,
     )
-    revision = await session.scalar(
-        select(PlatformVariantRevision)
-        .where(PlatformVariantRevision.id == revision_id)
-        .with_for_update()
-        .execution_options(populate_existing=True)
-    )
-    locked_parent = None
-    if revision is not None and (expected_platform == "telegram" or expected_regeneration_base is not None):
-        if revision.parent_revision_id is not None:
-            locked_parent = await session.scalar(
-                select(PlatformVariantRevision)
-                .where(PlatformVariantRevision.id == revision.parent_revision_id)
-                .with_for_update()
-                .execution_options(populate_existing=True)
-            )
-            if locked_parent is None or locked_parent.platform_variant_id != revision.platform_variant_id:
-                raise NeedsReviewJobError(
-                    code="generation_checkpoint_invalid",
-                    message="Generation checkpoint parent linkage is invalid",
-                )
-        if expected_regeneration_base is not None:
-            expected_parent_id, expected_parent_hash = expected_regeneration_base
-            if (
-                revision.parent_revision_id != expected_parent_id
-                or locked_parent is None
-                or locked_parent.content_hash != expected_parent_hash
-            ):
-                raise NeedsReviewJobError(
-                    code="generation_checkpoint_invalid",
-                    message="Generation checkpoint regeneration base is invalid",
-                )
     if revision is not None and expected_platform == "telegram":
-        try:
-            assert telegram_default_direction is not None
-            expected_content = assemble_telegram_variant(
-                authored,
-                trusted_parent=locked_parent.content if locked_parent is not None else None,
-                default_direction=telegram_default_direction,
-            ).model_dump(mode="json")
-            telegram_payload = TelegramVariantPayload.model_validate(expected_content)
-            expected_validation_results = revision_gates_from_issues(
-                validate_platform_payload("telegram", telegram_payload)
-            )
-        except TypeError, ValueError:
-            raise NeedsReviewJobError(
-                code="generation_checkpoint_invalid",
-                message="Generation checkpoint Telegram context is invalid",
-            ) from None
-    if (
-        revision is None
-        or variant is None
-        or pack is None
-        or revision.id != revision_id
-        or variant.id != variant_id
-        or pack.id != pack_id
-        or artifact.get("platform") != expected_platform
-        or variant.platform != expected_platform
-        or revision.platform_variant_id != variant.id
-        or variant.content_pack_id != pack.id
-        or pack.story_revision_id != expected_story_revision_id
-        or pack.brand_profile_id != expected_brand_profile_id
-        or revision.generation_attempt_id != expected_attempt_id
-        or revision.content != expected_content
-        or revision.evidence_map != expected_evidence_map
-        or revision.validation_results != expected_validation_results
-        or revision.content_hash
-        != sha256_canonical({"content": revision.content, "evidence_map": revision.evidence_map})
-    ):
-        raise NeedsReviewJobError(
-            code="generation_checkpoint_invalid",
-            message="Generation checkpoint linkage is invalid",
+        expected_content, expected_validation_results = _telegram_checkpoint_expectations(
+            authored,
+            parent=locked_parent,
+            default_direction=telegram_default_direction,
         )
-    gates = revision.validation_results
-    if (
-        not isinstance(gates, list)
-        or not gates
-        or any(
-            not isinstance(gate, dict) or not isinstance(gate.get("gate"), str) or not isinstance(gate.get("ok"), bool)
-            for gate in gates
-        )
-    ):
-        raise NeedsReviewJobError(
-            code="generation_checkpoint_invalid",
-            message="Generation checkpoint validation results are invalid",
-        )
-    try:
-        if expected_platform == "telegram":
-            citations = [CitationRef.model_validate(item) for item in expected_evidence_map]
-            validate_citations([Claim(text="Telegram package", citations=citations)], evidence)
-        else:
-            validate_citations(payload_claims(expected_platform, authored), evidence)
-    except TypeError, ValueError:
-        raise NeedsReviewJobError(
-            code="citation_integrity",
-            message="Generation checkpoint citations failed integrity validation",
-        ) from None
-    if expected_platform != "telegram":
-        authorized_media, _source_media = await trusted_media_loader(
-            session,
-            evidence,
-            lock_rows=True,
-        )
-        try:
-            validate_payload_media_assignments(authored, authorized_media)
-        except CitationIntegrityError:
-            raise NeedsReviewJobError(
-                code="media_integrity",
-                message="Generation checkpoint media failed integrity validation",
-            ) from None
+    _require_checkpoint_linkage(
+        artifact,
+        ids=ids,
+        pack=pack,
+        variant=variant,
+        revision=revision,
+        expected_platform=expected_platform,
+        expected_story_revision_id=expected_story_revision_id,
+        expected_brand_profile_id=expected_brand_profile_id,
+        expected_attempt_id=expected_attempt_id,
+        expected_content=expected_content,
+        expected_evidence_map=expected_evidence_map,
+        expected_validation_results=expected_validation_results,
+    )
+    assert revision is not None
+    gates = _checkpoint_gates(revision)
+    _require_checkpoint_citations(
+        platform=expected_platform,
+        authored=authored,
+        expected_evidence_map=expected_evidence_map,
+        evidence=evidence,
+    )
+    await _require_checkpoint_media(
+        session,
+        platform=expected_platform,
+        authored=authored,
+        evidence=evidence,
+        trusted_media_loader=trusted_media_loader,
+    )
     return any(not gate["ok"] for gate in gates)
 
 

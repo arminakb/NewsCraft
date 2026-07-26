@@ -262,16 +262,21 @@ async def _pack_out(session: AsyncSession, pack: ContentPack) -> dict[str, Any]:
     }
 
 
-async def _request_out(session: AsyncSession, job: WorkflowJob) -> dict[str, Any] | None:
-    payload = dict(job.payload or {})
+def _parsed_uuid(value: Any) -> UUID | None:
+    try:
+        return UUID(str(value))
+    except TypeError, ValueError:
+        return None
+
+
+def _request_parameters(
+    payload: dict[str, Any],
+) -> tuple[UUID, UUID | None, list[str]] | None:
     try:
         story_id = UUID(str(payload["story_id"]))
     except KeyError, TypeError, ValueError:
         return None
-    try:
-        expected_brand_id = UUID(str(payload["brand_profile_id"]))
-    except KeyError, TypeError, ValueError:
-        expected_brand_id = None
+    expected_brand_id = _parsed_uuid(payload.get("brand_profile_id"))
     raw_platforms = payload.get("platforms")
     expected_platforms = (
         list(dict.fromkeys(raw_platforms))
@@ -280,65 +285,94 @@ async def _request_out(session: AsyncSession, job: WorkflowJob) -> dict[str, Any
         if payload.get("platform") in PLATFORM_ORDER
         else []
     )
-    pack = None
-    child = None
-    result_revision_id = (job.result or {}).get("story_revision_id")
-    if result_revision_id is not None:
-        try:
-            revision_id = UUID(str(result_revision_id))
-        except TypeError, ValueError:
-            revision_id = None
-        if revision_id is not None:
-            child_id = (job.result or {}).get("continuation_job_id")
-            try:
-                parsed_child_id = UUID(str(child_id))
-            except TypeError, ValueError:
-                parsed_child_id = None
-            candidate = await session.get(WorkflowJob, parsed_child_id) if parsed_child_id is not None else None
-            candidate_payload = dict(candidate.payload or {}) if candidate is not None else {}
-            if (
-                candidate is not None
-                and expected_brand_id is not None
-                and candidate.job_type == "content_pack.generate_telegram"
-                and candidate_payload.get("story_revision_id") == str(revision_id)
-                and candidate_payload.get("brand_profile_id") == str(expected_brand_id)
-                and (
-                    candidate_payload.get("platforms") == expected_platforms
-                    or (expected_platforms == ["telegram"] and candidate_payload.get("platform") == "telegram")
-                )
-                and (candidate.idempotency_key or "").startswith(f"content-pack-telegram:{job.id}:")
-            ):
-                child = candidate
-                child_pack_id = (candidate.result or {}).get("content_pack_id")
-                try:
-                    parsed_pack_id = UUID(str(child_pack_id))
-                except TypeError, ValueError:
-                    parsed_pack_id = None
-                if parsed_pack_id is not None:
-                    pack = await session.get(ContentPack, parsed_pack_id)
-                    if pack is not None and (
-                        pack.story_revision_id != revision_id or pack.brand_profile_id != expected_brand_id
-                    ):
-                        pack = None
-                if candidate.status == "succeeded":
-                    if pack is None:
-                        pack = await session.scalar(
-                            select(ContentPack)
-                            .join(PlatformVariant, PlatformVariant.content_pack_id == ContentPack.id)
-                            .where(
-                                ContentPack.story_revision_id == revision_id,
-                                ContentPack.brand_profile_id == expected_brand_id,
-                                PlatformVariant.platform.in_(expected_platforms),
-                            )
-                            .order_by(ContentPack.created_at.desc())
-                            .limit(1)
-                        )
-                    if pack is not None and not await _pack_has_exact_current_platforms(
-                        session,
-                        pack.id,
-                        expected_platforms,
-                    ):
-                        pack = None
+    return story_id, expected_brand_id, expected_platforms
+
+
+def _child_matches_request(
+    child: WorkflowJob | None,
+    *,
+    parent_id: UUID,
+    revision_id: UUID,
+    brand_id: UUID | None,
+    platforms: list[str],
+) -> bool:
+    if child is None or brand_id is None:
+        return False
+    payload = dict(child.payload or {})
+    platforms_match = payload.get("platforms") == platforms or (
+        platforms == ["telegram"] and payload.get("platform") == "telegram"
+    )
+    return (
+        child.job_type == "content_pack.generate_telegram"
+        and payload.get("story_revision_id") == str(revision_id)
+        and payload.get("brand_profile_id") == str(brand_id)
+        and platforms_match
+        and (child.idempotency_key or "").startswith(f"content-pack-telegram:{parent_id}:")
+    )
+
+
+async def _request_child(
+    session: AsyncSession,
+    job: WorkflowJob,
+    *,
+    revision_id: UUID,
+    brand_id: UUID | None,
+    platforms: list[str],
+) -> WorkflowJob | None:
+    child_id = _parsed_uuid((job.result or {}).get("continuation_job_id"))
+    child = await session.get(WorkflowJob, child_id) if child_id is not None else None
+    if not _child_matches_request(
+        child,
+        parent_id=job.id,
+        revision_id=revision_id,
+        brand_id=brand_id,
+        platforms=platforms,
+    ):
+        return None
+    return child
+
+
+async def _request_pack(
+    session: AsyncSession,
+    child: WorkflowJob,
+    *,
+    revision_id: UUID,
+    brand_id: UUID,
+    platforms: list[str],
+) -> ContentPack | None:
+    pack_id = _parsed_uuid((child.result or {}).get("content_pack_id"))
+    pack = await session.get(ContentPack, pack_id) if pack_id is not None else None
+    if pack is not None and (pack.story_revision_id != revision_id or pack.brand_profile_id != brand_id):
+        pack = None
+    if child.status != "succeeded":
+        return pack
+    if pack is None:
+        pack = await session.scalar(
+            select(ContentPack)
+            .join(PlatformVariant, PlatformVariant.content_pack_id == ContentPack.id)
+            .where(
+                ContentPack.story_revision_id == revision_id,
+                ContentPack.brand_profile_id == brand_id,
+                PlatformVariant.platform.in_(platforms),
+            )
+            .order_by(ContentPack.created_at.desc())
+            .limit(1)
+        )
+    if pack is not None and not await _pack_has_exact_current_platforms(
+        session,
+        pack.id,
+        platforms,
+    ):
+        return None
+    return pack
+
+
+def _request_status(
+    job: WorkflowJob,
+    child: WorkflowJob | None,
+    pack: ContentPack | None,
+    platforms: list[str],
+) -> tuple[WorkflowJob, str, str | None]:
     current_job = child or job
     missing_exact_pack = child is not None and child.status == "succeeded" and pack is None
     status = (
@@ -351,7 +385,7 @@ async def _request_out(session: AsyncSession, job: WorkflowJob) -> dict[str, Any
     last_failure = (
         (
             "Succeeded child did not produce an exact Telegram content pack"
-            if expected_platforms == ["telegram"]
+            if platforms == ["telegram"]
             else "Succeeded child did not produce the exact requested content pack"
         )
         if missing_exact_pack
@@ -359,6 +393,38 @@ async def _request_out(session: AsyncSession, job: WorkflowJob) -> dict[str, Any
         if current_job.status in {"failed", "needs_review", "retrying"} and current_job.error_message
         else None
     )
+    return current_job, status, last_failure
+
+
+async def _request_out(session: AsyncSession, job: WorkflowJob) -> dict[str, Any] | None:
+    parameters = _request_parameters(dict(job.payload or {}))
+    if parameters is None:
+        return None
+    story_id, brand_id, platforms = parameters
+    revision_id = _parsed_uuid((job.result or {}).get("story_revision_id"))
+    child = (
+        await _request_child(
+            session,
+            job,
+            revision_id=revision_id,
+            brand_id=brand_id,
+            platforms=platforms,
+        )
+        if revision_id is not None
+        else None
+    )
+    pack = (
+        await _request_pack(
+            session,
+            child,
+            revision_id=revision_id,
+            brand_id=brand_id,
+            platforms=platforms,
+        )
+        if child is not None and revision_id is not None and brand_id is not None
+        else None
+    )
+    current_job, status, last_failure = _request_status(job, child, pack, platforms)
     return {
         "id": job.id,
         "job_id": current_job.id,

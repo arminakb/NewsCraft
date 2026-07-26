@@ -12,7 +12,6 @@ from app.generation.commands import ApprovalRequest, EditVariantRequest, Generat
 from app.generation.errors import InvalidGenerationRequest, RevisionConflict
 from app.generation.models import (
     AIProviderProfile,
-    BrandProfile,
     ContentPack,
     PlatformVariant,
     PlatformVariantRevision,
@@ -21,7 +20,6 @@ from app.generation.models import (
 )
 from app.generation.multiplatform import (
     PLATFORM_PROMPT_PURPOSE,
-    deduplicate_preserving_order,
     ordered_distinct_citations,
     payload_claims,
 )
@@ -35,21 +33,16 @@ from app.generation.platform_schemas import (
 from app.generation.platform_validation import validate_platform_payload
 from app.generation.provider_identity import (
     ProviderConfigurationIdentity,
-    is_qualified_generation_profile,
-    provider_identity_for_profile,
 )
-from app.jobs.credential_capabilities import provider_shape_capabilities
 from app.jobs.events import redact_event_data
-from app.jobs.models import WorkflowEvent, WorkflowJob
+from app.jobs.models import WorkflowEvent
 from app.jobs.repository import JobRepository
 from app.jobs.schemas import JobAcceptedOut
 from app.jobs.types import JobOrigin
 from app.research.citations import CitationIntegrityError, validate_citations
-from app.research.models import ResearchRun
 from app.research.schemas import CitationRef, Claim
-from app.research.service import ResearchRequestError, ResearchService
 from app.stories.evidence import EvidenceRecord
-from app.stories.models import Story, StoryEvidenceSnapshot, StoryRevision
+from app.stories.models import StoryEvidenceSnapshot, StoryRevision
 
 
 def _job_out(result: Any) -> JobAcceptedOut:
@@ -112,51 +105,9 @@ class EditorialService:
         return rows[0]
 
     async def _require_profile(self, profile_id: UUID) -> tuple[AIProviderProfile, ProviderConfigurationIdentity]:
-        profile = await self.session.scalar(
-            select(AIProviderProfile).where(AIProviderProfile.id == profile_id).with_for_update()
-        )
-        if profile is None or not profile.enabled or not profile.default_model:
-            raise InvalidGenerationRequest("generation provider profile is unavailable")
-        from app.llm_providers.models import LLMProvider
+        from app.generation.provider_profiles import require_generation_profile
 
-        generic = await self.session.get(LLMProvider, profile_id) if isinstance(self.session, AsyncSession) else None
-        if generic is None:
-            shaped, _codes = provider_shape_capabilities(profile)
-            if not shaped["generation"]:
-                raise InvalidGenerationRequest("generation provider profile is unavailable")
-        elif not generic.enabled or generic.generation_capability != "ready":
-            raise InvalidGenerationRequest("generation provider profile is unavailable")
-        resolved = None
-        if self.profile_resolver is not None:
-            try:
-                validate_with_session = getattr(
-                    self.profile_resolver,
-                    "validate_availability_with_session",
-                    None,
-                )
-                if validate_with_session is not None:
-                    resolved = await validate_with_session(profile, None, session=self.session)
-                else:
-                    validate = getattr(self.profile_resolver, "validate_availability", None)
-                    if validate is None:
-                        validate = self.profile_resolver.resolve
-                    resolved = await validate(profile, None)
-            except Exception:
-                raise InvalidGenerationRequest("generation provider profile is unavailable") from None
-        try:
-            if not is_qualified_generation_profile(profile):
-                raise InvalidGenerationRequest("generation provider profile is not qualified")
-        except ValueError:
-            raise InvalidGenerationRequest("generation provider profile is unavailable") from None
-        if getattr(resolved, "configuration_checksum", None):
-            return profile, ProviderConfigurationIdentity(
-                revision=resolved.configuration_revision,
-                checksum=resolved.configuration_checksum,
-            )
-        try:
-            return profile, provider_identity_for_profile(profile)
-        except ValueError:
-            raise InvalidGenerationRequest("generation provider profile is unavailable") from None
+        return await require_generation_profile(self.session, self.profile_resolver, profile_id)
 
     async def request_content_pack(
         self,
@@ -165,135 +116,14 @@ class EditorialService:
         *,
         evaluation_run_id: UUID | None = None,
     ) -> JobAcceptedOut:
-        platforms = deduplicate_preserving_order(request.platforms)
-        canonical = await self.require_active_prompt_version("canonical_story")
-        platform_prompts = {
-            platform: await self.require_active_prompt_version(PLATFORM_PROMPT_PURPOSE[platform])
-            for platform in platforms
-        }
-        _profile, provider_identity = await self._require_profile(request.generation_provider_profile_id)
-        story = await self.session.scalar(
-            select(Story).where(Story.id == story_id, Story.superseded_by_id.is_(None)).with_for_update()
+        from app.generation.request_pack import request_content_pack
+
+        return await request_content_pack(
+            self,
+            story_id,
+            request,
+            evaluation_run_id=evaluation_run_id,
         )
-        if story is None:
-            raise InvalidGenerationRequest("active story not found")
-        brand = (
-            await self.session.get(BrandProfile, request.brand_profile_id)
-            if request.brand_profile_id is not None
-            else await self.session.scalar(
-                select(BrandProfile).where(BrandProfile.is_default.is_(True)).with_for_update()
-            )
-        )
-        if brand is None:
-            message = (
-                "brand profile not found"
-                if request.brand_profile_id is not None
-                else "default editorial profile is not configured"
-            )
-            raise InvalidGenerationRequest(message, code="editorial_profile_unavailable")
-        if request.research_mode == "auto_if_incomplete" and request.research_provider_profile_id is None:
-            raise InvalidGenerationRequest("auto research requires research_provider_profile_id")
-        if request.research_run_id is not None and (
-            request.research_mode != "off" or request.research_provider_profile_id is not None
-        ):
-            raise InvalidGenerationRequest("bound research run cannot request another research mode")
-        bound_payload: dict[str, str] = {}
-        if request.research_run_id is not None:
-            run = await self.session.get(ResearchRun, request.research_run_id)
-            result_revision = (
-                await self.session.get(StoryRevision, run.result_story_revision_id)
-                if run is not None and run.result_story_revision_id is not None
-                else None
-            )
-            if (
-                run is None
-                or run.status != "succeeded"
-                or run.story_id != story_id
-                or result_revision is None
-                or result_revision.story_id != story_id
-            ):
-                raise InvalidGenerationRequest("research run is not a succeeded result for this story")
-            bound_payload = {
-                "completed_research_run_id": str(run.id),
-                "research_result_story_revision_id": str(result_revision.id),
-            }
-        payload = (
-            request.model_dump(
-                mode="json",
-                exclude={"research_run_id", "brand_profile_id"},
-            )
-            | bound_payload
-            | {
-                "story_id": str(story_id),
-                "brand_profile_id": str(brand.id),
-                "platforms": platforms,
-                "canonical_prompt_template_version_id": str(canonical.id),
-                "platform_prompt_template_version_ids": {
-                    platform: str(prompt.id) for platform, prompt in platform_prompts.items()
-                },
-                "canonical_prompt_checksum": canonical.checksum_sha256,
-                "platform_prompt_checksums": {
-                    platform: prompt.checksum_sha256 for platform, prompt in platform_prompts.items()
-                },
-                "generation_provider_configuration_revision": provider_identity.revision,
-                "generation_provider_configuration_checksum": provider_identity.checksum,
-            }
-        )
-        if evaluation_run_id is not None:
-            # This is intentionally an internal-only argument. Public request
-            # schemas cannot bypass production idempotency.
-            payload["evaluation_run_id"] = str(evaluation_run_id)
-        digest = hashlib.sha256(json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
-        if request.research_mode == "auto_if_incomplete":
-            continuation = {
-                "job_type": "content_pack.generate",
-                "payload": payload,
-                "idempotency_prefix": f"content-pack:{story_id}:{digest}",
-                "subscriber_id": digest,
-                "expected_story_id": str(story_id),
-                "expected_provider_profile_id": str(request.research_provider_profile_id),
-            }
-            try:
-                research = await ResearchService(self.session).request(
-                    story_id=story_id,
-                    mode="auto_if_incomplete",
-                    depth="standard",
-                    provider_profile_id=request.research_provider_profile_id,
-                    query_hint=None,
-                    continuation=continuation,
-                )
-            except ResearchRequestError as exc:
-                raise InvalidGenerationRequest(str(exc)) from None
-            if research.disposition == "enqueued":
-                assert research.job_id is not None
-                research_job = await self.session.get(WorkflowJob, research.job_id)
-                if research_job is None:
-                    raise InvalidGenerationRequest("research job is unavailable")
-                result_out = JobAcceptedOut(
-                    job_id=research_job.id,
-                    status=research_job.status,
-                    deduplicated=False,
-                )
-            else:
-                result_out = _job_out(
-                    await self.jobs.enqueue_job(
-                        job_type="content_pack.generate",
-                        payload=payload,
-                        idempotency_key=f"content-pack:{story_id}:{digest}",
-                        origin=JobOrigin.MANUAL,
-                    )
-                )
-        else:
-            result_out = _job_out(
-                await self.jobs.enqueue_job(
-                    job_type="content_pack.generate",
-                    payload=payload,
-                    idempotency_key=f"content-pack:{story_id}:{digest}",
-                    origin=JobOrigin.MANUAL,
-                )
-            )
-        await self.session.flush()
-        return result_out
 
     async def edit_variant(
         self, variant_id: UUID, request: EditVariantRequest | None = None, **kwargs: Any

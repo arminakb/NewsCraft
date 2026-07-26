@@ -21,6 +21,23 @@ async def approve_revision(
 ) -> PlatformVariantRevision:
     if request is None:
         request = ApprovalRequest(expected_content_hash=kwargs["expected_content_hash"], note=kwargs.get("note"))
+    revision, variant = await _locked_approvable_revision(service, revision_id, request)
+    await _validate_revision(service, variant, revision)
+    await _require_current_revision(service, revision)
+    revision.approval_state = require_variant_approval_transition(revision.approval_state, "approved")
+    revision.approval_note = request.note
+    revision.approved_at = datetime.now(UTC)
+    service._event("content_pack.revision.approved", revision)
+    await service.session.flush()
+    await _refresh_pack_status(service, variant.content_pack_id)
+    return revision
+
+
+async def _locked_approvable_revision(
+    service: Any,
+    revision_id: UUID,
+    request: ApprovalRequest,
+) -> tuple[PlatformVariantRevision, PlatformVariant]:
     revision = await service.session.scalar(
         select(PlatformVariantRevision).where(PlatformVariantRevision.id == revision_id).with_for_update()
     )
@@ -28,9 +45,7 @@ async def approve_revision(
         raise RevisionConflict("revision not found")
     if revision.content_hash != request.expected_content_hash:
         raise RevisionConflict("content hash changed")
-    if revision.content_hash != sha256_canonical(
-        {"content": revision.content, "evidence_map": revision.evidence_map}
-    ):
+    if revision.content_hash != sha256_canonical({"content": revision.content, "evidence_map": revision.evidence_map}):
         raise InvalidGenerationRequest(
             "stored revision content hash is invalid",
             code="content_integrity",
@@ -42,6 +57,14 @@ async def approve_revision(
     variant = await service.session.get(PlatformVariant, revision.platform_variant_id)
     if variant is None:
         raise RevisionConflict("variant not found")
+    return revision, variant
+
+
+async def _validate_revision(
+    service: Any,
+    variant: PlatformVariant,
+    revision: PlatformVariantRevision,
+) -> None:
     if variant.platform == "telegram":
         try:
             validate_approvable_revision(revision)
@@ -55,6 +78,9 @@ async def approve_revision(
             raise InvalidGenerationRequest(str(exc), code=getattr(exc, "code", None)) from None
     else:
         await service._revalidate_manual_revision(variant, revision)
+
+
+async def _require_current_revision(service: Any, revision: PlatformVariantRevision) -> None:
     latest_id = await service.session.scalar(
         select(PlatformVariantRevision.id)
         .where(PlatformVariantRevision.platform_variant_id == revision.platform_variant_id)
@@ -67,13 +93,7 @@ async def approve_revision(
     )
     if latest_id != revision.id:
         raise RevisionConflict("revision is not current")
-    revision.approval_state = require_variant_approval_transition(revision.approval_state, "approved")
-    revision.approval_note = request.note
-    revision.approved_at = datetime.now(UTC)
-    service._event("content_pack.revision.approved", revision)
-    await service.session.flush()
-    await _refresh_pack_status(service, variant.content_pack_id)
-    return revision
+
 
 async def reject_revision(service: Any, revision_id: UUID, request: ApprovalRequest) -> PlatformVariantRevision:
     revision = await service.session.scalar(
@@ -119,12 +139,9 @@ async def _refresh_pack_status(service: Any, pack_id: UUID) -> None:
             current_states.append(state)
     target = (
         "ready"
-        if variants
-        and len(current_states) == len(variants)
-        and all(state == "approved" for state in current_states)
+        if variants and len(current_states) == len(variants) and all(state == "approved" for state in current_states)
         else "draft"
     )
     if pack.status != target:
         pack.status = require_content_pack_transition(pack.status, target)
         await service.session.flush()
-

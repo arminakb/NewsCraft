@@ -23,17 +23,23 @@ from app.stories.evidence import EvidenceRecord
 from app.stories.models import StoryEvidenceSnapshot
 
 
-async def edit_variant(
-    service: Any, variant_id: UUID, request: EditVariantRequest | None = None, **kwargs: Any
-) -> PlatformVariantRevision:
-    if request is None:
-        request = EditVariantRequest(
-            base_revision_id=kwargs["base_revision_id"],
-            base_content_hash=kwargs["base_content_hash"],
-            content=kwargs["content"],
-            media_asset_ids=kwargs["media_asset_ids"],
-            edit_note=kwargs["edit_note"],
-        )
+def _edit_request(request: EditVariantRequest | None, kwargs: dict[str, Any]) -> EditVariantRequest:
+    if request is not None:
+        return request
+    return EditVariantRequest(
+        base_revision_id=kwargs["base_revision_id"],
+        base_content_hash=kwargs["base_content_hash"],
+        content=kwargs["content"],
+        media_asset_ids=kwargs["media_asset_ids"],
+        edit_note=kwargs["edit_note"],
+    )
+
+
+async def _locked_telegram_parent(
+    service: Any,
+    variant_id: UUID,
+    request: EditVariantRequest,
+) -> tuple[PlatformVariant, PlatformVariantRevision]:
     variant = await service.session.scalar(
         select(PlatformVariant).where(PlatformVariant.id == variant_id).with_for_update()
     )
@@ -57,6 +63,14 @@ async def edit_variant(
         raise RevisionConflict("base revision not found")
     if parent.content_hash != request.base_content_hash:
         raise RevisionConflict("content hash changed")
+    return variant, parent
+
+
+async def _telegram_evidence(
+    service: Any,
+    variant: PlatformVariant,
+    parent: PlatformVariantRevision,
+) -> list[TelegramEvidenceCitation]:
     story_revision = await service._pack_story_revision(variant)
     citations = [TelegramEvidenceCitation.model_validate(item) for item in parent.evidence_map or []]
     if not citations:
@@ -69,8 +83,7 @@ async def edit_variant(
             )
         )
     )
-    by_id = {item.id: item for item in snapshots}
-    if len(by_id) != len({item.evidence_snapshot_id for item in citations}):
+    if {item.id for item in snapshots} != {item.evidence_snapshot_id for item in citations}:
         raise InvalidGenerationRequest("revision evidence snapshot is missing")
     records = {
         item.id: EvidenceRecord(
@@ -88,55 +101,81 @@ async def edit_variant(
         for item in snapshots
     }
     try:
-        validate_citations(
-            [
-                Claim(
-                    text="Preserved Telegram evidence",
-                    citations=[CitationRef.model_validate(item.model_dump())],
-                )
-                for item in citations
-            ],
-            records,
-        )
+        claims = [
+            Claim(
+                text="Preserved Telegram evidence",
+                citations=[CitationRef.model_validate(item.model_dump())],
+            )
+            for item in citations
+        ]
+        validate_citations(claims, records)
     except ValueError:
         raise InvalidGenerationRequest("revision evidence no longer matches") from None
-    parent_content = TelegramVariantContent.model_validate(parent.content)
-    requested_media_ids = set(request.media_asset_ids)
-    if len(requested_media_ids) != len(request.media_asset_ids):
+    return citations
+
+
+async def _validate_telegram_media(
+    service: Any,
+    parent_content: TelegramVariantContent,
+    media_asset_ids: list[UUID],
+) -> None:
+    requested = set(media_asset_ids)
+    if len(requested) != len(media_asset_ids):
         raise InvalidGenerationRequest("media asset IDs must be unique")
-    if parent_content.media_policy == "omit" and requested_media_ids:
+    if parent_content.media_policy == "omit" and requested:
         raise InvalidGenerationRequest("omit-media revisions cannot attach media")
-    if requested_media_ids:
-        await fence_platform_revision_media_write(service.session)
-        media_assets = list(
-            await service.session.scalars(
-                select(MediaAsset)
-                .where(MediaAsset.id.in_(requested_media_ids))
-                .order_by(MediaAsset.id)
-                .with_for_update()
-                .execution_options(populate_existing=True)
-            )
-        )
-        if {item.id for item in media_assets} != requested_media_ids:
-            raise InvalidGenerationRequest("one or more media assets do not exist")
-        if any(
-            item.fetch_status != "downloaded" or not item.storage_path or not item.checksum_sha256
-            for item in media_assets
-        ):
-            raise InvalidGenerationRequest("media assets must be checksum-verified")
+    if requested:
+        await _require_verified_media(service, requested)
     if parent_content.media_policy == "preserve":
-        if parent_content.source_item_id is None:
-            raise InvalidGenerationRequest("preserved media provenance is missing")
-        source_item = await service.session.get(SourceItem, parent_content.source_item_id)
-        if source_item is None or source_item.content_item_id is None:
-            raise InvalidGenerationRequest("preserved media provenance is invalid")
-        linked_ids = set(
-            await service.session.scalars(
-                select(ItemMedia.media_asset_id).where(ItemMedia.content_item_id == source_item.content_item_id)
-            )
+        await _require_source_media(service, parent_content, requested)
+
+
+async def _require_verified_media(service: Any, requested: set[UUID]) -> None:
+    await fence_platform_revision_media_write(service.session)
+    media_assets = list(
+        await service.session.scalars(
+            select(MediaAsset)
+            .where(MediaAsset.id.in_(requested))
+            .order_by(MediaAsset.id)
+            .with_for_update()
+            .execution_options(populate_existing=True)
         )
-        if not requested_media_ids.issubset(linked_ids):
-            raise InvalidGenerationRequest("preserved media must belong to the source")
+    )
+    if {item.id for item in media_assets} != requested:
+        raise InvalidGenerationRequest("one or more media assets do not exist")
+    if any(
+        item.fetch_status != "downloaded" or not item.storage_path or not item.checksum_sha256 for item in media_assets
+    ):
+        raise InvalidGenerationRequest("media assets must be checksum-verified")
+
+
+async def _require_source_media(
+    service: Any,
+    parent_content: TelegramVariantContent,
+    requested: set[UUID],
+) -> None:
+    if parent_content.source_item_id is None:
+        raise InvalidGenerationRequest("preserved media provenance is missing")
+    source_item = await service.session.get(SourceItem, parent_content.source_item_id)
+    if source_item is None or source_item.content_item_id is None:
+        raise InvalidGenerationRequest("preserved media provenance is invalid")
+    linked_ids = set(
+        await service.session.scalars(
+            select(ItemMedia.media_asset_id).where(ItemMedia.content_item_id == source_item.content_item_id)
+        )
+    )
+    if not requested.issubset(linked_ids):
+        raise InvalidGenerationRequest("preserved media must belong to the source")
+
+
+async def _create_telegram_revision(
+    service: Any,
+    variant_id: UUID,
+    parent: PlatformVariantRevision,
+    request: EditVariantRequest,
+    citations: list[TelegramEvidenceCitation],
+    parent_content: TelegramVariantContent,
+) -> PlatformVariantRevision:
     content = TelegramVariantContent(
         body=request.content.body,
         parse_mode=request.content.parse_mode,
@@ -178,6 +217,27 @@ async def edit_variant(
     return child
 
 
+async def edit_variant(
+    service: Any,
+    variant_id: UUID,
+    request: EditVariantRequest | None = None,
+    **kwargs: Any,
+) -> PlatformVariantRevision:
+    edit = _edit_request(request, kwargs)
+    variant, parent = await _locked_telegram_parent(service, variant_id, edit)
+    citations = await _telegram_evidence(service, variant, parent)
+    parent_content = TelegramVariantContent.model_validate(parent.content)
+    await _validate_telegram_media(service, parent_content, edit.media_asset_ids)
+    return await _create_telegram_revision(
+        service,
+        variant_id,
+        parent,
+        edit,
+        citations,
+        parent_content,
+    )
+
+
 async def edit_manual_platform_variant(
     service: Any,
     variant_id: UUID,
@@ -205,11 +265,7 @@ async def edit_manual_platform_variant(
         .limit(1)
         .with_for_update()
     )
-    if (
-        current is None
-        or current.id != request.base_revision_id
-        or current.content_hash != request.base_content_hash
-    ):
+    if current is None or current.id != request.base_revision_id or current.content_hash != request.base_content_hash:
         raise RevisionConflict("base revision is stale")
     payload = request.payload.content
     issues = validate_platform_payload(variant.platform, payload)
@@ -251,4 +307,3 @@ async def edit_manual_platform_variant(
     service.session.add(child)
     await service.session.flush()
     return child
-
