@@ -65,6 +65,23 @@ def get_editorial_profile_resolver() -> None:
 ProfileResolverDependency = Depends(get_editorial_profile_resolver)
 
 
+def _pack_summary(
+    pack: ContentPack,
+    story_revision: StoryRevision,
+    variants: list[PlatformVariant],
+) -> dict:
+    return {
+        "id": pack.id,
+        "story_id": story_revision.story_id,
+        "story_revision_id": pack.story_revision_id,
+        "brand_profile_id": pack.brand_profile_id,
+        "status": pack.status,
+        "created_at": pack.created_at,
+        "updated_at": pack.updated_at,
+        "variants": [{"id": variant.id, "platform": variant.platform} for variant in variants],
+    }
+
+
 @router.get("/stories/{story_id}")
 async def get_story(story_id: UUID, session: AsyncSession = SessionDependency):
     story = await session.get(Story, story_id)
@@ -165,10 +182,22 @@ async def list_content_pack_requests(session: AsyncSession = SessionDependency):
                 output.append(row)
     associated_pack_ids = {row["pack"]["id"] for row in output if row["pack"] is not None}
     packs = list(await session.scalars(select(ContentPack).order_by(ContentPack.created_at.desc())))
-    for pack in packs:
-        if pack.id in associated_pack_ids:
-            continue
-        story_revision = await session.get(StoryRevision, pack.story_revision_id)
+    unassociated_packs = [pack for pack in packs if pack.id not in associated_pack_ids]
+    if not unassociated_packs:
+        return output
+    story_revisions = {
+        row.id: row
+        for row in await session.scalars(
+            select(StoryRevision).where(StoryRevision.id.in_({pack.story_revision_id for pack in unassociated_packs}))
+        )
+    }
+    variants_by_pack: dict[UUID, list[PlatformVariant]] = {}
+    for variant in await session.scalars(
+        select(PlatformVariant).where(PlatformVariant.content_pack_id.in_({pack.id for pack in unassociated_packs}))
+    ):
+        variants_by_pack.setdefault(variant.content_pack_id, []).append(variant)
+    for pack in unassociated_packs:
+        story_revision = story_revisions.get(pack.story_revision_id)
         if story_revision is None:
             continue
         output.append(
@@ -180,7 +209,7 @@ async def list_content_pack_requests(session: AsyncSession = SessionDependency):
                 "last_failure": None,
                 "created_at": pack.created_at,
                 "updated_at": pack.updated_at,
-                "pack": await _pack_out(session, pack),
+                "pack": _pack_summary(pack, story_revision, variants_by_pack.get(pack.id, [])),
             }
         )
     return output

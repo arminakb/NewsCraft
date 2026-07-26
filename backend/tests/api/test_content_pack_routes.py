@@ -10,6 +10,7 @@ from app.api.content_packs import (
     _request_out,
     _research_request_out,
     _revision_out,
+    list_content_pack_requests,
 )
 from app.api.content_packs import (
     edit_variant as edit_variant_route,
@@ -51,6 +52,48 @@ def test_content_pack_resource_routes_are_registered_with_exact_methods():
     assert expected <= routes
     edit_operation = app.openapi()["paths"]["/platform-variants/{variant_id}/revisions"]["post"]
     assert "201" in edit_operation["responses"]
+
+
+@pytest.mark.asyncio
+async def test_content_pack_request_list_bulk_loads_unassociated_pack_summaries():
+    now = datetime(2026, 7, 26, 12, tzinfo=UTC)
+    story_id = uuid4()
+    story_revision = SimpleNamespace(id=uuid4(), story_id=story_id)
+    pack = SimpleNamespace(
+        id=uuid4(),
+        story_revision_id=story_revision.id,
+        brand_profile_id=uuid4(),
+        status="draft",
+        created_at=now,
+        updated_at=now,
+    )
+    variant = SimpleNamespace(id=uuid4(), content_pack_id=pack.id, platform="telegram")
+    job = SimpleNamespace(
+        id=uuid4(),
+        job_type="content_pack.generate",
+        status="queued",
+        payload={"story_id": str(story_id), "brand_profile_id": str(pack.brand_profile_id), "platforms": ["telegram"]},
+        result={},
+        error_message=None,
+        created_at=now,
+        updated_at=now,
+    )
+
+    class BulkSession:
+        def __init__(self):
+            self.results = iter(([job], [pack], [story_revision], [variant]))
+            self.query_count = 0
+
+        async def scalars(self, _statement):
+            self.query_count += 1
+            return next(self.results)
+
+    session = BulkSession()
+    rows = await list_content_pack_requests(session)
+
+    assert session.query_count == 4
+    assert rows[-1]["story_id"] == story_id
+    assert rows[-1]["pack"]["variants"] == [{"id": variant.id, "platform": "telegram"}]
 
 
 def test_blog_rendered_html_is_read_only_sanitized_and_bound_to_revision_identity():
