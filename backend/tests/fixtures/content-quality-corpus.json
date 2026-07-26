@@ -1,0 +1,103 @@
+[
+  {
+    "id": "english-full-article",
+    "platform": "rss",
+    "language": "en",
+    "title": "Researchers publish a reproducible climate model",
+    "body": "Researchers published a reproducible climate model after three independent trials. The report identifies the measured inputs, compares two baselines, and documents the observed limitations for future verification.",
+    "date_parse_status": "parsed",
+    "expected_reasons": []
+  },
+  {
+    "id": "persian-full-article",
+    "platform": "telegram_public",
+    "language": "fa",
+    "title": "گزارش کامل از مدل تازه پژوهشگران",
+    "body": "پژوهشگران امروز نتایج سه آزمایش مستقل را منتشر کردند و روش اندازه گیری داده ها و محدودیت های گزارش را با جزئیات توضیح دادند.",
+    "date_parse_status": "parsed",
+    "expected_reasons": []
+  },
+  {
+    "id": "english-excerpt",
+    "platform": "rss",
+    "language": "en",
+    "title": "Company posts a brief product update",
+    "body": "The company announced a small model update today.",
+    "date_parse_status": "parsed",
+    "expected_reasons": ["insufficient_facts"]
+  },
+  {
+    "id": "persian-promotion",
+    "platform": "telegram_public",
+    "language": "fa",
+    "title": "تخفیف ابزار هوش مصنوعی",
+    "body": "همین امروز برای خرید ابزار هوش مصنوعی از تخفیف ویژه فروشگاه استفاده کنید.",
+    "date_parse_status": "parsed",
+    "expected_reasons": ["navigation_or_promotional_text"]
+  },
+  {
+    "id": "navigation-link-list",
+    "platform": "rss",
+    "language": "en",
+    "title": "Site navigation",
+    "body": "Home About Contact Archive Privacy Subscribe Login Menu",
+    "date_parse_status": "parsed",
+    "expected_reasons": ["navigation_or_promotional_text", "insufficient_facts"]
+  },
+  {
+    "id": "failed-extraction",
+    "platform": "rss",
+    "language": "en",
+    "title": "Extractor returned the fallback shell",
+    "body": "The stored response contains enough words to inspect safely, but the extractor explicitly reported failure and the item must remain unavailable for rewriting until corrected.",
+    "date_parse_status": "parsed",
+    "parser_meta": {"extraction_status": "failed"},
+    "expected_reasons": ["extraction_failed"]
+  },
+  {
+    "id": "missing-body",
+    "platform": "rss",
+    "language": "en",
+    "title": "A title without extracted content",
+    "body": "",
+    "date_parse_status": "parsed",
+    "expected_reasons": ["missing_body"]
+  },
+  {
+    "id": "missing-title",
+    "platform": "rss",
+    "language": "en",
+    "title": "",
+    "body": "Editors received a complete source body with verified dates, named participants, measured results, and enough context to generate a stable title without discarding the underlying article.",
+    "date_parse_status": "parsed",
+    "expected_reasons": []
+  },
+  {
+    "id": "duplicate-update",
+    "platform": "rss",
+    "language": "en",
+    "title": "Repeated update fragment",
+    "body": "The agency confirmed the measured result after an independent review.\nThe agency confirmed the measured result after an independent review.\nA separate paragraph records the publication date and responsible team for verification.",
+    "date_parse_status": "parsed",
+    "expected_reasons": ["duplicate_fragment"]
+  },
+  {
+    "id": "unsupported-video",
+    "platform": "rss",
+    "language": "en",
+    "title": "Video briefing without a supported article workflow",
+    "body": "The accompanying description names the speakers, date, topic, and reported result, but the primary source is a video that requires a separate transcription workflow before rewriting.",
+    "date_parse_status": "parsed",
+    "media": "video",
+    "expected_reasons": ["unsupported_content"]
+  },
+  {
+    "id": "malformed-date",
+    "platform": "rss",
+    "language": "en",
+    "title": "Article retained with a malformed source date",
+    "body": "The article contains named sources, a clear event, supporting measurements, and enough independent detail for editorial review even though the original publication date could not be parsed.",
+    "date_parse_status": "failed",
+    "expected_reasons": []
+  }
+]

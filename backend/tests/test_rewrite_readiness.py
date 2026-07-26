@@ -32,9 +32,9 @@ def test_promo_and_low_signal_are_blocked():
     )
 
     assert promo.is_ready is False
-    assert "promo" in promo.blockers
+    assert "navigation_or_promotional_text" in promo.blockers
     assert low_signal.is_ready is False
-    assert "low_signal" in low_signal.blockers
+    assert "insufficient_facts" in low_signal.blockers
 
 
 def test_stale_archive_blocked_from_daily_news():
@@ -62,7 +62,7 @@ def test_longform_allowed_only_in_longform_bucket():
 def test_missing_title_url_or_text_is_blocked():
     assert "missing_title" in evaluate_rewrite_readiness(_content_item(title="")).blockers
     assert "missing_source_url" in evaluate_rewrite_readiness(_content_item(canonical_url=None)).blockers
-    assert "not_enough_text" in evaluate_rewrite_readiness(_content_item(content_text="tiny")).blockers
+    assert "insufficient_facts" in evaluate_rewrite_readiness(_content_item(content_text="tiny")).blockers
 
 
 def test_repository_stores_rewrite_readiness_fields():
@@ -85,7 +85,11 @@ def test_repository_stores_rewrite_readiness_fields():
             title="OpenAI announces new model today",
             summary="The company announced a fresh AI model for developers today.",
             content_html=None,
-            content_text="The company announced a fresh AI model for developers today. " * 4,
+            content_text=(
+                "The company announced a fresh AI model for developers today. "
+                "Independent reviewers measured faster responses in three published trials. "
+                "The release notes identify the supported regions and known limitations."
+            ),
             author=None,
             categories=[],
             published_raw="2026-07-05T10:00:00+00:00",

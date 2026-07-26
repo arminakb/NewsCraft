@@ -574,7 +574,7 @@ def _content_item_values(source: Source, parsed_item: ParsedSourceItem) -> dict[
         "classification_reasons": content_classification.reasons,
         "classification_metadata": {
             **content_classification.metadata,
-            "quality_flags": content_classification.quality_flags,
+            "quality_reasons": content_classification.quality_reasons,
         },
         "rewrite_bucket": bucket_assignment.bucket_type,
         "freshness_bucket": score_result.freshness_bucket,
@@ -584,9 +584,7 @@ def _content_item_values(source: Source, parsed_item: ParsedSourceItem) -> dict[
         "score_breakdown": score_result.breakdown,
         "ranking_metadata": score_result.ranking_metadata,
         "quality_status": (
-            "low_signal"
-            if content_classification.content_type == "low_signal" or title_normalization.low_signal
-            else "needs_review"
+            "low_signal" if content_classification.quality_reasons or title_normalization.low_signal else "good"
         ),
         "first_seen_at": now,
         "last_seen_at": now,
