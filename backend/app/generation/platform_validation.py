@@ -30,10 +30,13 @@ from app.generation.platform_limits import (
 )
 from app.generation.platform_schemas import (
     BlogVariantPayload,
+    InstagramSlide,
     InstagramVariantPayload,
+    MediaAssignment,
     Platform,
     PlatformPayload,
     TelegramVariantPayload,
+    XPost,
     XVariantPayload,
 )
 from app.publishing.telegram.renderer import TelegramPublishNeedsReview, validate_renderability_policy
@@ -140,7 +143,7 @@ def _validate_telegram(payload: TelegramVariantPayload) -> list[ValidationIssue]
     return []
 
 
-def _validate_instagram(payload: InstagramVariantPayload) -> list[ValidationIssue]:
+def _instagram_copy_issues(payload: InstagramVariantPayload) -> list[ValidationIssue]:
     issues: list[ValidationIssue] = []
     if not payload.hook:
         issues.append(_issue("instagram_hook_empty", "hook", "Instagram hook must not be empty"))
@@ -195,6 +198,71 @@ def _validate_instagram(payload: InstagramVariantPayload) -> list[ValidationIssu
         for index, hashtag in enumerate(payload.hashtags)
         if not hashtag.strip()
     )
+    return issues
+
+
+def _instagram_slide_issues(
+    slide: InstagramSlide,
+    index: int,
+) -> list[ValidationIssue]:
+    assignment = slide.media
+    issues: list[ValidationIssue] = []
+    if not slide.headline:
+        issues.append(
+            _issue(
+                "instagram_slide_headline_empty",
+                f"carousel.{index}.headline",
+                "Carousel slide headline must not be empty",
+            )
+        )
+    if len(slide.headline) > INSTAGRAM_SLIDE_HEADLINE_MAX:
+        issues.append(
+            _issue(
+                "instagram_slide_headline_too_long",
+                f"carousel.{index}.headline",
+                f"Slide headline is {len(slide.headline)}/{INSTAGRAM_SLIDE_HEADLINE_MAX} characters",
+            )
+        )
+    if not slide.body:
+        issues.append(
+            _issue(
+                "instagram_slide_body_empty",
+                f"carousel.{index}.body",
+                "Carousel slide body must not be empty",
+            )
+        )
+    if len(slide.body) > INSTAGRAM_SLIDE_BODY_MAX:
+        issues.append(
+            _issue(
+                "instagram_slide_body_too_long",
+                f"carousel.{index}.body",
+                f"Slide body is {len(slide.body)}/{INSTAGRAM_SLIDE_BODY_MAX} characters",
+            )
+        )
+    if not assignment.alt_text.strip():
+        issues.append(
+            _issue(
+                "instagram_missing_media_alt_text",
+                f"carousel.{index}.media.alt_text",
+                "Assigned media requires alt text",
+            )
+        )
+    issues.extend(_media_length_issues("instagram", f"carousel.{index}.media", assignment))
+    if assignment.role != "slide":
+        issues.append(
+            _issue(
+                "instagram_media_role_invalid",
+                f"carousel.{index}.media.role",
+                "Carousel media must use the slide role",
+            )
+        )
+    return issues
+
+
+def _instagram_carousel_issues(
+    payload: InstagramVariantPayload,
+) -> list[ValidationIssue]:
+    issues: list[ValidationIssue] = []
     if len(payload.carousel) > INSTAGRAM_CAROUSEL_MAX:
         issues.append(
             _issue(
@@ -228,64 +296,21 @@ def _validate_instagram(payload: InstagramVariantPayload) -> list[ValidationIssu
                 "A media asset may be assigned to only one carousel slide",
             )
         )
-    for index, assignment in enumerate(assignments):
-        slide = payload.carousel[index]
-        if not slide.headline:
-            issues.append(
-                _issue(
-                    "instagram_slide_headline_empty",
-                    f"carousel.{index}.headline",
-                    "Carousel slide headline must not be empty",
-                )
-            )
-        if len(slide.headline) > INSTAGRAM_SLIDE_HEADLINE_MAX:
-            issues.append(
-                _issue(
-                    "instagram_slide_headline_too_long",
-                    f"carousel.{index}.headline",
-                    f"Slide headline is {len(slide.headline)}/{INSTAGRAM_SLIDE_HEADLINE_MAX} characters",
-                )
-            )
-        if not slide.body:
-            issues.append(
-                _issue(
-                    "instagram_slide_body_empty",
-                    f"carousel.{index}.body",
-                    "Carousel slide body must not be empty",
-                )
-            )
-        if len(slide.body) > INSTAGRAM_SLIDE_BODY_MAX:
-            issues.append(
-                _issue(
-                    "instagram_slide_body_too_long",
-                    f"carousel.{index}.body",
-                    f"Slide body is {len(slide.body)}/{INSTAGRAM_SLIDE_BODY_MAX} characters",
-                )
-            )
-        if not assignment.alt_text.strip():
-            issues.append(
-                _issue(
-                    "instagram_missing_media_alt_text",
-                    f"carousel.{index}.media.alt_text",
-                    "Assigned media requires alt text",
-                )
-            )
-        issues.extend(_media_length_issues("instagram", f"carousel.{index}.media", assignment))
-        if assignment.role != "slide":
-            issues.append(
-                _issue(
-                    "instagram_media_role_invalid",
-                    f"carousel.{index}.media.role",
-                    "Carousel media must use the slide role",
-                )
-            )
+    for index, slide in enumerate(payload.carousel):
+        issues.extend(_instagram_slide_issues(slide, index))
+    return issues
+
+
+def _validate_instagram(payload: InstagramVariantPayload) -> list[ValidationIssue]:
+    issues = _instagram_copy_issues(payload)
+    issues.extend(_instagram_carousel_issues(payload))
     if not payload.citations:
         issues.append(_issue("instagram_missing_citations", "citations", "Instagram copy requires a citation"))
     issues.extend(_empty_checklist_issues("instagram", payload.manual_checklist))
     return issues
 
 
-def _validate_x(payload: XVariantPayload) -> list[ValidationIssue]:
+def _x_package_issues(payload: XVariantPayload) -> list[ValidationIssue]:
     issues: list[ValidationIssue] = []
     if not payload.posts:
         issues.append(_issue("x_posts_missing", "posts", "X package requires at least one post"))
@@ -311,66 +336,95 @@ def _validate_x(payload: XVariantPayload) -> list[ValidationIssue]:
                 "A media asset may be assigned only once in a thread",
             )
         )
+    return issues
+
+
+def _x_media_issues(
+    assignment: MediaAssignment,
+    *,
+    post_index: int,
+    media_index: int,
+) -> list[ValidationIssue]:
+    path = f"posts.{post_index}.media.{media_index}"
+    issues: list[ValidationIssue] = []
+    if not assignment.alt_text.strip():
+        issues.append(
+            _issue(
+                "x_missing_media_alt_text",
+                f"{path}.alt_text",
+                "Assigned media requires alt text",
+            )
+        )
+    if assignment.role != "post":
+        issues.append(
+            _issue(
+                "x_media_role_invalid",
+                f"{path}.role",
+                "X media must use the post role",
+            )
+        )
+    issues.extend(_media_length_issues("x", path, assignment))
+    return issues
+
+
+def _x_post_issues(post: XPost, post_index: int) -> list[ValidationIssue]:
+    issues: list[ValidationIssue] = []
+    if not post.text:
+        issues.append(
+            _issue(
+                "x_post_empty",
+                f"posts.{post_index}.text",
+                f"Post {post.order} must not be empty",
+            )
+        )
+    weighted = x_weighted_length(post.text)
+    if weighted > X_POST_WEIGHT_MAX:
+        issues.append(
+            _issue(
+                "x_post_too_long",
+                f"posts.{post_index}.text",
+                f"Post {post.order} is {weighted}/{X_POST_WEIGHT_MAX} weighted characters",
+            )
+        )
+    if len(post.media) > X_MEDIA_PER_POST_MAX:
+        issues.append(
+            _issue(
+                "x_too_many_media",
+                f"posts.{post_index}.media",
+                f"Post {post.order} has {len(post.media)}/{X_MEDIA_PER_POST_MAX} media assignments",
+            )
+        )
+    if not _sequential(assignment.order for assignment in post.media):
+        issues.append(
+            _issue(
+                "x_media_order_invalid",
+                f"posts.{post_index}.media",
+                f"Post {post.order} media order must be sequential from 1",
+            )
+        )
+    for media_index, assignment in enumerate(post.media):
+        issues.extend(
+            _x_media_issues(
+                assignment,
+                post_index=post_index,
+                media_index=media_index,
+            )
+        )
+    if not post.citations:
+        issues.append(
+            _issue(
+                "x_post_missing_citations",
+                f"posts.{post_index}.citations",
+                f"Post {post.order} requires a citation",
+            )
+        )
+    return issues
+
+
+def _validate_x(payload: XVariantPayload) -> list[ValidationIssue]:
+    issues = _x_package_issues(payload)
     for post_index, post in enumerate(payload.posts):
-        if not post.text:
-            issues.append(_issue("x_post_empty", f"posts.{post_index}.text", f"Post {post.order} must not be empty"))
-        weighted = x_weighted_length(post.text)
-        if weighted > X_POST_WEIGHT_MAX:
-            issues.append(
-                _issue(
-                    "x_post_too_long",
-                    f"posts.{post_index}.text",
-                    f"Post {post.order} is {weighted}/{X_POST_WEIGHT_MAX} weighted characters",
-                )
-            )
-        if len(post.media) > X_MEDIA_PER_POST_MAX:
-            issues.append(
-                _issue(
-                    "x_too_many_media",
-                    f"posts.{post_index}.media",
-                    f"Post {post.order} has {len(post.media)}/{X_MEDIA_PER_POST_MAX} media assignments",
-                )
-            )
-        if not _sequential(assignment.order for assignment in post.media):
-            issues.append(
-                _issue(
-                    "x_media_order_invalid",
-                    f"posts.{post_index}.media",
-                    f"Post {post.order} media order must be sequential from 1",
-                )
-            )
-        for media_index, assignment in enumerate(post.media):
-            if not assignment.alt_text.strip():
-                issues.append(
-                    _issue(
-                        "x_missing_media_alt_text",
-                        f"posts.{post_index}.media.{media_index}.alt_text",
-                        "Assigned media requires alt text",
-                    )
-                )
-            if assignment.role != "post":
-                issues.append(
-                    _issue(
-                        "x_media_role_invalid",
-                        f"posts.{post_index}.media.{media_index}.role",
-                        "X media must use the post role",
-                    )
-                )
-            issues.extend(
-                _media_length_issues(
-                    "x",
-                    f"posts.{post_index}.media.{media_index}",
-                    assignment,
-                )
-            )
-        if not post.citations:
-            issues.append(
-                _issue(
-                    "x_post_missing_citations",
-                    f"posts.{post_index}.citations",
-                    f"Post {post.order} requires a citation",
-                )
-            )
+        issues.extend(_x_post_issues(post, post_index))
     issues.extend(_empty_checklist_issues("x", payload.manual_checklist))
     issues.append(
         _issue(
@@ -383,7 +437,7 @@ def _validate_x(payload: XVariantPayload) -> list[ValidationIssue]:
     return issues
 
 
-def _validate_blog(payload: BlogVariantPayload) -> list[ValidationIssue]:
+def _blog_copy_issues(payload: BlogVariantPayload) -> list[ValidationIssue]:
     issues: list[ValidationIssue] = []
     if not payload.title:
         issues.append(_issue("blog_title_empty", "title", "Blog title must not be empty"))
@@ -434,6 +488,10 @@ def _validate_blog(payload: BlogVariantPayload) -> list[ValidationIssue]:
     if not payload.citations:
         issues.append(_issue("blog_missing_citations", "citations", "Blog content requires a citation"))
 
+    return issues
+
+
+def _blog_source_issues(payload: BlogVariantPayload) -> list[ValidationIssue]:
     expected_sources: list[str] = []
     for citation in payload.citations:
         if citation.source_url is None:
@@ -442,14 +500,21 @@ def _validate_blog(payload: BlogVariantPayload) -> list[ValidationIssue]:
         if source_url not in expected_sources:
             expected_sources.append(source_url)
     actual_sources = [str(source) for source in payload.canonical_sources]
-    if actual_sources != expected_sources:
-        issues.append(
+    return (
+        [
             _issue(
                 "blog_canonical_sources_mismatch",
                 "canonical_sources",
                 "Canonical sources must match distinct cited URLs in first-citation order",
             )
-        )
+        ]
+        if actual_sources != expected_sources
+        else []
+    )
+
+
+def _blog_seo_issues(payload: BlogVariantPayload) -> list[ValidationIssue]:
+    issues: list[ValidationIssue] = []
     if len(payload.seo_description) > BLOG_SEO_DESCRIPTION_MAX:
         issues.append(
             _issue(
@@ -466,26 +531,47 @@ def _validate_blog(payload: BlogVariantPayload) -> list[ValidationIssue]:
                 f"SEO description is {len(payload.seo_description)}/50 characters",
             )
         )
-    if payload.hero_media is not None:
-        if payload.hero_media.order != 1:
-            issues.append(
-                _issue(
-                    "blog_hero_media_order_invalid",
-                    "hero_media.order",
-                    "Hero media order must be 1",
-                )
+    return issues
+
+
+def _blog_hero_issues(payload: BlogVariantPayload) -> list[ValidationIssue]:
+    if payload.hero_media is None:
+        return []
+    hero = payload.hero_media
+    issues: list[ValidationIssue] = []
+    if hero.order != 1:
+        issues.append(
+            _issue(
+                "blog_hero_media_order_invalid",
+                "hero_media.order",
+                "Hero media order must be 1",
             )
-        if not payload.hero_media.alt_text.strip():
-            issues.append(
-                _issue(
-                    "blog_missing_hero_alt_text",
-                    "hero_media.alt_text",
-                    "Hero media requires alt text",
-                )
+        )
+    if not hero.alt_text.strip():
+        issues.append(
+            _issue(
+                "blog_missing_hero_alt_text",
+                "hero_media.alt_text",
+                "Hero media requires alt text",
             )
-        if payload.hero_media.role != "hero":
-            issues.append(_issue("blog_hero_role_invalid", "hero_media.role", "Hero media must use the hero role"))
-        issues.extend(_media_length_issues("blog", "hero_media", payload.hero_media))
+        )
+    if hero.role != "hero":
+        issues.append(
+            _issue(
+                "blog_hero_role_invalid",
+                "hero_media.role",
+                "Hero media must use the hero role",
+            )
+        )
+    issues.extend(_media_length_issues("blog", "hero_media", hero))
+    return issues
+
+
+def _validate_blog(payload: BlogVariantPayload) -> list[ValidationIssue]:
+    issues = _blog_copy_issues(payload)
+    issues.extend(_blog_source_issues(payload))
+    issues.extend(_blog_seo_issues(payload))
+    issues.extend(_blog_hero_issues(payload))
     issues.extend(_empty_checklist_issues("blog", payload.manual_checklist))
     return issues
 

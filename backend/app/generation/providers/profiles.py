@@ -89,60 +89,77 @@ class ProviderProfileResolver:
         if not profile.enabled:
             raise ProviderProfileConfigurationError("Selected provider profile is disabled")
         if profile.provider_type == "fake":
-            if profile.secret_ref is not None or dict(profile.settings or {}):
-                raise ProviderProfileConfigurationError("Fake provider profile has invalid settings")
-            model = model_override or profile.default_model or "fake-v1"
-            identity = provider_configuration_identity(
-                profile_id=profile.id,
-                provider_type="fake",
-                resolved_model=model,
-                safe_settings={},
-            )
-            return ResolvedProviderProfile(
-                profile_id=profile.id,
-                provider_type="fake",
-                model=model,
-                configuration_revision=identity.revision,
-                configuration_checksum=identity.checksum,
-                provider=self.provider_registry.get("fake"),
-            )
+            return self._resolve_fake(profile, model_override)
         if profile.provider_type == "codex":
-            if not self.application_settings.codex_enabled:
-                raise ProviderProfileConfigurationError("Codex provider is disabled")
-            if profile.secret_ref is not None:
-                raise ProviderProfileConfigurationError("Codex provider profile cannot have a secret reference")
-            if not profile.default_model:
-                raise ProviderProfileConfigurationError("Selected provider profile has no model")
-            executable = self.executable_resolver(self.application_settings.codex_executable)
-            if executable is None:
-                raise ProviderProfileConfigurationError("Codex executable is unavailable")
-            try:
-                validated_codex = effective_codex_provider_settings(
-                    CodexProviderSettings.model_validate(dict(profile.settings or {}))
-                )
-                provider = self.provider_registry.create(
-                    "codex",
-                    executor=self.codex_executor_factory(executable),
-                    profile=profile,
-                )
-            except TypeError, ValueError:
-                raise ProviderProfileConfigurationError("Selected provider profile settings are invalid") from None
-            identity = provider_configuration_identity(
-                profile_id=profile.id,
-                provider_type="codex",
-                resolved_model=profile.default_model,
-                safe_settings=validated_codex.model_dump(mode="json"),
+            return self._resolve_codex(profile)
+        if profile.provider_type == "openrouter":
+            return await self._resolve_openrouter(profile, model_override)
+        raise ProviderProfileConfigurationError("Selected provider type is unsupported")
+
+    def _resolve_fake(
+        self,
+        profile: AIProviderProfile,
+        model_override: str | None,
+    ) -> ResolvedProviderProfile:
+        if profile.secret_ref is not None or dict(profile.settings or {}):
+            raise ProviderProfileConfigurationError("Fake provider profile has invalid settings")
+        model = model_override or profile.default_model or "fake-v1"
+        identity = provider_configuration_identity(
+            profile_id=profile.id,
+            provider_type="fake",
+            resolved_model=model,
+            safe_settings={},
+        )
+        return ResolvedProviderProfile(
+            profile_id=profile.id,
+            provider_type="fake",
+            model=model,
+            configuration_revision=identity.revision,
+            configuration_checksum=identity.checksum,
+            provider=self.provider_registry.get("fake"),
+        )
+
+    def _resolve_codex(self, profile: AIProviderProfile) -> ResolvedProviderProfile:
+        if not self.application_settings.codex_enabled:
+            raise ProviderProfileConfigurationError("Codex provider is disabled")
+        if profile.secret_ref is not None:
+            raise ProviderProfileConfigurationError("Codex provider profile cannot have a secret reference")
+        if not profile.default_model:
+            raise ProviderProfileConfigurationError("Selected provider profile has no model")
+        executable = self.executable_resolver(self.application_settings.codex_executable)
+        if executable is None:
+            raise ProviderProfileConfigurationError("Codex executable is unavailable")
+        try:
+            validated = effective_codex_provider_settings(
+                CodexProviderSettings.model_validate(dict(profile.settings or {}))
             )
-            return ResolvedProviderProfile(
-                profile_id=profile.id,
-                provider_type="codex",
-                model=profile.default_model,
-                configuration_revision=identity.revision,
-                configuration_checksum=identity.checksum,
-                provider=provider,
+            provider = self.provider_registry.create(
+                "codex",
+                executor=self.codex_executor_factory(executable),
+                profile=profile,
             )
-        if profile.provider_type != "openrouter":
-            raise ProviderProfileConfigurationError("Selected provider type is unsupported")
+        except TypeError, ValueError:
+            raise ProviderProfileConfigurationError("Selected provider profile settings are invalid") from None
+        identity = provider_configuration_identity(
+            profile_id=profile.id,
+            provider_type="codex",
+            resolved_model=profile.default_model,
+            safe_settings=validated.model_dump(mode="json"),
+        )
+        return ResolvedProviderProfile(
+            profile_id=profile.id,
+            provider_type="codex",
+            model=profile.default_model,
+            configuration_revision=identity.revision,
+            configuration_checksum=identity.checksum,
+            provider=provider,
+        )
+
+    def _openrouter_settings(
+        self,
+        profile: AIProviderProfile,
+        model_override: str | None,
+    ) -> tuple[str, OpenRouterProviderSettings]:
         model = model_override or profile.default_model
         if not model:
             raise ProviderProfileConfigurationError("Selected provider profile has no model")
@@ -164,34 +181,58 @@ class ProviderProfileResolver:
             or validated.base_url.fragment is not None
         ):
             raise ProviderProfileConfigurationError("Selected provider profile base URL is invalid")
+        return model, validated
+
+    def _openrouter_api_key(self, profile: AIProviderProfile) -> str:
+        assert profile.secret_ref is not None
         try:
             if not self.secret_resolver.configured(profile.secret_ref):
                 raise ProviderProfileConfigurationError("Selected provider profile secret is not configured")
-            api_key = self.secret_resolver.resolve(profile.secret_ref)
+            return self.secret_resolver.resolve(profile.secret_ref)
         except ProviderProfileConfigurationError:
             raise
         except Exception:
             raise ProviderProfileConfigurationError("Selected provider profile secret is unavailable") from None
-        http_kwargs = {
+
+    def _openrouter_http_kwargs(
+        self,
+        validated: OpenRouterProviderSettings,
+    ) -> dict[str, Any]:
+        return {
             "base_url": str(validated.base_url).rstrip("/"),
             "timeout_seconds": validated.timeout_seconds,
             "http_referer": str(validated.http_referer) if validated.http_referer else None,
             "app_title": validated.app_title,
         }
+
+    async def _openrouter_quarantine(
+        self,
+        client: httpx.AsyncClient,
+    ) -> AgeInvalidOutputQuarantine | None:
+        if not self.application_settings.generation_invalid_output_quarantine_enabled:
+            return None
+        try:
+            return AgeInvalidOutputQuarantine(
+                root=self.application_settings.generation_invalid_output_quarantine_root,
+                recipient_file=self.application_settings.generation_invalid_output_quarantine_recipient_file,
+                max_bytes=self.application_settings.generation_invalid_output_quarantine_max_bytes,
+                ttl_days=self.application_settings.generation_invalid_output_quarantine_ttl_days,
+                age_executable=self.application_settings.generation_invalid_output_quarantine_age_executable,
+            )
+        except OSError, ValueError, RuntimeError:
+            await client.aclose()
+            raise ProviderProfileConfigurationError("Invalid output quarantine is unavailable") from None
+
+    async def _resolve_openrouter(
+        self,
+        profile: AIProviderProfile,
+        model_override: str | None,
+    ) -> ResolvedProviderProfile:
+        model, validated = self._openrouter_settings(profile, model_override)
+        api_key = self._openrouter_api_key(profile)
+        http_kwargs = self._openrouter_http_kwargs(validated)
         client = self.http_client_factory(**http_kwargs)
-        quarantine = None
-        if self.application_settings.generation_invalid_output_quarantine_enabled:
-            try:
-                quarantine = AgeInvalidOutputQuarantine(
-                    root=self.application_settings.generation_invalid_output_quarantine_root,
-                    recipient_file=self.application_settings.generation_invalid_output_quarantine_recipient_file,
-                    max_bytes=self.application_settings.generation_invalid_output_quarantine_max_bytes,
-                    ttl_days=self.application_settings.generation_invalid_output_quarantine_ttl_days,
-                    age_executable=self.application_settings.generation_invalid_output_quarantine_age_executable,
-                )
-            except OSError, ValueError, RuntimeError:
-                await client.aclose()
-                raise ProviderProfileConfigurationError("Invalid output quarantine is unavailable") from None
+        quarantine = await self._openrouter_quarantine(client)
         provider = OpenRouterProvider(
             http_client=client,
             api_key=api_key,

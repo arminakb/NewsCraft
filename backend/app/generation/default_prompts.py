@@ -29,6 +29,45 @@ _OPERATIONAL_SCHEMA_LIMITS = {
 }
 
 
+def _relax_manual_schema_value(
+    key: str,
+    value: Any,
+    *,
+    integrity_boundary: bool,
+) -> None:
+    if key == "$defs" and isinstance(value, dict):
+        for name, definition in value.items():
+            _relax_manual_schema_node(
+                definition,
+                integrity_boundary=name == "CitationRef",
+            )
+        return
+    if isinstance(value, dict):
+        _relax_manual_schema_node(value, integrity_boundary=integrity_boundary)
+    elif isinstance(value, list):
+        for item in value:
+            _relax_manual_schema_node(item, integrity_boundary=integrity_boundary)
+
+
+def _relax_manual_schema_node(
+    node: Any,
+    *,
+    integrity_boundary: bool = False,
+) -> None:
+    if not isinstance(node, dict):
+        return
+    integrity_boundary = integrity_boundary or node.get("title") == "Citations"
+    if not integrity_boundary and node.get("format") not in {"uri", "uuid"}:
+        for key in _OPERATIONAL_SCHEMA_LIMITS:
+            node.pop(key, None)
+    for key, value in node.items():
+        _relax_manual_schema_value(
+            key,
+            value,
+            integrity_boundary=integrity_boundary,
+        )
+
+
 def manual_generation_provider_schema(payload_type: type) -> dict[str, Any]:
     """Keep provider output shape strict while deferring publish limits.
 
@@ -37,25 +76,7 @@ def manual_generation_provider_schema(payload_type: type) -> dict[str, Any]:
     """
 
     schema = deepcopy(payload_type.model_json_schema())
-
-    def relax(node: Any, *, integrity_boundary: bool = False) -> None:
-        if not isinstance(node, dict):
-            return
-        integrity_boundary = integrity_boundary or node.get("title") == "Citations"
-        if not integrity_boundary and node.get("format") not in {"uri", "uuid"}:
-            for key in _OPERATIONAL_SCHEMA_LIMITS:
-                node.pop(key, None)
-        for key, value in node.items():
-            if key == "$defs" and isinstance(value, dict):
-                for name, definition in value.items():
-                    relax(definition, integrity_boundary=name == "CitationRef")
-            elif isinstance(value, dict):
-                relax(value, integrity_boundary=integrity_boundary)
-            elif isinstance(value, list):
-                for item in value:
-                    relax(item, integrity_boundary=integrity_boundary)
-
-    relax(schema)
+    _relax_manual_schema_node(schema)
     return schema
 
 
