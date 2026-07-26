@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
-import { fireEvent, render, screen, waitFor } from "@testing-library/react"
+import { fireEvent, render, screen } from "@testing-library/react"
 
 import { fetchOperationsHistory } from "@/features/operations/api"
 import { HistoryTimeline } from "@/features/operations/history-timeline"

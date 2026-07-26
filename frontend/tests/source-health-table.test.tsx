@@ -1,7 +1,7 @@
 import { fireEvent, render, screen, within } from "@testing-library/react"
 
 import { SourceHealthTable } from "@/components/dashboard/source-health-table"
-import { dashboardMock } from "@/lib/mock-data"
+import { dashboardMock } from "@/tests/fixtures/dashboard-mock"
 
 describe("SourceHealthTable", () => {
   it("renders source rows, status badges, and platform tabs", () => {

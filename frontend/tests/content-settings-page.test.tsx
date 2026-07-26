@@ -4,8 +4,6 @@ import { fireEvent, render, screen, waitFor, within } from "@testing-library/rea
 import { NoticeProvider } from "@/components/providers/notice-provider"
 import {
   activatePromptVersion,
-  createBrandProfile,
-  createPromptVersion,
   getBrandProfiles,
   getPromptTemplates,
   getPromptVersions,

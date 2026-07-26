@@ -4,7 +4,7 @@ import { DiagnosticsPage } from "@/components/dashboard/pages/diagnostics-page"
 import { RunsPage } from "@/components/dashboard/pages/runs-page"
 import { SourcesPage } from "@/components/dashboard/pages/sources-page"
 import { QueryProvider } from "@/components/providers/query-provider"
-import { dashboardMock } from "@/lib/mock-data"
+import { dashboardMock } from "@/tests/fixtures/dashboard-mock"
 
 vi.mock("@/lib/api-client", async () => {
   const actual = await vi.importActual<typeof import("@/lib/api-client")>("@/lib/api-client")

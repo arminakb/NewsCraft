@@ -1,4 +1,4 @@
-import type { DashboardSnapshot } from "./types"
+import type { DashboardSnapshot } from "@/lib/types"
 
 const image = (query: string) =>
   `https://images.unsplash.com/${query}?auto=format&fit=crop&w=320&q=70`

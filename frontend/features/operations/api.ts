@@ -28,7 +28,6 @@ import type {
   RetentionRunAccepted,
 } from "./types"
 
-type BackendOperationComponentHealth = components["schemas"]["ComponentHealthOut"]
 type BackendOperationAttentionItem = components["schemas"]["AttentionItemOut"]
 type BackendOperationsSnapshot = components["schemas"]["OperationsSnapshotOut"]
 type BackendHistoryEntry = components["schemas"]["HistoryEntryOut"]

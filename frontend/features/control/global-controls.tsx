@@ -8,7 +8,7 @@ import { useNotices } from "@/components/providers/notice-provider"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { getAutomationControl, updateAutomationControl } from "@/features/control/api"
-import type { AutomationControl, AutomationControlPatch } from "@/features/control/types"
+import type { AutomationControlPatch } from "@/features/control/types"
 import { getApiErrorMessage } from "@/lib/http"
 import { queryKeys } from "@/lib/query-keys"
 
