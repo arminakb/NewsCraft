@@ -517,8 +517,8 @@ async def test_reviewed_schedule_creates_identical_durable_due_times_and_one_red
             )
             return SimpleNamespace(job=job, created=True)
 
-    monkeypatch.setattr("app.publishing.telegram.service._revision_dispatch", dispatch_for_revision)
-    monkeypatch.setattr("app.publishing.telegram.service.JobRepository", Repository)
+    monkeypatch.setattr("app.publishing.telegram.scheduling._revision_dispatch", dispatch_for_revision)
+    monkeypatch.setattr("app.publishing.telegram.scheduling.JobRepository", Repository)
 
     result = await schedule_reviewed_telegram(
         session,
@@ -603,8 +603,8 @@ async def test_reviewed_schedule_exact_replay_reuses_both_rows_without_event_or_
         def __init__(self, _session):
             raise AssertionError("Exact replay must not call JobRepository")
 
-    monkeypatch.setattr("app.publishing.telegram.service._revision_dispatch", dispatch_for_revision)
-    monkeypatch.setattr("app.publishing.telegram.service.JobRepository", Repository)
+    monkeypatch.setattr("app.publishing.telegram.scheduling._revision_dispatch", dispatch_for_revision)
+    monkeypatch.setattr("app.publishing.telegram.scheduling.JobRepository", Repository)
 
     result = await schedule_reviewed_telegram(
         session,
@@ -655,8 +655,8 @@ async def test_reviewed_schedule_exact_replay_survives_a_lost_response_after_due
         def __init__(self, _session):
             raise AssertionError("Past-due exact replay must not enqueue")
 
-    monkeypatch.setattr("app.publishing.telegram.service._revision_dispatch", dispatch_for_revision)
-    monkeypatch.setattr("app.publishing.telegram.service.JobRepository", Repository)
+    monkeypatch.setattr("app.publishing.telegram.scheduling._revision_dispatch", dispatch_for_revision)
+    monkeypatch.setattr("app.publishing.telegram.scheduling.JobRepository", Repository)
 
     result = await schedule_reviewed_telegram(
         session,
@@ -711,8 +711,8 @@ async def test_reviewed_schedule_recovers_insert_race_as_exact_replay(monkeypatc
         def __init__(self, _session):
             raise AssertionError("Recovered exact replay must not enqueue")
 
-    monkeypatch.setattr("app.publishing.telegram.service._revision_dispatch", dispatch_for_revision)
-    monkeypatch.setattr("app.publishing.telegram.service.JobRepository", Repository)
+    monkeypatch.setattr("app.publishing.telegram.scheduling._revision_dispatch", dispatch_for_revision)
+    monkeypatch.setattr("app.publishing.telegram.scheduling.JobRepository", Repository)
 
     result = await schedule_reviewed_telegram(
         session,
@@ -764,7 +764,7 @@ async def test_reviewed_schedule_maps_concurrent_immediate_intent_to_stable_conf
     async def dispatch_for_revision(_session, _revision):
         return fixture.dispatch
 
-    monkeypatch.setattr("app.publishing.telegram.service._revision_dispatch", dispatch_for_revision)
+    monkeypatch.setattr("app.publishing.telegram.scheduling._revision_dispatch", dispatch_for_revision)
 
     with pytest.raises(ReviewedTelegramScheduleError, match="conflicts"):
         await schedule_reviewed_telegram(
@@ -809,7 +809,7 @@ async def test_reviewed_schedule_rejects_unpublishable_revision_or_destination(
     async def dispatch_for_revision(_session, _revision):
         return fixture.dispatch
 
-    monkeypatch.setattr("app.publishing.telegram.service._revision_dispatch", dispatch_for_revision)
+    monkeypatch.setattr("app.publishing.telegram.scheduling._revision_dispatch", dispatch_for_revision)
 
     with pytest.raises(ReviewedTelegramScheduleError, match=match):
         await schedule_reviewed_telegram(
@@ -836,7 +836,7 @@ async def test_reviewed_schedule_requires_aware_strictly_future_due_time(monkeyp
     async def dispatch_for_revision(_session, _revision):
         return fixture.dispatch
 
-    monkeypatch.setattr("app.publishing.telegram.service._revision_dispatch", dispatch_for_revision)
+    monkeypatch.setattr("app.publishing.telegram.scheduling._revision_dispatch", dispatch_for_revision)
 
     with pytest.raises(ReviewedTelegramScheduleError, match="future|timezone-aware"):
         await schedule_reviewed_telegram(
@@ -866,8 +866,8 @@ async def test_reviewed_schedule_resamples_clock_after_lock_wait_before_new_inse
         def __init__(self, _session):
             raise AssertionError("Elapsed new schedule must not enqueue")
 
-    monkeypatch.setattr("app.publishing.telegram.service._revision_dispatch", dispatch_for_revision)
-    monkeypatch.setattr("app.publishing.telegram.service.JobRepository", Repository)
+    monkeypatch.setattr("app.publishing.telegram.scheduling._revision_dispatch", dispatch_for_revision)
+    monkeypatch.setattr("app.publishing.telegram.scheduling.JobRepository", Repository)
 
     with pytest.raises(ReviewedTelegramScheduleError, match="strictly in the future"):
         await schedule_reviewed_telegram(
@@ -915,8 +915,8 @@ async def test_reviewed_schedule_resamples_after_enqueue_before_linking_or_event
                 created=True,
             )
 
-    monkeypatch.setattr("app.publishing.telegram.service._revision_dispatch", dispatch_for_revision)
-    monkeypatch.setattr("app.publishing.telegram.service.JobRepository", Repository)
+    monkeypatch.setattr("app.publishing.telegram.scheduling._revision_dispatch", dispatch_for_revision)
+    monkeypatch.setattr("app.publishing.telegram.scheduling.JobRepository", Repository)
 
     with pytest.raises(ReviewedTelegramScheduleError, match="strictly in the future"):
         await schedule_reviewed_telegram(
@@ -998,7 +998,7 @@ async def test_reviewed_schedule_rejects_existing_intent_or_workflow_drift(
     async def dispatch_for_revision(_session, _revision):
         return fixture.dispatch
 
-    monkeypatch.setattr("app.publishing.telegram.service._revision_dispatch", dispatch_for_revision)
+    monkeypatch.setattr("app.publishing.telegram.scheduling._revision_dispatch", dispatch_for_revision)
 
     with pytest.raises(ReviewedTelegramScheduleError, match=match):
         await schedule_reviewed_telegram(
@@ -1018,7 +1018,7 @@ async def test_reviewed_schedule_requires_dispatch_ancestry_and_matching_route_d
     async def missing_dispatch(_session, _revision):
         return None
 
-    monkeypatch.setattr("app.publishing.telegram.service._revision_dispatch", missing_dispatch)
+    monkeypatch.setattr("app.publishing.telegram.scheduling._revision_dispatch", missing_dispatch)
     with pytest.raises(ReviewedTelegramScheduleError, match="route provenance"):
         await schedule_reviewed_telegram(
             _schedule_session(fixture),
@@ -1032,7 +1032,7 @@ async def test_reviewed_schedule_requires_dispatch_ancestry_and_matching_route_d
     async def dispatch_for_revision(_session, _revision):
         return fixture.dispatch
 
-    monkeypatch.setattr("app.publishing.telegram.service._revision_dispatch", dispatch_for_revision)
+    monkeypatch.setattr("app.publishing.telegram.scheduling._revision_dispatch", dispatch_for_revision)
     with pytest.raises(ReviewedTelegramScheduleError, match="route.*destination"):
         await schedule_reviewed_telegram(
             _schedule_session(fixture),
