@@ -1,4 +1,7 @@
 import {
+  checkSourceHealth,
+  createSource,
+  deleteSource,
   getIngestRuns,
   getSource,
   getSources,
@@ -111,6 +114,79 @@ describe("ingestion API", () => {
     stubFetch({ upserted: 50 })
 
     await expect(seedSources()).resolves.toEqual({ upserted: 50 })
+  })
+
+  it("deletes a source through the persistent API", async () => {
+    const fetchSpy = stubFetch(null)
+
+    await expect(deleteSource("source/1")).resolves.toBeUndefined()
+    expect(fetchSpy).toHaveBeenCalledWith(
+      "/api/backend/sources/source%2F1",
+      expect.objectContaining({ method: "DELETE" }),
+    )
+  })
+
+  it("creates and maps a persistent source", async () => {
+    const fetchSpy = stubFetch({
+      id: "source-1",
+      platform: "rss",
+      name: "Example Wire",
+      feed_url: "https://example.com/feed.xml",
+      source_group: "technology",
+      language_hint: "en",
+      active: true,
+      health_status: "unknown",
+      fetch_interval_minutes: 30,
+    })
+
+    await expect(createSource({
+      platform: "rss",
+      name: "Example Wire",
+      url: "https://example.com/feed.xml",
+      category: "technology",
+      language: "en",
+      fetchIntervalMinutes: 30,
+    })).resolves.toEqual(expect.objectContaining({
+      id: "source-1",
+      name: "Example Wire",
+      status: "unknown",
+    }))
+    expect(fetchSpy).toHaveBeenCalledWith(
+      "/api/backend/sources",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({
+          platform: "rss",
+          name: "Example Wire",
+          url: "https://example.com/feed.xml",
+          source_group: "technology",
+          language_hint: "en",
+          fetch_interval_minutes: 30,
+        }),
+      }),
+    )
+  })
+
+  it("checks one source and maps persisted health metadata", async () => {
+    const fetchSpy = stubFetch({
+      source_id: "source-1",
+      health_status: "broken",
+      is_checking: false,
+      last_checked_at: "2026-07-27T08:30:00Z",
+      failure_reason: "Source returned HTTP 503.",
+    })
+
+    await expect(checkSourceHealth("source/1")).resolves.toEqual({
+      sourceId: "source-1",
+      status: "broken",
+      isChecking: false,
+      lastCheckedAt: "2026-07-27T08:30:00Z",
+      failureReason: "Source returned HTTP 503.",
+    })
+    expect(fetchSpy).toHaveBeenCalledWith(
+      "/api/backend/sources/source%2F1/health-check",
+      expect.objectContaining({ method: "POST" }),
+    )
   })
 
   it("uses the typed ingest client with a generated request UUID", async () => {

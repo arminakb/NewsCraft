@@ -1,11 +1,13 @@
 import { enqueueIngest } from "@/features/jobs/api"
 import { titleCase } from "@/lib/format"
-import { apiRequest } from "@/lib/http"
+import { apiRequest, apiRequestVoid } from "@/lib/http"
 import type { components } from "@/lib/api/generated"
 
 import type {
+  CreateSourceInput,
   IngestionRunSummary,
   SourcePlatform,
+  SourceHealthResult,
   SourceStatus,
   SourceSummary,
 } from "./ingestion-types"
@@ -14,6 +16,7 @@ type BackendSource =
   | components["schemas"]["SourceOut"]
   | components["schemas"]["SourceDetailOut"]
 type BackendRun = components["schemas"]["IngestRunSummaryOut"]
+type BackendSourceHealth = components["schemas"]["SourceHealthOut"]
 
 export async function getSources(): Promise<SourceSummary[]> {
   const rows = await apiRequest<BackendSource[]>("/sources")
@@ -23,6 +26,39 @@ export async function getSources(): Promise<SourceSummary[]> {
 export async function getSource(id: string): Promise<SourceSummary> {
   const row = await apiRequest<BackendSource>(`/sources/${encodeURIComponent(id)}`)
   return mapSource(row)
+}
+
+export async function createSource(input: CreateSourceInput): Promise<SourceSummary> {
+  const row = await apiRequest<BackendSource>("/sources", {
+    method: "POST",
+    body: JSON.stringify({
+      platform: input.platform,
+      name: input.name,
+      url: input.url,
+      source_group: input.category,
+      language_hint: input.language,
+      fetch_interval_minutes: input.fetchIntervalMinutes,
+    }),
+  })
+  return mapSource(row)
+}
+
+export function deleteSource(id: string): Promise<void> {
+  return apiRequestVoid(`/sources/${encodeURIComponent(id)}`, { method: "DELETE" })
+}
+
+export async function checkSourceHealth(id: string): Promise<SourceHealthResult> {
+  const row = await apiRequest<BackendSourceHealth>(
+    `/sources/${encodeURIComponent(id)}/health-check`,
+    { method: "POST" },
+  )
+  return {
+    sourceId: row.source_id,
+    status: normalizeSourceStatus(row.health_status),
+    isChecking: row.is_checking,
+    lastCheckedAt: row.last_checked_at,
+    failureReason: row.failure_reason ?? null,
+  }
 }
 
 export function seedSources(): Promise<{ upserted: number }> {
@@ -74,6 +110,8 @@ function mapSource(row: BackendSource): SourceSummary {
     totalItems: row.last_parse_count ?? 0,
     media24h: row.last_media_count ?? 0,
     addedAt: row.created_at ? formatDateTime(row.created_at) : "Unknown",
+    lastCheckedAt: row.last_fetch_at ?? null,
+    failureReason: row.last_error_message ?? null,
   }
 }
 

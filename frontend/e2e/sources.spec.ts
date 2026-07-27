@@ -2,6 +2,9 @@ import AxeBuilder from "@axe-core/playwright"
 import { expect, test } from "@playwright/test"
 
 import { fulfillMockJson, installMockBackend } from "./support/mock-backend"
+import type { components } from "../lib/api/generated"
+
+type SourceRecord = components["schemas"]["SourceOut"]
 
 const sources = [
   {
@@ -46,17 +49,13 @@ const sources = [
     last_media_count: 44,
     created_at: "2026-07-21T08:00:00Z",
   },
-]
+] satisfies SourceRecord[]
 
 test("Sources tabs stay responsive and filter rows", async ({ page }) => {
   const pageErrors: Error[] = []
   page.on("pageerror", (error) => pageErrors.push(error))
   const unhandledRequests = await installMockBackend(page)
-  await page.route("**/api/backend/sources/*", (route) => {
-    const id = new URL(route.request().url()).pathname.split("/").at(-1)
-    return fulfillMockJson(route, sources.find((source) => source.id === id) ?? sources[0])
-  })
-  await page.route("**/api/backend/sources", (route) => fulfillMockJson(route, sources))
+  await installSourcesApi(page, sources)
   await page.setViewportSize({ width: 1280, height: 800 })
   await page.goto("/sources")
 
@@ -77,11 +76,25 @@ test("Sources tabs stay responsive and filter rows", async ({ page }) => {
   await addDialog.getByLabel("Feed URL").fill("https://example.com/feed.xml")
   await addDialog.getByRole("button", { name: "Add source" }).click()
   await expect(page.getByRole("row", { name: /example wire/i })).toBeVisible()
+  await page.reload()
+  await expect(page.getByRole("row", { name: /example wire/i })).toBeVisible()
 
   await page.getByRole("button", { name: "Delete Example Wire" }).click()
   const deleteDialog = page.getByRole("dialog", { name: "Delete source?" })
   await deleteDialog.getByRole("button", { name: "Delete source" }).click()
   await expect(page.getByRole("row", { name: /example wire/i })).toHaveCount(0)
+  await page.reload()
+  await expect(page.getByRole("row", { name: /example wire/i })).toHaveCount(0)
+
+  await page.getByRole("button", { name: /open techcrunch details/i }).click()
+  await expect(page.getByRole("region", { name: /source details/i })).toBeVisible()
+  await page.getByRole("button", { name: /close source details/i }).click()
+  await expect(page.getByRole("region", { name: /source details/i })).toHaveCount(0)
+  await page.getByRole("button", { name: /show techcrunch source details/i }).click()
+  await expect(page.getByRole("region", { name: /source details/i })).toBeVisible()
+
+  await page.getByRole("button", { name: /check techcrunch health, currently healthy/i }).click()
+  await expect(page.getByText(/last checked/i).first()).toBeVisible()
 
   const tableFits = await page.locator('[data-slot="table-container"]').evaluate(
     (element) => element.scrollWidth <= element.clientWidth,
@@ -96,11 +109,8 @@ test("Sources tabs stay responsive and filter rows", async ({ page }) => {
 
 test("Sources management stays inside narrow portrait and landscape viewports", async ({ page }) => {
   const unhandledRequests = await installMockBackend(page)
-  await page.route("**/api/backend/sources/*", (route) => {
-    const id = new URL(route.request().url()).pathname.split("/").at(-1)
-    return fulfillMockJson(route, sources.find((source) => source.id === id) ?? sources[0])
-  })
-  await page.route("**/api/backend/sources", (route) => fulfillMockJson(route, sources))
+  await installSourcesApi(page, sources)
+  await page.emulateMedia({ reducedMotion: "reduce" })
 
   for (const viewport of [
     { width: 375, height: 812 },
@@ -108,6 +118,9 @@ test("Sources management stays inside narrow portrait and landscape viewports", 
   ]) {
     await page.setViewportSize(viewport)
     await page.goto("/sources")
+    await page.evaluate(() => {
+      document.documentElement.style.fontSize = "20px"
+    })
     await expect(page.getByRole("heading", { name: "Sources" })).toBeVisible()
     const pageFits = await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)
     expect(pageFits).toBe(true)
@@ -119,6 +132,83 @@ test("Sources management stays inside narrow portrait and landscape viewports", 
   }
   expect(unhandledRequests).toEqual([])
 })
+
+async function installSourcesApi(
+  page: import("@playwright/test").Page,
+  initialSources: SourceRecord[],
+) {
+  let records = initialSources.map((source) => ({ ...source }))
+  let createdCount = 0
+
+  await page.route("**/api/backend/sources/*/health-check", async (route) => {
+    const parts = new URL(route.request().url()).pathname.split("/")
+    const sourceId = decodeURIComponent(parts.at(-2) ?? "")
+    const checkedAt = "2026-07-27T08:30:00Z"
+    records = records.map((source) => source.id === sourceId ? {
+      ...source,
+      health_status: "healthy",
+      last_fetch_at: checkedAt,
+      last_error_message: null,
+    } : source)
+    await fulfillMockJson(route, {
+      source_id: sourceId,
+      health_status: "healthy",
+      is_checking: false,
+      last_checked_at: checkedAt,
+      failure_reason: null,
+    })
+  })
+
+  await page.route("**/api/backend/sources/*", async (route) => {
+    const sourceId = decodeURIComponent(new URL(route.request().url()).pathname.split("/").at(-1) ?? "")
+    const source = records.find((item) => item.id === sourceId)
+    if (route.request().method() === "DELETE") {
+      records = records.filter((item) => item.id !== sourceId)
+      await route.fulfill({ status: 204, body: "" })
+      return
+    }
+    await fulfillMockJson(route, source ?? records[0])
+  })
+
+  await page.route("**/api/backend/sources", async (route) => {
+    if (route.request().method() === "POST") {
+      const input = route.request().postDataJSON() as {
+        platform: "rss" | "telegram_public"
+        name: string
+        url: string
+        source_group: string
+        language_hint: string
+        fetch_interval_minutes: number
+      }
+      createdCount += 1
+      const created: SourceRecord = {
+        id: `33333333-3333-4333-8333-${String(createdCount).padStart(12, "0")}`,
+        platform: input.platform,
+        name: input.name,
+        source_group: input.source_group,
+        active: true,
+        feed_url: input.platform === "rss" ? input.url : null,
+        homepage_url: null,
+        telegram_username: input.platform === "telegram_public" ? input.url.split("/").at(-1) ?? null : null,
+        language_hint: input.language_hint,
+        fetch_interval_minutes: input.fetch_interval_minutes,
+        health_status: "unknown",
+        last_fetch_at: null,
+        last_success_at: null,
+        last_failure_at: null,
+        failure_count: 0,
+        last_parse_count: 0,
+        last_suitable_count: 0,
+        last_media_count: 0,
+        created_at: "2026-07-27T08:15:00Z",
+      }
+      records = [created, ...records]
+      await fulfillMockJson(route, created, 201)
+      return
+    }
+    await fulfillMockJson(route, records)
+  })
+}
 
 async function expectNoSeriousAxeViolations(page: import("@playwright/test").Page) {
   const results = await new AxeBuilder({ page }).analyze()

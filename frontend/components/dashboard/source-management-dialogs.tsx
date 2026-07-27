@@ -1,20 +1,13 @@
 "use client"
 
-import { Trash2 } from "lucide-react"
+import { LoaderCircle, Trash2 } from "lucide-react"
 import { cloneElement, isValidElement, useEffect, useId, useRef, useState } from "react"
 
 import { useEditorialModal } from "@/components/editorial/use-editorial-modal"
 import { Button } from "@/components/ui/button"
-import type { SourceSummary } from "@/features/operations/ingestion-types"
+import type { CreateSourceInput, SourceSummary } from "@/features/operations/ingestion-types"
 
-export type NewSourceInput = {
-  platform: "rss" | "telegram_public"
-  name: string
-  url: string
-  category: string
-  language: string
-  fetchIntervalMinutes: number
-}
+export type NewSourceInput = CreateSourceInput
 
 const fieldClass =
   "min-h-11 w-full rounded-lg border bg-background px-3 py-2 text-base outline-none transition-colors focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/30"
@@ -29,10 +22,14 @@ const initialForm = {
 }
 
 export function AddSourceDialog({
+  error,
+  isSubmitting = false,
   onClose,
   onSubmit,
   open,
 }: {
+  error?: string | null
+  isSubmitting?: boolean
   onClose: () => void
   onSubmit: (input: NewSourceInput) => void
   open: boolean
@@ -67,13 +64,14 @@ export function AddSourceDialog({
       aria-modal="true"
       className="fixed inset-0 z-50 grid place-items-center overflow-y-auto bg-slate-950/45 p-4"
       onMouseDown={(event) => {
-        if (event.target === event.currentTarget) onClose()
+        if (!isSubmitting && event.target === event.currentTarget) onClose()
       }}
       ref={dialogRef}
       role="dialog"
       tabIndex={-1}
     >
       <form
+        aria-busy={isSubmitting}
         className="my-auto w-full max-w-xl space-y-5 rounded-xl border bg-background p-5 shadow-xl"
         onSubmit={(event) => {
           event.preventDefault()
@@ -183,9 +181,23 @@ export function AddSourceDialog({
           </div>
         </div>
 
+        {error ? (
+          <p className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-900 dark:border-red-800 dark:bg-red-950/50 dark:text-red-100" role="alert">
+            {error}
+          </p>
+        ) : null}
         <div className="flex justify-end gap-2 border-t pt-4">
-          <Button onClick={onClose} type="button" variant="outline">Cancel</Button>
-          <Button disabled={Boolean(validationError)} type="submit">Add source</Button>
+          <Button disabled={isSubmitting} onClick={onClose} type="button" variant="outline">Cancel</Button>
+          <Button
+            aria-label={isSubmitting ? "Adding source" : "Add source"}
+            disabled={Boolean(validationError) || isSubmitting}
+            type="submit"
+          >
+            {isSubmitting ? (
+              <LoaderCircle className="size-4 animate-spin motion-reduce:animate-none" aria-hidden="true" />
+            ) : null}
+            {isSubmitting ? "Adding" : "Add source"}
+          </Button>
         </div>
       </form>
     </div>
@@ -193,10 +205,14 @@ export function AddSourceDialog({
 }
 
 export function DeleteSourceDialog({
+  error,
+  isDeleting = false,
   onClose,
   onConfirm,
   source,
 }: {
+  error?: string | null
+  isDeleting?: boolean
   onClose: () => void
   onConfirm: () => void
   source: SourceSummary | null
@@ -222,7 +238,7 @@ export function DeleteSourceDialog({
       aria-modal="true"
       className="fixed inset-0 z-50 grid place-items-center bg-slate-950/45 p-4"
       onMouseDown={(event) => {
-        if (event.target === event.currentTarget) onClose()
+        if (!isDeleting && event.target === event.currentTarget) onClose()
       }}
       ref={dialogRef}
       role="dialog"
@@ -236,11 +252,26 @@ export function DeleteSourceDialog({
             Collected items remain unchanged.
           </p>
         </div>
+        {error ? (
+          <p className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-900 dark:border-red-800 dark:bg-red-950/50 dark:text-red-100" role="alert">
+            {error}
+          </p>
+        ) : null}
         <div className="flex justify-end gap-2">
-          <Button onClick={onClose} ref={cancelRef} type="button" variant="outline">Cancel</Button>
-          <Button onClick={onConfirm} type="button" variant="destructive">
-            <Trash2 className="size-4" aria-hidden="true" />
-            Delete source
+          <Button disabled={isDeleting} onClick={onClose} ref={cancelRef} type="button" variant="outline">Cancel</Button>
+          <Button
+            aria-label={isDeleting ? `Deleting ${source.name}` : "Delete source"}
+            disabled={isDeleting}
+            onClick={onConfirm}
+            type="button"
+            variant="destructive"
+          >
+            {isDeleting ? (
+              <LoaderCircle className="size-4 animate-spin motion-reduce:animate-none" aria-hidden="true" />
+            ) : (
+              <Trash2 className="size-4" aria-hidden="true" />
+            )}
+            {isDeleting ? "Deleting" : "Delete source"}
           </Button>
         </div>
       </div>

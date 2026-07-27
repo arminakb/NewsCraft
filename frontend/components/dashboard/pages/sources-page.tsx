@@ -1,8 +1,8 @@
 "use client"
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { Database, Plus } from "lucide-react"
-import { useCallback, useEffect, useMemo, useState } from "react"
+import { Database, PanelRightOpen, Plus } from "lucide-react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { useSearchParams } from "next/navigation"
 
 import { OperationsPageFrame } from "@/components/dashboard/pages/operations-page-frame"
@@ -16,11 +16,15 @@ import {
 import { useNotices } from "@/components/providers/notice-provider"
 import { Button } from "@/components/ui/button"
 import {
+  checkSourceHealth,
+  createSource,
+  deleteSource as deleteSourceRequest,
   getSource,
   getSources,
   seedSources,
 } from "@/features/operations/ingestion-api"
 import type { SourceSummary } from "@/features/operations/ingestion-types"
+import { getApiErrorMessage } from "@/lib/http"
 import { queryKeys } from "@/lib/query-keys"
 
 export function SourcesPage({
@@ -42,6 +46,10 @@ export function SourcesPage({
   const [deletedSourceIds, setDeletedSourceIds] = useState<string[]>([])
   const [addDialogOpen, setAddDialogOpen] = useState(false)
   const [deleteTarget, setDeleteTarget] = useState<SourceSummary | null>(null)
+  const [healthOverrides, setHealthOverrides] = useState<Record<string, Partial<SourceSummary>>>({})
+  const [checkingSourceIds, setCheckingSourceIds] = useState<ReadonlySet<string>>(new Set())
+  const [bulkChecking, setBulkChecking] = useState(false)
+  const checkingSourceIdsRef = useRef(new Set<string>())
   const sourcesQuery = useQuery({
     queryKey: queryKeys.sources,
     queryFn: getSources,
@@ -53,7 +61,7 @@ export function SourcesPage({
     onSuccess: () => queryClient.invalidateQueries({ queryKey: queryKeys.sources }),
   })
   const fetchedSources = sourcesQuery.data ?? initialSources
-  const sources = useMemo(
+  const baseSources = useMemo(
     () => [
       ...addedSources,
       ...fetchedSources.filter((source) =>
@@ -63,14 +71,82 @@ export function SourcesPage({
     ],
     [addedSources, deletedSourceIds, fetchedSources]
   )
+  const sources = useMemo(
+    () => baseSources.map((source) => ({
+      ...source,
+      ...healthOverrides[source.id],
+    })),
+    [baseSources, healthOverrides],
+  )
+  const createMutation = useMutation({
+    mutationFn: createSource,
+    onSuccess: (source) => {
+      setAddedSources((current) => [
+        source,
+        ...current.filter((item) => item.id !== source.id),
+      ])
+      queryClient.setQueryData<SourceSummary[]>(queryKeys.sources, (current) =>
+        current
+          ? [source, ...current.filter((item) => item.id !== source.id)]
+          : [source]
+      )
+      void queryClient.invalidateQueries({ queryKey: queryKeys.sources })
+      setSelectedSourceId(source.id)
+      setDetailOpen(true)
+      setAddDialogOpen(false)
+      pushNotice({
+        tone: "success",
+        title: "Source added",
+        message: `${source.name} is now available in source management.`,
+      })
+    },
+    onError: (error) => {
+      pushNotice({
+        tone: "error",
+        title: "Source creation failed",
+        message: getApiErrorMessage(error, "Could not add source. Try again."),
+      })
+    },
+  })
+  const deleteMutation = useMutation({
+    mutationFn: (source: SourceSummary) => deleteSourceRequest(source.id),
+    onSuccess: (_, source) => {
+      const remainingSources = sources.filter((item) => item.id !== source.id)
+      setAddedSources((current) => current.filter((item) => item.id !== source.id))
+      setDeletedSourceIds((current) =>
+        current.includes(source.id) ? current : [...current, source.id]
+      )
+      queryClient.removeQueries({ queryKey: queryKeys.source(source.id) })
+      void queryClient.invalidateQueries({ queryKey: queryKeys.sources })
+      if (selectedSourceId === source.id) {
+        setSelectedSourceId(remainingSources[0]?.id ?? "")
+        setDetailOpen(false)
+      }
+      pushNotice({
+        tone: "success",
+        title: "Source deleted",
+        message: `${source.name} was removed from source management.`,
+      })
+      setDeleteTarget(null)
+    },
+    onError: (error, source) => {
+      pushNotice({
+        tone: "error",
+        title: "Source deletion failed",
+        message: getApiErrorMessage(error, `Could not delete ${source.name}. Try again.`),
+      })
+    },
+  })
   const selectedSource = sources.find((source) => source.id === selectedSourceId) ?? sources[0]
-  const selectedSourceIsLocal = addedSources.some((source) => source.id === selectedSourceId)
   const sourceDetailQuery = useQuery({
     queryKey: selectedSourceId ? queryKeys.source(selectedSourceId) : ["sources", "detail"],
     queryFn: () => getSource(selectedSourceId),
-    enabled: Boolean(selectedSourceId) && enableQueries && !selectedSourceIsLocal,
+    enabled: Boolean(selectedSourceId) && enableQueries,
     placeholderData: selectedSource,
   })
+  const displayedSourceDetail = sourceDetailQuery.data
+    ? { ...sourceDetailQuery.data, ...healthOverrides[sourceDetailQuery.data.id] }
+    : selectedSource
   const selectSource = useCallback((sourceId: string) => {
     setSelectedSourceId(sourceId)
     setDetailOpen(true)
@@ -86,35 +162,109 @@ export function SourcesPage({
   }, [searchParams])
 
   function addSource(input: NewSourceInput) {
-    const source = createLocalSource(input)
-    setAddedSources((current) => [source, ...current])
-    setSelectedSourceId(source.id)
-    setDetailOpen(true)
+    createMutation.mutate(input)
+  }
+
+  function openAddDialog() {
+    createMutation.reset()
+    setAddDialogOpen(true)
+  }
+
+  function closeAddDialog() {
+    if (createMutation.isPending) return
+    createMutation.reset()
     setAddDialogOpen(false)
-    pushNotice({
-      tone: "success",
-      title: "Source added",
-      message: `${source.name} is now available in source management.`,
-    })
   }
 
   function deleteSource() {
     if (!deleteTarget) return
-    const remainingSources = sources.filter((source) => source.id !== deleteTarget.id)
-    setAddedSources((current) => current.filter((source) => source.id !== deleteTarget.id))
-    setDeletedSourceIds((current) =>
-      current.includes(deleteTarget.id) ? current : [...current, deleteTarget.id]
-    )
-    if (selectedSourceId === deleteTarget.id) {
-      setSelectedSourceId(remainingSources[0]?.id ?? "")
-      setDetailOpen(false)
-    }
-    pushNotice({
-      tone: "success",
-      title: "Source deleted",
-      message: `${deleteTarget.name} was removed from source management.`,
-    })
+    deleteMutation.mutate(deleteTarget)
+  }
+
+  function requestDelete(source: SourceSummary) {
+    deleteMutation.reset()
+    setDeleteTarget(source)
+  }
+
+  function closeDeleteDialog() {
+    if (deleteMutation.isPending) return
+    deleteMutation.reset()
     setDeleteTarget(null)
+  }
+
+  async function runHealthCheck(sourceId: string, announce = true) {
+    if (checkingSourceIdsRef.current.has(sourceId)) return true
+    checkingSourceIdsRef.current.add(sourceId)
+    setCheckingSourceIds(new Set(checkingSourceIdsRef.current))
+    try {
+      const result = await checkSourceHealth(sourceId)
+      const patch: Partial<SourceSummary> = {
+        status: result.status,
+        lastCheckedAt: result.lastCheckedAt,
+        failureReason: result.failureReason,
+      }
+      setHealthOverrides((current) => ({
+        ...current,
+        [sourceId]: { ...current[sourceId], ...patch },
+      }))
+      queryClient.setQueryData<SourceSummary[]>(queryKeys.sources, (current) =>
+        current?.map((source) => source.id === sourceId ? { ...source, ...patch } : source)
+      )
+      queryClient.setQueryData<SourceSummary>(queryKeys.source(sourceId), (current) =>
+        current ? { ...current, ...patch } : current
+      )
+      if (announce) {
+        pushNotice({
+          tone: result.status === "healthy" ? "success" : "error",
+          title: "Health check complete",
+          message: result.status === "healthy"
+            ? "Source is healthy."
+            : result.failureReason ?? "Source is broken.",
+        })
+      }
+      return true
+    } catch (error) {
+      const message = getApiErrorMessage(error, "Health check failed. Try again.")
+      setHealthOverrides((current) => ({
+        ...current,
+        [sourceId]: { ...current[sourceId], failureReason: message },
+      }))
+      if (announce) {
+        pushNotice({
+          tone: "error",
+          title: "Health check failed",
+          message,
+        })
+      }
+      return false
+    } finally {
+      checkingSourceIdsRef.current.delete(sourceId)
+      setCheckingSourceIds(new Set(checkingSourceIdsRef.current))
+    }
+  }
+
+  async function runAllHealthChecks() {
+    if (bulkChecking || sources.length === 0) return
+    setBulkChecking(true)
+    let nextIndex = 0
+    let failures = 0
+    const workerCount = Math.min(4, sources.length)
+    const workers = Array.from({ length: workerCount }, async () => {
+      while (nextIndex < sources.length) {
+        const source = sources[nextIndex]
+        nextIndex += 1
+        if (!(await runHealthCheck(source.id, false))) failures += 1
+      }
+    })
+    await Promise.all(workers)
+    setBulkChecking(false)
+    pushNotice({
+      tone: failures ? "error" : "success",
+      title: failures ? "Source health checks finished with errors" : "Source health checks complete",
+      message: failures
+        ? `${sources.length - failures} of ${sources.length} sources checked successfully.`
+        : `${sources.length} sources checked successfully.`,
+    })
   }
 
   return (
@@ -129,55 +279,58 @@ export function SourcesPage({
               <Database className="size-4" aria-hidden="true" />
               {seedMutation.isPending ? "Seeding" : "Seed sources"}
             </Button>
-            <Button className="h-9 gap-2" onClick={() => setAddDialogOpen(true)}>
+            <Button className="h-9 gap-2" onClick={openAddDialog}>
               <Plus className="size-4" aria-hidden="true" />
               Add source
             </Button>
           </>
         }
       >
-        <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_440px]">
-          <SourceHealthTable
-            sources={sources}
-            selectedSourceId={selectedSource?.id ?? ""}
-            onDeleteSource={setDeleteTarget}
-            onSelectSource={selectSource}
-          />
-          {sourceDetailQuery.data ? (
-            <SourceDetailPanel source={sourceDetailQuery.data} open={detailOpen} onOpenChange={setDetailOpen} />
+        <div className={detailOpen ? "grid min-w-0 gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(22rem,26rem)]" : "grid min-w-0 grid-cols-[minmax(0,1fr)_auto] gap-2"}>
+          <div className="min-w-0">
+            <SourceHealthTable
+              bulkChecking={bulkChecking}
+              checkingSourceIds={checkingSourceIds}
+              onCheckAll={() => void runAllHealthChecks()}
+              onCheckSource={(sourceId) => void runHealthCheck(sourceId)}
+              sources={sources}
+              selectedSourceId={selectedSource?.id ?? ""}
+              onDeleteSource={requestDelete}
+              onSelectSource={selectSource}
+            />
+          </div>
+          {!detailOpen && selectedSource ? (
+            <Button
+              aria-label={`Show ${selectedSource.name} source details`}
+              className="sticky top-4 size-11 min-h-11 min-w-11"
+              onClick={() => setDetailOpen(true)}
+              size="icon"
+              title={`Show ${selectedSource.name} source details`}
+              type="button"
+              variant="outline"
+            >
+              <PanelRightOpen className="size-4" aria-hidden="true" />
+            </Button>
+          ) : null}
+          {detailOpen && displayedSourceDetail ? (
+            <SourceDetailPanel source={displayedSourceDetail} open={detailOpen} onOpenChange={setDetailOpen} />
           ) : null}
         </div>
       </OperationsPageFrame>
-      <AddSourceDialog onClose={() => setAddDialogOpen(false)} onSubmit={addSource} open={addDialogOpen} />
-      <DeleteSourceDialog onClose={() => setDeleteTarget(null)} onConfirm={deleteSource} source={deleteTarget} />
+      <AddSourceDialog
+        error={createMutation.isError ? getApiErrorMessage(createMutation.error, "Source creation failed.") : null}
+        isSubmitting={createMutation.isPending}
+        onClose={closeAddDialog}
+        onSubmit={addSource}
+        open={addDialogOpen}
+      />
+      <DeleteSourceDialog
+        error={deleteMutation.isError ? getApiErrorMessage(deleteMutation.error, "Source deletion failed.") : null}
+        isDeleting={deleteMutation.isPending}
+        onClose={closeDeleteDialog}
+        onConfirm={deleteSource}
+        source={deleteTarget}
+      />
     </>
   )
-}
-
-function createLocalSource(input: NewSourceInput): SourceSummary {
-  const now = new Date()
-  return {
-    id: `local-${crypto.randomUUID()}`,
-    platform: input.platform,
-    name: input.name,
-    url: input.url,
-    category: input.category,
-    language: input.language,
-    status: "unknown",
-    items24h: 0,
-    new24h: 0,
-    failed24h: 0,
-    lastSuccess: null,
-    fetchIntervalMinutes: input.fetchIntervalMinutes,
-    totalItems: 0,
-    media24h: 0,
-    addedAt: new Intl.DateTimeFormat("en-CA", {
-      year: "numeric",
-      month: "2-digit",
-      day: "2-digit",
-      hour: "2-digit",
-      minute: "2-digit",
-      hour12: false,
-    }).format(now).replace(",", ""),
-  }
 }

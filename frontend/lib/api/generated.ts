@@ -1460,7 +1460,8 @@ export interface paths {
         /** List Sources */
         get: operations["list_sources_sources_get"];
         put?: never;
-        post?: never;
+        /** Create Source */
+        post: operations["create_source_sources_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1478,6 +1479,24 @@ export interface paths {
         get: operations["get_source_sources__source_id__get"];
         put?: never;
         post?: never;
+        /** Delete Source */
+        delete: operations["delete_source_sources__source_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/sources/{source_id}/health-check": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Run Source Health Check */
+        post: operations["run_source_health_check_sources__source_id__health_check_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -5203,6 +5222,33 @@ export interface components {
              */
             secret: string;
         };
+        /** SourceCreateIn */
+        SourceCreateIn: {
+            /**
+             * Fetch Interval Minutes
+             * @default 30
+             */
+            fetch_interval_minutes: number;
+            /**
+             * Language Hint
+             * @default en
+             */
+            language_hint: string;
+            /** Name */
+            name: string;
+            /**
+             * Platform
+             * @enum {string}
+             */
+            platform: "rss" | "telegram_public";
+            /**
+             * Source Group
+             * @default general
+             */
+            source_group: string;
+            /** Url */
+            url: string;
+        };
         /** SourceDetailOut */
         SourceDetailOut: {
             /** Active */
@@ -5232,10 +5278,14 @@ export interface components {
             id: string;
             /** Language Hint */
             language_hint?: string | null;
+            /** Last Error Message */
+            last_error_message?: string | null;
             /** Last Failure At */
             last_failure_at?: string | null;
             /** Last Fetch At */
             last_fetch_at?: string | null;
+            /** Last Http Status */
+            last_http_status?: number | null;
             /**
              * Last Media Count
              * @default 0
@@ -5261,6 +5311,28 @@ export interface components {
             source_group: string;
             /** Telegram Username */
             telegram_username?: string | null;
+        };
+        /** SourceHealthOut */
+        SourceHealthOut: {
+            /** Failure Reason */
+            failure_reason?: string | null;
+            /** Health Status */
+            health_status: string;
+            /**
+             * Is Checking
+             * @default false
+             */
+            is_checking: boolean;
+            /**
+             * Last Checked At
+             * Format: date-time
+             */
+            last_checked_at: string;
+            /**
+             * Source Id
+             * Format: uuid
+             */
+            source_id: string;
         };
         /** SourceOut */
         SourceOut: {
@@ -5291,10 +5363,14 @@ export interface components {
             id: string;
             /** Language Hint */
             language_hint?: string | null;
+            /** Last Error Message */
+            last_error_message?: string | null;
             /** Last Failure At */
             last_failure_at?: string | null;
             /** Last Fetch At */
             last_fetch_at?: string | null;
+            /** Last Http Status */
+            last_http_status?: number | null;
             /**
              * Last Media Count
              * @default 0
@@ -9061,6 +9137,39 @@ export interface operations {
             };
         };
     };
+    create_source_sources_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SourceCreateIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SourceOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     get_source_sources__source_id__get: {
         parameters: {
             query?: never;
@@ -9079,6 +9188,66 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["SourceDetailOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_source_sources__source_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                source_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    run_source_health_check_sources__source_id__health_check_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                source_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SourceHealthOut"];
                 };
             };
             /** @description Validation Error */

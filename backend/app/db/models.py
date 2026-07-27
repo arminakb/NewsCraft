@@ -55,6 +55,7 @@ class Source(Base):
     last_media_count: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
     health_status: Mapped[str] = mapped_column(Text, nullable=False, server_default="unknown")
     disabled_reason: Mapped[str | None] = mapped_column(Text)
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), index=True)
     created_at: Mapped[datetime] = timestamp_now()
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now()

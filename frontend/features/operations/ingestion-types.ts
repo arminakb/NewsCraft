@@ -25,6 +25,25 @@ export type SourceSummary = {
   totalItems: number
   media24h: number
   addedAt: string
+  lastCheckedAt?: string | null
+  failureReason?: string | null
+}
+
+export type SourceHealthResult = {
+  sourceId: string
+  status: SourceStatus
+  isChecking: boolean
+  lastCheckedAt: string
+  failureReason: string | null
+}
+
+export type CreateSourceInput = {
+  platform: "rss" | "telegram_public"
+  name: string
+  url: string
+  category: string
+  language: string
+  fetchIntervalMinutes: number
 }
 
 export type IngestionRunSummary = {

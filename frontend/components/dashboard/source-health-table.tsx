@@ -6,11 +6,11 @@ import {
   useReactTable,
   type ColumnDef,
 } from "@tanstack/react-table"
-import { ChevronRight, Trash2 } from "lucide-react"
+import { LoaderCircle, RefreshCw, Trash2 } from "lucide-react"
 import { useMemo, useState } from "react"
 
 import { SourceIcon } from "@/components/dashboard/source-icon"
-import { StatusBadge } from "@/components/dashboard/status-badge"
+import { StatusBadge, statusLabels } from "@/components/dashboard/status-badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
@@ -22,8 +22,12 @@ import type {
 } from "@/features/operations/ingestion-types"
 
 type SourceHealthTableProps = {
+  bulkChecking?: boolean
+  checkingSourceIds?: ReadonlySet<string>
   sources: SourceSummary[]
   selectedSourceId: string
+  onCheckAll?: () => void
+  onCheckSource?: (sourceId: string) => void
   onDeleteSource?: (source: SourceSummary) => void
   onSelectSource: (sourceId: string) => void
 }
@@ -35,8 +39,12 @@ const filters: { label: string; value: "all" | SourcePlatform }[] = [
 ]
 
 export function SourceHealthTable({
+  bulkChecking = false,
+  checkingSourceIds = new Set(),
   sources,
   selectedSourceId,
+  onCheckAll,
+  onCheckSource,
   onDeleteSource,
   onSelectSource,
 }: SourceHealthTableProps) {
@@ -79,7 +87,52 @@ export function SourceHealthTable({
       {
         id: "status",
         header: "Status",
-        cell: ({ row }) => <StatusBadge status={row.original.status} />,
+        cell: ({ row }) => {
+          const source = row.original
+          const checking = checkingSourceIds.has(source.id)
+          return (
+            <div className="min-w-0">
+              {onCheckSource ? (
+                <button
+                  aria-label={
+                    checking
+                      ? `Checking ${source.name} health`
+                      : `Check ${source.name} health, currently ${statusLabels[source.status]}`
+                  }
+                  className="min-h-11 rounded-md py-1 outline-none focus-visible:ring-3 focus-visible:ring-ring/50 disabled:cursor-wait"
+                  disabled={checking || source.status === "disabled"}
+                  onClick={(event) => {
+                    event.stopPropagation()
+                    onCheckSource(source.id)
+                  }}
+                  title={source.failureReason ?? `Last checked: ${formatCheckedAt(source.lastCheckedAt)}`}
+                  type="button"
+                >
+                  {checking ? (
+                    <span className="inline-flex h-6 items-center gap-1.5 rounded-md border px-2 text-xs font-medium text-muted-foreground">
+                      <LoaderCircle className="size-3 animate-spin motion-reduce:animate-none" aria-hidden="true" />
+                      Checking
+                    </span>
+                  ) : (
+                    <StatusBadge status={source.status} />
+                  )}
+                </button>
+              ) : (
+                <StatusBadge status={source.status} />
+              )}
+              {source.lastCheckedAt ? (
+                <div className="mt-1 truncate text-[11px] text-muted-foreground">
+                  Last checked {formatCheckedAt(source.lastCheckedAt)}
+                </div>
+              ) : null}
+              {source.failureReason ? (
+                <div className="mt-0.5 truncate text-[11px] text-red-700 dark:text-red-300" title={source.failureReason}>
+                  {source.failureReason}
+                </div>
+              ) : null}
+            </div>
+          )
+        },
       },
       {
         id: "items",
@@ -104,35 +157,22 @@ export function SourceHealthTable({
             {onDeleteSource ? (
               <Button
                 aria-label={`Delete ${row.original.name}`}
-                className="text-red-700 hover:bg-red-50 hover:text-red-800"
                 onClick={(event) => {
                   event.stopPropagation()
                   onDeleteSource(row.original)
                 }}
-                size="icon-sm"
+                className="size-11 min-h-11 min-w-11 text-red-700 hover:bg-red-50 hover:text-red-800 dark:text-red-300 dark:hover:bg-red-950/60"
                 type="button"
                 variant="ghost"
               >
                 <Trash2 className="size-4" aria-hidden="true" />
               </Button>
             ) : null}
-            <Button
-              aria-label={`Select ${row.original.name}`}
-              onClick={(event) => {
-                event.stopPropagation()
-                onSelectSource(row.original.id)
-              }}
-              size="icon-sm"
-              type="button"
-              variant="ghost"
-            >
-              <ChevronRight className="size-4" aria-hidden="true" />
-            </Button>
           </div>
         ),
       },
     ],
-    [onDeleteSource, onSelectSource]
+    [checkingSourceIds, onCheckSource, onDeleteSource, onSelectSource]
   )
 
   const table = useReactTable({
@@ -144,7 +184,27 @@ export function SourceHealthTable({
   return (
     <Card className="rounded-md py-0" size="sm">
       <CardHeader className="flex-row flex-wrap items-center gap-2 border-b px-3 py-3">
-        <CardTitle className="text-base">Source health</CardTitle>
+        <CardTitle className="text-base">
+          {onCheckAll ? (
+            <Button
+              aria-label={bulkChecking ? "Checking all source health" : "Check all source health"}
+              className="h-9 gap-2 px-2"
+              disabled={bulkChecking || sources.length === 0}
+              onClick={onCheckAll}
+              type="button"
+              variant="ghost"
+            >
+              {bulkChecking ? (
+                <LoaderCircle className="size-4 animate-spin motion-reduce:animate-none" aria-hidden="true" />
+              ) : (
+                <RefreshCw className="size-4" aria-hidden="true" />
+              )}
+              {bulkChecking ? "Checking source health" : "Source health"}
+            </Button>
+          ) : (
+            "Source health"
+          )}
+        </CardTitle>
         <div className="ml-auto flex items-center gap-2">
           <div role="tablist" aria-label="Source platform filter" className="flex items-center gap-1">
             {filters.map((item) => {
@@ -158,7 +218,7 @@ export function SourceHealthTable({
                   tabIndex={filter === item.value ? 0 : -1}
                   onClick={() => setFilter(item.value)}
                   className={cn(
-                    "h-8 rounded-md border px-2.5 text-sm text-muted-foreground transition",
+                    "min-h-11 rounded-md border px-2.5 text-sm text-muted-foreground transition min-[900px]:min-h-8",
                     filter === item.value && "border-primary bg-cyan-50 text-primary dark:border-cyan-700 dark:bg-cyan-950/50 dark:text-cyan-100"
                   )}
                 >
@@ -226,17 +286,29 @@ function columnClassName(columnId: string) {
     case "type":
       return "w-11"
     case "source":
-      return "w-[38%] min-w-40"
+      return "w-auto min-w-0"
     case "status":
-      return "w-24"
+      return "w-36"
     case "items":
     case "failed":
-      return "w-16 text-right"
+      return "hidden w-16 text-right sm:table-cell"
     case "lastSuccess":
       return "hidden w-28 2xl:table-cell"
     case "actions":
-      return "w-20 text-right"
+      return "w-14 text-right"
     default:
       return ""
   }
+}
+
+function formatCheckedAt(value?: string | null) {
+  if (!value) return "never"
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return value
+  return new Intl.DateTimeFormat("en-CA", {
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(date)
 }

@@ -127,4 +127,81 @@ describe("SourceHealthTable", () => {
 
     expect(onDeleteSource).toHaveBeenCalledWith(dashboardMock.sources[0])
   })
+
+  it("checks one source from its interactive status control", () => {
+    const onCheckSource = vi.fn()
+
+    render(
+      <SourceHealthTable
+        onCheckSource={onCheckSource}
+        sources={dashboardMock.sources}
+        selectedSourceId={dashboardMock.sources[0].id}
+        onSelectSource={() => undefined}
+      />
+    )
+
+    fireEvent.click(screen.getByRole("button", { name: /check techcrunch health, currently healthy/i }))
+
+    expect(onCheckSource).toHaveBeenCalledWith(dashboardMock.sources[0].id)
+  })
+
+  it("disables duplicate row checks and exposes check metadata", () => {
+    render(
+      <SourceHealthTable
+        checkingSourceIds={new Set([dashboardMock.sources[0].id])}
+        onCheckSource={() => undefined}
+        sources={[{
+          ...dashboardMock.sources[0],
+          lastCheckedAt: "2026-07-27T08:30:00Z",
+          failureReason: "Source returned HTTP 503.",
+        }]}
+        selectedSourceId={dashboardMock.sources[0].id}
+        onSelectSource={() => undefined}
+      />
+    )
+
+    expect(screen.getByRole("button", { name: /checking techcrunch health/i })).toBeDisabled()
+    expect(screen.getByText(/last checked/i)).toBeInTheDocument()
+    expect(screen.getByText(/source returned http 503/i)).toBeInTheDocument()
+  })
+
+  it("runs a bounded bulk check from the Source health button", () => {
+    const onCheckAll = vi.fn()
+
+    const { rerender } = render(
+      <SourceHealthTable
+        onCheckAll={onCheckAll}
+        sources={dashboardMock.sources}
+        selectedSourceId={dashboardMock.sources[0].id}
+        onSelectSource={() => undefined}
+      />
+    )
+
+    fireEvent.click(screen.getByRole("button", { name: /check all source health/i }))
+    expect(onCheckAll).toHaveBeenCalledOnce()
+
+    rerender(
+      <SourceHealthTable
+        bulkChecking
+        onCheckAll={onCheckAll}
+        sources={dashboardMock.sources}
+        selectedSourceId={dashboardMock.sources[0].id}
+        onSelectSource={() => undefined}
+      />
+    )
+    const checkAll = screen.getByRole("button", { name: /checking all source health/i })
+    expect(checkAll).toBeDisabled()
+  })
+
+  it("does not render the unused select-source chevron action", () => {
+    render(
+      <SourceHealthTable
+        sources={dashboardMock.sources}
+        selectedSourceId={dashboardMock.sources[0].id}
+        onSelectSource={() => undefined}
+      />
+    )
+
+    expect(screen.queryByRole("button", { name: /select techcrunch/i })).not.toBeInTheDocument()
+  })
 })

@@ -8253,6 +8253,58 @@
         "title": "SecretWriteIn",
         "type": "object"
       },
+      "SourceCreateIn": {
+        "properties": {
+          "fetch_interval_minutes": {
+            "default": 30,
+            "maximum": 10080.0,
+            "minimum": 5.0,
+            "title": "Fetch Interval Minutes",
+            "type": "integer"
+          },
+          "language_hint": {
+            "default": "en",
+            "maxLength": 16,
+            "minLength": 2,
+            "title": "Language Hint",
+            "type": "string"
+          },
+          "name": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          },
+          "platform": {
+            "enum": [
+              "rss",
+              "telegram_public"
+            ],
+            "title": "Platform",
+            "type": "string"
+          },
+          "source_group": {
+            "default": "general",
+            "maxLength": 100,
+            "minLength": 1,
+            "title": "Source Group",
+            "type": "string"
+          },
+          "url": {
+            "maxLength": 2048,
+            "minLength": 1,
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": [
+          "platform",
+          "name",
+          "url"
+        ],
+        "title": "SourceCreateIn",
+        "type": "object"
+      },
       "SourceDetailOut": {
         "properties": {
           "active": {
@@ -8344,6 +8396,17 @@
             ],
             "title": "Language Hint"
           },
+          "last_error_message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Error Message"
+          },
           "last_failure_at": {
             "anyOf": [
               {
@@ -8367,6 +8430,17 @@
               }
             ],
             "title": "Last Fetch At"
+          },
+          "last_http_status": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Http Status"
           },
           "last_media_count": {
             "anyOf": [
@@ -8448,6 +8522,47 @@
           "active"
         ],
         "title": "SourceDetailOut",
+        "type": "object"
+      },
+      "SourceHealthOut": {
+        "properties": {
+          "failure_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Failure Reason"
+          },
+          "health_status": {
+            "title": "Health Status",
+            "type": "string"
+          },
+          "is_checking": {
+            "default": false,
+            "title": "Is Checking",
+            "type": "boolean"
+          },
+          "last_checked_at": {
+            "format": "date-time",
+            "title": "Last Checked At",
+            "type": "string"
+          },
+          "source_id": {
+            "format": "uuid",
+            "title": "Source Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "source_id",
+          "health_status",
+          "last_checked_at"
+        ],
+        "title": "SourceHealthOut",
         "type": "object"
       },
       "SourceOut": {
@@ -8541,6 +8656,17 @@
             ],
             "title": "Language Hint"
           },
+          "last_error_message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Error Message"
+          },
           "last_failure_at": {
             "anyOf": [
               {
@@ -8564,6 +8690,17 @@
               }
             ],
             "title": "Last Fetch At"
+          },
+          "last_http_status": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Http Status"
           },
           "last_media_count": {
             "anyOf": [
@@ -15303,6 +15440,42 @@
           }
         },
         "summary": "List Sources"
+      },
+      "post": {
+        "operationId": "create_source_sources_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SourceCreateIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SourceOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Create Source"
       }
     },
     "/sources/seed": {
@@ -15322,6 +15495,37 @@
       }
     },
     "/sources/{source_id}": {
+      "delete": {
+        "operationId": "delete_source_sources__source_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "source_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Source Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Delete Source"
+      },
       "get": {
         "operationId": "get_source_sources__source_id__get",
         "parameters": [
@@ -15359,6 +15563,46 @@
           }
         },
         "summary": "Get Source"
+      }
+    },
+    "/sources/{source_id}/health-check": {
+      "post": {
+        "operationId": "run_source_health_check_sources__source_id__health_check_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "source_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Source Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SourceHealthOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Run Source Health Check"
       }
     },
     "/stories": {
