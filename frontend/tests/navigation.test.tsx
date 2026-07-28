@@ -20,7 +20,6 @@ const expectedNavigation = [
   ["Jobs", "/jobs"],
   ["Automations", "/automations"],
   ["Diagnostics", "/diagnostics"],
-  ["Retention", "/settings/retention"],
   ["Settings", "/settings/content"],
 ] as const
 
@@ -96,20 +95,19 @@ describe("NewsroomSidebar", () => {
     expect(today).toHaveFocus()
   })
 
-  it("marks deep operational routes without assigning a false active page", () => {
-    pathname = "/settings/retention/history"
+  it("does not assign a false active page on unrelated deep routes", () => {
+    pathname = "/review/revision-1"
     const { rerender } = renderWithTheme(<NewsroomSidebar />)
 
-    expect(screen.getByRole("link", { name: "Retention" })).toHaveAttribute("aria-current", "page")
-    expect(screen.getAllByRole("link", { current: "page" })).toHaveLength(1)
+    expect(screen.queryByRole("link", { current: "page" })).not.toBeInTheDocument()
 
-    pathname = "/review/revision-1"
+    pathname = "/settings/content"
     rerender(
       <ThemeProvider>
         <NewsroomSidebar />
       </ThemeProvider>,
     )
-    expect(screen.queryByRole("link", { current: "page" })).not.toBeInTheDocument()
+    expect(screen.getByRole("link", { name: "Settings" })).toHaveAttribute("aria-current", "page")
   })
 })
 

@@ -1,4 +1,10 @@
 import nextConfig from "@/next.config"
+import RetentionRoute from "@/app/settings/retention/page"
+import { redirect } from "next/navigation"
+
+vi.mock("next/navigation", () => ({
+  redirect: vi.fn(),
+}))
 
 describe("legacy frontend routes", () => {
   it("redirects removed sections to surviving workflows", async () => {
@@ -8,5 +14,11 @@ describe("legacy frontend routes", () => {
       expect.objectContaining({ source: "/inbox", destination: "/" }),
       expect.objectContaining({ source: "/runs", destination: "/sources" }),
     ]))
+  })
+
+  it("redirects old Retention bookmarks to the integrated Settings section", () => {
+    RetentionRoute()
+
+    expect(redirect).toHaveBeenCalledWith("/settings/content#retention")
   })
 })

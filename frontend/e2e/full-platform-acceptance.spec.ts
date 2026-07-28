@@ -380,7 +380,6 @@ for (const viewport of viewports) {
       `/review/${ids.revisions.telegram}`,
       "/calendar",
       "/diagnostics",
-      "/settings/retention",
     ]) {
       await page.goto(route)
       await expect(page.getByRole("main")).toBeVisible()

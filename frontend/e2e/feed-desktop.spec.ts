@@ -278,7 +278,6 @@ test("left sidebar exposes every route with labels, states, and keyboard movemen
     ["Jobs", "/jobs"],
     ["Automations", "/automations"],
     ["Diagnostics", "/diagnostics"],
-    ["Retention", "/settings/retention"],
     ["Settings", "/settings/content"],
   ] as const
   for (const [label, href] of expectedNavigation) {

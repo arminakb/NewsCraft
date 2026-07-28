@@ -56,12 +56,20 @@ export function SettingsSection({
   action?: React.ReactNode
   children: React.ReactNode
 }) {
+  const headingId = `${id}-heading`
+
   return (
-    <Card id={id} className="scroll-mt-20">
+    <Card
+      id={id}
+      aria-labelledby={headingId}
+      className="scroll-mt-20 focus-visible:ring-2 focus-visible:ring-ring"
+      role="region"
+      tabIndex={-1}
+    >
       <CardHeader className="border-b">
         <div className="flex items-start gap-3">
           <span className="grid size-10 shrink-0 place-items-center rounded-lg bg-accent text-accent-foreground"><Icon className="size-5" aria-hidden="true" /></span>
-          <div><CardTitle className="text-lg"><h2 className="text-lg font-semibold">{title}</h2></CardTitle><CardDescription className="mt-1">{description}</CardDescription></div>
+          <div><CardTitle className="text-lg"><h2 id={headingId} className="text-lg font-semibold">{title}</h2></CardTitle><CardDescription className="mt-1">{description}</CardDescription></div>
         </div>
         {action ? <CardAction>{action}</CardAction> : null}
       </CardHeader>

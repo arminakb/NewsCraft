@@ -20,6 +20,7 @@ import {
   getTelegramProxies,
 } from "@/features/settings/content-settings-api"
 import { ContentSettingsPage } from "@/features/settings/content-settings-page"
+import { fetchRetentionPolicy } from "@/features/operations/api"
 import { ApiError } from "@/lib/http"
 import { queryKeys } from "@/lib/query-keys"
 
@@ -62,6 +63,13 @@ vi.mock("@/features/settings/content-settings-api", () => ({
   updateLLMProvider: vi.fn(),
   updateTelegramDestination: vi.fn(),
   updateTelegramProxy: vi.fn(),
+}))
+
+vi.mock("@/features/operations/api", () => ({
+  createRetentionPreview: vi.fn(),
+  enqueueRetentionRun: vi.fn(),
+  fetchRetentionPolicy: vi.fn(),
+  updateRetentionPolicy: vi.fn(),
 }))
 
 const profile = {
@@ -186,9 +194,33 @@ const connection = {
   revoked_at: null,
 }
 
+const retentionPolicy = {
+  id: "global" as const,
+  raw_payload_days: 30,
+  completed_job_days: 90,
+  attempt_metadata_days: 90,
+  export_artifact_days: 14,
+  unreferenced_media_days: 30,
+  created_at: "2026-07-24T08:00:00Z",
+  updated_at: "2026-07-24T08:00:00Z",
+}
+
+const scrollIntoView = vi.fn()
+
 describe("ContentSettingsPage", () => {
   beforeEach(() => {
     vi.resetAllMocks()
+    Object.defineProperty(HTMLElement.prototype, "scrollIntoView", {
+      configurable: true,
+      value: scrollIntoView,
+    })
+    window.history.replaceState(null, "", "/settings/content")
+    vi.stubGlobal("matchMedia", createMatchMedia(false))
+    vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => {
+      callback(0)
+      return 1
+    })
+    vi.stubGlobal("cancelAnimationFrame", vi.fn())
     vi.mocked(getBrandProfiles).mockResolvedValue([profile])
     vi.mocked(getPromptTemplates).mockResolvedValue([template])
     vi.mocked(getPromptVersions).mockResolvedValue([promptVersion])
@@ -196,6 +228,7 @@ describe("ContentSettingsPage", () => {
     vi.mocked(getTelegramProxies).mockResolvedValue([proxy])
     vi.mocked(getTelegramDestinations).mockResolvedValue([destination])
     vi.mocked(getCodexConnections).mockResolvedValue([connection])
+    vi.mocked(fetchRetentionPolicy).mockResolvedValue(retentionPolicy)
     vi.mocked(getCodexActivity).mockResolvedValue([
       {
         id: "88888888-8888-4888-8888-888888888888",
@@ -208,7 +241,7 @@ describe("ContentSettingsPage", () => {
     ])
   })
 
-  it("renders five coherent management sections and safe readiness summaries", async () => {
+  it("renders six coherent management sections and safe readiness summaries", async () => {
     renderSettings()
 
     expect(await screen.findByRole("heading", { name: "Settings" })).toBeInTheDocument()
@@ -219,6 +252,7 @@ describe("ContentSettingsPage", () => {
       "Codex connection",
       "Telegram destinations",
       "Prompt governance",
+      "Retention",
     ]) expect(screen.getByRole("heading", { name: heading })).toBeInTheDocument()
 
     expect(screen.getByText("1 enabled")).toBeInTheDocument()
@@ -230,6 +264,65 @@ describe("ContentSettingsPage", () => {
     expect(screen.getByText(/@newscraft_bot/)).toBeInTheDocument()
     expect(screen.queryByText(/bot token/i)).not.toBeInTheDocument()
     expect(screen.queryByText(/api key/i)).not.toHaveTextContent("sk-")
+  })
+
+  it("smoothly navigates every shortcut, updates hashes, and transfers focus", async () => {
+    renderSettings()
+
+    const navigation = await screen.findByRole("navigation", { name: "Settings sections" })
+    for (const name of [
+      "Editorial profiles",
+      "LLM providers",
+      "Codex",
+      "Telegram",
+      "Prompts",
+      "Retention",
+    ]) {
+      const shortcut = within(navigation).getByRole("link", { name })
+      expect(shortcut).toHaveClass("min-h-11")
+      shortcut.focus()
+      fireEvent.click(shortcut)
+
+      const sectionId = shortcut.getAttribute("href")!.slice(1)
+      const section = document.getElementById(sectionId)
+      expect(section).toHaveFocus()
+      expect(section).toHaveAttribute("tabindex", "-1")
+      expect(window.location.hash).toBe(`#${sectionId}`)
+      expect(scrollIntoView).toHaveBeenLastCalledWith({ behavior: "smooth", block: "start" })
+    }
+    expect(scrollIntoView).toHaveBeenCalledTimes(6)
+
+    const retention = within(navigation).getByRole("link", { name: "Retention" })
+    expect(retention.querySelector("svg")).not.toBeNull()
+    fireEvent.click(retention)
+    expect(scrollIntoView).toHaveBeenCalledTimes(6)
+  })
+
+  it("uses immediate scrolling when reduced motion is requested", async () => {
+    vi.stubGlobal("matchMedia", createMatchMedia(true))
+    renderSettings()
+
+    const navigation = await screen.findByRole("navigation", { name: "Settings sections" })
+    const editorialProfiles = within(navigation).getByRole("link", { name: "Editorial profiles" })
+    fireEvent.click(editorialProfiles)
+
+    expect(scrollIntoView).toHaveBeenLastCalledWith({
+      behavior: "auto",
+      block: "start",
+    })
+    expect(document.getElementById("editorial-profiles")).toHaveFocus()
+  })
+
+  it("opens a valid initial section hash after async settings load", async () => {
+    window.history.replaceState(null, "", "/settings/content#retention")
+    renderSettings()
+
+    await screen.findByRole("heading", { name: "Retention" })
+    await waitFor(() => expect(document.getElementById("retention")).toHaveFocus())
+    expect(scrollIntoView).toHaveBeenCalledWith({
+      behavior: "smooth",
+      block: "start",
+    })
   })
 
   it("keeps non-Codex settings available when Codex requires authentication", async () => {
@@ -422,4 +515,17 @@ function renderSettings() {
       </QueryClientProvider>
     ),
   }
+}
+
+function createMatchMedia(reducedMotion: boolean) {
+  return (query: string): MediaQueryList => ({
+    matches: query === "(prefers-reduced-motion: reduce)" && reducedMotion,
+    media: query,
+    onchange: null,
+    addEventListener: vi.fn(),
+    removeEventListener: vi.fn(),
+    addListener: vi.fn(),
+    removeListener: vi.fn(),
+    dispatchEvent: vi.fn(),
+  })
 }

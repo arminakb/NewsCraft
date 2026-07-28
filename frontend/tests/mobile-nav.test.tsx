@@ -49,7 +49,6 @@ describe("mobile newsroom navigation", () => {
       "Jobs",
       "Automations",
       "Diagnostics",
-      "Retention",
       "Settings",
     ])
     await waitFor(() => expect(within(dialog).getByRole("link", { name: "Today" })).toHaveFocus())

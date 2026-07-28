@@ -9,8 +9,11 @@ import {
   CircleAlert,
   RefreshCw,
   ShieldCheck,
+  Trash2,
   UserRound,
 } from "lucide-react"
+import { useCallback, useEffect, useRef } from "react"
+import type { MouseEvent } from "react"
 
 import { Button } from "@/components/ui/button"
 import { PageHeader } from "@/components/ui/page-header"
@@ -33,7 +36,17 @@ import {
 import { EditorialProfilesSection } from "./editorial-profiles-section"
 import { LLMProvidersSection } from "./llm-providers-section"
 import { PromptGovernanceSection } from "./prompt-governance-section"
+import { RetentionSection } from "./retention-section"
 import { TelegramSection } from "./telegram-section"
+
+const settingsShortcuts = [
+  { id: "editorial-profiles", label: "Editorial profiles", icon: null },
+  { id: "llm-providers", label: "LLM providers", icon: null },
+  { id: "codex-connection", label: "Codex", icon: null },
+  { id: "telegram-destinations", label: "Telegram", icon: null },
+  { id: "prompt-governance", label: "Prompts", icon: null },
+  { id: "retention", label: "Retention", icon: Trash2 },
+] as const
 
 export function ContentSettingsPage() {
   const brands = useQuery({ queryKey: queryKeys.brandProfiles, queryFn: getBrandProfiles })
@@ -66,6 +79,8 @@ export function ContentSettingsPage() {
   const codexError = connections.error ?? activity.error
   const codexPending = connections.isPending || activity.isPending
   const codexRefreshing = connections.isFetching || activity.isFetching
+  const settingsReady = !requiredQueries.some((query) => query.isPending || query.isError)
+  const handleShortcutClick = useSettingsSectionNavigation(settingsReady)
 
   if (requiredQueries.some((query) => query.isPending)) return <SettingsSkeleton />
   const failed = requiredQueries.filter((query) => query.isError)
@@ -180,7 +195,8 @@ export function ContentSettingsPage() {
             <a
               key={item.href}
               href={item.href}
-              className="flex min-h-11 items-center gap-3 rounded-lg border px-3 py-2 text-sm hover:bg-muted"
+              className="flex min-h-11 items-center gap-3 rounded-lg border px-3 py-2 text-sm transition-colors duration-200 hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring"
+              onClick={handleShortcutClick}
             >
               {item.ready
                 ? <CheckCircle2 className="size-4 shrink-0 text-success" aria-hidden="true" />
@@ -195,18 +211,14 @@ export function ContentSettingsPage() {
       </aside>
 
       <nav className="sticky top-0 z-20 -mx-4 flex gap-1 overflow-x-auto border-y bg-background/95 px-4 py-2 backdrop-blur md:-mx-6 md:px-6" aria-label="Settings sections">
-        {[
-          ["editorial-profiles", "Editorial profiles"],
-          ["llm-providers", "LLM providers"],
-          ["codex-connection", "Codex"],
-          ["telegram-destinations", "Telegram"],
-          ["prompt-governance", "Prompts"],
-        ].map(([href, label]) => (
+        {settingsShortcuts.map(({ id, label, icon: Icon }) => (
           <a
-            key={href}
-            className="min-h-10 shrink-0 rounded-lg px-3 py-2 text-sm font-medium text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
-            href={`#${href}`}
+            key={id}
+            className="flex min-h-11 shrink-0 items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium text-muted-foreground transition-colors duration-200 hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
+            href={`#${id}`}
+            onClick={handleShortcutClick}
           >
+            {Icon ? <Icon className="size-4" aria-hidden="true" /> : null}
             {label}
           </a>
         ))}
@@ -224,8 +236,67 @@ export function ContentSettingsPage() {
       />
       <TelegramSection destinations={telegramDestinations} proxies={proxies.data ?? []} />
       <PromptGovernanceSection templates={promptTemplates} />
+      <RetentionSection />
     </section>
   )
+}
+
+function useSettingsSectionNavigation(ready: boolean) {
+  const activeTarget = useRef<string | null>(null)
+  const resetTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const pendingFrame = useRef<number | null>(null)
+
+  const navigateToSection = useCallback((sectionId: string, updateHash: boolean) => {
+    const target = document.getElementById(sectionId)
+    if (!target) return
+
+    if (updateHash) {
+      const url = new URL(window.location.href)
+      url.hash = sectionId
+      window.history.replaceState(window.history.state, "", url)
+    }
+
+    target.focus({ preventScroll: true })
+    if (activeTarget.current === sectionId) return
+
+    const reducedMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false
+    target.scrollIntoView({
+      behavior: reducedMotion ? "auto" : "smooth",
+      block: "start",
+    })
+
+    activeTarget.current = sectionId
+    if (resetTimer.current !== null) clearTimeout(resetTimer.current)
+    resetTimer.current = setTimeout(() => {
+      activeTarget.current = null
+      resetTimer.current = null
+    }, reducedMotion ? 0 : 300)
+  }, [])
+
+  const handleShortcutClick = useCallback((event: MouseEvent<HTMLAnchorElement>) => {
+    event.preventDefault()
+    const sectionId = event.currentTarget.hash.slice(1)
+    if (!sectionId) return
+    navigateToSection(sectionId, true)
+  }, [navigateToSection])
+
+  useEffect(() => {
+    if (!ready || !window.location.hash) return
+    const sectionId = decodeURIComponent(window.location.hash.slice(1))
+    if (!settingsShortcuts.some((shortcut) => shortcut.id === sectionId)) return
+
+    pendingFrame.current = requestAnimationFrame(() => {
+      pendingFrame.current = null
+      navigateToSection(sectionId, false)
+    })
+  }, [navigateToSection, ready])
+
+  useEffect(() => () => {
+    if (pendingFrame.current !== null) cancelAnimationFrame(pendingFrame.current)
+    if (resetTimer.current !== null) clearTimeout(resetTimer.current)
+  }, [])
+
+  return handleShortcutClick
 }
 
 function SummaryCard({
@@ -251,6 +322,7 @@ function SummaryCard({
       <span
         className={`ml-auto size-2.5 shrink-0 rounded-full ${ready ? "bg-success" : "bg-muted-foreground"}`}
         aria-label={ready ? "Ready" : "Needs attention"}
+        role="img"
       />
     </div>
   )

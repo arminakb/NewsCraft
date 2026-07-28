@@ -180,6 +180,34 @@ export async function installMockBackend(
       })
       return
     }
+    if (method === "GET" && path === "/brand-profiles") {
+      await fulfillContractJson(route, method, path, [])
+      return
+    }
+    if (method === "GET" && path === "/prompt-templates") {
+      await fulfillContractJson(route, method, path, [])
+      return
+    }
+    if (method === "GET" && path === "/llm-providers") {
+      await fulfillContractJson(route, method, path, [])
+      return
+    }
+    if (method === "GET" && path === "/telegram/destinations") {
+      await fulfillContractJson(route, method, path, [])
+      return
+    }
+    if (method === "GET" && path === "/telegram/proxies") {
+      await fulfillContractJson(route, method, path, [])
+      return
+    }
+    if (method === "GET" && path === "/codex-gateway/connections") {
+      await fulfillContractJson(route, method, path, [])
+      return
+    }
+    if (method === "GET" && path === "/codex-gateway/activity") {
+      await fulfillContractJson(route, method, path, [])
+      return
+    }
     if (method === "GET" && path === "/content-pack-requests") {
       await fulfillContractJson(route, method, path, [])
       return
@@ -200,6 +228,19 @@ export async function installMockBackend(
         return
       }
       await fulfillContractJson(route, method, path, options.operations ?? OPERATIONS_FIXTURE)
+      return
+    }
+    if (method === "GET" && path === "/operations/retention-policy") {
+      await fulfillContractJson(route, method, path, {
+        id: "global",
+        raw_payload_days: 30,
+        completed_job_days: 90,
+        attempt_metadata_days: 90,
+        export_artifact_days: 14,
+        unreferenced_media_days: 30,
+        created_at: "2026-07-13T08:00:00Z",
+        updated_at: "2026-07-13T08:00:00Z",
+      })
       return
     }
     if (method === "GET" && path === "/telegram/reconciliation") {

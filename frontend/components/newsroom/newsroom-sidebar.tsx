@@ -11,7 +11,6 @@ import {
   ListTodo,
   Newspaper,
   Settings,
-  Trash2,
 } from "lucide-react"
 import type { LucideIcon } from "lucide-react"
 
@@ -37,7 +36,6 @@ export const operationalNavItems = [
   { label: "Jobs", href: "/jobs", icon: ListTodo },
   { label: "Automations", href: "/automations", icon: Bot },
   { label: "Diagnostics", href: "/diagnostics", icon: Activity },
-  { label: "Retention", href: "/settings/retention", icon: Trash2 },
 ] as const satisfies readonly NewsroomNavItem[]
 
 export const settingsNavItem = {
