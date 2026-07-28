@@ -21,7 +21,7 @@ const succeededJob = backendJob({
 })
 
 test.describe("NewsCraft command center", () => {
-  test("desktop Today and mobile Job Queue use fixed live workflow truth", async ({ page }) => {
+  test("desktop Today and mobile Jobs use fixed live workflow truth", async ({ page }) => {
     const unhandledRequests = await installApiRoutes(page)
     await page.setViewportSize({ width: 1440, height: 900 })
     await page.goto("/")
@@ -43,11 +43,11 @@ test.describe("NewsCraft command center", () => {
     await page.setViewportSize({ width: 390, height: 844 })
     await page.goto("/")
 
-    await page.getByRole("button", { name: "Open navigation" }).click()
-    const navigation = page.getByRole("dialog", { name: "Newsroom navigation" })
+    const navigation = page.getByRole("navigation", { name: "Mobile newsroom navigation" })
     await expect(navigation).toBeVisible()
-    await navigation.getByRole("link", { name: "Job Queue" }).click()
-    await expect(page.getByRole("heading", { name: "Job Queue" })).toBeVisible()
+    await navigation.getByRole("button", { name: "Open navigation" }).click()
+    await page.getByRole("dialog", { name: "Newsroom navigation" }).getByRole("link", { name: "Jobs" }).click()
+    await expect(page.getByRole("heading", { name: "Jobs" })).toBeVisible()
 
     await page.getByRole("button", { name: /view ingest\.collect job/i }).first().click()
     const detail = page.getByRole("dialog", { name: "Job details" })

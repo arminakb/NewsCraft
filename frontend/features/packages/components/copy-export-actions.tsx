@@ -224,8 +224,8 @@ export function CopyExportActions({
           </Button>
         ))}
       </div>
-      {copyStatus ? <div role="status" className="text-sm text-green-700">{copyStatus}</div> : null}
-      {copyError ? <div role="alert" className="text-sm text-red-700">{copyError}</div> : null}
+      {copyStatus ? <div role="status" className="text-sm text-success">{copyStatus}</div> : null}
+      {copyError ? <div role="alert" className="text-sm text-destructive">{copyError}</div> : null}
       {manualCopy !== null ? (
         <label className="grid gap-1">
           <span>Manual copy content</span>
@@ -245,9 +245,9 @@ export function CopyExportActions({
       <fieldset className="space-y-3 rounded-lg border p-4" disabled={submitPending}>
         <legend className="px-1 font-medium">Package export</legend>
         {!hasExactRevisionSet ? (
-          <p className="text-sm text-amber-800">Every package variant needs one current revision before export.</p>
+          <p className="text-sm text-warning">Every package variant needs one current revision before export.</p>
         ) : !allIntendedRevisionsApproved ? (
-          <p className="text-sm text-amber-800">Approve every intended package revision before exporting.</p>
+          <p className="text-sm text-warning">Approve every intended package revision before exporting.</p>
         ) : null}
         <div className="flex flex-wrap gap-4">
           {FORMAT_OPTIONS.map((option) => (
@@ -280,10 +280,10 @@ export function CopyExportActions({
 
       {visibleStatus && visibleExportId ? (
         <div role="status" aria-label="Export status" className="break-all rounded-lg border p-3 text-sm">
-          {completeArtifact ? <div className="font-medium text-green-700">Export ready</div> : null}
+          {completeArtifact ? <div className="font-medium text-success">Export ready</div> : null}
           {expiredArtifact ? (
             <>
-              <div className="font-medium text-amber-800">Export expired</div>
+              <div className="font-medium text-warning">Export expired</div>
               <div>{outcome?.errorMessage ?? "The downloadable export files are no longer available."}</div>
               <div>Expired <time dateTime={expiredArtifact.expiredAt}>{new Date(expiredArtifact.expiredAt).toLocaleString()}</time></div>
             </>
@@ -291,7 +291,7 @@ export function CopyExportActions({
           <div>{visibleStatus} · {visibleExportId}</div>
         </div>
       ) : null}
-      {exportError ? <div role="alert" className="text-sm text-red-700">{exportError}</div> : null}
+      {exportError ? <div role="alert" className="text-sm text-destructive">{exportError}</div> : null}
       {completeArtifact ? (
         <div className="flex flex-wrap gap-3" aria-label="Export downloads">
           {outcome?.downloads.map((download) => (

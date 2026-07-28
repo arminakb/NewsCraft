@@ -53,6 +53,7 @@ describe("TodayPage", () => {
 
     const alert = await screen.findByRole("alert")
     expect(alert).toHaveTextContent("سامانه در دسترس نیست")
+    expect(alert).toHaveAttribute("data-slot", "error-state")
     expect(alert).toHaveAttribute("dir", "auto")
     fireEvent.click(screen.getByRole("button", { name: "Retry Today" }))
     await waitFor(() => expect(getJobSummary).toHaveBeenCalledTimes(2))
@@ -65,7 +66,8 @@ describe("TodayPage", () => {
 
     expect(await screen.findByText("No workflow jobs yet")).toBeInTheDocument()
     const priority = screen.getByRole("region", { name: "Highest-priority decision" })
-    expect(within(priority).getByRole("link", { name: /Add story/ })).toHaveAttribute("href", "/inbox?add=story")
+    expect(within(priority).getByText("Queue is clear")).toBeInTheDocument()
+    expect(within(priority).queryByRole("link")).not.toBeInTheDocument()
   })
 
   it("renders summary-only counts, exact attention statuses, progress API text, and successes", async () => {

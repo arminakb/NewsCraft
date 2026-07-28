@@ -3,9 +3,12 @@
 import { useQuery } from "@tanstack/react-query"
 import Link from "next/link"
 
-import { Badge } from "@/components/ui/badge"
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Button, buttonVariants } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { PageHeader } from "@/components/ui/page-header"
+import { EmptyState, ErrorState, LoadingState } from "@/components/ui/state-panel"
+import { StatusBadge, type StatusTone } from "@/components/ui/status-badge"
 import { getTelegramAutomationOptions, getTelegramRoutes } from "@/features/automations/telegram-api"
 import { getApiErrorMessage } from "@/lib/http"
 import { queryKeys } from "@/lib/query-keys"
@@ -14,24 +17,53 @@ export function RouteList() {
   const routesQuery = useQuery({ queryKey: queryKeys.telegramRoutes, queryFn: getTelegramRoutes })
   const optionsQuery = useQuery({ queryKey: queryKeys.telegramOptions, queryFn: getTelegramAutomationOptions })
   return (
-    <section className="min-w-0 space-y-4 p-4 md:p-6" aria-labelledby="automations-heading">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div><h1 id="automations-heading" className="text-2xl font-semibold">Telegram automations</h1><p className="text-muted-foreground">Monitor route policy, cursor progress, health, and operator actions.</p></div>
-        <Link className={buttonVariants()} href="/automations/new">New automation</Link>
-      </div>
-      {routesQuery.isPending ? <div role="status">Loading automations</div> : null}
-      {routesQuery.isError ? <div role="alert" dir="auto">{getApiErrorMessage(routesQuery.error)}</div> : null}
-      {optionsQuery.isError ? <div className="flex flex-wrap items-center gap-3" role="alert" dir="auto"><span>Destination health request failed: {getApiErrorMessage(optionsQuery.error)}</span><Button variant="outline" onClick={() => void optionsQuery.refetch()}>Retry destination health</Button></div> : null}
-      {routesQuery.isSuccess && !routesQuery.data.length ? <div className="rounded-xl border p-8 text-center text-muted-foreground">No Telegram automations yet</div> : null}
+    <section className="nc-page" aria-labelledby="automations-heading">
+      <PageHeader
+        title="Telegram automations"
+        titleId="automations-heading"
+        description="Monitor route policy, cursor progress, health, and operator actions."
+        actions={<Link className={buttonVariants()} href="/automations/new">New automation</Link>}
+      />
+      {routesQuery.isPending ? <LoadingState title="Loading automations…" /> : null}
+      {routesQuery.isError ? (
+        <ErrorState
+          dir="auto"
+          title="Automations could not be loaded"
+          description={getApiErrorMessage(routesQuery.error)}
+          action={<Button variant="outline" onClick={() => void routesQuery.refetch()}>Retry automations</Button>}
+        />
+      ) : null}
+      {optionsQuery.isError ? (
+        <Alert tone="warning" role="alert" dir="auto">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <AlertTitle>Destination health unavailable</AlertTitle>
+              <AlertDescription>{getApiErrorMessage(optionsQuery.error)}</AlertDescription>
+            </div>
+            <Button variant="outline" size="sm" onClick={() => void optionsQuery.refetch()}>Retry destination health</Button>
+          </div>
+        </Alert>
+      ) : null}
+      {routesQuery.isSuccess && !routesQuery.data.length ? <EmptyState title="No Telegram automations yet" description="Create an automation to connect a source with a verified destination." /> : null}
       <div className="grid gap-4 lg:grid-cols-2">
         {routesQuery.data?.map((route) => {
           const cursorStatus = String(route.cursorState.status ?? "unknown")
           const destination = optionsQuery.data?.destinations.find((item) => item.id === route.destinationId)
-          return <Card key={route.id}>
-            <CardHeader><CardTitle><Link className="hover:underline" href={`/automations/${route.id}`}>{route.name}</Link></CardTitle></CardHeader>
+          const routeState = route.pausedAt ? "Paused" : route.enabled ? "Active" : "Inactive"
+          return <Card key={route.id} size="sm">
+            <CardHeader className="border-b"><CardTitle><Link className="underline-offset-4 hover:underline" href={`/automations/${route.id}`}>{route.name}</Link></CardTitle></CardHeader>
             <CardContent className="space-y-3">
-              <div className="flex flex-wrap gap-2"><Badge>{labelValue(cursorStatus)}</Badge><Badge variant="outline">{route.pausedAt ? "Paused" : route.enabled ? "Active" : "Inactive"}</Badge><Badge variant="outline">{labelValue(route.publishingPolicy)}</Badge></div>
-              <dl className="grid grid-cols-2 gap-2 text-sm"><div><dt className="text-muted-foreground">Last message</dt><dd>{route.cursorState.lastMessageId == null ? "Not available" : String(route.cursorState.lastMessageId)}</dd></div><div><dt className="text-muted-foreground">Next poll</dt><dd>{route.nextPollAt ? formatDate(route.nextPollAt) : "Not scheduled"}</dd></div><div><dt className="text-muted-foreground">Destination health</dt><dd>{destination ? labelValue(destination.healthStatus) : optionsQuery.isPending ? "Checking" : optionsQuery.isError ? "Health request failed" : "Destination not configured"}</dd></div><div><dt className="text-muted-foreground">Last poll</dt><dd>{route.lastPolledAt ? formatDate(route.lastPolledAt) : "Not polled"}</dd></div></dl>
+              <div className="flex flex-wrap gap-2">
+                <StatusBadge tone={cursorTone(cursorStatus)}>{labelValue(cursorStatus)}</StatusBadge>
+                <StatusBadge tone={routeState === "Active" ? "success" : routeState === "Paused" ? "warning" : "neutral"}>{routeState}</StatusBadge>
+                <StatusBadge tone="info">{labelValue(route.publishingPolicy)}</StatusBadge>
+              </div>
+              <dl className="grid gap-3 text-[13px] sm:grid-cols-2">
+                <Metric label="Last message" value={route.cursorState.lastMessageId == null ? "Not available" : String(route.cursorState.lastMessageId)} />
+                <Metric label="Next poll" value={route.nextPollAt ? formatDate(route.nextPollAt) : "Not scheduled"} />
+                <Metric label="Destination health" value={destination ? labelValue(destination.healthStatus) : optionsQuery.isPending ? "Checking" : optionsQuery.isError ? "Health request failed" : "Destination not configured"} />
+                <Metric label="Last poll" value={route.lastPolledAt ? formatDate(route.lastPolledAt) : "Not polled"} />
+              </dl>
               <Link className={buttonVariants({ variant: "outline" })} href={`/automations/${route.id}`}>Open route</Link>
             </CardContent>
           </Card>
@@ -43,3 +75,12 @@ export function RouteList() {
 
 function labelValue(value: string) { return value.split("_").map((part) => part[0]?.toUpperCase() + part.slice(1)).join(" ") }
 function formatDate(value: string) { return new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" }).format(new Date(value)) }
+function cursorTone(value: string): StatusTone {
+  if (value === "ready") return "success"
+  if (["failed", "error"].includes(value)) return "error"
+  if (["initializing", "checking"].includes(value)) return "warning"
+  return "neutral"
+}
+function Metric({ label, value }: { label: string; value: string }) {
+  return <div className="min-w-0"><dt className="text-xs text-muted-foreground">{label}</dt><dd className="break-words font-medium tabular-nums">{value}</dd></div>
+}

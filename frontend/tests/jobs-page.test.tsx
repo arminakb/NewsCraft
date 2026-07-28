@@ -74,7 +74,7 @@ describe("JobsPage", () => {
     expect(await screen.findByText("No jobs match this filter")).toBeInTheDocument()
   })
 
-  it("opens sanitized detail, traps focus, closes on Escape, and restores the selected row", async () => {
+  it("opens sanitized detail in the shared modal, closes on Escape, and restores the selected row", async () => {
     renderJobs()
     const rowButton = await screen.findByRole("button", { name: /view ingest.collect job/i })
     ;(detail as WorkflowJobDetail & { lease_owner?: string }).lease_owner = "internal-worker"
@@ -90,10 +90,9 @@ describe("JobsPage", () => {
     expect(within(dialog).getByRole("button", { name: "Retry job" })).toBeInTheDocument()
     expect(within(dialog).queryByRole("button", { name: "Cancel job" })).not.toBeInTheDocument()
 
-    fireEvent.keyDown(document, { key: "Tab", shiftKey: true })
-    expect(within(dialog).getByRole("button", { name: "Retry job" })).toHaveFocus()
-    fireEvent.keyDown(document, { key: "Tab" })
-    expect(close).toHaveFocus()
+    expect(dialog).toHaveAttribute("aria-modal", "true")
+    expect(dialog).toHaveAttribute("data-slot", "dialog-content")
+    expect(document.body).toHaveStyle({ overflow: "hidden" })
 
     fireEvent.keyDown(document, { key: "Escape" })
     expect(screen.queryByRole("dialog", { name: "Job details" })).not.toBeInTheDocument()
@@ -113,7 +112,7 @@ describe("JobsPage", () => {
     await waitFor(() => expect(cancel).toBeDisabled())
   })
 
-  it("keeps focus inside the aria-modal dialog when a pending action becomes disabled", async () => {
+  it("keeps the shared aria-modal dialog operable when a pending action becomes disabled", async () => {
     vi.mocked(getJobs).mockResolvedValue([queued])
     vi.mocked(getJob).mockResolvedValue({ ...detail, ...queued, payload: {}, result: {}, events: [] })
     vi.mocked(cancelJob).mockImplementation(() => new Promise(() => undefined))
@@ -128,16 +127,9 @@ describe("JobsPage", () => {
     fireEvent.click(cancel)
     await waitFor(() => expect(cancel).toBeDisabled())
 
-    cancel.blur()
-    expect(document.activeElement).toBe(document.body)
-    fireEvent.keyDown(document, { key: "Tab" })
-    expect(close).toHaveFocus()
-    document.body.tabIndex = -1
-    document.body.focus()
-    expect(document.activeElement).toBe(document.body)
-    fireEvent.keyDown(document, { key: "Tab", shiftKey: true })
-    expect(close).toHaveFocus()
-    document.body.removeAttribute("tabindex")
+    expect(close).toBeEnabled()
+    expect(dialog).toBeInTheDocument()
+    expect(document.body).toHaveStyle({ overflow: "hidden" })
   })
 
   it("retries an attention job and invalidates all job truth", async () => {
@@ -156,7 +148,7 @@ describe("JobsPage", () => {
     renderJobs({ initialStatus: "attention", initialJobId: failed.id })
 
     expect(await screen.findByRole("dialog", { name: "Job details" })).toBeInTheDocument()
-    expect(screen.getByRole("button", { name: "Attention" })).toHaveAttribute("aria-pressed", "true")
+    expect(screen.getByRole("button", { name: "Attention", hidden: true })).toHaveAttribute("aria-pressed", "true")
     expect(await screen.findByRole("button", { name: "Retry job" })).toBeInTheDocument()
   })
 })

@@ -13,6 +13,8 @@ import {
 } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
+import { PageHeader } from "@/components/ui/page-header"
+import { ErrorState } from "@/components/ui/state-panel"
 import {
   getBrandProfiles,
   getPromptTemplates,
@@ -69,17 +71,20 @@ export function ContentSettingsPage() {
   const failed = requiredQueries.filter((query) => query.isError)
   if (failed.length) {
     return (
-      <section className="space-y-4 p-4 md:p-6" aria-labelledby="content-settings-error">
-        <h1 id="content-settings-error" className="text-xl font-semibold">Content settings unavailable</h1>
-        <p role="alert" dir="auto" className="text-sm text-red-700 dark:text-red-300">
-          {getApiErrorMessage(failed[0].error, "Content settings could not be loaded.")}
-        </p>
-        <Button
-          variant="outline"
-          onClick={() => void Promise.all(requiredQueries.map((query) => query.refetch()))}
-        >
-          <RefreshCw aria-hidden="true" /> Retry settings
-        </Button>
+      <section className="nc-page">
+        <ErrorState
+          dir="auto"
+          title="Settings unavailable"
+          description={getApiErrorMessage(failed[0].error, "Settings could not be loaded.")}
+          action={
+            <Button
+              variant="outline"
+              onClick={() => void Promise.all(requiredQueries.map((query) => query.refetch()))}
+            >
+              <RefreshCw aria-hidden="true" /> Retry settings
+            </Button>
+          }
+        />
       </section>
     )
   }
@@ -130,17 +135,13 @@ export function ContentSettingsPage() {
   ]
 
   return (
-    <section className="min-w-0 space-y-6 p-4 md:p-6" aria-labelledby="content-settings-heading">
-      <header className="max-w-3xl">
-        <p className="text-xs font-semibold uppercase tracking-[0.18em] text-primary">Configuration</p>
-        <h1 id="content-settings-heading" className="mt-1 text-2xl font-semibold tracking-tight md:text-3xl">
-          Content settings
-        </h1>
-        <p className="mt-2 text-sm leading-6 text-muted-foreground">
-          Manage editorial behavior, model connections, Codex access, publishing destinations, and prompt history.
-          Secrets stay write-only.
-        </p>
-      </header>
+    <section className="nc-page gap-6" aria-labelledby="content-settings-heading">
+      <PageHeader
+        title="Settings"
+        titleId="content-settings-heading"
+        contentClassName="max-w-3xl"
+        description={<>Manage editorial behavior, model connections, Codex access, publishing destinations, and prompt history. Secrets stay write-only.</>}
+      />
 
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4" aria-label="Content readiness summary">
         <SummaryCard
@@ -169,7 +170,7 @@ export function ContentSettingsPage() {
         />
       </div>
 
-      <aside className="rounded-xl border bg-card p-4" aria-labelledby="setup-checklist-heading">
+      <aside className="nc-panel p-4" aria-labelledby="setup-checklist-heading">
         <div className="flex items-center gap-2">
           <UserRound className="size-5 text-primary" aria-hidden="true" />
           <h2 id="setup-checklist-heading" className="font-semibold">Setup checklist</h2>
@@ -182,8 +183,8 @@ export function ContentSettingsPage() {
               className="flex min-h-11 items-center gap-3 rounded-lg border px-3 py-2 text-sm hover:bg-muted"
             >
               {item.ready
-                ? <CheckCircle2 className="size-4 shrink-0 text-emerald-600" aria-hidden="true" />
-                : <CircleAlert className="size-4 shrink-0 text-amber-600" aria-hidden="true" />}
+                ? <CheckCircle2 className="size-4 shrink-0 text-success" aria-hidden="true" />
+                : <CircleAlert className="size-4 shrink-0 text-warning" aria-hidden="true" />}
               <span>
                 <strong>{item.label}</strong>
                 <span className="ml-1 text-muted-foreground">· {item.detail}</span>
@@ -193,7 +194,7 @@ export function ContentSettingsPage() {
         </div>
       </aside>
 
-      <nav className="sticky top-0 z-20 -mx-4 flex gap-1 overflow-x-auto border-y bg-background/95 px-4 py-2 backdrop-blur md:-mx-6 md:px-6" aria-label="Content settings sections">
+      <nav className="sticky top-0 z-20 -mx-4 flex gap-1 overflow-x-auto border-y bg-background/95 px-4 py-2 backdrop-blur md:-mx-6 md:px-6" aria-label="Settings sections">
         {[
           ["editorial-profiles", "Editorial profiles"],
           ["llm-providers", "LLM providers"],
@@ -239,7 +240,7 @@ function SummaryCard({
   ready: boolean
 }) {
   return (
-    <div className="flex items-center gap-3 rounded-xl border bg-card p-4 shadow-sm">
+    <div className="nc-panel flex items-center gap-3 p-4">
       <span className="grid size-10 shrink-0 place-items-center rounded-lg bg-muted text-primary">
         <Icon className="size-5" aria-hidden="true" />
       </span>
@@ -248,7 +249,7 @@ function SummaryCard({
         <div className="truncate font-semibold">{value}</div>
       </div>
       <span
-        className={`ml-auto size-2.5 shrink-0 rounded-full ${ready ? "bg-emerald-600" : "bg-slate-400"}`}
+        className={`ml-auto size-2.5 shrink-0 rounded-full ${ready ? "bg-success" : "bg-muted-foreground"}`}
         aria-label={ready ? "Ready" : "Needs attention"}
       />
     </div>

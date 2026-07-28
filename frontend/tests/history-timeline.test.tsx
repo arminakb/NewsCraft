@@ -25,7 +25,7 @@ describe("HistoryTimeline", () => {
             title: "Telegram verification required",
             summary: "ارسال تلگرام باید توسط اپراتور بررسی شود",
             job_id: "22222222-2222-4222-8222-222222222222",
-            subject_url: `/inbox?story_id=33333333-3333-4333-8333-333333333333`,
+            subject_url: `/jobs?job=22222222-2222-4222-8222-222222222222`,
             sanitized_metadata: {
               operation_keys: ["telegram:publish:0"],
               audit: { attempt: 2 },
@@ -66,7 +66,7 @@ describe("HistoryTimeline", () => {
       .toHaveAttribute("dir", "auto")
     expect(screen.getByRole("link", { name: "Open related record" })).toHaveAttribute(
       "href",
-      "/inbox?story_id=33333333-3333-4333-8333-333333333333",
+      "/jobs?job=22222222-2222-4222-8222-222222222222",
     )
 
     fireEvent.click(screen.getByRole("button", { name: "Load more history" }))

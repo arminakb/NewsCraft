@@ -274,19 +274,19 @@ export function SourcesPage({
         title="Sources"
         subtitle="Manage RSS feeds and public Telegram channels."
         actions={
-          <>
-            <Button variant="outline" className="h-9 gap-2" onClick={() => seedMutation.mutate()} disabled={seedMutation.isPending}>
+          <div className="grid w-full grid-cols-2 gap-2 sm:flex sm:w-auto">
+            <Button variant="outline" className="gap-2" onClick={() => seedMutation.mutate()} disabled={seedMutation.isPending}>
               <Database className="size-4" aria-hidden="true" />
               {seedMutation.isPending ? "Seeding" : "Seed sources"}
             </Button>
-            <Button className="h-9 gap-2" onClick={openAddDialog}>
+            <Button className="gap-2" onClick={openAddDialog}>
               <Plus className="size-4" aria-hidden="true" />
               Add source
             </Button>
-          </>
+          </div>
         }
       >
-        <div className={detailOpen ? "grid min-w-0 gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(22rem,26rem)]" : "grid min-w-0 grid-cols-[minmax(0,1fr)_auto] gap-2"}>
+        <div className={detailOpen ? "grid min-w-0 gap-3 xl:grid-cols-[minmax(0,1fr)_minmax(20rem,24rem)]" : "grid min-w-0 grid-cols-[minmax(0,1fr)_auto] gap-2"}>
           <div className="min-w-0">
             <SourceHealthTable
               bulkChecking={bulkChecking}

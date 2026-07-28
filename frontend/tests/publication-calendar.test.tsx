@@ -56,6 +56,9 @@ describe("PublicationCalendar", () => {
       "href",
       `/review/${revisionIds.instagram}`,
     )
+    fireEvent.click(screen.getByRole("button", { name: "Chronological list view" }))
+    expect(screen.getByText("scheduled", { selector: "[data-slot=badge]" })).toHaveClass("text-warning")
+    expect(screen.getByText("ready", { selector: "[data-slot=badge]" })).toHaveClass("text-muted-foreground")
     expect(view.container.querySelector("main")).not.toBeInTheDocument()
   })
 

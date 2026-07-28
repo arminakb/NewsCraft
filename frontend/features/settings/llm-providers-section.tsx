@@ -91,7 +91,7 @@ export function LLMProvidersSection({ providers }: { providers: LLMProvider[] })
     >
       {providers.length ? <div className="grid gap-3">
         {providers.filter((provider) => provider.protocol !== "fake").map((provider) => (
-          <article key={provider.id} className="rounded-xl border bg-background p-4">
+          <article key={provider.id} className="rounded-lg border border-border/50 bg-background p-4">
             <div className="flex flex-col gap-4 xl:flex-row xl:items-center">
               <div className="min-w-0 flex-1">
                 <div className="flex flex-wrap items-center gap-2">
@@ -106,7 +106,7 @@ export function LLMProvidersSection({ providers }: { providers: LLMProvider[] })
                   <span className="rounded-full bg-muted px-2.5 py-1">{provider.configured ? "API key configured" : "API key missing"}</span>
                   <span className="rounded-full bg-muted px-2.5 py-1">{formatDate(provider.last_checked_at, "Never checked")}</span>
                 </div>
-                {provider.failure_code ? <p className="mt-2 text-sm text-amber-800 dark:text-amber-300" role="status">{safeCode(provider.failure_code)}</p> : null}
+                {provider.failure_code ? <p className="mt-2 text-sm text-warning" role="status">{safeCode(provider.failure_code)}</p> : null}
               </div>
               <div className="flex flex-wrap gap-2">
                 <ActionButton label="Test" busy={busy === `${provider.id}:test`} onClick={() => void run(provider, "test")} icon={RefreshCw} />

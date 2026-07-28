@@ -38,7 +38,7 @@ export function EditorialProfilesSection({ profiles }: { profiles: BrandProfile[
       description="Reusable language, tone, attribution, and platform defaults."
       action={<Button onClick={() => setEditing("new")}><Plus aria-hidden="true" /> New profile</Button>}
     >
-      <div className="rounded-lg border border-blue-200 bg-blue-50 p-3 text-sm leading-6 text-blue-950 dark:border-blue-900 dark:bg-blue-950/30 dark:text-blue-100" role="note">
+      <div className="rounded-lg border border-border/60 bg-muted/50 p-3 text-sm leading-6 text-foreground" role="note">
         <strong>{defaultProfile ? `${defaultProfile.name} is the default.` : "No default profile is selected."}</strong>{" "}
         Requests that omit a profile use this default. Profile edits can affect queued jobs that have not executed;
         existing revisions remain unchanged.
@@ -46,7 +46,7 @@ export function EditorialProfilesSection({ profiles }: { profiles: BrandProfile[
       {profiles.length ? (
         <div className="grid gap-3 lg:grid-cols-2">
           {profiles.map((profile) => (
-            <article key={profile.id} className="rounded-xl border bg-background p-4">
+            <article key={profile.id} className="rounded-lg border border-border/50 bg-background p-4">
               <div className="flex items-start justify-between gap-3">
                 <div>
                   <div className="flex flex-wrap items-center gap-2">

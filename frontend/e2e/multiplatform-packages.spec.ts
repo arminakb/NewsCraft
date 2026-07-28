@@ -292,10 +292,9 @@ async function installMultiplatformBackend(page: Page): Promise<BackendState> {
 
 async function navigateToCalendar(page: Page, mobile: boolean) {
   if (mobile) {
-    await page.getByRole("button", { name: "Open navigation" }).click()
-    const dialog = page.getByRole("dialog", { name: "Newsroom navigation" })
-    await expect(dialog).toBeVisible()
-    await dialog.getByRole("link", { name: "Calendar", exact: true }).click()
+    const navigation = page.getByRole("navigation", { name: "Mobile newsroom navigation" })
+    await expect(navigation).toBeVisible()
+    await navigation.getByRole("link", { name: "Calendar", exact: true }).click()
   } else {
     await page.getByRole("navigation", { name: "Newsroom navigation" }).getByRole("link", { name: "Calendar", exact: true }).click()
   }

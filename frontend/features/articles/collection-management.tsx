@@ -142,7 +142,7 @@ export function CollectionManagementControl({
             Rename
           </button>
           <button
-            className="flex min-h-10 w-full cursor-pointer items-center gap-2 rounded-md px-2.5 text-left text-sm text-red-700 hover:bg-red-50 focus-visible:ring-2 focus-visible:ring-red-700/40"
+            className="flex min-h-10 w-full cursor-pointer items-center gap-2 rounded-md px-2.5 text-left text-sm text-destructive hover:bg-[var(--error-surface)] focus-visible:ring-2 focus-visible:ring-destructive/40"
             onClick={() => openDialog("delete")}
             ref={secondItemRef}
             role="menuitem"
@@ -244,13 +244,13 @@ function RenameCollectionDialog({
       aria-describedby="rename-collection-description"
       aria-labelledby="rename-collection-title"
       aria-modal="true"
-      className="fixed inset-0 z-50 grid place-items-center bg-slate-950/45 p-4"
+      className="nc-dialog-scrim fixed inset-0 z-50 grid place-items-center p-4"
       onMouseDown={(event) => { if (event.target === event.currentTarget) close() }}
       ref={dialogRef}
       role="dialog"
       tabIndex={-1}
     >
-      <form className="w-full max-w-md space-y-5 rounded-xl border bg-background p-5 shadow-xl" onSubmit={submit}>
+      <form className="nc-dialog w-full max-w-md space-y-5 p-5" onSubmit={submit}>
         <div>
           <h2 className="text-lg font-semibold" id="rename-collection-title">Rename Collection</h2>
           <p className="mt-1 text-sm text-muted-foreground" id="rename-collection-description">
@@ -281,8 +281,8 @@ function RenameCollectionDialog({
             <span>{trimmedName.length}/60</span>
           </span>
         </label>
-        {showValidation ? <p className="text-sm text-red-700" id="rename-collection-error" role="alert">{validationError}</p> : null}
-        {serverError ? <p className="text-sm text-red-700" dir="auto" role="alert">{serverError}</p> : null}
+        {showValidation ? <p className="text-sm text-destructive" id="rename-collection-error" role="alert">{validationError}</p> : null}
+        {serverError ? <p className="text-sm text-destructive" dir="auto" role="alert">{serverError}</p> : null}
         <div className="flex justify-end gap-2">
           <Button disabled={pending} onClick={close} type="button" variant="outline">Cancel</Button>
           <Button disabled={Boolean(validationError) || unchanged || pending} type="submit">
@@ -355,13 +355,13 @@ function DeleteCollectionDialog({
       aria-describedby="delete-collection-description"
       aria-labelledby="delete-collection-title"
       aria-modal="true"
-      className="fixed inset-0 z-50 grid place-items-center bg-slate-950/45 p-4"
+      className="nc-dialog-scrim fixed inset-0 z-50 grid place-items-center p-4"
       onMouseDown={(event) => { if (event.target === event.currentTarget) close() }}
       ref={dialogRef}
       role="dialog"
       tabIndex={-1}
     >
-      <div className="w-full max-w-md space-y-5 rounded-xl border bg-background p-5 shadow-xl">
+      <div className="nc-dialog w-full max-w-md space-y-5 p-5">
         <div>
           <h2 className="text-lg font-semibold" id="delete-collection-title">Delete Collection?</h2>
           <p className="mt-2 text-sm leading-6 text-muted-foreground" id="delete-collection-description">
@@ -369,7 +369,7 @@ function DeleteCollectionDialog({
             {" "}Deleting this collection removes only the folder and its memberships. Articles themselves are not deleted from NewsCraft.
           </p>
         </div>
-        {serverError ? <p className="text-sm text-red-700" dir="auto" role="alert">{serverError}</p> : null}
+        {serverError ? <p className="text-sm text-destructive" dir="auto" role="alert">{serverError}</p> : null}
         <div className="flex justify-end gap-2">
           <Button disabled={pending} onClick={close} ref={cancelRef} type="button" variant="outline">Cancel</Button>
           <Button disabled={pending} onClick={remove} type="button" variant="destructive">

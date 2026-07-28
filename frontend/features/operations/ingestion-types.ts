@@ -45,13 +45,3 @@ export type CreateSourceInput = {
   language: string
   fetchIntervalMinutes: number
 }
-
-export type IngestionRunSummary = {
-  id: string
-  label: string
-  scope: string
-  status: "succeeded" | "partial" | "failed"
-  progress: number
-  duration: string
-  items: number
-}

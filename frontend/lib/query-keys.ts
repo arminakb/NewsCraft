@@ -4,7 +4,6 @@ import type { HistoryFilters } from "@/features/operations/types"
 export const queryKeys = {
   sources: ["sources"] as const,
   source: (id: string) => ["sources", id] as const,
-  runs: ["ingest-runs"] as const,
   diagnostics: ["diagnostics"] as const,
   jobs: (filters: JobFilters = {}) => ["jobs", filters] as const,
   job: (id: string) => ["jobs", id] as const,

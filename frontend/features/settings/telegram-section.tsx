@@ -111,7 +111,7 @@ export function TelegramSection({ destinations, proxies }: { destinations: Teleg
     >
       {destinations.length ? <div className="grid gap-3">
         {destinations.map((destination) => (
-          <article key={destination.id} className="rounded-xl border bg-background p-4">
+          <article key={destination.id} className="rounded-lg border border-border/50 bg-background p-4">
             <div className="flex flex-col gap-4 xl:flex-row xl:items-start">
               <div className="min-w-0 flex-1">
                 <div className="flex flex-wrap items-center gap-2">
@@ -130,7 +130,7 @@ export function TelegramSection({ destinations, proxies }: { destinations: Teleg
                 <p className="mt-3 text-xs text-muted-foreground">
                   {destination.verified_chat_title ?? "Target not verified"} · {destination.verified_bot_username ? `@${destination.verified_bot_username}` : "Bot not verified"} · {formatDate(destination.last_checked_at, "Never checked")}
                 </p>
-                {destination.failure_code ? <p className="mt-2 text-sm text-amber-800 dark:text-amber-300">{safeCode(destination.failure_code)}</p> : null}
+                {destination.failure_code ? <p className="mt-2 text-sm text-warning">{safeCode(destination.failure_code)}</p> : null}
               </div>
               <div className="flex flex-wrap gap-2 xl:max-w-md xl:justify-end">
                 <ActionButton label="Edit" icon={Pencil} onClick={() => setEditing(destination)} />
@@ -145,7 +145,7 @@ export function TelegramSection({ destinations, proxies }: { destinations: Teleg
         ))}
       </div> : <EmptyState title="No Telegram destinations" detail="Add a bot token and channel or group identifier." />}
 
-      <details className="rounded-xl border bg-muted/30 p-4">
+      <details className="rounded-lg border border-border/50 bg-muted/30 p-4">
         <summary className="cursor-pointer font-semibold">Manage proxy profiles ({proxies.length})</summary>
         <div className="mt-4 space-y-3">
           <Button variant="outline" onClick={() => setProxyEditing("new")}><Plus aria-hidden="true" /> New proxy profile</Button>

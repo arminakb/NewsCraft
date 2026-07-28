@@ -1,7 +1,8 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react"
+import { render, screen, within } from "@testing-library/react"
 
 import { NewsroomShell } from "@/components/newsroom/newsroom-shell"
+import { ThemeProvider } from "@/components/providers/theme-provider"
 import { getAutomationControl } from "@/features/control/api"
 import { getJobSummary } from "@/features/jobs/api"
 
@@ -81,28 +82,15 @@ describe("NewsroomShell", () => {
     expect(screen.queryByText(/automation(?:s)? running/i)).not.toBeInTheDocument()
   })
 
-  it("opens mobile navigation, focuses its first link, and restores the trigger on Escape", async () => {
+  it("exposes primary mobile routes and an accessible compact menu", () => {
     Object.defineProperty(window, "innerWidth", { configurable: true, value: 390 })
     window.dispatchEvent(new Event("resize"))
     renderShell()
-    const trigger = screen.getByRole("button", { name: "Open navigation" })
 
-    expect(screen.getByRole("navigation", { name: "Mobile newsroom navigation" })).toBeInTheDocument()
-    expect(trigger).toHaveAttribute("aria-expanded", "false")
-    trigger.focus()
-    expect(trigger).toHaveFocus()
-    fireEvent.click(trigger)
-
-    expect(trigger).toHaveAttribute("aria-expanded", "true")
-    const panel = screen.getByRole("dialog", { name: "Newsroom navigation" })
-    expect(panel).toBeInTheDocument()
-    await waitFor(() => expect(within(panel).getByRole("link", { name: "Today" })).toHaveFocus())
-
-    fireEvent.keyDown(document, { key: "Escape" })
-
-    expect(screen.queryByRole("dialog", { name: "Newsroom navigation" })).not.toBeInTheDocument()
-    expect(trigger).toHaveAttribute("aria-expanded", "false")
-    expect(trigger).toHaveFocus()
+    const navigation = screen.getByRole("navigation", { name: "Mobile newsroom navigation" })
+    expect(within(navigation).getByRole("link", { name: "Today" })).toBeInTheDocument()
+    expect(within(navigation).getByRole("button", { name: "Open navigation" })).toBeInTheDocument()
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument()
   })
 
   it("owns the single main landmark and keeps routed content shrinkable", async () => {
@@ -116,7 +104,8 @@ describe("NewsroomShell", () => {
     expect(screen.getByTestId("newsroom-content")).toHaveClass("min-w-0")
     expect(screen.getByTestId("newsroom-content")).toHaveClass("newsroom-scroll", "min-[900px]:overflow-y-auto")
     expect(container.firstElementChild).toHaveClass("min-[900px]:grid")
-    expect(container.firstElementChild).toHaveClass("min-[900px]:grid-cols-[72px_minmax(0,1fr)]")
+    expect(container.firstElementChild).toHaveClass("min-[900px]:grid-cols-[260px_minmax(0,1fr)]")
+    expect(screen.getByTestId("newsroom-content")).toHaveClass("min-[900px]:col-start-2")
     expect(container.querySelector('[class*="440px"]')).not.toBeInTheDocument()
   })
 })
@@ -128,9 +117,11 @@ function renderShell() {
 
   return render(
     <QueryClientProvider client={queryClient}>
-      <NewsroomShell>
-        <section aria-label="Routed content">Page content</section>
-      </NewsroomShell>
+      <ThemeProvider>
+        <NewsroomShell>
+          <section aria-label="Routed content">Page content</section>
+        </NewsroomShell>
+      </ThemeProvider>
     </QueryClientProvider>
   )
 }

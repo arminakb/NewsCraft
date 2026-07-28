@@ -345,19 +345,18 @@ async function installTelegramBackend(page: Page, options: { reconciliation?: bo
 
 async function navigate(page: Page, label: string, mobile: boolean) {
   if (mobile) {
-    await page.getByRole("button", { name: "Open navigation" }).click()
-    const dialog = page.getByRole("dialog", { name: "Newsroom navigation" })
-    await expect(dialog).toBeVisible()
+    const navigation = page.getByRole("navigation", { name: "Mobile newsroom navigation" })
+    await expect(navigation).toBeVisible()
     await expectNoHorizontalOverflow(page)
-    await dialog.getByRole("link", { name: label, exact: true }).click()
-  } else {
-    const primary = page.getByRole("navigation", { name: "Newsroom navigation" }).getByRole("link", { name: label, exact: true })
-    if (await primary.count()) {
-      await primary.click()
+    const direct = navigation.getByRole("link", { name: label, exact: true })
+    if (await direct.count()) {
+      await direct.click()
     } else {
-      await page.getByRole("button", { name: /Advanced navigation/ }).click()
-      await page.getByRole("dialog", { name: "Advanced navigation" }).getByRole("link", { name: label, exact: true }).click()
+      await navigation.getByRole("button", { name: "Open navigation" }).click()
+      await page.getByRole("dialog", { name: "Newsroom navigation" }).getByRole("link", { name: label, exact: true }).click()
     }
+  } else {
+    await page.getByRole("navigation", { name: "Newsroom navigation" }).getByRole("link", { name: label, exact: true }).click()
   }
   const expectedPath = label === "Today" ? "/" : label === "Automations" ? "/automations" : null
   if (expectedPath) await page.waitForURL((url) => url.pathname === expectedPath)

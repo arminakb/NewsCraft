@@ -211,7 +211,7 @@ describe("ContentSettingsPage", () => {
   it("renders five coherent management sections and safe readiness summaries", async () => {
     renderSettings()
 
-    expect(await screen.findByRole("heading", { name: "Content settings" })).toBeInTheDocument()
+    expect(await screen.findByRole("heading", { name: "Settings" })).toBeInTheDocument()
     expect(screen.getByRole("heading", { name: "Setup checklist" })).toBeInTheDocument()
     for (const heading of [
       "Editorial profiles",
@@ -243,8 +243,8 @@ describe("ContentSettingsPage", () => {
 
     renderSettings()
 
-    expect(await screen.findByRole("heading", { name: "Content settings" })).toBeInTheDocument()
-    expect(screen.queryByRole("heading", { name: "Content settings unavailable" })).not.toBeInTheDocument()
+    expect(await screen.findByRole("heading", { name: "Settings" })).toBeInTheDocument()
+    expect(screen.queryByRole("heading", { name: "Settings unavailable" })).not.toBeInTheDocument()
     expect(screen.getByRole("heading", { name: "LLM providers" })).toBeInTheDocument()
     expect(screen.getByRole("heading", { name: "Telegram destinations" })).toBeInTheDocument()
     expect(screen.getByRole("alert")).toHaveTextContent("authentication required")

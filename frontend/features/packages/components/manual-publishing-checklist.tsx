@@ -174,7 +174,7 @@ export function ManualPublishingChecklist({
           />
         </label>
         {invalidUrl ? (
-          <p className="text-sm text-red-700">Enter the public HTTP or HTTPS URL.</p>
+          <p className="text-sm text-destructive">Enter the public HTTP or HTTPS URL.</p>
         ) : null}
         <label className="grid gap-1">
           <span>Operator note (optional)</span>
@@ -207,8 +207,8 @@ export function ManualPublishingChecklist({
       </section> : null}
       {localPlan.status === "cancelled" ? <p>Cancelled plans remain in publication history and cannot be edited.</p> : null}
       {pendingItem ? <div role="status">Saving checklist progress…</div> : null}
-      {outcome ? <div role="status" className="text-green-700">{outcome}</div> : null}
-      {error ? <div role="alert" className="text-sm text-red-700">{error}</div> : null}
+      {outcome ? <div role="status" className="text-success">{outcome}</div> : null}
+      {error ? <div role="alert" className="text-sm text-destructive">{error}</div> : null}
     </section>
   )
 }

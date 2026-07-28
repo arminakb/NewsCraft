@@ -68,10 +68,10 @@ describe("DiagnosticsDashboard", () => {
     )
     expect(screen.getByText("Dry run enabled")).toBeInTheDocument()
     expect(screen.getByText("Direct · 0 bypass rules · not checked")).toBeInTheDocument()
-    expect(screen.getByText("healthy", { exact: true }).closest("span")).toHaveClass("bg-emerald-100")
-    expect(screen.getByText("degraded", { exact: true }).closest("span")).toHaveClass("bg-amber-100")
-    expect(screen.getByText("down", { exact: true }).closest("span")).toHaveClass("bg-red-100")
-    expect(screen.getByText("unknown", { exact: true }).closest("span")).toHaveClass("bg-slate-100")
+    expect(screen.getByText("healthy", { exact: true }).closest("span")).toHaveClass("bg-[var(--success-surface)]", "text-success")
+    expect(screen.getByText("degraded", { exact: true }).closest("span")).toHaveClass("bg-[var(--warning-surface)]", "text-warning")
+    expect(screen.getByText("down", { exact: true }).closest("span")).toHaveClass("bg-[var(--error-surface)]", "text-destructive")
+    expect(screen.getByText("unknown", { exact: true }).closest("span")).toHaveClass("bg-muted", "text-muted-foreground")
   })
 
   it("shows persisted attention with exact time, action URL, and RTL-safe prose", () => {
@@ -113,7 +113,7 @@ describe("DiagnosticsDashboard", () => {
       "href",
       "/jobs?status=needs_review",
     )
-    expect(screen.getByText("error", { exact: true }).closest("span")).toHaveClass("bg-red-100", "text-red-900")
+    expect(screen.getByText("error", { exact: true }).closest("span")).toHaveClass("bg-[var(--error-surface)]", "text-destructive")
     expect(title.closest("li")?.querySelector("svg")).toHaveAttribute("aria-hidden", "true")
   })
 

@@ -11,7 +11,7 @@ test("Feed renders a consistent responsive desktop card grid", async ({ page }, 
   const diagnostics = await installFeedBackend(page)
 
   for (const viewport of [
-    { width: 1440, height: 1000, columns: 4 },
+    { width: 1440, height: 1000, columns: 3 },
     { width: 1280, height: 800, columns: 3 },
     { width: 1024, height: 768, columns: 2 },
   ]) {
@@ -70,6 +70,7 @@ test("Feed renders a consistent responsive desktop card grid", async ({ page }, 
     const afterEnd = await scrollContainer.evaluate((element) => element.scrollTop)
     await page.keyboard.press("Control+Home")
     await expect.poll(() => scrollContainer.evaluate((element) => element.scrollTop)).toBeLessThan(afterEnd)
+    await waitForScrollToSettle(scrollContainer)
     const maxScroll = await scrollContainer.evaluate((element) => element.scrollHeight - element.clientHeight)
     if (maxScroll > 100) {
       await page.keyboard.press("PageDown")
@@ -86,7 +87,7 @@ test("Feed renders a consistent responsive desktop card grid", async ({ page }, 
     await scrollContainer.evaluate((element) => element.scrollTo(0, 0))
     await expect.poll(() => scrollContainer.evaluate((element) => element.scrollTop)).toBe(0)
     if (maxScroll > 100) {
-      await page.mouse.move(viewport.width - 80, viewport.height / 2)
+      await page.mouse.move(viewport.width - 108, viewport.height / 2)
       await page.mouse.wheel(0, 480)
       await expect.poll(() => scrollContainer.evaluate((element) => element.scrollTop)).toBeGreaterThan(0)
       const afterWheel = await scrollContainer.evaluate((element) => element.scrollTop)
@@ -136,6 +137,31 @@ test("Feed images keep accessible alt text and stable missing or broken fallback
   const mediaBox = await fallback.locator("..").boundingBox()
   expect(mediaBox).not.toBeNull()
   expect(mediaBox!.width / mediaBox!.height).toBeCloseTo(16 / 9, 1)
+
+  expect(diagnostics.consoleErrors).toEqual([])
+  expect(diagnostics.pageErrors).toEqual([])
+  expect(diagnostics.failedRequests).toEqual([])
+  expect(diagnostics.badResponses).toEqual([])
+})
+
+test("Library mobile keeps collections and primary controls page-bounded", async ({ page }) => {
+  const diagnostics = await installFeedBackend(page)
+  await page.setViewportSize({ width: 390, height: 844 })
+  await page.goto("/feed")
+
+  const collections = page.getByRole("complementary", { name: "Collections" })
+  await expect(collections).toBeVisible()
+  await expect(collections.getByRole("button", { name: "All articles" })).toBeVisible()
+  await expect(collections.getByRole("button", { name: "Research" })).toBeVisible()
+  await expect(collections.getByRole("button", { name: "Create new collection" })).toBeVisible()
+  await expect(page.getByRole("searchbox", { name: "Search articles" })).toBeVisible()
+  await expect(page.getByRole("button", { name: "Filter articles" })).toBeVisible()
+  await expect(page.getByRole("combobox", { name: "Sort articles" })).toBeVisible()
+
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
+  await collections.getByRole("button", { name: "Research" }).click()
+  await expect(page).toHaveURL(new RegExp(`collection_id=${researchCollectionId}`))
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
 
   expect(diagnostics.consoleErrors).toEqual([])
   expect(diagnostics.pageErrors).toEqual([])
@@ -230,7 +256,7 @@ test("article search preserves URL state, pagination, and history", async ({ pag
   expect(diagnostics.badResponses).toEqual([])
 })
 
-test("compact global rail exposes primary routes, tooltips, counts, and Advanced navigation", async ({ page }, testInfo) => {
+test("left sidebar exposes every route with labels, states, and keyboard movement", async ({ page }, testInfo) => {
   const diagnostics = await installFeedBackend(page)
   await page.setViewportSize({ width: 1440, height: 1000 })
   await page.goto("/feed")
@@ -239,47 +265,65 @@ test("compact global rail exposes primary routes, tooltips, counts, and Advanced
   const collections = page.getByRole("complementary", { name: "Collections" })
   const railBounds = await rail.boundingBox()
   const collectionBounds = await collections.boundingBox()
-  expect(railBounds?.width).toBe(72)
-  expect(collectionBounds?.x).toBe(72)
-  expect(collectionBounds!.x + collectionBounds!.width).toBeLessThanOrEqual(360)
+  expect(railBounds?.width).toBe(260)
+  expect(railBounds?.x).toBe(0)
+  expect(collectionBounds?.x).toBeGreaterThanOrEqual(260)
+  expect(collectionBounds!.x + collectionBounds!.width).toBeLessThanOrEqual(620)
 
-  const expectedPrimary = [
+  const expectedNavigation = [
     ["Today", "/"],
-    ["Inbox", "/inbox"],
+    ["Sources", "/sources"],
     ["Calendar", "/calendar"],
     ["Library", "/feed"],
+    ["Jobs", "/jobs"],
+    ["Automations", "/automations"],
+    ["Diagnostics", "/diagnostics"],
+    ["Retention", "/settings/retention"],
+    ["Settings", "/settings/content"],
   ] as const
-  for (const [label, href] of expectedPrimary) {
-    await expect(rail.getByRole("link", { name: label })).toHaveAttribute("href", href)
+  for (const [label, href] of expectedNavigation) {
+    const link = rail.getByRole("link", { name: label })
+    await expect(link).toHaveAttribute("href", href)
+    if (label !== "Settings") await expect(link.getByText(label, { exact: true })).toBeVisible()
   }
   await expect(rail.getByRole("link", { name: "Library" })).toHaveAttribute("aria-current", "page")
-  await expect(rail.getByRole("link", { name: "Inbox" })).not.toHaveAttribute("aria-current")
-  await expect(rail.getByRole("button", { name: "Advanced navigation" })).not.toHaveAttribute("aria-current")
-  await rail.getByRole("link", { name: "Calendar" }).hover()
-  await expect(rail.getByText("Calendar", { exact: true })).toBeVisible()
-  await rail.getByRole("link", { name: "Library" }).focus()
-  await expect(rail.getByText("Library", { exact: true })).toBeVisible()
+  await expect(rail.getByRole("link", { name: "Inbox" })).toHaveCount(0)
+  const themeToggle = rail.getByRole("button", { name: "Toggle color theme" })
+  await expect(themeToggle).toBeVisible()
+  await expect(rail.getByRole("button")).toHaveCount(1)
+  await expect(page.getByRole("dialog", { name: /navigation/i })).toHaveCount(0)
 
-  const advanced = rail.getByRole("button", { name: "Advanced navigation" })
-  await advanced.click()
-  const panel = page.getByRole("dialog", { name: "Advanced navigation" })
-  await expect(panel.getByRole("link", { name: /Job Queue/ })).toBeFocused()
-  await expect(panel.getByText("0 queued · 0 need attention")).toBeVisible()
-  await expect(panel.getByText("Collection operations")).toBeVisible()
-  await expect(panel.getByRole("link", { name: "Automations" })).toHaveAttribute("href", "/automations")
-  await expect(panel.getByRole("link", { name: "Sources" })).toHaveAttribute("href", "/sources")
-  await expect(panel.getByRole("link", { name: "Content", exact: true })).toHaveCount(0)
-  await expect(panel.getByRole("link", { name: "Ingestion Runs" })).toHaveAttribute("href", "/runs")
-  await expect(panel.getByRole("link", { name: "Media" })).toHaveCount(0)
-  await expect(panel.getByRole("link", { name: "Diagnostics" })).toHaveAttribute("href", "/diagnostics")
-  await expect(panel.getByRole("link", { name: "Content Settings" })).toHaveAttribute("href", "/settings/content")
-  await expect(panel.getByRole("link", { name: "Retention" })).toHaveAttribute("href", "/settings/retention")
+  const lightSidebar = await rail.evaluate((element) => getComputedStyle(element).backgroundColor)
+  await themeToggle.click()
+  await expect(page.locator("html")).toHaveClass(/dark/)
+  expect(await rail.evaluate((element) => getComputedStyle(element).backgroundColor)).not.toBe(lightSidebar)
+  await themeToggle.click()
+  await expect(page.locator("html")).not.toHaveClass(/dark/)
+
+  const calendar = rail.getByRole("link", { name: "Calendar" })
+  const idleBackground = await calendar.evaluate((element) => getComputedStyle(element).backgroundColor)
+  await calendar.hover()
+  await expect
+    .poll(() => calendar.evaluate((element) => getComputedStyle(element).backgroundColor))
+    .not.toBe(idleBackground)
+  await calendar.focus()
   await page.keyboard.press("ArrowDown")
-  await expect(panel.getByRole("link", { name: "Automations" })).toBeFocused()
-  await page.screenshot({ path: testInfo.outputPath("feed-4e-advanced-1440x1000.png"), fullPage: true })
-  await page.keyboard.press("Escape")
-  await expect(panel).toBeHidden()
-  await expect(advanced).toBeFocused()
+  await expect(rail.getByRole("link", { name: "Library" })).toBeFocused()
+  await page.keyboard.press("End")
+  await expect(rail.getByRole("link", { name: "Settings" })).toBeFocused()
+  await expect(page.getByRole("tooltip")).toHaveText("Settings")
+  await page.keyboard.press("Home")
+  await expect(rail.getByRole("link", { name: "Today" })).toBeFocused()
+
+  const desktopNavigation = rail.getByRole("navigation", { name: "Newsroom navigation" })
+  expect(await desktopNavigation.evaluate((element) => ({
+    horizontal: element.scrollWidth > element.clientWidth,
+    vertical: element.scrollHeight > element.clientHeight,
+  }))).toEqual({ horizontal: false, vertical: false })
+  const settingsBounds = await rail.getByRole("link", { name: "Settings" }).boundingBox()
+  expect(settingsBounds!.y + settingsBounds!.height).toBeLessThanOrEqual(1000)
+  expect(settingsBounds!.y).toBeGreaterThan(900)
+  await page.screenshot({ path: testInfo.outputPath("feed-left-navigation-1440x1000.png"), fullPage: true })
 
   expect(diagnostics.consoleErrors).toEqual([])
   expect(diagnostics.pageErrors).toEqual([])

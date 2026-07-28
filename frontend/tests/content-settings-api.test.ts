@@ -6,7 +6,7 @@ import {
   rotateCodexConnection,
 } from "@/features/settings/content-settings-api"
 
-describe("content settings API", () => {
+describe("settings API", () => {
   afterEach(() => {
     vi.restoreAllMocks()
     vi.unstubAllGlobals()

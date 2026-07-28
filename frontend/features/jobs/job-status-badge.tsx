@@ -1,9 +1,9 @@
-import { Badge } from "@/components/ui/badge"
+import { StatusBadge, type StatusTone } from "@/components/ui/status-badge"
 import type { JobStatus } from "@/features/jobs/types"
 
-const variants: Record<JobStatus, "default" | "error" | "neutral" | "success" | "warning"> = {
+const tones: Record<JobStatus, StatusTone> = {
   queued: "neutral",
-  running: "default",
+  running: "info",
   succeeded: "success",
   failed: "error",
   needs_review: "warning",
@@ -12,8 +12,8 @@ const variants: Record<JobStatus, "default" | "error" | "neutral" | "success" | 
 
 export function JobStatusBadge({ status }: { status: JobStatus }) {
   return (
-    <Badge variant={variants[status]} className="capitalize">
+    <StatusBadge tone={tones[status]} className="capitalize">
       {status.replace("_", " ")}
-    </Badge>
+    </StatusBadge>
   )
 }

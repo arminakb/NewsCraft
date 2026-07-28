@@ -8,6 +8,8 @@ import type { ArticleFacetValue, ArticleFacets, ArticleFilters, ArticleSourceFac
 
 import { useEditorialModal } from "@/components/editorial/use-editorial-modal"
 import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
+import { Select } from "@/components/ui/select"
 import { formatNumber, formatPlatform, titleCase } from "@/lib/format"
 import { getApiErrorMessage } from "@/lib/http"
 
@@ -99,7 +101,7 @@ export function ArticleFilterControl(props: FilterControlProps) {
           <div
             aria-labelledby="article-filter-heading"
             aria-modal={mobile ? "true" : undefined}
-            className="fixed inset-x-0 bottom-0 z-50 max-h-[90dvh] overflow-y-auto rounded-t-2xl border bg-background p-4 shadow-2xl md:absolute md:inset-auto md:right-0 md:top-[calc(100%+0.5rem)] md:max-h-[calc(100dvh-10rem)] md:w-[430px] md:max-w-[calc(100vw-2rem)] md:rounded-xl md:p-5"
+            className="nc-dialog fixed inset-x-0 bottom-0 z-50 max-h-[90dvh] overflow-y-auto rounded-b-none p-4 md:absolute md:inset-auto md:right-0 md:top-[calc(100%+0.5rem)] md:max-h-[calc(100dvh-10rem)] md:w-[430px] md:max-w-[calc(100vw-2rem)] md:rounded-xl md:p-5"
             ref={panelRef}
             role="dialog"
             tabIndex={-1}
@@ -126,16 +128,15 @@ export function ArticleFilterControl(props: FilterControlProps) {
 
               <fieldset className="space-y-2">
                 <legend className="text-sm font-semibold">Has image</legend>
-                <select
+                <Select
                   aria-label="Has image"
-                  className="min-h-11 w-full rounded-lg border bg-background px-3 text-base md:min-h-9 md:text-sm"
                   onChange={(event) => setDraft({ ...draft, hasImage: event.target.value === "true" ? true : event.target.value === "false" ? false : null })}
                   value={draft.hasImage === null ? "any" : String(draft.hasImage)}
                 >
                   <option value="any">Any</option>
                   <option value="true">Has image</option>
                   <option value="false">No image</option>
-                </select>
+                </Select>
               </fieldset>
 
               <div className="grid grid-cols-2 gap-3">
@@ -145,7 +146,7 @@ export function ArticleFilterControl(props: FilterControlProps) {
                 <DateField label="Date to" value={draft.dateTo} onChange={(dateTo) => setDraft({ ...draft, dateTo })} />
               </div>
 
-              {validationError ? <p className="text-sm text-red-700 dark:text-red-300" role="alert">{validationError}</p> : null}
+              {validationError ? <p className="text-sm text-destructive" role="alert">{validationError}</p> : null}
             </div>
 
             <div className="sticky bottom-0 -mx-4 mt-5 flex gap-2 border-t bg-background px-4 pb-[max(0px,env(safe-area-inset-bottom))] pt-4 md:-mx-5 md:px-5">
@@ -169,8 +170,8 @@ function FacetFields({ draft, error, facets, pending, retry, setDraft }: {
 }) {
   if (pending) return <div aria-label="Loading filter options" className="rounded-lg border p-4 text-sm text-muted-foreground" role="status">Loading filter options…</div>
   if (error) return (
-    <div className="space-y-2 rounded-lg border border-red-200 bg-red-50 p-3 dark:border-red-900 dark:bg-red-950/40">
-      <p className="text-sm text-red-700 dark:text-red-300" dir="auto" role="alert">{getApiErrorMessage(error, "Filter options could not be loaded")}</p>
+    <div className="space-y-2 rounded-lg border border-destructive/30 bg-[var(--error-surface)] p-3">
+      <p className="text-sm text-destructive" dir="auto" role="alert">{getApiErrorMessage(error, "Filter options could not be loaded")}</p>
       <Button onClick={retry} size="sm" type="button" variant="outline">Retry options</Button>
     </div>
   )
@@ -235,8 +236,7 @@ function NumberField({ label, value, onChange }: { label: string; value: number 
   return (
     <label className="grid gap-1 text-sm font-medium">
       {label}
-      <input
-        className="min-h-11 min-w-0 rounded-lg border bg-background px-3 text-base md:min-h-9 md:text-sm"
+      <Input
         inputMode="numeric"
         onChange={(event) => onChange(event.target.value === "" || !Number.isInteger(event.target.valueAsNumber) ? null : event.target.valueAsNumber)}
         step="1"
@@ -251,7 +251,7 @@ function DateField({ label, value, onChange }: { label: string; value: string | 
   return (
     <label className="grid gap-1 text-sm font-medium">
       {label}
-      <input className="min-h-11 min-w-0 rounded-lg border bg-background px-2 text-base md:min-h-9 md:text-sm" onChange={(event) => onChange(event.target.value || null)} type="date" value={value ?? ""} />
+      <Input onChange={(event) => onChange(event.target.value || null)} type="date" value={value ?? ""} />
     </label>
   )
 }

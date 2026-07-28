@@ -2,10 +2,8 @@ import {
   checkSourceHealth,
   createSource,
   deleteSource,
-  getIngestRuns,
   getSource,
   getSources,
-  runIngest,
   seedSources,
 } from "@/features/operations/ingestion-api"
 import { ApiError } from "@/lib/http"
@@ -187,56 +185,6 @@ describe("ingestion API", () => {
       "/api/backend/sources/source%2F1/health-check",
       expect.objectContaining({ method: "POST" }),
     )
-  })
-
-  it("uses the typed ingest client with a generated request UUID", async () => {
-    vi.stubGlobal("crypto", {
-      randomUUID: vi.fn(() => "44444444-4444-4444-8444-444444444444"),
-    })
-    const fetchSpy = stubFetch({
-      job_id: "job-1",
-      status: "queued",
-      deduplicated: false,
-    })
-
-    await runIngest({ platforms: ["rss"], sourceIds: ["source-1"] })
-
-    expect(fetchSpy).toHaveBeenCalledWith(
-      "/api/backend/ingest/run",
-      expect.objectContaining({
-        method: "POST",
-        body: JSON.stringify({
-          request_id: "44444444-4444-4444-8444-444444444444",
-          platforms: ["rss"],
-          source_ids: ["source-1"],
-        }),
-      }),
-    )
-  })
-
-  it("maps ingestion runs using durable timestamps and stats", async () => {
-    stubFetch([
-      {
-        id: "run-1",
-        started_at: "2026-07-11T08:00:00Z",
-        finished_at: "2026-07-11T08:01:00Z",
-        status: "partial",
-        trigger: "daily_bundle",
-        stats: { checked: 4, items: 3 },
-      },
-    ])
-
-    await expect(getIngestRuns()).resolves.toEqual([
-      expect.objectContaining({
-        id: "run-1",
-        label: expect.stringContaining("2026-07-11"),
-        scope: "Daily Bundle",
-        status: "partial",
-        progress: 75,
-        duration: "01:00",
-        items: 3,
-      }),
-    ])
   })
 
   it("throws the shared typed error on failed requests", async () => {

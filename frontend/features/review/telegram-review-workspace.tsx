@@ -4,8 +4,10 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useMemo, useRef, useState } from "react"
 
 import { useNotices } from "@/components/providers/notice-provider"
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { StatusBadge, type StatusTone } from "@/components/ui/status-badge"
 import {
   getTelegramDestinations,
   getTelegramDispatches,
@@ -135,7 +137,7 @@ export function TelegramReviewWorkspace({ revision }: { revision: TelegramRevisi
   const canPublish = revision.approvalState === "approved" && blockers.length === 0 && !publishMutation.isPending
 
   return (
-    <section className="min-w-0 space-y-4 p-4 md:p-6" aria-labelledby="telegram-publication-heading">
+    <section className="nc-page" aria-labelledby="telegram-publication-heading">
       <div>
         <h2 id="telegram-publication-heading" className="text-xl font-semibold">Telegram publication handoff</h2>
         <p className="text-sm text-muted-foreground">
@@ -146,12 +148,17 @@ export function TelegramReviewWorkspace({ revision }: { revision: TelegramRevisi
         <CardHeader><CardTitle>Exact revision {revision.revisionNumber}</CardTitle></CardHeader>
         <CardContent className="space-y-4">
           {revision.approvalState !== "approved" ? (
-            <div role="status">Approve this exact revision before publishing.</div>
+            <Alert tone="warning" role="status"><AlertDescription>Approve this exact revision before publishing.</AlertDescription></Alert>
           ) : null}
           {blockers.length ? (
-            <div role="status" className="space-y-1 rounded-md border border-amber-300 bg-amber-50 p-3 text-amber-900">
-              {blockers.map((blocker) => <div key={blocker}>{blocker}</div>)}
-            </div>
+            <Alert tone="warning" role="status">
+              <div>
+                <AlertTitle>Publishing blocked</AlertTitle>
+                <AlertDescription className="space-y-1">
+                  {blockers.map((blocker) => <div key={blocker}>{blocker}</div>)}
+                </AlertDescription>
+              </div>
+            </Alert>
           ) : null}
           <details className="rounded-md border p-3" open={blockers.length > 0}>
             <summary className="cursor-pointer font-medium">Advanced publication details{blockers.length ? " — blocker context" : ""}</summary>
@@ -164,17 +171,20 @@ export function TelegramReviewWorkspace({ revision }: { revision: TelegramRevisi
           </details>
           <Button onClick={() => publishMutation.mutate()} disabled={!canPublish}>Publish exact revision</Button>
           {publishOutcome ? (
-            <div ref={outcomeRef} tabIndex={-1} role="status" className="rounded-md border p-3" dir="auto">
-              {publishOutcome.status === "queued" ? "Queued" : publishOutcome.status}: {publishOutcome.publishJobId}
-            </div>
+            <Alert ref={outcomeRef} tabIndex={-1} tone="success" role="status" dir="auto">
+              <AlertDescription>{publishOutcome.status === "queued" ? "Queued" : publishOutcome.status}: {publishOutcome.publishJobId}</AlertDescription>
+            </Alert>
           ) : null}
           {activePublishJobId ? (
-            <div className="space-y-2 rounded-md border p-3" aria-label="Durable publish status">
+            <div className="space-y-2 rounded-md border border-border/50 bg-muted/35 p-3 text-[13px]" aria-label="Durable publish status">
               {publishJobQuery.isPending ? <div role="status">Loading durable publish status…</div> : null}
-              {publishJobQuery.isError ? <div role="alert" dir="auto" className="text-red-700">{getApiErrorMessage(publishJobQuery.error)}</div> : null}
+              {publishJobQuery.isError ? <Alert tone="error" role="alert" dir="auto"><AlertDescription>{getApiErrorMessage(publishJobQuery.error)}</AlertDescription></Alert> : null}
               {publishJobQuery.data ? (
                 <>
-                  <div>Durable status: {publishJobQuery.data.status.replaceAll("_", " ")}</div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span>Durable status: {publishJobQuery.data.status.replaceAll("_", " ")}</span>
+                    <StatusBadge tone={publishTone(publishJobQuery.data.status)}>{publishJobQuery.data.status.replaceAll("_", " ")}</StatusBadge>
+                  </div>
                   <div>Operations: {publishJobQuery.data.receipts.map((receipt) => `${receipt.operationIndex + 1} ${receipt.status}`).join(", ") || "not dispatched"}</div>
                   {publishJobQuery.data.publication ? (
                     <div>
@@ -190,4 +200,12 @@ export function TelegramReviewWorkspace({ revision }: { revision: TelegramRevisi
       </Card>
     </section>
   )
+}
+
+function publishTone(status: string): StatusTone {
+  if (["succeeded", "published"].includes(status)) return "success"
+  if (["failed", "cancelled"].includes(status)) return "error"
+  if (["needs_review", "ambiguous"].includes(status)) return "warning"
+  if (["queued", "running", "dispatching"].includes(status)) return "info"
+  return "neutral"
 }

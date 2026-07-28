@@ -257,6 +257,8 @@ describe("Feed page", () => {
     expect(screen.getByRole("combobox", { name: "Sort articles" })).toHaveClass("min-h-11")
     expect(screen.getByRole("button", { name: "Filter articles" })).toHaveClass("min-h-11")
     expect(screen.getByRole("button", { name: "Load more" })).toHaveClass("min-h-11", "min-w-36")
+    expect(screen.getByRole("complementary", { name: "Collections" })).toHaveClass("overflow-x-auto")
+    expect(screen.getByRole("button", { name: "All articles" })).toHaveClass("min-h-11", "min-w-32")
     const row = screen.getByRole("article")
     expect(within(row).getByRole("link", { name: /Open original article/ })).toHaveClass("min-h-11")
     expect(container.querySelector("section")).toHaveClass("w-full")

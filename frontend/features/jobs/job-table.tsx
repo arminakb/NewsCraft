@@ -15,12 +15,12 @@ export function JobTable({
   onSelect: (job: WorkflowJob, trigger: HTMLButtonElement) => void
 }) {
   return (
-    <Table>
+    <Table className="min-w-[680px]">
       <TableHeader>
         <TableRow>
           <TableHead>Job</TableHead>
           <TableHead>Status</TableHead>
-          <TableHead>Origin</TableHead>
+          <TableHead className="hidden md:table-cell">Origin</TableHead>
           <TableHead>Progress</TableHead>
           <TableHead>Updated</TableHead>
           <TableHead className="text-right">Details</TableHead>
@@ -29,17 +29,17 @@ export function JobTable({
       <TableBody>
         {jobs.map((job) => (
           <TableRow key={job.id} data-state={selectedId === job.id ? "selected" : undefined}>
-            <TableCell>
+            <TableCell className="max-w-60">
               <div className="font-medium">{job.job_type}</div>
-              <div className="text-xs text-muted-foreground">{job.id}</div>
+              <div className="truncate font-mono text-xs text-muted-foreground" title={job.id}>{job.id}</div>
             </TableCell>
             <TableCell><JobStatusBadge status={job.status} /></TableCell>
-            <TableCell className="capitalize">{job.origin}</TableCell>
+            <TableCell className="hidden capitalize md:table-cell">{job.origin}</TableCell>
             <TableCell>
-              <span dir="auto">{job.progress}%</span>
-              {job.progress_message ? <div dir="auto" className="max-w-56 truncate text-xs text-muted-foreground">{job.progress_message}</div> : null}
+              <span className="tabular-nums" dir="auto">{job.progress}%</span>
+              {job.progress_message ? <div dir="auto" className="max-w-56 truncate text-xs text-muted-foreground" title={job.progress_message}>{job.progress_message}</div> : null}
             </TableCell>
-            <TableCell><time dateTime={job.updated_at}>{formatTimestamp(job.updated_at)}</time></TableCell>
+            <TableCell><time className="tabular-nums" dateTime={job.updated_at}>{formatTimestamp(job.updated_at)}</time></TableCell>
             <TableCell className="text-right">
               <Button
                 variant="ghost"

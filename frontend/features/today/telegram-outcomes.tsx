@@ -3,7 +3,10 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 import Link from "next/link"
 
+import { Alert } from "@/components/ui/alert"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { EmptyState, LoadingState } from "@/components/ui/state-panel"
+import { StatusBadge, type StatusTone } from "@/components/ui/status-badge"
 import { getTelegramPublicationOutcomes } from "@/features/automations/telegram-api"
 import type { TelegramPublicationContext } from "@/features/automations/telegram-types"
 import { fetchReconciliationCases } from "@/features/operations/api"
@@ -45,13 +48,13 @@ export function TelegramOutcomes() {
     <Card id="telegram-publication-outcomes" size="sm" role="region" aria-label="Telegram publication outcomes">
       <CardHeader className="border-b"><CardTitle>Telegram publication outcomes</CardTitle></CardHeader>
       <CardContent className="space-y-3 p-3">
-        {query.isPending ? <div role="status">Loading Telegram outcomes…</div> : null}
-        {query.isError ? <div role="alert" dir="auto" className="text-red-700">{getApiErrorMessage(query.error, "Telegram outcomes could not be loaded")}</div> : null}
-        {reconciliationsQuery.isPending ? <div role="status">Loading reconciliation cases…</div> : null}
+        {query.isPending ? <LoadingState className="min-h-20" title="Loading Telegram outcomes…" /> : null}
+        {query.isError ? <Alert tone="error" role="alert" dir="auto">{getApiErrorMessage(query.error, "Telegram outcomes could not be loaded")}</Alert> : null}
+        {reconciliationsQuery.isPending ? <LoadingState className="min-h-20" title="Loading reconciliation cases…" /> : null}
         {reconciliationsQuery.isError ? (
-          <div className="text-red-700" dir="auto" role="alert">
+          <Alert tone="error" dir="auto" role="alert">
             {getApiErrorMessage(reconciliationsQuery.error, "Reconciliation cases could not be loaded")}
-          </div>
+          </Alert>
         ) : null}
         {reconciliationCases.map((reconciliationCase) => (
           <ReconciliationPanel
@@ -66,7 +69,7 @@ export function TelegramOutcomes() {
           && !reconciliationsQuery.isError
           && !outcomes.length
           && !reconciliationCases.length ? (
-            <p className="p-4 text-center text-muted-foreground">No Telegram outcomes yet.</p>
+            <EmptyState title="No Telegram outcomes yet" description="Publication results and reconciliation cases will appear here." />
           ) : null}
         {outcomes.map((draft) => <TelegramOutcomeCard key={draft.revisionId} draft={draft} />)}
       </CardContent>
@@ -91,7 +94,7 @@ function TelegramOutcomeCard({ draft }: { draft: TelegramPublicationContext }) {
     <article className="min-w-0 space-y-2 rounded-md border p-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <Link href={`/review/${draft.revisionId}`} className="font-medium text-primary underline">Revision {draft.revisionNumber}</Link>
-        <span>{outcomeLabel(draft)}</span>
+        <StatusBadge tone={outcomeTone(draft)}>{outcomeLabel(draft)}</StatusBadge>
       </div>
       {draft.publication ? (
         <div className="space-y-1">
@@ -110,4 +113,11 @@ function outcomeLabel(draft: TelegramPublicationContext) {
   if (draft.publishStatus === "attention") return "Publish failed"
   if (draft.publishStatus) return `Publishing: ${draft.publishStatus.replaceAll("_", " ")}`
   return "Waiting for review"
+}
+
+function outcomeTone(draft: TelegramPublicationContext): StatusTone {
+  if (draft.publication) return "success"
+  if (draft.publishStatus === "reconciliation_required" || draft.publishStatus === "attention") return "error"
+  if (draft.publishStatus) return "info"
+  return "warning"
 }

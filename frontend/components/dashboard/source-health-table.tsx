@@ -121,12 +121,12 @@ export function SourceHealthTable({
                 <StatusBadge status={source.status} />
               )}
               {source.lastCheckedAt ? (
-                <div className="mt-1 truncate text-[11px] text-muted-foreground">
+                <div className="mt-1 hidden truncate text-[11px] text-muted-foreground sm:block">
                   Last checked {formatCheckedAt(source.lastCheckedAt)}
                 </div>
               ) : null}
               {source.failureReason ? (
-                <div className="mt-0.5 truncate text-[11px] text-red-700 dark:text-red-300" title={source.failureReason}>
+                <div className="mt-0.5 truncate text-[11px] text-destructive" title={source.failureReason}>
                   {source.failureReason}
                 </div>
               ) : null}
@@ -142,7 +142,7 @@ export function SourceHealthTable({
       {
         id: "failed",
         header: "Failed",
-        cell: ({ row }) => <span className="text-red-600 tabular-nums">{formatNumber(row.original.failed24h)}</span>,
+        cell: ({ row }) => <span className="text-destructive tabular-nums">{formatNumber(row.original.failed24h)}</span>,
       },
       {
         id: "lastSuccess",
@@ -161,7 +161,7 @@ export function SourceHealthTable({
                   event.stopPropagation()
                   onDeleteSource(row.original)
                 }}
-                className="size-11 min-h-11 min-w-11 text-red-700 hover:bg-red-50 hover:text-red-800 dark:text-red-300 dark:hover:bg-red-950/60"
+                className="size-11 min-h-11 min-w-11 text-destructive hover:bg-[var(--error-surface)] hover:text-destructive"
                 type="button"
                 variant="ghost"
               >
@@ -183,7 +183,7 @@ export function SourceHealthTable({
 
   return (
     <Card className="rounded-md py-0" size="sm">
-      <CardHeader className="flex-row flex-wrap items-center gap-2 border-b px-3 py-3">
+      <CardHeader className="flex-row flex-wrap items-center gap-2 border-b px-3 py-2">
         <CardTitle className="text-base">
           {onCheckAll ? (
             <Button
@@ -205,8 +205,8 @@ export function SourceHealthTable({
             "Source health"
           )}
         </CardTitle>
-        <div className="ml-auto flex items-center gap-2">
-          <div role="tablist" aria-label="Source platform filter" className="flex items-center gap-1">
+        <div className="ml-auto min-w-0 max-w-full">
+          <div role="tablist" aria-label="Source platform filter" className="flex max-w-full items-center gap-1 overflow-x-auto">
             {filters.map((item) => {
               const total = item.value === "all" ? counts.all : item.value === "rss" ? counts.rss : counts.telegram
               return (
@@ -218,8 +218,8 @@ export function SourceHealthTable({
                   tabIndex={filter === item.value ? 0 : -1}
                   onClick={() => setFilter(item.value)}
                   className={cn(
-                    "min-h-11 rounded-md border px-2.5 text-sm text-muted-foreground transition min-[900px]:min-h-8",
-                    filter === item.value && "border-primary bg-cyan-50 text-primary dark:border-cyan-700 dark:bg-cyan-950/50 dark:text-cyan-100"
+                    "min-h-11 shrink-0 rounded-md border px-2.5 text-[13px] text-muted-foreground transition min-[900px]:min-h-8",
+                    filter === item.value && "border-foreground/15 bg-black/5 text-foreground dark:border-white/15 dark:bg-white/10"
                   )}
                 >
                   {item.label} <span className="ml-1 tabular-nums">{total}</span>
@@ -252,7 +252,7 @@ export function SourceHealthTable({
                   key={row.id}
                   data-state={row.original.id === selectedSourceId ? "selected" : undefined}
                   onClick={() => onSelectSource(row.original.id)}
-                  className="h-12 cursor-pointer data-[state=selected]:bg-cyan-50/50 dark:data-[state=selected]:bg-cyan-950/35"
+                  className="h-11 cursor-pointer transition-colors hover:bg-black/[0.03] data-[state=selected]:bg-black/5 dark:hover:bg-white/[0.03] dark:data-[state=selected]:bg-white/5"
                 >
                   {row.getVisibleCells().map((cell) => (
                     <TableCell
@@ -284,11 +284,11 @@ export function SourceHealthTable({
 function columnClassName(columnId: string) {
   switch (columnId) {
     case "type":
-      return "w-11"
+      return "hidden w-11 min-[480px]:table-cell"
     case "source":
       return "w-auto min-w-0"
     case "status":
-      return "w-36"
+      return "w-32 sm:w-36"
     case "items":
     case "failed":
       return "hidden w-16 text-right sm:table-cell"

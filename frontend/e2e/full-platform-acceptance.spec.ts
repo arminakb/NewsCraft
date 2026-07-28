@@ -75,12 +75,9 @@ type BackendState = {
   controlRequests: Array<Record<string, unknown>>
   copyReady: boolean
   dryRunRequests: Array<Record<string, unknown>>
-  editorialRequests: Array<Record<string, unknown>>
   emptyCalendar: boolean
-  emptyInbox: boolean
   exportPolls: number
   exportRequest: Record<string, unknown> | null
-  intakeRequests: Array<Record<string, unknown>>
   reconciliation: boolean
   reconciliationRequest: Record<string, unknown> | null
   reconciliationResolved: boolean
@@ -100,7 +97,6 @@ type BackendState = {
 type BackendOptions = {
   allApproved?: boolean
   emptyCalendar?: boolean
-  emptyInbox?: boolean
   reconciliation?: boolean
 }
 
@@ -295,30 +291,39 @@ test("all exact copy actions and export formats stay bound to the four approved 
   expect(backend.unhandled).toEqual([])
 })
 
-test("mobile navigation omits legacy surfaces and reaches surviving routes without horizontal overflow", async ({ page }) => {
+test("mobile navigation directly reaches surviving routes without page overflow", async ({ page }) => {
   const backend = await installAcceptanceBackend(page)
   await page.setViewportSize(viewports[1])
   await page.goto("/")
 
-  await page.getByRole("button", { name: "Open navigation" }).click()
-  const navigation = page.getByRole("dialog", { name: "Newsroom navigation" })
+  const navigation = page.getByRole("navigation", { name: "Mobile newsroom navigation" })
   await expect(navigation).toBeVisible()
-  await expect(navigation.getByRole("link", { name: "Inbox", exact: true })).toHaveAttribute("href", "/inbox")
-  await expect(navigation.getByRole("link", { name: "Content", exact: true })).toHaveCount(0)
-  await expect(navigation.getByRole("link", { name: "Drafts", exact: true })).toHaveCount(0)
   await expect(navigation.getByRole("link", { name: "Library", exact: true })).toHaveAttribute("href", "/feed")
-  await expect(navigation.getByRole("link", { name: "Media", exact: true })).toHaveCount(0)
-  await navigation.getByRole("link", { name: "Inbox", exact: true }).click()
-  await expect(page.getByRole("heading", { name: "Inbox", exact: true })).toBeVisible()
-  await page.getByRole("button", { name: "Shortlist", exact: true }).click()
-  await expect.poll(() => backend.editorialRequests).toEqual([{ state: "shortlisted" }])
+  await navigation.getByRole("link", { name: "Calendar", exact: true }).click()
+  await expect(page.getByRole("heading", { name: "Publication calendar", exact: true })).toBeVisible()
   await expectNoHorizontalOverflow(page)
 
-  await page.getByRole("button", { name: "Open navigation" }).click()
-  await page.getByRole("dialog", { name: "Newsroom navigation" }).getByRole("link", { name: "Diagnostics", exact: true }).click()
+  await navigation.getByRole("button", { name: "Open navigation" }).click()
+  const panel = page.getByRole("dialog", { name: "Newsroom navigation" })
+  await expect(panel.getByRole("link", { name: "Inbox", exact: true })).toHaveCount(0)
+  await expect(panel.getByRole("link", { name: "Ingestion Runs", exact: true })).toHaveCount(0)
+  await expect(panel.getByRole("link", { name: "Content", exact: true })).toHaveCount(0)
+  await expect(panel.getByRole("link", { name: "Drafts", exact: true })).toHaveCount(0)
+  await expect(panel.getByRole("link", { name: "Media", exact: true })).toHaveCount(0)
+  await panel.getByRole("link", { name: "Diagnostics", exact: true }).click()
   await expect(page.getByRole("heading", { name: "Diagnostics" })).toBeVisible()
   await expectNoHorizontalOverflow(page)
   expect(backend.unhandled).toEqual([])
+})
+
+test("removed frontend routes redirect to surviving workflows", async ({ request }) => {
+  const inbox = await request.get("/inbox?add=story", { maxRedirects: 0 })
+  const runs = await request.get("/runs", { maxRedirects: 0 })
+
+  expect(inbox.status()).toBe(307)
+  expect(inbox.headers().location).toBe("/?add=story")
+  expect(runs.status()).toBe(307)
+  expect(runs.headers().location).toBe("/sources")
 })
 
 test("keyboard-only editor creates and approves an immutable Persian revision", async ({ page }) => {
@@ -362,11 +367,24 @@ test("keyboard-only editor creates and approves an immutable Persian revision", 
 
 for (const viewport of viewports) {
   test(`${viewport.name} critical paths have no serious or critical axe violations`, async ({ page }) => {
+    test.slow()
     const backend = await installAcceptanceBackend(page, { allApproved: true })
     await page.setViewportSize(viewport)
-    for (const route of ["/", "/automations", `/review/${ids.revisions.telegram}`, "/calendar", "/diagnostics", "/settings/retention"]) {
+    for (const route of [
+      "/",
+      "/jobs",
+      "/automations",
+      "/automations/new",
+      `/automations/${ids.route}`,
+      `/automations/${ids.route}/history`,
+      `/review/${ids.revisions.telegram}`,
+      "/calendar",
+      "/diagnostics",
+      "/settings/retention",
+    ]) {
       await page.goto(route)
       await expect(page.getByRole("main")).toBeVisible()
+      await expectNoHorizontalOverflow(page)
       const results = await new AxeBuilder({ page }).analyze()
       const violations = results.violations
         .filter((violation) => violation.impact === "serious" || violation.impact === "critical")
@@ -423,12 +441,9 @@ async function installAcceptanceBackend(page: Page, options: BackendOptions = {}
     controlRequests: [],
     copyReady: false,
     dryRunRequests: [],
-    editorialRequests: [],
     emptyCalendar: Boolean(options.emptyCalendar),
-    emptyInbox: Boolean(options.emptyInbox),
     exportPolls: 0,
     exportRequest: null,
-    intakeRequests: [],
     reconciliation: Boolean(options.reconciliation),
     reconciliationRequest: null,
     reconciliationResolved: false,
@@ -476,17 +491,8 @@ async function installAcceptanceBackend(page: Page, options: BackendOptions = {}
       return json(route, { items: [...(includeFailed ? [failedJobWire(state)] : []), ...(includeRetried ? [failedJobWire(state)] : [])] })
     }
 
-    if (path === "/stories" && method === "GET") return json(route, { items: state.emptyInbox ? [] : [storySummaryWire()], next_cursor: null })
-    if (path === `/stories/${ids.story}/editorial-state` && method === "PATCH" && body) {
-      state.editorialRequests.push(body)
-      return json(route, { ...storySummaryWire(), status: body.state })
-    }
     if (path === `/stories/${ids.story}` && method === "GET") return json(route, storySummaryWire())
     if (path === `/stories/${ids.story}/evidence` && method === "GET") return json(route, [evidenceWire()])
-    if (path === "/stories/manual" && method === "POST" && body) {
-      state.intakeRequests.push(body)
-      return json(route, accepted(ids.intakeJob), 202)
-    }
     if (path === `/stories/${ids.story}/research-runs` && method === "POST" && body) {
       state.researchRequests.push(body)
       return json(route, {

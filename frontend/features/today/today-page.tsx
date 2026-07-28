@@ -2,11 +2,15 @@
 
 import type { ReactNode } from "react"
 import { useQuery } from "@tanstack/react-query"
-import { ArrowRight, CircleAlert, FilePlus2, SquarePen } from "lucide-react"
+import { ArrowRight, CheckCircle2, CircleAlert, SquarePen } from "lucide-react"
 import Link from "next/link"
 
 import { Button, buttonVariants } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { PageHeader } from "@/components/ui/page-header"
+import { Progress } from "@/components/ui/progress"
+import { Skeleton } from "@/components/ui/skeleton"
+import { EmptyState, ErrorState } from "@/components/ui/state-panel"
 import { GlobalControls } from "@/features/control/global-controls"
 import { getJobs, getJobSummary } from "@/features/jobs/api"
 import { AttentionQueue } from "@/features/jobs/attention-queue"
@@ -42,25 +46,26 @@ export function TodayPage({ outcomes }: { outcomes?: ReactNode }) {
   }
 
   return (
-    <section className="min-w-0 space-y-4 p-4 md:p-6" aria-labelledby="today-heading">
-      <div>
-        <h1 id="today-heading" className="text-2xl font-semibold">Today</h1>
-        <p className="text-muted-foreground">Live workflow truth and the work that needs an operator.</p>
-      </div>
+    <section className="nc-page" aria-labelledby="today-heading">
+      <PageHeader
+        title="Today"
+        titleId="today-heading"
+        description="Live workflow truth and the work that needs an operator."
+      />
       {loading ? (
         <div role="status" aria-label="Loading Today" className="grid grid-cols-2 gap-3 md:grid-cols-4">
           {Array.from({ length: 4 }, (_, index) => (
-            <div key={index} data-testid="today-skeleton" aria-hidden="true" className="h-24 animate-pulse rounded-xl bg-muted" />
+            <Skeleton key={index} data-testid="today-skeleton" className="h-24 border border-border/50 bg-card shadow-sm" />
           ))}
         </div>
       ) : null}
       {firstError ? (
-        <Card size="sm">
-          <CardContent className="space-y-3 p-4">
-            <div role="alert" dir="auto" className="text-red-700">{getApiErrorMessage(firstError, "Today data request failed")}</div>
-            <Button variant="outline" onClick={retryAll}>Retry Today</Button>
-          </CardContent>
-        </Card>
+        <ErrorState
+          title="Today data unavailable"
+          description={getApiErrorMessage(firstError, "Today data request failed")}
+          action={<Button variant="outline" onClick={retryAll}>Retry Today</Button>}
+          dir="auto"
+        />
       ) : null}
       {summary ? (
         <HealthSummary summary={summary} />
@@ -70,7 +75,7 @@ export function TodayPage({ outcomes }: { outcomes?: ReactNode }) {
       ) : null}
       <GlobalControls />
       {outcomes}
-      {isEmpty ? <Card size="sm"><CardContent className="p-8 text-center text-muted-foreground">No workflow jobs yet</CardContent></Card> : null}
+      {isEmpty ? <EmptyState title="No workflow jobs yet" description="New ingestion and publishing work will appear here." /> : null}
       {!firstError && !isEmpty && summary ? (
         <div className="grid min-w-0 gap-4 xl:grid-cols-2">
           <AttentionQueue
@@ -82,9 +87,7 @@ export function TodayPage({ outcomes }: { outcomes?: ReactNode }) {
               {(runningQuery.data ?? []).length ? runningQuery.data?.map((job) => (
                 <div key={job.id} className="space-y-2 px-3 py-3">
                   <div className="flex justify-between gap-3"><span className="font-medium">{job.job_type}</span><JobStatusBadge status={job.status} /></div>
-                  <div className="h-2 overflow-hidden rounded-full bg-muted" role="progressbar" aria-valuenow={job.progress} aria-valuemin={0} aria-valuemax={100}>
-                    <div className="h-full bg-primary" style={{ width: `${job.progress}%` }} />
-                  </div>
+                  <Progress aria-label={`${job.job_type} progress`} value={job.progress} />
                   <div className="flex justify-between gap-3 text-sm text-muted-foreground">
                     <span dir="auto">{job.progress_message ?? "Running"}</span>
                     <span data-progress-label dir="auto">{job.progress}%</span>
@@ -125,8 +128,8 @@ function HealthSummary({
       <CardContent className="grid grid-cols-2 divide-x divide-y p-0 sm:grid-cols-4 sm:divide-y-0">
         {values.map(([label, value, kind]) => (
           <div className="flex items-baseline justify-between gap-3 px-4 py-3 sm:block" key={kind}>
-            <span className="text-xs text-muted-foreground">{label}</span>
-            <strong className="text-xl tabular-nums sm:mt-1 sm:block" data-summary={kind}>{value}</strong>
+            <span className="text-[11px] font-medium uppercase tracking-[0.08em] text-muted-foreground">{label}</span>
+            <strong className="text-lg font-semibold tabular-nums sm:mt-1 sm:block" data-summary={kind}>{value}</strong>
           </div>
         ))}
       </CardContent>
@@ -144,7 +147,7 @@ function PriorityDecision({
       <Card size="sm" role="region" aria-label="Highest-priority decision">
         <CardContent className="flex flex-wrap items-center justify-between gap-4 p-4">
           <div className="min-w-0">
-            <div className="flex items-center gap-2 font-semibold"><CircleAlert className="size-5 text-red-700" aria-hidden="true" />Resolve failed workflow</div>
+            <div className="flex items-center gap-2 font-semibold"><CircleAlert className="size-5 text-destructive" aria-hidden="true" />Resolve failed workflow</div>
             <p className="mt-1 truncate text-sm text-muted-foreground" dir="auto">{job.job_type}</p>
           </div>
           <Link className={buttonVariants()} href={`/jobs?status=attention&job=${job.id}`}>
@@ -160,7 +163,7 @@ function PriorityDecision({
       <Card size="sm" role="region" aria-label="Highest-priority decision">
         <CardContent className="flex flex-wrap items-center justify-between gap-4 p-4">
           <div>
-            <div className="flex items-center gap-2 font-semibold"><SquarePen className="size-5 text-amber-700" aria-hidden="true" />Editorial review is waiting</div>
+            <div className="flex items-center gap-2 font-semibold"><SquarePen className="size-5 text-warning" aria-hidden="true" />Editorial review is waiting</div>
             <p className="mt-1 text-sm text-muted-foreground">Continue with the oldest item needing a decision.</p>
           </div>
           <Link className={buttonVariants()} href={`/jobs?status=attention&job=${job.id}`}>
@@ -173,15 +176,11 @@ function PriorityDecision({
   }
   return (
     <Card size="sm" role="region" aria-label="Highest-priority decision">
-      <CardContent className="flex flex-wrap items-center justify-between gap-4 p-4">
+      <CardContent className="p-4">
         <div>
-          <div className="flex items-center gap-2 font-semibold"><FilePlus2 className="size-5 text-teal-700" aria-hidden="true" />Start the next story</div>
+          <div className="flex items-center gap-2 font-semibold"><CheckCircle2 className="size-5 text-success" aria-hidden="true" />Queue is clear</div>
           <p className="mt-1 text-sm text-muted-foreground">No failures or reviews are blocking today.</p>
         </div>
-        <Link className={buttonVariants()} href="/inbox?add=story">
-          Add story
-          <ArrowRight aria-hidden="true" />
-        </Link>
       </CardContent>
     </Card>
   )

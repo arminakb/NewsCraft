@@ -1,11 +1,9 @@
-import { enqueueIngest } from "@/features/jobs/api"
 import { titleCase } from "@/lib/format"
 import { apiRequest, apiRequestVoid } from "@/lib/http"
 import type { components } from "@/lib/api/generated"
 
 import type {
   CreateSourceInput,
-  IngestionRunSummary,
   SourcePlatform,
   SourceHealthResult,
   SourceStatus,
@@ -15,7 +13,6 @@ import type {
 type BackendSource =
   | components["schemas"]["SourceOut"]
   | components["schemas"]["SourceDetailOut"]
-type BackendRun = components["schemas"]["IngestRunSummaryOut"]
 type BackendSourceHealth = components["schemas"]["SourceHealthOut"]
 
 export async function getSources(): Promise<SourceSummary[]> {
@@ -65,22 +62,6 @@ export function seedSources(): Promise<{ upserted: number }> {
   return apiRequest("/sources/seed", { method: "POST" })
 }
 
-export function runIngest(input: {
-  platforms?: string[]
-  sourceIds?: string[]
-}) {
-  return enqueueIngest({
-    requestId: crypto.randomUUID(),
-    platforms: input.platforms,
-    sourceIds: input.sourceIds,
-  })
-}
-
-export async function getIngestRuns(): Promise<IngestionRunSummary[]> {
-  const rows = await apiRequest<BackendRun[]>("/ingest/runs")
-  return rows.map(mapRun)
-}
-
 function mapSource(row: BackendSource): SourceSummary {
   const platform = normalizePlatform(row.platform)
   const url =
@@ -112,32 +93,6 @@ function mapSource(row: BackendSource): SourceSummary {
     addedAt: row.created_at ? formatDateTime(row.created_at) : "Unknown",
     lastCheckedAt: row.last_fetch_at ?? null,
     failureReason: row.last_error_message ?? null,
-  }
-}
-
-function mapRun(row: BackendRun): IngestionRunSummary {
-  const stats = row.stats ?? {}
-  const items = typeof stats.items === "number" ? stats.items : 0
-  const checked = typeof stats.checked === "number" ? stats.checked : items
-
-  return {
-    id: row.id,
-    label: formatDateTime(row.started_at),
-    scope: titleCase(row.trigger || "All sources"),
-    status:
-      row.status === "failed"
-        ? "failed"
-        : row.status === "partial"
-          ? "partial"
-          : "succeeded",
-    progress:
-      checked > 0
-        ? Math.min(100, Math.round((items / checked) * 100))
-        : row.status === "failed"
-          ? 0
-          : 100,
-    duration: formatDuration(row.started_at, row.finished_at),
-    items,
   }
 }
 
@@ -191,14 +146,4 @@ function formatDateTime(value: string) {
   })
     .format(new Date(value))
     .replace(",", "")
-}
-
-function formatDuration(start: string, end?: string | null) {
-  if (!end) return "00:00"
-  const seconds = Math.max(
-    0,
-    Math.round((new Date(end).getTime() - new Date(start).getTime()) / 1000),
-  )
-  const minutes = Math.floor(seconds / 60)
-  return `${String(minutes).padStart(2, "0")}:${String(seconds % 60).padStart(2, "0")}`
 }

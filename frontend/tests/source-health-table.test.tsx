@@ -19,6 +19,7 @@ describe("SourceHealthTable", () => {
     expect(screen.getByRole("tab", { name: /telegram 1/i })).toBeInTheDocument()
     expect(screen.getByText("Healthy")).toBeInTheDocument()
     expect(screen.getByText("Degraded")).toBeInTheDocument()
+    expect(screen.getByRole("columnheader", { name: "Type" })).toHaveClass("hidden", "min-[480px]:table-cell")
     expect(screen.getByRole("columnheader", { name: "Items" })).toBeInTheDocument()
     expect(screen.queryByRole("columnheader", { name: /news|new/i })).not.toBeInTheDocument()
     expect(screen.queryByRole("columnheader", { name: "Next run" })).not.toBeInTheDocument()

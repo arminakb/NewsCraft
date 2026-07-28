@@ -2,25 +2,21 @@
 
 import Link from "next/link"
 import { usePathname } from "next/navigation"
-import { useEffect, useRef, useState } from "react"
 import {
   Activity,
   Bot,
   CalendarDays,
-  Clock3,
   Database,
   Files,
-  Inbox,
   ListTodo,
-  Menu,
   Newspaper,
   Settings,
   Trash2,
-  X,
 } from "lucide-react"
 import type { LucideIcon } from "lucide-react"
 
 import type { JobSummary } from "@/features/jobs/types"
+import { ThemeToggle } from "@/components/theme/theme-toggle"
 import { cn } from "@/lib/utils"
 
 export type NewsroomNavItem = {
@@ -30,199 +26,89 @@ export type NewsroomNavItem = {
   readonly icon: LucideIcon
 }
 
-export const workflowNavItems = [
+export const primaryNavItems = [
   { label: "Today", href: "/", icon: Newspaper },
-  { label: "Inbox", href: "/inbox", icon: Inbox },
+  { label: "Sources", href: "/sources", icon: Database },
   { label: "Calendar", href: "/calendar", icon: CalendarDays },
   { label: "Library", href: "/feed", icon: Files },
 ] as const satisfies readonly NewsroomNavItem[]
 
-const automationNavItems = [
-  { label: "Job Queue", href: "/jobs", icon: ListTodo },
+export const operationalNavItems = [
+  { label: "Jobs", href: "/jobs", icon: ListTodo },
   { label: "Automations", href: "/automations", icon: Bot },
-] as const satisfies readonly NewsroomNavItem[]
-
-const collectionNavItems = [
-  { label: "Sources", href: "/sources", icon: Database },
-  { label: "Ingestion Runs", href: "/runs", icon: Clock3 },
-] as const satisfies readonly NewsroomNavItem[]
-
-const systemNavItems = [
   { label: "Diagnostics", href: "/diagnostics", icon: Activity },
-  { label: "Content Settings", href: "/settings/content", icon: Settings },
   { label: "Retention", href: "/settings/retention", icon: Trash2 },
 ] as const satisfies readonly NewsroomNavItem[]
 
-export const advancedNavSections = [
-  {
-    label: "Automation",
-    items: automationNavItems,
-  },
-  {
-    label: "Collection",
-    items: collectionNavItems,
-  },
-  {
-    label: "System",
-    items: systemNavItems,
-  },
-] as const satisfies readonly { readonly label: string; readonly items: readonly NewsroomNavItem[] }[]
+export const settingsNavItem = {
+  label: "Settings",
+  href: "/settings/content",
+  icon: Settings,
+} as const satisfies NewsroomNavItem
 
 export const newsroomNavItems: readonly NewsroomNavItem[] = [
-  ...workflowNavItems,
-  ...automationNavItems,
-  ...collectionNavItems,
-  ...systemNavItems,
+  ...primaryNavItems,
+  ...operationalNavItems,
 ] as const
 
 export function NewsroomSidebar({ summary }: { summary?: JobSummary }) {
   const pathname = usePathname()
-  const [advancedOpen, setAdvancedOpen] = useState(false)
-  const advancedTriggerRef = useRef<HTMLButtonElement>(null)
-  const advancedPanelRef = useRef<HTMLDivElement>(null)
-  const advancedActive = advancedNavSections.some((section) =>
-    section.items.some((item) => isCurrentPath(pathname, item.href)),
-  )
-
-  useEffect(() => {
-    if (!advancedOpen) return
-    queueMicrotask(() => advancedPanelRef.current?.querySelector<HTMLElement>("[data-advanced-item]")?.focus())
-    const closeOnOutsidePress = (event: PointerEvent) => {
-      const target = event.target as Node
-      if (advancedPanelRef.current?.contains(target) || advancedTriggerRef.current?.contains(target)) return
-      setAdvancedOpen(false)
-    }
-    const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key !== "Escape") return
-      event.preventDefault()
-      setAdvancedOpen(false)
-      queueMicrotask(() => advancedTriggerRef.current?.focus())
-    }
-    document.addEventListener("pointerdown", closeOnOutsidePress)
-    document.addEventListener("keydown", closeOnEscape)
-    return () => {
-      document.removeEventListener("pointerdown", closeOnOutsidePress)
-      document.removeEventListener("keydown", closeOnEscape)
-    }
-  }, [advancedOpen])
-
-  useEffect(() => setAdvancedOpen(false), [pathname])
 
   return (
-    <aside aria-label="Global navigation" className="relative z-40 hidden h-screen border-r border-slate-800 bg-slate-950 text-slate-100 min-[900px]:sticky min-[900px]:top-0 min-[900px]:flex min-[900px]:w-[72px] min-[900px]:flex-col">
-      <div className="flex h-16 shrink-0 items-center justify-center border-b border-slate-800">
+    <aside
+      aria-label="Global navigation"
+      className="desktop-newsroom-navigation relative z-40 hidden h-screen border-r border-sidebar-border/70 bg-sidebar text-sidebar-foreground min-[900px]:sticky min-[900px]:top-0 min-[900px]:col-start-1 min-[900px]:row-start-1 min-[900px]:flex min-[900px]:w-[260px] min-[900px]:flex-col"
+      onKeyDown={handleRailKeyDown}
+    >
+      <div className="flex h-16 shrink-0 items-center gap-3 px-4">
         <div
           aria-label="NewsCraft"
-          className="grid size-10 place-items-center rounded-xl bg-teal-700 text-lg font-bold text-white"
+          className="grid size-8 place-items-center rounded-[6px] bg-primary text-[13px] font-semibold text-primary-foreground shadow-sm"
           role="img"
           title="NewsCraft"
         >
           N
         </div>
+        <div className="min-w-0">
+          <div className="truncate text-[13px] font-semibold leading-4">NewsCraft</div>
+          <div className="truncate text-[11px] leading-4 text-muted-foreground">Newsroom operations</div>
+        </div>
       </div>
-      <nav aria-label="Newsroom navigation" className="flex min-h-0 flex-1 flex-col items-center gap-1 px-2 py-3">
-        {workflowNavItems.map((item) => (
-          <RailLink
-            key={item.href}
-            item={item}
-            active={isNavItemCurrent(pathname, item)}
-          />
-        ))}
 
-        <div className="my-2 h-px w-8 bg-slate-800" aria-hidden="true" />
-        <div className="group/rail relative">
-          <button
-            aria-controls={advancedOpen ? "advanced-navigation-panel" : undefined}
-            aria-current={advancedActive ? "page" : undefined}
-            aria-expanded={advancedOpen}
-            aria-haspopup="dialog"
-            aria-label={summary?.attention
-              ? `Advanced navigation, ${summary.attention} need attention`
-              : "Advanced navigation"}
-            className={cn(
-              "relative grid size-11 cursor-pointer place-items-center rounded-lg text-slate-300 transition-colors hover:bg-slate-800 hover:text-white focus-visible:ring-2 focus-visible:ring-teal-400",
-              advancedActive && "bg-teal-800/70 text-white",
-            )}
-            onClick={() => setAdvancedOpen((current) => !current)}
-            ref={advancedTriggerRef}
-            type="button"
-          >
-            <Menu className="size-5" aria-hidden="true" />
-            {summary?.attention ? (
-              <span className="absolute -right-0.5 -top-0.5 min-w-4 rounded-full bg-amber-400 px-1 text-center text-[10px] font-semibold leading-4 text-slate-950" aria-hidden="true">
-                {summary.attention}
-              </span>
-            ) : null}
-          </button>
-          {!advancedOpen ? <RailTooltip>Advanced</RailTooltip> : null}
+      <nav aria-label="Newsroom navigation" className="flex min-h-0 flex-1 flex-col px-3 pb-3 pt-1">
+        <NavGroupLabel>Workspace</NavGroupLabel>
+        <div className="space-y-0.5">
+          {primaryNavItems.map((item) => (
+            <RailLink
+              active={isNavItemCurrent(pathname, item)}
+              item={item}
+              key={item.href}
+            />
+          ))}
+        </div>
+
+        <NavGroupLabel className="mt-3">Operations</NavGroupLabel>
+        <div className="space-y-0.5">
+          {operationalNavItems.map((item) => (
+            <RailLink
+              active={isNavItemCurrent(pathname, item)}
+              item={item}
+              jobSummary={item.href === "/jobs" ? summary : undefined}
+              key={item.href}
+            />
+          ))}
+        </div>
+
+        <div className="mt-auto flex shrink-0 flex-col items-start gap-0.5 pt-3" data-sidebar-controls>
+          <ThemeToggle placement="sidebar" />
+          <SettingsLink active={isNavItemCurrent(pathname, settingsNavItem)} />
         </div>
       </nav>
 
-      <div className="shrink-0 border-t border-slate-800 p-2">
-        {summary ? (
-          <div className="grid gap-1 text-[10px]" aria-label="Job summary">
-            <div className="flex min-h-7 items-center justify-center gap-1 text-slate-300" title={`${summary.queued} queued`}>
-              <ListTodo className="size-3.5" aria-hidden="true" />
-              <span className="font-semibold tabular-nums" aria-label={`${summary.queued} queued`}>{summary.queued}</span>
-            </div>
-            <div className={cn("flex min-h-7 items-center justify-center gap-1 text-slate-400", summary.attention > 0 && "text-amber-300")} title={`${summary.attention} need attention`}>
-              <Activity className="size-3.5" aria-hidden="true" />
-              <span className="font-semibold tabular-nums" aria-label={`${summary.attention} need attention`}>{summary.attention}</span>
-            </div>
-          </div>
-        ) : null}
-      </div>
-
-      {advancedOpen ? (
-        <div
-          aria-label="Advanced navigation"
-          className="fixed left-[72px] top-3 z-40 max-h-[calc(100vh-1.5rem)] w-72 overflow-y-auto rounded-r-xl border bg-background p-3 text-foreground shadow-md"
-          id="advanced-navigation-panel"
-          onKeyDown={handleAdvancedKeyDown}
-          ref={advancedPanelRef}
-          role="dialog"
-        >
-          <div className="mb-3 flex items-center justify-between gap-2 px-1">
-            <div>
-              <h2 className="font-semibold">Advanced</h2>
-              {summary ? (
-                <p className="mt-0.5 text-xs text-muted-foreground">
-                  {summary.queued} queued · {summary.attention} need attention
-                </p>
-              ) : null}
-            </div>
-            <button
-              aria-label="Close advanced navigation"
-              className="grid size-9 cursor-pointer place-items-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
-              onClick={() => {
-                setAdvancedOpen(false)
-                queueMicrotask(() => advancedTriggerRef.current?.focus())
-              }}
-              type="button"
-            >
-              <X className="size-4" aria-hidden="true" />
-            </button>
-          </div>
-          <div className="space-y-4">
-            {advancedNavSections.map((section) => (
-              <section aria-labelledby={`advanced-${section.label}`} key={section.label}>
-                <h3 className="px-2 pb-1.5 text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground" id={`advanced-${section.label}`}>
-                  {section.label === "Collection" ? "Collection operations" : section.label}
-                </h3>
-                <div className="space-y-1">
-                  {section.items.map((item) => (
-                    <AdvancedLink
-                      active={isCurrentPath(pathname, item.href)}
-                      item={item}
-                      key={item.href}
-                      onNavigate={() => setAdvancedOpen(false)}
-                      summary={item.href === "/jobs" ? summary : undefined}
-                    />
-                  ))}
-                </div>
-              </section>
-            ))}
-          </div>
+      {summary ? (
+        <div aria-label="Job summary" className="sr-only">
+          <span aria-label={`${summary.queued} queued`}>{summary.queued} queued</span>
+          <span aria-label={`${summary.attention} need attention`}>{summary.attention} need attention</span>
         </div>
       ) : null}
     </aside>
@@ -241,85 +127,104 @@ export function isNavItemCurrent(pathname: string, item: NewsroomNavItem) {
 function RailLink({
   item,
   active,
+  jobSummary,
 }: {
   item: NewsroomNavItem
   active: boolean
+  jobSummary?: JobSummary
 }) {
   const Icon = item.icon
+  const title = jobSummary
+    ? `${item.label} · ${jobSummary.queued} queued · ${jobSummary.attention} need attention`
+    : item.label
 
-  return (
-    <div className="group/rail relative">
-      <Link
-        href={item.href}
-        aria-current={active ? "page" : undefined}
-        aria-label={item.label}
-        className={cn(
-          "grid size-11 place-items-center rounded-lg text-slate-300 transition-colors hover:bg-slate-800 hover:text-white focus-visible:ring-2 focus-visible:ring-teal-400",
-          active && "bg-teal-800/70 text-white",
-        )}
-      >
-        <Icon className="size-5" aria-hidden="true" />
-      </Link>
-      <RailTooltip>{item.label}</RailTooltip>
-    </div>
-  )
-}
-
-function RailTooltip({ children }: { children: React.ReactNode }) {
-  return (
-    <span
-      aria-hidden="true"
-      className="pointer-events-none invisible absolute left-[calc(100%+0.625rem)] top-1/2 z-50 w-max -translate-y-1/2 rounded-md bg-slate-900 px-2.5 py-1.5 text-xs font-medium text-white opacity-0 shadow-md transition-opacity group-hover/rail:visible group-hover/rail:opacity-100 group-focus-within/rail:visible group-focus-within/rail:opacity-100"
-      role="tooltip"
-    >
-      {children}
-    </span>
-  )
-}
-
-function AdvancedLink({
-  active,
-  item,
-  onNavigate,
-  summary,
-}: {
-  active: boolean
-  item: NewsroomNavItem
-  onNavigate: () => void
-  summary?: JobSummary
-}) {
-  const Icon = item.icon
   return (
     <Link
       aria-current={active ? "page" : undefined}
+      aria-label={item.label}
       className={cn(
-        "flex min-h-10 items-center gap-3 rounded-lg px-2.5 text-sm font-medium hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring",
-        active && "bg-accent text-accent-foreground",
+        "group/rail relative flex min-h-9 min-w-0 items-center gap-2.5 rounded-[6px] px-2.5 py-[7px] text-[13px] font-medium leading-5 text-muted-foreground transition-colors duration-200 hover:bg-navigation-hover hover:text-foreground active:bg-navigation-active focus-visible:ring-2 focus-visible:ring-ring/60",
+        active && "bg-navigation-active font-semibold text-foreground",
       )}
-      data-advanced-item
+      data-rail-link
       href={item.href}
-      onClick={onNavigate}
+      title={title}
     >
-      <Icon className="size-4 shrink-0" aria-hidden="true" />
-      <span className="min-w-0 flex-1">{item.label}</span>
-      {summary ? (
-        <span className="text-[11px] font-normal tabular-nums text-muted-foreground">
-          {summary.queued} queued · {summary.attention} attention
-        </span>
-      ) : null}
+      <span className="relative shrink-0">
+        <Icon
+          className={cn(
+            "size-4 text-muted-foreground/70 transition-colors group-hover/rail:text-foreground/70",
+            active && "text-foreground",
+          )}
+          aria-hidden="true"
+          strokeWidth={1.5}
+        />
+        {jobSummary?.attention ? (
+          <span
+            aria-hidden="true"
+            className="absolute -right-2.5 -top-2 min-w-4 rounded-full bg-warning px-1 text-center text-[10px] font-bold leading-4 text-background"
+          >
+            {jobSummary.attention}
+          </span>
+        ) : null}
+      </span>
+      <span className="min-w-0 flex-1 truncate">{item.label}</span>
     </Link>
   )
 }
 
-function handleAdvancedKeyDown(event: React.KeyboardEvent<HTMLDivElement>) {
+function SettingsLink({ active }: { active: boolean }) {
+  return (
+    <div className="group/settings relative">
+      <Link
+        aria-current={active ? "page" : undefined}
+        aria-describedby="settings-navigation-tooltip"
+        aria-label="Settings"
+        className={cn(
+          "grid size-11 place-items-center rounded-[7px] text-muted-foreground transition-colors duration-200 hover:bg-navigation-hover hover:text-foreground active:bg-navigation-active focus-visible:ring-2 focus-visible:ring-ring/60",
+          active && "bg-navigation-active text-foreground",
+        )}
+        data-rail-link
+        href={settingsNavItem.href}
+      >
+        <Settings className="size-[17px]" aria-hidden="true" strokeWidth={1.5} />
+      </Link>
+      <span
+        className="pointer-events-none invisible absolute left-[calc(100%+0.5rem)] top-1/2 z-50 w-max -translate-y-1/2 rounded-md bg-foreground px-2.5 py-1.5 text-xs font-medium text-background opacity-0 shadow-sm transition-opacity duration-150 group-hover/settings:visible group-hover/settings:opacity-100 group-focus-within/settings:visible group-focus-within/settings:opacity-100"
+        id="settings-navigation-tooltip"
+        role="tooltip"
+      >
+        Settings
+      </span>
+    </div>
+  )
+}
+
+function NavGroupLabel({ children, className }: { children: React.ReactNode; className?: string }) {
+  return (
+    <div
+      className={cn(
+        "mb-1 px-2.5 text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground",
+        className,
+      )}
+    >
+      {children}
+    </div>
+  )
+}
+
+function handleRailKeyDown(event: React.KeyboardEvent<HTMLElement>) {
   if (!["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) return
-  const items = Array.from(event.currentTarget.querySelectorAll<HTMLElement>("[data-advanced-item]"))
-  const index = items.indexOf(document.activeElement as HTMLElement)
+
+  const links = Array.from(event.currentTarget.querySelectorAll<HTMLElement>("[data-rail-link]"))
+  const index = links.indexOf(document.activeElement as HTMLElement)
   let nextIndex = index
-  if (event.key === "ArrowDown") nextIndex = index < 0 ? 0 : (index + 1) % items.length
-  if (event.key === "ArrowUp") nextIndex = index < 0 ? items.length - 1 : (index - 1 + items.length) % items.length
+
+  if (event.key === "ArrowDown") nextIndex = index < 0 ? 0 : (index + 1) % links.length
+  if (event.key === "ArrowUp") nextIndex = index < 0 ? links.length - 1 : (index - 1 + links.length) % links.length
   if (event.key === "Home") nextIndex = 0
-  if (event.key === "End") nextIndex = items.length - 1
+  if (event.key === "End") nextIndex = links.length - 1
+
   event.preventDefault()
-  items[nextIndex]?.focus()
+  links[nextIndex]?.focus()
 }

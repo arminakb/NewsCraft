@@ -101,7 +101,7 @@ export function CodexSection({
       action={!error && !loading ? <Button onClick={() => setPairing(true)}><Plus aria-hidden="true" /> Pair Codex</Button> : undefined}
     >
       {error ? (
-        <div role="alert" className="flex flex-col gap-3 rounded-xl border border-amber-300 bg-amber-50 p-4 text-amber-950 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-100 sm:flex-row sm:items-center">
+        <div role="alert" className="flex flex-col gap-3 rounded-lg border border-warning/30 bg-[var(--warning-surface)] p-4 text-foreground sm:flex-row sm:items-center">
           <CircleAlert className="size-5 shrink-0" aria-hidden="true" />
           <div className="min-w-0 flex-1">
             <h3 className="font-semibold">Codex management unavailable</h3>
@@ -113,12 +113,12 @@ export function CodexSection({
           </Button>
         </div>
       ) : loading ? (
-        <div role="status" className="flex min-h-24 items-center justify-center gap-2 rounded-xl border text-sm text-muted-foreground">
+        <div role="status" className="flex min-h-24 items-center justify-center gap-2 rounded-lg border border-border/50 text-sm text-muted-foreground">
           <LoaderCircle className="animate-spin" aria-hidden="true" /> Checking Codex access
         </div>
       ) : connections.length ? <div className="grid gap-3">
         {connections.map((connection) => (
-          <article key={connection.id} className="rounded-xl border bg-background p-4">
+          <article key={connection.id} className="rounded-lg border border-border/50 bg-background p-4">
             <div className="flex flex-col gap-4 xl:flex-row xl:items-center">
               <div className="min-w-0 flex-1">
                 <div className="flex flex-wrap items-center gap-2">
@@ -133,7 +133,7 @@ export function CodexSection({
                 <div className="mt-3 flex flex-wrap gap-1.5">
                   {connection.scopes.map((scope) => <Badge key={scope} variant="outline">{scope}</Badge>)}
                 </div>
-                {connection.failure_code ? <p className="mt-2 text-sm text-amber-800 dark:text-amber-300">{safeCode(connection.failure_code)}</p> : null}
+                {connection.failure_code ? <p className="mt-2 text-sm text-warning">{safeCode(connection.failure_code)}</p> : null}
               </div>
               <div className="flex flex-wrap gap-2">
                 <ActionButton label="Rotate" icon={RotateCw} busy={busy === `${connection.id}:rotate`} onClick={() => void rotate(connection)} />
@@ -144,7 +144,7 @@ export function CodexSection({
         ))}
       </div> : <EmptyState title="No Codex connection" detail="Pair a device with least-privilege read scopes." />}
       {!error && !loading ? <div className="grid gap-4 lg:grid-cols-[1fr_auto]">
-        <div className="rounded-xl border bg-muted/40 p-4">
+        <div className="rounded-lg border border-border/50 bg-muted/40 p-4">
           <h3 className="font-semibold">Recent safe activity</h3>
           {activity.length ? <ol className="mt-3 divide-y">
             {activity.map((event) => (

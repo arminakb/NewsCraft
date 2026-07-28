@@ -34,7 +34,7 @@ export function EvidencePanel({ evidence, activeCitation, onSelectCitation }: { 
           {!selected.sourceUrl ? <div className="text-sm text-muted-foreground">Operator-provided text</div> : null}
           {integrity === "checking" ? <div role="status">Verifying citation integrity…</div> : null}
           {integrity === "verified" && excerpt !== null ? <DirectionBoundary language={null}><blockquote data-testid="evidence-excerpt" tabIndex={-1} className="border-s-4 ps-3 font-medium">{excerpt}</blockquote></DirectionBoundary> : null}
-          {integrity === "failed" ? <div role="alert" className="text-red-700">Citation integrity verification failed. Approval-safe excerpt and source link are hidden.</div> : null}
+          {integrity === "failed" ? <div role="alert" className="text-destructive">Citation integrity verification failed. Approval-safe excerpt and source link are hidden.</div> : null}
           <DirectionBoundary as="p" language={null} className="max-h-72 overflow-auto whitespace-pre-wrap break-words text-sm">{selected.contentText}</DirectionBoundary>
           <dl className="grid gap-1 break-all text-xs text-muted-foreground">
             {activeCitation ? <>

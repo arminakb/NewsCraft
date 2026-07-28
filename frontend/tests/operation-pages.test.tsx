@@ -1,6 +1,5 @@
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react"
 
-import { RunsPage } from "@/components/dashboard/pages/runs-page"
 import { SourcesPage } from "@/components/dashboard/pages/sources-page"
 import { NoticeProvider } from "@/components/providers/notice-provider"
 import { QueryProvider } from "@/components/providers/query-provider"
@@ -22,7 +21,6 @@ vi.mock("@/features/operations/ingestion-api", async () => {
     createSource: ingestionMocks.createSource,
     deleteSource: ingestionMocks.deleteSource,
     getSources: vi.fn(async () => dashboardMock.sources),
-    getIngestRuns: vi.fn(async () => dashboardMock.runs),
   }
 })
 
@@ -262,10 +260,6 @@ describe("operational pages", () => {
     expect(screen.getByRole("dialog", { name: /delete source/i })).toBeInTheDocument()
   })
 
-  it("renders the ingestion runs page", async () => {
-    renderWithQuery(<RunsPage initialRuns={dashboardMock.runs} enableQueries={false} />)
-    expect(await screen.findByRole("heading", { name: /ingestion runs/i })).toBeInTheDocument()
-  })
 })
 
 function renderWithQuery(ui: React.ReactElement) {

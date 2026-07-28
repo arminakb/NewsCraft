@@ -273,10 +273,10 @@ export function PlatformEditor({
         </label>
       </fieldset>
 
-      {dirty ? <div role="status" className="text-sm text-amber-800">Saving creates a new pending review revision.</div> : null}
-      {errors.map((message) => <div key={message} role="alert" className="text-sm text-red-700">{message}</div>)}
+      {dirty ? <div role="status" className="text-sm text-warning">Saving creates a new pending review revision.</div> : null}
+      {errors.map((message) => <div key={message} role="alert" className="text-sm text-destructive">{message}</div>)}
       {revision.validation.map((issue) => (
-        <div key={`${issue.code}:${issue.path}:${issue.message}`} role="alert" className="text-sm text-red-700">
+        <div key={`${issue.code}:${issue.path}:${issue.message}`} role="alert" className="text-sm text-destructive">
           {issue.message}
         </div>
       ))}
@@ -295,8 +295,8 @@ export function PlatformEditor({
           </Button>
         ) : null}
       </div>
-      {error ? <div role="alert" className="text-sm text-red-700">{error}</div> : null}
-      {outcome ? <div role="status" className="text-sm text-green-700">{outcome}</div> : null}
+      {error ? <div role="alert" className="text-sm text-destructive">{error}</div> : null}
+      {outcome ? <div role="status" className="text-sm text-success">{outcome}</div> : null}
     </section>
   )
 }

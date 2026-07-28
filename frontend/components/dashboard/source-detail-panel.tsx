@@ -29,7 +29,7 @@ export function SourceDetailPanel({
   return (
     <aside
       aria-label="Source details"
-      className="order-first min-w-0 self-start overflow-hidden rounded-xl border bg-card shadow-sm xl:order-none xl:sticky xl:top-4 xl:max-h-[calc(100vh-2rem)]"
+      className="order-first min-w-0 self-start overflow-hidden rounded-lg border border-border/50 bg-card shadow-sm xl:order-none xl:sticky xl:top-4 xl:max-h-[calc(100vh-2rem)]"
       role="region"
     >
       <header className="flex min-h-14 items-center justify-between gap-3 border-b px-4 py-2">
@@ -48,13 +48,13 @@ export function SourceDetailPanel({
         </Button>
       </header>
 
-      <div className="p-4 sm:p-5 xl:max-h-[calc(100vh-8rem)] xl:overflow-y-auto">
+      <div className="p-4 xl:max-h-[calc(100vh-8rem)] xl:overflow-y-auto">
         <section aria-labelledby="source-identity-heading">
           <div className="flex items-start gap-3">
             <SourceIcon platform={source.platform} className="size-11 shrink-0" />
             <div className="min-w-0 flex-1">
               <div className="flex flex-wrap items-center gap-2">
-                <h3 className="min-w-0 break-words text-xl font-semibold leading-7" id="source-identity-heading">
+                <h3 className="min-w-0 break-words text-lg font-semibold leading-6" id="source-identity-heading">
                   {source.name}
                 </h3>
                 <StatusBadge status={source.status} />
@@ -70,20 +70,20 @@ export function SourceDetailPanel({
           </div>
         </section>
 
-        <section aria-labelledby="source-health-heading" className="mt-5 rounded-xl border bg-muted/25 p-4">
+        <section aria-labelledby="source-health-heading" className="mt-4 rounded-lg border border-border/50 bg-muted/25 p-3">
           <h3 className="text-sm font-semibold" id="source-health-heading">Health</h3>
           <dl className="mt-3 grid gap-3 text-sm sm:grid-cols-2 xl:grid-cols-1 2xl:grid-cols-2">
             <Detail label="Current status" value={<StatusBadge status={source.status} />} />
             <Detail label="Last checked" value={formatCheckedAt(source.lastCheckedAt)} />
           </dl>
           {source.failureReason ? (
-            <p className="mt-3 rounded-lg border border-red-200 bg-red-50 p-3 text-sm leading-5 text-red-900 dark:border-red-800 dark:bg-red-950/50 dark:text-red-100" role="status">
+            <p className="mt-3 rounded-md border border-destructive/30 bg-[var(--error-surface)] p-3 text-sm leading-5 text-destructive" role="status">
               {source.failureReason}
             </p>
           ) : null}
         </section>
 
-        <section aria-labelledby="source-activity-heading" className="mt-6">
+        <section aria-labelledby="source-activity-heading" className="mt-5">
           <div className="flex items-baseline justify-between gap-3">
             <h3 className="text-sm font-semibold" id="source-activity-heading">Activity</h3>
             <span className="text-xs text-muted-foreground">
@@ -92,15 +92,15 @@ export function SourceDetailPanel({
           </div>
           <dl className="mt-3 grid grid-cols-2 gap-2">
             {activity.map(([label, value]) => (
-              <div className="rounded-lg border bg-background p-3" key={label}>
+              <div className="rounded-md border border-border/50 bg-background p-3" key={label}>
                 <dt className="text-xs text-muted-foreground">{label}</dt>
-                <dd className="mt-1 text-xl font-semibold tabular-nums">{value}</dd>
+                <dd className="mt-1 text-lg font-semibold tabular-nums">{value}</dd>
               </div>
             ))}
           </dl>
         </section>
 
-        <section aria-labelledby="source-connection-heading" className="mt-6 border-t pt-5">
+        <section aria-labelledby="source-connection-heading" className="mt-5 border-t border-border/50 pt-4">
           <h3 className="text-sm font-semibold" id="source-connection-heading">Connection</h3>
           <dl className="mt-3 space-y-4 text-sm">
             <Detail

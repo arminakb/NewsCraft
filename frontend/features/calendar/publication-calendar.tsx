@@ -1,10 +1,17 @@
 "use client"
 
 import { useQuery } from "@tanstack/react-query"
+import { CalendarDays, ChevronLeft, ChevronRight, List } from "lucide-react"
 import Link from "next/link"
 import { useMemo, useState } from "react"
 
 import { Button } from "@/components/ui/button"
+import { Card, CardContent } from "@/components/ui/card"
+import { PageHeader } from "@/components/ui/page-header"
+import { Select } from "@/components/ui/select"
+import { EmptyState, ErrorState, LoadingState } from "@/components/ui/state-panel"
+import { StatusBadge, type StatusTone } from "@/components/ui/status-badge"
+import { cn } from "@/lib/utils"
 import { getApiErrorMessage } from "@/lib/http"
 import { packageQueryKeys } from "@/lib/query-keys"
 
@@ -72,80 +79,94 @@ export function PublicationCalendar({
   const moveToToday = () => setMonth(monthAt(new Date(), timezone))
 
   return (
-    <section className="min-w-0 space-y-6 p-4 md:p-6" aria-labelledby="publication-calendar-heading">
-      <header>
-        <h1 id="publication-calendar-heading" className="text-2xl font-semibold">Publication calendar</h1>
-        <p className="text-muted-foreground">Server-recorded Telegram and manual publication events in the operator timezone.</p>
-      </header>
+    <section className="nc-page" aria-labelledby="publication-calendar-heading">
+      <PageHeader
+        title="Publication calendar"
+        titleId="publication-calendar-heading"
+        description="Server-recorded Telegram and manual publication events in the operator timezone."
+      />
 
-      <section aria-label="Calendar controls" className="space-y-4 rounded-lg border p-4">
-        <div className="flex flex-wrap items-end gap-3">
+      <Card aria-label="Calendar controls" size="sm">
+        <CardContent className="space-y-3 p-3">
+        <div className="grid gap-3 sm:grid-cols-3">
           <label className="grid gap-1 text-sm">
-            <span>Platform</span>
-            <select
+            <span className="text-xs font-medium text-muted-foreground">Platform</span>
+            <Select
               aria-label="Platform"
               value={platform}
               onChange={(event) => setPlatform(event.target.value as CalendarPlatform | "all")}
-              className="h-9 rounded-md border bg-background px-3"
             >
               <option value="all">All platforms</option>
               {PLATFORM_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
-            </select>
+            </Select>
           </label>
           <label className="grid gap-1 text-sm">
-            <span>Status</span>
-            <select
+            <span className="text-xs font-medium text-muted-foreground">Status</span>
+            <Select
               aria-label="Status"
               value={status}
               onChange={(event) => setStatus(event.target.value)}
-              className="h-9 rounded-md border bg-background px-3"
             >
               <option value="all">All statuses</option>
               {statuses.map((value) => <option key={value} value={value}>{humanize(value)}</option>)}
-            </select>
+            </Select>
           </label>
           <label className="grid gap-1 text-sm">
-            <span>Timezone</span>
-            <select
+            <span className="text-xs font-medium text-muted-foreground">Timezone</span>
+            <Select
               aria-label="Timezone"
               value={timezone}
               onChange={(event) => setTimezone(event.target.value)}
-              className="h-9 rounded-md border bg-background px-3"
             >
               {timezoneOptions.map((value) => <option key={value} value={value}>{value}</option>)}
-            </select>
+            </Select>
           </label>
         </div>
 
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div className="flex flex-wrap gap-2" role="group" aria-label="Calendar navigation">
-            <Button type="button" variant="outline" onClick={() => moveMonth(-1)} aria-label="Previous month">Previous</Button>
+        <div className="flex flex-wrap items-center justify-between gap-2 border-t border-border/50 pt-3">
+          <div className="flex gap-1.5" role="group" aria-label="Calendar navigation">
+            <Button type="button" variant="outline" onClick={() => moveMonth(-1)} aria-label="Previous month">
+              <ChevronLeft aria-hidden="true" />
+              <span className="hidden sm:inline">Previous</span>
+            </Button>
             <Button type="button" variant="outline" onClick={moveToToday}>Today</Button>
-            <Button type="button" variant="outline" onClick={() => moveMonth(1)} aria-label="Next month">Next</Button>
+            <Button type="button" variant="outline" onClick={() => moveMonth(1)} aria-label="Next month">
+              <span className="hidden sm:inline">Next</span>
+              <ChevronRight aria-hidden="true" />
+            </Button>
           </div>
-          <div className="flex flex-wrap gap-2" role="group" aria-label="Calendar view">
-            <Button type="button" variant={view === "month" ? "default" : "outline"} aria-pressed={view === "month"} onClick={() => setView("month")} aria-label="Month view">Month</Button>
-            <Button type="button" variant={view === "list" ? "default" : "outline"} aria-pressed={view === "list"} onClick={() => setView("list")} aria-label="Chronological list view">List</Button>
+          <div className="flex gap-1.5" role="group" aria-label="Calendar view">
+            <Button type="button" variant={view === "month" ? "secondary" : "ghost"} aria-pressed={view === "month"} onClick={() => setView("month")} aria-label="Month view">
+              <CalendarDays aria-hidden="true" />
+              Month
+            </Button>
+            <Button type="button" variant={view === "list" ? "secondary" : "ghost"} aria-pressed={view === "list"} onClick={() => setView("list")} aria-label="Chronological list view">
+              <List aria-hidden="true" />
+              List
+            </Button>
           </div>
         </div>
-      </section>
+        </CardContent>
+      </Card>
 
       <section className="space-y-4" aria-live="polite" aria-busy={!hasProvidedEvents && calendarQuery.isPending}>
-        <h2 className="text-xl font-semibold">{monthLabel(month)}</h2>
+        <h2 className="text-lg font-semibold">{monthLabel(month)}</h2>
         {!hasProvidedEvents && calendarQuery.isPending ? (
-          <div role="status" aria-label="Loading publication calendar" className="rounded-lg border p-6 text-muted-foreground">Loading publication calendar…</div>
+          <LoadingState aria-label="Loading publication calendar" title="Loading publication calendar…" />
         ) : null}
         {!hasProvidedEvents && calendarQuery.isError ? (
-          <div className="space-y-3 rounded-lg border p-6">
-            <div role="alert" className="text-red-700" dir="auto">{getApiErrorMessage(calendarQuery.error, "Publication calendar could not be loaded")}</div>
-            <Button type="button" variant="outline" onClick={() => void calendarQuery.refetch()}>Retry calendar</Button>
-          </div>
+          <ErrorState
+            title="Publication calendar unavailable"
+            description={getApiErrorMessage(calendarQuery.error, "Publication calendar could not be loaded")}
+            action={<Button type="button" variant="outline" onClick={() => void calendarQuery.refetch()}>Retry calendar</Button>}
+            dir="auto"
+          />
         ) : null}
         {(hasProvidedEvents || calendarQuery.isSuccess) && eventsInWindow.length === 0 ? (
-          <p className="rounded-lg border p-6 text-muted-foreground">No publication events in this calendar window.</p>
+          <EmptyState title="No publication events in this calendar window." description="Scheduled and completed events will appear here." />
         ) : null}
         {(hasProvidedEvents || calendarQuery.isSuccess) && eventsInWindow.length > 0 && visibleEvents.length === 0 ? (
-          <p className="rounded-lg border p-6 text-muted-foreground">No publication events match these filters.</p>
+          <EmptyState title="No publication events match these filters." description="Change platform or status filters to see more events." />
         ) : null}
         {(hasProvidedEvents || calendarQuery.isSuccess) && visibleEvents.length > 0 && view === "month" ? (
           <MonthGrid events={visibleEvents} month={month} timezone={timezone} />
@@ -169,31 +190,34 @@ function MonthGrid({ events, month, timezone }: { events: CalendarEvent[]; month
   }
 
   return (
-    <div className="overflow-x-auto rounded-lg border" role="grid" aria-label={`${monthLabel(month)} calendar grid`}>
-      <div className="min-w-[840px] bg-muted/50" role="rowgroup">
+    <div>
+      <p className="mb-2 text-xs text-muted-foreground md:hidden">Scroll sideways to view the full month.</p>
+      <div className="nc-panel max-w-full overflow-x-auto overscroll-x-contain" role="grid" aria-label={`${monthLabel(month)} calendar grid`}>
+      <div className="min-w-[700px] bg-muted/50" role="rowgroup">
         <div className="grid grid-cols-7" role="row">
-          {WEEKDAYS.map((weekday) => <div key={weekday} role="columnheader" className="border-b p-2 text-sm font-medium">{weekday}</div>)}
+          {WEEKDAYS.map((weekday) => <div key={weekday} role="columnheader" className="border-b border-border/50 px-2 py-1.5 text-xs font-medium text-muted-foreground">{weekday}</div>)}
         </div>
       </div>
-      <div className="min-w-[840px]" role="rowgroup">
+      <div className="min-w-[700px]" role="rowgroup">
         {Array.from({ length: weekCount }, (_, weekIndex) => (
           <div key={`week-${weekIndex}`} className="grid grid-cols-7" role="row">
             {Array.from({ length: 7 }, (_, weekdayIndex) => {
               const day = weekIndex * 7 + weekdayIndex - firstWeekday + 1
               if (day < 1 || day > dayCount) {
-                return <div key={`outside-${weekIndex}-${weekdayIndex}`} role="gridcell" aria-label={`Outside ${monthLabel(month)}`} className="min-h-28 border-b border-e bg-muted/20" />
+                return <div key={`outside-${weekIndex}-${weekdayIndex}`} role="gridcell" aria-label={`Outside ${monthLabel(month)}`} className="min-h-24 border-b border-e border-border/50 bg-muted/20" />
               }
               const key = localDateKey(month.year, month.month, day)
               const dayEvents = eventsByDay.get(key) ?? []
               return (
-                <div key={key} role="gridcell" aria-label={key} className="min-h-28 space-y-2 border-b border-e p-2">
-                  <div className="text-sm font-medium">{day}</div>
-                  {dayEvents.length ? <ul className="space-y-2">{dayEvents.map((event) => <li key={event.id}><CalendarEventSummary event={event} timezone={timezone} compact /></li>)}</ul> : null}
+                <div key={key} role="gridcell" aria-label={key} className="min-h-24 space-y-1.5 border-b border-e border-border/50 p-1.5">
+                  <div className="text-xs font-medium tabular-nums">{day}</div>
+                  {dayEvents.length ? <ul className="space-y-1.5">{dayEvents.map((event) => <li key={event.id}><CalendarEventSummary event={event} timezone={timezone} compact /></li>)}</ul> : null}
                 </div>
               )
             })}
           </div>
         ))}
+      </div>
       </div>
     </div>
   )
@@ -208,14 +232,19 @@ function ChronologicalList({ events, timezone }: { events: CalendarEvent[]; time
 }
 
 function CalendarEventSummary({ event, timezone, compact = false }: { event: CalendarEvent; timezone: string; compact?: boolean }) {
+  const tone = calendarStatusTone(event.status)
   return (
-    <article className={compact ? "space-y-1 rounded-md border bg-background p-2 text-xs" : "space-y-2 rounded-lg border p-4"}>
-      <div className="font-medium"><span>{platformLabel(event.platform)}: </span><DirectionBoundary as="span" language={null}>{event.title}</DirectionBoundary></div>
-      <div className="flex flex-wrap gap-x-2 text-muted-foreground">
+    <article className={cn(
+      "border border-border/50 bg-card",
+      compact ? "space-y-1 rounded-md border-s-2 p-1.5 text-xs" : "space-y-2 rounded-lg p-3 shadow-xs",
+      compact && statusBorderClass(tone),
+    )}>
+      <div className={cn("font-medium", compact && "line-clamp-2 leading-4")}><span>{platformLabel(event.platform)}: </span><DirectionBoundary as="span" language={null}>{event.title}</DirectionBoundary></div>
+      <div className="flex flex-wrap items-center gap-1.5 text-muted-foreground">
         <time dateTime={event.startsAt}>{formatEventTime(event.startsAt, timezone, compact)}</time>
-        <span>{humanize(event.status)}</span>
+        {compact ? <span>· {humanize(event.status)}</span> : <StatusBadge tone={tone}>{humanize(event.status)}</StatusBadge>}
       </div>
-      <Link className="inline-flex text-primary underline" href={event.actionUrl} aria-label={`Open ${platformLabel(event.platform)} event: ${event.title} (${event.id})`}>
+      <Link className="inline-flex min-h-8 items-center rounded-sm text-primary underline underline-offset-2" href={event.actionUrl} aria-label={`Open ${platformLabel(event.platform)} event: ${event.title} (${event.id})`}>
         Open exact record
       </Link>
     </article>
@@ -315,4 +344,20 @@ function platformLabel(platform: CalendarPlatform) {
 
 function humanize(value: string) {
   return value.replaceAll("_", " ")
+}
+
+function calendarStatusTone(status: string): StatusTone {
+  if (["published", "succeeded", "completed"].includes(status)) return "success"
+  if (["failed", "attention", "reconciliation_required"].includes(status)) return "error"
+  if (["scheduled", "queued", "pending_review"].includes(status)) return "warning"
+  if (["publishing", "running"].includes(status)) return "info"
+  return "neutral"
+}
+
+function statusBorderClass(tone: StatusTone) {
+  if (tone === "success") return "border-s-success"
+  if (tone === "error") return "border-s-destructive"
+  if (tone === "warning") return "border-s-warning"
+  if (tone === "info") return "border-s-primary"
+  return "border-s-muted-foreground"
 }

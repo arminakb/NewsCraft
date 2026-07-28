@@ -1,6 +1,10 @@
 "use client"
 
+import { X } from "lucide-react"
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react"
+
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
+import { Button } from "@/components/ui/button"
 
 export type NoticeInput = { tone: "success" | "error"; title: string; message: string }
 
@@ -30,6 +34,10 @@ export function NoticeProvider({ children }: { children: React.ReactNode }) {
     timers.current.add(timer)
   }, [])
 
+  const dismissNotice = useCallback((id: string) => {
+    setNotices((current) => current.filter((notice) => notice.id !== id))
+  }, [])
+
   return (
     <NoticeContext.Provider value={{ pushNotice }}>
       {children}
@@ -41,17 +49,26 @@ export function NoticeProvider({ children }: { children: React.ReactNode }) {
         className="pointer-events-none fixed right-4 top-16 z-[80] flex w-[min(24rem,calc(100vw-2rem))] flex-col gap-2"
       >
         {notices.map((notice) => (
-          <div
+          <Alert
             key={notice.id}
-            className={`rounded-md border bg-background p-3 shadow-lg ${notice.tone === "error" ? "border-red-200 dark:border-red-800" : "border-emerald-200 dark:border-emerald-800"}`}
+            tone={notice.tone}
+            className="pointer-events-auto grid-cols-[auto_1fr_auto] bg-popover shadow-md"
           >
-            <div data-notice-title className="font-semibold">
-              {notice.title}
+            <div>
+              <AlertTitle data-notice-title>{notice.title}</AlertTitle>
+              <AlertDescription dir="auto">{notice.message}</AlertDescription>
             </div>
-            <div className="mt-1 text-sm text-muted-foreground" dir="auto">
-              {notice.message}
-            </div>
-          </div>
+            <Button
+              aria-label={`Dismiss ${notice.title}`}
+              className="-me-1 -mt-1"
+              onClick={() => dismissNotice(notice.id)}
+              size="icon-sm"
+              type="button"
+              variant="ghost"
+            >
+              <X aria-hidden="true" />
+            </Button>
+          </Alert>
         ))}
       </div>
     </NoticeContext.Provider>

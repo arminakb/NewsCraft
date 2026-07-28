@@ -8,6 +8,7 @@ import { DirectionBoundary } from "@/components/newsroom/direction-boundary"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { EmptyState, ErrorState, LoadingState } from "@/components/ui/state-panel"
 import { getApiErrorMessage } from "@/lib/http"
 import { operationsQueryKeys } from "@/lib/query-keys"
 
@@ -40,22 +41,19 @@ export function HistoryTimeline({ routeId }: { routeId: string }) {
       </CardHeader>
       <CardContent className="p-0">
         {historyQuery.isPending ? (
-          <p aria-label="Loading route history" className="p-6 text-center text-sm text-muted-foreground" role="status">
-            Loading route history…
-          </p>
+          <LoadingState aria-label="Loading route history" className="m-3" title="Loading route history…" />
         ) : null}
         {historyQuery.isError ? (
-          <div className="space-y-3 p-4" dir="auto" role="alert">
-            <p>{getApiErrorMessage(historyQuery.error, "Route history could not be loaded")}</p>
-            <Button onClick={() => historyQuery.refetch()} size="sm" variant="outline">
-              Retry history
-            </Button>
-          </div>
+          <ErrorState
+            className="m-3"
+            dir="auto"
+            title="Route history unavailable"
+            description={getApiErrorMessage(historyQuery.error, "Route history could not be loaded")}
+            action={<Button onClick={() => historyQuery.refetch()} size="sm" variant="outline">Retry history</Button>}
+          />
         ) : null}
         {historyQuery.isSuccess && entries.length === 0 ? (
-          <p className="p-6 text-center text-sm text-muted-foreground">
-            No durable history has been recorded for this route.
-          </p>
+          <EmptyState className="m-3" title="No durable route history" description="No durable history has been recorded for this route." />
         ) : null}
         {entries.length ? (
           <ol className="divide-y">
@@ -104,7 +102,7 @@ function HistoryTimelineItem({ entry }: { entry: HistoryEntry }) {
         </DirectionBoundary>
         {entry.job_id ? <p className="text-xs text-muted-foreground">Workflow job {entry.job_id}</p> : null}
         {metadata.length ? (
-          <dl className="grid gap-2 rounded-md border bg-slate-50 p-3 text-xs sm:grid-cols-2">
+          <dl className="grid gap-2 rounded-md border border-border/50 bg-muted/35 p-3 text-xs sm:grid-cols-2">
             {metadata.map(([key, value]) => (
               <div className="min-w-0" key={key}>
                 <dt className="font-medium text-muted-foreground">{key}</dt>

@@ -22,9 +22,13 @@ import { SaveToCollectionDialog } from "./save-to-collection-dialog"
 import type { ArticleCollection, ArticleImage, ArticleSort, ArticleSummary } from "./types"
 
 import { DirectionBoundary } from "@/components/newsroom/direction-boundary"
+import { Alert } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
+import { PageHeader } from "@/components/ui/page-header"
+import { Select } from "@/components/ui/select"
+import { EmptyState, ErrorState } from "@/components/ui/state-panel"
 import { formatNumber } from "@/lib/format"
 import { ApiError, getApiErrorMessage } from "@/lib/http"
 
@@ -250,21 +254,20 @@ export function ArticlesPage() {
         pending={collectionsQuery.isPending}
         selectedId={collectionId}
       />
-      <section className="feed-content mx-auto min-w-0 w-full max-w-[1600px] space-y-4 p-4 md:p-6" aria-labelledby="feed-heading">
+      <section className="feed-content nc-page mx-auto w-full max-w-[1600px]" aria-labelledby="feed-heading">
       <p aria-live="polite" className="sr-only" role="status">{announcement}</p>
-      <header className="flex flex-col gap-4 border-b pb-4 sm:flex-row sm:items-end sm:justify-between">
-        <div>
-          <h1 id="feed-heading" className="text-2xl font-semibold tracking-tight">Library</h1>
-          <p className="mt-1 text-sm text-muted-foreground" aria-live="polite">
-            {resultCount === undefined
-              ? "Loading result count…"
-              : `${formatNumber(resultCount)} ${resultCount === 1 ? "article" : "articles"} · source monitoring and saved collections`}
-          </p>
-        </div>
-        <div className="flex max-w-full flex-wrap items-end justify-end gap-2">
-          <label className="grid min-w-0 gap-1 text-xs font-medium text-muted-foreground">
+      <PageHeader
+        className="flex-col items-stretch sm:flex-row sm:items-end"
+        title="Library"
+        titleId="feed-heading"
+        description={resultCount === undefined
+          ? "Loading result count…"
+          : `${formatNumber(resultCount)} ${resultCount === 1 ? "article" : "articles"} · source monitoring and saved collections`}
+        descriptionProps={{ "aria-live": "polite" }}
+        actions={<div className="grid w-full min-w-0 grid-cols-2 items-end gap-2 sm:flex sm:w-auto sm:flex-wrap sm:justify-end">
+          <label className="col-span-2 grid min-w-0 gap-1 text-xs font-medium text-muted-foreground sm:col-span-1">
             <span className="sr-only">Search articles</span>
-            <span className="flex min-h-11 w-64 max-w-full items-center gap-2 rounded-lg border bg-background px-3 transition-colors has-[:focus-visible]:border-ring sm:min-h-9">
+            <span className="flex min-h-11 w-full items-center gap-2 rounded-lg border border-input bg-card px-3 transition-colors has-[:focus-visible]:border-ring sm:w-64 sm:min-h-9">
               <Search className="size-4 shrink-0" aria-hidden="true" />
               <input
                 aria-label="Search articles"
@@ -298,18 +301,17 @@ export function ArticlesPage() {
           />
           <label className="grid min-w-32 gap-1 text-xs font-medium text-muted-foreground">
             Sort by
-            <select
+            <Select
               aria-label="Sort articles"
-              className="min-h-11 rounded-lg border bg-background px-3 text-base sm:min-h-9 sm:text-sm"
               onChange={(event) => navigate(event.target.value as ArticleSort, filters)}
               value={sort}
             >
               <option value="newest">Newest</option>
               <option value="score">Score</option>
-            </select>
+            </Select>
           </label>
-        </div>
-      </header>
+        </div>}
+      />
 
       <ActiveFilterChips
         filters={filters}
@@ -335,45 +337,37 @@ export function ArticlesPage() {
       {!unavailableSelection && query.isPending ? <ArticleSkeletons /> : null}
 
       {!unavailableSelection && query.isError && articles.length === 0 ? (
-        <Card size="sm">
-          <CardContent className="space-y-3 p-5">
-            <div role="alert" dir="auto" className="text-red-700">
-              {getApiErrorMessage(query.error, "Articles could not be loaded")}
-            </div>
-            <Button variant="outline" onClick={() => query.refetch()}>Retry</Button>
-          </CardContent>
-        </Card>
+        <ErrorState
+          title="Library unavailable"
+          description={getApiErrorMessage(query.error, "Articles could not be loaded")}
+          action={<Button variant="outline" onClick={() => query.refetch()}>Retry</Button>}
+          dir="auto"
+        />
       ) : null}
 
       {!unavailableSelection && query.isSuccess && resultCount === 0 ? (
-        <Card size="sm">
-          <CardContent className="p-10 text-center">
-            <ImageIcon className="mx-auto size-8 text-muted-foreground" aria-hidden="true" />
-            <h2 className="mt-3 font-semibold">
-              {titleQuery
+        <EmptyState
+          icon={ImageIcon}
+          title={titleQuery
                 ? `No articles match “${titleQuery}”`
                 : selectedCollection?.articleCount === 0
                 ? `${selectedCollection.name} is empty`
                 : filterCount
                   ? "No articles match these filters"
                   : "No articles collected"}
-            </h2>
-            <p className="mt-1 text-muted-foreground">
-              {titleQuery
+          description={titleQuery
                 ? "Try a different article search or clear it."
                 : selectedCollection?.articleCount === 0
                 ? "Use Save to Collection on a Library card to add articles here."
                 : filterCount
                   ? "Try removing one or more filters."
                   : "New RSS and Telegram items will appear here."}
-            </p>
-            {titleQuery ? (
-              <Button className="mt-4" onClick={() => changeSearchDraft("")} variant="outline">Clear article search</Button>
+          action={titleQuery ? (
+              <Button onClick={() => changeSearchDraft("")} variant="outline">Clear article search</Button>
             ) : filterCount && selectedCollection?.articleCount !== 0 ? (
-              <Button className="mt-4" onClick={() => changeFilters(EMPTY_ARTICLE_FILTERS)} variant="outline">Clear filters</Button>
+              <Button onClick={() => changeFilters(EMPTY_ARTICLE_FILTERS)} variant="outline">Clear filters</Button>
             ) : null}
-          </CardContent>
-        </Card>
+        />
       ) : null}
 
       {articles.length > 0 ? (
@@ -399,24 +393,26 @@ export function ArticlesPage() {
           </div>
 
           {directRemovalError ? (
-            <div className="flex items-center justify-between gap-3 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700" role="alert">
-              <span dir="auto">{directRemovalError.message}</span>
-              <Button
-                className="shrink-0"
-                disabled={directRemovalPendingId !== null}
-                onClick={() => void handleDirectRemoval(directRemovalError.article)}
-                size="sm"
-                variant="outline"
-              >
-                Retry removal
-              </Button>
-            </div>
+            <Alert tone="error" role="alert">
+              <div className="flex items-center justify-between gap-3">
+                <span dir="auto">{directRemovalError.message}</span>
+                <Button
+                  className="shrink-0"
+                  disabled={directRemovalPendingId !== null}
+                  onClick={() => void handleDirectRemoval(directRemovalError.article)}
+                  size="sm"
+                  variant="outline"
+                >
+                  Retry removal
+                </Button>
+              </div>
+            </Alert>
           ) : null}
 
           {query.error ? (
-            <div role="alert" dir="auto" className="rounded-lg border border-red-200 bg-red-50 p-3 text-red-700">
+            <Alert role="alert" dir="auto" tone="error">
               {getApiErrorMessage(query.error, "More articles could not be loaded")}
-            </div>
+            </Alert>
           ) : null}
 
           {query.hasNextPage ? (
@@ -482,14 +478,14 @@ function ArticleCard({
   const time = getArticleCardTime(article.displayAt, article.dateBasis)
 
   return (
-    <article className="group flex h-full min-w-0 flex-col overflow-hidden rounded-xl border bg-card shadow-sm transition-[border-color,box-shadow] hover:border-foreground/20 hover:shadow-md">
+    <article className="group flex h-full min-w-0 flex-col overflow-hidden rounded-lg border border-border/50 bg-card shadow-xs transition-[border-color,box-shadow] hover:border-foreground/20 hover:shadow-sm">
       <ArticleMedia image={article.image} title={article.title} />
-      <div className="flex min-w-0 flex-1 flex-col p-4">
+      <div className="flex min-w-0 flex-1 flex-col p-3">
         <DirectionBoundary
           as="h2"
           direction={article.direction}
           language={article.language}
-          className="line-clamp-3 min-h-[4.15rem] text-base font-semibold leading-snug text-balance"
+          className="line-clamp-3 min-h-[3.75rem] text-[15px] font-semibold leading-5 text-balance"
         >
           {article.title ?? "Untitled article"}
         </DirectionBoundary>
@@ -508,7 +504,7 @@ function ArticleCard({
           </time>
         </div>
 
-        <div className="mt-4 flex min-h-6 flex-wrap items-center gap-1.5">
+        <div className="mt-3 flex min-h-6 flex-wrap items-center gap-1.5">
           <span
             aria-label={`Editorial score: ${article.score}`}
             className="inline-flex items-center gap-1 text-xs tabular-nums text-muted-foreground"
@@ -529,7 +525,7 @@ function ArticleCard({
           ))}
         </div>
 
-        <footer className="mt-auto flex min-h-8 items-center justify-between gap-2 border-t pt-2.5 text-xs">
+        <footer className="mt-auto flex min-h-8 items-center justify-between gap-2 border-t border-border/50 pt-2.5 text-xs">
           {article.canonicalUrl ? (
             <a
               aria-label={`Open original article: ${article.title ?? "Untitled article"}`}
@@ -576,7 +572,7 @@ function ArticleMedia({ image, title }: { image: ArticleImage | null; title: str
     <div className="aspect-video w-full shrink-0 overflow-hidden bg-muted">
       {showImage ? (
         <img
-          alt={image.altText ?? ""}
+          alt={image.altText ?? title ?? ""}
           className="size-full object-cover"
           decoding="async"
           loading="lazy"
@@ -607,11 +603,11 @@ function ArticleSkeletons() {
       {Array.from({ length: 8 }, (_, index) => (
         <div
           aria-hidden="true"
-          className="flex h-full animate-pulse flex-col overflow-hidden rounded-xl border"
+          className="flex h-full animate-pulse flex-col overflow-hidden rounded-lg border border-border/50 bg-card motion-reduce:animate-none"
           key={index}
         >
           <div className="aspect-video bg-muted" />
-          <div className="flex flex-1 flex-col space-y-3 p-4">
+          <div className="flex flex-1 flex-col space-y-3 p-3">
             <div className="h-3 w-2/5 rounded bg-muted" />
             <div className="h-5 w-4/5 rounded bg-muted" />
             <div className="h-3 w-full rounded bg-muted" />

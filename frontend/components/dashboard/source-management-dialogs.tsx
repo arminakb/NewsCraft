@@ -5,12 +5,11 @@ import { cloneElement, isValidElement, useEffect, useId, useRef, useState } from
 
 import { useEditorialModal } from "@/components/editorial/use-editorial-modal"
 import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
+import { Select } from "@/components/ui/select"
 import type { CreateSourceInput, SourceSummary } from "@/features/operations/ingestion-types"
 
 export type NewSourceInput = CreateSourceInput
-
-const fieldClass =
-  "min-h-11 w-full rounded-lg border bg-background px-3 py-2 text-base outline-none transition-colors focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/30"
 
 const initialForm = {
   platform: "rss" as const,
@@ -62,7 +61,7 @@ export function AddSourceDialog({
       aria-describedby={descriptionId}
       aria-labelledby={titleId}
       aria-modal="true"
-      className="fixed inset-0 z-50 grid place-items-center overflow-y-auto bg-slate-950/45 p-4"
+      className="nc-dialog-scrim fixed inset-0 z-50 grid place-items-center overflow-y-auto p-4"
       onMouseDown={(event) => {
         if (!isSubmitting && event.target === event.currentTarget) onClose()
       }}
@@ -72,7 +71,7 @@ export function AddSourceDialog({
     >
       <form
         aria-busy={isSubmitting}
-        className="my-auto w-full max-w-xl space-y-5 rounded-xl border bg-background p-5 shadow-xl"
+        className="nc-dialog my-auto w-full max-w-xl space-y-5 p-5"
         onSubmit={(event) => {
           event.preventDefault()
           setTouched(true)
@@ -95,8 +94,7 @@ export function AddSourceDialog({
 
         <div className="grid gap-4 sm:grid-cols-2">
           <Field label="Source type">
-            <select
-              className={fieldClass}
+            <Select
               onChange={(event) => setForm((current) => ({
                 ...current,
                 platform: event.target.value as NewSourceInput["platform"],
@@ -106,16 +104,15 @@ export function AddSourceDialog({
             >
               <option value="rss">RSS feed</option>
               <option value="telegram_public">Telegram channel</option>
-            </select>
+            </Select>
           </Field>
           <Field
             error={touched && validationError?.field === "name" ? validationError.message : null}
             label="Name"
             required
           >
-            <input
+            <Input
               autoComplete="off"
-              className={fieldClass}
               maxLength={100}
               onBlur={() => setTouched(true)}
               onChange={(event) => setForm((current) => ({ ...current, name: event.target.value }))}
@@ -130,9 +127,8 @@ export function AddSourceDialog({
               label={form.platform === "rss" ? "Feed URL" : "Telegram channel"}
               required
             >
-              <input
+              <Input
                 autoComplete="url"
-                className={fieldClass}
                 onBlur={() => setTouched(true)}
                 onChange={(event) => setForm((current) => ({ ...current, url: event.target.value }))}
                 placeholder={form.platform === "rss" ? "https://example.com/feed.xml" : "@channel"}
@@ -141,18 +137,16 @@ export function AddSourceDialog({
             </Field>
           </div>
           <Field label="Category">
-            <input
+            <Input
               autoComplete="off"
-              className={fieldClass}
               onChange={(event) => setForm((current) => ({ ...current, category: event.target.value }))}
               placeholder="General"
               value={form.category}
             />
           </Field>
           <Field label="Language">
-            <input
+            <Input
               autoComplete="off"
-              className={fieldClass}
               maxLength={12}
               onChange={(event) => setForm((current) => ({ ...current, language: event.target.value }))}
               value={form.language}
@@ -165,8 +159,7 @@ export function AddSourceDialog({
               label="Fetch interval (minutes)"
               required
             >
-              <input
-                className={fieldClass}
+              <Input
                 max={10_080}
                 min={5}
                 onBlur={() => setTouched(true)}
@@ -182,7 +175,7 @@ export function AddSourceDialog({
         </div>
 
         {error ? (
-          <p className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-900 dark:border-red-800 dark:bg-red-950/50 dark:text-red-100" role="alert">
+          <p className="rounded-lg border border-destructive/30 bg-[var(--error-surface)] p-3 text-sm text-destructive" role="alert">
             {error}
           </p>
         ) : null}
@@ -236,7 +229,7 @@ export function DeleteSourceDialog({
       aria-describedby={descriptionId}
       aria-labelledby={titleId}
       aria-modal="true"
-      className="fixed inset-0 z-50 grid place-items-center bg-slate-950/45 p-4"
+      className="nc-dialog-scrim fixed inset-0 z-50 grid place-items-center p-4"
       onMouseDown={(event) => {
         if (!isDeleting && event.target === event.currentTarget) onClose()
       }}
@@ -244,7 +237,7 @@ export function DeleteSourceDialog({
       role="dialog"
       tabIndex={-1}
     >
-      <div className="w-full max-w-md space-y-5 rounded-xl border bg-background p-5 shadow-xl">
+      <div className="nc-dialog w-full max-w-md space-y-5 p-5">
         <div>
           <h2 className="text-xl font-semibold" id={titleId}>Delete source?</h2>
           <p className="mt-2 text-sm leading-6 text-muted-foreground" id={descriptionId}>
@@ -253,7 +246,7 @@ export function DeleteSourceDialog({
           </p>
         </div>
         {error ? (
-          <p className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-900 dark:border-red-800 dark:bg-red-950/50 dark:text-red-100" role="alert">
+          <p className="rounded-lg border border-destructive/30 bg-[var(--error-surface)] p-3 text-sm text-destructive" role="alert">
             {error}
           </p>
         ) : null}
@@ -305,10 +298,10 @@ function Field({
     <label className="grid gap-1.5 text-sm font-medium">
       <span>
         {label}
-        {required ? <span className="text-red-700" aria-hidden="true"> *</span> : null}
+        {required ? <span className="text-destructive" aria-hidden="true"> *</span> : null}
       </span>
       {control}
-      {error ? <span className="text-sm font-normal text-red-700" id={messageId} role="alert">{error}</span> : null}
+      {error ? <span className="text-sm font-normal text-destructive" id={messageId} role="alert">{error}</span> : null}
       {!error && hint ? <span className="text-xs font-normal text-muted-foreground" id={messageId}>{hint}</span> : null}
     </label>
   )

@@ -5,8 +5,11 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { useSearchParams } from "next/navigation"
 
 import { useNotices } from "@/components/providers/notice-provider"
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
+import { PageHeader } from "@/components/ui/page-header"
+import { EmptyState, ErrorState, LoadingState } from "@/components/ui/state-panel"
 import { cancelJob, getJob, getJobs, retryJob } from "@/features/jobs/api"
 import { JobDetailPanel } from "@/features/jobs/job-detail-panel"
 import { JobTable } from "@/features/jobs/job-table"
@@ -98,11 +101,12 @@ export function JobsPage({
   }
 
   return (
-    <section className="min-w-0 space-y-4 p-4 md:p-6" aria-labelledby="jobs-heading">
-      <div>
-        <h1 id="jobs-heading" className="text-2xl font-semibold">Job Queue</h1>
-        <p className="text-muted-foreground">Inspect durable workflow state, progress, failures, and operator actions.</p>
-      </div>
+    <section className="nc-page" aria-labelledby="jobs-heading">
+      <PageHeader
+        title="Jobs"
+        titleId="jobs-heading"
+        description="Inspect durable workflow state, progress, failures, and operator actions."
+      />
       <div role="group" aria-label="Job filters" className="flex flex-wrap gap-2">
         {filters.map((filter) => (
           <Button
@@ -117,17 +121,20 @@ export function JobsPage({
       </div>
       <Card size="sm">
         <CardContent className="px-0">
-          {jobsQuery.isPending ? <div role="status" aria-label="Loading jobs" className="p-6 text-muted-foreground">Loading jobs</div> : null}
+          {jobsQuery.isPending ? <LoadingState aria-label="Loading jobs" className="m-3" title="Loading jobs…" /> : null}
           {jobsQuery.isError ? (
-            <div className="space-y-3 p-6">
-              <div role="alert" dir="auto" className="text-red-700">{getApiErrorMessage(jobsQuery.error, "Job request failed")}</div>
-              <Button variant="outline" onClick={() => void jobsQuery.refetch()}>Retry jobs</Button>
-            </div>
+            <ErrorState
+              className="m-3"
+              title="Jobs could not be loaded"
+              description={getApiErrorMessage(jobsQuery.error, "Job request failed")}
+              dir="auto"
+              action={<Button variant="outline" onClick={() => void jobsQuery.refetch()}>Retry jobs</Button>}
+            />
           ) : null}
           {jobsQuery.data?.length ? (
             <JobTable jobs={jobsQuery.data} selectedId={selectedId} onSelect={selectJob} />
           ) : jobsQuery.isSuccess ? (
-            <div className="p-8 text-center text-muted-foreground">No jobs match this filter</div>
+            <EmptyState className="m-3" title="No jobs match this filter" description="Choose another filter to inspect workflow jobs." />
           ) : null}
         </CardContent>
       </Card>
@@ -143,9 +150,14 @@ export function JobsPage({
         />
       ) : null}
       {retryMutation.isError || cancelMutation.isError ? (
-        <div className="sr-only" role="alert" dir="auto">
-          {retryMutation.error ? getApiErrorMessage(retryMutation.error) : cancelMutation.error ? getApiErrorMessage(cancelMutation.error) : ""}
-        </div>
+        <Alert className="sr-only" tone="error" role="alert" dir="auto">
+          <div>
+            <AlertTitle>Job action failed</AlertTitle>
+            <AlertDescription>
+              {retryMutation.error ? getApiErrorMessage(retryMutation.error) : cancelMutation.error ? getApiErrorMessage(cancelMutation.error) : ""}
+            </AlertDescription>
+          </div>
+        </Alert>
       ) : null}
     </section>
   )

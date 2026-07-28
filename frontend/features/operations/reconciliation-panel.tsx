@@ -3,8 +3,11 @@
 import { useId, useState } from "react"
 
 import { DirectionBoundary } from "@/components/newsroom/direction-boundary"
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { Input } from "@/components/ui/input"
+import { Textarea } from "@/components/ui/textarea"
 import { getApiErrorMessage } from "@/lib/http"
 
 import { submitReconciliationDecision } from "./api"
@@ -124,7 +127,7 @@ export function ReconciliationPanel({
           <ol className="space-y-2">
             {operations.map((operation) => (
               <li
-                className="grid gap-3 rounded-md border bg-slate-50 p-3 text-sm md:grid-cols-2"
+                className="grid gap-3 rounded-md border border-border/50 bg-muted/35 p-3 text-sm md:grid-cols-2"
                 data-testid="reconciliation-operation"
                 key={operation.operation_key}
               >
@@ -159,19 +162,21 @@ export function ReconciliationPanel({
           </ol>
         </section>
 
-        <section aria-labelledby={`${instanceId}-verification`} className="space-y-2 rounded-md border border-amber-300 bg-amber-50 p-3">
-          <h2 className="font-medium" id={`${instanceId}-verification`}>
-            Verify in Telegram before choosing an outcome
-          </h2>
-          <ol className="list-decimal space-y-1 ps-5 text-sm">
-            <li>Open <bdi dir="ltr">{value.destination.target_ref}</bdi> in Telegram.</li>
-            <li>
-              Locate messages around {formatTehranTimestamp(ambiguousOperation?.sent_at ?? value.ambiguous_at ?? "")}.
-            </li>
-            <li>Compare the persisted operation key and request hash with the intended Telegram payload.</li>
-            <li>Choose published only when the remote message IDs can be verified exactly.</li>
-          </ol>
-        </section>
+        <Alert tone="warning" role="note">
+          <div>
+            <AlertTitle id={`${instanceId}-verification`}>Verify in Telegram before choosing an outcome</AlertTitle>
+            <AlertDescription>
+              <ol className="list-decimal space-y-1 ps-5">
+                <li>Open <bdi dir="ltr">{value.destination.target_ref}</bdi> in Telegram.</li>
+                <li>
+                  Locate messages around {formatTehranTimestamp(ambiguousOperation?.sent_at ?? value.ambiguous_at ?? "")}.
+                </li>
+                <li>Compare the persisted operation key and request hash with the intended Telegram payload.</li>
+                <li>Choose published only when the remote message IDs can be verified exactly.</li>
+              </ol>
+            </AlertDescription>
+          </div>
+        </Alert>
 
         <fieldset className="space-y-3" disabled={isSubmitting || successMessage !== null}>
           <legend className="font-medium">Choose the verified outcome</legend>
@@ -197,7 +202,7 @@ export function ReconciliationPanel({
             </Button>
           </div>
           {!canConfirmPublished ? (
-            <p className="text-sm text-amber-800" id={publishedBlockedReasonId}>
+            <p className="text-sm text-warning" id={publishedBlockedReasonId}>
               Published confirmation is unavailable until every other operation has succeeded.
             </p>
           ) : null}
@@ -242,8 +247,8 @@ export function ReconciliationPanel({
           ) : null}
         </fieldset>
 
-        {error ? <DirectionBoundary as="div" className="text-red-700" direction="auto" role="alert">{error}</DirectionBoundary> : null}
-        {successMessage ? <div role="status">{successMessage}</div> : null}
+        {error ? <Alert tone="error" role="alert" dir="auto"><AlertDescription><DirectionBoundary direction="auto">{error}</DirectionBoundary></AlertDescription></Alert> : null}
+        {successMessage ? <Alert tone="success" role="status"><AlertDescription>{successMessage}</AlertDescription></Alert> : null}
       </CardContent>
     </Card>
   )
@@ -295,10 +300,9 @@ function PublishedConfirmation({
     <section aria-label="Confirm published evidence" className="space-y-3 rounded-md border p-3">
       <label className="block space-y-1" htmlFor={remoteIdsId}>
         <span>Verified remote message IDs</span>
-        <input
+        <Input
           aria-describedby={showRemoteIdError ? `${remoteIdsId}-error` : undefined}
           aria-invalid={showRemoteIdError}
-          className="min-h-11 w-full rounded-md border bg-white px-3"
           dir="ltr"
           id={remoteIdsId}
           inputMode="numeric"
@@ -307,12 +311,11 @@ function PublishedConfirmation({
           value={remoteIdsInput}
         />
       </label>
-      {showRemoteIdError ? <p className="text-sm text-red-700" id={`${remoteIdsId}-error`} role="alert">{errorMessage}</p> : null}
+      {showRemoteIdError ? <p className="text-sm text-destructive" id={`${remoteIdsId}-error`} role="alert">{errorMessage}</p> : null}
 
       <label className="block space-y-1" htmlFor={permalinkId}>
         <span>Telegram permalink (optional)</span>
-        <input
-          className="min-h-11 w-full rounded-md border bg-white px-3"
+        <Input
           dir="ltr"
           id={permalinkId}
           onChange={(event) => onPermalinkChange(event.target.value)}
@@ -367,17 +370,16 @@ function VerificationNote({ id, onChange, value }: { id: string; onChange: (valu
   return (
     <div className="space-y-1">
       <label className="block" htmlFor={id}>Verification note</label>
-      <textarea
+      <Textarea
         aria-describedby={invalid ? `${id}-error` : undefined}
         aria-invalid={invalid}
-        className="min-h-24 w-full rounded-md border bg-white px-3 py-2"
         dir="auto"
         id={id}
         maxLength={1000}
         onChange={(event) => onChange(event.target.value)}
         value={value}
       />
-      {invalid ? <span className="block text-sm text-red-700" id={`${id}-error`}>Enter at least 5 characters.</span> : null}
+      {invalid ? <span className="block text-sm text-destructive" id={`${id}-error`} role="alert">Enter at least 5 characters.</span> : null}
     </div>
   )
 }
