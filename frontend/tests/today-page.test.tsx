@@ -88,11 +88,11 @@ describe("TodayPage", () => {
     expect(within(priority).getByText("Resolve failed workflow")).toBeInTheDocument()
     expect(within(priority).getByRole("link", { name: /Inspect and retry/ })).toHaveAttribute(
       "href",
-      `/jobs?status=attention&job=${failedJob.id}`,
+      `/operations?view=jobs&status=attention&job=${failedJob.id}`,
     )
     expect(screen.getByRole("link", { name: "Open job" })).toHaveAttribute(
       "href",
-      `/jobs?status=attention&job=${failedJob.id}`,
+      `/operations?view=jobs&status=attention&job=${failedJob.id}`,
     )
     expect(screen.getByRole("region", { name: "Recent successes" })).toHaveTextContent(successJob.job_type)
   })
@@ -107,7 +107,7 @@ describe("TodayPage", () => {
     const reviewLinks = await screen.findAllByRole("link", { name: "Continue review" })
     expect(reviewLinks).toHaveLength(2)
     for (const link of reviewLinks) {
-      expect(link).toHaveAttribute("href", `/jobs?status=attention&job=${reviewJob.id}`)
+      expect(link).toHaveAttribute("href", `/operations?view=jobs&status=attention&job=${reviewJob.id}`)
     }
   })
 })

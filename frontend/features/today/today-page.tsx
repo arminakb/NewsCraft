@@ -150,7 +150,7 @@ function PriorityDecision({
             <div className="flex items-center gap-2 font-semibold"><CircleAlert className="size-5 text-destructive" aria-hidden="true" />Resolve failed workflow</div>
             <p className="mt-1 truncate text-sm text-muted-foreground" dir="auto">{job.job_type}</p>
           </div>
-          <Link className={buttonVariants()} href={`/jobs?status=attention&job=${job.id}`}>
+          <Link className={buttonVariants()} href={`/operations?view=jobs&status=attention&job=${job.id}`}>
             Inspect and retry
             <ArrowRight aria-hidden="true" />
           </Link>
@@ -166,7 +166,7 @@ function PriorityDecision({
             <div className="flex items-center gap-2 font-semibold"><SquarePen className="size-5 text-warning" aria-hidden="true" />Editorial review is waiting</div>
             <p className="mt-1 text-sm text-muted-foreground">Continue with the oldest item needing a decision.</p>
           </div>
-          <Link className={buttonVariants()} href={`/jobs?status=attention&job=${job.id}`}>
+          <Link className={buttonVariants()} href={`/operations?view=jobs&status=attention&job=${job.id}`}>
             Continue review
             <ArrowRight aria-hidden="true" />
           </Link>

@@ -3,6 +3,7 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 import Link from "next/link"
 
+import { useDateTime } from "@/components/providers/date-time-provider"
 import { Alert } from "@/components/ui/alert"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { EmptyState, LoadingState } from "@/components/ui/state-panel"
@@ -13,6 +14,7 @@ import { fetchReconciliationCases } from "@/features/operations/api"
 import { ReconciliationPanel } from "@/features/operations/reconciliation-panel"
 import type { ReconciliationCase } from "@/features/operations/types"
 import { getApiErrorMessage } from "@/lib/http"
+import { formatInTimeZone } from "@/lib/date-time"
 import { operationsQueryKeys, queryKeys } from "@/lib/query-keys"
 
 export function TelegramOutcomes() {
@@ -90,6 +92,7 @@ function reconciliationGenerationKey(value: ReconciliationCase): string {
 }
 
 function TelegramOutcomeCard({ draft }: { draft: TelegramPublicationContext }) {
+  const { timezone } = useDateTime()
   return (
     <article className="min-w-0 space-y-2 rounded-md border p-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
@@ -99,7 +102,7 @@ function TelegramOutcomeCard({ draft }: { draft: TelegramPublicationContext }) {
       {draft.publication ? (
         <div className="space-y-1">
           <div>Remote IDs: {draft.publication.remoteMessageIds.join(", ")}</div>
-          <div>Published: {new Date(draft.publication.publishedAt).toLocaleString()}</div>
+          <div>Published: {formatInTimeZone(draft.publication.publishedAt, timezone)}</div>
           {draft.publication.permalink ? <a href={draft.publication.permalink} target="_blank" rel="noreferrer" className="break-all text-primary underline">Open published Telegram post</a> : null}
         </div>
       ) : null}
