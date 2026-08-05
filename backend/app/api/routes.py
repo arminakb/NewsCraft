@@ -2,12 +2,14 @@ from fastapi import APIRouter
 
 from app.api.article_collections import router as article_collections_router
 from app.api.articles import router as articles_router
+from app.api.automations import router as automations_router
 from app.api.calendar import router as calendar_router
 from app.api.codex_gateway import router as codex_gateway_router
 from app.api.codex_tools import router as codex_tools_router
 from app.api.content import router as content_router
 from app.api.content_packs import router as content_packs_router
 from app.api.control import router as control_router
+from app.api.date_time_settings import router as date_time_settings_router
 from app.api.exports import router as exports_router
 from app.api.generation_settings import router as generation_settings_router
 from app.api.health import router as health_router
@@ -29,6 +31,7 @@ router.include_router(health_router)
 router.include_router(sources_router)
 router.include_router(article_collections_router)
 router.include_router(articles_router)
+router.include_router(automations_router)
 router.include_router(stories_router)
 router.include_router(ingest_router)
 router.include_router(content_router)
@@ -43,6 +46,7 @@ router.include_router(jobs_router)
 router.include_router(library_router)
 router.include_router(llm_providers_router)
 router.include_router(control_router)
+router.include_router(date_time_settings_router)
 router.include_router(telegram_sources_router)
 router.include_router(telegram_destinations_router)
 router.include_router(telegram_drafts_router)

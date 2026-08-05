@@ -399,4 +399,6 @@ async def _enqueue_package(
         payload=continuation,
         idempotency_key=f"content-pack-telegram:{job.id}:{revision.id}",
         origin=JobOrigin.AUTOMATION,
+        automation_run_id=job.automation_run_id,
+        automation_node_run_id=job.automation_node_run_id,
     )

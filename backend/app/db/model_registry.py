@@ -1,3 +1,11 @@
+from app.automations.definitions.models import (
+    Automation,
+    AutomationNodeRun,
+    AutomationRun,
+    AutomationRuntimeProjection,
+    AutomationTemplate,
+    AutomationVersion,
+)
 from app.automations.models import AutomationRoute
 from app.codex_gateway.models import (
     CodexConnection,
@@ -34,14 +42,29 @@ from app.generation.models import (
 from app.jobs.models import AutomationControl, RuntimeHeartbeat, WorkflowEvent, WorkflowJob, WorkflowSchedule
 from app.llm_providers.models import LLMProvider
 from app.manual_publication.models import ManualPublicationPlan
-from app.publishing.models import Destination, Publication, PublishAttempt, PublishJob, TelegramProxyProfile
+from app.operator_settings.models import DateTimeSettings
+from app.publishing.models import (
+    Destination,
+    Publication,
+    PublishAttempt,
+    PublishJob,
+    TelegramDestinationMigrationIssue,
+    TelegramProxyProfile,
+)
 from app.research.models import ResearchAttempt, ResearchRun, ResearchSource
 from app.retention.models import RetentionPolicy, RetentionRun
 from app.security.models import EncryptedSecret, SecurityAuditEvent
 from app.stories.models import Story, StoryEvidenceLink, StoryEvidenceSnapshot, StoryRevision
 
 _MAPPED_CLASSES = (
+    Automation,
+    AutomationVersion,
+    AutomationTemplate,
+    AutomationRuntimeProjection,
+    AutomationRun,
+    AutomationNodeRun,
     AutomationRoute,
+    TelegramDestinationMigrationIssue,
     CodexConnection,
     CodexIdempotencyRecord,
     CodexPairingSession,
@@ -74,6 +97,7 @@ _MAPPED_CLASSES = (
     WorkflowSchedule,
     LLMProvider,
     ManualPublicationPlan,
+    DateTimeSettings,
     Destination,
     TelegramProxyProfile,
     Publication,

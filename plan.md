@@ -1,1306 +1,919 @@
-# NewsCraft Frontend Reference Migration Plan
+# NewsCraft Guided Visual Workflow Builder
 
-## Document Status
+## Six-Phase Production Implementation Plan
 
-- **Purpose:** Multi-session implementation plan for aligning the NewsCraft frontend with the provided visual references.
-- **Scope:** Frontend only.
-- **Backend changes:** Prohibited unless explicitly authorized in a later task.
-- **Reference directory:** `/home/armin/Documents/NewsCraft/refrencess/`
-- **Execution model:** One phase per working session, with independent validation and commit boundaries.
-- **Primary constraint:** Preserve NewsCraft’s existing routes, workflows, business logic, data flow, and page responsibilities.
+## 1. Plan status and intent
 
----
+- **Purpose:** Transform the existing Telegram-focused Automations area into a production-ready, guided visual workflow builder for reusable news-generation and publishing workflows.
+- **Canonical product area:** `/automations`.
+- **Implementation shape:** Six ordered phases with independently verifiable exit gates.
+- **Primary product principle:** A domain-specific **Guided Visual Workflow Builder**, not a general-purpose no-code platform.
+- **Architecture principle:** The canvas is an editor for a backend-owned definition. It never becomes a browser-side workflow runtime.
+- **Reference image:** `ref/26cbe0a6-85f9-44d6-bd4d-3f085e9080dd.png` (1536×1024). It is inspiration for hierarchy, panel composition, node legibility, and responsive adaptation only.
+- **Completion rule:** The work is not complete if the frontend is still mocked, a dry run can publish, a graph bypasses durable jobs, or PostgreSQL/browser acceptance has not exercised the real path.
 
-# 1. Objective
-
-Rebuild the NewsCraft frontend’s visual system so that it matches the provided reference implementation as closely as reasonably possible while preserving the product’s existing functionality and information architecture.
-
-The reference files are authoritative for:
-
-- Application shell
-- Left sidebar
-- Light and dark color systems
-- Typography
-- Spacing
-- Borders and dividers
-- Border radius
-- Shadows
-- Icon sizing and stroke weight
-- Hover, focus, active, selected, disabled, loading, and error states
-- Cards
-- Tables
-- Forms
-- Dialogs
-- Tooltips
-- Responsive density
-- Overall visual polish
-
-The references are **not** authoritative for:
-
-- Mock data
-- Demo routes
-- Workspace names
-- Subscription plans
-- Fake badges
-- Example navigation labels
-- Placeholder dashboards
-- Logout behavior
-- Sample projects
-- Unrelated reference functionality
-
-Adapt the visual language to NewsCraft. Do not replace NewsCraft with the demo application.
+This plan is based on the current checkout, including its existing uncommitted work. Every implementation phase must preserve unrelated changes and must not rewrite applied migrations.
 
 ---
 
-# 2. Global Rules
+## 2. Existing architecture findings
 
-## 2.1 Preserve functionality
+### 2.1 Backend and persistence already in place
 
-Do not change:
+NewsCraft already has a strong execution spine that should be extended rather than replaced:
 
-- Backend code
-- API contracts
-- Database models
-- Data-fetching behavior
-- Mutation behavior
-- Existing routes
-- Page responsibilities
-- Domain logic
-- Existing workflows
-- Authentication behavior
-- Ingestion workers
-- Scheduling behavior
-- Publishing behavior
+- `AutomationRoute` in `backend/app/automations/models.py` is the current Automation definition. It is Telegram-specific and directly stores source, destination, editorial/brand profile, prompt version/policy, provider profile, filters, research policy, media policy, publishing policy, polling, retry, cursor, enabled, and pause state.
+- `AutomationDispatch` is the current per-source-item execution/provenance record. It links a route to the captured source item, story revision, generation run, generated platform revision, publish job, and safe failure state.
+- `WorkflowJob`, `WorkflowEvent`, `WorkflowSchedule`, `AutomationControl`, and `RuntimeHeartbeat` in `backend/app/jobs/models.py` provide durable queues, events, schedules, global pause/dry-run controls, worker observations, retries, leases, progress, and stable idempotency keys.
+- `Scheduler.tick()` in `backend/app/jobs/scheduler.py` materializes due source schedules and due ready Automation routes as jobs. It respects global pause, capability readiness, row locks, and deterministic idempotency keys.
+- `JobHandlerRegistry` in `backend/app/jobs/registry.py` enforces capability separation:
+  - source handlers own `telegram.route.initialize`, `telegram.route.poll`, `telegram.route.backfill`, and `telegram.route.dry_run`;
+  - generation handlers own `telegram.route.process`, content-pack generation/regeneration, exports, and retention;
+  - the publishing worker alone owns `telegram.publish` and Telegram destination/proxy checks.
+- Generation already persists `GenerationRun`, `GenerationAttempt`, `ContentPack`, `PlatformVariant`, and immutable `PlatformVariantRevision` records with evidence, validation results, approval state, prompt snapshots, model identity, and usage.
+- Exact approval and publishing already bind to a specific revision ID and content hash. The publishing boundary uses durable `PublishJob`, operation receipts, payload hashes, idempotency, reconciliation, and `Publication` records.
+- `LLMProvider` is the current operator-managed provider model. It writes through to a same-ID `AIProviderProfile` compatibility projection used by the existing runtime. Secrets remain encrypted and outside Automation definitions.
+- `BrandProfile` is the persistence name for the user-facing Editorial profile concept. Automation routes already keep an explicit profile ID.
+- Prompt templates have immutable `PromptTemplateVersion` rows with checksum and activation audit metadata.
+- Telegram destinations carry readiness, administrator, health, optional proxy, dependency, and encrypted-secret state.
+- `ApplicationPrincipalResolver`, the mutation middleware, and the existing scope registry already define `automations:*`, `jobs:*`, `providers:*`, `destinations:*`, and `prompts:*`. The same-origin Next.js proxy strips client-supplied principal/scope headers.
 
-## 2.2 Repository safety
+### 2.2 Current end-to-end Automation execution
 
-Before every phase:
+The current Telegram route is a fixed, durable pipeline rather than an arbitrary graph:
 
-```bash
-git status
-git log --oneline -10
+```text
+Activation request
+  → POST /telegram/automations/{route_id}/activate
+  → telegram.route.initialize job
+  → source worker records a new-only cursor boundary
+  → scheduler detects a due, enabled, unpaused, ready route
+  → telegram.route.poll job
+  → source worker fetches and captures stable source evidence
+  → AutomationDispatch is created idempotently
+  → telegram.route.process job
+  → generation worker optionally researches and generates
+  → GenerationRun / GenerationAttempt / ContentPack / PlatformVariant
+  → immutable PlatformVariantRevision with evidence and validation
+  → pending exact human review by default
+  → operator approves an exact revision and content hash
+  → durable Telegram publish intent and telegram.publish job
+  → publishing worker resolves worker-scoped credentials and sends
+  → publish receipts, Publication, WorkflowEvents, and safe outcome
+```
+
+Dry runs enter through a durable `telegram.route.dry_run` job, carry `force_review=true`, remain cursor-independent, mark the generated content as dry-run material, and do not create a live publication path.
+
+### 2.3 Existing capability map
+
+| Requested concept | Current support | Plan treatment |
+| --- | --- | --- |
+| Manual execution | Supported through API-enqueued durable jobs | Expose as a Manual trigger and Test Studio dry run |
+| Feed/content trigger | Supported for Telegram polling/capture; generic content events are not a graph runtime | Adapt the proven Telegram route trigger first; add other triggers only after Phase 1 evidence |
+| Schedule | Supported by `WorkflowSchedule` and the scheduler | Compile a Schedule trigger to durable schedule rows |
+| Content filtering | Existing route filters plus Content Item score, canonical content type/topic/language, rewrite readiness, and media fields | Add an allowlisted deterministic filter node |
+| Research | Existing bounded durable research and route research modes | Add a bounded Research node using ready provider profiles |
+| Generation | Existing canonical/package generation and platform variants | Add schema-bound Generate nodes using current services/jobs |
+| Validation | Existing schema, evidence, media, and platform validation | Expose deterministic checks first; label AI evaluation separately |
+| Human review | Existing exact immutable-revision approval | Make it a first-class node and retain review-first defaults |
+| Draft output | Existing content packs and platform revisions; current UI deep-link is `/review/{revisionId}` | Add Save to Drafts semantics and generated-revision links without redesigning Drafts |
+| Telegram publishing | Existing reviewed, idempotent publishing-worker boundary | Compile only approved publish intents to the current boundary |
+| Instagram/X/blog | Existing manual content-package/export/checklist flow | Output manual packages only; never imply direct publication |
+| Branching/conditions | Content-filter decisions exist, but no general persisted branch executor exists | Defer general branching; allow only a compiler-proven terminal fallback path if Phase 1 validates it |
+| Multiple outputs | Content packs can contain multiple platform variants | Support bounded terminal package outputs, not arbitrary fan-out |
+| Loops/subflows/webhooks/HTTP/code | Not safely supported | Explicitly out of scope |
+| Workflow versions | Prompt/revision immutability exists; Automation definitions themselves are mutable rows | Add immutable Automation versions and active-version pinning |
+| Run and node-run projections | Jobs, events, dispatches, generation runs, and publications exist but are fragmented | Add Automation Run/Node Run projections linked to existing truth |
+| Templates | No canonical workflow-template model | Add safe versioned seeds with ownership and idempotent upgrades |
+
+### 2.4 Frontend already in place
+
+- Next.js 16 App Router, React 19, TypeScript 5.9, TanStack Query 5, Tailwind CSS 4, Base UI/shadcn primitives, and Lucide icons are already established.
+- The current pages are `/automations`, `/automations/new`, `/automations/[routeId]`, and `/automations/[routeId]/history`.
+- Current Automation UI consists of a Telegram route card list, a long form that creates a source and route, a route detail page, dry run/backfill actions, dispatch history, and a history timeline.
+- The Automation API client and query keys are Telegram-route-specific. They already use the same-origin `/api/backend/...` path through `apiRequest`.
+- Reusable primitives already exist for Button, Card, Dialog, Tooltip, Table, Badge/StatusBadge, Alert, inputs, Select, progress, skeleton/loading/error/empty states, page headers, dirty-navigation handling, and notices.
+- `ProviderBrandIcon` and the Content Settings Telegram destination cards can be reused for safe resource presentation.
+- There is no current repository UI primitive for Tabs, Sheet/Drawer, Menu, or a schema-generated Form, and there is no diagram dependency in `frontend/package.json`.
+- Existing Automation tests cover safe options, conservative review defaults, dry-run durability messaging, pause/resume, prompt pinning, destination readiness, and browser flows. The current Playwright mock backend already models Telegram Automation routes and can be extended rather than replaced.
+
+### 2.5 Gaps that the implementation must close
+
+1. The current `AutomationRoute` cannot represent a versioned node graph.
+2. Current route mutation means active and historical executions are not pinned to an immutable Automation version.
+3. Current options return mostly ready resources; the builder also needs unavailable/disabled/stale resources so saved references can remain visible and actionable.
+4. The current frontend assumes a fixed Telegram form and has no workflow library, Templates view, generalized Runs view, node registry, inspector schema, or mobile ordered editor.
+5. Existing history joins events/jobs/dispatches, but it does not provide a first-class Automation Run with node-level execution state.
+6. Current `follow_active` prompt policy is a legacy behavior. New workflow versions must pin exact prompt versions; legacy rows need a compatibility policy rather than silent semantic change.
+7. The current Content Settings UI does not expose every persisted resource uniformly. Phase 1 must resolve the exact Editorial profile management surface before the builder links to it.
+8. Existing auto-publish capability must not become a template default or a shortcut around exact review and safety gates.
+
+---
+
+## 3. Target architecture
+
+### 3.1 Definition, compiler, and runtime separation
+
+```text
+React Flow desktop adapter / accessible ordered editor
+                    │
+                    ▼
+       backend-owned Workflow Graph v1
+   (stable IDs, typed ports, validated configs)
+                    │
+                    ▼
+       node registry + graph validator
+                    │
+                    ▼
+   compiler to a supported executable plan
+                    │
+                    ▼
+existing durable jobs, events, schedules, workers,
+dispatches, generation artifacts, review, and publishing
+```
+
+The browser may prevent obvious invalid connections, but the backend is authoritative for graph shape, configuration, readiness, activation, and execution.
+
+### 3.2 Proposed persistence model
+
+Exact table names should be finalized in Phase 1, but the contract must contain these concepts:
+
+- **Automation** — stable workflow identity, name, description, lifecycle, ownership, active version pointer, editable draft version pointer, archived timestamp, optimistic-concurrency token, and timestamps.
+- **AutomationVersion** — immutable version number, schema version, canonical graph JSON, normalized content hash, compiler version, compiled-plan snapshot, validation summary, creation actor/reason, and timestamps. An active version is never edited in place.
+- **AutomationRuntimeProjection** — optional link from a version to the existing Telegram `AutomationRoute`/schedule projection. Existing `AutomationRoute` remains the execution adapter during compatibility migration rather than becoming the graph schema.
+- **AutomationRun** — workflow/version IDs, trigger kind/metadata, dry-run flag, status, current node, root workflow job, safe resource snapshot, started/finished timestamps, Draft/revision/publication links, and safe error fields.
+- **AutomationNodeRun** — run ID, stable node ID, attempt, status, linked workflow job/generation/research/publish records, timing, redacted input/output summaries, evidence references, usage/cost when reliable, and safe error/retry metadata.
+- **AutomationTemplate** — stable seed key/version, ownership (`system_managed` or `operator_managed`), graph seed, description, complexity, supported-capability requirements, and archived state.
+- **Explicit foreign keys** from jobs/dispatches where reliable queries require them; do not depend exclusively on IDs hidden in JSON payloads.
+
+Required database behavior:
+
+- one active version pointer per Automation;
+- unique version numbers and normalized graph hashes per Automation;
+- immutable active/archived version rows;
+- run and node-run indexes for workflow, status, time, dry-run/live, and linked job;
+- dependency-aware resource deletion extended to Automation versions and active/running snapshots;
+- idempotency keys for version save, activation, template duplication, run start, per-node execution, and publish intent;
+- safe forward migration of every existing `AutomationRoute` into a legacy-compatible Automation/version without changing its cursor, pause state, next poll, dispatch ancestry, or URL reachability.
+
+### 3.3 Workflow Graph v1
+
+The canonical JSON must be business-oriented and independent of React Flow:
+
+```json
+{
+  "schema_version": 1,
+  "entry_node_id": "trigger-1",
+  "nodes": [
+    {
+      "id": "trigger-1",
+      "type": "telegram_new_item",
+      "config": { "source_id": "..." }
+    }
+  ],
+  "edges": [
+    {
+      "source_node_id": "trigger-1",
+      "source_port": "content",
+      "target_node_id": "filter-1",
+      "target_port": "content"
+    }
+  ],
+  "output_node_ids": ["draft-1"],
+  "metadata": {
+    "layout": {
+      "trigger-1": { "x": 80, "y": 120 }
+    }
+  }
+}
 ```
 
 Rules:
 
-- Do not reset the repository.
-- Do not discard unrelated changes.
-- Do not use destructive Git commands.
-- Do not overwrite uncommitted work without review.
-- Do not modify backend files.
-- Search repository-wide usage before deleting shared frontend code.
-- Keep the application runnable at the end of every phase.
+- stable, opaque node IDs;
+- allowlisted node types and config schemas;
+- typed ports and compatibility rules;
+- one entry node in v1;
+- no cycles or unrestricted expressions;
+- bounded node and edge counts appropriate to 5-, 15-, and 30-node workflows;
+- graph layout metadata may be stored, but library-specific node/edge objects and transient selection/viewport state are not canonical business data;
+- configs contain resource IDs and safe bounded policy, never credentials, prompt text copies, authorization headers, or environment details;
+- new workflow versions pin prompt-version IDs and the compiler records prompt checksums;
+- the backend returns stable node-addressed errors and warnings.
 
-## 2.3 Visual fidelity
+### 3.4 Initial node catalog
 
-The final result must be visually faithful to the reference package, not merely inspired by it.
+The server node registry determines what is visible. The Phase 1 capability matrix may narrow this list further.
 
-Avoid:
-
-- Default-looking Tailwind components
-- Random colors
-- Inconsistent spacing
-- Oversized typography
-- Heavy shadows
-- Excessive gradients
-- Unnecessary borders
-- Inconsistent radii
-- Misaligned icons
-- Detached controls
-- Page-level horizontal overflow
-- Navigation scrollbars on standard desktop layouts
-
-## 2.4 Accessibility
-
-Every phase must preserve or improve:
-
-- Semantic HTML
-- Keyboard navigation
-- Visible focus states
-- Screen-reader labels
-- Dialog focus management
-- Escape-key handling
-- Accessible tooltips
-- Color contrast
-- Touch target sizes
-- Reduced-motion behavior where appropriate
-- Browser zoom behavior
-
----
-
-# 3. Required Project Tracking
-
-Create and maintain this section throughout the migration.
-
-## Current progress
-
-- **Completed phases:** Phase 0, Phase 1, Phase 2, Phase 3, Phase 4, Phase 5, Phase 6
-- **Current phase:** Phase 7 pending
-- **Last completed commit:** None; migration work remains in the existing uncommitted frontend worktree
-- **Known issues:** Baseline unit tests emit existing React `act(...)` warnings
-- **Next phase:** Phase 7 — Final Validation and Cleanup
-
-## Route inventory
-
-- `/` — Today
-- `/sources` — Sources
-- `/calendar` — Publication calendar
-- `/feed` — Library / Feed
-- `/jobs` — Job queue and job detail panel
-- `/automations` — Automation routes
-- `/automations/new` — New automation route
-- `/automations/[routeId]` — Automation detail
-- `/automations/[routeId]/history` — Automation history
-- `/diagnostics` — Diagnostics
-- `/settings/content` — Settings
-- `/settings/retention` — Retention
-- `/review/[revisionId]` — Exact revision review
-- `/api/backend/[...path]` — frontend API proxy route; not a page
-- `/health` — frontend health endpoint; not a page
-- `/_not-found` — framework not-found route
-- `/inbox` redirects temporarily to `/`
-- `/runs` redirects temporarily to `/sources`
-- Drafts is not a surviving route; it was removed before this migration.
-- No route-local `loading.tsx`, `error.tsx`, or `not-found.tsx` files exist. Loading, error, and empty states are implemented inside feature/page components.
-
-## Test baseline
-
-- **Unit tests:** `npm test -- --reporter=default` — 51 files passed, 391 tests passed. Existing async React `act(...)` warnings appeared in operation, article, and variant-editor tests.
-- **TypeScript:** `npm run typecheck` — passed.
-- **Production build:** `npm run build` — passed with Next.js 16.2.11; 12 static pages generated and all routes collected. Initial sandboxed attempt failed because Turbopack could not bind an internal port; the authorized rerun passed.
-- **E2E:** `npx playwright test` — all 71 Chromium tests passed in 2.7 minutes. Coverage checks Jobs, automation creation/detail/history, review, Diagnostics, Retention, theme behavior, the complete responsive shell matrix, page overflow, and serious/critical axe violations.
-- **Accessibility:** desktop/mobile and light/dark axe checks passed with no serious or critical violations for Today, Automations, Calendar, Diagnostics, diagnostics states, and critical flows. Tablet portrait/landscape now also pass dedicated light/dark shell axe checks.
-- **Theme:** saved light/dark preference survives reload; new users follow system preference before hydration; desktop and mobile toggles expose accessible labels, state, tooltips, and theme-specific icons.
-- **Route smoke tests:** direct mobile/desktop navigation, the 900px breakpoint, dynamic workflow routes, and `/inbox` plus `/runs` redirects passed in the E2E suite.
-
-## Reference checklist
-
-- `refrencess/Screenshot_20260728_011851.png` — reviewed at native 842×604 resolution; establishes left sidebar, dark neutral surfaces, low-contrast dividers, compact rows, and restrained shadows.
-- `refrencess/Component.tsx` — reviewed all 429 lines; canonical React/Tailwind sidebar preview and interaction examples.
-- `refrencess/usage.tsx` — reviewed all 429 lines; functionally equivalent to `Component.tsx` with formatting differences.
-- `refrencess/STYLE.md` — reviewed all 899 lines; contains integration guidance, the same sidebar implementation twice, dependency guidance, and visual class details.
-- Reference mock routes, workspace switcher content, plan name, fake counts, logout, demo search, and placeholder dashboard were explicitly excluded.
-
-## Design-token matrix
-
-| Token | Reference evidence | Migration target |
+| Family | V1 nodes | Runtime mapping |
 | --- | --- | --- |
-| Page background | Screenshot outer canvas `#121212`; `bg-background` | Semantic `--background` |
-| Sidebar background | Screenshot dominant `#1e1e1e`; `bg-card/50` | Semantic `--sidebar` |
-| Card background | `bg-card`; screenshot `#1e1e1e` surfaces | Semantic `--card` |
-| Popover background | `bg-card` with low-contrast border | Semantic `--popover` |
-| Muted background | `bg-black/5`, dark `bg-white/5`; screenshot `#272727` | Semantic `--muted` / interactive tokens |
-| Primary foreground | Screenshot near `#e3e3e3`; `text-foreground` | Semantic `--foreground` |
-| Secondary foreground | `text-foreground/80` and `/90` | Derived foreground opacity |
-| Muted foreground | `text-muted-foreground` at `/30`, `/50`, `/60`, `/70`; screenshot grays `#707070`–`#828282` | Semantic `--muted-foreground` |
-| Border | `border-border/50`; screenshot `#2c2c2c` | Semantic `--border` |
-| Input | Dark `bg-white/5`, `border-white/10` | Semantic `--input` |
-| Active navigation | Light `bg-black/5`; dark `bg-white/10` | Semantic active-navigation state |
-| Hover | Light `bg-black/5`; dark `bg-white/5` | Semantic hover-navigation state |
-| Focus ring | Reference uses primary/foreground focus treatment but no fixed raw value | Semantic `--ring`; visible 2px ring |
-| Destructive | Not specified by reference package | Preserve NewsCraft semantic destructive role |
-| Success | Not specified by reference package | Preserve NewsCraft semantic success role |
-| Warning | Not specified by reference package | Preserve NewsCraft semantic warning role |
-| Error | Not specified separately from destructive | Preserve NewsCraft semantic error/destructive roles |
-| Radius scale | 4px keyboard hints, 6px nav/logo, 8px controls, 12px panels, full avatars/badges | `4 / 6 / 8 / 12 / full` |
-| Shadow scale | `shadow-xs`, `shadow-sm`, `shadow-xl`, `shadow-2xl`; normal surfaces stay restrained | Four semantic shadow tiers |
-| Typography | 10px hints/badges, 11px metadata/groups, 13px nav, 14px body/input, 16px small heading; weights 400/500/600 | Compact dashboard type scale |
-| Icon size | 14px chevrons, 16px nav, 18px controls, 24px empty-state icon | Semantic icon scale |
-| Icon stroke | 1.5px standard; 2px only for small disclosure chevrons | Lucide outline system |
-| Spacing | 2, 4, 6, 8, 10, 12, 16, 24, 32px | 2/4px base rhythm with 8px grouping |
-| Transition | 100ms popover, 200ms hover/dialog, 300ms expand/sidebar | Fast/standard/structural motion tokens; respect reduced motion |
+| Trigger | Manual; Telegram new item; Schedule | API-enqueued run; existing route capture; `WorkflowSchedule` |
+| Select/filter | Content filter using allowlisted score, canonical content type/topic/language, rewrite readiness, source, term, media, and max-count fields | Deterministic backend query/filter service |
+| Research | Research (optional, bounded) | Existing durable research provider/service and evidence snapshot |
+| Generate | Generate content/package; Telegram format; bounded multi-platform variants | Existing canonical/package generation handlers and platform schemas |
+| Validate | Evidence, required fields, length/platform format, source attribution, media requirement, duplicate guard where already implemented | Existing deterministic validators; bounded model evaluation only when explicitly labeled |
+| Review | Human Review | Exact immutable revision approval state |
+| Output | Save to Drafts; Telegram publish after approval; manual Instagram/X/blog package | Existing content pack/revision, Telegram publish boundary, and manual export/checklist flow |
 
-## Frontend structure and shared component inventory
+General conditions, fallback branching, delays, run-until-node, isolated-node retries, and comparison are included only if Phase 1 proves a safe existing execution mapping. Arbitrary webhooks, HTTP requests, SQL, shell, code, filesystem, credential lookup, dynamic tools, loops, recursive workflows, marketplace nodes, and direct Instagram/X publication remain excluded.
 
-- **Application frame:** `app/layout.tsx` owns providers and skip link; `newsroom-shell.tsx` owns sidebar, header, main landmark, content scroll, and mobile navigation.
-- **Navigation:** `newsroom-sidebar.tsx` is canonical route data plus desktop navigation; `mobile-newsroom-nav.tsx` reuses that data; `newsroom-header.tsx` presents live automation-control state.
-- **Theme:** semantic light/dark variables live in `app/globals.css`; `ThemeProvider` owns runtime state and persistence; the root layout applies saved or system preference before hydration.
-- **Configuration:** Tailwind v4 CSS theme mapping lives in `app/globals.css`; `tailwind.config.ts` holds content paths; `components.json` maps shadcn aliases to `components/ui`.
-- **Shared UI primitives:** Alert, Badge, Button/IconButton variants, Card/Panel, Checkbox/Radio, Dialog, Input, PageHeader, Progress, Select, Separator, Skeleton, state panels, status badge, Table, Textarea, Tooltip.
-- **Shared presentation:** operations page frame, source table/detail/dialog/status components, editorial workspaces/editors/timelines/evidence, notice/query providers, direction boundary, shell/header/sidebar/mobile navigation.
-- **Tables:** shared `components/ui/table.tsx` is used by source health and Jobs; other dense structures remain feature-specific.
-- **Dialogs:** shared Base UI Dialog primitives now provide portal, scrim, focus trap, Escape handling, focus restoration, title/description, and footer structure; settings dialogs use them. Specialized source, article, job, and editorial dialogs retain their tested feature-local behavior.
-- **Loading/empty/error/status:** shared Alert, Skeleton, EmptyState, LoadingState, ErrorState, and semantic StatusBadge primitives are available; Today, Calendar, Jobs, Automations, settings, source health, and job status paths use them where their existing APIs permit.
-- **Reserved primitives:** Progress is used by Today. Separator currently has no imports outside its own file and remains reserved; do not delete it without a later repository-wide review.
+### 3.5 Diagram-library decision
 
-## Mobile navigation baseline
+Use `@xyflow/react` as a **client-only, controlled desktop/tablet presentation adapter**, subject to a short compatibility spike in Phase 4. Its official API supports controlled nodes/edges, custom nodes and typed handles, viewport/zoom/snap controls, focusable nodes/edges, keyboard selection/movement, ARIA customization, and visible-node rendering. The package and lockfile must be pinned together.
 
-- Below 900px, fixed five-slot bottom navigation shows Today, Sources, Calendar, Library, and Menu.
-- Menu opens an accessible two-column modal containing every surviving top-level route.
-- Modal locks body scroll, focuses its first link, traps Tab, closes on Escape/backdrop/route selection, and restores trigger focus.
-- At desktop widths below 640px viewport height, CSS intentionally swaps to the mobile pattern to prevent sidebar clipping.
+Constraints on its use:
 
-## Visual gap analysis
+- dynamically load the heavy canvas in the Next.js App Router;
+- define node/edge types outside render and memoize custom nodes;
+- keep canonical graph state in a NewsCraft reducer/store, not in library internals;
+- validate every connection against the server registry before adding it locally;
+- never execute nodes in the browser;
+- do not use paid workflow templates or import a generic automation UI kit;
+- measure the bundle and interaction latency before release;
+- provide a complete ordered-card editor for mobile and an accessible “Add next step / choose input and output / move up or down” workflow on every viewport because accessible edge creation cannot depend on drag-and-drop.
 
-- Phase 0 baseline had a 92px right navigation rail, contradicting the required left-sidebar reference and Phase 1 layout.
-- Phase 3 shared-component migration is complete; page-local token migration remains intentionally incremental for Phases 4–6.
-- Shared primitives use semantic tokens consistently; several feature components still contain page-local raw color classes for later page phases.
-- Forms, tables, settings dialogs, status badges, notices, page headers, skeletons, and common loading/empty states now follow the reference system. Specialized feature-local dialogs retain their existing tested focus behavior.
-- Desktop header and individual pages retain their current layouts; only global shell/sidebar belongs to Phase 1.
-- Reference has no mobile pattern, so NewsCraft’s tested bottom bar/modal pattern remains authoritative on small viewports.
-- Black draggable `N` source is Next.js 16’s development indicator, not the NewsCraft logo component. It is disabled with supported `devIndicators: false` in `frontend/next.config.ts`; application errors remain intact.
+If the spike fails React 19/Next 16 compatibility, keyboard/assistive-technology acceptance, light/dark theming, or 30-node performance, implement the same adapter interface with a custom constrained ordered canvas. The backend graph and all APIs remain unchanged.
 
-## Phase 4 implementation notes
+Relevant official evaluation sources:
 
-- Today now uses shared loading, error, empty, progress, and semantic status treatments while preserving live job queries and decision routes.
-- Sources now uses denser responsive actions, table columns, health states, detail presentation, and shared form controls; source creation, deletion, selection, and health mutations are unchanged.
-- Drafts remains intentionally absent because it was removed before this migration. Reintroducing it would contradict the route inventory and route-preservation rule.
-- Calendar now uses compact shared controls, explicit status badges, semantic event accents, and a page-bounded horizontally scrollable month grid with a mobile affordance.
-- Library now uses compact cards and metadata, shared state feedback and filter inputs, responsive controls, and a mobile-accessible collection strip instead of hiding collection workflows below 900px.
-- Phase 4 page tests cover shared state usage, responsive source columns, calendar status tones, mobile collection controls, and page overflow.
+- https://reactflow.dev/learn
+- https://reactflow.dev/api-reference/react-flow
+- https://reactflow.dev/learn/advanced-use/accessibility
+- https://reactflow.dev/learn/advanced-use/ssr-ssg-configuration
 
-## Phase 5 implementation notes
+### 3.6 Visual direction from the reference
 
-- Jobs now uses a compact responsive shared table, tabular timestamps, semantic status and error treatments, and the shared Base UI modal for detail focus management, scroll locking, Escape handling, and trigger restoration.
-- Automations now uses shared form controls, semantic enabled/readiness/action states, compact route cards, bounded responsive dispatch tables, and shared loading, empty, and error feedback across list, builder, detail, and history routes.
-- Diagnostics and durable history now use shared state panels while preserving persisted runtime truth, Tehran timestamps, attention links, and structured metadata.
-- Retention now uses shared controls and semantic alerts, including an explicit permanent-cleanup warning and clearly differentiated destructive action after server-authoritative preview and typed confirmation.
-- Settings sections now use semantic light/dark status surfaces, consistent nested radii and borders, shared field styling, accessible required indicators, and existing guarded dialogs without changing any settings mutation.
-- Review and reconciliation routes now use shared alerts, inputs, selects, textareas, and status badges while preserving exact-revision hashes, publication blockers, durable job state, and operator evidence requirements.
-- Phase 5 validation passed 391 unit tests, TypeScript, production build, and all 63 Chromium E2E cases; the expanded critical-path loop covers desktop and 390px mobile overflow plus serious/critical axe checks.
+Adopt the reference’s useful product ideas:
 
-## Phase 6 implementation notes
+- strong Automations header and a single primary action;
+- Workflows, Runs, and Templates as clear top-level views;
+- desktop three-panel builder with a legible center canvas and a collapsible bottom Test Studio;
+- visually distinct node families, compact resource summaries, readiness state, and an inspector that uses progressive disclosure;
+- clear Save, Test, and Activate hierarchy;
+- vertical mobile workflow cards rather than a compressed free-form canvas;
+- restrained canvas controls and optional minimap only for larger graphs.
 
-- Responsive shell checks now cover 1440×900 desktop, 1280×720 laptop, 768×1024 tablet portrait, 1024×768 tablet landscape, 375×812 mobile portrait, and 844×390 mobile landscape.
-- Mobile navigation now reserves bottom safe-area space, bounds its modal above the fixed bottom bar, and scrolls only its route grid when landscape height is constrained.
-- E2E coverage verifies no page-level overflow, the 900px navigation boundary, desktop sidebar height, 44px mobile targets, landscape dialog bounds, focus trapping/restoration, keyboard tooltips, visible focus outlines, reduced motion, and 200% text sizing.
-- Semantic success, warning, destructive, and matching surface tokens replaced remaining page-local red/amber/green status treatments across global controls, collection workflows, editorial review, and package publishing. Intentional source/platform brand colors remain unchanged.
-- Dedicated tablet portrait/landscape axe checks pass in light and dark mode with no serious or critical violations.
-- Phase 6 validation passed 51 unit-test files and 391 tests, TypeScript, the Next.js production build with 12 static pages, and all 71 Chromium E2E tests.
-
-## Phase 7 implementation notes
-
-- Reviewed the complete migration diff and confirmed that no backend or contract files changed.
-- `git diff --check` passed; no debug instrumentation, stale deleted-route imports, reference mock data, or generic raw status colors remain. The RSS source icon intentionally retains its brand orange.
-- TypeScript's existing `noUnusedLocals` and `noUnusedParameters` checks passed. Progress remains used by Today; Separator remains intentionally reserved under the Phase 3 inventory decision.
-- Compared the current desktop Library, sidebar, and shared collection dialog captures with the native reference screenshot. Layout, density, semantic surfaces, borders, shadows, icon treatment, and modal hierarchy remain coherent; no new redesign was introduced.
-- Final validation passed 51 unit-test files and 391 tests, TypeScript, the Next.js production build with 12 static pages, and all 71 Chromium E2E tests.
-- The first unit-suite run had one load-sensitive Jobs test timeout. The same test passed in isolation, in six concurrent isolated runs, and in the complete rerun, where it took 1.303 seconds. No product-code change was made for this test-environment timing flake.
+Do not copy its pixels, palette, unsupported features, or concept-art density. Preserve NewsCraft’s current typography, radii, semantic light/dark tokens, navigation, Buttons, status badges, Lucide icon language, and responsive shell. Use semantic node accents—green trigger/success, purple AI/editorial, blue deterministic checks, amber output/publishing, red blocking failure, neutral skipped/inactive—with icon/text/status shape so color is never the sole signal. Avoid neon glow, animated edges by default, tiny text, nested border noise, decorative metrics, and raw JSON.
 
 ---
 
-# 4. Phase 0 — Reference Audit and Migration Baseline
+## 4. Six implementation phases
 
-## Goal
+## Phase 1 — Architecture audit and contract freeze
 
-Create a reliable implementation map before making broad visual changes.
+### Goal
 
-## Required work
+Create a verified implementation contract that distinguishes reusable runtime capability from requested-but-unsupported visual behavior before installing a diagram dependency or writing migrations.
 
-1. Inspect every file under:
+### Scope
 
-```text
-/home/armin/Documents/NewsCraft/refrencess/
-```
+1. Trace and document one complete live path and one dry-run path through:
+   - Telegram route API;
+   - route initialization/new-only boundary;
+   - scheduler;
+   - capture and `AutomationDispatch` creation;
+   - research/generation;
+   - immutable revision creation;
+   - exact review;
+   - publish intent;
+   - publishing worker;
+   - publication/reconciliation.
+2. Inventory current models, schemas, endpoints, safe errors, events, idempotency keys, pause/retry behavior, worker capabilities, tests, migrations, OpenAPI generation, and acceptance scripts.
+3. Inventory frontend routes, Automation components/API/query keys, Settings resource components, Operations Center links, shared primitives, accessibility patterns, responsive shell, test fixtures, and Playwright coverage.
+4. Produce `docs/implementation-notes/automation-workflow-builder-contract.md` containing:
+   - what exists and can be reused;
+   - requested concept → backend capability mapping;
+   - graph/schema/versioning decision;
+   - legacy-route compatibility strategy;
+   - initial node registry and typed ports;
+   - explicit deferrals and prohibited generic nodes;
+   - API diff and stable error catalog;
+   - authorization matrix;
+   - resource readiness contract;
+   - migration and rollback/forward-recovery plan.
+5. Resolve these specific decisions with code evidence:
+   - whether Schedule can start the generic run directly or must materialize a runtime projection;
+   - whether any conditional/fallback branch is safe in v1;
+   - how a legacy `follow_active` route becomes a pinned version without changing running work;
+   - whether Editorial profiles require a restored Content Settings management surface;
+   - how Automation Run links relate to `WorkflowJob`, `WorkflowEvent`, `AutomationDispatch`, research/generation records, revisions, and publications;
+   - whether `AutomationRoute.id` remains the public Automation ID for migrated routes or is mapped through a stable redirect.
+6. Write an ADR for the graph/compiler boundary and a short dependency decision record for `@xyflow/react`; do not install it yet.
 
-2. Review all available:
+### Dependencies
 
-- Screenshots
-- Markdown documents
-- React components
-- TypeScript files
-- CSS
-- Assets
-- Example layouts
-- Theme definitions
-- Interaction patterns
+- None. This is the required discovery gate for all later phases.
+- Read current `CONTEXT.md`, applicable docs, and any newly added ADRs before finalizing terminology.
 
-3. Audit the current frontend structure:
+### Expected outcomes
 
-- Application shell
-- Navigation
-- Route definitions
-- Global styles
-- Tailwind configuration
-- shadcn/ui configuration
-- Shared components
-- Theme handling
-- Page layouts
-- Table components
-- Dialog components
-- Status components
-- Loading and empty states
+- A reviewable, source-linked contract with no speculative node types.
+- A frozen Workflow Graph v1 and node-registry contract suitable for Pydantic, OpenAPI, and TypeScript generation.
+- A migration approach that preserves every active route, cursor, dispatch, Draft/revision, publish job, and publication.
+- A precise list of features intentionally deferred from the visual reference.
+- Estimated change surfaces and named test targets for Phases 2–6.
 
-4. Identify the real source of the draggable black `N` overlay.
+### Verification criteria
 
-5. Record the existing mobile navigation behavior.
+- The contract names the actual job types, models, events, route endpoints, source/generation/publishing ownership, and existing tests that prove each claimed capability.
+- The current live and dry-run traces are reproduced with repository fake fixtures or existing focused tests; no paid provider or real Telegram credential is used.
+- The capability matrix explicitly marks linear, branch, multiple-output, condition, schedule, manual, content-trigger, research, validation, review, draft, and publish support as existing, extension, or deferred.
+- The security review confirms no proposed API accepts provider keys, Telegram tokens, raw prompt bodies, client-controlled roles/scopes, or worker credentials.
+- The contract is approved before a graph migration or diagram package is added.
+- `git diff --check` passes for the documentation-only phase.
 
-6. Build a design-token matrix from the references.
+### Phase exit gate
 
-## Design-token matrix
-
-Document:
-
-- Page background
-- Sidebar background
-- Card background
-- Popover background
-- Muted background
-- Primary foreground
-- Secondary foreground
-- Muted foreground
-- Border color
-- Input color
-- Active navigation color
-- Hover color
-- Focus ring
-- Destructive color
-- Success color
-- Warning color
-- Error color
-- Radius scale
-- Shadow scale
-- Typography scale
-- Icon sizes
-- Icon stroke weights
-- Spacing scale
-- Transition timing
-
-## Deliverables
-
-- Updated `plan.md`
-- Route inventory
-- Reference checklist
-- Shared component inventory
-- Current visual gap analysis
-- Baseline test results
-- Identified source of the `N` overlay
-- No broad redesign yet
-
-## Acceptance criteria
-
-- Every reference file has been reviewed.
-- Every remaining frontend route is listed.
-- Existing shared components are mapped.
-- Test baseline is recorded.
-- Backend files remain unchanged.
-- No destructive changes are introduced.
-
-## Suggested commit
-
-```text
-docs(frontend): add reference migration audit and baseline
-```
+No Phase 2 schema or Phase 4 canvas work starts until the contract, migration strategy, node catalog, and deferral list agree with the current runtime.
 
 ---
 
-# 5. Phase 1 — Application Shell and Left Sidebar
-
-## Goal
-
-Correct the global application layout and navigation before theming individual pages.
-
-## Required work
-
-### 5.1 Move sidebar to the left
-
-Desktop layout must be:
-
-```text
-Left sidebar | Main content
-```
-
-Requirements:
-
-- Sidebar is the first layout column.
-- Main content is the second layout column.
-- Do not use `direction`, transforms, mirroring, or reverse-order hacks.
-- Verify in both light and dark mode.
-
-### 5.2 Sidebar structure
-
-Use only real NewsCraft destinations.
-
-Do not copy mock reference entries.
-
-Expected navigation order should be based on product importance and current routes.
-
-Each regular navigation item must include:
-
-- Icon
-- Label
-- Active state
-- Hover state
-- Focus state
-- Pressed state where relevant
-- Correct route behavior
-
-### 5.3 Sidebar sizing
-
-The sidebar must:
-
-- Fit all regular navigation items on standard desktop heights
-- Avoid horizontal scrolling
-- Avoid vertical scrolling at standard desktop heights
-- Avoid clipped labels
-- Avoid wrapped labels
-- Avoid icon compression
-- Avoid page-level overflow
-
-Adjust:
-
-- Sidebar width
-- Item height
-- Icon size
-- Label size
-- Padding
-- Gaps
-- Group spacing
-
-### 5.4 Settings control
-
-Settings must be:
-
-- Inside the same sidebar
-- Icon only
-- Gear icon
-- No visible text
-- Positioned at the bottom
-- Accessible via `aria-label="Settings"`
-- Supported by tooltip
-- Visually subtle
-- Clearly interactive
-
-Do not place it inside a separate card, bordered block, or detached footer.
-
-### 5.5 Theme toggle placement
-
-Add a theme-toggle control directly above Settings.
-
-At this phase, the final theme implementation may still be incomplete, but the control location and layout must be correct.
-
-### 5.6 Remove the black `N` overlay
-
-If it is an application component:
-
-- Remove the component.
-- Remove related imports.
-- Remove related state and handlers.
-- Remove related styles.
-
-If it is a framework development indicator:
-
-- Disable it using supported configuration.
-- Do not hide it with fragile CSS.
-- Preserve normal error handling.
-
-### 5.7 Mobile behavior
-
-Do not force the full desktop sidebar into small viewports.
-
-Preserve or improve the existing mobile navigation pattern.
-
-## Deliverables
-
-- Correct application shell
-- Left sidebar
-- Working navigation
-- Settings icon placement
-- Theme-toggle placement
-- Removed `N` overlay
-- Updated shell/navigation tests
-
-## Acceptance criteria
-
-- Sidebar is on the left.
-- Main content starts to its right.
-- All routes open correctly.
-- No sidebar scrollbars on standard desktop sizes.
-- Settings is icon-only and inside the sidebar.
-- Theme toggle appears directly above Settings.
-- The black `N` overlay is gone.
-- Mobile navigation still works.
-- Backend files remain unchanged.
-
-## Suggested commit
-
-```text
-feat(frontend): rebuild application shell and left sidebar
-```
-
----
-
-# 6. Phase 2 — Theme Foundation and Persistent Light/Dark Mode
-
-## Goal
-
-Create a maintainable theme system before page-level restyling.
-
-## Required work
-
-### 6.1 Semantic tokens
-
-Implement shared semantic tokens for:
-
-- Background
-- Foreground
-- Card
-- Card foreground
-- Popover
-- Muted
-- Muted foreground
-- Border
-- Input
-- Primary
-- Primary foreground
-- Secondary
-- Secondary foreground
-- Accent
-- Destructive
-- Success
-- Warning
-- Error
-- Focus ring
-- Active navigation
-- Hover navigation
-
-Prefer:
-
-- CSS variables
-- Tailwind semantic classes
-- Existing shadcn/ui conventions
-
-### 6.2 Light mode
-
-Create a polished light theme based on the same visual system as the references.
-
-It should include:
-
-- Soft neutral page background
-- Clean white or off-white surfaces
-- Subtle borders
-- Balanced text contrast
-- Restrained shadows
-- Clear active states
-
-### 6.3 Dark mode
-
-Match the dark reference closely:
-
-- Deep neutral background
-- Slightly lighter sidebar and card surfaces
-- Low-contrast borders
-- Muted secondary text
-- Clear primary text
-- Subtle active navigation state
-- No harsh pure-black/pure-white contrast
-
-### 6.4 Theme switching
-
-Requirements:
-
-- Toggle light/dark mode
-- Persist preference across reloads
-- Avoid incorrect-theme flash
-- Respect system preference only if user has not chosen
-- Accessible label
-- Tooltip
-- Keyboard support
-- Theme-specific icon behavior
-
-Suggested behavior:
-
-- Show sun icon in dark mode
-- Show moon icon in light mode
-
-### 6.5 Global foundation
-
-Apply theme tokens to:
-
-- `body`
-- Application shell
-- Sidebar
-- Page background
-- Default typography
-- Borders
-- Focus rings
-- Selection color
-- Scrollbar styling if intentionally customized
-
-## Deliverables
-
-- Shared light/dark token system
-- Persistent theme switching
-- No incorrect-theme flash
-- Updated theme tests
-- Updated global styles
-
-## Acceptance criteria
-
-- Theme persists after refresh.
-- No flash of the wrong theme.
-- New users follow system theme.
-- All routes receive correct base tokens.
-- Theme toggle is accessible.
-- Light and dark contrast are acceptable.
-- Backend files remain unchanged.
-
-## Suggested commit
-
-```text
-feat(frontend): add persistent light and dark themes
-```
-
----
-
-# 7. Phase 3 — Shared Component Migration
-
-## Goal
-
-Update reusable components before page-by-page styling.
-
-## Required components
-
-Audit and migrate, where present:
-
-- Button
-- IconButton
-- Input
-- Select
-- Textarea
-- Checkbox
-- Radio
-- Switch
-- Card
-- Panel
-- Badge
-- Status badge
-- Tabs
-- Tooltip
-- Dropdown menu
-- Context menu
-- Dialog
-- Drawer
-- Sheet
-- Toast
-- Alert
-- Skeleton
-- Empty state
-- Loading state
-- Table primitives
-- Pagination
-- Page header
-- Breadcrumbs
-- Date/time controls
-
-## Requirements
-
-- Preserve public APIs unless change is necessary.
-- Search all usages before changing shared props.
-- Use semantic tokens.
-- Support both themes.
-- Preserve keyboard and screen-reader behavior.
-- Use consistent icon sizing.
-- Use consistent radius, border, and shadow values.
-- Avoid duplicated page-level arbitrary styles.
-- Avoid unrelated rewrites.
-
-## Deliverables
-
-- Restyled shared component system
-- Updated component tests
-- Updated accessibility tests
-- Updated component documentation if present
-
-## Acceptance criteria
-
-- Shared components render correctly in both themes.
-- No repository-wide breakage from API changes.
-- Focus states remain visible.
-- Dialogs and menus manage focus correctly.
-- Status styles are consistent.
-- Backend files remain unchanged.
-
-## Completion record
-
-- Added native-compatible shared Input, Select, Textarea, Checkbox, and Radio controls with consistent responsive sizing, invalid states, disabled states, focus rings, and semantic tokens.
-- Added Base UI Dialog composition with modal semantics, focus trapping, Escape dismissal, scroll lock, outside-press handling, and focus restoration; migrated settings dialogs without changing their public behavior.
-- Added Alert, Skeleton, EmptyState, LoadingState, ErrorState, StatusBadge, and PageHeader primitives; migrated repeated shared usage across Today, Calendar, Jobs, Automations, Settings, editorial review, source health, and job status.
-- Restyled Button, Badge, Card, Table, Tooltip, Progress, notices, and status treatments to the reference radius, density, icon stroke, border, shadow, and motion system.
-- Measured light status foreground/surface pairs at 5.67:1–7.21:1 and verified light/dark axe coverage with no serious or critical violations.
-- Added `tests/ui-primitives.test.tsx` for native form semantics, dialog naming and focus restoration, status/feedback states, button API preservation, and accessible toast dismissal.
-- Verification: 51 unit files / 391 tests passed; TypeScript passed; production build passed; all 62 Chromium E2E cases passed, including responsive, keyboard, dialog, light/dark, and axe coverage.
-
-## Suggested commit
-
-```text
-refactor(frontend): align shared components with reference system
-```
-
----
-
-# 8. Phase 4 — Primary Workflow Pages
-
-## Goal
-
-Migrate the main user-facing workflows.
-
-## Pages
-
-- Today
-- Sources
-- Drafts
-- Calendar
-- Library
-
-## General requirements
-
-- Preserve current page logic.
-- Preserve routes.
-- Preserve data-fetching and mutations.
-- Do not move features between pages.
-- Do not replace real data with mock reference content.
-- Use shared components from Phase 3.
-
-## Page-specific focus
-
-### Today
-
-- Clear information hierarchy
-- Balanced dashboard density
-- Reference-aligned cards
-- Consistent empty/loading/error states
-
-### Sources
-
-- Compact table
-- Visible important columns
-- Clear status styling
-- Refined details panel
-- Responsive source management dialogs
-- No unnecessary horizontal scrolling
-- Consistent health-check states
-
-### Drafts
-
-- Refined cards and list states
-- Clear review status
-- Consistent action hierarchy
-- Better metadata readability
-
-### Calendar
-
-- Appropriate visual density
-- Clear event states
-- Good light/dark readability
-- Responsive behavior
-
-### Library
-
-- Refined filters
-- Compact metadata presentation
-- Clear item hierarchy
-- Stable responsive layout
-
-## Deliverables
-
-- All five pages migrated
-- Page-level tests updated
-- Responsive tests updated
-- No business logic changes
-
-## Acceptance criteria
-
-- Existing workflows still work.
-- No page-level horizontal overflow.
-- Tables remain readable.
-- Mobile layouts are usable.
-- Empty/loading/error states match the design system.
-- Backend files remain unchanged.
-
-## Suggested commit
-
-```text
-style(frontend): migrate primary newsroom pages
-```
-
----
-
-# 9. Phase 5 — Operational and Settings Pages
-
-## Goal
-
-Migrate technical and administrative areas.
-
-## Pages
-
-- Jobs
-- Automations
-- Diagnostics
-- Retention
-- Settings
-- Review pages
-- Detail pages
-- Any remaining routes not completed in Phase 4
-
-## Focus areas
-
-### Jobs
-
-- Compact tables
-- Clear states
-- Readable timestamps
-- Clear action hierarchy
-
-### Automations
-
-- Consistent controls
-- Clear enabled/disabled states
-- Refined schedule metadata
-
-### Diagnostics
-
-- Technical density without clutter
-- Readable severity states
-- Responsive structured data
-- Clear retry/error actions
-
-### Retention
-
-- Clear destructive actions
-- Strong warnings
-- Consistent form structure
-
-### Settings
-
-- Logical section grouping
-- Consistent labels
-- Refined inputs and switches
-- Clear save/error states
-- Good light/dark readability
-
-## Deliverables
-
-- All remaining routes migrated
-- Tests updated
-- Status and destructive styles standardized
-
-## Acceptance criteria
-
-- Every remaining route follows the same design system.
-- Technical tables remain responsive.
-- Destructive actions are clearly differentiated.
-- Settings forms are accessible.
-- Backend files remain unchanged.
-
-## Suggested commit
-
-```text
-style(frontend): migrate operational and settings pages
-```
-
----
-
-# 10. Phase 6 — Responsive, Accessibility, and Visual Consistency
-
-## Goal
-
-Improve quality without adding new features.
-
-## Required viewport checks
-
-- Standard desktop
-- Smaller laptop
-- Tablet portrait
-- Tablet landscape
-- 375px mobile portrait
-- Mobile landscape
-
-## Required behavior checks
-
-- Browser zoom
-- Keyboard navigation
-- Focus states
-- Dialog focus management
-- Tooltips
-- Icon-only controls
-- Contrast
-- Reduced motion
-- Touch targets
-- Content overflow
-- Sidebar behavior
-- Table responsiveness
-- Long labels
-- Loading states
-- Error states
-
-## Visual consistency review
-
-Compare all major routes against the reference package for:
-
-- Color
-- Spacing
-- Typography
-- Borders
-- Radius
-- Shadows
-- Icon sizing
-- Surface hierarchy
-- Active states
-- Hover states
-- Dark mode
-- Light mode
-
-## Deliverables
-
-- Responsive polish
-- Accessibility fixes
-- Visual consistency corrections
-- Updated E2E and axe coverage
-
-## Acceptance criteria
-
-- No page-level horizontal overflow.
-- No overlapping content.
-- No clipped essential controls.
-- No inaccessible icon-only buttons.
-- Light and dark modes pass accessibility checks.
-- Navigation works at all supported sizes.
-- Backend files remain unchanged.
-
-## Suggested commit
-
-```text
-test(frontend): complete responsive and accessibility polish
-```
-
----
-
-# 11. Phase 7 — Final Validation and Cleanup
-
-## Goal
-
-Validate the entire migration and fix regressions only.
-
-Do not begin a new redesign in this phase.
-
-## Required commands
-
-Run the project’s actual equivalents of:
+## Phase 2 — Canonical workflow domain, versioning, templates, and APIs
+
+### Goal
+
+Make PostgreSQL authoritative for versioned workflow definitions, backend validation, safe templates, resource readiness, and lifecycle operations while preserving legacy Telegram routes.
+
+### Scope
+
+1. Add forward-only migrations for Automation, AutomationVersion, AutomationTemplate, AutomationRun, and AutomationNodeRun concepts plus required links/indexes.
+2. Backfill existing `AutomationRoute` rows into legacy-compatible Automation definitions and immutable v1 versions:
+   - preserve existing public IDs or maintain deterministic mappings/redirects;
+   - preserve active/paused state, cursor, poll schedule, dispatch lineage, and destination/provider/prompt/profile references;
+   - do not reactivate archived/disabled records;
+   - resolve `follow_active` only for the new version snapshot while keeping already queued work on its stored prompt/checksum;
+   - keep the existing route row as a compiled runtime projection during migration.
+3. Implement backend modules with deep boundaries, for example:
+   - `app/automations/definitions/models.py`;
+   - `schemas.py` for graph/config/version/lifecycle contracts;
+   - `registry.py` for node types, typed ports, config JSON Schemas, validation rules, UI hints, and runtime capability mapping;
+   - `validation.py` for whole-graph invariants and resource readiness;
+   - `service.py` for CRUD, version creation, duplication, archive, conflict handling, and audit events;
+   - `templates.py` for deterministic idempotent system seeds.
+4. Implement backend graph validation:
+   - schema version and node/edge limits;
+   - stable unique IDs;
+   - supported node/config validation;
+   - exactly one entry and at least one output;
+   - typed ports and predecessor/successor rules;
+   - no cycles/unbounded loops;
+   - required Human Review boundary under current policy;
+   - resource existence, enabled state, capability readiness, prompt-version availability, destination health, secret-store availability, and worker capability availability;
+   - node-addressed errors/warnings with stable safe codes.
+5. Expose or adapt API endpoints only where existing routes are insufficient:
+   - workflow list/detail/create/update draft/archive;
+   - versions list/detail/create/restore-as-draft;
+   - node catalog and batched resource/readiness summaries;
+   - validate, duplicate, activate, pause;
+   - templates list and create-from-template;
+   - runs endpoints may be scaffolded here and populated in Phase 3.
+6. Require optimistic concurrency using an explicit revision/ETag/updated-version token. Return `automation_version_conflict` rather than overwriting.
+7. Keep read/write authorization at the centralized `ApplicationPrincipalResolver` boundary:
+   - reads require the appropriate read scopes;
+   - mutations require `automations:write`;
+   - catalog resource metadata is additionally limited by provider/destination/prompt read policy;
+   - browser-supplied scope headers remain ignored;
+   - every response is an allowlisted, secret-free schema.
+8. Seed only backend-supported templates. Initial safe candidates are Breaking News to Telegram, Research-first Draft, Daily Digest if scheduling/grouping compiles safely, Manual Draft Generator, and Blank Workflow. Seeds are versioned, idempotent, ownership-aware, inactive, and never overwrite operator changes.
+9. Regenerate `contracts/openapi.json` and `frontend/lib/api/generated.ts`; add generalized API/query-key modules without removing legacy adapters until compatibility tests pass.
+
+### Dependencies
+
+- Phase 1 contract, node matrix, versioning decision, and migration design.
+- Current Settings readiness semantics and centralized auth behavior.
+
+### Expected outcomes
+
+- The backend can persist, retrieve, duplicate, validate, version, and archive a workflow graph without a frontend.
+- Existing Telegram routes remain operable and appear as migrated Workflows.
+- Active versions are immutable; editing produces a separate draft.
+- Templates create editable inactive drafts.
+- The resource catalog exposes safe metadata for ready and non-ready saved references without secrets or N+1 browser queries.
+- Stable safe errors identify the node and recovery action.
+
+### Verification criteria
+
+- Unit tests cover graph schema, node registry, config validation, typed ports, invalid edges, missing trigger/output, cycles, size bounds, review policy, unknown nodes, and secret-shaped input rejection.
+- Service/API tests cover CRUD, duplicate, archive/dependency conflicts, template seeding/idempotency/ownership, version immutability, restore-as-draft, optimistic conflicts, authorization, redaction, and stable errors.
+- Migration tests run upgrade from the current head, backfill representative active/paused/disabled legacy routes, and prove cursor/dispatch/publication provenance is unchanged. Applied migration files are untouched and Alembic has one head.
+- PostgreSQL tests prove unique active pointers, immutable versions, concurrency conflicts, dependency-aware provider/prompt/destination deletion, and bounded pagination.
+- OpenAPI regeneration leaves no manual TypeScript drift.
+- Focused commands pass:
 
 ```bash
-npm run test
+cd backend
+.venv/bin/python -m pytest tests/test_automation_workflow_schema.py -v
+.venv/bin/python -m pytest tests/api/test_automations.py -v
+.venv/bin/python -m pytest tests/test_automation_workflow_migration.py -v
+TEST_DATABASE_URL=postgresql+asyncpg://newscraft:newscraft@127.0.0.1:55432/newscraft_test \
+  .venv/bin/python -m pytest tests/postgres/test_automation_definitions.py -v
+.venv/bin/alembic upgrade head
+```
+
+### Phase exit gate
+
+A workflow created and validated through the API must round-trip canonically, reject unsupported graphs server-side, and coexist with every legacy route before runtime compilation begins.
+
+---
+
+## Phase 3 — Compiler, durable execution, dry run, activation, and worker integration
+
+### Goal
+
+Compile validated graphs into the existing durable runtime and execute the v1 workflow end to end without weakening worker, review, publication, pause, retry, or idempotency boundaries.
+
+### Scope
+
+1. Build a deterministic compiler:
+
+```text
+Workflow Graph v1
+  → normalized supported stages
+  → resource/capability requirements
+  → existing route/schedule/job commands
+  → execution plan with stable node IDs
+```
+
+2. Reject graphs that cannot map to an existing safe handler. Do not add a generic expression engine or a browser-executed fallback.
+3. Create a run-start application service that, in one transaction where practical:
+   - locks and loads the persisted Automation version;
+   - revalidates graph and required resource readiness;
+   - records immutable safe references/settings in an execution snapshot;
+   - creates an AutomationRun and initial node states;
+   - enqueues the root durable job with a stable idempotency key;
+   - records a redacted audit/WorkflowEvent.
+4. Add minimal orchestration job types only where needed. Orchestration may enqueue existing domain jobs and advance persisted node state; it must not perform source I/O, model calls, or publication itself.
+5. Preserve capability ownership:
+   - source work remains on the source-capable worker;
+   - research/generation and graph stage advancement remain on generation-capable workers;
+   - only the publishing worker resolves Telegram credentials and publishes;
+   - the API validates and enqueues but does not run provider/publishing operations.
+6. Implement trigger adapters:
+   - Manual creates a durable run from selected safe input references;
+   - Schedule compiles to `WorkflowSchedule` and scheduler-enqueued work;
+   - Telegram new-item uses the existing new-only cursor/capture route projection;
+   - any other feed/content trigger is deferred until it has a deterministic persisted event seam.
+7. Persist node-level transitions—pending, queued, running, succeeded, warning, failed, skipped, waiting for review—with linked job and artifact IDs. Derive views from actual persisted states, not frontend guesses.
+8. Implement dry run as a backend invariant:
+   - all run/start and downstream commands carry a server-owned dry-run flag;
+   - publishing compilation is disabled for dry-run runs regardless of client input;
+   - generated output remains reviewable and evidence-bound;
+   - dry run records the exact workflow version and node results;
+   - refreshing or closing the browser does not affect the run.
+9. Implement Human Review and publishing continuation:
+   - a review node waits on an exact immutable revision;
+   - approval is still bound to revision ID and content hash;
+   - continuation revalidates that same revision, active controls, destination route snapshot, and capability status;
+   - Telegram publication uses the existing publish-intent/publishing-worker path and receipts;
+   - Instagram/X/blog remain manual package outputs.
+10. Implement activation as a transactional gate:
+    - only a saved, validated version may activate;
+    - required resources and workers must be ready;
+    - enforce a successful dry run if adopted by the Phase 1 policy decision;
+    - atomically update the active-version pointer and runtime projection;
+    - preserve the Telegram new-only boundary;
+    - pin all new runs to the active version;
+    - do not mutate existing runs when a new version activates.
+11. Preserve route pause, global pause/dry-run controls, lease recovery, retry classification, safe errors, and publication reconciliation.
+12. Add redacted domain events for workflow/version save, validate, run start/complete/fail, activation attempt/success, pause, review boundary, and publication boundary. Reuse Operations Center rather than creating another log store.
+
+### Dependencies
+
+- Phase 2 canonical graph, immutable versions, node registry, run persistence, and API contracts.
+- Existing job, generation, research, review, publishing, and capability services.
+
+### Expected outcomes
+
+- A supported graph executes as durable jobs and events with browser-independent progress.
+- Manual, scheduled, and Telegram new-item workflows reuse the same versioned run model.
+- Every run and node can be traced to the exact version, resources, evidence, provider/model, prompt version/checksum, Draft/revision, job, and publication outcome.
+- Dry run cannot publish even under a malicious or stale client.
+- Human review and the separate publishing worker remain mandatory wherever current policy requires them.
+
+### Verification criteria
+
+- Compiler unit tests prove supported graphs normalize deterministically and unsupported branch/cycle/node/config shapes fail with stable codes.
+- PostgreSQL journeys prove:
+  - create → save version → validate → durable dry run → generated reviewable revision → no publish job/publication;
+  - trigger → research/generation → pending review → exact approval → publish job → publishing worker → one Publication;
+  - activation creates the correct new-only boundary and does not backfill old items;
+  - active-version switching is atomic and old runs remain pinned;
+  - global/route pause prevents new work and resume does not duplicate it;
+  - API, scheduler, source/generation worker, and publishing-worker restarts recover without duplicate Drafts or Publications;
+  - lease expiry/reclaim and repeated idempotency keys converge on one logical run/node result;
+  - resource changes do not silently substitute providers, prompt versions, profiles, or destinations.
+- Worker registry tests prove the publishing worker cannot load research/generation handlers and the source/generation worker cannot load `telegram.publish`.
+- Redaction tests inject canaries into invalid configs/provider/Telegram errors and prove no API, job, event, run, node-run, audit, or log projection leaks them.
+- Focused commands pass:
+
+```bash
+cd backend
+.venv/bin/python -m pytest tests/test_automation_compiler.py -v
+.venv/bin/python -m pytest tests/test_automation_runs.py -v
+.venv/bin/python -m pytest tests/test_telegram_route_handlers.py tests/test_telegram_process_handler.py -v
+TEST_DATABASE_URL=postgresql+asyncpg://newscraft:newscraft@127.0.0.1:55432/newscraft_test \
+  .venv/bin/python -m pytest tests/postgres/test_automation_execution.py -v
+TEST_DATABASE_URL=postgresql+asyncpg://newscraft:newscraft@127.0.0.1:55432/newscraft_test \
+  .venv/bin/python -m pytest tests/postgres/test_telegram_process_handler.py tests/postgres/test_telegram_publish_service.py -v
+```
+
+### Phase exit gate
+
+One template-derived workflow must complete a real fake-provider PostgreSQL dry run, survive a process restart, create an exact reviewable revision, and prove zero publication before the visual builder is considered integrated.
+
+---
+
+## Phase 4 — Workflow library, templates, guided visual builder, and responsive accessibility
+
+### Goal
+
+Replace the Telegram form-first experience with a professional workflow library and schema-driven editor connected to the real Phase 2/3 contracts.
+
+### Scope
+
+1. Establish deep-linkable routes inside the same product area:
+   - `/automations` — Workflows (default);
+   - `/automations/runs` — Runs;
+   - `/automations/templates` — Templates;
+   - `/automations/new` — template selection, not an empty canvas;
+   - `/automations/[automationId]` — draft/active workflow editor;
+   - preserve or redirect `/automations/[routeId]/history` to the relevant run/history view.
+2. Build the Workflows library:
+   - name, description, lifecycle, trigger, main provider, output/destination, review mode, last run/outcome, active version, and readiness;
+   - reliable success rate only when backed by a defined denominator/window;
+   - safe open/edit/test/activate/pause/duplicate/view runs/archive actions;
+   - destructive actions secondary, confirmed, and dependency-aware;
+   - polished empty state with “Start from a template” and “Create a blank workflow.”
+3. Build the Templates view and New workflow experience from server data. Creating a template copy always produces an inactive editable draft.
+4. Add only the missing shared primitives justified by repeated use—Tabs, Sheet/Drawer, overflow Menu, and schema Field wrappers—using existing Base UI/shadcn conventions. Do not produce wrapper-only component sprawl.
+5. Add generalized Automation API modules and TanStack Query keys for workflows, versions, templates, catalog/resources, validation, activation/pause, and runs. Keep legacy keys only for compatibility paths.
+6. Implement one canonical client graph state with:
+   - backend graph/config data;
+   - local layout metadata;
+   - selection;
+   - undo/redo history;
+   - dirty state and last-saved version token;
+   - normalized validation messages;
+   - no credentials or raw prompts.
+7. Run the `@xyflow/react` spike, then pin it and update `package.json` plus lockfile if it passes:
+   - controlled graph only;
+   - custom memoized NewsCraft nodes;
+   - type-safe handles derived from the registry;
+   - zoom, fit, snap, keyboard focus/movement, deletion, selection, and optional minimap;
+   - dynamic client import and bounded rendering;
+   - no automatic animated edges;
+   - library CSS imported in the Tailwind 4-compatible global order.
+8. Implement the desktop/tablet three-panel editor:
+   - searchable/grouped node library on the left;
+   - canvas in the center;
+   - schema-generated node inspector on the right;
+   - collapsible Test Studio placeholder wired to real run APIs in Phase 5;
+   - sticky header with breadcrumb/name, lifecycle/readiness, Save, Test, and Activate/Pause hierarchy.
+9. Generate inspector controls from the node registry config schema and UI hints. Reuse provider logos and Telegram destination presentation. Show selected resource readiness as Ready, Disabled, Stale, Unavailable, or Not configured; retain broken saved references and link to the exact Settings section rather than silently replacing them.
+10. Implement continuous client validation for fast feedback, but always display server validation as authoritative. Invalid connections are blocked or immediately explained with the affected ports/nodes and a recovery action.
+11. Implement state safety:
+    - explicit Save draft;
+    - unsaved indicator and `useDirtyNavigation` confirmation;
+    - server-version conflict dialog with reload/copy options;
+    - no silent overwrite;
+    - autosave deferred unless reliability is proven; layout-only debounce must not activate or mutate business config.
+12. Implement the mobile editor as an ordered vertical list using the same graph state:
+    - step cards and explicit connectors;
+    - Add step bottom sheet;
+    - node settings full-height sheet;
+    - Move up/down and choose input/output controls;
+    - no free-form tiny canvas;
+    - no essential hover-only or drag-only action.
+13. Apply the reference direction through existing tokens: restrained surfaces, clear node hierarchy, one primary action, compact operational information, semantic node-family accents, visible focus, 44px targets, reduced motion, and light/dark parity.
+
+### Dependencies
+
+- Phase 2 APIs/catalog/version concurrency.
+- Phase 3 validate/test/activate endpoints and persisted execution semantics.
+- Phase 1 diagram decision record.
+
+### Expected outcomes
+
+- `/automations` opens an understandable workflow library rather than a blank canvas or a Telegram-only table.
+- A user can create a blank/template draft, add/select/reorder/delete compatible nodes, edit real resource-backed settings, save, validate, and activate through backend truth.
+- Desktop uses a visual canvas; mobile and keyboard users have a fully equivalent ordered workflow editor.
+- Existing visual language and navigation remain coherent in light and dark modes.
+- The canvas is code-split and does not load run history or heavy Test Studio content at startup.
+
+### Verification criteria
+
+- Component tests cover Workflows list/empty/error/loading states, Templates, template/blank creation, node library, add/delete/duplicate/reorder/select, valid/invalid connections, inspector schema fields, resource readiness, Settings links, undo/redo, dirty navigation, save conflicts, backend validation, activation/pause, and no secret/raw-error rendering.
+- Accessibility tests use roles/names rather than utility-class assertions and prove:
+  - complete keyboard editing;
+  - visible focus and logical order;
+  - screen-reader node/edge descriptions and live validation messages;
+  - accessible alternative to drag/edge creation;
+  - dialog/sheet focus trap and restoration;
+  - status text beyond color;
+  - reduced-motion support.
+- Responsive tests cover 390px vertical editing, 768px, 1024px collapsible panels, and 1440px three-panel layout with no page-level horizontal overflow or clipped controls.
+- Performance checks render and edit 5-, 15-, and 30-node workflows, keep common interactions responsive, confirm memoized node updates, and record the canvas bundle impact.
+- The dependency spike verifies the pinned package against React 19, Next.js 16 production build, Tailwind 4 CSS order, controlled state, custom nodes, theme tokens, and Playwright keyboard behavior.
+- Focused commands pass:
+
+```bash
+cd frontend
+env -u NODE_ENV npm run test -- --run tests/automation-workflows-page.test.tsx
+env -u NODE_ENV npm run test -- --run tests/automation-builder.test.tsx
+env -u NODE_ENV npm run test -- --run tests/automation-builder-accessibility.test.tsx
+npm run typecheck
+npm run build
+```
+
+### Phase exit gate
+
+A user must be able to build the supported v1 flow without drag-and-drop, save it as a backend draft version, reload it without loss, see accurate readiness/validation, and never see or submit a credential value.
+
+---
+
+## Phase 5 — Test Studio, Runs, version history, Operations links, and Draft seam
+
+### Goal
+
+Turn testing and run history into a coherent operational experience backed by the persisted Automation Run/Node Run model and existing Jobs, Draft/revision, and publication records.
+
+### Scope
+
+1. Implement the bottom Test Studio as a lazy-loaded feature:
+   - safe input selection from existing Feed/Inbox/content records or deterministic fixtures;
+   - Validate only and Full dry run first;
+   - Run until step, retry node, and compare outputs only when Phase 3 exposes safe durable contracts—otherwise hide them rather than simulate them;
+   - display the exact persisted workflow version before starting.
+2. Track active tests through TanStack Query with request cancellation and bounded polling only while a run is non-terminal. Refreshing the browser must resume from the run ID.
+3. Show node-level persisted results:
+   - status and timing;
+   - safe input/output summary;
+   - evidence references;
+   - provider/model and prompt version;
+   - usage/cost only when reliable;
+   - retryability and safe error;
+   - related Job/Operations Center link;
+   - no raw prompt/provider response/stack trace/credential/authorization data.
+4. Implement Runs view with bounded pagination and filters for workflow, state, dry-run/live, date range, and failed only. Columns include workflow/version, trigger, start, duration, current stage, outcome, mode, Draft/revision, Job, Publication, and safe failure code.
+5. Implement run detail as a deep-linkable drawer/page:
+   - desktop can overlay the graph with execution state;
+   - mobile uses a vertical step timeline;
+   - every displayed state comes from persisted node-run truth;
+   - links go to the existing Jobs/Operations Center and exact review/publication surfaces.
+6. Add immutable version history:
+   - view graph/config diff safely;
+   - identify active and run-pinned versions;
+   - duplicate or restore an old version only into a new draft;
+   - never rewrite historical versions.
+7. Implement the minimal Draft integration seam without a Drafts redesign:
+   - backend request accepts workflow ID, active version, input content IDs, and allowlisted safe parameters;
+   - generated output retains workflow/run/node provenance;
+   - Test Studio and run details link directly to the generated exact revision (`/review/{revisionId}` in the current frontend);
+   - add “Create with workflow” to a future/current Drafts entry point only if that surface exists and can use the same contract cleanly; otherwise document it as the next UI consumer.
+8. Extend Operations history taxonomy and projections to include workflow/version/run/node events while continuing to link raw operational detail to Jobs instead of duplicating logs.
+9. Add clear safe-error mapping: node name, cause, next action, and Settings/Operations link. Deduplicate banners so one failure is not repeated at page, panel, node, and toast level.
+
+### Dependencies
+
+- Phase 3 persisted run/node execution and durable dry-run behavior.
+- Phase 4 workflow builder, graph renderer/ordered editor, shared panels, and query modules.
+
+### Expected outcomes
+
+- A user can start a real durable dry run, leave/refresh, return, inspect each executed node, and open the generated exact revision.
+- Runs provide a product-level view while Operations Center remains the operational job truth.
+- Historical runs and Drafts remain pinned to their original workflow versions and resource snapshots.
+- Version history is inspectable and restorable without mutation of history.
+
+### Verification criteria
+
+- Frontend tests cover Test Studio inputs/modes, durable job acknowledgement, refresh resume, node results, safe errors, links, Runs filters/pagination, run detail graph/timeline, version history, restore-as-draft, and generated-revision navigation.
+- API/PostgreSQL tests prove bounded run queries, exact linkage among run → node → jobs → research/generation → revision → publish job/publication, and redaction at every projection.
+- A browser test creates from a template, configures safe fixtures, saves, validates, dry-runs, watches node states, opens the generated revision, returns to the workflow, activates, pauses, opens Runs, and follows the related Job link.
+- Mobile and keyboard browser tests can start and inspect the same dry run without using canvas drag behavior.
+- Dry-run tests assert at the database and UI layers that no `PublishJob`/`Publication` is produced.
+- Focused commands pass:
+
+```bash
+cd backend
+.venv/bin/python -m pytest tests/api/test_automation_runs.py -v
+TEST_DATABASE_URL=postgresql+asyncpg://newscraft:newscraft@127.0.0.1:55432/newscraft_test \
+  .venv/bin/python -m pytest tests/postgres/test_automation_run_projection.py -v
+
+cd ../frontend
+env -u NODE_ENV npm run test -- --run tests/automation-test-studio.test.tsx
+env -u NODE_ENV npm run test -- --run tests/automation-runs.test.tsx
+npm run test:e2e -- e2e/automation-workflow-builder.spec.ts
+```
+
+### Phase exit gate
+
+The complete template → edit → validate → durable dry run → node results → exact generated revision → activate/pause → run history → Operations Job journey must pass in a deterministic browser test against the real backend contract.
+
+---
+
+## Phase 6 — Security, prompt safety, performance, compatibility, and release acceptance
+
+### Goal
+
+Harden the complete production slice, prove migration and restart safety, update operational documentation, and release only when backend, PostgreSQL, worker, frontend, browser, accessibility, and visual checks pass together.
+
+### Scope
+
+1. Perform a security boundary review:
+   - centralized principal/scopes on every read/mutation;
+   - same-origin/browser header-spoof protection;
+   - no credential-bearing fields in graph/catalog/version/run APIs;
+   - allowlisted node schemas/operators/destination behavior;
+   - no HTTP/SQL/shell/code/filesystem/credential nodes;
+   - SSRF-safe future integration posture;
+   - redacted errors/audit/events/jobs/run summaries;
+   - dependency-aware deletion and authorization regression tests.
+2. Enforce prompt-injection boundaries:
+   - system policy, operator template, structured config, source evidence, and user input remain separate message/data channels;
+   - source content cannot modify graph, destination, credentials, review policy, tools, or publication behavior;
+   - prompt versions are referenced by ID/checksum and governed by Content Settings;
+   - model output is schema-validated, bounded, and unable to grant itself tools or iterations.
+3. Harden runtime reproducibility:
+   - immutable execution snapshots contain safe IDs/settings only;
+   - active runs follow the documented resource-disable/change policy without silent substitution;
+   - old versions/runs remain interpretable after template/resource updates;
+   - worker restarts and lease recovery preserve exactly-once material effects through existing idempotency/receipt mechanisms.
+4. Performance and reliability work:
+   - batched resource readiness and bounded lists;
+   - no full run history on editor startup;
+   - dynamic canvas/Test Studio/run detail imports;
+   - memoized nodes and localized inspector updates;
+   - request cancellation and polling only for active states;
+   - 5/15/30-node render/edit/save/validate measurements;
+   - no save per keystroke; debounced operations only where proven;
+   - bundle analysis and regression budget.
+5. Visual/accessibility QA using the reference only as a comparison for hierarchy and experience:
+   - 1440 light/dark;
+   - 1024 light/dark;
+   - 768;
+   - 390 portrait and a small-phone landscape case;
+   - canvas/node readability, inspector width, Test Studio, errors, sheets/dialogs, no horizontal overflow, touch targets, visible focus, screen-reader order, and reduced motion.
+6. Preserve compatibility:
+   - migrated Telegram routes keep their URLs/actions or documented redirects;
+   - current smoke and Automation browser fixtures are upgraded rather than deleted;
+   - old active routes continue polling/publishing through the proven runtime projection;
+   - archive/delete remains dependency-aware;
+   - only one Alembic head exists and fresh installs plus upgrades both work.
+7. Update documentation:
+   - architecture/compiler and node-registry contract;
+   - workflow author/operator guide;
+   - template governance;
+   - safe error/recovery guide;
+   - worker/capability/deployment changes;
+   - migration/rollback-forward recovery notes;
+   - release report with exact commands/results and clearly separated pre-existing failures.
+8. Update deterministic smoke/acceptance so it creates a versioned workflow from a seeded template, proves dry-run safety, exact approval, publication-worker-only send, pause/resume, version pinning, and restart recovery.
+
+### Dependencies
+
+- Phases 1–5 complete with no mocked runtime seams.
+- Disposable migrated PostgreSQL and deterministic fake provider/Telegram fixtures.
+
+### Expected outcomes
+
+- A focused, production-safe v1 builder supports the real editorial workflow end to end.
+- Existing Telegram automation behavior and historical provenance survive migration.
+- No arbitrary automation or credential boundary has been introduced.
+- Performance, responsive behavior, accessibility, observability, and operational recovery are documented and proven.
+- The final report distinguishes pass/fail/block status and unrelated dirty-worktree/environment noise.
+
+### Verification criteria
+
+Run the repository-pinned environments and record exact results.
+
+Backend/static/contract:
+
+```bash
+cd backend
+.venv/bin/python -m pytest tests/test_automation_workflow_schema.py tests/test_automation_compiler.py tests/api/test_automations.py tests/api/test_automation_runs.py -v
+.venv/bin/python -m pytest tests/test_job_worker.py tests/test_scheduler.py tests/test_telegram_route_handlers.py tests/test_telegram_process_handler.py tests/test_telegram_publish_service.py -v
+.venv/bin/python -m mypy app
+.venv/bin/ruff check . ../scripts
+.venv/bin/alembic upgrade head
+.venv/bin/alembic current
+.venv/bin/alembic check
+cd ..
+backend/.venv/bin/python scripts/quality_baseline.py --check
+```
+
+PostgreSQL/integration/recovery:
+
+```bash
+scripts/test_postgres.sh \
+  tests/postgres/test_automation_definitions.py \
+  tests/postgres/test_automation_execution.py \
+  tests/postgres/test_automation_run_projection.py \
+  tests/postgres/test_scheduler_worker_integration.py \
+  tests/postgres/test_telegram_process_handler.py \
+  tests/postgres/test_telegram_publish_service.py \
+  tests/integration/test_publish_crash_recovery.py
+scripts/test_acceptance.sh
+```
+
+Frontend/browser:
+
+```bash
+cd frontend
+env -u NODE_ENV npm run test
 npm run typecheck
 npm run build
 npm run test:e2e
 ```
 
-Also run:
+Repository hygiene and deployment contracts:
 
-- Navigation tests
-- Theme-toggle tests
-- Theme-persistence tests
-- Route smoke tests
-- Light-mode accessibility checks
-- Dark-mode accessibility checks
-
-## Manual validation checklist
-
-- [x] Sidebar is on the left.
-- [x] Main content begins to the right.
-- [x] No sidebar horizontal scrollbar.
-- [x] No sidebar vertical scrollbar at standard desktop height.
-- [x] Navigation labels and icons fit.
-- [x] Theme toggle is directly above Settings.
-- [x] Settings is icon-only and inside the sidebar.
-- [x] Light theme applies to every route.
-- [x] Dark theme applies to every route.
-- [x] Theme preference persists.
-- [x] No incorrect-theme flash.
-- [x] Black draggable `N` overlay is removed.
-- [x] All routes open correctly.
-- [x] Existing workflows still work.
-- [x] No backend file changed.
-- [x] No reference mock data was introduced.
-- [x] No unnecessary horizontal page overflow.
-- [x] Tables, dialogs, forms, and detail panels still work.
-- [x] UI is visually coherent and professional.
-
-## Cleanup
-
-- Remove confirmed dead frontend code.
-- Remove obsolete styling no longer used.
-- Remove duplicate tokens.
-- Remove unused imports.
-- Verify no shared component was deleted while still referenced.
-- Review full Git diff.
-- Confirm frontend-only scope.
-
-## Final report
-
-The final implementation report must include:
-
-1. Reference files reviewed
-2. Global design tokens added or changed
-3. Application-shell changes
-4. Sidebar changes
-5. Theme-switching implementation
-6. Shared components migrated
-7. Pages migrated
-8. Removal of the black `N` overlay
-9. Responsive and accessibility changes
-10. Tests and commands executed
-11. Exact test results
-12. Files changed
-13. Genuine remaining limitations
-
-Do not claim a test passed unless it was actually executed.
-
-## Suggested commit
-
-```text
-chore(frontend): finalize reference migration validation
+```bash
+cd ..
+git diff --check
+cd backend
+.venv/bin/python -m pytest tests/test_openapi_contract.py tests/test_docker_config.py tests/test_ci_workflows.py -v
 ```
 
----
+Release assertions:
 
-# 12. Session Handoff Protocol
+- Fresh PostgreSQL migration and upgrade-from-current fixtures both pass.
+- Manual dry run produces a reviewable revision and zero publication records.
+- Reviewed Telegram journey produces one publication through the publishing worker.
+- API, scheduler, source/generation worker, and publishing worker restart scenarios recover with no duplicate Draft/revision or Publication.
+- New-only activation, route pause, global pause, dry-run control, retry, idempotency, and reconciliation remain correct.
+- Browser coverage uses same-origin `/api/backend/...`, not direct-only backend calls.
+- Axe finds no serious/critical violations on Workflows, Templates, builder, Test Studio, Runs, and run detail at desktop/mobile widths.
+- Visual captures pass in all specified sizes/themes with no overflow/clipping.
+- Secret canaries do not appear in HTML, JS-visible data, APIs, logs, events, jobs, audits, reports, screenshots, or source control.
+- `package.json` and lockfile agree; OpenAPI and generated TypeScript are current; one Alembic head exists.
 
-At the end of every session, update this document.
+### Phase exit gate
 
-Required handoff format:
-
-```markdown
-## Session handoff
-
-### Completed
-- ...
-
-### Files changed
-- ...
-
-### Tests passed
-- ...
-
-### Tests failed
-- ...
-
-### Known issues
-- ...
-
-### Next session
-- ...
-
-### Recommended first commands
-- git status
-- git log --oneline -10
-- ...
-```
-
-The next session must begin by reading:
-
-```text
-plan.md
-git status
-git log --oneline -10
-```
-
-Then it should inspect only the files relevant to the next phase unless a broader audit is necessary.
-
-## Session handoff — Phase 0 through Phase 2
-
-### Completed
-
-- Audited all four reference files and current frontend architecture.
-- Recorded authoritative routes, shared components, mobile behavior, token matrix, visual gaps, and baseline results.
-- Rebuilt desktop shell as `260px left sidebar | minmax(0, 1fr) main content`.
-- Replaced compact right rail presentation with reference-aligned labeled NewsCraft navigation groups.
-- Kept only real routes and retained shared route data for desktop/mobile navigation.
-- Added working theme placement control directly above icon-only Settings.
-- Added persistent light/dark state with saved preference, system fallback, live system-change handling until explicit selection, and pre-hydration bootstrap.
-- Added semantic error, focus, navigation hover, and navigation active roles plus reference-matched neutral surfaces for both themes.
-- Added accessible moon/sun theme toggles to desktop sidebar and mobile navigation panel.
-- Kept Settings inside sidebar with `aria-label="Settings"` and tooltip.
-- Preserved arrow/Home/End keyboard movement, focus styling, active/hover/pressed states, mobile modal focus management, reduced-motion handling, and short-height fallback.
-- Confirmed black draggable `N` is Next.js development indicator and confirmed supported `devIndicators: false` configuration.
-- Updated shell/navigation unit and E2E coverage, including light/dark sidebar checks and 260px-layout Feed density.
-
-### Files changed
-
-- `plan.md`
-- `frontend/components/newsroom/newsroom-shell.tsx`
-- `frontend/components/newsroom/newsroom-sidebar.tsx`
-- `frontend/components/newsroom/mobile-newsroom-nav.tsx`
-- `frontend/components/newsroom/newsroom-header.tsx`
-- `frontend/components/providers/theme-provider.tsx`
-- `frontend/components/theme/theme-toggle.tsx`
-- `frontend/lib/theme.ts`
-- `frontend/app/layout.tsx`
-- `frontend/app/globals.css`
-- `frontend/tests/newsroom-shell.test.tsx`
-- `frontend/tests/navigation.test.tsx`
-- `frontend/tests/mobile-nav.test.tsx`
-- `frontend/tests/theme.test.tsx`
-- `frontend/e2e/accessibility.spec.ts`
-- `frontend/e2e/feed-desktop.spec.ts`
-- `frontend/e2e/theme.spec.ts`
-
-### Tests passed
-
-- `npm test -- --reporter=default` — 50 files, 386 tests passed in 40.23s.
-- `npm run typecheck` — passed.
-- `npm run build` — passed; 12 static pages generated.
-- `npm run test:e2e` — 62 Chromium tests passed in 3.1m.
-- Final axe coverage passed in desktop/mobile and light/dark modes with no serious or critical violations.
-- System-theme first paint, explicit preference persistence, sidebar interaction, and visual screenshot checks passed.
-
-### Tests failed
-
-- No outstanding failures.
-- Phase 2’s first E2E run exposed a hydration race in test-only theme setup and an eager hover-transition assertion. Both were corrected; targeted checks and the complete rerun passed.
-
-### Known issues
-
-- Existing unit suite still emits React `act(...)` warnings in unrelated operation, article, and variant-editor tests.
-- No commit was created because the repository began with extensive overlapping uncommitted frontend work.
-
-### Next session
-
-- Execute Phase 3 only: migrate shared components to the completed semantic theme foundation.
-
-### Recommended first commands
-
-- `git status`
-- `git log --oneline -10`
-- `sed -n '1,260p' plan.md`
-- `sed -n '/# 7\\. Phase 3/,/# 8\\. Phase 4/p' plan.md`
-- `rg --files frontend/components/ui`
+Release only after the real PostgreSQL and browser journeys pass. If Docker, browser, or another external environment blocks a gate, report it as blocked with evidence; do not describe the feature as complete.
 
 ---
 
-## Session handoff — Phase 6
+## 5. Cross-phase delivery rules
 
-### Completed
+### 5.1 Vertical slices and compatibility
 
-- Completed responsive and accessibility audit against Phase 6 requirements and the native reference screenshot.
-- Added safe-area-aware bottom spacing and a height-bounded, internally scrollable mobile navigation panel.
-- Standardized remaining generic status/error colors on semantic light/dark tokens.
-- Added six-viewport shell coverage plus focus, tooltip, touch-target, reduced-motion, 200% text-size, overflow, and tablet light/dark axe checks.
-- Confirmed no backend code or API behavior changed.
+- Each phase ends in a coherent, testable state and preserves current route behavior.
+- Keep legacy Telegram API adapters until the generalized API has migration and browser proof.
+- Prefer adapters over rewrites: the compiler should call existing domain services/jobs, not duplicate provider, research, generation, validation, approval, or publishing logic.
+- Avoid long-lived frontend mocks. Phase 4 may use typed test fixtures, but acceptance must use the real Phase 2/3 contracts.
+- Hide unsupported Test Studio actions and nodes rather than presenting non-functional controls.
 
-### Files changed
+### 5.2 Security invariants
 
-- `plan.md`
-- `frontend/app/globals.css`
-- `frontend/components/newsroom/mobile-newsroom-nav.tsx`
-- `frontend/components/newsroom/newsroom-header.tsx`
-- `frontend/components/newsroom/newsroom-shell.tsx`
-- `frontend/components/newsroom/newsroom-sidebar.tsx`
-- `frontend/components/editorial/content-pack-workspace.tsx`
-- `frontend/components/editorial/evidence-panel.tsx`
-- `frontend/components/editorial/variant-editor.tsx`
-- `frontend/features/articles/collection-management.tsx`
-- `frontend/features/articles/save-to-collection-dialog.tsx`
-- `frontend/features/control/global-controls.tsx`
-- `frontend/features/packages/components/copy-export-actions.tsx`
-- `frontend/features/packages/components/manual-publishing-checklist.tsx`
-- `frontend/features/packages/components/media-plan.tsx`
-- `frontend/features/packages/components/platform-editor.tsx`
-- `frontend/features/packages/components/telegram-preview.tsx`
-- `frontend/e2e/responsive-accessibility.spec.ts`
+- Provider/Telegram credentials never enter Automation requests, graph JSON, browser state, query caches, events, logs, or snapshots.
+- The browser never supplies trusted roles/scopes.
+- New Automation reads/mutations use the centralized application-principal boundary and existing scopes.
+- Dry runs cannot compile or enqueue publication.
+- Source/generation workers cannot publish; publishing workers cannot research or construct AI dependencies.
+- All source material is untrusted data and cannot alter workflow policy or permissions.
 
-### Tests passed
+### 5.3 UX invariants
 
-- `npm test -- --reporter=dot` — 51 files, 391 tests passed.
-- `npm run typecheck` — passed.
-- `npm run build` — passed with Next.js 16.2.11; 12 static pages generated and all routes collected.
-- `npx playwright test e2e/responsive-accessibility.spec.ts e2e/sources.spec.ts` — 10 tests passed.
-- `npx playwright test` — 71 Chromium tests passed in 2.7 minutes.
-- Tablet portrait/landscape light/dark axe coverage found no serious or critical violations.
+- The Workflows library is the default entry, not an empty canvas.
+- One clear primary action per view.
+- The builder is usable without mouse, drag-and-drop, or hover.
+- Mobile uses an ordered vertical editor, not a squeezed desktop canvas.
+- Resource breakage is explicit and actionable; no silent fallback selection.
+- Status is conveyed through text/icon/shape as well as semantic color.
+- Existing NewsCraft tokens and components take precedence over reference-image pixels or third-party default themes.
 
-### Tests failed
+### 5.4 Scope explicitly deferred from v1
 
-- No outstanding failures.
-- Sandboxed production build and Playwright server startup could not bind local ports. Authorized reruns passed.
-
-### Known issues
-
-- Existing unit suite still emits React `act(...)` warnings in operation, article, and variant-editor tests.
-- Headless Playwright does not apply Chromium browser-chrome zoom shortcuts; Phase 6 automated coverage uses responsive reflow plus 200% root text sizing. Final manual Phase 7 browser-zoom inspection remains recommended.
-- No commit was created because the repository began with extensive overlapping uncommitted frontend work.
-
-### Next session
-
-- Execute Phase 7 only: final validation, cleanup, complete manual checklist, and final report.
-
-### Recommended first commands
-
-- `git status`
-- `git log --oneline -10`
-- `sed -n '1,360p' plan.md`
-- `sed -n '/# 11\\. Phase 7/,/# 12\\. Session Handoff/p' plan.md`
-- `git diff --check`
+- arbitrary webhook and HTTP request nodes;
+- SQL, shell, code, filesystem, environment, or credential nodes;
+- unrestricted expressions, loops, recursion, or dynamic tool/permission grants;
+- generic branching beyond compiler-proven allowlisted cases;
+- direct Instagram/X/blog publication;
+- real-time collaborative editing;
+- reusable subflows and marketplace integrations;
+- hundreds of node types or graphs larger than the measured 30-node target;
+- empty Variables/Connections tabs;
+- a full unrelated Drafts redesign;
+- decorative analytics or success-rate claims without reliable data.
 
 ---
 
-## Session handoff — Phase 7
+## 6. Final definition of done
 
-### Completed
+The six phases are complete only when all of the following are true:
 
-- Completed the Phase 7 regression-only cleanup and final validation pass.
-- Reviewed the reference package, current visual captures, semantic token system, full Git diff, frontend-only scope, deleted-route references, raw status colors, debug instrumentation, and reference mock-data leakage.
-- Completed every Phase 7 manual checklist item using direct visual review plus unit, build, route, theme, responsive, workflow, and accessibility evidence.
-- Restored the generated-only `next-env.d.ts` path change produced by the validation build so the final diff contains no build artifact.
-- Confirmed no new redesign, backend change, contract change, or reference mock workflow was introduced.
-
-### Files changed
-
-- `plan.md`
-
-No product code changed during Phase 7. The complete migration worktree contains 90 modified tracked files, 8 deleted tracked files, and 20 untracked paths, including `plan.md` and the provided `refrencess/` package.
-
-### Tests passed
-
-- `npm test -- --reporter=default` — final rerun passed: 51 files, 391 tests in 53.24s.
-- `npm run typecheck` — passed with strict unused-local and unused-parameter checks enabled.
-- `npm run build` — passed outside the sandbox with Next.js 16.2.11; compiled in 7.6s, TypeScript completed in 16.6s, 12 static pages generated, and all routes collected.
-- `npm run test:e2e` — 71 Chromium tests passed in 3.4 minutes.
-- Navigation, route smoke, removed-route redirect, theme toggle, system-theme first paint, persisted preference, light/dark accessibility, responsive shell, touch target, focus, reduced-motion, 200% text-size, dialog, form, table, and end-to-end workflow checks passed inside those suites.
-- `git diff --check` — passed.
-- Frontend-only scope audit — no changed files under `backend/` or `contracts/`.
-
-### Tests failed
-
-- First full unit run: 1 Jobs test timed out waiting for its initial mocked row; 50 files and 390 tests passed. The test passed in isolation, under six concurrent isolated runs, and in the final complete rerun. This is a load-sensitive test timing flake, not an outstanding product regression.
-- First sandboxed production build: Turbopack could not bind its internal port (`Operation not permitted`). The authorized rerun passed.
-- An extra root-level `npx tsc` diagnostic attempted to resolve an unrelated registry package and failed with `EAI_AGAIN`; it was not a project test. The actual local `npm run typecheck` passed.
-
-### Known issues
-
-- Existing unit tests still emit React `act(...)` warnings in operation, article, and variant-editor tests.
-- Browser-chrome zoom shortcuts are not applied by headless Chromium. Automated coverage verifies responsive reflow and 200% root text sizing; an interactive browser-zoom spot check remains the only genuine manual limitation.
-- The worktree still contains the complete multi-phase migration as uncommitted changes. No commit was created because the task did not request one and the repository began with overlapping uncommitted work.
-
-### Next session
-
-- Migration is complete. Review and commit the full frontend migration when ready; no implementation phase remains.
-
-### Recommended first commands
-
-- `git status`
-- `git diff --check`
-- `git diff --stat`
-- `git diff -- frontend`
-- `cd frontend && npm test -- --reporter=default`
-
----
-
-# 13. Definition of Done
-
-The migration is complete only when:
-
-- Every reference file has been reviewed.
-- Sidebar is correctly placed on the left.
-- Theme toggle and Settings are correctly positioned.
-- The black `N` overlay is removed.
-- Light and dark modes are complete and persistent.
-- Shared components match the reference system.
-- Every remaining frontend route is migrated.
-- Responsive layouts are usable.
-- Accessibility checks pass.
-- Unit tests pass.
-- TypeScript passes.
-- Production build passes.
-- E2E tests pass.
-- Backend files remain unchanged.
-- The final frontend is visually polished, cohesive, and closely aligned with the reference package.
+1. Workflows, Runs, and Templates are real, useful, deep-linkable views under `/automations`.
+2. A workflow can be created from a safe template or blank draft and edited through the guided visual/ordered editor.
+3. The server owns a versioned graph, registry, validation, compilation, activation, and execution snapshot.
+4. Invalid nodes/configs/connections/graphs are rejected before activation and fail safely if submitted directly.
+5. Every new run is pinned to an immutable workflow and prompt version.
+6. Existing Settings resources are selected by safe ID/readiness metadata; credentials never appear.
+7. A durable dry run survives refresh/restart, creates reviewable material, and cannot publish.
+8. Test Studio and Runs show persisted node results and link to Jobs/Operations Center and the exact generated revision.
+9. Human Review is first-class and exact approval remains bound to revision ID/content hash.
+10. Telegram sends occur only in the publishing worker with current idempotency, receipts, reconciliation, and audit.
+11. Existing Automation routes and historical dispatch/publication provenance survive migration.
+12. Desktop, tablet, mobile, keyboard, screen-reader, reduced-motion, light, and dark behavior pass their acceptance checks.
+13. Security, redaction, prompt-injection, dependency, authorization, performance, OpenAPI, migration, static, PostgreSQL, browser, and repository hygiene gates pass.
+14. The final implementation report records exact commands/results, migrations/files changed, supported/deferred nodes, remaining limitations, and unrelated pre-existing failures separately.

@@ -318,6 +318,14 @@ async def regenerate_variant(
 async def approve_revision(revision_id: UUID, body: ApprovalRequest, session: AsyncSession = SessionDependency):
     try:
         result = await EditorialService(session).approve_revision(revision_id, body)
+        from app.automations.definitions.runtime_state import continue_automation_review
+
+        assert result.approved_at is not None
+        await continue_automation_review(
+            session,
+            revision_id=result.id,
+            observed_at=result.approved_at,
+        )
     except (InvalidGenerationRequest, RevisionConflict) as exc:
         raise editorial_http_error(exc) from None
     await session.commit()

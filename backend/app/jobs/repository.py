@@ -392,6 +392,8 @@ class JobRepository:
         scheduled_for: datetime | None = None,
         max_attempts: int = 3,
         pause_sensitive: bool = True,
+        automation_run_id: UUID | None = None,
+        automation_node_run_id: UUID | None = None,
     ) -> EnqueueJobResult:
         effective_scheduled_for = _now(scheduled_for)
         safe_payload = _redact_job_payload(job_type, payload)
@@ -416,6 +418,8 @@ class JobRepository:
                 scheduled_for=effective_scheduled_for,
                 max_attempts=max_attempts,
                 pause_sensitive=pause_sensitive,
+                automation_run_id=automation_run_id,
+                automation_node_run_id=automation_node_run_id,
             )
             .on_conflict_do_nothing(index_elements=["idempotency_key"])
             .returning(WorkflowJob.id)

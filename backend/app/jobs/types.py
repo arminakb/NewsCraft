@@ -47,6 +47,7 @@ class JobType(StrEnum):
     TELEGRAM_DESTINATION_CHECK = "telegram.destination.check"
     TELEGRAM_PROXY_CHECK = "telegram.proxy.check"
     TELEGRAM_PUBLISH = "telegram.publish"
+    AUTOMATION_RUN_START = "automation.run.start"
 
 
 _RETENTION_PREVIEW_TOKEN_PATTERN = re.compile(r"^[0-9a-f]{64}$")
@@ -107,6 +108,8 @@ class _JobSnapshot(Protocol):
     scheduled_for: datetime | None
     priority: int
     pause_sensitive: bool
+    automation_run_id: UUID | None
+    automation_node_run_id: UUID | None
 
 
 class _PayloadCarrier(Protocol):
@@ -128,6 +131,8 @@ class JobExecution:
     scheduled_for: datetime | None
     priority: int
     pause_sensitive: bool
+    automation_run_id: UUID | None = None
+    automation_node_run_id: UUID | None = None
 
     def __post_init__(self) -> None:
         if not isinstance(self.id, UUID):
@@ -177,6 +182,8 @@ class JobExecution:
             scheduled_for=job.scheduled_for,
             priority=job.priority,
             pause_sensitive=job.pause_sensitive,
+            automation_run_id=getattr(job, "automation_run_id", None),
+            automation_node_run_id=getattr(job, "automation_node_run_id", None),
         )
 
     def payload_copy(self) -> dict[str, Any]:
@@ -198,6 +205,8 @@ class JobExecution:
             scheduled_for=self.scheduled_for,
             priority=self.priority,
             pause_sensitive=self.pause_sensitive,
+            automation_run_id=self.automation_run_id,
+            automation_node_run_id=self.automation_node_run_id,
         )
 
 
