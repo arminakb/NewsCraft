@@ -1,10 +1,12 @@
-"use client"
+import { Suspense } from "react"
 
-import { useRouter } from "next/navigation"
-
-import { RouteBuilder } from "@/features/automations/route-builder"
+import { LoadingState } from "@/components/ui/state-panel"
+import { NewWorkflowPage } from "@/features/automations/new-workflow-page"
 
 export default function Page() {
-  const router = useRouter()
-  return <RouteBuilder onCreated={(routeId) => router.push(`/automations/${routeId}`)} />
+  return (
+    <Suspense fallback={<section className="nc-page"><LoadingState title="Creating blank workflow…" /></section>}>
+      <NewWorkflowPage />
+    </Suspense>
+  )
 }
