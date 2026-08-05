@@ -4,7 +4,7 @@ from app.db.model_registry import Base
 from app.db.schema import SCHEMA_HEAD
 
 READINESS_MIGRATION = Path("alembic/versions/0010_readiness_health_indexes.py")
-SCHEMA_HEAD_MIGRATION = Path("alembic/versions/0030_new_source_item_trigger.py")
+SCHEMA_HEAD_MIGRATION = Path("alembic/versions/0031_retire_obsolete_workflow_nodes.py")
 
 
 def test_phase_9_migration_is_single_head_and_adds_bounded_queue_index():
@@ -19,9 +19,9 @@ def test_phase_9_migration_is_single_head_and_adds_bounded_queue_index():
 def test_application_schema_head_matches_latest_migration():
     source = SCHEMA_HEAD_MIGRATION.read_text(encoding="utf-8")
 
-    assert SCHEMA_HEAD == "0030_new_source_item_trigger"
-    assert 'revision = "0030_new_source_item_trigger"' in source
-    assert 'down_revision = "0029_collection_article_trigger"' in source
+    assert SCHEMA_HEAD == "0031_retire_obsolete_workflow_nodes"
+    assert 'revision = "0031_retire_obsolete_workflow_nodes"' in source
+    assert 'down_revision = "0030_new_source_item_trigger"' in source
 
 
 def test_phase_9_operational_health_index_matches_model_metadata():
