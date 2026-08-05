@@ -13,6 +13,7 @@ def test_public_telegram_parser_extracts_posts_and_images():
     assert first.external_id_norm.startswith("iran_jahan_darlahze/")
     assert first.source_url_norm.startswith("https://t.me/iran_jahan_darlahze/")
     assert first.content_text
+    assert first.parser_meta["content_origin"] == "source_provided"
     assert "views" in first.parser_meta
     assert first.media_candidates
     assert first.media_candidates[0].kind == "image"

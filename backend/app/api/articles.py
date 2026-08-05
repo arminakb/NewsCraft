@@ -37,6 +37,7 @@ from app.api.article_schemas import (
     ArticleStoryLinkOut,
     ArticleStorySummaryOut,
     ArticleSummaryOut,
+    ContentOrigin,
     CoverageState,
 )
 from app.api.stories import _story_summaries
@@ -398,6 +399,7 @@ def article_detail_statement(content_item_id: UUID) -> Select:
         select(
             *_base_article_columns(),
             ContentItem.content_text,
+            ContentItem.metrics.label("content_metrics"),
             ContentItem.content_html_sanitized,
             ContentItem.authors,
             ContentItem.tags,
@@ -835,6 +837,29 @@ def _safe_html(value: str | None) -> str | None:
     return sanitized or None
 
 
+def _content_origin(row: Any) -> ContentOrigin:
+    content_text = " ".join((row.content_text or "").split())
+    if not content_text:
+        return "unavailable"
+    metrics = row.content_metrics if isinstance(row.content_metrics, dict) else {}
+    explicit = metrics.get("content_origin")
+    if explicit in {
+        "source_provided",
+        "extracted",
+        "source_excerpt",
+        "generated_summary",
+        "unavailable",
+        "unknown",
+    }:
+        return cast(ContentOrigin, explicit)
+    if row.item_type == "telegram_post":
+        return "source_provided"
+    summary = " ".join((row.summary or "").split())
+    if summary and summary == content_text:
+        return "source_excerpt"
+    return "unknown"
+
+
 @router.get("/articles", response_model=ArticleListOut)
 async def list_articles(
     cursor: str | None = Query(default=None, min_length=1, max_length=2_000),
@@ -966,6 +991,7 @@ async def get_article(
             blockers=list(row.rewrite_blockers or []),
         ),
         content_text=row.content_text,
+        content_origin=_content_origin(row),
         sanitized_html=_safe_html(row.content_html_sanitized),
         authors=list(row.authors or []),
         tags=list(row.tags or []),

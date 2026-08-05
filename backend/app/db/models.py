@@ -168,8 +168,23 @@ class ContentItem(Base):
     __table_args__ = (
         Index(
             "ix_content_items_search",
-            text("to_tsvector('simple'::regconfig, COALESCE(title, '') || ' ' || COALESCE(content_text, ''))"),
+            text(
+                "to_tsvector('simple'::regconfig, "
+                "(COALESCE(title, ''::text) || ' '::text) || COALESCE(content_text, ''::text))"
+            ),
             postgresql_using="gin",
+        ),
+        Index(
+            "ix_content_items_canonical_content_type",
+            text("(canonical_classification ->> 'content_type'::text)"),
+        ),
+        Index(
+            "ix_content_items_canonical_topic",
+            text("(canonical_classification ->> 'topic'::text)"),
+        ),
+        Index(
+            "ix_content_items_canonical_language",
+            text("(canonical_classification ->> 'language'::text)"),
         ),
         Index(
             "ix_content_items_display_at",
@@ -259,7 +274,7 @@ class SourceItem(Base):
             unique=True,
             postgresql_where=text("external_id_norm IS NOT NULL"),
         ),
-        Index("ix_source_items_seen", "source_id", last_seen_at.desc()),
+        Index("ix_source_items_seen", "source_id", "last_seen_at"),
     )
 
 

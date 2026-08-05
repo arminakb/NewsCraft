@@ -58,3 +58,27 @@ def test_rss_parser_reports_malformed_date_without_parser_fallback():
     item = parsed.items[0]
     assert item.published_at is None
     assert item.date_parse_status == "failed"
+
+
+def test_rss_parser_distinguishes_source_content_from_excerpt() -> None:
+    full = parse_rss_feed(
+        """<rss version="2.0"><channel><title>Example</title><item>
+        <title>Full</title><description>Short summary</description>
+        <content:encoded xmlns:content="http://purl.org/rss/1.0/modules/content/">
+          <![CDATA[<p>Complete source-provided article body.</p>]]>
+        </content:encoded></item></channel></rss>""",
+        source_name="Example",
+        source_url="https://example.test/feed",
+    )
+    excerpt = parse_rss_feed(
+        """<rss version="2.0"><channel><title>Example</title><item>
+        <title>Excerpt</title><description>Publisher excerpt only.</description>
+        </item></channel></rss>""",
+        source_name="Example",
+        source_url="https://example.test/feed",
+    )
+
+    assert full.items[0].parser_meta["content_origin"] == "source_provided"
+    assert full.items[0].content_text == "Complete source-provided article body."
+    assert excerpt.items[0].parser_meta["content_origin"] == "source_excerpt"
+    assert excerpt.items[0].content_text == "Publisher excerpt only."

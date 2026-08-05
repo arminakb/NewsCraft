@@ -323,6 +323,7 @@ class IngestionRepository:
         existing = await self.find_content_item_by_identities(identities)
         values = _content_item_values(source, parsed_item)
         if existing:
+            values = _preserve_more_complete_content(existing, values)
             for key, value in values.items():
                 if key in {"first_seen_at", "created_at"}:
                     continue
@@ -651,6 +652,30 @@ def _content_item_values(source: Source, parsed_item: ParsedSourceItem) -> dict[
         }
     )
     return values
+
+
+def _preserve_more_complete_content(existing: ContentItem, values: dict[str, Any]) -> dict[str, Any]:
+    stored_text = existing.content_text or ""
+    incoming_text = str(values.get("content_text") or "")
+    if _normalized_content_length(incoming_text) >= _normalized_content_length(stored_text):
+        return values
+
+    preserved = dict(values)
+    preserved["content_text"] = existing.content_text
+    preserved["content_html_sanitized"] = existing.content_html_sanitized
+
+    incoming_metrics = dict(preserved.get("metrics") or {})
+    stored_metrics = existing.metrics if isinstance(existing.metrics, dict) else {}
+    if "content_origin" in stored_metrics:
+        incoming_metrics["content_origin"] = stored_metrics["content_origin"]
+    else:
+        incoming_metrics.pop("content_origin", None)
+    preserved["metrics"] = incoming_metrics
+    return preserved
+
+
+def _normalized_content_length(value: str) -> int:
+    return len("".join(value.split()))
 
 
 def _parsed_item_with_title(parsed_item: ParsedSourceItem, title: str) -> ParsedSourceItem:

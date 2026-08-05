@@ -189,6 +189,7 @@ async def test_articles_summary_and_detail_contracts_are_composed_and_bounded(db
         "saved_collection_ids",
         "article_readiness",
         "content_text",
+        "content_origin",
         "sanitized_html",
         "authors",
         "tags",
@@ -198,6 +199,7 @@ async def test_articles_summary_and_detail_contracts_are_composed_and_bounded(db
         "advanced",
     }
     assert detail["content_text"].startswith("  First\n line")
+    assert detail["content_origin"] == "unknown"
     assert detail["sanitized_html"] is not None
     assert "<script" not in detail["sanitized_html"]
     assert detail["authors"] == ["Reporter"]

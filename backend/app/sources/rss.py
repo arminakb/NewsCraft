@@ -54,7 +54,8 @@ def _parse_entry(
     source_url_norm = normalize_url(link, source_url) if link else None
     title = _entry_title(entry)
     summary_html = entry.get("summary") or entry.get("description") or ""
-    content_html = _entry_content_html(entry) or summary_html or None
+    source_content_html = _entry_content_html(entry)
+    content_html = source_content_html or summary_html or None
     summary = _html_to_text(summary_html)
     content_text = _html_to_text(content_html) if content_html else summary or title
     published_raw, published_at, date_parse_status = _entry_date(entry, default_timezone)
@@ -91,7 +92,16 @@ def _parse_entry(
         published_at=published_at,
         date_parse_status=date_parse_status,
         media_candidates=_extract_media_candidates(entry, content_html, source_url),
-        parser_meta={"feedparser_keys": sorted(entry.keys())},
+        parser_meta={
+            "feedparser_keys": sorted(entry.keys()),
+            "content_origin": (
+                "source_provided"
+                if source_content_html
+                else "source_excerpt"
+                if summary
+                else "unavailable"
+            ),
+        },
     )
 
 
