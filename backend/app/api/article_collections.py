@@ -5,13 +5,14 @@ from datetime import datetime
 from typing import Any
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from pydantic import BaseModel, ConfigDict, field_validator
 from sqlalchemy import delete, func, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.automations.definitions.collection_events import enqueue_collection_article_added
 from app.db.models import ArticleCollection, ArticleCollectionItem, ContentItem
 from app.db.session import get_session
 
@@ -185,15 +186,33 @@ async def delete_article_collection(
 async def save_article_to_collection(
     collection_id: UUID,
     content_item_id: UUID,
+    request: Request,
     session: AsyncSession = SessionDependency,
 ) -> Response:
     await _get_collection(session, collection_id)
     await _require_content_item(session, content_item_id)
-    await session.execute(
-        insert(ArticleCollectionItem)
-        .values(collection_id=collection_id, content_item_id=content_item_id)
-        .on_conflict_do_nothing(index_elements=["collection_id", "content_item_id"])
-    )
+    saved_at = (
+        await session.execute(
+            insert(ArticleCollectionItem)
+            .values(collection_id=collection_id, content_item_id=content_item_id)
+            .on_conflict_do_nothing(index_elements=["collection_id", "content_item_id"])
+            .returning(ArticleCollectionItem.saved_at)
+        )
+    ).scalar_one_or_none()
+    if saved_at is not None:
+        principal = getattr(request.state, "security_principal", None)
+        actor_id = (
+            f"{principal.principal_type}:{principal.principal_id}"
+            if principal is not None
+            else "operator"
+        )
+        await enqueue_collection_article_added(
+            session,
+            article_id=content_item_id,
+            collection_id=collection_id,
+            added_at=saved_at,
+            actor_id=actor_id,
+        )
     await session.commit()
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
