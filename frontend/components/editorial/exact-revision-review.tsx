@@ -3,16 +3,17 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useState } from "react"
 import { ContentPackWorkspace } from "@/components/editorial/content-pack-workspace"
+import { useDateTime } from "@/components/providers/date-time-provider"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import { Select } from "@/components/ui/select"
 import { ErrorState, LoadingState } from "@/components/ui/state-panel"
 import { createManualPublicationPlan, getManualPublicationPlanForRevision, getPlatformRevision } from "@/features/packages/api"
 import { ManualPublishingChecklist } from "@/features/packages/components/manual-publishing-checklist"
 import type { ManualPublicationPlan, PlatformRevision, TelegramRevision } from "@/features/packages/types"
 import { TelegramReviewWorkspace } from "@/features/review/telegram-review-workspace"
 import { ApiError, getApiErrorMessage } from "@/lib/http"
+import { zonedLocalDateTimeToUtc } from "@/lib/date-time"
 import { packageQueryKeys, queryKeys } from "@/lib/query-keys"
 
 type ManualRevision = Exclude<PlatformRevision, TelegramRevision>
@@ -26,12 +27,12 @@ export function ExactRevisionReview({ revisionId }: { revisionId: string }) {
 }
 
 function ManualPublicationHandoff({ revision }: { revision: ManualRevision }) {
+  const { timezone } = useDateTime()
   const queryClient = useQueryClient()
   const [scheduledFor, setScheduledFor] = useState("")
-  const [displayTimezone, setDisplayTimezone] = useState("Asia/Tehran")
   const [localPlan, setLocalPlan] = useState<ManualPublicationPlan | null>(null)
   const [outcome, setOutcome] = useState<string | null>(null)
-  const schedule = utcSchedule(scheduledFor)
+  const schedule = zonedLocalDateTimeToUtc(scheduledFor, timezone)
   const persistedPlan = useQuery({
     queryKey: packageQueryKeys.manualPlanForRevision(revision.id),
     queryFn: () => getManualPublicationPlanForRevision(revision.id),
@@ -45,7 +46,6 @@ function ManualPublicationHandoff({ revision }: { revision: ManualRevision }) {
     setLocalPlan(current)
     queryClient.setQueryData(packageQueryKeys.manualPlanForRevision(revision.id), current)
     if (current) queryClient.setQueryData(packageQueryKeys.manualPlan(current.id), current)
-    await queryClient.invalidateQueries({ queryKey: ["calendar"] })
   }
 
   const createPlan = useMutation({
@@ -55,7 +55,6 @@ function ManualPublicationHandoff({ revision }: { revision: ManualRevision }) {
       setOutcome("Manual publication plan created")
       queryClient.setQueryData(packageQueryKeys.manualPlan(created.id), created)
       queryClient.setQueryData(packageQueryKeys.manualPlanForRevision(revision.id), created)
-      await queryClient.invalidateQueries({ queryKey: ["calendar"] })
     },
     onError: async (caught) => {
       if (caught instanceof ApiError && caught.status === 409) await reconcileCreateConflict()
@@ -71,22 +70,14 @@ function ManualPublicationHandoff({ revision }: { revision: ManualRevision }) {
     {persistedPlan.isError ? <Alert tone="error" role="alert"><div className="flex flex-wrap items-center justify-between gap-3"><div><AlertTitle>Publication plan unavailable</AlertTitle><AlertDescription>{getApiErrorMessage(persistedPlan.error, "Persisted manual publication plan could not be loaded")}</AlertDescription></div><Button type="button" variant="outline" onClick={() => void persistedPlan.refetch()}>Retry manual publication plan</Button></div></Alert> : null}
     {canSchedule ? <fieldset disabled={createPlan.isPending} className="grid gap-3 rounded-lg border p-4 md:grid-cols-2">
       <legend className="px-1 font-medium">{rescheduling ? "Schedule a new manual handoff" : "Schedule the manual handoff"}</legend>
-      <label className="grid gap-1"><span>Scheduled time (UTC)</span><Input aria-label="Scheduled time (UTC)" type="datetime-local" step="60" value={scheduledFor} onChange={(event) => { setScheduledFor(event.target.value); setOutcome(null) }} /></label>
-      <label className="grid gap-1"><span>Display timezone</span><Select aria-label="Display timezone" value={displayTimezone} onChange={(event) => setDisplayTimezone(event.target.value)}><option value="Asia/Tehran">Asia/Tehran</option><option value="UTC">UTC</option><option value="Europe/London">Europe/London</option><option value="America/New_York">America/New_York</option></Select></label>
-      <div className="md:col-span-2"><Button type="button" disabled={!schedule || createPlan.isPending} onClick={() => schedule && createPlan.mutate({ scheduledFor: schedule, displayTimezone })}>{createPlan.isPending ? "Creating manual publication plan…" : rescheduling ? "Create new manual publication plan" : "Create manual publication plan"}</Button></div>
+      <label className="grid gap-1"><span>Scheduled time ({timezone})</span><Input aria-label={`Scheduled time (${timezone})`} aria-invalid={scheduledFor !== "" && !schedule} type="datetime-local" step="60" value={scheduledFor} onChange={(event) => { setScheduledFor(event.target.value); setOutcome(null) }} /></label>
+      <p className="self-end text-sm text-muted-foreground">Local time converts to UTC before persistence.</p>
+      <div className="md:col-span-2"><Button type="button" disabled={!schedule || createPlan.isPending} onClick={() => schedule && createPlan.mutate({ scheduledFor: schedule, displayTimezone: timezone })}>{createPlan.isPending ? "Creating manual publication plan…" : rescheduling ? "Create new manual publication plan" : "Create manual publication plan"}</Button></div>
     </fieldset> : null}
     {plan ? <div className="rounded-lg border p-4"><ManualPublishingChecklist plan={plan} contentPackId={revision.contentPackId} onPlanChange={(updated) => { setLocalPlan(updated); queryClient.setQueryData(packageQueryKeys.manualPlanForRevision(revision.id), updated) }} /></div> : null}
     {outcome ? <Alert tone="success" role="status"><AlertDescription>{outcome}</AlertDescription></Alert> : null}
     {createPlan.isError ? <Alert tone="error" role="alert"><AlertDescription>{getApiErrorMessage(createPlan.error, "Manual publication plan could not be created")}</AlertDescription></Alert> : null}
   </section>
-}
-
-function utcSchedule(value: string): string | null {
-  if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(value)) return null
-  const candidate = `${value}:00.000Z`
-  const parsed = new Date(candidate)
-  if (Number.isNaN(parsed.getTime()) || parsed.toISOString() !== candidate) return null
-  return candidate
 }
 
 function platformLabel(platform: string) {

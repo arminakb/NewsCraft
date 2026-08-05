@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react"
 
+import { useDateTime } from "@/components/providers/date-time-provider"
 import { Button } from "@/components/ui/button"
 import { DirectionBoundary } from "@/components/newsroom/direction-boundary"
 import {
@@ -16,6 +17,7 @@ import type {
   PlatformRevision,
 } from "@/features/packages/types"
 import { API_BASE_URL, ApiError, getApiErrorMessage } from "@/lib/http"
+import { formatInTimeZone } from "@/lib/date-time"
 
 const FORMAT_OPTIONS: Array<{ value: ExportFormat; label: string }> = [
   { value: "json", label: "JSON" },
@@ -49,6 +51,7 @@ export function CopyExportActions({
   intendedRevisions,
   pollIntervalMs = 3_000,
 }: CopyExportActionsProps) {
+  const { timezone } = useDateTime()
   const copyChoices = useMemo(() => copyChoicesFor(revision), [revision])
   const fallbackRef = useRef<HTMLTextAreaElement>(null)
   const transientPollFailuresRef = useRef(0)
@@ -285,7 +288,7 @@ export function CopyExportActions({
             <>
               <div className="font-medium text-warning">Export expired</div>
               <div>{outcome?.errorMessage ?? "The downloadable export files are no longer available."}</div>
-              <div>Expired <time dateTime={expiredArtifact.expiredAt}>{new Date(expiredArtifact.expiredAt).toLocaleString()}</time></div>
+              <div>Expired <time dateTime={expiredArtifact.expiredAt}>{formatInTimeZone(expiredArtifact.expiredAt, timezone)}</time></div>
             </>
           ) : null}
           <div>{visibleStatus} · {visibleExportId}</div>

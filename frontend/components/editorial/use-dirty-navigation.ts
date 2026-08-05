@@ -1,9 +1,10 @@
 "use client"
 
-import { useCallback, useEffect, useRef } from "react"
+import { useCallback, useEffect, useRef, useSyncExternalStore } from "react"
 
 const historyIndexKey = "__newscraftNavigationIndex"
 const dirtyEditors = new Map<symbol, string>()
+const dirtyListeners = new Set<() => void>()
 let stopCoordinator: (() => void) | null = null
 let coordinatorMounts = 0
 let allowedThisTurn = false
@@ -53,18 +54,29 @@ export function useDirtyNavigation(dirty: boolean, message = "Discard unsaved re
   useEffect(() => {
     if (!dirty) {
       released.current = false
-      dirtyEditors.delete(source.current)
+      if (dirtyEditors.delete(source.current)) notifyDirtyListeners()
       return
     }
-    if (!released.current) dirtyEditors.set(source.current, message)
+    if (!released.current) {
+      dirtyEditors.set(source.current, message)
+      notifyDirtyListeners()
+    }
     return () => {
-      dirtyEditors.delete(source.current)
+      if (dirtyEditors.delete(source.current)) notifyDirtyListeners()
     }
   }, [dirty, message])
   return useCallback(() => {
     released.current = true
-    dirtyEditors.delete(source.current)
+    if (dirtyEditors.delete(source.current)) notifyDirtyListeners()
   }, [])
+}
+
+export function useHasDirtyNavigation() {
+  return useSyncExternalStore(
+    subscribeToDirtyNavigation,
+    () => dirtyEditors.size > 0,
+    () => false,
+  )
 }
 
 export function DirtyNavigationCoordinator() {
@@ -208,6 +220,15 @@ function readIndex(state: unknown) {
 function navigationKey(url: string) {
   const destination = new URL(url, window.location.href)
   return `${destination.origin}${destination.pathname}${destination.search}`
+}
+
+function subscribeToDirtyNavigation(listener: () => void) {
+  dirtyListeners.add(listener)
+  return () => dirtyListeners.delete(listener)
+}
+
+function notifyDirtyListeners() {
+  dirtyListeners.forEach((listener) => listener())
 }
 
 type NavigationLike = {
