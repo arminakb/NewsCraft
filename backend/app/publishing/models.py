@@ -131,6 +131,20 @@ class Destination(Base):
     )
 
 
+class TelegramDestinationMigrationIssue(Base):
+    """Durable operator follow-up created by the Telegram destination migration."""
+
+    __tablename__ = "telegram_destination_migration_issues"
+
+    destination_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("destinations.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    issue_code: Mapped[str] = mapped_column(Text, primary_key=True)
+    created_at: Mapped[datetime] = timestamp_now()
+
+
 class PublishJob(Base):
     __tablename__ = "publish_jobs"
 

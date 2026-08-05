@@ -4,7 +4,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from pydantic import ValidationError
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
@@ -18,7 +18,12 @@ from app.llm_providers.schemas import (
 from app.llm_providers.service import LLMProviderService, ProviderDependencyConflict, provider_out
 from app.security.auth import TEST_ADMIN, SecurityPrincipal
 from app.security.schemas import SecretWriteIn
-from app.security.secret_store import MasterKeyRing, SecretStoreError
+from app.security.secret_store import (
+    SecretStoreError,
+    SecretStoreRuntime,
+    SecretStoreUnavailable,
+    classify_secret_store_error,
+)
 
 router = APIRouter(prefix="/llm-providers", tags=["llm-providers"])
 SessionDependency = Depends(get_session)
@@ -41,16 +46,21 @@ def _service(
     *,
     needs_key: bool,
 ) -> LLMProviderService:
-    key_ring = None
+    secret_store = None
     if needs_key:
         try:
-            key_ring = MasterKeyRing.from_settings(settings)
-        except SecretStoreError:
-            raise HTTPException(503, detail={"code": "secret_store_unavailable"}) from None
+            runtime = getattr(request.app.state, "secret_store_runtime", None)
+            if settings.app_env == "test":
+                runtime = SecretStoreRuntime.from_settings(settings)
+            if not isinstance(runtime, SecretStoreRuntime):
+                raise SecretStoreUnavailable
+            secret_store = runtime.bind(session)
+        except SecretStoreError as exc:
+            raise HTTPException(503, detail={"code": exc.public_code}) from None
     return LLMProviderService(
         session,
         principal=_principal(request),
-        key_ring=key_ring,
+        secret_store=secret_store,
         config=settings,
     )
 
@@ -79,11 +89,19 @@ async def create_llm_provider(
         provider = await service.create(body)
         await session.commit()
         await session.refresh(provider)
+    except SecretStoreError as exc:
+        await session.rollback()
+        raise HTTPException(503, detail={"code": exc.public_code}) from None
     except IntegrityError:
         await session.rollback()
         raise HTTPException(409, detail={"code": "llm_provider_name_conflict"}) from None
-    except ValueError as exc:
-        raise HTTPException(422, detail={"code": str(exc)}) from None
+    except SQLAlchemyError as exc:
+        await session.rollback()
+        failure = classify_secret_store_error(exc)
+        raise HTTPException(503, detail={"code": failure.public_code}) from None
+    except ValueError:
+        await session.rollback()
+        raise HTTPException(422, detail={"code": "llm_provider_invalid"}) from None
     return provider_out(provider)
 
 
@@ -126,14 +144,24 @@ async def rotate_llm_provider_secret(
     session: AsyncSession = SessionDependency,
 ):
     service = _service(request, session, needs_key=True)
-    provider = await _provider_or_404(service, provider_id, for_update=True)
     try:
+        provider = await _provider_or_404(service, provider_id, for_update=True)
         await service.rotate_secret(provider, body.secret.get_secret_value())
+        await session.flush()
         await session.commit()
         await session.refresh(provider)
-    except SecretStoreError, RuntimeError:
-        raise HTTPException(503, detail={"code": "secret_store_unavailable"}) from None
+    except SecretStoreError as exc:
+        await session.rollback()
+        raise HTTPException(503, detail={"code": exc.public_code}) from None
+    except SQLAlchemyError as exc:
+        await session.rollback()
+        failure = classify_secret_store_error(exc)
+        raise HTTPException(503, detail={"code": failure.public_code}) from None
+    except RuntimeError:
+        await session.rollback()
+        raise HTTPException(503, detail={"code": "secret_rotation_failed"}) from None
     except ValueError:
+        await session.rollback()
         raise HTTPException(422, detail={"code": "llm_provider_secret_invalid"}) from None
     return provider_out(provider)
 
@@ -145,12 +173,20 @@ async def test_llm_provider(
     session: AsyncSession = SessionDependency,
 ):
     service = _service(request, session, needs_key=False)
-    provider = await _provider_or_404(service, provider_id, for_update=True)
-    if provider.protocol == "openai_compatible":
-        service = _service(request, session, needs_key=True)
-    await service.test_connection(provider)
-    await session.commit()
-    await session.refresh(provider)
+    try:
+        provider = await _provider_or_404(service, provider_id, for_update=True)
+        if provider.protocol == "openai_compatible":
+            service = _service(request, session, needs_key=True)
+        await service.test_connection(provider)
+        await session.commit()
+        await session.refresh(provider)
+    except SecretStoreError as exc:
+        await session.rollback()
+        raise HTTPException(503, detail={"code": exc.public_code}) from None
+    except SQLAlchemyError as exc:
+        await session.rollback()
+        failure = classify_secret_store_error(exc)
+        raise HTTPException(503, detail={"code": failure.public_code}) from None
     return provider_out(provider)
 
 

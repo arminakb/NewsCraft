@@ -10,9 +10,10 @@ from app.codex_gateway.credentials import GatewayCredentialHasher, GatewayKeyUna
 from app.codex_gateway.schemas import (
     CapabilityOut,
     CodexConnectionOut,
+    CodexConnectionSummaryOut,
     ConnectionScopesPatch,
     CredentialIssuedOut,
-    GatewayActivityOut,
+    GatewayActivitySummaryOut,
     HeartbeatIn,
     HeartbeatOut,
     PairingExchangeIn,
@@ -24,16 +25,13 @@ from app.codex_gateway.service import (
     CodexGatewayService,
     GatewayError,
     connection_out,
+    connection_summary_out,
     pairing_out,
 )
 from app.core.config import settings
 from app.db.session import get_session
-from app.security.auth import (
-    TEST_ADMIN,
-    AuthenticationFailure,
-    CredentialAuthenticator,
-    SecurityPrincipal,
-)
+from app.security.application_principal import resolve_application_principal
+from app.security.auth import AuthenticationFailure, SecurityPrincipal
 
 router = APIRouter(prefix="/codex-gateway", tags=["codex-gateway"])
 SessionDependency = Depends(get_session)
@@ -54,22 +52,12 @@ def _service(session: AsyncSession) -> CodexGatewayService:
     return CodexGatewayService(session, hasher=_hasher(), config=settings)
 
 
-def _admin_principal(request: Request) -> SecurityPrincipal:
-    principal = getattr(request.state, "security_principal", None)
-    if isinstance(principal, SecurityPrincipal):
-        if principal.principal_type not in {"human_admin", "test_harness"}:
-            raise HTTPException(403, detail={"code": "scope_denied"})
-        return principal
-    if settings.app_env == "test":
-        return TEST_ADMIN
+def _settings_principal(request: Request, *, required_scope: str) -> SecurityPrincipal:
     try:
-        principal = CredentialAuthenticator(settings).authenticate(
-            request.headers.get("authorization"),
-            request.headers.get("x-newscraft-principal-type"),
-        )
+        principal = resolve_application_principal(request, config=settings)
     except AuthenticationFailure as exc:
         raise HTTPException(exc.status_code, detail={"code": exc.code}) from None
-    if principal.principal_type != "human_admin":
+    if not principal.permits(required_scope):
         raise HTTPException(403, detail={"code": "scope_denied"})
     return principal
 
@@ -94,7 +82,7 @@ async def create_pairing_session(
     request: Request,
     session: AsyncSession = SessionDependency,
 ):
-    principal = _admin_principal(request)
+    principal = _settings_principal(request, required_scope="settings:write")
     service = _service(session)
     try:
         result = await service.create_pairing_session(
@@ -118,7 +106,7 @@ async def get_pairing_session(
     request: Request,
     session: AsyncSession = SessionDependency,
 ):
-    _admin_principal(request)
+    _settings_principal(request, required_scope="settings:read")
     service = _service(session)
     pairing = await service.get_pairing_session(pairing_id)
     if pairing is None:
@@ -133,7 +121,7 @@ async def cancel_pairing_session(
     request: Request,
     session: AsyncSession = SessionDependency,
 ):
-    principal = _admin_principal(request)
+    principal = _settings_principal(request, required_scope="settings:write")
     service = _service(session)
     pairing = await service.get_pairing_session(pairing_id, for_update=True)
     if pairing is None:
@@ -198,15 +186,16 @@ async def heartbeat(
     )
 
 
-@router.get("/connections", response_model=list[CodexConnectionOut])
+@router.get("/connections", response_model=list[CodexConnectionSummaryOut])
 async def list_connections(
-    request: Request,
     session: AsyncSession = SessionDependency,
 ):
-    _admin_principal(request)
+    # Intentionally public: explicit summary schema stays safe even if deployment publishes API beyond Compose loopback.
     service = _service(session)
     now = service.clock()
-    return [connection_out(connection, now=now, config=settings) for connection in await service.list_connections()]
+    return [
+        connection_summary_out(connection, now=now, config=settings) for connection in await service.list_connections()
+    ]
 
 
 async def _connection_or_404(
@@ -227,7 +216,7 @@ async def get_connection(
     request: Request,
     session: AsyncSession = SessionDependency,
 ):
-    _admin_principal(request)
+    _settings_principal(request, required_scope="settings:read")
     service = _service(session)
     connection = await _connection_or_404(service, connection_id)
     return connection_out(connection, now=service.clock(), config=settings)
@@ -243,7 +232,7 @@ async def update_connection_scopes(
     request: Request,
     session: AsyncSession = SessionDependency,
 ):
-    principal = _admin_principal(request)
+    principal = _settings_principal(request, required_scope="settings:write")
     service = _service(session)
     connection = await _connection_or_404(service, connection_id, for_update=True)
     try:
@@ -276,7 +265,7 @@ async def rotate_connection(
 ):
     if idempotency_key is None:
         raise HTTPException(400, detail={"code": "idempotency_key_required"})
-    principal = _admin_principal(request)
+    principal = _settings_principal(request, required_scope="settings:write")
     service = _service(session)
     connection = await _connection_or_404(service, connection_id, for_update=True)
     try:
@@ -301,7 +290,7 @@ async def revoke_connection(
     request: Request,
     session: AsyncSession = SessionDependency,
 ):
-    principal = _admin_principal(request)
+    principal = _settings_principal(request, required_scope="settings:write")
     service = _service(session)
     connection = await _connection_or_404(service, connection_id, for_update=True)
     await service.revoke(connection, principal=principal)
@@ -317,7 +306,7 @@ async def get_capabilities(
     service = _service(session)
     authorization = request.headers.get("authorization")
     if authorization is None or not authorization.casefold().startswith("bearer ncg_"):
-        principal = _admin_principal(request)
+        principal = _settings_principal(request, required_scope="settings:read")
     else:
         try:
             _connection, principal = await service.authenticate(
@@ -331,15 +320,15 @@ async def get_capabilities(
     return await service.capabilities(principal)
 
 
-@router.get("/activity", response_model=list[GatewayActivityOut])
+@router.get("/activity", response_model=list[GatewayActivitySummaryOut])
 async def get_activity(
-    request: Request,
     connection_id: Annotated[UUID | None, Query()] = None,
     limit: Annotated[int, Query(ge=1, le=100)] = 25,
     session: AsyncSession = SessionDependency,
 ):
-    _admin_principal(request)
-    return await _service(session).activity(connection_id=connection_id, limit=limit)
+    # Public activity is an allowlist: no reason text, metadata, headers, provider payloads, logs, or paths.
+    events = await _service(session).activity(connection_id=connection_id, limit=limit)
+    return [GatewayActivitySummaryOut.model_validate(event) for event in events]
 
 
 __all__ = ["router"]

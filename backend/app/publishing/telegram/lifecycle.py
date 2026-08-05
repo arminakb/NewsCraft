@@ -18,6 +18,7 @@ from app.api.telegram_schemas import (
     TelegramProxyOut,
     TelegramProxyPatch,
 )
+from app.automations.definitions.resources import count_automation_definitions_referencing
 from app.automations.models import AutomationRoute
 from app.jobs.models import WorkflowJob
 from app.publishing.models import Destination, Publication, PublishJob, TelegramProxyProfile
@@ -243,6 +244,7 @@ class TelegramLifecycleService:
             )
             or 0
         )
+        automations += await count_automation_definitions_referencing(self.session, destination_id)
         publish_jobs = int(
             await self.session.scalar(
                 select(func.count()).select_from(PublishJob).where(PublishJob.destination_id == destination_id)

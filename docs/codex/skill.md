@@ -16,7 +16,7 @@ The MCP adapter is only a discovery client. It forwards every heartbeat and tool
 - `CODEX_GATEWAY_HASH_KEY` is configured as a URL-safe base64 encoding of exactly 32 random bytes.
 - `CODEX_GATEWAY_PUBLIC_URL` is the URL Codex can reach.
 - Remote gateway URLs use HTTPS. Plain HTTP is accepted only for `localhost`, `127.0.0.1`, or `::1`.
-- A human administrator can authenticate with `SECURITY_ADMIN_TOKEN`.
+- NewsCraft runs in loopback `local_owner` mode, or profile authentication is configured when available.
 - The operator has selected the least set of read scopes needed by this connection.
 
 Never put a pairing code, paired credential, provider API key, Telegram bot token, proxy credential, or encryption key in this file, Git, `.codex/config.toml`, shell history, logs, or issue comments.
@@ -25,16 +25,14 @@ Never put a pairing code, paired credential, provider API key, Telegram bot toke
 
 ### 1. Create a one-time pairing session
 
-An administrator creates the session. Omitting `scopes` grants all currently defined read scopes. Prefer an explicit minimal list:
+Create the session from Settings → Codex. In loopback `local_owner` mode, direct REST automation may use the same-origin local endpoint without a second administrator token. Omitting `scopes` grants all currently defined read scopes. Prefer an explicit minimal list:
 
 ```bash
-export NEWSCRAFT_URL="https://newscraft.example"
-export NEWSCRAFT_ADMIN_TOKEN="<admin-token>"
+export NEWSCRAFT_URL="http://localhost:8000"
 
 curl --fail-with-body \
   -X POST "${NEWSCRAFT_URL}/codex-gateway/pairing-sessions" \
-  -H "Authorization: Bearer ${NEWSCRAFT_ADMIN_TOKEN}" \
-  -H "X-NewsCraft-Principal-Type: human_admin" \
+  -H "Origin: http://localhost:3000" \
   -H "Content-Type: application/json" \
   --data '{
     "device_name": "Codex workstation",
@@ -68,7 +66,7 @@ The paired credential is returned once. Store it in an OS credential manager whe
 ```bash
 export NEWSCRAFT_CODEX_CREDENTIAL="<paired-credential>"
 export NEWSCRAFT_BASE_URL="${NEWSCRAFT_URL}"
-unset NEWSCRAFT_PAIRING_CODE NEWSCRAFT_ADMIN_TOKEN
+unset NEWSCRAFT_PAIRING_CODE
 ```
 
 ## Configure Codex MCP
@@ -201,14 +199,13 @@ Do not request “all configuration,” raw payload dumps, tokens, credentials, 
 
 To disconnect temporarily, stop Codex or disable/remove the local MCP configuration. The connection becomes yellow, then gray when heartbeats stop.
 
-To revoke immediately, an administrator calls:
+To revoke immediately, use Settings → Codex. A loopback local-owner deployment may also call:
 
 ```bash
 curl --fail-with-body \
   -X DELETE \
   "${NEWSCRAFT_URL}/codex-gateway/connections/<connection-id>" \
-  -H "Authorization: Bearer ${NEWSCRAFT_ADMIN_TOKEN}" \
-  -H "X-NewsCraft-Principal-Type: human_admin"
+  -H "Origin: http://localhost:3000"
 ```
 
 Revocation takes effect on the next heartbeat or tool call. The MCP process does not silently fall back to another credential.

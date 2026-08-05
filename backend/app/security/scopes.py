@@ -17,7 +17,7 @@ ALL_SCOPES = frozenset(
     }
 )
 
-HUMAN_ADMIN_SCOPES = ALL_SCOPES
+APPLICATION_OWNER_SCOPES = ALL_SCOPES
 
 
 def parse_scopes(value: str) -> frozenset[str]:
@@ -27,4 +27,4 @@ def parse_scopes(value: str) -> frozenset[str]:
     return scopes
 
 
-__all__ = ["ALL_SCOPES", "HUMAN_ADMIN_SCOPES", "parse_scopes"]
+__all__ = ["ALL_SCOPES", "APPLICATION_OWNER_SCOPES", "parse_scopes"]

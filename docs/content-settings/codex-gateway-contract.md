@@ -49,6 +49,33 @@ A stored credential without recent authenticated heartbeat is never green.
 
 Mutation requests support idempotency keys where replay could create credentials or duplicate work. Responses expose only safe connection metadata, scopes, expiry, heartbeat time, revocation state, and redacted activity.
 
+### Operator-read authorization boundary
+
+Only two local-operator reads are intentionally unauthenticated:
+
+- `GET /codex-gateway/connections` returns `CodexConnectionSummaryOut`: connection ID, sanitized device name, scopes, status, connection state, sanitized failure code, expiry, and last heartbeat.
+- `GET /codex-gateway/activity` returns `GatewayActivitySummaryOut`: event ID, allowlisted action, outcome, and creation time. Audit metadata, actor details, reason text, request IDs, headers, logs, and provider payloads are excluded.
+
+All other gateway boundaries keep their existing authorization:
+
+| Route | State effect | Authorization |
+|---|---|---|
+| `POST /pairing-sessions` | creates pairing session | application principal with `settings:write` |
+| `GET /pairing-sessions/{id}` | reads one-time pairing state | application principal with `settings:read` |
+| `DELETE /pairing-sessions/{id}` | cancels pairing session | application principal with `settings:write` |
+| `POST /pair` | consumes pairing code and creates connection | one-time pairing-code verification inside gateway service |
+| `POST /heartbeat` | updates authenticated heartbeat | paired gateway bearer credential inside gateway service |
+| `GET /connections` | safe summary read | public local-operator read |
+| `GET /connections/{id}` | detailed connection read | application principal with `settings:read` |
+| `PATCH /connections/{id}/scopes` | changes scopes | application principal with `settings:write` |
+| `POST /connections/{id}/rotate` | rotates credential | application principal with `settings:write` plus idempotency key |
+| `DELETE /connections/{id}` | revokes connection | application principal with `settings:write` |
+| `GET /capabilities` | reads effective capabilities | application principal with `settings:read` or paired gateway bearer credential |
+| `GET /activity` | safe activity summary read | public local-operator read |
+| `GET /codex-gateway/tools/*` | reads scoped resources and records tool audit | paired gateway bearer credential plus route-specific read scope |
+
+Official Compose publishes API and frontend ports on `127.0.0.1`, although Uvicorn binds `0.0.0.0` inside its container and alternate deployments can publish the API more broadly. The two public summaries therefore remain safe allowlists under LAN exposure; loopback binding is defense in depth, not their secrecy boundary.
+
 ## MCP allowlist
 
 Initial read-only tools:

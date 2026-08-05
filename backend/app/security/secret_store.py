@@ -9,10 +9,12 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from types import MappingProxyType
+from typing import Protocol
 
 from cryptography.exceptions import InvalidTag
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from pydantic import SecretStr
+from sqlalchemy.exc import DBAPIError, OperationalError, ProgrammingError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import Settings
@@ -28,16 +30,70 @@ class SecretStoreError(RuntimeError):
         super().__init__(self.public_code)
 
 
-class SecretKeyUnavailable(SecretStoreError):
+class SecretStoreUnavailable(SecretStoreError):
     pass
+
+
+class SecretKeyUnavailable(SecretStoreError):
+    public_code = "secret_store_configuration_invalid"
 
 
 class SecretDecryptionFailed(SecretStoreError):
     public_code = "secret_decryption_failed"
 
 
+class SecretEncryptionFailed(SecretStoreError):
+    public_code = "secret_encryption_failed"
+
+
+class SecretDatabaseUnavailable(SecretStoreError):
+    public_code = "secret_database_unavailable"
+
+
+class SecretSchemaUnavailable(SecretStoreError):
+    public_code = "secret_schema_unavailable"
+
+
+class SecretRotationFailed(SecretStoreError):
+    public_code = "secret_rotation_failed"
+
+
 class SecretAccessDenied(SecretStoreError):
     public_code = "secret_access_denied"
+
+
+class SecretStore(Protocol):
+    """Session-bound encrypted credential interface used by application modules."""
+
+    def create(
+        self,
+        *,
+        purpose: str,
+        owner_type: str,
+        owner_id: uuid.UUID,
+        value: str | SecretStr,
+        principal: SecurityPrincipal,
+        required_scope: str,
+        now: datetime | None = None,
+    ) -> EncryptedSecret: ...
+
+    def rotate(
+        self,
+        record: EncryptedSecret,
+        value: str | SecretStr,
+        *,
+        principal: SecurityPrincipal,
+        required_scope: str,
+        now: datetime | None = None,
+    ) -> None: ...
+
+    def decrypt(
+        self,
+        record: EncryptedSecret,
+        *,
+        principal: SecurityPrincipal,
+        required_scope: str,
+    ) -> str: ...
 
 
 def _decode_key(encoded: str) -> bytes:
@@ -52,6 +108,21 @@ def _decode_key(encoded: str) -> bytes:
     if len(raw) != 32:
         raise SecretKeyUnavailable
     return raw
+
+
+def classify_secret_store_error(exc: Exception) -> SecretStoreError:
+    """Map persistence failures to stable public categories without rendering details."""
+
+    if isinstance(exc, SecretStoreError):
+        return exc
+    sqlstate = str(getattr(getattr(exc, "orig", None), "sqlstate", ""))
+    if isinstance(exc, ProgrammingError) and sqlstate in {"3F000", "42P01", "42703"}:
+        return SecretSchemaUnavailable()
+    if isinstance(exc, OperationalError) or sqlstate.startswith("08"):
+        return SecretDatabaseUnavailable()
+    if isinstance(exc, DBAPIError):
+        return SecretRotationFailed()
+    return SecretRotationFailed()
 
 
 @dataclass(frozen=True, slots=True)
@@ -110,6 +181,36 @@ class MasterKeyRing:
             raise SecretKeyUnavailable from None
 
 
+@dataclass(frozen=True, slots=True)
+class SecretStoreRuntime:
+    """Validated process configuration that binds concrete stores to DB sessions."""
+
+    key_ring: MasterKeyRing | None
+    initialization_error: type[SecretStoreError] | None = None
+
+    @classmethod
+    def from_settings(cls, config: Settings) -> SecretStoreRuntime:
+        try:
+            return cls(key_ring=MasterKeyRing.from_settings(config))
+        except SecretStoreError as exc:
+            return cls(key_ring=None, initialization_error=type(exc))
+
+    @property
+    def initialized(self) -> bool:
+        return self.key_ring is not None and self.initialization_error is None
+
+    @property
+    def configuration_valid(self) -> bool:
+        return self.initialization_error is None
+
+    def bind(self, session: AsyncSession) -> SecretStore:
+        if self.initialization_error is not None:
+            raise self.initialization_error
+        if self.key_ring is None:
+            raise SecretStoreUnavailable
+        return EncryptedSecretStore(session, self.key_ring)
+
+
 class EncryptedSecretStore:
     def __init__(self, session: AsyncSession, key_ring: MasterKeyRing) -> None:
         self.session = session
@@ -161,11 +262,17 @@ class EncryptedSecretStore:
     def _encrypt(self, record: EncryptedSecret, value: str | SecretStr, *, rotated_at: datetime) -> None:
         version = self.key_ring.active_version
         nonce = secrets.token_bytes(12)
-        ciphertext = AESGCM(self.key_ring.active_key()).encrypt(
-            nonce,
-            self._plaintext(value),
-            self._aad(record, version),
-        )
+        plaintext = self._plaintext(value)
+        try:
+            ciphertext = AESGCM(self.key_ring.active_key()).encrypt(
+                nonce,
+                plaintext,
+                self._aad(record, version),
+            )
+        except SecretStoreError:
+            raise
+        except Exception:  # noqa: BLE001 - public error must not expose cryptographic internals
+            raise SecretEncryptionFailed from None
         record.nonce = nonce
         record.ciphertext = ciphertext
         record.key_version = version
@@ -285,8 +392,16 @@ class EncryptedSecretStore:
 __all__ = [
     "EncryptedSecretStore",
     "MasterKeyRing",
+    "SecretDatabaseUnavailable",
     "SecretAccessDenied",
     "SecretDecryptionFailed",
+    "SecretEncryptionFailed",
     "SecretKeyUnavailable",
+    "SecretRotationFailed",
+    "SecretSchemaUnavailable",
+    "SecretStore",
     "SecretStoreError",
+    "SecretStoreRuntime",
+    "SecretStoreUnavailable",
+    "classify_secret_store_error",
 ]

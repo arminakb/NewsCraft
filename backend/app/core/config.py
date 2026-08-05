@@ -1,6 +1,7 @@
 from datetime import datetime
+from ipaddress import ip_address
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 from urllib.parse import urlsplit
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
@@ -69,7 +70,7 @@ class Settings(BaseSettings):
     telegram_api_read_timeout_seconds: float = Field(default=30.0, gt=0, le=120)
     telegram_acceptance_fixture_path: str | None = None
     worker_secret_root: str = "/run/secrets"
-    security_admin_token: SecretStr | None = None
+    application_auth_mode: Literal["local_owner", "profile"] = "local_owner"
     security_codex_token: SecretStr | None = None
     security_codex_scopes: str = (
         "settings:read,providers:read,destinations:read,prompts:read,automations:read,jobs:read"
@@ -153,6 +154,10 @@ class Settings(BaseSettings):
             and gateway_url.hostname not in {"localhost", "127.0.0.1", "::1"}
         ):
             raise ValueError("production Codex Gateway public URL must use HTTPS")
+        if self.application_auth_mode == "local_owner":
+            configured_origins = [value.strip() for value in self.cors_origins.split(",") if value.strip()]
+            if not configured_origins or not all(_is_loopback_http_origin(value) for value in configured_origins):
+                raise ValueError("local_owner mode requires loopback-only CORS origins")
         return self
 
     @field_validator("security_codex_scopes", "security_internal_scopes")
@@ -171,6 +176,31 @@ class Settings(BaseSettings):
         if not value or len(value) > 32 or not value.replace("-", "").replace("_", "").isalnum():
             raise ValueError("secret_key_version must be a short identifier")
         return value
+
+
+def _is_loopback_http_origin(value: str) -> bool:
+    parsed = urlsplit(value)
+    if (
+        parsed.scheme not in {"http", "https"}
+        or not parsed.hostname
+        or parsed.username is not None
+        or parsed.password is not None
+        or parsed.path not in {"", "/"}
+        or parsed.query
+        or parsed.fragment
+    ):
+        return False
+    try:
+        parsed_port = parsed.port
+    except ValueError:
+        return False
+    del parsed_port
+    if parsed.hostname.casefold().rstrip(".") == "localhost":
+        return True
+    try:
+        return ip_address(parsed.hostname).is_loopback
+    except ValueError:
+        return False
 
 
 settings = Settings()

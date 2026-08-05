@@ -1,14 +1,18 @@
 from __future__ import annotations
 
+import re
 from datetime import datetime
 from typing import Literal
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, SecretStr, field_validator, model_validator
 
+from app.core.redaction import SECRET_KEY_PATTERN, redact_string
 from app.security.scopes import ALL_SCOPES
 
 READ_ONLY_SCOPES = tuple(sorted(scope for scope in ALL_SCOPES if scope.endswith(":read")))
+_SAFE_CODE_PATTERN = re.compile(r"^[a-z][a-z0-9_.-]{0,79}$")
+_SAFE_ACTIVITY_ACTION_PATTERN = re.compile(r"^codex_(?:connection|gateway|pairing)\.[a-z][a-z0-9_-]{0,63}$")
 
 
 def _validated_scopes(values: list[str]) -> list[str]:
@@ -80,6 +84,39 @@ class CodexConnectionOut(BaseModel):
     revoked_at: datetime | None
 
 
+class CodexConnectionSummaryOut(BaseModel):
+    id: UUID
+    device_name: str
+    scopes: list[str]
+    status: Literal["green", "yellow", "gray", "red"]
+    connection_state: Literal["active", "revoked"]
+    failure_code: str | None
+    expires_at: datetime
+    last_heartbeat_at: datetime | None
+
+    @field_validator("device_name")
+    @classmethod
+    def redact_sensitive_device_name(cls, value: str) -> str:
+        if (
+            SECRET_KEY_PATTERN.search(value)
+            or redact_string(value) != value
+            or "://" in value
+            or value.startswith(("/", "~", "\\"))
+            or re.search(r"[A-Za-z]:\\", value)
+        ):
+            return "Codex connection"
+        return value
+
+    @field_validator("failure_code")
+    @classmethod
+    def allow_safe_failure_code(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        if not _SAFE_CODE_PATTERN.fullmatch(value) or SECRET_KEY_PATTERN.search(value):
+            return "authentication_failed"
+        return value
+
+
 class CredentialIssuedOut(BaseModel):
     connection: CodexConnectionOut
     credential: str
@@ -140,12 +177,30 @@ class GatewayActivityOut(BaseModel):
     created_at: datetime
 
 
+class GatewayActivitySummaryOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    action: str
+    outcome: Literal["attempted", "succeeded", "rejected", "failed"]
+    created_at: datetime
+
+    @field_validator("action")
+    @classmethod
+    def allow_safe_action(cls, value: str) -> str:
+        if _SAFE_ACTIVITY_ACTION_PATTERN.fullmatch(value) and not SECRET_KEY_PATTERN.search(value):
+            return value
+        return "codex_gateway.redacted"
+
+
 __all__ = [
     "CapabilityOut",
     "CodexConnectionOut",
+    "CodexConnectionSummaryOut",
     "ConnectionScopesPatch",
     "CredentialIssuedOut",
     "GatewayActivityOut",
+    "GatewayActivitySummaryOut",
     "HeartbeatIn",
     "HeartbeatOut",
     "PairingExchangeIn",

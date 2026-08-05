@@ -5,9 +5,9 @@ from dataclasses import dataclass
 from typing import Literal
 
 from app.core.config import Settings
-from app.security.scopes import HUMAN_ADMIN_SCOPES, parse_scopes
+from app.security.scopes import APPLICATION_OWNER_SCOPES, parse_scopes
 
-PrincipalType = Literal["human_admin", "codex_service", "internal_service", "test_harness"]
+PrincipalType = Literal["local_owner", "codex_service", "internal_service", "test_harness"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -40,41 +40,43 @@ class CredentialAuthenticator:
             raise AuthenticationFailure("credential_invalid", 401)
         return value
 
-    def authenticate(
-        self,
-        authorization: str | None,
-        principal_type: str | None,
-    ) -> SecurityPrincipal:
+    def authenticate(self, authorization: str | None) -> SecurityPrincipal:
         supplied = self._bearer_value(authorization)
-        selected = (principal_type or "human_admin").casefold()
-        if selected == "human_admin":
-            configured = self.config.security_admin_token
-            scopes = HUMAN_ADMIN_SCOPES
-            principal_id = "human-admin"
-        elif selected == "codex_service":
-            configured = self.config.security_codex_token
-            scopes = parse_scopes(self.config.security_codex_scopes)
-            principal_id = "codex-bootstrap"
-        elif selected == "internal_service":
-            configured = self.config.security_internal_token
-            scopes = parse_scopes(self.config.security_internal_scopes)
-            principal_id = "internal-service"
-        else:
+        candidates = (
+            (
+                "codex_service",
+                "codex-bootstrap",
+                self.config.security_codex_token,
+                parse_scopes(self.config.security_codex_scopes),
+            ),
+            (
+                "internal_service",
+                "internal-service",
+                self.config.security_internal_token,
+                parse_scopes(self.config.security_internal_scopes),
+            ),
+        )
+        matches = [
+            (principal_type, principal_id, scopes)
+            for principal_type, principal_id, configured, scopes in candidates
+            if configured is not None
+            and configured.get_secret_value()
+            and secrets.compare_digest(supplied, configured.get_secret_value())
+        ]
+        if len(matches) != 1:
             raise AuthenticationFailure("credential_invalid", 401)
-        if configured is None:
-            raise AuthenticationFailure("authentication_unavailable", 503)
-        expected = configured.get_secret_value()
-        if not expected or not secrets.compare_digest(supplied, expected):
-            raise AuthenticationFailure("credential_invalid", 401)
-        return SecurityPrincipal(selected, principal_id, scopes)  # type: ignore[arg-type]
+        principal_type, principal_id, scopes = matches[0]
+        return SecurityPrincipal(principal_type, principal_id, scopes)  # type: ignore[arg-type]
 
 
-TEST_ADMIN = SecurityPrincipal("test_harness", "pytest", HUMAN_ADMIN_SCOPES)
+LOCAL_OWNER = SecurityPrincipal("local_owner", "local-owner", APPLICATION_OWNER_SCOPES)
+TEST_ADMIN = SecurityPrincipal("test_harness", "pytest", APPLICATION_OWNER_SCOPES)
 
 
 __all__ = [
     "AuthenticationFailure",
     "CredentialAuthenticator",
+    "LOCAL_OWNER",
     "SecurityPrincipal",
     "TEST_ADMIN",
 ]

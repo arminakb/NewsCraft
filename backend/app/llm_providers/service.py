@@ -9,6 +9,7 @@ from pydantic import ValidationError
 from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.automations.definitions.resources import count_automation_definitions_referencing
 from app.automations.models import AutomationRoute
 from app.core.config import Settings, settings
 from app.core.outbound_proxy import build_outbound_http_client
@@ -29,7 +30,14 @@ from app.llm_providers.schemas import (
 from app.research.models import ResearchRun
 from app.security.auth import SecurityPrincipal
 from app.security.models import EncryptedSecret
-from app.security.secret_store import EncryptedSecretStore, MasterKeyRing
+from app.security.secret_store import (
+    EncryptedSecretStore,
+    MasterKeyRing,
+    SecretRotationFailed,
+    SecretStore,
+    SecretStoreError,
+    SecretStoreUnavailable,
+)
 
 ProviderProbe = Callable[[LLMProvider, str, LLMProviderSettings], Awaitable[None]]
 _ACTIVE_JOB_STATES = frozenset({"queued", "running", "retry_scheduled", "paused"})
@@ -121,6 +129,7 @@ class LLMProviderService:
         *,
         principal: SecurityPrincipal,
         key_ring: MasterKeyRing | None = None,
+        secret_store: SecretStore | None = None,
         config: Settings = settings,
         probe: ProviderProbe = _default_probe,
         clock: Callable[[], datetime] | None = None,
@@ -128,13 +137,16 @@ class LLMProviderService:
         self.session = session
         self.principal = principal
         self.key_ring = key_ring
+        self.secret_store = secret_store
         self.config = config
         self.probe = probe
         self.clock = clock or (lambda: datetime.now(UTC))
 
-    def _secret_store(self) -> EncryptedSecretStore:
+    def _secret_store(self) -> SecretStore:
+        if self.secret_store is not None:
+            return self.secret_store
         if self.key_ring is None:
-            raise RuntimeError("secret_store_unavailable")
+            raise SecretStoreUnavailable
         return EncryptedSecretStore(self.session, self.key_ring)
 
     async def _shadow(self, provider: LLMProvider) -> AIProviderProfile:
@@ -238,7 +250,7 @@ class LLMProviderService:
         else:
             secret = await self.session.get(EncryptedSecret, provider.secret_id)
             if secret is None:
-                raise RuntimeError("secret_store_unavailable")
+                raise SecretRotationFailed
             self._secret_store().rotate(
                 secret,
                 value,
@@ -277,6 +289,8 @@ class LLMProviderService:
                 required_scope="providers:write",
             )
             await self.probe(provider, api_key, configured)
+        except SecretStoreError:
+            raise
         except Exception as exc:
             code = str(getattr(exc, "code", exc))
             if "401" in code or "403" in code:
@@ -328,6 +342,7 @@ class LLMProviderService:
             )
             or 0
         )
+        automations += await count_automation_definitions_referencing(self.session, provider_id)
         generation_runs = int(
             await self.session.scalar(
                 select(func.count()).select_from(GenerationRun).where(GenerationRun.provider_profile_id == provider_id)

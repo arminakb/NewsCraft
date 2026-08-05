@@ -6,8 +6,9 @@ from uuid import uuid4
 import httpx
 import pytest
 from httpx import ASGITransport, AsyncClient
-from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 import app.api.llm_providers as llm_api
 from app.core.config import Settings
@@ -18,7 +19,7 @@ from app.generation.providers.profiles import ProviderProfileResolver
 from app.generation.providers.registry import build_default_provider_registry
 from app.jobs.models import WorkflowJob
 from app.llm_providers.models import LLMProvider
-from app.llm_providers.schemas import LLMProviderCreate, LLMProviderPatch
+from app.llm_providers.schemas import LLMProviderCreate, LLMProviderPatch, LLMProviderSettings
 from app.llm_providers.service import (
     LLMProviderService,
     ProviderDependencyConflict,
@@ -154,6 +155,93 @@ async def test_lifecycle_worker_resolution_rotation_and_dependency_protection(db
     await db_session.commit()
     assert await db_session.get(LLMProvider, provider.id) is None
     assert await db_session.scalar(select(EncryptedSecret).where(EncryptedSecret.owner_id == provider.id)) is None
+
+
+async def test_add_rotate_and_restart_preserve_encrypted_provider_secret(
+    session_factory: async_sessionmaker[AsyncSession],
+):
+    config = _config()
+    provider_id = uuid4()
+    provider = LLMProvider(
+        id=provider_id,
+        name="Restart-safe provider",
+        protocol="openai_compatible",
+        base_url="https://llm.example/v1",
+        default_model="model-one",
+        enabled=False,
+        secret_id=None,
+        settings=LLMProviderSettings().model_dump(mode="json"),
+        health_status="unchecked",
+        generation_capability="unknown",
+        research_capability="unknown",
+        ownership="operator_managed",
+    )
+    async with session_factory() as session:
+        session.add(provider)
+        await session.commit()
+
+        service = LLMProviderService(
+            session,
+            principal=TEST_ADMIN,
+            key_ring=MasterKeyRing.from_settings(config),
+            config=config,
+        )
+        await service.rotate_secret(provider, "TEST_PROVIDER_API_KEY_MUST_NOT_LEAK")
+        provider.secret_id = uuid4()  # force provider update failure after secret insertion
+        with pytest.raises(IntegrityError):
+            await session.commit()
+        await session.rollback()
+
+    async with session_factory() as session:
+        provider = await session.get(LLMProvider, provider_id)
+        assert provider is not None
+        assert provider.secret_id is None
+        assert await session.scalar(
+            select(func.count()).select_from(EncryptedSecret).where(EncryptedSecret.owner_id == provider_id)
+        ) == 0
+
+        observed: list[str] = []
+
+        async def probe(_provider, api_key, _settings):
+            observed.append(api_key)
+
+        service = LLMProviderService(
+            session,
+            principal=TEST_ADMIN,
+            key_ring=MasterKeyRing.from_settings(config),
+            config=config,
+            probe=probe,
+        )
+        await service.rotate_secret(provider, "TEST_PROVIDER_API_KEY_MUST_NOT_LEAK")
+        await session.commit()
+        await session.refresh(provider)
+        secret_id = provider.secret_id
+        assert secret_id is not None
+        stored = await session.get(EncryptedSecret, secret_id)
+        assert stored is not None
+        assert b"TEST_PROVIDER_API_KEY_MUST_NOT_LEAK" not in stored.ciphertext
+
+        await service.rotate_secret(provider, "TEST_OLD_PROVIDER_KEY_MUST_NOT_LEAK")
+        await session.commit()
+        assert provider.secret_id == secret_id
+        assert await session.scalar(
+            select(func.count()).select_from(EncryptedSecret).where(EncryptedSecret.owner_id == provider_id)
+        ) == 1
+
+    # A new key ring and session model an API-process restart with the same stable key.
+    async with session_factory() as restarted_session:
+        restarted_provider = await restarted_session.get(LLMProvider, provider_id)
+        assert restarted_provider is not None
+        restarted_service = LLMProviderService(
+            restarted_session,
+            principal=TEST_ADMIN,
+            key_ring=MasterKeyRing.from_settings(_config()),
+            config=_config(),
+            probe=probe,
+        )
+        await restarted_service.test_connection(restarted_provider)
+
+    assert observed == ["TEST_OLD_PROVIDER_KEY_MUST_NOT_LEAK"]
 
 
 async def test_fake_provider_api_supports_full_operator_lifecycle(

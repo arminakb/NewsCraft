@@ -1,6 +1,6 @@
 services:
   postgres:
-    image: postgres:18.3-bookworm@sha256:80630f83606d8db77d30b3851b16a9f78be2d0d4dda6f7b82a1fdca5ebe3acba
+    image: postgres:18.4-trixie@sha256:4aabea78cf39b90e834caf3af7d602a18565f6fe2508705c8d01aa63245c2e20
     restart: "no"
     environment:
       POSTGRES_USER: newscraft
@@ -21,7 +21,7 @@ services:
       retries: 20
 
   postgres-test:
-    image: postgres:18.3-bookworm@sha256:80630f83606d8db77d30b3851b16a9f78be2d0d4dda6f7b82a1fdca5ebe3acba
+    image: postgres:18.4-trixie@sha256:4aabea78cf39b90e834caf3af7d602a18565f6fe2508705c8d01aa63245c2e20
     restart: "no"
     profiles: ["test"]
     environment:
@@ -29,7 +29,7 @@ services:
       POSTGRES_PASSWORD: newscraft
       POSTGRES_DB: newscraft_test
     ports:
-      - "127.0.0.1:55432:5432"
+      - "127.0.0.1:${NEWSCRAFT_TEST_DATABASE_PORT:-55432}:5432"
     tmpfs:
       - /var/lib/postgresql
     healthcheck:
@@ -83,17 +83,21 @@ services:
       CAPABILITY_QUEUE_CEILING: ${CAPABILITY_QUEUE_CEILING:-1000}
       CAPABILITY_RETRY_AFTER_SECONDS: ${CAPABILITY_RETRY_AFTER_SECONDS:-5}
       CAPABILITY_OBSERVATION_TTL_SECONDS: ${CAPABILITY_OBSERVATION_TTL_SECONDS:-120}
-      SECURITY_ADMIN_TOKEN: ${SECURITY_ADMIN_TOKEN:-}
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000,http://127.0.0.1:3000}
+      APPLICATION_AUTH_MODE: ${APPLICATION_AUTH_MODE:-local_owner}
       CODEX_GATEWAY_HASH_KEY: ${CODEX_GATEWAY_HASH_KEY:-}
       CODEX_GATEWAY_PUBLIC_URL: ${CODEX_GATEWAY_PUBLIC_URL:-http://localhost:8000}
       SECRET_KEY_VERSION: ${SECRET_KEY_VERSION:-v1}
-      SECRET_MASTER_KEY: ${SECRET_MASTER_KEY:-}
       SECRET_PREVIOUS_KEYS: ${SECRET_PREVIOUS_KEYS:-}
     ports:
       - "127.0.0.1:8000:8000"
     volumes:
       - media_data:/data/media:ro
       - export_data:/data/exports:ro
+    secrets:
+      - source: secret_master_key
+        target: SECRET_MASTER_KEY
+        mode: 0400
     depends_on:
       migrate:
         condition: service_completed_successfully
@@ -141,7 +145,6 @@ services:
       OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
       OPENROUTER_BASE_URL: ${OPENROUTER_BASE_URL:-https://openrouter.ai/api/v1}
       SECRET_KEY_VERSION: ${SECRET_KEY_VERSION:-v1}
-      SECRET_MASTER_KEY: ${SECRET_MASTER_KEY:-}
       SECRET_PREVIOUS_KEYS: ${SECRET_PREVIOUS_KEYS:-}
       SECURITY_INTERNAL_SCOPES: ${SECURITY_INTERNAL_SCOPES:-jobs:read,jobs:write,providers:read,destinations:read}
       TELEGRAM_SOURCE_EDITOR_API_ID: ${TELEGRAM_SOURCE_EDITOR_API_ID:-}
@@ -153,13 +156,17 @@ services:
       - media_data:/data/media
       - export_data:/data/exports
       - media_staging:/data/media-staging
+    secrets:
+      - source: secret_master_key
+        target: SECRET_MASTER_KEY
+        mode: 0400
     depends_on:
       postgres:
         condition: service_healthy
       api:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "python", "-m", "app.jobs.healthcheck", "--component-id", "worker-source-generation", "--component-type", "worker", "--expected-capabilities", "generation,ingestion,source", "--expected-job-types", "build_export,content_pack.generate,content_pack.generate_telegram,content_pack.regenerate,execute_retention,ingest.collect,manual_intake,operations.canary.source_generation,research_story,story.group_pending,telegram.route.backfill,telegram.route.dry_run,telegram.route.initialize,telegram.route.poll,telegram.route.process", "--max-age-seconds", "120"]
+      test: ["CMD", "python", "-m", "app.jobs.healthcheck", "--component-id", "worker-source-generation", "--component-type", "worker", "--expected-capabilities", "generation,ingestion,source", "--expected-job-types", "automation.run.start,build_export,content_pack.generate,content_pack.generate_telegram,content_pack.regenerate,execute_retention,ingest.collect,manual_intake,operations.canary.source_generation,research_story,story.group_pending,telegram.route.backfill,telegram.route.dry_run,telegram.route.initialize,telegram.route.poll,telegram.route.process", "--max-age-seconds", "120"]
       interval: 15s
       timeout: 5s
       retries: 4
@@ -180,7 +187,6 @@ services:
       NO_PROXY: ${NO_PROXY-}
       MEDIA_ROOT: /data/media
       SECRET_KEY_VERSION: ${SECRET_KEY_VERSION:-v1}
-      SECRET_MASTER_KEY: ${SECRET_MASTER_KEY:-}
       SECRET_PREVIOUS_KEYS: ${SECRET_PREVIOUS_KEYS:-}
       SECURITY_INTERNAL_SCOPES: ${SECURITY_INTERNAL_SCOPES:-jobs:read,jobs:write,providers:read,destinations:read}
       TELEGRAM_PROXY_ALLOWED_PORTS: ${TELEGRAM_PROXY_ALLOWED_PORTS:-80,443,1080,3128,8080,8443}
@@ -191,6 +197,10 @@ services:
       - "host.docker.internal:host-gateway"
     volumes:
       - media_data:/data/media:ro
+    secrets:
+      - source: secret_master_key
+        target: SECRET_MASTER_KEY
+        mode: 0400
     depends_on:
       postgres:
         condition: service_healthy
@@ -229,3 +239,7 @@ volumes:
   media_data:
   export_data:
   media_staging:
+
+secrets:
+  secret_master_key:
+    file: ${SECRET_MASTER_KEY_FILE:-./secrets/SECRET_MASTER_KEY}
