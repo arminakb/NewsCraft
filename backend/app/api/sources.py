@@ -2,7 +2,7 @@ from datetime import UTC, datetime
 from uuid import UUID, uuid4
 
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -13,6 +13,8 @@ from app.api.schemas import (
     SourceOut,
     telegram_username_from_url,
 )
+from app.automations.definitions.resources import count_automation_definitions_referencing
+from app.automations.models import AutomationRoute
 from app.db.models import Source
 from app.db.session import get_session
 from app.ingestion.seed_sources import seed_sources
@@ -79,6 +81,21 @@ async def delete_source(source_id: UUID, session: AsyncSession = SessionDependen
     source = await session.get(Source, source_id)
     if source is None or source.deleted_at is not None:
         raise HTTPException(status_code=404, detail="source not found")
+    legacy_dependencies = int(
+        await session.scalar(
+            select(func.count()).select_from(AutomationRoute).where(AutomationRoute.source_id == source_id)
+        )
+        or 0
+    )
+    definition_dependencies = await count_automation_definitions_referencing(session, source_id)
+    if legacy_dependencies or definition_dependencies:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "source_has_automation_dependencies",
+                "automations": legacy_dependencies + definition_dependencies,
+            },
+        )
     source.active = False
     source.disabled_reason = "deleted_by_operator"
     source.deleted_at = datetime.now(UTC)
