@@ -229,12 +229,40 @@ class IngestionRepository:
         raw_payload_id: UUID,
         parsed_item: ParsedSourceItem,
     ) -> SourceItem:
+        item, _created = await self.upsert_source_item_with_created(
+            run_id=run_id,
+            source_id=source_id,
+            raw_payload_id=raw_payload_id,
+            parsed_item=parsed_item,
+        )
+        return item
+
+    async def upsert_source_item_with_created(
+        self,
+        run_id: UUID,
+        source_id: UUID,
+        raw_payload_id: UUID,
+        parsed_item: ParsedSourceItem,
+    ) -> tuple[SourceItem, bool]:
         values = _source_item_values(run_id, source_id, raw_payload_id, parsed_item)
         if not parsed_item.external_id_norm:
             item = SourceItem(**values)
             self.session.add(item)
             await self.session.flush()
-            return item
+            return item, True
+
+        insert_statement = (
+            insert(SourceItem)
+            .values(**values)
+            .on_conflict_do_nothing(
+                index_elements=[SourceItem.source_id, SourceItem.external_id_norm],
+                index_where=SourceItem.external_id_norm.is_not(None),
+            )
+            .returning(SourceItem)
+        )
+        inserted = (await self.session.execute(insert_statement)).scalar_one_or_none()
+        if inserted is not None:
+            return inserted, True
 
         stmt = (
             insert(SourceItem)
@@ -262,7 +290,7 @@ class IngestionRepository:
             .returning(SourceItem)
         )
         result = await self.session.execute(stmt)
-        return result.scalar_one()
+        return result.scalar_one(), False
 
     async def find_content_item_by_identities(self, identities: list[dict[str, Any]]) -> ContentItem | None:
         clauses = []

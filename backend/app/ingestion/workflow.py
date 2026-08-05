@@ -12,6 +12,7 @@ from uuid import UUID
 import httpx
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.automations.definitions.source_events import enqueue_source_item_created
 from app.core.config import settings
 from app.core.outbound_proxy import build_outbound_http_client
 from app.core.redaction import redact_secrets, redact_string
@@ -232,7 +233,8 @@ class IngestionWorkflow:
         try:
             async with session.begin_nested():
                 for parsed_item in batch.parsed_items:
-                    source_item = await repository.upsert_source_item(
+                    source_item, created = await _upsert_source_item_with_created(
+                        repository,
                         run_id=run_id,
                         source_id=source.id,
                         raw_payload_id=payload.id,
@@ -259,6 +261,16 @@ class IngestionWorkflow:
                     )
                     item_count += 1
                     media_count += len(parsed_item.media_candidates)
+                    if created:
+                        await enqueue_source_item_created(
+                            session,
+                            source_item_id=source_item.id,
+                            source_id=source.id,
+                            platform=source.platform,
+                            content_item_id=content_item.id,
+                            ingestion_run_id=run_id,
+                            occurred_at=datetime.now(UTC),
+                        )
         except asyncio.CancelledError:
             raise
         except Exception as exc:  # noqa: BLE001 - raw response remains durable outside the savepoint
@@ -413,6 +425,19 @@ class _PersistedResponse:
 
 def _build_http_client() -> httpx.AsyncClient:
     return build_outbound_http_client(timeout=20.0)
+
+
+async def _upsert_source_item_with_created(
+    repository: IngestionRepository,
+    **kwargs: Any,
+) -> tuple[Any, bool]:
+    method = getattr(repository, "upsert_source_item_with_created", None)
+    if callable(method):
+        return await method(**kwargs)
+    # Small repository doubles used by ingestion unit tests predate the
+    # insert/update signal. They still exercise persistence, but cannot emit
+    # a source-item event without the real repository boundary.
+    return await repository.upsert_source_item(**kwargs), False
 
 
 def _source_request_url(source: Source) -> str:
