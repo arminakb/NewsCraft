@@ -8,6 +8,7 @@ import type {
   HistoryFilters,
   HistoryPage,
   HistorySubjectType,
+  OperationalHealthSnapshot,
   OperationsSnapshot,
   ReconciliationCase,
   ReconciliationDecision,
@@ -75,6 +76,10 @@ export async function fetchOperationsDiagnostics(): Promise<OperationsSnapshot> 
       scheme: row.outbound_proxy.scheme ?? null,
     },
   }
+}
+
+export async function fetchOperationalHealth(): Promise<OperationalHealthSnapshot> {
+  return apiRequest<OperationalHealthSnapshot>("/operations/health")
 }
 
 export async function fetchOperationsHistory(filters: HistoryFilters = {}): Promise<HistoryPage> {

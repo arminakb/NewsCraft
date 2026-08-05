@@ -1,38 +1,16 @@
-"use client"
+import { redirect } from "next/navigation"
 
-import { useQuery } from "@tanstack/react-query"
-
-import { OperationsPageFrame } from "@/components/dashboard/pages/operations-page-frame"
-import { Button } from "@/components/ui/button"
-import { ErrorState, LoadingState } from "@/components/ui/state-panel"
-import { fetchOperationsDiagnostics } from "@/features/operations/api"
-import { DiagnosticsDashboard } from "@/features/operations/diagnostics-dashboard"
-import { getApiErrorMessage } from "@/lib/http"
-import { operationsQueryKeys } from "@/lib/query-keys"
-
-export default function Page() {
-  const diagnosticsQuery = useQuery({
-    queryKey: operationsQueryKeys.diagnostics,
-    queryFn: fetchOperationsDiagnostics,
-  })
-
-  return (
-    <OperationsPageFrame
-      title="Diagnostics"
-      subtitle="Inspect persisted runtime health, durable queue truth, and operator attention."
-    >
-      {diagnosticsQuery.isPending ? (
-        <LoadingState aria-label="Loading operational diagnostics" title="Loading operational diagnostics…" />
-      ) : null}
-      {diagnosticsQuery.isError ? (
-        <ErrorState
-          dir="auto"
-          title="Diagnostics unavailable"
-          description={getApiErrorMessage(diagnosticsQuery.error, "Operational diagnostics could not be loaded")}
-          action={<Button onClick={() => diagnosticsQuery.refetch()} size="sm" variant="outline">Retry diagnostics</Button>}
-        />
-      ) : null}
-      {diagnosticsQuery.data ? <DiagnosticsDashboard snapshot={diagnosticsQuery.data} /> : null}
-    </OperationsPageFrame>
-  )
+export default async function Page({
+  searchParams,
+}: {
+  searchParams: Promise<Record<string, string | string[] | undefined>>
+}) {
+  const query = await searchParams
+  const params = new URLSearchParams()
+  params.set("view", "diagnostics")
+  for (const [key, value] of Object.entries(query)) {
+    if (key === "view") continue
+    for (const item of Array.isArray(value) ? value : value ? [value] : []) params.append(key, item)
+  }
+  return redirect(`/operations?${params.toString()}`)
 }

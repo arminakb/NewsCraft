@@ -1,11 +1,6 @@
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { render, screen } from "@testing-library/react"
 
-import DiagnosticsPage from "@/app/diagnostics/page"
-import { fetchOperationsDiagnostics } from "@/features/operations/api"
 import { DiagnosticsDashboard } from "@/features/operations/diagnostics-dashboard"
-
-vi.mock("@/features/operations/api", () => ({ fetchOperationsDiagnostics: vi.fn() }))
 
 describe("DiagnosticsDashboard", () => {
   it("renders every persisted component with exact Tehran observations and never invents health", () => {
@@ -64,7 +59,7 @@ describe("DiagnosticsDashboard", () => {
     expect(screen.getByText("Last successful Jul 11, 2026, 11:00 AM")).toBeInTheDocument()
     expect(screen.getByRole("link", { name: "Open Publishing worker action" })).toHaveAttribute(
       "href",
-      "/jobs?status=running",
+      "/operations?status=running&view=jobs",
     )
     expect(screen.getByText("Dry run enabled")).toBeInTheDocument()
     expect(screen.getByText("Direct · 0 bypass rules · not checked")).toBeInTheDocument()
@@ -111,24 +106,9 @@ describe("DiagnosticsDashboard", () => {
     expect(screen.getByText("Configuration error: proxy connectivity failed")).toBeInTheDocument()
     expect(screen.getByRole("link", { name: "Open repair تولید محتوا نیاز به بررسی دارد" })).toHaveAttribute(
       "href",
-      "/jobs?status=needs_review",
+      "/operations?status=needs_review&view=jobs",
     )
     expect(screen.getByText("error", { exact: true }).closest("span")).toHaveClass("bg-[var(--error-surface)]", "text-destructive")
     expect(title.closest("li")?.querySelector("svg")).toHaveAttribute("aria-hidden", "true")
-  })
-
-  it("preserves API error direction on the diagnostics route", async () => {
-    vi.mocked(fetchOperationsDiagnostics).mockRejectedValueOnce(new Error("سامانه در دسترس نیست"))
-    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
-
-    render(
-      <QueryClientProvider client={queryClient}>
-        <DiagnosticsPage />
-      </QueryClientProvider>,
-    )
-
-    const alert = await screen.findByRole("alert")
-    expect(alert).toHaveTextContent("سامانه در دسترس نیست")
-    expect(alert).toHaveAttribute("dir", "auto")
   })
 })

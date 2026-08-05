@@ -1,9 +1,13 @@
+"use client"
+
 import { AlertTriangle, ArrowUpRight, CheckCircle2, CircleHelp, OctagonX } from "lucide-react"
 import Link from "next/link"
 
 import { DirectionBoundary } from "@/components/newsroom/direction-boundary"
+import { useDateTime } from "@/components/providers/date-time-provider"
 import { Badge } from "@/components/ui/badge"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { DEFAULT_TIME_ZONE, formatInTimeZone } from "@/lib/date-time"
 
 import type { OperationComponentHealth, OperationsSnapshot } from "./types"
 
@@ -24,13 +28,14 @@ const statusPresentation = {
 >
 
 export function DiagnosticsDashboard({ snapshot }: { snapshot: OperationsSnapshot }) {
+  const { timezone } = useDateTime()
   const components = Object.entries(snapshot.components)
   const queueCounts = Object.entries(snapshot.queue_counts)
 
   return (
     <div className="space-y-4">
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <TruthCard label="Snapshot generated" value={formatTehranTimestamp(snapshot.generated_at)} />
+        <TruthCard label="Snapshot generated" value={formatOperatorTimestamp(snapshot.generated_at, timezone)} />
         <TruthCard
           label="Automation control"
           value={snapshot.global_paused ? "Operations paused" : "Operations active"}
@@ -47,7 +52,7 @@ export function DiagnosticsDashboard({ snapshot }: { snapshot: OperationsSnapsho
           {components.length ? (
             <div className="divide-y">
               {components.map(([componentId, component]) => (
-                <RuntimeComponent key={componentId} componentId={componentId} value={component} />
+                <RuntimeComponent key={componentId} componentId={componentId} timezone={timezone} value={component} />
               ))}
             </div>
           ) : (
@@ -70,7 +75,7 @@ export function DiagnosticsDashboard({ snapshot }: { snapshot: OperationsSnapsho
                     <dd>
                       <Link
                         className="font-medium tabular-nums text-primary underline-offset-4 hover:underline"
-                        href={`/jobs?status=${queueStatusFilter(status)}`}
+                        href={`/operations?view=jobs&status=${queueStatusFilter(status)}`}
                       >
                         {count.toLocaleString("en-US")}
                       </Link>
@@ -104,13 +109,13 @@ export function DiagnosticsDashboard({ snapshot }: { snapshot: OperationsSnapsho
                         {item.title}
                       </DirectionBoundary>
                       <time className="block text-xs text-muted-foreground" dateTime={item.occurred_at}>
-                        {formatTehranTimestamp(item.occurred_at)}
+                        {formatOperatorTimestamp(item.occurred_at, timezone)}
                       </time>
                     </div>
                     <Link
                       aria-label={`${attentionActionLabel(item.kind)} ${item.title}`}
                       className="inline-flex items-center gap-1 text-sm font-medium text-primary underline-offset-4 hover:underline"
-                      href={item.action_url}
+                      href={operationsHref(item.action_url)}
                     >
                       {attentionActionLabel(item.kind)}
                       <ArrowUpRight aria-hidden="true" className="size-3.5" />
@@ -135,7 +140,15 @@ function outboundProxySummary(snapshot: OperationsSnapshot): string {
   return `${route} · ${proxy.bypass_rule_count} bypass rules · ${humanize(proxy.last_connectivity_status)}`
 }
 
-function RuntimeComponent({ componentId, value }: { componentId: string; value: OperationComponentHealth }) {
+function RuntimeComponent({
+  componentId,
+  timezone,
+  value,
+}: {
+  componentId: string
+  timezone: string
+  value: OperationComponentHealth
+}) {
   const label = componentNames[componentId] ?? componentId
   const presentation = statusPresentation[value.status]
   const Icon = presentation.Icon
@@ -153,7 +166,7 @@ function RuntimeComponent({ componentId, value }: { componentId: string; value: 
         {value.observed_at ? (
           <p>
             <time dateTime={value.observed_at}>
-              {label} last observed {formatTehranTimestamp(value.observed_at)}
+              {label} last observed {formatOperatorTimestamp(value.observed_at, timezone)}
             </time>
           </p>
         ) : (
@@ -162,7 +175,7 @@ function RuntimeComponent({ componentId, value }: { componentId: string; value: 
         <p className="text-xs text-muted-foreground">
           {value.last_success_at ? (
             <time dateTime={value.last_success_at}>
-              Last successful {formatTehranTimestamp(value.last_success_at)}
+              Last successful {formatOperatorTimestamp(value.last_success_at, timezone)}
             </time>
           ) : (
             "No successful observation recorded"
@@ -180,7 +193,7 @@ function RuntimeComponent({ componentId, value }: { componentId: string; value: 
         <Link
           aria-label={`Open ${label} action`}
           className="inline-flex items-center gap-1 text-sm font-medium text-primary underline-offset-4 hover:underline"
-          href={value.action_url}
+          href={operationsHref(value.action_url)}
         >
           {runtimeActionLabel(value.action_url)}
           <ArrowUpRight aria-hidden="true" className="size-3.5" />
@@ -201,17 +214,14 @@ function TruthCard({ label, value }: { label: string; value: string }) {
   )
 }
 
-export function formatTehranTimestamp(value: string): string {
-  const parsed = new Date(value)
-  if (Number.isNaN(parsed.getTime())) return value
-  return new Intl.DateTimeFormat("en-US", {
-    timeZone: "Asia/Tehran",
+export function formatOperatorTimestamp(value: string, timezone = DEFAULT_TIME_ZONE): string {
+  return formatInTimeZone(value, timezone, {
     month: "short",
     day: "numeric",
     year: "numeric",
     hour: "numeric",
     minute: "2-digit",
-  }).format(parsed)
+  })
 }
 
 function humanize(value: string): string {
@@ -234,4 +244,15 @@ function runtimeActionLabel(actionUrl: string): string {
   if (actionUrl.startsWith("/jobs")) return "Inspect jobs"
   if (actionUrl.startsWith("/automations")) return "Inspect automations"
   return "Inspect evidence"
+}
+
+function operationsHref(actionUrl: string): string {
+  if (actionUrl.startsWith("/jobs")) {
+    const query = actionUrl.split("?", 2)[1] ?? ""
+    const params = new URLSearchParams(query)
+    params.set("view", "jobs")
+    return `/operations?${params.toString()}`
+  }
+  if (actionUrl.startsWith("/diagnostics")) return "/operations?view=diagnostics"
+  return actionUrl
 }

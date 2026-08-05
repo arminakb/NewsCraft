@@ -3,6 +3,7 @@
 import { useId, useState } from "react"
 
 import { DirectionBoundary } from "@/components/newsroom/direction-boundary"
+import { useDateTime } from "@/components/providers/date-time-provider"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -11,7 +12,7 @@ import { Textarea } from "@/components/ui/textarea"
 import { getApiErrorMessage } from "@/lib/http"
 
 import { submitReconciliationDecision } from "./api"
-import { formatTehranTimestamp } from "./diagnostics-dashboard"
+import { formatOperatorTimestamp } from "./diagnostics-dashboard"
 import type {
   ReconciliationCase,
   ReconciliationDecision,
@@ -27,6 +28,7 @@ export function ReconciliationPanel({
   onResolved?: (result: ReconciliationDecisionResult) => void | Promise<void>
   value: ReconciliationCase
 }) {
+  const { timezone } = useDateTime()
   const instanceId = useId()
   const [selectedOutcome, setSelectedOutcome] = useState<SelectedOutcome | null>(null)
   const [remoteIdsInput, setRemoteIdsInput] = useState("")
@@ -114,7 +116,7 @@ export function ReconciliationPanel({
             </DirectionBoundary>
             {value.ambiguous_at ? (
               <time className="block text-xs text-muted-foreground" dateTime={value.ambiguous_at}>
-                Ambiguous at {formatTehranTimestamp(value.ambiguous_at)}
+                Ambiguous at {formatOperatorTimestamp(value.ambiguous_at, timezone)}
               </time>
             ) : (
               <p className="text-xs text-muted-foreground">No ambiguity timestamp was persisted.</p>
@@ -150,7 +152,7 @@ export function ReconciliationPanel({
                     <dt className="text-xs text-muted-foreground">Durable send time</dt>
                     <dd>
                       {operation.sent_at ? (
-                        <time dateTime={operation.sent_at}>{formatTehranTimestamp(operation.sent_at)}</time>
+                        <time dateTime={operation.sent_at}>{formatOperatorTimestamp(operation.sent_at, timezone)}</time>
                       ) : (
                         "No durable send time recorded"
                       )}
@@ -169,7 +171,7 @@ export function ReconciliationPanel({
               <ol className="list-decimal space-y-1 ps-5">
                 <li>Open <bdi dir="ltr">{value.destination.target_ref}</bdi> in Telegram.</li>
                 <li>
-                  Locate messages around {formatTehranTimestamp(ambiguousOperation?.sent_at ?? value.ambiguous_at ?? "")}.
+                  Locate messages around {formatOperatorTimestamp(ambiguousOperation?.sent_at ?? value.ambiguous_at ?? "", timezone)}.
                 </li>
                 <li>Compare the persisted operation key and request hash with the intended Telegram payload.</li>
                 <li>Choose published only when the remote message IDs can be verified exactly.</li>

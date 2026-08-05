@@ -21,11 +21,11 @@ export function AttentionQueue({
             </div>
             <JobStatusBadge status={job.status} />
             {job.status === "failed" ? (
-              <Link className={buttonVariants({ variant: "outline" })} href={`/jobs?status=attention&job=${job.id}`}>
+              <Link className={buttonVariants({ variant: "outline" })} href={`/operations?view=jobs&status=attention&job=${job.id}`}>
                 Open job
               </Link>
             ) : job.status === "needs_review" ? (
-              <Link className={buttonVariants({ variant: "outline" })} href={`/jobs?status=attention&job=${job.id}`}>
+              <Link className={buttonVariants({ variant: "outline" })} href={`/operations?view=jobs&status=attention&job=${job.id}`}>
                 Continue review
               </Link>
             ) : null}

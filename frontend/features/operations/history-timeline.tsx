@@ -5,6 +5,7 @@ import { ArrowUpRight } from "lucide-react"
 import Link from "next/link"
 
 import { DirectionBoundary } from "@/components/newsroom/direction-boundary"
+import { useDateTime } from "@/components/providers/date-time-provider"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -13,10 +14,11 @@ import { getApiErrorMessage } from "@/lib/http"
 import { operationsQueryKeys } from "@/lib/query-keys"
 
 import { fetchOperationsHistory } from "./api"
-import { formatTehranTimestamp } from "./diagnostics-dashboard"
+import { formatOperatorTimestamp } from "./diagnostics-dashboard"
 import type { HistoryEntry, HistoryFilters } from "./types"
 
 export function HistoryTimeline({ routeId }: { routeId: string }) {
+  const { timezone } = useDateTime()
   const filters: HistoryFilters = {
     subjectType: "automation_route",
     subjectId: routeId,
@@ -58,7 +60,7 @@ export function HistoryTimeline({ routeId }: { routeId: string }) {
         {entries.length ? (
           <ol className="divide-y">
             {entries.map((entry) => (
-              <HistoryTimelineItem entry={entry} key={entry.id} />
+              <HistoryTimelineItem entry={entry} key={entry.id} timezone={timezone} />
             ))}
           </ol>
         ) : null}
@@ -78,14 +80,14 @@ export function HistoryTimeline({ routeId }: { routeId: string }) {
   )
 }
 
-function HistoryTimelineItem({ entry }: { entry: HistoryEntry }) {
+function HistoryTimelineItem({ entry, timezone }: { entry: HistoryEntry; timezone: string }) {
   const metadata = Object.entries(entry.sanitized_metadata)
 
   return (
     <li className="relative grid gap-3 px-4 py-4 md:grid-cols-[150px_minmax(0,1fr)_auto]">
       <div className="space-y-1">
         <time className="text-sm font-medium tabular-nums" dateTime={entry.occurred_at}>
-          {formatTehranTimestamp(entry.occurred_at)}
+          {formatOperatorTimestamp(entry.occurred_at, timezone)}
         </time>
         <div className="flex flex-wrap gap-1.5">
           <Badge variant="outline">{humanize(entry.category)}</Badge>
