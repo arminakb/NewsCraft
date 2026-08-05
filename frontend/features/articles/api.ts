@@ -6,6 +6,7 @@ import type {
   ArticleCollection,
   ArticleFacets,
   ArticleFilters,
+  ArticleDetail,
   ArticlePage,
   ArticleSort,
 } from "./types"
@@ -19,7 +20,7 @@ export async function getArticles(input: {
   collectionId?: string | null
   cursor?: string | null
   limit?: number
-}): Promise<ArticlePage> {
+}, signal?: AbortSignal): Promise<ArticlePage> {
   const params = new URLSearchParams({
     sort: input.sort,
     limit: String(input.limit ?? 50),
@@ -28,11 +29,16 @@ export async function getArticles(input: {
   if (input.collectionId) params.set("collection_id", input.collectionId)
   if (input.cursor) params.set("cursor", input.cursor)
   appendFilters(params, input.filters)
-  return camelize(await apiRequest<Schemas["ArticleListOut"]>(`/articles?${params.toString()}`))
+  const requestInit = signal ? { signal } : undefined
+  return camelize(await apiRequest<Schemas["ArticleListOut"]>(`/articles?${params.toString()}`, requestInit))
 }
 
-export async function getArticleCollections(): Promise<ArticleCollection[]> {
-  return camelize(await apiRequest<Schemas["ArticleCollectionOut"][]>("/article-collections"))
+export async function getArticle(articleId: string): Promise<ArticleDetail> {
+  return camelize(await apiRequest<Schemas["ArticleDetailOut"]>(`/articles/${articleId}`))
+}
+
+export async function getArticleCollections(signal?: AbortSignal): Promise<ArticleCollection[]> {
+  return camelize(await apiRequest<Schemas["ArticleCollectionOut"][]>("/article-collections", signal ? { signal } : undefined))
 }
 
 export async function createArticleCollection(name: string): Promise<ArticleCollection> {

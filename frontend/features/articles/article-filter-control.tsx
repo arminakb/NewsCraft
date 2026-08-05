@@ -88,7 +88,7 @@ export function ArticleFilterControl(props: FilterControlProps) {
       >
         <Filter aria-hidden="true" />
         Filter
-        {count ? <span className="rounded-full bg-primary px-1.5 py-0.5 text-[11px] leading-none text-primary-foreground">{count}</span> : null}
+        {count ? <span className="rounded-full bg-primary-solid px-1.5 py-0.5 text-[11px] leading-none text-primary-solid-foreground">{count}</span> : null}
       </Button>
 
       {open ? (

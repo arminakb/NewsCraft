@@ -1,6 +1,7 @@
 import {
   createArticleCollection,
   deleteArticleCollection,
+  getArticle,
   getArticleCollections,
   getArticleFacets,
   getArticles,
@@ -29,6 +30,43 @@ describe("Articles API", () => {
       "/api/backend/articles?sort=score&limit=25&cursor=cursor%2Fvalue",
       undefined,
     )
+  })
+
+  it("forwards request cancellation when supplied", async () => {
+    const request = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify(articlePage()), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      }),
+    )
+    vi.stubGlobal("fetch", request)
+    const controller = new AbortController()
+
+    await getArticles({ sort: "newest" }, controller.signal)
+
+    expect(request).toHaveBeenCalledWith(
+      "/api/backend/articles?sort=newest&limit=50",
+      { signal: controller.signal },
+    )
+  })
+
+  it("loads one article detail lazily and maps content provenance", async () => {
+    const request = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      id: articleId,
+      content_text: "Complete normalized article body.",
+      content_origin: "source_provided",
+    }), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    }))
+    vi.stubGlobal("fetch", request)
+
+    await expect(getArticle(articleId)).resolves.toMatchObject({
+      id: articleId,
+      contentText: "Complete normalized article body.",
+      contentOrigin: "source_provided",
+    })
+    expect(request).toHaveBeenCalledWith(`/api/backend/articles/${articleId}`, undefined)
   })
 
   it("serializes title search with collection and cursor state", async () => {

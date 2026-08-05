@@ -6,6 +6,7 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation"
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 
 import { ActiveFilterChips, ArticleFilterControl } from "./article-filter-control"
+import { ArticleDetailDialog, safeArticleUrl } from "./article-detail-dialog"
 import { getArticleCardClassifications, getArticleCardTime } from "./article-card-metadata"
 import { getArticleCollections, getArticleFacets, getArticles, removeArticleFromCollection } from "./api"
 import { CollectionsSidebar } from "./collections-sidebar"
@@ -22,6 +23,7 @@ import { SaveToCollectionDialog } from "./save-to-collection-dialog"
 import type { ArticleCollection, ArticleImage, ArticleSort, ArticleSummary } from "./types"
 
 import { DirectionBoundary } from "@/components/newsroom/direction-boundary"
+import { useDateTime } from "@/components/providers/date-time-provider"
 import { Alert } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -31,6 +33,7 @@ import { Select } from "@/components/ui/select"
 import { EmptyState, ErrorState } from "@/components/ui/state-panel"
 import { formatNumber } from "@/lib/format"
 import { ApiError, getApiErrorMessage } from "@/lib/http"
+import { queryKeys } from "@/lib/query-keys"
 
 const PAGE_SIZE = 50
 
@@ -45,6 +48,7 @@ export function ArticlesPage() {
   const filterCount = activeFilterCount(filters)
   const [announcement, setAnnouncement] = useState("")
   const [savingArticle, setSavingArticle] = useState<ArticleSummary | null>(null)
+  const [detailArticle, setDetailArticle] = useState<ArticleSummary | null>(null)
   const [membershipPending, setMembershipPending] = useState(false)
   const [directRemovalPendingId, setDirectRemovalPendingId] = useState<string | null>(null)
   const [directRemovalError, setDirectRemovalError] = useState<{ article: ArticleSummary; message: string } | null>(null)
@@ -52,11 +56,12 @@ export function ArticlesPage() {
   const [searchInput, setSearchInput] = useState({ value: titleQuery, committedQuery: titleQuery })
   const searchDraft = searchInput.committedQuery === titleQuery ? searchInput.value : titleQuery
   const directRemovalBusyRef = useRef(false)
+  const detailTriggerRef = useRef<HTMLButtonElement | null>(null)
   const searchTimerRef = useRef<number | null>(null)
   const searchSyncFrameRef = useRef<number | null>(null)
   const collectionsQuery = useQuery({
-    queryKey: ["article-collections"],
-    queryFn: getArticleCollections,
+    queryKey: queryKeys.articleCollections,
+    queryFn: ({ signal }) => getArticleCollections(signal),
   })
   const selectedCollection = collectionsQuery.data?.find((collection) => collection.id === collectionId)
   const missingFromList = Boolean(collectionId && collectionsQuery.isSuccess && !selectedCollection)
@@ -155,21 +160,21 @@ export function ArticlesPage() {
   }, [pathname, router, search])
 
   const handleCollectionCreated = useCallback((collection: ArticleCollection) => {
-    queryClient.setQueryData<ArticleCollection[]>(["article-collections"], (current = []) => (
+    queryClient.setQueryData<ArticleCollection[]>(queryKeys.articleCollections, (current = []) => (
       [...current.filter((item) => item.id !== collection.id), collection]
         .sort((left, right) => left.name.localeCompare(right.name, undefined, { sensitivity: "base" }))
     ))
-    void queryClient.invalidateQueries({ queryKey: ["article-collections"] })
+    void queryClient.invalidateQueries({ queryKey: queryKeys.articleCollections })
     setAnnouncement(`Collection ${collection.name} created and selected.`)
     selectCollection(collection.id)
   }, [queryClient, selectCollection])
 
   const handleInlineCollectionCreated = useCallback((collection: ArticleCollection) => {
-    queryClient.setQueryData<ArticleCollection[]>(["article-collections"], (current = []) => (
+    queryClient.setQueryData<ArticleCollection[]>(queryKeys.articleCollections, (current = []) => (
       [...current.filter((item) => item.id !== collection.id), collection]
         .sort((left, right) => left.name.localeCompare(right.name, undefined, { sensitivity: "base" }))
     ))
-    void queryClient.invalidateQueries({ queryKey: ["article-collections"] })
+    void queryClient.invalidateQueries({ queryKey: queryKeys.articleCollections })
     setAnnouncement(`Collection ${collection.name} created and selected in the Save dialog.`)
   }, [queryClient])
 
@@ -185,7 +190,7 @@ export function ArticlesPage() {
   }, [collectionsQuery, query])
 
   const handleCollectionRenamed = useCallback(async (collection: ArticleCollection) => {
-    queryClient.setQueryData<ArticleCollection[]>(["article-collections"], (current = []) => (
+    queryClient.setQueryData<ArticleCollection[]>(queryKeys.articleCollections, (current = []) => (
       [...current.filter((item) => item.id !== collection.id), collection]
         .sort((left, right) => left.name.localeCompare(right.name, undefined, { sensitivity: "base" }))
     ))
@@ -232,13 +237,29 @@ export function ArticlesPage() {
     } catch (cause) {
       setDirectRemovalError({
         article,
-        message: getApiErrorMessage(cause, "Article was removed, but the Library could not be refreshed. Retry to reconcile."),
+        message: getApiErrorMessage(cause, "Article was removed, but the Feed could not be refreshed. Retry to reconcile."),
       })
     } finally {
       directRemovalBusyRef.current = false
       setDirectRemovalPendingId(null)
     }
   }, [collectionsQuery, query, selectedCollection])
+
+  const changeDetailOpen = useCallback((open: boolean) => {
+    if (open) return
+    setDetailArticle(null)
+    window.requestAnimationFrame(() => detailTriggerRef.current?.focus())
+  }, [])
+
+  const openArticleDetails = useCallback((article: ArticleSummary, trigger: HTMLButtonElement) => {
+    detailTriggerRef.current = trigger
+    setDetailArticle(article)
+  }, [])
+
+  const saveFromDetails = useCallback((article: ArticleSummary) => {
+    changeDetailOpen(false)
+    window.requestAnimationFrame(() => setSavingArticle(article))
+  }, [changeDetailOpen])
 
   return (
     <div className="min-w-0 min-[900px]:grid min-[900px]:grid-cols-[216px_minmax(0,1fr)] lg:grid-cols-[224px_minmax(0,1fr)]">
@@ -258,7 +279,7 @@ export function ArticlesPage() {
       <p aria-live="polite" className="sr-only" role="status">{announcement}</p>
       <PageHeader
         className="flex-col items-stretch sm:flex-row sm:items-end"
-        title="Library"
+        title="Feed"
         titleId="feed-heading"
         description={resultCount === undefined
           ? "Loading result count…"
@@ -338,7 +359,7 @@ export function ArticlesPage() {
 
       {!unavailableSelection && query.isError && articles.length === 0 ? (
         <ErrorState
-          title="Library unavailable"
+          title="Feed unavailable"
           description={getApiErrorMessage(query.error, "Articles could not be loaded")}
           action={<Button variant="outline" onClick={() => query.refetch()}>Retry</Button>}
           dir="auto"
@@ -358,7 +379,7 @@ export function ArticlesPage() {
           description={titleQuery
                 ? "Try a different article search or clear it."
                 : selectedCollection?.articleCount === 0
-                ? "Use Save to Collection on a Library card to add articles here."
+                ? "Use Save to Collection on a Feed card to add articles here."
                 : filterCount
                   ? "Try removing one or more filters."
                   : "New RSS and Telegram items will appear here."}
@@ -377,7 +398,7 @@ export function ArticlesPage() {
           </p>
           <div
             className="feed-card-grid"
-            aria-label="Library results"
+            aria-label="Feed results"
           >
             {articles.map((article) => (
               <ArticleCard
@@ -387,6 +408,7 @@ export function ArticlesPage() {
                 onSave={() => selectedCollection
                   ? void handleDirectRemoval(article)
                   : setSavingArticle(article)}
+                onViewDetails={(trigger) => openArticleDetails(article, trigger)}
                 savePending={(membershipPending && savingArticle?.id === article.id) || directRemovalPendingId === article.id}
               />
             ))}
@@ -458,6 +480,13 @@ export function ArticlesPage() {
         }}
         open={savingArticle !== null}
       />
+      <ArticleDetailDialog
+        article={detailArticle}
+        collectionName={selectedCollection?.name ?? null}
+        onOpenChange={changeDetailOpen}
+        onSave={saveFromDetails}
+        open={detailArticle !== null}
+      />
       </section>
     </div>
   )
@@ -467,18 +496,28 @@ function ArticleCard({
   article,
   collectionName,
   onSave,
+  onViewDetails,
   savePending,
 }: {
   article: ArticleSummary
   collectionName: string | null
   onSave: () => void
+  onViewDetails: (trigger: HTMLButtonElement) => void
   savePending: boolean
 }) {
+  const { timezone } = useDateTime()
   const classifications = getArticleCardClassifications(article)
-  const time = getArticleCardTime(article.displayAt, article.dateBasis)
+  const time = getArticleCardTime(article.displayAt, article.dateBasis, Date.now(), timezone)
+  const originalUrl = safeArticleUrl(article.canonicalUrl)
 
   return (
-    <article className="group flex h-full min-w-0 flex-col overflow-hidden rounded-lg border border-border/50 bg-card shadow-xs transition-[border-color,box-shadow] hover:border-foreground/20 hover:shadow-sm">
+    <article className="group relative isolate flex h-full min-w-0 flex-col overflow-hidden rounded-lg border border-border/50 bg-card shadow-xs transition-[border-color,box-shadow] hover:border-foreground/20 hover:shadow-sm">
+      <button
+        aria-label={`View article details: ${article.title ?? "Untitled article"}`}
+        className="absolute inset-0 z-10 cursor-pointer rounded-lg focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+        onClick={(event) => onViewDetails(event.currentTarget)}
+        type="button"
+      />
       <ArticleMedia image={article.image} title={article.title} />
       <div className="flex min-w-0 flex-1 flex-col p-3">
         <DirectionBoundary
@@ -525,12 +564,12 @@ function ArticleCard({
           ))}
         </div>
 
-        <footer className="mt-auto flex min-h-8 items-center justify-between gap-2 border-t border-border/50 pt-2.5 text-xs">
-          {article.canonicalUrl ? (
+        <footer className="relative z-20 mt-auto flex min-h-8 items-center justify-between gap-2 border-t border-border/50 pt-2.5 text-xs">
+          {originalUrl ? (
             <a
               aria-label={`Open original article: ${article.title ?? "Untitled article"}`}
               className="inline-flex min-h-11 cursor-pointer items-center gap-1 rounded-md text-xs font-medium text-muted-foreground underline-offset-4 transition-colors hover:text-primary hover:underline focus-visible:ring-2 focus-visible:ring-ring md:min-h-8"
-              href={article.canonicalUrl}
+              href={originalUrl}
               rel="noreferrer noopener"
               target="_blank"
             >

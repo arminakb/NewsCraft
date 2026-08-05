@@ -153,7 +153,7 @@ export function SaveToCollectionDialog({
     } catch (cause) {
       setBaseline(confirmed)
       setSelected(new Set(confirmed))
-      setMutationError(getApiErrorMessage(cause, "Changes may have saved, but the Library could not be refreshed. Review and try again."))
+      setMutationError(getApiErrorMessage(cause, "Changes may have saved, but the Feed could not be refreshed. Review and try again."))
     } finally {
       busyRef.current = false
       setPending(false)
@@ -238,7 +238,7 @@ export function SaveToCollectionDialog({
                 <label
                   className={cn(
                     "flex min-h-11 cursor-pointer items-center gap-3 rounded-lg border px-3 py-2 transition-colors",
-                    selected.has(collection.id) ? "border-primary/40 bg-primary/5" : "hover:bg-muted/60",
+                    selected.has(collection.id) ? "border-primary/40 bg-accent text-accent-foreground" : "hover:bg-muted/60",
                     busy && "cursor-not-allowed opacity-60",
                   )}
                   key={collection.id}

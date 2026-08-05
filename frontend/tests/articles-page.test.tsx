@@ -4,6 +4,7 @@ import { createEvent, fireEvent, render, screen, waitFor, within } from "@testin
 import {
   createArticleCollection,
   deleteArticleCollection,
+  getArticle,
   getArticleCollections,
   getArticleFacets,
   getArticles,
@@ -12,7 +13,7 @@ import {
   saveArticleToCollection,
 } from "@/features/articles/api"
 import { ArticlesPage } from "@/features/articles/articles-page"
-import type { ArticleCollection, ArticlePage, ArticleSummary } from "@/features/articles/types"
+import type { ArticleCollection, ArticleDetail, ArticlePage, ArticleSummary } from "@/features/articles/types"
 import { ApiError } from "@/lib/http"
 
 const navigation = vi.hoisted(() => ({ search: "", listeners: new Set<() => void>(), push: vi.fn() }))
@@ -43,6 +44,7 @@ vi.mock("@/features/articles/api", () => ({
   createArticleCollection: vi.fn(),
   deleteArticleCollection: vi.fn(),
   getArticleCollections: vi.fn(),
+  getArticle: vi.fn(),
   getArticles: vi.fn(),
   getArticleFacets: vi.fn(),
   removeArticleFromCollection: vi.fn(),
@@ -101,7 +103,7 @@ describe("Feed page", () => {
     })
     renderArticles()
 
-    expect(screen.getByRole("heading", { name: "Library", level: 1 })).toBeInTheDocument()
+    expect(screen.getByRole("heading", { name: "Feed", level: 1 })).toBeInTheDocument()
     expect(await screen.findByText("2 articles · source monitoring and saved collections")).toBeInTheDocument()
     expect(screen.getByText("English report").closest("[data-testid='direction-boundary']"))
       .toHaveAttribute("dir", "ltr")
@@ -128,13 +130,62 @@ describe("Feed page", () => {
     expect(sourceLink).toHaveTextContent("Source")
     expect(sourceLink).toHaveClass("text-xs")
     expect(screen.getAllByRole("article")).toHaveLength(2)
-    expect(screen.getByLabelText("Library results")).toHaveClass("feed-card-grid")
+    expect(screen.getByLabelText("Feed results")).toHaveClass("feed-card-grid")
     for (const card of screen.getAllByRole("article")) expect(card).toHaveClass("h-full")
     fireEvent.error(screen.getByRole("img", { name: "Editorial image" }))
     expect(screen.getByRole("img", { name: "Image unavailable for English report" })).toBeInTheDocument()
     expect(screen.queryByRole("button", { name: "Automation action — not configured yet" })).not.toBeInTheDocument()
     expect(saveArticleToCollection).not.toHaveBeenCalled()
     expect(removeArticleFromCollection).not.toHaveBeenCalled()
+  })
+
+  it("loads article details only after opening, renders plain full content, caches, and restores focus", async () => {
+    const request = deferred<ArticleDetail>()
+    vi.mocked(getArticles).mockResolvedValue({ items: [article()], nextCursor: null, resultCount: 1 })
+    vi.mocked(getArticle).mockReturnValue(request.promise)
+    const { container } = renderArticles()
+
+    const trigger = await screen.findByRole("button", { name: "View article details: Article title" })
+    expect(getArticle).not.toHaveBeenCalled()
+    trigger.focus()
+    fireEvent.click(trigger)
+
+    let dialog = screen.getByRole("dialog", { name: "Article title" })
+    expect(within(dialog).getByRole("status", { name: "Loading article details" })).toBeInTheDocument()
+    expect(getArticle).toHaveBeenCalledWith("article")
+    request.resolve(articleDetail({
+      contentText: "Complete first paragraph.\n\n<script>window.__article_attack = true</script>",
+      contentOrigin: "source_provided",
+    }))
+
+    expect(await within(dialog).findByText("Complete first paragraph.")).toBeInTheDocument()
+    expect(within(dialog).getByText("Source-provided content")).toBeInTheDocument()
+    expect(within(dialog).getByText("<script>window.__article_attack = true</script>")).toBeInTheDocument()
+    expect(container.querySelector("script")).not.toBeInTheDocument()
+    expect(within(dialog).getByRole("link", { name: "Open original source" })).toHaveAttribute(
+      "rel",
+      "noopener noreferrer",
+    )
+
+    fireEvent.click(within(dialog).getByRole("button", { name: "Close article details" }))
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Article title" })).not.toBeInTheDocument())
+    await waitFor(() => expect(trigger).toHaveFocus())
+
+    fireEvent.click(trigger)
+    dialog = screen.getByRole("dialog", { name: "Article title" })
+    expect(within(dialog).getByText("Complete first paragraph.")).toBeInTheDocument()
+    expect(getArticle).toHaveBeenCalledTimes(1)
+  })
+
+  it("keeps nested card actions independent from article details", async () => {
+    vi.mocked(getArticles).mockResolvedValue({ items: [article()], nextCursor: null, resultCount: 1 })
+    renderArticles()
+
+    fireEvent.click(await screen.findByRole("button", { name: "Save article to collection" }))
+
+    expect(screen.getByRole("dialog", { name: "Save to Collection" })).toBeInTheDocument()
+    expect(screen.queryByRole("dialog", { name: "Article title" })).not.toBeInTheDocument()
+    expect(getArticle).not.toHaveBeenCalled()
   })
 
   it("debounces normalized title search, preserves URL state, paginates, and clears", async () => {
@@ -1033,6 +1084,40 @@ function article(overrides: Partial<ArticleSummary> = {}): ArticleSummary {
     hasImage: false,
     saved: false,
     savedCollectionIds: [],
+    ...overrides,
+  }
+}
+
+function articleDetail(overrides: Partial<ArticleDetail> = {}): ArticleDetail {
+  return {
+    ...article(),
+    articleReadiness: { ready: true, reason: "Ready for rewrite", blockers: [] },
+    contentText: "Complete normalized article body.",
+    contentOrigin: "source_provided",
+    sanitizedHtml: null,
+    authors: ["Reporter"],
+    tags: ["AI"],
+    media: [],
+    storyLinks: [],
+    evidenceReferences: [],
+    advanced: {
+      itemType: "article",
+      status: "new",
+      rewriteBucket: "technical_article",
+      classificationReasons: [],
+      sourceTier: "A",
+      freshnessBucket: "fresh",
+      qualityStatus: "good",
+      titleQuality: "meaningful",
+      titleWasGenerated: false,
+      contentIntent: null,
+      duplicateOfId: null,
+      dateSource: "source",
+      dateParseStatus: "parsed",
+      createdAt: "2026-07-21T08:01:00Z",
+      updatedAt: "2026-07-21T08:01:00Z",
+      rawClassification: { contentType: "news", topic: "AI", language: "en" },
+    },
     ...overrides,
   }
 }
