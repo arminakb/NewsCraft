@@ -112,7 +112,7 @@ async def _select_revisions(context: JobContext, config: dict[str, object]) -> l
 def build_scheduled_automation_handler(profile_resolver: Any) -> JobHandler:
     async def handle(job: JobExecution, context: JobContext) -> dict[str, Any]:
         if job_payload_copy(job).get("trigger_kind") == COLLECTION_ARTICLE_ADDED_TRIGGER:
-            return await handle_collection_article_added(job, context)
+            return await handle_collection_article_added(job, context, profile_resolver=profile_resolver)
         if job_payload_copy(job).get("trigger_kind") == SOURCE_ITEM_CREATED_TRIGGER:
             return await handle_new_source_item(job, context)
         try:
