@@ -59,6 +59,8 @@ class TelegramCaptureRepository:
         process_max_attempts: int = 3,
         force_review: bool = False,
         filter_reason: str | None = None,
+        automation_run_id: UUID | None = None,
+        automation_node_run_id: UUID | None = None,
     ) -> AutomationDispatch:
         route = await self.session.scalar(
             select(AutomationRoute).where(AutomationRoute.id == route_id).with_for_update()
@@ -237,6 +239,8 @@ class TelegramCaptureRepository:
             source_message_ids=list(envelope.message_ids),
             dispatch_kind=dispatch_kind,
             status="captured" if enqueue_process else "filtered",
+            automation_run_id=automation_run_id,
+            automation_node_run_id=automation_node_run_id,
         )
         self.session.add(dispatch)
         await self.session.flush()
@@ -249,7 +253,17 @@ class TelegramCaptureRepository:
                 origin=JobOrigin.AUTOMATION,
                 scheduled_for=process_scheduled_for,
                 max_attempts=process_max_attempts,
+                automation_run_id=automation_run_id,
+                automation_node_run_id=automation_node_run_id,
             )
+            if automation_node_run_id is not None:
+                from app.automations.definitions.models import AutomationNodeRun
+
+                node_run = await self.session.get(AutomationNodeRun, automation_node_run_id)
+                if node_run is not None:
+                    node_run.status = "queued"
+                    node_run.workflow_job_id = enqueue_result.job.id
+                    node_run.automation_dispatch_id = dispatch.id
         _update_cursor(route, envelope, source_fingerprint, dispatch_kind)
         await self.session.flush()
         self.session.add(

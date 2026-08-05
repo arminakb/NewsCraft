@@ -9,6 +9,7 @@ from uuid import UUID
 
 from sqlalchemy import select
 
+from app.automations.definitions.models import AutomationNodeRun, AutomationRun
 from app.automations.models import AutomationRoute, TelegramSourceConfig
 from app.automations.telegram.contracts import (
     TelegramEnvelope,
@@ -111,6 +112,21 @@ async def _capture(
     capture = media_stager.capture_repository(context.session)
     deferred = None
     dispatch = None
+    process_node_run_id = None
+    if job.automation_run_id is not None:
+        run = await context.session.get(AutomationRun, job.automation_run_id)
+        node_ids = (
+            (run.resource_snapshot or {}).get("node_ids_by_type", {}).get("generate_telegram", [])
+            if run is not None
+            else []
+        )
+        if isinstance(node_ids, list) and node_ids:
+            process_node_run_id = await context.session.scalar(
+                select(AutomationNodeRun.id).where(
+                    AutomationNodeRun.automation_run_id == job.automation_run_id,
+                    AutomationNodeRun.node_id == str(node_ids[0]),
+                )
+            )
     try:
         async with context.session.begin():
             locked, control = await _lock_route_and_control(context, loaded.route.id)
@@ -147,6 +163,8 @@ async def _capture(
                     process_max_attempts=int((locked.retry_policy or {}).get("max_attempts", 3)),
                     force_review=force_review,
                     filter_reason=filter_reason,
+                    automation_run_id=job.automation_run_id,
+                    automation_node_run_id=process_node_run_id,
                 )
     finally:
         try:
