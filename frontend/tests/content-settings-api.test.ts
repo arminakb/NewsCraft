@@ -2,8 +2,11 @@ import {
   createCodexPairingSession,
   createLLMProvider,
   createTelegramDestination,
+  getCodexActivity,
+  getCodexConnections,
   getLLMProviders,
   rotateCodexConnection,
+  rotateLLMProviderKey,
 } from "@/features/settings/content-settings-api"
 
 describe("settings API", () => {
@@ -53,6 +56,29 @@ describe("settings API", () => {
         }),
       }),
     )
+  })
+
+  it("sends provider rotations only to the write-only mutation body", async () => {
+    const request = stubFetch(providerPayload()[0])
+    const localStorageSet = vi.fn()
+    const sessionStorageSet = vi.fn()
+    vi.stubGlobal("localStorage", { setItem: localStorageSet })
+    vi.stubGlobal("sessionStorage", { setItem: sessionStorageSet })
+
+    await rotateLLMProviderKey(
+      "44444444-4444-4444-8444-444444444444",
+      "TEST_PROVIDER_API_KEY_MUST_NOT_LEAK",
+    )
+
+    expect(request).toHaveBeenCalledWith(
+      "/api/backend/llm-providers/44444444-4444-4444-8444-444444444444/rotate-secret",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({ secret: "TEST_PROVIDER_API_KEY_MUST_NOT_LEAK" }),
+      }),
+    )
+    expect(localStorageSet).not.toHaveBeenCalled()
+    expect(sessionStorageSet).not.toHaveBeenCalled()
   })
 
   it("uses normalized Telegram destination contract without auto-publish fields", async () => {
@@ -117,6 +143,28 @@ describe("settings API", () => {
     expect(request).toHaveBeenLastCalledWith(
       "/api/backend/codex-gateway/connections/77777777-7777-4777-8777-777777777777/rotate",
       { method: "POST", headers: { "Idempotency-Key": "idempotency-key" } },
+    )
+  })
+
+  it("loads safe Codex reads without client authorization or cookie headers", async () => {
+    const request = stubFetch([])
+    request.mockResolvedValueOnce(new Response(JSON.stringify([]), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    }))
+
+    await getCodexConnections()
+    await getCodexActivity()
+
+    expect(request).toHaveBeenNthCalledWith(
+      1,
+      "/api/backend/codex-gateway/connections",
+      undefined,
+    )
+    expect(request).toHaveBeenNthCalledWith(
+      2,
+      "/api/backend/codex-gateway/activity?limit=8",
+      undefined,
     )
   })
 })

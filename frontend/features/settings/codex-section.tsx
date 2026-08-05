@@ -14,6 +14,7 @@ import {
 import { useState } from "react"
 
 import { useNotices } from "@/components/providers/notice-provider"
+import { useDateTime } from "@/components/providers/date-time-provider"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { getApiErrorMessage } from "@/lib/http"
@@ -62,6 +63,7 @@ export function CodexSection({
   refreshing: boolean
   onRetry: () => void
 }) {
+  const { timezone } = useDateTime()
   const queryClient = useQueryClient()
   const { pushNotice } = useNotices()
   const [pairing, setPairing] = useState(false)
@@ -128,7 +130,7 @@ export function CodexSection({
                   <StatusBadge value={connection.status} />
                 </div>
                 <p className="mt-1 text-sm text-muted-foreground">
-                  Last seen {formatDate(connection.last_heartbeat_at, "never")} · Expires {formatDate(connection.expires_at)}
+                  Last seen {formatDate(connection.last_heartbeat_at, "never", timezone)} · Expires {formatDate(connection.expires_at, "Unknown", timezone)}
                 </p>
                 <div className="mt-3 flex flex-wrap gap-1.5">
                   {connection.scopes.map((scope) => <Badge key={scope} variant="outline">{scope}</Badge>)}
@@ -150,7 +152,7 @@ export function CodexSection({
             {activity.map((event) => (
               <li key={event.id} className="flex flex-wrap items-center justify-between gap-2 py-2 text-sm">
                 <span>{safeCode(event.action)} · {safeCode(event.outcome)}</span>
-                <time className="text-muted-foreground">{formatDate(event.created_at)}</time>
+                <time className="text-muted-foreground">{formatDate(event.created_at, "Unknown", timezone)}</time>
               </li>
             ))}
           </ol> : <p className="mt-2 text-sm text-muted-foreground">No recent gateway activity.</p>}

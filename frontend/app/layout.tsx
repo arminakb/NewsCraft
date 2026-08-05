@@ -15,7 +15,13 @@ export const metadata: Metadata = {
   description: "Local content operations command center",
 }
 
-export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
+export default function RootLayout({
+  children,
+  settings,
+}: Readonly<{
+  children: React.ReactNode
+  settings?: React.ReactNode
+}>) {
   return (
     <html lang="en" dir="ltr" suppressHydrationWarning>
       <head>
@@ -33,7 +39,7 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
           <TooltipProvider>
             <ThemeProvider>
               <NoticeProvider>
-                <NewsroomShell>{children}</NewsroomShell>
+                <NewsroomShell settings={settings}>{children}</NewsroomShell>
               </NoticeProvider>
             </ThemeProvider>
           </TooltipProvider>

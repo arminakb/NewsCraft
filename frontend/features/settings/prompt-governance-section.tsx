@@ -7,6 +7,7 @@ import { useState } from "react"
 import { DirectionBoundary } from "@/components/newsroom/direction-boundary"
 import { useDirtyNavigation } from "@/components/editorial/use-dirty-navigation"
 import { useNotices } from "@/components/providers/notice-provider"
+import { useDateTime } from "@/components/providers/date-time-provider"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
@@ -147,6 +148,7 @@ function PromptAdvancedManager({
   label: string
   onChanged: () => Promise<void>
 }) {
+  const { timezone } = useDateTime()
   const { pushNotice } = useNotices()
   const active = versions.find((version) => version.is_active)
   const [systemTemplate, setSystemTemplate] = useState(active?.system_template ?? "")
@@ -180,7 +182,7 @@ function PromptAdvancedManager({
     },
     onError: (cause) => pushNotice({ tone: "error", title: "Prompt activation failed", message: getApiErrorMessage(cause) }),
   })
-  const dirty = changedFromActive
+  const dirty = changedFromActive || Boolean(activationReason) || confirmed
   useDirtyNavigation(dirty, "Discard unsaved prompt changes?")
   const resetDraft = () => {
     setSystemTemplate(active?.system_template ?? "")
@@ -224,7 +226,7 @@ function PromptAdvancedManager({
                     <div className="break-all text-xs text-muted-foreground">{version.checksum_sha256} · {version.is_active ? "Active" : "Inactive"}</div>
                     {version.activation_reason ? (
                       <div className="mt-1 text-xs text-muted-foreground">
-                        Activated {formatDate(version.activated_at)} by {version.activated_by_type} {version.activated_by_id} · {version.activation_reason}
+                        Activated {formatDate(version.activated_at, "Unknown", timezone)} by {version.activated_by_type} {version.activated_by_id} · {version.activation_reason}
                       </div>
                     ) : null}
                   </div>

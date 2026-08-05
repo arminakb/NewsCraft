@@ -3,6 +3,8 @@
 import { useEffect, useId, useRef, useState } from "react"
 
 import { DirectionBoundary } from "@/components/newsroom/direction-boundary"
+import { useDirtyNavigation } from "@/components/editorial/use-dirty-navigation"
+import { useDateTime } from "@/components/providers/date-time-provider"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -12,7 +14,7 @@ import {
   enqueueRetentionRun,
   updateRetentionPolicy,
 } from "@/features/operations/api"
-import { formatTehranTimestamp } from "@/features/operations/diagnostics-dashboard"
+import { formatOperatorTimestamp } from "@/features/operations/diagnostics-dashboard"
 import { RETENTION_CONFIRMATION } from "@/features/operations/types"
 import type {
   RetentionCategory,
@@ -113,6 +115,7 @@ export function RetentionSettings({
   const policyIsSaved = parsedPolicy !== null && policiesEqual(parsedPolicy, savedPolicy)
   const policyCanSave = parsedPolicy !== null && !policyIsSaved
   const busy = activeOperation !== null
+  useDirtyNavigation(!policyIsSaved, "Discard unsaved retention changes?")
 
   useEffect(() => {
     if (previousPolicySignature.current === policySignature) return
@@ -335,6 +338,7 @@ function RetentionPreviewCard({
   onRun: () => void
   preview: RetentionPreview
 }) {
+  const { timezone } = useDateTime()
   const summaries = categoryOrder.flatMap((category) => {
     const summary = preview.counts[category]
     return summary ? [{ category, summary }] : []
@@ -346,7 +350,7 @@ function RetentionPreviewCard({
       <CardHeader>
         <CardTitle>Cleanup preview</CardTitle>
         <CardDescription>
-          Previewed {formatTehranTimestamp(preview.previewed_at)} · expires {formatTehranTimestamp(preview.preview_expires_at)}
+          Previewed {formatOperatorTimestamp(preview.previewed_at, timezone)} · expires {formatOperatorTimestamp(preview.preview_expires_at, timezone)}
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">

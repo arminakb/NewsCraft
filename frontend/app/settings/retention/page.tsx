@@ -1,5 +1,5 @@
 import { redirect } from "next/navigation"
 
 export default function Page() {
-  redirect("/settings/content#retention")
+  redirect("/settings?section=retention")
 }

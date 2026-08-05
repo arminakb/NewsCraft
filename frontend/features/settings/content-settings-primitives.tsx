@@ -7,7 +7,7 @@ import {
   CircleDashed,
   LoaderCircle,
 } from "lucide-react"
-import { cloneElement, isValidElement, useId, useState } from "react"
+import { cloneElement, createContext, isValidElement, useContext, useId, useState } from "react"
 import type React from "react"
 
 import { DirectionBoundary } from "@/components/newsroom/direction-boundary"
@@ -37,9 +37,16 @@ import { EmptyState as SharedEmptyState } from "@/components/ui/state-panel"
 import { StatusBadge as SharedStatusBadge, type StatusTone } from "@/components/ui/status-badge"
 import { useDirtyNavigation } from "@/components/editorial/use-dirty-navigation"
 import type { CodexConnection } from "./content-settings-api"
+import { DEFAULT_TIME_ZONE, formatInTimeZone } from "@/lib/date-time"
 import { getApiErrorMessage } from "@/lib/http"
+import { cn } from "@/lib/utils"
 
 export const fieldClass = controlClassName
+const SettingsPanelContext = createContext(false)
+
+export function SettingsPanel({ children }: { children: React.ReactNode }) {
+  return <SettingsPanelContext.Provider value>{children}</SettingsPanelContext.Provider>
+}
 
 export function SettingsSection({
   id,
@@ -57,23 +64,36 @@ export function SettingsSection({
   children: React.ReactNode
 }) {
   const headingId = `${id}-heading`
+  const embedded = useContext(SettingsPanelContext)
 
   return (
     <Card
       id={id}
       aria-labelledby={headingId}
-      className="scroll-mt-20 focus-visible:ring-2 focus-visible:ring-ring"
+      className={cn(
+        "focus-visible:ring-2 focus-visible:ring-ring",
+        embedded && "rounded-none border-0 bg-transparent shadow-none",
+      )}
       role="region"
       tabIndex={-1}
     >
-      <CardHeader className="border-b">
-        <div className="flex items-start gap-3">
-          <span className="grid size-10 shrink-0 place-items-center rounded-lg bg-accent text-accent-foreground"><Icon className="size-5" aria-hidden="true" /></span>
-          <div><CardTitle className="text-lg"><h2 id={headingId} className="text-lg font-semibold">{title}</h2></CardTitle><CardDescription className="mt-1">{description}</CardDescription></div>
-        </div>
-        {action ? <CardAction>{action}</CardAction> : null}
-      </CardHeader>
-      <CardContent className="space-y-4">{children}</CardContent>
+      {embedded ? (
+        <>
+          <h2 className="sr-only" id={headingId}>{title}</h2>
+          {action ? <div className="flex justify-end border-b px-4 py-3 min-[700px]:px-7">{action}</div> : null}
+        </>
+      ) : (
+        <CardHeader className="border-b">
+          <div className="flex items-start gap-3">
+            <span className="grid size-10 shrink-0 place-items-center rounded-lg bg-accent text-accent-foreground"><Icon className="size-5" aria-hidden="true" /></span>
+            <div><CardTitle className="text-lg"><h2 id={headingId} className="text-lg font-semibold">{title}</h2></CardTitle><CardDescription className="mt-1">{description}</CardDescription></div>
+          </div>
+          {action ? <CardAction>{action}</CardAction> : null}
+        </CardHeader>
+      )}
+      <CardContent className={cn("space-y-4", embedded && "p-4 min-[700px]:p-7")}>
+        {children}
+      </CardContent>
     </Card>
   )
 }
@@ -117,7 +137,11 @@ export function SettingsDialog({
         if (!open) close()
       }}
     >
-      <DialogContent className="max-w-2xl p-0">
+      <DialogContent
+        className="max-w-2xl p-0"
+        overlayClassName="z-[100] bg-black/55"
+        viewportClassName="z-[110]"
+      >
         <form className="space-y-5 p-5" onSubmit={(event) => { event.preventDefault(); onSubmit() }}>
           <DialogHeader>
             <DialogTitle>{title}</DialogTitle>
@@ -138,7 +162,19 @@ export function SettingsDialog({
   )
 }
 
-export function SecretDialog({ title, label, onClose, onSave }: { title: string; label: string; onClose: () => void; onSave: (secret: string) => Promise<void> }) {
+export function SecretDialog({
+  title,
+  label,
+  onClose,
+  onSave,
+  onError,
+}: {
+  title: string
+  label: string
+  onClose: () => void
+  onSave: (secret: string) => Promise<void>
+  onError?: (cause: unknown) => void
+}) {
   const { pushNotice } = useNotices()
   const [secret, setSecret] = useState("")
   const [pending, setPending] = useState(false)
@@ -153,7 +189,13 @@ export function SecretDialog({ title, label, onClose, onSave }: { title: string;
       onSubmit={() => {
         if (!secret) return
         setPending(true)
-        void onSave(secret).then(() => { setSecret(""); onClose() }).catch((cause) => pushNotice({ tone: "error", title: "Secret rotation failed", message: getApiErrorMessage(cause) })).finally(() => setPending(false))
+        void onSave(secret)
+          .then(() => { setSecret(""); onClose() })
+          .catch((cause) => {
+            if (onError) onError(cause)
+            else pushNotice({ tone: "error", title: "Secret rotation failed", message: getApiErrorMessage(cause) })
+          })
+          .finally(() => setPending(false))
       }}
       submitLabel="Rotate secret"
     >
@@ -165,7 +207,11 @@ export function SecretDialog({ title, label, onClose, onSave }: { title: string;
 export function OneTimeSecretDialog({ title, secret, command, onClose }: { title: string; secret: string; command?: string; onClose: () => void }) {
   return (
     <Dialog open onOpenChange={(open) => { if (!open) onClose() }}>
-      <DialogContent className="max-w-2xl space-y-4">
+      <DialogContent
+        className="max-w-2xl space-y-4"
+        overlayClassName="z-[100] bg-black/55"
+        viewportClassName="z-[110]"
+      >
         <DialogHeader><DialogTitle>{title}</DialogTitle><DialogDescription className="text-warning">Shown once. Store it safely; never paste it into chat, logs, or Git.</DialogDescription></DialogHeader>
         <Field label="One-time pairing code or credential"><DirectionBoundary as="textarea" language="en" readOnly className={`${fieldClass} font-mono`} rows={3} value={secret} /></Field>
         {command ? <Field label="Local exchange command"><DirectionBoundary as="textarea" language="en" readOnly className={`${fieldClass} font-mono text-sm`} rows={5} value={command} /></Field> : null}
@@ -233,10 +279,10 @@ export function safeCode(value: string) {
   return value.replaceAll("_", " ")
 }
 
-export function formatDate(value: string | null, fallback = "Unknown") {
+export function formatDate(value: string | null, fallback = "Unknown", timezone = DEFAULT_TIME_ZONE) {
   if (!value) return fallback
   const parsed = new Date(value)
-  return Number.isNaN(parsed.valueOf()) ? fallback : new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" }).format(parsed)
+  return Number.isNaN(parsed.valueOf()) ? fallback : formatInTimeZone(parsed, timezone)
 }
 
 export function connectionColor(status: CodexConnection["status"]) {
