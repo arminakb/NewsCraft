@@ -11,13 +11,13 @@ test("Feed renders a consistent responsive desktop card grid", async ({ page }, 
   const diagnostics = await installFeedBackend(page)
 
   for (const viewport of [
-    { width: 1440, height: 1000, columns: 3 },
+    { width: 1440, height: 1000, columns: 4 },
     { width: 1280, height: 800, columns: 3 },
     { width: 1024, height: 768, columns: 2 },
   ]) {
     await page.setViewportSize(viewport)
     await page.goto("/feed")
-    await expect(page.getByRole("heading", { name: "Library", exact: true })).toBeVisible()
+    await expect(page.getByRole("heading", { name: "Feed", exact: true })).toBeVisible()
     await expect(page.getByText("7 articles · source monitoring and saved collections", { exact: true })).toBeVisible()
     await expect(page.getByRole("article")).toHaveCount(6)
     await expect(page.getByPlaceholder("Search in articles")).toBeVisible()
@@ -44,7 +44,7 @@ test("Feed renders a consistent responsive desktop card grid", async ({ page }, 
     await expect(sourceLink).toBeFocused()
     expect(await sourceLink.evaluate((element) => getComputedStyle(element).outlineStyle)).not.toBe("none")
 
-    const grid = page.getByLabel("Library results")
+    const grid = page.getByLabel("Feed results")
     expect(await grid.evaluate((element) => getComputedStyle(element).gridTemplateColumns.split(" ").length))
       .toBe(viewport.columns)
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
@@ -144,7 +144,67 @@ test("Feed images keep accessible alt text and stable missing or broken fallback
   expect(diagnostics.badResponses).toEqual([])
 })
 
-test("Library mobile keeps collections and primary controls page-bounded", async ({ page }) => {
+test("article details load lazily, stay accessible and responsive, and reuse cached content", async ({ page }) => {
+  const diagnostics = await installFeedBackend(page)
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await page.goto("/feed")
+
+  const trigger = page.getByRole("button", { name: "View article details: English editorial report 1" })
+  await expect(trigger).toBeVisible()
+  expect(diagnostics.articleDetailQueries).toEqual([])
+  await trigger.click()
+
+  let dialog = page.getByRole("dialog", { name: "English editorial report 1" })
+  await expect(dialog).toBeVisible()
+  await expect(dialog.getByText("Source-provided content")).toBeVisible()
+  await expect(dialog.getByText(/^Complete normalized article body paragraph 1\./)).toBeVisible()
+  await expect(dialog.getByText("Reporter One")).toBeVisible()
+  await expect(dialog.getByText("Wire Desk", { exact: true }).first()).toBeVisible()
+  const original = dialog.getByRole("link", { name: "Open original source" })
+  await expect(original).toHaveAttribute("href", "https://wire.example/report-1")
+  await expect(original).toHaveAttribute("rel", "noopener noreferrer")
+  await expect(original).toHaveAttribute("target", "_blank")
+  const scrollRegion = dialog.getByTestId("article-detail-scroll-region")
+  expect(await scrollRegion.evaluate((element) => element.scrollHeight > element.clientHeight)).toBe(true)
+  expect(await dialog.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true)
+
+  await page.keyboard.press("Escape")
+  await expect(dialog).toBeHidden()
+  await expect(trigger).toBeFocused()
+
+  await trigger.press("Enter")
+  dialog = page.getByRole("dialog", { name: "English editorial report 1" })
+  await expect(dialog.getByText("Source-provided content")).toBeVisible()
+  expect(diagnostics.articleDetailQueries).toHaveLength(1)
+  await dialog.getByRole("button", { name: "Close article details" }).click()
+  await expect(trigger).toBeFocused()
+
+  await trigger.press("Space")
+  await expect(page.getByRole("dialog", { name: "English editorial report 1" })).toBeVisible()
+  await page.getByRole("button", { name: "Close article details" }).click()
+  expect(diagnostics.articleDetailQueries).toHaveLength(1)
+
+  await page.setViewportSize({ width: 390, height: 844 })
+  await trigger.click()
+  dialog = page.getByRole("dialog", { name: "English editorial report 1" })
+  const bounds = await dialog.boundingBox()
+  expect(bounds).not.toBeNull()
+  expect(bounds!.width).toBeLessThanOrEqual(382)
+  expect(await dialog.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true)
+  await dialog.getByRole("button", { name: "Close article details" }).click()
+
+  await page.getByRole("button", { name: "Save article to collection" }).first().click()
+  await expect(page.getByRole("dialog", { name: "Save to Collection" })).toBeVisible()
+  await expect(page.getByRole("dialog", { name: "English editorial report 1" })).toHaveCount(0)
+  expect(diagnostics.articleDetailQueries).toHaveLength(1)
+
+  expect(diagnostics.consoleErrors).toEqual([])
+  expect(diagnostics.pageErrors).toEqual([])
+  expect(diagnostics.failedRequests).toEqual([])
+  expect(diagnostics.badResponses).toEqual([])
+})
+
+test("Feed mobile keeps collections and primary controls page-bounded", async ({ page }) => {
   const diagnostics = await installFeedBackend(page)
   await page.setViewportSize({ width: 390, height: 844 })
   await page.goto("/feed")
@@ -263,6 +323,8 @@ test("left sidebar exposes every route with labels, states, and keyboard movemen
 
   const rail = page.getByRole("complementary", { name: "Global navigation" })
   const collections = page.getByRole("complementary", { name: "Collections" })
+  await rail.getByRole("button", { name: "Open sidebar" }).click()
+  await expect(rail).toHaveAttribute("data-sidebar-state", "expanded")
   const railBounds = await rail.boundingBox()
   const collectionBounds = await collections.boundingBox()
   expect(railBounds?.width).toBe(260)
@@ -273,23 +335,21 @@ test("left sidebar exposes every route with labels, states, and keyboard movemen
   const expectedNavigation = [
     ["Today", "/"],
     ["Sources", "/sources"],
-    ["Calendar", "/calendar"],
-    ["Library", "/feed"],
-    ["Jobs", "/jobs"],
+    ["Feed", "/feed"],
     ["Automations", "/automations"],
-    ["Diagnostics", "/diagnostics"],
-    ["Settings", "/settings/content"],
+    ["Operations Center", "/operations"],
+    ["Settings", "/settings?section=llm-providers"],
   ] as const
   for (const [label, href] of expectedNavigation) {
     const link = rail.getByRole("link", { name: label })
     await expect(link).toHaveAttribute("href", href)
     if (label !== "Settings") await expect(link.getByText(label, { exact: true })).toBeVisible()
   }
-  await expect(rail.getByRole("link", { name: "Library" })).toHaveAttribute("aria-current", "page")
+  await expect(rail.getByRole("link", { name: "Feed" })).toHaveAttribute("aria-current", "page")
   await expect(rail.getByRole("link", { name: "Inbox" })).toHaveCount(0)
   const themeToggle = rail.getByRole("button", { name: "Toggle color theme" })
   await expect(themeToggle).toBeVisible()
-  await expect(rail.getByRole("button")).toHaveCount(1)
+  await expect(rail.getByRole("button")).toHaveCount(2)
   await expect(page.getByRole("dialog", { name: /navigation/i })).toHaveCount(0)
 
   const lightSidebar = await rail.evaluate((element) => getComputedStyle(element).backgroundColor)
@@ -299,18 +359,18 @@ test("left sidebar exposes every route with labels, states, and keyboard movemen
   await themeToggle.click()
   await expect(page.locator("html")).not.toHaveClass(/dark/)
 
-  const calendar = rail.getByRole("link", { name: "Calendar" })
-  const idleBackground = await calendar.evaluate((element) => getComputedStyle(element).backgroundColor)
-  await calendar.hover()
+  const feed = rail.getByRole("link", { name: "Feed" })
+  const idleBackground = await feed.evaluate((element) => getComputedStyle(element).backgroundColor)
+  await feed.hover()
   await expect
-    .poll(() => calendar.evaluate((element) => getComputedStyle(element).backgroundColor))
+    .poll(() => feed.evaluate((element) => getComputedStyle(element).backgroundColor))
     .not.toBe(idleBackground)
-  await calendar.focus()
+  await feed.focus()
   await page.keyboard.press("ArrowDown")
-  await expect(rail.getByRole("link", { name: "Library" })).toBeFocused()
+  await expect(rail.getByRole("link", { name: "Automations" })).toBeFocused()
   await page.keyboard.press("End")
   await expect(rail.getByRole("link", { name: "Settings" })).toBeFocused()
-  await expect(page.getByRole("tooltip")).toHaveText("Settings")
+  await expect(page.getByRole("tooltip")).toHaveCount(0)
   await page.keyboard.press("Home")
   await expect(rail.getByRole("link", { name: "Today" })).toBeFocused()
 
@@ -451,7 +511,7 @@ test("collection management renames and deletes while preserving URL state", asy
   const allFeed = sidebar.getByRole("button", { name: "All articles" })
   await allFeed.click({ button: "right" })
   await expect(page.getByRole("menu")).toHaveCount(0)
-  await page.getByRole("heading", { name: "Library" }).click({ button: "right" })
+  await page.getByRole("heading", { name: "Feed" }).click({ button: "right" })
   await expect(page.getByRole("menu")).toHaveCount(0)
 
   const researchRow = sidebar.getByRole("button", { name: /Research.*2 articles/ })
@@ -498,7 +558,7 @@ test("collection management renames and deletes while preserving URL state", asy
 
   const emptyRow = sidebar.getByRole("button", { name: /Empty.*0 articles/ })
   await emptyRow.click({ button: "right" })
-  await page.getByRole("heading", { name: "Library" }).click()
+  await page.getByRole("heading", { name: "Feed" }).click()
   await expect(page.getByRole("menu")).toHaveCount(0)
   await emptyRow.focus()
   await page.keyboard.press("Shift+F10")
@@ -657,6 +717,7 @@ async function installFeedBackend(page: Page, options: { failFirstMembershipMuta
     failedRequests: [] as string[],
     badResponses: [] as string[],
     articleQueries: [] as string[],
+    articleDetailQueries: [] as string[],
   }
   page.on("console", (message) => {
     if (message.type() === "error") diagnostics.consoleErrors.push(message.text())
@@ -683,6 +744,9 @@ async function installFeedBackend(page: Page, options: { failFirstMembershipMuta
   await page.route("**/api/backend/**", async (route) => {
     const url = new URL(route.request().url())
     const path = url.pathname.replace(/^\/api\/backend/, "")
+    if (path === "/operator-settings/date-time") return fulfillJson(route, {
+      timezone: "Asia/Tehran", updated_at: "2026-07-21T08:00:00Z",
+    })
     if (path === "/automation-control") return fulfillJson(route, {
       global_pause: false, dry_run: true, pause_reason: null, paused_at: null, updated_at: "2026-07-21T08:00:00Z",
     })
@@ -746,6 +810,12 @@ async function installFeedBackend(page: Page, options: { failFirstMembershipMuta
       return fulfillUncontractedJson(route, {})
     }
     if (path === "/articles/facets") return fulfillJson(route, facets())
+    const articleDetailMatch = path.match(/^\/articles\/([^/]+)$/)
+    if (articleDetailMatch) {
+      diagnostics.articleDetailQueries.push(articleDetailMatch[1])
+      const index = Number(articleDetailMatch[1].slice(-12))
+      return fulfillJson(route, articleDetail(index))
+    }
     if (path === "/articles") {
       diagnostics.articleQueries.push(url.search)
       const collectionId = url.searchParams.get("collection_id")
@@ -831,6 +901,42 @@ function article(index: number, savedCollectionIds: string[] = []) {
     has_image: image !== null,
     saved: savedCollectionIds.length > 0,
     saved_collection_ids: savedCollectionIds,
+  }
+}
+
+function articleDetail(index: number) {
+  return {
+    ...article(index),
+    article_readiness: { ready: true, reason: "Ready for rewrite", blockers: [] },
+    content_text: Array.from(
+      { length: 24 },
+      (_, paragraph) => `Complete normalized article body paragraph ${paragraph + 1}. ${"Grounded source text. ".repeat(10)}`,
+    ).join("\n\n"),
+    content_origin: "source_provided",
+    sanitized_html: null,
+    authors: ["Reporter One"],
+    tags: ["AI", "news"],
+    media: [],
+    story_links: [],
+    evidence_references: [],
+    advanced: {
+      item_type: "article",
+      status: "new",
+      rewrite_bucket: "technical_article",
+      classification_reasons: [],
+      source_tier: "A",
+      freshness_bucket: "fresh",
+      quality_status: "good",
+      title_quality: "meaningful",
+      title_was_generated: false,
+      content_intent: null,
+      duplicate_of_id: null,
+      date_source: "source",
+      date_parse_status: "parsed",
+      created_at: "2026-07-21T08:01:00Z",
+      updated_at: "2026-07-21T08:01:00Z",
+      raw_classification: { content_type: "news", topic: "AI", language: "en" },
+    },
   }
 }
 
