@@ -3,7 +3,8 @@ set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 compose_project="${NEWSCRAFT_TEST_PROJECT:-newscraft-postgres-tests}"
-database_url="postgresql+asyncpg://newscraft:newscraft@127.0.0.1:55432/newscraft_test"
+database_port="${NEWSCRAFT_TEST_DATABASE_PORT:-55432}"
+database_url="postgresql+asyncpg://newscraft:newscraft@127.0.0.1:${database_port}/newscraft_test"
 started=false
 
 cleanup() {
