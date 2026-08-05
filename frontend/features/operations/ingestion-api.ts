@@ -15,8 +15,8 @@ type BackendSource =
   | components["schemas"]["SourceDetailOut"]
 type BackendSourceHealth = components["schemas"]["SourceHealthOut"]
 
-export async function getSources(): Promise<SourceSummary[]> {
-  const rows = await apiRequest<BackendSource[]>("/sources")
+export async function getSources(signal?: AbortSignal): Promise<SourceSummary[]> {
+  const rows = await apiRequest<BackendSource[]>("/sources", signal ? { signal } : undefined)
   return rows.map(mapSource)
 }
 
@@ -70,9 +70,9 @@ function mapSource(row: BackendSource): SourceSummary {
     (row.telegram_username ? `https://t.me/${row.telegram_username}` : "")
   const status = normalizeSourceStatus(row.health_status, row.active, row.failure_count ?? 0)
   const lastSuccess = row.last_success_at
-    ? formatDateTime(row.last_success_at)
+    ? row.last_success_at
     : row.last_fetch_at
-      ? formatDateTime(row.last_fetch_at)
+      ? row.last_fetch_at
       : null
 
   return {
@@ -90,7 +90,7 @@ function mapSource(row: BackendSource): SourceSummary {
     fetchIntervalMinutes: row.fetch_interval_minutes ?? 1440,
     totalItems: row.last_parse_count ?? 0,
     media24h: row.last_media_count ?? 0,
-    addedAt: row.created_at ? formatDateTime(row.created_at) : "Unknown",
+    addedAt: row.created_at ?? "Unknown",
     lastCheckedAt: row.last_fetch_at ?? null,
     failureReason: row.last_error_message ?? null,
   }
@@ -133,17 +133,4 @@ function normalizeSourceStatus(
       if (failureCount > 0) return "degraded"
       return "unknown"
   }
-}
-
-function formatDateTime(value: string) {
-  return new Intl.DateTimeFormat("en-CA", {
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-    hour12: false,
-  })
-    .format(new Date(value))
-    .replace(",", "")
 }

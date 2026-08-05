@@ -86,15 +86,28 @@ test("Sources tabs stay responsive and filter rows", async ({ page }) => {
   await page.reload()
   await expect(page.getByRole("row", { name: /example wire/i })).toHaveCount(0)
 
-  await page.getByRole("button", { name: /open techcrunch details/i }).click()
+  await expect(page.getByRole("button", { name: /open techcrunch details/i })).toHaveCount(0)
+  await expect(page.getByRole("button", { name: /show techcrunch source details/i })).toHaveCount(0)
+
+  const sourceRow = page.getByRole("row", { name: /dw persian/i })
+  await sourceRow.click()
+  await expect(page.getByRole("region", { name: /source details/i })).toHaveCount(0)
+  await sourceRow.dblclick()
   await expect(page.getByRole("region", { name: /source details/i })).toBeVisible()
+  await expect(page.getByRole("heading", { name: "DW Persian" })).toBeVisible()
   await page.getByRole("button", { name: /close source details/i }).click()
   await expect(page.getByRole("region", { name: /source details/i })).toHaveCount(0)
-  await page.getByRole("button", { name: /show techcrunch source details/i }).click()
-  await expect(page.getByRole("region", { name: /source details/i })).toBeVisible()
 
-  await page.getByRole("button", { name: /check techcrunch health, currently healthy/i }).click()
+  const healthAction = page.getByRole("button", { name: /check techcrunch health, currently healthy/i })
+  await healthAction.dispatchEvent("dblclick", { detail: 2 })
+  await expect(page.getByRole("region", { name: /source details/i })).toHaveCount(0)
+  await healthAction.click()
   await expect(page.getByText(/last checked/i).first()).toBeVisible()
+  const healthNotice = page.locator('[data-slot="alert"]').filter({ hasText: "Health check complete" })
+  await expect(healthNotice).toContainText("Source is healthy.")
+  const healthNoticeBox = await healthNotice.boundingBox()
+  expect(healthNoticeBox).not.toBeNull()
+  expect(healthNoticeBox!.width).toBeLessThan(320)
 
   const tableFits = await page.locator('[data-slot="table-container"]').evaluate(
     (element) => element.scrollWidth <= element.clientWidth,
@@ -124,6 +137,14 @@ test("Sources management stays inside narrow portrait and landscape viewports", 
     await expect(page.getByRole("heading", { name: "Sources" })).toBeVisible()
     const pageFits = await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)
     expect(pageFits).toBe(true)
+
+    await page.getByRole("button", { name: /check techcrunch health, currently healthy/i }).click()
+    const healthNotice = page.locator('[data-slot="alert"]').filter({ hasText: "Health check complete" })
+    await expect(healthNotice).toContainText("Source is healthy.")
+    const healthNoticeBox = await healthNotice.boundingBox()
+    expect(healthNoticeBox).not.toBeNull()
+    expect(healthNoticeBox!.x).toBeGreaterThanOrEqual(16)
+    expect(healthNoticeBox!.width).toBeLessThan(320)
 
     await page.getByRole("button", { name: "Add source" }).click()
     await expect(page.getByRole("dialog", { name: "Add source" })).toBeVisible()

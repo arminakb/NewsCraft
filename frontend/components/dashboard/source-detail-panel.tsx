@@ -4,8 +4,10 @@ import { ExternalLink, X } from "lucide-react"
 
 import { SourceIcon } from "@/components/dashboard/source-icon"
 import { StatusBadge } from "@/components/dashboard/status-badge"
+import { useDateTime } from "@/components/providers/date-time-provider"
 import { Button } from "@/components/ui/button"
 import { formatNumber, formatPlatform } from "@/lib/format"
+import { formatInTimeZone } from "@/lib/date-time"
 import type { SourceSummary } from "@/features/operations/ingestion-types"
 
 export function SourceDetailPanel({
@@ -17,6 +19,7 @@ export function SourceDetailPanel({
   open: boolean
   onOpenChange: (open: boolean) => void
 }) {
+  const { timezone } = useDateTime()
   if (!open) return null
 
   const activity = [
@@ -74,7 +77,7 @@ export function SourceDetailPanel({
           <h3 className="text-sm font-semibold" id="source-health-heading">Health</h3>
           <dl className="mt-3 grid gap-3 text-sm sm:grid-cols-2 xl:grid-cols-1 2xl:grid-cols-2">
             <Detail label="Current status" value={<StatusBadge status={source.status} />} />
-            <Detail label="Last checked" value={formatCheckedAt(source.lastCheckedAt)} />
+            <Detail label="Last checked" value={formatCheckedAt(source.lastCheckedAt, timezone)} />
           </dl>
           {source.failureReason ? (
             <p className="mt-3 rounded-md border border-destructive/30 bg-[var(--error-surface)] p-3 text-sm leading-5 text-destructive" role="status">
@@ -118,8 +121,8 @@ export function SourceDetailPanel({
               }
             />
             <Detail label="Fetch interval" value={`Every ${source.fetchIntervalMinutes} minutes`} />
-            <Detail label="Last success" value={source.lastSuccess ?? "No successful fetch yet"} />
-            <Detail label="Added" value={source.addedAt} />
+            <Detail label="Last success" value={source.lastSuccess ? formatInTimeZone(source.lastSuccess, timezone) : "No successful fetch yet"} />
+            <Detail label="Added" value={formatInTimeZone(source.addedAt, timezone)} />
           </dl>
         </section>
       </div>
@@ -136,15 +139,13 @@ function Detail({ label, value }: { label: string; value: React.ReactNode }) {
   )
 }
 
-function formatCheckedAt(value?: string | null) {
+function formatCheckedAt(value: string | null | undefined, timezone: string) {
   if (!value) return "Never checked"
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return value
-  return new Intl.DateTimeFormat("en-CA", {
+  return formatInTimeZone(value, timezone, {
     year: "numeric",
     month: "short",
     day: "numeric",
     hour: "2-digit",
     minute: "2-digit",
-  }).format(date)
+  })
 }

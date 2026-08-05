@@ -74,7 +74,7 @@ describe("SourceHealthTable", () => {
     expect(screen.getByText("Showing 7 of 7")).toBeInTheDocument()
   })
 
-  it("selects a source row", () => {
+  it("selects a source only when its row is double-clicked", () => {
     const onSelectSource = vi.fn()
 
     render(
@@ -85,13 +85,39 @@ describe("SourceHealthTable", () => {
       />
     )
 
-    fireEvent.click(
-      within(screen.getByRole("row", { name: /dw persian/i })).getByRole("button", {
-        name: /open dw persian details/i,
-      })
-    )
+    const row = screen.getByRole("row", { name: /dw persian/i })
+
+    expect(within(row).queryByRole("button", { name: /open dw persian details/i })).not.toBeInTheDocument()
+
+    fireEvent.click(row)
+    expect(onSelectSource).not.toHaveBeenCalled()
+
+    fireEvent.doubleClick(row)
 
     expect(onSelectSource).toHaveBeenCalledWith("telegram_dw_persian")
+  })
+
+  it("ignores double-clicks from nested source actions", () => {
+    const onCheckSource = vi.fn()
+    const onDeleteSource = vi.fn()
+    const onSelectSource = vi.fn()
+
+    render(
+      <SourceHealthTable
+        onCheckSource={onCheckSource}
+        onDeleteSource={onDeleteSource}
+        sources={dashboardMock.sources}
+        selectedSourceId={dashboardMock.sources[0].id}
+        onSelectSource={onSelectSource}
+      />
+    )
+
+    fireEvent.doubleClick(screen.getByRole("button", {
+      name: /check techcrunch health, currently healthy/i,
+    }))
+    fireEvent.doubleClick(screen.getByRole("button", { name: /delete techcrunch/i }))
+
+    expect(onSelectSource).not.toHaveBeenCalled()
   })
 
   it("switches between RSS and Telegram sources without a render loop", () => {

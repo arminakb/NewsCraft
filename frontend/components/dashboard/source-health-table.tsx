@@ -11,10 +11,12 @@ import { useMemo, useState } from "react"
 
 import { SourceIcon } from "@/components/dashboard/source-icon"
 import { StatusBadge, statusLabels } from "@/components/dashboard/status-badge"
+import { useDateTime } from "@/components/providers/date-time-provider"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { formatNumber } from "@/lib/format"
+import { formatInTimeZone } from "@/lib/date-time"
 import { cn } from "@/lib/utils"
 import type {
   SourcePlatform,
@@ -38,6 +40,29 @@ const filters: { label: string; value: "all" | SourcePlatform }[] = [
   { label: "Telegram", value: "telegram_public" },
 ]
 
+const nestedInteractiveControlSelector = [
+  "a[href]",
+  "button",
+  "input",
+  "select",
+  "textarea",
+  "summary",
+  "[contenteditable='true']",
+  "[role='button']",
+  "[role='checkbox']",
+  "[role='combobox']",
+  "[role='link']",
+  "[role='menuitem']",
+  "[role='menuitemcheckbox']",
+  "[role='menuitemradio']",
+  "[role='option']",
+  "[role='radio']",
+  "[role='slider']",
+  "[role='spinbutton']",
+  "[role='switch']",
+  "[role='textbox']",
+].join(",")
+
 export function SourceHealthTable({
   bulkChecking = false,
   checkingSourceIds = new Set(),
@@ -48,6 +73,7 @@ export function SourceHealthTable({
   onDeleteSource,
   onSelectSource,
 }: SourceHealthTableProps) {
+  const { timezone } = useDateTime()
   const [filter, setFilter] = useState<"all" | SourcePlatform>("all")
   const visibleSources = useMemo(
     () => filter === "all" ? sources : sources.filter((source) => source.platform === filter),
@@ -70,18 +96,10 @@ export function SourceHealthTable({
         id: "source",
         header: "Source",
         cell: ({ row }) => (
-          <button
-            type="button"
-            className="w-full min-w-0 text-left"
-            aria-label={`Open ${row.original.name} details`}
-            onClick={(event) => {
-              event.stopPropagation()
-              onSelectSource(row.original.id)
-            }}
-          >
+          <div className="w-full min-w-0 text-left">
             <div className="truncate font-medium">{row.original.name}</div>
             <div className="truncate text-xs text-muted-foreground">{row.original.url}</div>
-          </button>
+          </div>
         ),
       },
       {
@@ -105,7 +123,7 @@ export function SourceHealthTable({
                     event.stopPropagation()
                     onCheckSource(source.id)
                   }}
-                  title={source.failureReason ?? `Last checked: ${formatCheckedAt(source.lastCheckedAt)}`}
+                  title={source.failureReason ?? `Last checked: ${formatCheckedAt(source.lastCheckedAt, timezone)}`}
                   type="button"
                 >
                   {checking ? (
@@ -122,7 +140,7 @@ export function SourceHealthTable({
               )}
               {source.lastCheckedAt ? (
                 <div className="mt-1 hidden truncate text-[11px] text-muted-foreground sm:block">
-                  Last checked {formatCheckedAt(source.lastCheckedAt)}
+                  Last checked {formatCheckedAt(source.lastCheckedAt, timezone)}
                 </div>
               ) : null}
               {source.failureReason ? (
@@ -147,7 +165,7 @@ export function SourceHealthTable({
       {
         id: "lastSuccess",
         header: "Last success",
-        cell: ({ row }) => row.original.lastSuccess ?? "-",
+        cell: ({ row }) => row.original.lastSuccess ? formatInTimeZone(row.original.lastSuccess, timezone) : "-",
       },
       {
         header: "",
@@ -172,7 +190,7 @@ export function SourceHealthTable({
         ),
       },
     ],
-    [checkingSourceIds, onCheckSource, onDeleteSource, onSelectSource]
+    [checkingSourceIds, onCheckSource, onDeleteSource, onSelectSource, timezone]
   )
 
   const table = useReactTable({
@@ -219,7 +237,7 @@ export function SourceHealthTable({
                   onClick={() => setFilter(item.value)}
                   className={cn(
                     "min-h-11 shrink-0 rounded-md border px-2.5 text-[13px] text-muted-foreground transition min-[900px]:min-h-8",
-                    filter === item.value && "border-foreground/15 bg-black/5 text-foreground dark:border-white/15 dark:bg-white/10"
+                    filter === item.value && "border-primary/30 bg-accent text-accent-foreground"
                   )}
                 >
                   {item.label} <span className="ml-1 tabular-nums">{total}</span>
@@ -251,7 +269,10 @@ export function SourceHealthTable({
                 <TableRow
                   key={row.id}
                   data-state={row.original.id === selectedSourceId ? "selected" : undefined}
-                  onClick={() => onSelectSource(row.original.id)}
+                  onDoubleClick={(event) => {
+                    if (isNestedInteractiveControl(event.target)) return
+                    onSelectSource(row.original.id)
+                  }}
                   className="h-11 cursor-pointer transition-colors hover:bg-black/[0.03] data-[state=selected]:bg-black/5 dark:hover:bg-white/[0.03] dark:data-[state=selected]:bg-white/5"
                 >
                   {row.getVisibleCells().map((cell) => (
@@ -301,14 +322,16 @@ function columnClassName(columnId: string) {
   }
 }
 
-function formatCheckedAt(value?: string | null) {
+function isNestedInteractiveControl(target: EventTarget | null) {
+  return target instanceof Element && target.closest(nestedInteractiveControlSelector) !== null
+}
+
+function formatCheckedAt(value: string | null | undefined, timezone: string) {
   if (!value) return "never"
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return value
-  return new Intl.DateTimeFormat("en-CA", {
+  return formatInTimeZone(value, timezone, {
     month: "short",
     day: "numeric",
     hour: "2-digit",
     minute: "2-digit",
-  }).format(date)
+  })
 }

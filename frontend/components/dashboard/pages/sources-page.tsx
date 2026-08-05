@@ -1,7 +1,7 @@
 "use client"
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { Database, PanelRightOpen, Plus } from "lucide-react"
+import { Database, Plus } from "lucide-react"
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { useSearchParams } from "next/navigation"
 
@@ -52,7 +52,7 @@ export function SourcesPage({
   const checkingSourceIdsRef = useRef(new Set<string>())
   const sourcesQuery = useQuery({
     queryKey: queryKeys.sources,
-    queryFn: getSources,
+    queryFn: ({ signal }) => getSources(signal),
     placeholderData: initialSources,
     enabled: enableQueries,
   })
@@ -220,6 +220,7 @@ export function SourcesPage({
           message: result.status === "healthy"
             ? "Source is healthy."
             : result.failureReason ?? "Source is broken.",
+          compact: true,
         })
       }
       return true
@@ -234,6 +235,7 @@ export function SourcesPage({
           tone: "error",
           title: "Health check failed",
           message,
+          compact: true,
         })
       }
       return false
@@ -264,6 +266,7 @@ export function SourcesPage({
       message: failures
         ? `${sources.length - failures} of ${sources.length} sources checked successfully.`
         : `${sources.length} sources checked successfully.`,
+      compact: true,
     })
   }
 
@@ -286,7 +289,7 @@ export function SourcesPage({
           </div>
         }
       >
-        <div className={detailOpen ? "grid min-w-0 gap-3 xl:grid-cols-[minmax(0,1fr)_minmax(20rem,24rem)]" : "grid min-w-0 grid-cols-[minmax(0,1fr)_auto] gap-2"}>
+        <div className={detailOpen ? "grid min-w-0 gap-3 xl:grid-cols-[minmax(0,1fr)_minmax(20rem,24rem)]" : "grid min-w-0"}>
           <div className="min-w-0">
             <SourceHealthTable
               bulkChecking={bulkChecking}
@@ -299,19 +302,6 @@ export function SourcesPage({
               onSelectSource={selectSource}
             />
           </div>
-          {!detailOpen && selectedSource ? (
-            <Button
-              aria-label={`Show ${selectedSource.name} source details`}
-              className="sticky top-4 size-11 min-h-11 min-w-11"
-              onClick={() => setDetailOpen(true)}
-              size="icon"
-              title={`Show ${selectedSource.name} source details`}
-              type="button"
-              variant="outline"
-            >
-              <PanelRightOpen className="size-4" aria-hidden="true" />
-            </Button>
-          ) : null}
           {detailOpen && displayedSourceDetail ? (
             <SourceDetailPanel source={displayedSourceDetail} open={detailOpen} onOpenChange={setDetailOpen} />
           ) : null}

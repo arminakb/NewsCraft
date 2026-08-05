@@ -6,7 +6,7 @@ import type { SourcePlatform } from "@/features/operations/ingestion-types"
 export function SourceIcon({ platform, className }: { platform: SourcePlatform; className?: string }) {
   if (platform === "telegram_public") {
     return (
-      <span className={cn("inline-flex size-7 items-center justify-center rounded-full bg-sky-500 text-white", className)}>
+      <span className={cn("inline-flex size-7 items-center justify-center rounded-full bg-[var(--flow-telegram)] text-white", className)}>
         <Send className="size-4" aria-hidden="true" />
       </span>
     )
