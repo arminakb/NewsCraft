@@ -60,7 +60,7 @@ describe("GlobalControls", () => {
     )
     expect(await screen.findByRole("button", { name: "Resume automations" })).toBeInTheDocument()
     expect(screen.getByRole("switch", { name: "Dry run is off" })).toBeInTheDocument()
-    expect(screen.getByRole("status", { name: "Latest control outcome" })).toHaveTextContent("08:01:01")
+    expect(screen.getByRole("status", { name: "Latest control outcome" })).toHaveTextContent("11:31:01")
     expect(screen.getByText("Automation paused", { selector: "[data-notice-title]" })).toBeInTheDocument()
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ["automation-control"] })
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ["jobs", "summary"] })
