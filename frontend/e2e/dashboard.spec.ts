@@ -21,7 +21,7 @@ const succeededJob = backendJob({
 })
 
 test.describe("NewsCraft command center", () => {
-  test("desktop Today and mobile Jobs use fixed live workflow truth", async ({ page }) => {
+  test("desktop Today and mobile Operations Center use fixed live workflow truth", async ({ page }) => {
     const unhandledRequests = await installApiRoutes(page)
     await page.setViewportSize({ width: 1440, height: 900 })
     await page.goto("/")
@@ -46,10 +46,12 @@ test.describe("NewsCraft command center", () => {
     const navigation = page.getByRole("navigation", { name: "Mobile newsroom navigation" })
     await expect(navigation).toBeVisible()
     await navigation.getByRole("button", { name: "Open navigation" }).click()
-    await page.getByRole("dialog", { name: "Newsroom navigation" }).getByRole("link", { name: "Jobs" }).click()
-    await expect(page.getByRole("heading", { name: "Jobs" })).toBeVisible()
+    const operationsLink = page.getByRole("dialog", { name: "Newsroom navigation" }).getByRole("link", { name: "Operations Center" })
+    await expect(operationsLink).toHaveAttribute("href", "/operations")
+    await page.goto("/operations")
+    await expect(page.getByRole("heading", { name: "Operations Center" })).toBeVisible()
 
-    await page.getByRole("button", { name: /view ingest\.collect job/i }).first().click()
+    await page.getByRole("button", { name: "View Ingest Collect job details" }).first().click()
     const detail = page.getByRole("dialog", { name: "Job details" })
     await expect(detail).toBeVisible()
     await expect(detail.getByRole("button", { name: "Retry job" })).toBeVisible()
@@ -116,6 +118,31 @@ async function installApiRoutes(page: Page) {
           ? [succeededJob]
           : [failedJob, runningJob, succeededJob]
     await fulfillJson(route, { items })
+  })
+  await page.route("**/api/backend/operations/diagnostics", async (route) => {
+    await fulfillJson(route, {
+      generated_at: "2026-07-12T08:03:00Z",
+      global_paused: true,
+      dry_run: false,
+      components: {},
+      queue_counts: { queued: 3, running: 1, failed: 1, needs_review: 0, succeeded: 4, cancelled: 0 },
+      attention: [],
+      outbound_proxy: { mode: "direct", scheme: null, bypass_rule_count: 0, last_connectivity_status: "not_checked", configuration_error_code: null },
+    })
+  })
+  await page.route("**/api/backend/operations/health", async (route) => {
+    await fulfillJson(route, {
+      generated_at: "2026-07-12T08:03:00Z",
+      state: "healthy",
+      state_definitions: {},
+      dependencies: {},
+      components: {},
+      queues: [],
+      recoveries: [],
+      alerts: [],
+      metrics: {},
+      outbound_proxy: { mode: "direct", scheme: null, bypass_rule_count: 0, last_connectivity_status: "not_checked", configuration_error_code: null },
+    })
   })
   return unhandledRequests
 }

@@ -5,10 +5,9 @@ import type { components } from "../lib/api/generated"
 import { installMockBackend } from "./support/mock-backend"
 
 const ROUTES = [
-  { path: "/", name: "Today", readyText: "No workflow jobs yet" },
-  { path: "/automations", name: "Telegram automations", readyText: "No Telegram automations yet" },
-  { path: "/calendar", name: "Publication calendar", readyText: "No publication events in this calendar window." },
-  { path: "/diagnostics", name: "Diagnostics", readyText: "Runtime components" },
+  { path: "/", name: "Today", heading: "Today", readyText: "No workflow jobs yet" },
+  { path: "/automations", name: "Automations", heading: null, readyText: "No workflows yet" },
+  { path: "/operations", name: "Operations Center", heading: "Operations Center", readyText: "Database connectivity is available" },
 ] as const
 
 const VIEWPORTS = [
@@ -62,6 +61,31 @@ const DIAGNOSTICS_STATUS_FIXTURE = {
   },
 } satisfies components["schemas"]["OperationsSnapshotOut"]
 
+const HEALTH_STATUS_FIXTURE = {
+  generated_at: "2026-07-13T08:00:00Z",
+  state: "unavailable",
+  state_definitions: {},
+  dependencies: Object.fromEntries(
+    (["healthy", "stale", "unavailable", "unknown"] as const).map((state, index) => [
+      `dependency-${state}`,
+      {
+        state,
+        code: `dependency_${state}`,
+        observed_at: "2026-07-13T08:00:00Z",
+        latency_ms: index,
+        message: `${state} dependency state`,
+        runbook_url: "/docs/operations/readiness-and-health",
+      },
+    ]),
+  ),
+  components: {},
+  queues: [],
+  recoveries: [],
+  alerts: [],
+  metrics: {},
+  outbound_proxy: DIAGNOSTICS_STATUS_FIXTURE.outbound_proxy,
+} satisfies components["schemas"]["OperationalHealthSnapshot"]
+
 for (const viewport of VIEWPORTS) {
   for (const theme of THEMES) {
     test.describe(`${viewport.label} ${theme} accessibility`, () => {
@@ -72,7 +96,8 @@ for (const viewport of VIEWPORTS) {
           await page.goto(route.path)
           await setTheme(page, theme)
 
-          await expect(page.getByRole("heading", { name: route.name, exact: true }).first()).toBeVisible()
+          if (route.heading) await expect(page.getByRole("heading", { name: route.heading, exact: true }).first()).toBeVisible()
+          else await expect(page.getByRole("heading", { name: route.name, exact: true })).toHaveCount(0)
           await expect(page.getByText(route.readyText, { exact: true }).first()).toBeVisible()
           expect(unhandledRequests, `Unhandled backend requests on ${route.path}`).toEqual([])
 
@@ -91,11 +116,14 @@ for (const viewport of VIEWPORTS) {
       }
 
       test("Diagnostics status palettes have no serious or critical axe violations", async ({ page }) => {
-        const unhandledRequests = await installMockBackend(page, { operations: DIAGNOSTICS_STATUS_FIXTURE })
+        const unhandledRequests = await installMockBackend(page, {
+          operations: DIAGNOSTICS_STATUS_FIXTURE,
+          operationalHealth: HEALTH_STATUS_FIXTURE,
+        })
         await page.setViewportSize(viewport)
-        await page.goto("/diagnostics")
+        await page.goto("/operations?view=diagnostics")
         await setTheme(page, theme)
-        for (const status of ["healthy", "degraded", "down", "unknown", "error", "warning"]) {
+        for (const status of ["Healthy", "Stale", "Unavailable", "Unknown"]) {
           await expect(page.getByText(status, { exact: true }).first()).toBeVisible()
         }
         expect(unhandledRequests).toEqual([])
@@ -105,7 +133,7 @@ for (const viewport of VIEWPORTS) {
       test("Diagnostics loading state has no serious or critical axe violations", async ({ page }) => {
         await installMockBackend(page, { operationsDelayMs: 10_000 })
         await page.setViewportSize(viewport)
-        await page.goto("/diagnostics")
+        await page.goto("/operations?view=diagnostics")
         await setTheme(page, theme)
         await expect(page.getByRole("status", { name: "Loading operational diagnostics" })).toBeVisible()
         await expectNoSeriousAxeViolations(page)
@@ -114,7 +142,7 @@ for (const viewport of VIEWPORTS) {
       test("Diagnostics API-error state has no serious or critical axe violations", async ({ page }) => {
         await installMockBackend(page, { operationsFailure: true })
         await page.setViewportSize(viewport)
-        await page.goto("/diagnostics")
+        await page.goto("/operations?view=diagnostics")
         await setTheme(page, theme)
         await expect(page.getByRole("alert")).toBeVisible()
         await expectNoSeriousAxeViolations(page)
@@ -146,6 +174,33 @@ async function expectNoSeriousAxeViolations(page: import("@playwright/test").Pag
     }))
   expect(violations).toEqual([])
 }
+
+test("headerless Automations state stays compact on narrow and landscape screens", async ({ page }) => {
+  const unhandledRequests = await installMockBackend(page)
+  await page.emulateMedia({ reducedMotion: "reduce" })
+  await page.goto("/automations")
+
+  for (const viewport of [
+    { width: 375, height: 667 },
+    { width: 844, height: 390 },
+  ]) {
+    await page.setViewportSize(viewport)
+    await expect(page.locator("[data-slot='page-header']")).toHaveCount(0)
+    await expect(page.getByText("Build, validate, and operate versioned newsroom workflows.", { exact: true })).toHaveCount(0)
+    await expect(page.getByRole("link", { name: "Telegram routes" })).toHaveCount(0)
+    await expect(page.getByRole("link", { name: "New workflow" })).toHaveCount(0)
+    await expect(page.getByRole("button", { name: "Create new workflow" })).toBeVisible()
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
+
+    const tabs = await page.getByRole("tablist", { name: "Automation views" }).boundingBox()
+    const emptyState = await page.locator("[data-slot='empty-state']").boundingBox()
+    expect(tabs).not.toBeNull()
+    expect(emptyState).not.toBeNull()
+    expect(emptyState!.y - (tabs!.y + tabs!.height)).toBeLessThanOrEqual(20)
+  }
+
+  expect(unhandledRequests).toEqual([])
+})
 
 test("responsive shell switches at 900px and exposes one skip target", async ({ page }) => {
   const unhandledRequests = await installMockBackend(page)

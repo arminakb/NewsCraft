@@ -87,6 +87,53 @@ test("desktop icon controls expose keyboard tooltips and visible focus", async (
   expect(unhandledRequests).toEqual([])
 })
 
+test("desktop sidebar expands, preserves active navigation, and collapses without overflow", async ({ page }) => {
+  const unhandledRequests = await installMockBackend(page)
+  await page.setViewportSize({ width: 1280, height: 720 })
+  await page.goto("/operations")
+
+  const shell = page.locator(".newsroom-shell")
+  const sidebar = page.getByRole("complementary", { name: "Global navigation" })
+  const operations = sidebar.getByRole("link", { name: "Operations Center", exact: true })
+  const openSidebar = sidebar.getByRole("button", { name: "Open sidebar" })
+
+  await expect(sidebar).toHaveAttribute("data-sidebar-state", "collapsed")
+  await expect(openSidebar).toHaveAttribute("aria-expanded", "false")
+  await expect(operations).toHaveAttribute("aria-current", "page")
+  await operations.focus()
+  await expect(page.getByRole("tooltip", { name: "Operations Center" })).toBeVisible()
+
+  await openSidebar.click()
+  await expect(sidebar).toHaveAttribute("data-sidebar-state", "expanded")
+  await expect(shell).toHaveAttribute("data-sidebar-state", "expanded")
+  await expect(sidebar.getByRole("button", { name: "Close sidebar" })).toBeVisible()
+  await expect(operations).toHaveAttribute("aria-current", "page")
+  await expectNoPageOverflow(page)
+
+  await sidebar.getByRole("button", { name: "Close sidebar" }).click()
+  await expect(sidebar).toHaveAttribute("data-sidebar-state", "collapsed")
+  await expect(sidebar.getByRole("button", { name: "Open sidebar" })).toBeFocused()
+  await expectNoPageOverflow(page)
+  expect(unhandledRequests).toEqual([])
+})
+
+test("desktop sidebar transition is removed when reduced motion is requested", async ({ page }) => {
+  const unhandledRequests = await installMockBackend(page)
+  await page.emulateMedia({ reducedMotion: "reduce" })
+  await page.setViewportSize({ width: 1280, height: 720 })
+  await page.goto("/")
+
+  const sidebar = page.getByRole("complementary", { name: "Global navigation" })
+  const shell = page.locator(".newsroom-shell")
+  await sidebar.getByRole("button", { name: "Open sidebar" }).click()
+
+  expect(parseCssSeconds(await sidebar.evaluate((node) => getComputedStyle(node).transitionDuration)))
+    .toBeLessThanOrEqual(0.001)
+  expect(parseCssSeconds(await shell.evaluate((node) => getComputedStyle(node).transitionDuration)))
+    .toBeLessThanOrEqual(0.001)
+  expect(unhandledRequests).toEqual([])
+})
+
 test("reduced motion and 200% text sizing preserve usable mobile content", async ({ page }) => {
   const unhandledRequests = await installMockBackend(page)
   await page.emulateMedia({ reducedMotion: "reduce" })
