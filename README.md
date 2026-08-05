@@ -12,6 +12,7 @@ durable workflow; the Next.js application is the operator interface.
 - Extracts feed media, Telegram images/previews/documents, and stores media metadata for downstream use.
 - Classifies, scores, buckets, and readiness-checks content for downstream rewriting.
 - Supports evidence-backed research, multi-platform package generation, immutable editorial revisions, exact approval, deterministic exports, reviewed Telegram scheduling/publishing, and manual publication tracking for Instagram, X, and blog.
+- Provides versioned guided visual Automations with server validation, immutable run snapshots, dry-run Test Studio, accessible ordered editing, and Operations links.
 - Provides source health diagnostics, validation reports, and manual ingestion endpoints.
 - Provides a responsive newsroom with Today, Inbox, Drafts, Calendar, and
   Library as the primary workflow, with collection, automation, diagnostics,
@@ -63,6 +64,15 @@ durable workflow; the Next.js application is the operator interface.
 
 ## Run With Docker Compose
 
+Create one persistent master key before first start. Keep this ignored file across restarts and
+backups; replacing it makes existing encrypted credentials unrecoverable unless old key is retained.
+
+```bash
+umask 077
+mkdir -p secrets
+openssl rand -base64 32 | tr '+/' '-_' | tr -d '=' > secrets/SECRET_MASTER_KEY
+```
+
 ```bash
 docker compose build
 docker compose up -d postgres
@@ -71,7 +81,8 @@ docker compose up api
 
 Compose runs Alembic through the one-shot `migrate` service. The API starts Uvicorn only after
 that service completes successfully; a failed migration remains exited and does not enter an
-API restart loop.
+API restart loop. Compose mounts `secrets/SECRET_MASTER_KEY` read-only into API and both
+credential-owning workers. Local `.venv` runs may instead set `SECRET_MASTER_KEY` directly.
 
 ## Workflow runtime
 
@@ -80,8 +91,9 @@ API restart loop.
 - Newsroom: http://127.0.0.1:3000
 - API: http://127.0.0.1:8000
 - Primary navigation: Today, Inbox, Drafts, Calendar, and Library.
-- Advanced navigation: Jobs, Automations, Sources, Ingestion Runs, Diagnostics,
-  Content Settings, and Retention.
+- Advanced navigation: Operations Center, Automations, Sources, Ingestion Runs,
+  Content Settings, and Retention. Operations Center at `/operations` unifies job recovery
+  and safe system checks; legacy `/jobs` and `/diagnostics` links redirect into its relevant view.
 - Global pause holds scheduled/automation work; manual Run ingest remains available.
 - Review is the default. No live credentials or publishing are used by default tests.
 
@@ -173,7 +185,9 @@ scripts/test_postgres.sh
 The command starts an isolated test database, migrates it, runs every
 PostgreSQL/process-crash suite, and removes the database afterward. It fails
 before pytest if the database cannot become healthy; set
-`NEWSCRAFT_KEEP_TEST_DATABASE=1` only when retaining it for local diagnosis.
+`NEWSCRAFT_KEEP_TEST_DATABASE=1` only when retaining it for local diagnosis. If port 55432 is
+already reserved by another disposable test project, set `NEWSCRAFT_TEST_DATABASE_PORT` to an
+unused loopback port.
 
 Run the dashboard with the API and database:
 
@@ -362,6 +376,7 @@ manual stops, rollback, or backup/restore work.
 
 ## Documentation
 
+- Automation workflows: [authoring, prompt safety, template governance, and recovery](docs/operations/automation-workflows.md)
 - Release acceptance: [evidence and rerun checklist](docs/operations/release-acceptance.md)
 - Multi-platform manual publishing: [operator runbook](docs/operations/manual-publishing-packages.md)
 - Research and generation: [operator runbook](docs/operations/research-and-generation.md)
