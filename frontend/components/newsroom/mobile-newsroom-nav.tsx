@@ -12,18 +12,29 @@ import {
   settingsNavItem,
   type NewsroomNavItem,
 } from "@/components/newsroom/newsroom-sidebar"
+import { NotificationsTrigger } from "@/components/newsroom/notifications-sidebar"
 import { ThemeToggle } from "@/components/theme/theme-toggle"
+import {
+  rememberSettingsReturnPath,
+  SETTINGS_RESTORE_FOCUS_KEY,
+} from "@/features/settings/settings-sections"
 import { cn } from "@/lib/utils"
 
-const mobilePrimaryItems = primaryNavItems.slice(0, 4)
+const mobilePrimaryItems = primaryNavItems
 
-export function MobileNewsroomNav() {
+export function MobileNewsroomNav({
+  notificationsOpen = false,
+  onNotificationsOpen = () => undefined,
+}: {
+  notificationsOpen?: boolean
+  onNotificationsOpen?: (trigger: HTMLButtonElement) => void
+}) {
   const pathname = usePathname()
   const [open, setOpen] = useState(false)
   const triggerRef = useRef<HTMLButtonElement>(null)
   const firstLinkRef = useRef<HTMLAnchorElement>(null)
   const dialogRef = useRef<HTMLDivElement>(null)
-  const menuActive = [...newsroomNavItems.slice(4), settingsNavItem]
+  const menuActive = [...newsroomNavItems.slice(primaryNavItems.length), settingsNavItem]
     .some((item) => isNavItemCurrent(pathname, item))
 
   const closeAndRestore = useCallback(() => {
@@ -71,7 +82,16 @@ export function MobileNewsroomNav() {
     }
   }, [closeAndRestore, open])
 
-  useEffect(() => setOpen(false), [pathname])
+  useEffect(() => {
+    setOpen(false)
+    if (pathname === "/settings") return
+    if (window.sessionStorage.getItem(SETTINGS_RESTORE_FOCUS_KEY) !== "true") return
+    window.requestAnimationFrame(() => {
+      if (!triggerRef.current?.getClientRects().length) return
+      triggerRef.current.focus()
+      window.sessionStorage.removeItem(SETTINGS_RESTORE_FOCUS_KEY)
+    })
+  }, [pathname])
 
   return (
     <>
@@ -98,6 +118,14 @@ export function MobileNewsroomNav() {
                 <p className="text-xs text-muted-foreground">Choose a workspace</p>
               </div>
               <div className="flex items-center gap-2">
+                <NotificationsTrigger
+                  onOpen={(trigger) => {
+                    setOpen(false)
+                    onNotificationsOpen(triggerRef.current ?? trigger)
+                  }}
+                  open={notificationsOpen}
+                  placement="mobile"
+                />
                 <ThemeToggle placement="mobile" />
                 <button
                   aria-label="Close navigation panel"
@@ -129,7 +157,7 @@ export function MobileNewsroomNav() {
 
       <nav
         aria-label="Mobile newsroom navigation"
-        className="mobile-newsroom-navigation fixed inset-x-0 bottom-0 z-40 grid min-h-16 grid-cols-5 border-t border-sidebar-border/70 bg-sidebar/95 px-2 pb-[max(0.25rem,env(safe-area-inset-bottom))] pt-1 backdrop-blur min-[900px]:hidden"
+        className="mobile-newsroom-navigation fixed inset-x-0 bottom-0 z-40 grid min-h-16 grid-cols-4 border-t border-sidebar-border/70 bg-sidebar/95 px-2 pb-[max(0.25rem,env(safe-area-inset-bottom))] pt-1 backdrop-blur min-[900px]:hidden"
       >
         {mobilePrimaryItems.map((item) => (
           <MobileBarLink
@@ -145,8 +173,9 @@ export function MobileNewsroomNav() {
           aria-label="Open navigation"
           className={cn(
             "relative flex min-h-11 min-w-11 flex-col items-center justify-center gap-0.5 rounded-[7px] px-1 text-[11px] font-medium text-muted-foreground transition-colors hover:bg-navigation-hover hover:text-foreground active:bg-navigation-active focus-visible:ring-2 focus-visible:ring-ring/60",
-            menuActive && "bg-navigation-active font-semibold text-foreground",
+            menuActive && "bg-navigation-active font-semibold text-primary",
           )}
+          data-settings-trigger
           onClick={() => setOpen(true)}
           ref={triggerRef}
           type="button"
@@ -167,7 +196,7 @@ function MobileBarLink({ item, active }: { item: NewsroomNavItem; active: boolea
       aria-label={item.label}
       className={cn(
         "relative flex min-h-11 min-w-11 flex-col items-center justify-center gap-0.5 rounded-[7px] px-1 text-[11px] font-medium text-muted-foreground transition-colors hover:bg-navigation-hover hover:text-foreground active:bg-navigation-active focus-visible:ring-2 focus-visible:ring-ring/60",
-        active && "bg-navigation-active font-semibold text-foreground",
+        active && "bg-navigation-active font-semibold text-primary",
       )}
       href={item.href}
     >
@@ -194,13 +223,16 @@ function MobilePanelLink({
       aria-current={active ? "page" : undefined}
       className={cn(
         "flex min-h-12 items-center gap-2.5 rounded-[7px] px-2.5 text-[13px] font-medium text-muted-foreground transition-colors hover:bg-navigation-hover hover:text-foreground active:bg-navigation-active focus-visible:ring-2 focus-visible:ring-ring/60",
-        active && "bg-navigation-active text-foreground",
+        active && "bg-navigation-active text-primary",
       )}
       href={item.href}
-      onClick={onNavigate}
+      onClick={() => {
+        if (item.label === "Settings") rememberSettingsReturnPath()
+        onNavigate()
+      }}
       ref={linkRef}
     >
-      <Icon className="size-4 text-muted-foreground/70" aria-hidden="true" strokeWidth={1.5} />
+      <Icon className={cn("size-4 text-muted-foreground/70", active && "text-primary")} aria-hidden="true" strokeWidth={1.5} />
       {item.label}
     </Link>
   )

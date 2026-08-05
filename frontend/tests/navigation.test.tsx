@@ -15,12 +15,10 @@ vi.mock("next/navigation", () => ({
 const expectedNavigation = [
   ["Today", "/"],
   ["Sources", "/sources"],
-  ["Calendar", "/calendar"],
-  ["Library", "/feed"],
-  ["Jobs", "/jobs"],
+  ["Feed", "/feed"],
   ["Automations", "/automations"],
-  ["Diagnostics", "/diagnostics"],
-  ["Settings", "/settings/content"],
+  ["Operations Center", "/operations"],
+  ["Settings", "/settings?section=llm-providers"],
 ] as const
 
 describe("NewsroomSidebar", () => {
@@ -40,13 +38,20 @@ describe("NewsroomSidebar", () => {
       expectedNavigation.map(([label]) => label),
     )
     for (const [label, href] of expectedNavigation) {
-      expect(within(navigation).getByRole("link", { name: label })).toHaveAttribute("href", href)
+      const link = within(navigation).getByRole("link", { name: label })
+      expect(link).toHaveAttribute("href", href)
+      expect(link).toHaveClass("min-h-11")
+      expect(link).toHaveClass(label === "Settings" ? "min-w-11" : "size-11")
     }
-    expect(within(navigation).getByRole("link", { name: "Sources" })).toHaveAttribute("aria-current", "page")
-    expect(within(navigation).getByRole("link", { name: "Jobs" })).toHaveAttribute(
-      "title",
-      "Jobs · 3 queued · 2 need attention",
+    expect(within(navigation).getByRole("link", { name: "Sources" })).toHaveAttribute(
+      "aria-current",
+      "page",
     )
+    expect(within(navigation).getByRole("link", { name: "Operations Center" })).toHaveAttribute(
+      "aria-describedby",
+      "desktop-operations-tooltip",
+    )
+    expect(within(navigation).getByRole("tooltip", { name: "Operations Center" })).toBeInTheDocument()
     expect(screen.getByLabelText("3 queued")).toBeInTheDocument()
     expect(screen.getByLabelText("2 need attention")).toBeInTheDocument()
     expect(within(navigation).getByRole("button", { name: "Toggle color theme" })).toBeInTheDocument()
@@ -54,8 +59,8 @@ describe("NewsroomSidebar", () => {
     expect(within(navigation).queryByRole("link", { name: "Drafts" })).not.toBeInTheDocument()
   })
 
-  it("keeps theme control directly above icon-only Settings at the bottom", () => {
-    pathname = "/settings/content"
+  it("keeps theme and Settings controls at the bottom", () => {
+    pathname = "/settings"
     renderWithTheme(<NewsroomSidebar />)
 
     const settings = screen.getByRole("link", { name: "Settings" })
@@ -63,14 +68,15 @@ describe("NewsroomSidebar", () => {
     const controls = settings.closest("[data-sidebar-controls]")
     expect(controls).toHaveClass("mt-auto", "shrink-0", "flex-col")
     expect(controls).not.toHaveClass("border", "border-t", "bg-card")
-    expect(controls?.querySelectorAll("button, a")).toHaveLength(2)
-    expect(controls?.querySelector("button")).toHaveAccessibleName("Toggle color theme")
-    expect(controls?.querySelector("button")?.nextElementSibling?.textContent).toBe("Switch to dark theme")
-    expect(controls?.querySelector("button")?.parentElement?.nextElementSibling).toBe(settings.parentElement)
-    expect(settings).toHaveClass("size-11")
-    expect(settings).not.toHaveTextContent("Settings")
-    expect(settings).toHaveAttribute("aria-describedby", "settings-navigation-tooltip")
-    expect(screen.getAllByRole("tooltip", { hidden: true }).map((tooltip) => tooltip.textContent)).toEqual([
+    expect(controls?.querySelectorAll("button, a")).toHaveLength(3)
+    const themeButton = within(controls as HTMLElement).getByRole("button", { name: "Toggle color theme" })
+    expect(themeButton.nextElementSibling?.textContent).toBe("Switch to dark theme")
+    expect(themeButton.parentElement?.nextElementSibling).toBe(settings.parentElement)
+    expect(settings).toHaveClass("min-h-11", "min-w-11")
+    expect(within(settings).getByText("Settings")).toHaveAttribute("aria-hidden", "true")
+    expect(settings).toHaveAttribute("aria-describedby", "desktop-settings-tooltip")
+    expect(within(controls as HTMLElement).getAllByRole("tooltip", { hidden: true }).map((tooltip) => tooltip.textContent)).toEqual([
+      "Notifications",
       "Switch to dark theme",
       "Settings",
     ])
@@ -101,7 +107,7 @@ describe("NewsroomSidebar", () => {
 
     expect(screen.queryByRole("link", { current: "page" })).not.toBeInTheDocument()
 
-    pathname = "/settings/content"
+    pathname = "/settings"
     rerender(
       <ThemeProvider>
         <NewsroomSidebar />
@@ -112,19 +118,19 @@ describe("NewsroomSidebar", () => {
 })
 
 describe("adaptive mobile navigation", () => {
-  it("keeps four primary routes visible and exposes every route in the compact menu", () => {
+  it("keeps three primary routes visible and exposes every route in the compact menu", () => {
     pathname = "/sources"
     renderWithTheme(<MobileNewsroomNav />)
 
     const navigation = screen.getByRole("navigation", { name: "Mobile newsroom navigation" })
     expect(within(navigation).getAllByRole("link").map((link) => link.getAttribute("aria-label"))).toEqual(
-      expectedNavigation.slice(0, 4).map(([label]) => label),
+      expectedNavigation.slice(0, 3).map(([label]) => label),
     )
     expect(within(navigation).getByRole("link", { name: "Sources" })).toHaveAttribute("aria-current", "page")
     fireEvent.click(within(navigation).getByRole("button", { name: "Open navigation" }))
 
     const dialog = screen.getByRole("dialog", { name: "Newsroom navigation" })
-    expect(within(dialog).getAllByRole("link").map((link) => link.textContent)).toEqual(
+    expect(within(dialog).getAllByRole("link").map((link) => link.textContent).filter(Boolean)).toEqual(
       expectedNavigation.map(([label]) => label),
     )
     for (const [label, href] of expectedNavigation) {
@@ -137,15 +143,9 @@ describe("adaptive mobile navigation", () => {
   })
 })
 
-it("uses stable package keys for exports, manual plans, and timezone calendar windows", () => {
+it("uses stable package keys for exports and manual plans", () => {
   expect(packageQueryKeys.export("export-1")).toEqual(["exports", "export-1"])
   expect(packageQueryKeys.manualPlan("plan-1")).toEqual(["manual-publication-plans", "plan-1"])
-  expect(packageQueryKeys.calendar("2026-07-01T00:00:00Z", "2026-08-01T00:00:00Z", "Asia/Tehran")).toEqual([
-    "calendar",
-    "2026-07-01T00:00:00Z",
-    "2026-08-01T00:00:00Z",
-    "Asia/Tehran",
-  ])
 })
 
 function renderWithTheme(children: React.ReactNode) {

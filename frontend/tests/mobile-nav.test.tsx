@@ -5,7 +5,6 @@ import { fireEvent, render, screen, waitFor, within } from "@testing-library/rea
 
 import RootLayout from "@/app/layout"
 import { MobileNewsroomNav } from "@/components/newsroom/mobile-newsroom-nav"
-import { NewsroomHeader } from "@/components/newsroom/newsroom-header"
 import { NewsroomSidebar } from "@/components/newsroom/newsroom-sidebar"
 import { ThemeProvider } from "@/components/providers/theme-provider"
 
@@ -22,33 +21,30 @@ describe("mobile newsroom navigation", () => {
     Object.defineProperty(window, "innerWidth", { configurable: true, value: 390 })
   })
 
-  it("uses a five-target bottom bar and a compact two-column navigation panel", async () => {
-    pathname = "/calendar"
+  it("uses a four-target bottom bar and a compact two-column navigation panel", async () => {
+    pathname = "/feed"
     renderWithTheme(<MobileNewsroomNav />)
 
     const navigation = screen.getByRole("navigation", { name: "Mobile newsroom navigation" })
     expect(within(navigation).getAllByRole("link").map((link) => link.textContent)).toEqual([
       "Today",
       "Sources",
-      "Calendar",
-      "Library",
+      "Feed",
     ])
     expect(within(navigation).getByRole("button", { name: "Open navigation" })).toBeInTheDocument()
-    expect(within(navigation).getByRole("link", { name: "Calendar" })).toHaveAttribute("aria-current", "page")
+    expect(within(navigation).getByRole("link", { name: "Feed" })).toHaveAttribute("aria-current", "page")
 
     fireEvent.click(within(navigation).getByRole("button", { name: "Open navigation" }))
     const dialog = screen.getByRole("dialog", { name: "Newsroom navigation" })
     expect(within(dialog).getByRole("navigation", { name: "Mobile navigation panel" })).toHaveClass(
       "grid-cols-2",
     )
-    expect(within(dialog).getAllByRole("link").map((link) => link.textContent)).toEqual([
+    expect(within(dialog).getAllByRole("link").map((link) => link.textContent).filter(Boolean)).toEqual([
       "Today",
       "Sources",
-      "Calendar",
-      "Library",
-      "Jobs",
+      "Feed",
       "Automations",
-      "Diagnostics",
+      "Operations Center",
       "Settings",
     ])
     await waitFor(() => expect(within(dialog).getByRole("link", { name: "Today" })).toHaveFocus())
@@ -65,7 +61,7 @@ describe("mobile newsroom navigation", () => {
 
     settings.focus()
     fireEvent.keyDown(document, { key: "Tab" })
-    expect(within(dialog).getByRole("button", { name: "Toggle color theme" })).toHaveFocus()
+    expect(within(dialog).getByRole("button", { name: "Open notifications" })).toHaveFocus()
     fireEvent.keyDown(document, { key: "Escape" })
 
     expect(screen.queryByRole("dialog", { name: "Newsroom navigation" })).not.toBeInTheDocument()
@@ -84,28 +80,25 @@ describe("mobile newsroom navigation", () => {
 
     fireEvent.click(trigger)
     window.addEventListener("click", (event) => event.preventDefault(), { capture: true, once: true })
-    fireEvent.click(screen.getByRole("dialog").querySelector('a[href="/jobs"]') as HTMLElement)
+    fireEvent.click(screen.getByRole("dialog").querySelector('a[href="/operations"]') as HTMLElement)
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument()
   })
 
-  it("switches navigation and header presentation at exactly 900px", () => {
+  it("switches navigation presentation at exactly 900px", () => {
     const { container } = renderWithTheme(
       <>
-          <NewsroomSidebar />
-          <NewsroomHeader controlState="active" />
-          <MobileNewsroomNav />
-        </>,
+        <NewsroomSidebar />
+        <MobileNewsroomNav />
+      </>,
     )
 
     const sidebar = container.querySelector("aside")
-    const header = container.querySelector("header")
     expect(sidebar).toHaveClass("hidden", "min-[900px]:flex", "border-r")
-    expect(sidebar).toHaveClass("min-[900px]:col-start-1", "min-[900px]:w-[260px]")
+    expect(sidebar).toHaveClass("min-[900px]:col-start-1", "min-[900px]:w-[72px]")
     expect(screen.getByRole("navigation", { name: "Mobile newsroom navigation" })).toHaveClass(
       "min-[900px]:hidden",
     )
-    expect(within(header as HTMLElement).getByText("Newsroom Command Center")).toHaveClass("min-[900px]:hidden")
-    expect(within(sidebar as HTMLElement).getByRole("img", { name: "NewsCraft" })).toBeInTheDocument()
+    expect(within(sidebar as HTMLElement).getByRole("button", { name: "Open sidebar" })).toBeInTheDocument()
   })
 
   it("keeps each mobile bar target at least 44 by 44 pixels", () => {
