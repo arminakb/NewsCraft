@@ -3,6 +3,7 @@
 import { useQuery } from "@tanstack/react-query"
 import Link from "next/link"
 
+import { useDateTime } from "@/components/providers/date-time-provider"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Button, buttonVariants } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -11,9 +12,11 @@ import { EmptyState, ErrorState, LoadingState } from "@/components/ui/state-pane
 import { StatusBadge, type StatusTone } from "@/components/ui/status-badge"
 import { getTelegramAutomationOptions, getTelegramRoutes } from "@/features/automations/telegram-api"
 import { getApiErrorMessage } from "@/lib/http"
+import { formatInTimeZone } from "@/lib/date-time"
 import { queryKeys } from "@/lib/query-keys"
 
 export function RouteList() {
+  const { timezone } = useDateTime()
   const routesQuery = useQuery({ queryKey: queryKeys.telegramRoutes, queryFn: getTelegramRoutes })
   const optionsQuery = useQuery({ queryKey: queryKeys.telegramOptions, queryFn: getTelegramAutomationOptions })
   return (
@@ -22,7 +25,7 @@ export function RouteList() {
         title="Telegram automations"
         titleId="automations-heading"
         description="Monitor route policy, cursor progress, health, and operator actions."
-        actions={<Link className={buttonVariants()} href="/automations/new">New automation</Link>}
+        actions={<Link className={buttonVariants()} href="/automations/telegram/new">New automation</Link>}
       />
       {routesQuery.isPending ? <LoadingState title="Loading automations…" /> : null}
       {routesQuery.isError ? (
@@ -51,7 +54,7 @@ export function RouteList() {
           const destination = optionsQuery.data?.destinations.find((item) => item.id === route.destinationId)
           const routeState = route.pausedAt ? "Paused" : route.enabled ? "Active" : "Inactive"
           return <Card key={route.id} size="sm">
-            <CardHeader className="border-b"><CardTitle><Link className="underline-offset-4 hover:underline" href={`/automations/${route.id}`}>{route.name}</Link></CardTitle></CardHeader>
+            <CardHeader className="border-b"><CardTitle><Link className="underline-offset-4 hover:underline" href={`/automations/telegram/${route.id}`}>{route.name}</Link></CardTitle></CardHeader>
             <CardContent className="space-y-3">
               <div className="flex flex-wrap gap-2">
                 <StatusBadge tone={cursorTone(cursorStatus)}>{labelValue(cursorStatus)}</StatusBadge>
@@ -60,11 +63,11 @@ export function RouteList() {
               </div>
               <dl className="grid gap-3 text-[13px] sm:grid-cols-2">
                 <Metric label="Last message" value={route.cursorState.lastMessageId == null ? "Not available" : String(route.cursorState.lastMessageId)} />
-                <Metric label="Next poll" value={route.nextPollAt ? formatDate(route.nextPollAt) : "Not scheduled"} />
+                <Metric label="Next poll" value={route.nextPollAt ? formatDate(route.nextPollAt, timezone) : "Not scheduled"} />
                 <Metric label="Destination health" value={destination ? labelValue(destination.healthStatus) : optionsQuery.isPending ? "Checking" : optionsQuery.isError ? "Health request failed" : "Destination not configured"} />
-                <Metric label="Last poll" value={route.lastPolledAt ? formatDate(route.lastPolledAt) : "Not polled"} />
+                <Metric label="Last poll" value={route.lastPolledAt ? formatDate(route.lastPolledAt, timezone) : "Not polled"} />
               </dl>
-              <Link className={buttonVariants({ variant: "outline" })} href={`/automations/${route.id}`}>Open route</Link>
+              <Link className={buttonVariants({ variant: "outline" })} href={`/automations/telegram/${route.id}`}>Open route</Link>
             </CardContent>
           </Card>
         })}
@@ -74,7 +77,9 @@ export function RouteList() {
 }
 
 function labelValue(value: string) { return value.split("_").map((part) => part[0]?.toUpperCase() + part.slice(1)).join(" ") }
-function formatDate(value: string) { return new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" }).format(new Date(value)) }
+function formatDate(value: string, timezone: string) {
+  return formatInTimeZone(value, timezone)
+}
 function cursorTone(value: string): StatusTone {
   if (value === "ready") return "success"
   if (["failed", "error"].includes(value)) return "error"

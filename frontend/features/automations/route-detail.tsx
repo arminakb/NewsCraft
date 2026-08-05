@@ -4,6 +4,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import Link from "next/link"
 import { useState } from "react"
 
+import { useDateTime } from "@/components/providers/date-time-provider"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Button, buttonVariants } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -20,10 +21,12 @@ import {
 } from "@/features/automations/telegram-api"
 import type { TelegramAutomationOptions, TelegramRoute } from "@/features/automations/telegram-types"
 import { getApiErrorMessage } from "@/lib/http"
+import { formatInTimeZone, zonedLocalDateTimeToUtc } from "@/lib/date-time"
 import { queryKeys } from "@/lib/query-keys"
 import { DispatchResearchOutcome } from "@/features/automations/research-outcome"
 
 export function RouteDetail({ routeId }: { routeId: string }) {
+  const { timezone } = useDateTime()
   const queryClient = useQueryClient()
   const [sourceMessageId, setSourceMessageId] = useState("")
   const [backfillMode, setBackfillMode] = useState<"count" | "since">("count")
@@ -50,8 +53,9 @@ export function RouteDetail({ routeId }: { routeId: string }) {
     },
     onError: (error) => setActionState({ tone: "error", message: getApiErrorMessage(error) }),
   })
+  const sinceUtc = zonedLocalDateTimeToUtc(since, timezone)
   const backfillMutation = useMutation({
-    mutationFn: () => backfillTelegramRoute(routeId, backfillMode === "count" ? { count: Number(count) } : { since: new Date(since).toISOString() }),
+    mutationFn: () => backfillTelegramRoute(routeId, backfillMode === "count" ? { count: Number(count) } : { since: sinceUtc! }),
     onMutate: () => setActionState(null),
     onSuccess: async (result) => {
       setActionState({ tone: "success", message: `Backfill queued as durable job ${result.job.jobId}.` })
@@ -69,7 +73,7 @@ export function RouteDetail({ routeId }: { routeId: string }) {
   const sourceMessageValid = sourceMessageNumber === null || (Number.isInteger(sourceMessageNumber) && sourceMessageNumber > 0)
   const countNumber = Number(count)
   const countValid = Number.isInteger(countNumber) && countNumber >= 1 && countNumber <= 100
-  const sinceValid = since !== "" && Number.isFinite(new Date(since).getTime())
+  const sinceValid = since !== "" && sinceUtc !== null
 
   if (routeQuery.isPending) return <section className="nc-page"><LoadingState title="Loading route…" /></section>
   if (routeQuery.isError) {
@@ -104,7 +108,7 @@ export function RouteDetail({ routeId }: { routeId: string }) {
         actions={<>
           <Link
             className={buttonVariants({ variant: "outline" })}
-            href={`/automations/${routeId}/history`}
+            href={`/automations/telegram/${routeId}/history`}
           >
             Open durable route history
           </Link>
@@ -140,7 +144,7 @@ export function RouteDetail({ routeId }: { routeId: string }) {
       <details className="rounded-lg border border-border/50 bg-card p-4 shadow-sm">
         <summary className="cursor-pointer font-medium">Advanced route details</summary>
         <div className="mt-4 grid gap-4 lg:grid-cols-3">
-          <Card size="sm"><CardHeader><CardTitle>Cursor and schedule</CardTitle></CardHeader><CardContent className="space-y-2"><StatusBadge tone={cursorTone(cursorStatus)}>{labelValue(cursorStatus)}</StatusBadge><p>{route.cursorState.lastMessageId == null ? "Last message not available" : `Last message ${route.cursorState.lastMessageId}`}</p><KeyValue label="Next poll" value={route.nextPollAt ? formatDate(route.nextPollAt) : "Not scheduled"} /><KeyValue label="Last poll" value={route.lastPolledAt ? formatDate(route.lastPolledAt) : "Not polled"} /></CardContent></Card>
+          <Card size="sm"><CardHeader><CardTitle>Cursor and schedule</CardTitle></CardHeader><CardContent className="space-y-2"><StatusBadge tone={cursorTone(cursorStatus)}>{labelValue(cursorStatus)}</StatusBadge><p>{route.cursorState.lastMessageId == null ? "Last message not available" : `Last message ${route.cursorState.lastMessageId}`}</p><KeyValue label="Next poll" value={route.nextPollAt ? formatDate(route.nextPollAt, timezone) : "Not scheduled"} /><KeyValue label="Last poll" value={route.lastPolledAt ? formatDate(route.lastPolledAt, timezone) : "Not polled"} /></CardContent></Card>
           <Card size="sm"><CardHeader><CardTitle>Policy</CardTitle></CardHeader><CardContent className="space-y-2"><KeyValue label="Prompt updates" value={labelValue(route.promptPolicy)} /><KeyValue label="Publishing" value={labelValue(route.publishingPolicy)} /><KeyValue label="Research" value={labelValue(route.researchMode)} /><KeyValue label="Research provider" value={route.contentFilters.researchProviderProfileId ? optionsQuery.data?.aiProviderProfiles.find((item) => item.id === route.contentFilters.researchProviderProfileId)?.name ?? "Configured profile" : "Not selected"} /><KeyValue label="Access" value={labelValue(route.accessMode)} /><KeyValue label="Media" value={labelValue(route.mediaPolicy)} /><KeyValue label="Polling" value={`${route.pollIntervalSeconds} seconds`} /><KeyValue label="Retry limit" value={`${route.retryPolicy.maxAttempts} attempts`} /><KeyValue label="Quiet hours" value={route.quietHours ? `${route.quietHours.start}–${route.quietHours.end} (${route.quietHours.timezone})` : "Not configured"} /></CardContent></Card>
           <Card size="sm"><CardHeader><CardTitle>Destination health</CardTitle></CardHeader><CardContent className="space-y-2"><StatusBadge tone={destination?.healthStatus === "healthy" ? "success" : optionsQuery.isPending ? "warning" : "error"}>{destination ? labelValue(destination.healthStatus) : optionsQuery.isPending ? "Checking" : "Destination not configured"}</StatusBadge><p className="text-muted-foreground">{destination?.name ?? "Destination details unavailable"}</p></CardContent></Card>
         </div>
@@ -165,7 +169,7 @@ export function RouteDetail({ routeId }: { routeId: string }) {
 
       <div className="grid gap-4 lg:grid-cols-2">
         <Card><CardHeader><CardTitle>Dry run</CardTitle></CardHeader><CardContent className="space-y-3"><label className="grid gap-1"><span>Source message ID (optional)</span><Input type="number" min={1} step={1} value={sourceMessageId} onChange={(e) => setSourceMessageId(e.target.value)} aria-invalid={!sourceMessageValid} /></label>{!sourceMessageValid ? <div role="alert" className="text-destructive">Source message ID must be a positive integer.</div> : null}<p className="text-sm text-muted-foreground">Dry runs always force review and never auto-publish.</p><Button disabled={actionPending || !sourceMessageValid} onClick={() => dryRunMutation.mutate()}>Run dry run</Button></CardContent></Card>
-        <Card><CardHeader><CardTitle>Bounded backfill</CardTitle></CardHeader><CardContent className="space-y-3"><fieldset className="space-y-2"><legend className="font-medium">Backfill bound</legend><label className="me-4 inline-flex min-h-11 items-center gap-2"><Radio name="bound" checked={backfillMode === "count"} onChange={() => setBackfillMode("count")} /><span>Count bound</span></label><label className="inline-flex min-h-11 items-center gap-2"><Radio name="bound" checked={backfillMode === "since"} onChange={() => setBackfillMode("since")} />Since date</label></fieldset><label className="grid gap-1"><span>Message count</span><Input type="number" min={1} max={100} step={1} disabled={backfillMode !== "count"} value={count} onChange={(e) => setCount(e.target.value)} aria-invalid={backfillMode === "count" && !countValid} /></label>{backfillMode === "count" && !countValid ? <div role="alert" className="text-destructive">Message count must be an integer from 1 to 100.</div> : null}<label className="grid gap-1"><span>Since date and time</span><Input type="datetime-local" disabled={backfillMode !== "since"} value={since} onChange={(e) => setSince(e.target.value)} aria-invalid={backfillMode === "since" && !sinceValid} /></label><Button disabled={actionPending || (backfillMode === "since" ? !sinceValid : !countValid)} onClick={() => backfillMutation.mutate()}>Queue backfill</Button></CardContent></Card>
+        <Card><CardHeader><CardTitle>Bounded backfill</CardTitle></CardHeader><CardContent className="space-y-3"><fieldset className="space-y-2"><legend className="font-medium">Backfill bound</legend><label className="me-4 inline-flex min-h-11 items-center gap-2"><Radio name="bound" checked={backfillMode === "count"} onChange={() => setBackfillMode("count")} /><span>Count bound</span></label><label className="inline-flex min-h-11 items-center gap-2"><Radio name="bound" checked={backfillMode === "since"} onChange={() => setBackfillMode("since")} />Since date</label></fieldset><label className="grid gap-1"><span>Message count</span><Input type="number" min={1} max={100} step={1} disabled={backfillMode !== "count"} value={count} onChange={(e) => setCount(e.target.value)} aria-invalid={backfillMode === "count" && !countValid} /></label>{backfillMode === "count" && !countValid ? <div role="alert" className="text-destructive">Message count must be an integer from 1 to 100.</div> : null}<label className="grid gap-1"><span>Since date and time ({timezone})</span><Input type="datetime-local" disabled={backfillMode !== "since"} value={since} onChange={(e) => setSince(e.target.value)} aria-invalid={backfillMode === "since" && !sinceValid} /></label><Button disabled={actionPending || (backfillMode === "since" ? !sinceValid : !countValid)} onClick={() => backfillMutation.mutate()}>Queue backfill</Button></CardContent></Card>
       </div>
       {actionState ? <Alert tone={actionState.tone} role={actionState.tone === "error" ? "alert" : "status"} aria-label="Latest route action" dir="auto"><AlertDescription>{actionState.message}</AlertDescription></Alert> : null}
 
@@ -253,7 +257,9 @@ function labelValue(value: string) {
   if (value === "public_html") return "Public HTML"
   return value.split("_").map((part) => part[0]?.toUpperCase() + part.slice(1)).join(" ")
 }
-function formatDate(value: string) { return new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" }).format(new Date(value)) }
+function formatDate(value: string, timezone: string) {
+  return formatInTimeZone(value, timezone)
+}
 function cursorTone(value: string): StatusTone {
   if (value === "ready") return "success"
   if (["failed", "error"].includes(value)) return "error"

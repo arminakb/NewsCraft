@@ -118,19 +118,19 @@ describe("RouteDetail", () => {
     expect(await screen.findByRole("status", { name: "Latest route action" })).toHaveTextContent("job-dry")
   })
 
-  it("allows exactly one bounded backfill mode and sends an offset ISO timestamp", async () => {
+  it("allows exactly one bounded backfill mode and converts the selected timezone to UTC", async () => {
     renderDetail()
     await screen.findByRole("heading", { name: "Persian wire" })
     expect(screen.getByLabelText("Message count")).toBeEnabled()
-    expect(screen.getByLabelText("Since date and time")).toBeDisabled()
+    expect(screen.getByLabelText("Since date and time (Asia/Tehran)")).toBeDisabled()
     fireEvent.click(screen.getByLabelText("Since date"))
     expect(screen.getByLabelText("Message count")).toBeDisabled()
-    expect(screen.getByLabelText("Since date and time")).toBeEnabled()
-    fireEvent.change(screen.getByLabelText("Since date and time"), { target: { value: "2026-07-11T12:30" } })
+    expect(screen.getByLabelText("Since date and time (Asia/Tehran)")).toBeEnabled()
+    fireEvent.change(screen.getByLabelText("Since date and time (Asia/Tehran)"), { target: { value: "2026-07-11T12:30" } })
     fireEvent.click(screen.getByRole("button", { name: "Queue backfill" }))
     await waitFor(() => expect(backfillTelegramRoute).toHaveBeenCalled())
     const body = vi.mocked(backfillTelegramRoute).mock.calls[0][1] as { since: string }
-    expect(body).toEqual({ since: expect.stringMatching(/^2026-07-11T\d{2}:\d{2}:00\.000(?:Z|[+-]\d{2}:\d{2})$/) })
+    expect(body).toEqual({ since: "2026-07-11T09:00:00.000Z" })
   })
 
   it("retains action input and renders API errors accessibly", async () => {

@@ -202,7 +202,7 @@ export function RouteBuilder({ onCreated }: { onCreated?: (routeId: string) => v
                   </span>
                   <Link
                     className={buttonVariants({ variant: "outline", size: "sm" })}
-                    href="/settings/content#telegram-destinations"
+                    href="/settings?section=telegram"
                   >
                     Manage destinations
                   </Link>
