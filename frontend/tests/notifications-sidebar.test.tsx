@@ -3,6 +3,7 @@ import { fireEvent, render, screen, waitFor, within } from "@testing-library/rea
 
 import { NewsroomShell } from "@/components/newsroom/newsroom-shell"
 import { NotificationsSidebar } from "@/components/newsroom/notifications-sidebar"
+import type { Notification } from "@/components/ui/notifications-menu"
 import { NoticeProvider, useNotices } from "@/components/providers/notice-provider"
 import { ThemeProvider } from "@/components/providers/theme-provider"
 import { getDateTimeSettings } from "@/features/settings/date-time-api"
@@ -76,7 +77,7 @@ describe("notifications sidebar", () => {
     const dialog = await screen.findByRole("dialog", { name: "Your notifications" })
     expect(within(dialog).getByText("Saved")).toBeInTheDocument()
     expect(dialog.querySelector(".overflow-y-auto")).toHaveClass("overscroll-contain")
-    expect(within(dialog).getByRole("tab", { name: /Success/ })).toBeInTheDocument()
+    expect(within(dialog).getByRole("tab", { name: /Verified/ })).toBeInTheDocument()
 
     fireEvent.click(within(dialog).getByRole("button", { name: "Dismiss Saved" }))
     expect(within(dialog).getByText("No notifications yet.")).toBeInTheDocument()
@@ -99,6 +100,67 @@ describe("notifications sidebar", () => {
       </QueryClientProvider>,
     )
     expect(screen.getByRole("alert")).toHaveTextContent("Notification service unavailable")
+  })
+
+  it("keeps reference row variants and filters when real records are supplied", async () => {
+    const records: Notification[] = [
+      {
+        action: "commented in",
+        content: "Review the latest editorial draft.",
+        id: "comment-1",
+        isRead: false,
+        timeAgo: "2 hours ago",
+        timestamp: "Friday 3:12 PM",
+        type: "comment",
+        user: { avatar: "", fallback: "E", name: "Editor" },
+      },
+      {
+        action: "shared a file in",
+        file: { name: "draft.mp4", size: "14 MB", type: "MP4" },
+        id: "file-1",
+        isRead: true,
+        target: "Dashboard 2.0",
+        timeAgo: "4 hours ago",
+        timestamp: "Friday 1:40 PM",
+        type: "file_share",
+        user: { avatar: "", fallback: "M", name: "Mathilde" },
+      },
+      {
+        action: "invited you to",
+        hasActions: true,
+        id: "invite-1",
+        isRead: true,
+        target: "Blog design",
+        timeAgo: "3 hours ago",
+        timestamp: "Friday 2:22 PM",
+        type: "invitation",
+        user: { avatar: "", fallback: "A", name: "Ammar" },
+      },
+      {
+        action: "mentioned you in",
+        content: "Please review this mention.",
+        id: "mention-1",
+        isRead: true,
+        target: "Project Alpha",
+        timeAgo: "1 day ago",
+        timestamp: "Thursday 11:30 AM",
+        type: "mention",
+        user: { avatar: "", fallback: "J", name: "James" },
+      },
+    ]
+
+    renderApp(<NotificationsSidebar notifications={records} onOpenChange={() => undefined} open />)
+    const dialog = await screen.findByRole("dialog", { name: "Your notifications" })
+
+    expect(within(dialog).getByText("Editor")).toBeInTheDocument()
+    expect(dialog.querySelectorAll(".bg-emerald-500")).toHaveLength(1)
+    expect(within(dialog).getByText("draft.mp4")).toBeInTheDocument()
+    expect(within(dialog).getByRole("button", { name: "Download draft.mp4" })).toBeInTheDocument()
+    expect(within(dialog).getByRole("button", { name: "Accept" })).toBeInTheDocument()
+
+    fireEvent.click(within(dialog).getByRole("tab", { name: /Mentions/ }))
+    expect(within(dialog).getByText("Please review this mention.")).toBeInTheDocument()
+    expect(within(dialog).queryByText("draft.mp4")).not.toBeInTheDocument()
   })
 
   it("keeps drawer surfaces token-driven in dark mode", async () => {

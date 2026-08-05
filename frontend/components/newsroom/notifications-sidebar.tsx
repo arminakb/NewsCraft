@@ -1,48 +1,15 @@
 "use client"
 
-import {
-  Bell,
-  CheckCheck,
-  CheckCircle2,
-  CircleAlert,
-  Info,
-  TriangleAlert,
-  X,
-  type LucideIcon,
-} from "lucide-react"
-import { useEffect, useId, useMemo, useRef, useState } from "react"
+import { Bell } from "lucide-react"
+import { useEffect, useId, useRef } from "react"
 
 import { useOptionalNotices } from "@/components/providers/notice-provider"
-import { Badge } from "@/components/ui/badge"
-import { Button } from "@/components/ui/button"
-import { EmptyState, ErrorState, LoadingState } from "@/components/ui/state-panel"
-import {
-  Sheet,
-  SheetContent,
-  SheetDescription,
-  SheetHeader,
-  SheetTitle,
-} from "@/components/ui/sheet"
-import { Tabs, TabsList, TabsTab } from "@/components/ui/tabs"
-import type { AlertTone } from "@/components/ui/alert"
+import { NotificationsMenu, type Notification } from "@/components/ui/notifications-menu"
+import { Sheet, SheetContent } from "@/components/ui/sheet"
+import { adaptNoticesToNotifications } from "@/features/notifications/adapter"
 import { cn } from "@/lib/utils"
 
-export type NotificationRecord = {
-  id: string
-  title: string
-  message: string
-  tone: AlertTone
-  createdAt: number
-}
-
-type NotificationFilter = "all" | "success" | "attention"
-
-const toneConfig: Record<AlertTone, { Icon: LucideIcon; className: string }> = {
-  error: { Icon: CircleAlert, className: "bg-[var(--error-surface)] text-destructive" },
-  info: { Icon: Info, className: "bg-muted text-muted-foreground" },
-  success: { Icon: CheckCircle2, className: "bg-[var(--success-surface)] text-success" },
-  warning: { Icon: TriangleAlert, className: "bg-[var(--warning-surface)] text-warning" },
-}
+export type NotificationRecord = Notification
 
 export function NotificationsSidebar({
   error = null,
@@ -59,34 +26,13 @@ export function NotificationsSidebar({
 }) {
   const noticeContext = useOptionalNotices()
   const closeRef = useRef<HTMLButtonElement>(null)
-  const [filter, setFilter] = useState<NotificationFilter>("all")
+  const noticeRecords = noticeContext ? adaptNoticesToNotifications(noticeContext.notices) : []
+  const records = notifications ?? noticeRecords
+  const canManageNoticeState = notifications === undefined && noticeContext !== null
 
   useEffect(() => {
     if (open) closeRef.current?.focus()
   }, [open])
-
-  const noticeRecords = useMemo(
-    () =>
-      [...(noticeContext?.notices ?? [])]
-        .reverse()
-        .map<NotificationRecord>((notice) => ({
-          createdAt: notice.createdAt,
-          id: notice.id,
-          message: notice.message,
-          title: notice.title,
-          tone: notice.tone,
-        })),
-    [noticeContext?.notices],
-  )
-  const records = notifications ?? noticeRecords
-  const successCount = records.filter((notification) => notification.tone === "success").length
-  const attentionCount = records.length - successCount
-  const visibleRecords = records.filter((notification) => {
-    if (filter === "success") return notification.tone === "success"
-    if (filter === "attention") return notification.tone !== "success"
-    return true
-  })
-  const canManageNoticeState = notifications === undefined && noticeContext !== null
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
@@ -97,149 +43,19 @@ export function NotificationsSidebar({
         initialFocus={() => closeRef.current}
         side="right"
       >
-        <div className="flex h-full min-h-0 flex-col">
-          <SheetHeader className="shrink-0 border-b border-border/60 p-4 md:p-6">
-            <div className="flex items-start justify-between gap-3">
-              <div className="min-w-0">
-                <SheetTitle>Your notifications</SheetTitle>
-                <SheetDescription>Recent system activity and action results.</SheetDescription>
-              </div>
-              <div className="flex shrink-0 items-center gap-1">
-                {canManageNoticeState ? (
-                  <Button
-                    aria-label="Clear all notifications"
-                    className="text-muted-foreground"
-                    disabled={records.length === 0}
-                    onClick={() => noticeContext.clearNotices()}
-                    size="icon"
-                    type="button"
-                    variant="ghost"
-                  >
-                    <CheckCheck aria-hidden="true" />
-                  </Button>
-                ) : null}
-                <button
-                  autoFocus
-                  aria-label="Close notifications"
-                  className="grid size-11 place-items-center rounded-[7px] text-muted-foreground transition-colors hover:bg-navigation-hover hover:text-foreground active:bg-navigation-active focus-visible:ring-2 focus-visible:ring-ring/60 motion-reduce:transition-none"
-                  onClick={() => onOpenChange(false)}
-                  ref={closeRef}
-                  type="button"
-                >
-                  <X aria-hidden="true" strokeWidth={1.5} />
-                </button>
-              </div>
-            </div>
-          </SheetHeader>
-
-          <Tabs
-            className="flex min-h-0 flex-1 flex-col"
-            onValueChange={(value) => setFilter(value as NotificationFilter)}
-            value={filter}
-          >
-            <TabsList className="w-full shrink-0 px-4 md:px-6">
-              <TabsTab value="all">
-                View all
-                <Badge data-slot="badge" variant="secondary">
-                  {records.length}
-                </Badge>
-              </TabsTab>
-              <TabsTab value="success">
-                Success
-                <Badge data-slot="badge" variant="secondary">
-                  {successCount}
-                </Badge>
-              </TabsTab>
-              <TabsTab value="attention">
-                Attention
-                <Badge data-slot="badge" variant="secondary">
-                  {attentionCount}
-                </Badge>
-              </TabsTab>
-            </TabsList>
-
-            <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 md:px-6">
-              {loading ? (
-                <LoadingState
-                  aria-label="Loading notifications"
-                  className="my-6 border-0 bg-transparent"
-                  title="Loading notifications…"
-                />
-              ) : error ? (
-                <ErrorState
-                  className="my-6 border-0 bg-transparent"
-                  description={error}
-                  title="Unable to load notifications"
-                />
-              ) : visibleRecords.length > 0 ? (
-                <ul aria-label="Notification list" className="divide-y divide-dashed divide-border">
-                  {visibleRecords.map((notification) => (
-                    <NotificationItem
-                      dismiss={canManageNoticeState ? () => noticeContext.dismissNotice(notification.id) : undefined}
-                      key={notification.id}
-                      notification={notification}
-                    />
-                  ))}
-                </ul>
-              ) : (
-                <EmptyState
-                  className="my-6 min-h-64 border-0 bg-transparent px-4"
-                  description={filter === "all" ? "New activity will appear here." : "Nothing in this view yet."}
-                  icon={Bell}
-                  title="No notifications yet."
-                />
-              )}
-            </div>
-          </Tabs>
+        <div className="h-full overflow-y-auto overscroll-contain">
+          <NotificationsMenu
+            closeButtonRef={closeRef}
+            error={error}
+            loading={loading}
+            notifications={records}
+            onClearAll={canManageNoticeState ? noticeContext.clearNotices : undefined}
+            onClose={() => onOpenChange(false)}
+            onDismiss={canManageNoticeState ? (id) => noticeContext.dismissNotice(String(id)) : undefined}
+          />
         </div>
       </SheetContent>
     </Sheet>
-  )
-}
-
-function NotificationItem({
-  dismiss,
-  notification,
-}: {
-  dismiss?: () => void
-  notification: NotificationRecord
-}) {
-  const { Icon, className } = toneConfig[notification.tone]
-
-  return (
-    <li className="w-full py-4 first:pt-5 last:pb-5">
-      <div className="flex gap-3">
-        <div aria-hidden="true" className={cn("grid size-11 shrink-0 place-items-center rounded-full", className)}>
-          <Icon className="size-5" strokeWidth={1.5} />
-        </div>
-        <div className="min-w-0 flex-1">
-          <div className="flex items-start justify-between gap-2">
-            <h3 className="min-w-0 text-sm font-medium leading-5">{notification.title}</h3>
-            {dismiss ? (
-              <Button
-                aria-label={`Dismiss ${notification.title}`}
-                className="-mt-1 -me-1 text-muted-foreground"
-                onClick={dismiss}
-                size="icon-sm"
-                type="button"
-                variant="ghost"
-              >
-                <X aria-hidden="true" />
-              </Button>
-            ) : null}
-          </div>
-          <p className="mt-1 rounded-lg bg-muted p-2.5 text-sm tracking-[-0.006em] text-foreground" dir="auto">
-            {notification.message}
-          </p>
-          <time
-            className="mt-1.5 block text-xs text-muted-foreground"
-            dateTime={new Date(notification.createdAt).toISOString()}
-          >
-            {formatRelativeTime(notification.createdAt)}
-          </time>
-        </div>
-      </div>
-    </li>
   )
 }
 
@@ -325,15 +141,4 @@ export function NotificationsTrigger({
       ) : null}
     </div>
   )
-}
-
-function formatRelativeTime(createdAt: number) {
-  const seconds = Math.max(0, Math.floor((Date.now() - createdAt) / 1_000))
-  if (seconds < 60) return "Just now"
-  const minutes = Math.floor(seconds / 60)
-  if (minutes < 60) return `${minutes}m ago`
-  const hours = Math.floor(minutes / 60)
-  if (hours < 24) return `${hours}h ago`
-  const days = Math.floor(hours / 24)
-  return `${days}d ago`
 }
