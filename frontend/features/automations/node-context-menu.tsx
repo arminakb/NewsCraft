@@ -10,7 +10,9 @@ export type NodeContextMenuState = {
   y: number
   returnFocus: HTMLElement | null
   canDuplicate: boolean
+  duplicateDisabledReason?: string
   canDelete: boolean
+  deleteDisabledReason?: string
 }
 
 export function NodeContextMenu({
@@ -28,6 +30,8 @@ export function NodeContextMenu({
 }) {
   const menuRef = useRef<HTMLDivElement>(null)
   const itemRef = useRef<HTMLButtonElement>(null)
+  const duplicateReasonId = `${menu.nodeId}-duplicate-disabled-reason`
+  const deleteReasonId = `${menu.nodeId}-delete-disabled-reason`
 
   useEffect(() => {
     itemRef.current?.focus()
@@ -80,21 +84,27 @@ export function NodeContextMenu({
         <Settings2 className="size-4" aria-hidden="true" />
         Customize
       </button>
+      {menu.duplicateDisabledReason ? <span className="sr-only" id={duplicateReasonId}>Duplicate unavailable: {menu.duplicateDisabledReason}</span> : null}
       <button
         className="flex min-h-11 w-full cursor-pointer items-center gap-2 rounded-md px-2.5 text-left text-[13px] outline-none hover:bg-navigation-hover focus-visible:bg-navigation-active focus-visible:ring-2 focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50"
+        aria-describedby={menu.duplicateDisabledReason ? duplicateReasonId : undefined}
         disabled={!menu.canDuplicate}
         onClick={() => { onClose(); onDuplicate(menu.nodeId) }}
         role="menuitem"
+        title={menu.duplicateDisabledReason ? `Duplicate unavailable: ${menu.duplicateDisabledReason}` : undefined}
         type="button"
       >
         <Copy className="size-4" aria-hidden="true" />
         Duplicate
       </button>
+      {menu.deleteDisabledReason ? <span className="sr-only" id={deleteReasonId}>Delete unavailable: {menu.deleteDisabledReason}</span> : null}
       <button
         className="flex min-h-11 w-full cursor-pointer items-center gap-2 rounded-md px-2.5 text-left text-[13px] text-destructive outline-none hover:bg-[var(--error-surface)] focus-visible:bg-[var(--error-surface)] focus-visible:ring-2 focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50"
+        aria-describedby={menu.deleteDisabledReason ? deleteReasonId : undefined}
         disabled={!menu.canDelete}
         onClick={() => { onClose(); onDelete(menu.nodeId) }}
         role="menuitem"
+        title={menu.deleteDisabledReason ? `Delete unavailable: ${menu.deleteDisabledReason}` : undefined}
         type="button"
       >
         <Trash2 className="size-4" aria-hidden="true" />
