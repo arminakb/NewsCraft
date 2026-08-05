@@ -68,6 +68,25 @@ describe("Phase 4 automation builder", () => {
     expect(JSON.stringify(saved)).not.toMatch(/password|secret|prompt_body|authorization/i)
   })
 
+  it("keeps editor errors compact, high-contrast, and dismissible", async () => {
+    const errorText = "Workflow validation failed because this long message must wrap without forcing a fixed-width notification."
+    vi.mocked(api.validateAutomationVersion).mockRejectedValue(new Error(errorText))
+    renderBuilder()
+    await screen.findByRole("region", { name: "Ordered workflow editor" })
+
+    fireEvent.click(screen.getByRole("button", { name: "More workflow actions" }))
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Validate saved version" }))
+
+    const alert = await screen.findByRole("alert")
+    expect(alert).toHaveTextContent(errorText)
+    expect(alert).toHaveClass("w-fit", "max-w-[min(40rem,calc(100%-1.5rem))]", "p-1.5", "bg-[#001F54]", "text-white")
+    expect(within(alert).getByText(errorText)).toHaveClass("break-words", "text-white")
+    expect(within(alert).getByRole("button", { name: "Dismiss workflow message" })).toHaveClass("min-h-11", "min-w-11", "text-white/90")
+
+    fireEvent.click(within(alert).getByRole("button", { name: "Dismiss workflow message" }))
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument()
+  })
+
   it("opens an empty draft without defaults and saves only the steps added by the user", async () => {
     vi.mocked(api.getAutomation).mockResolvedValue(emptyDetail as never)
     renderBuilder()

@@ -24,6 +24,7 @@ import { ErrorState, LoadingState } from "@/components/ui/state-panel"
 import type { StatusTone } from "@/components/ui/status-badge"
 import { ApiError, getApiErrorMessage } from "@/lib/http"
 import { queryKeys } from "@/lib/query-keys"
+import { cn } from "@/lib/utils"
 
 import { getArticleCollections } from "@/features/articles/api"
 import { getSources } from "@/features/operations/ingestion-api"
@@ -243,10 +244,32 @@ function AutomationBuilderReady({ automation, catalog, initialVersion }: { autom
       />
       <div className="relative flex min-h-0 flex-1 flex-col">
         {message ? (
-          <Alert className="absolute left-1/2 top-3 z-20 w-[min(40rem,calc(100%-1.5rem))] -translate-x-1/2 shadow-md motion-safe:animate-in motion-safe:fade-in-0 motion-safe:duration-200 motion-reduce:animate-none" tone={message.tone} role={message.tone === "error" ? "alert" : "status"} aria-atomic="true">
+          <Alert
+            className={cn(
+              "absolute left-1/2 top-3 z-20 w-fit max-w-[min(40rem,calc(100%-1.5rem))] min-w-0 -translate-x-1/2 p-1.5 shadow-md motion-safe:animate-in motion-safe:fade-in-0 motion-safe:duration-200 motion-reduce:animate-none",
+              message.tone === "error" && "border-[#001F54] bg-[#001F54] text-white forced-colors:border-[CanvasText] forced-colors:bg-[Canvas] forced-colors:text-[CanvasText]",
+            )}
+            tone={message.tone}
+            role={message.tone === "error" ? "alert" : "status"}
+            aria-atomic="true"
+          >
             <div className="flex min-w-0 items-start justify-between gap-3">
-              <AlertDescription className="mt-0">{message.text}</AlertDescription>
-              <Button aria-label="Dismiss workflow message" className="min-h-11 min-w-11 min-[900px]:min-h-11 min-[900px]:min-w-11" onClick={() => setMessage(null)} size="icon" type="button" variant="ghost"><X aria-hidden="true" /></Button>
+              <AlertDescription className={cn("mt-0 min-w-0 flex-1 break-words whitespace-normal", message.tone === "error" && "text-white forced-colors:text-[CanvasText]")} dir="auto">
+                {message.text}
+              </AlertDescription>
+              <Button
+                aria-label="Dismiss workflow message"
+                className={cn(
+                  "min-h-11 min-w-11 min-[900px]:min-h-11 min-[900px]:min-w-11",
+                  message.tone === "error" && "text-white/90 hover:bg-white/15 hover:text-white active:bg-white/20 focus-visible:border-white focus-visible:ring-white/80 forced-colors:text-[ButtonText]",
+                )}
+                onClick={() => setMessage(null)}
+                size="icon"
+                type="button"
+                variant="ghost"
+              >
+                <X aria-hidden="true" />
+              </Button>
             </div>
           </Alert>
         ) : null}
