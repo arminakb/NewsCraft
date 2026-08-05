@@ -7,13 +7,20 @@
 
 :root {
   color-scheme: light;
+  --brand-navy: #001F54;
   --background: hsl(40 10% 97%);
   --foreground: hsl(0 0% 14%);
   --muted: hsl(40 8% 94%);
   --muted-foreground: hsl(0 0% 38%);
   --border: hsl(40 6% 87%);
-  --primary: hsl(190 72% 29%);
+  --primary: var(--brand-navy);
   --primary-foreground: hsl(0 0% 100%);
+  --primary-solid: var(--brand-navy);
+  --primary-solid-foreground: hsl(0 0% 100%);
+  --primary-hover: #0B2D6B;
+  --primary-active: #123D82;
+  --primary-muted: #E7EDF6;
+  --primary-muted-foreground: var(--brand-navy);
   --success: hsl(146 60% 26%);
   --warning: hsl(32 90% 25%);
   --destructive: hsl(0 65% 42%);
@@ -24,11 +31,11 @@
   --popover-foreground: hsl(0 0% 14%);
   --secondary: hsl(40 8% 94%);
   --secondary-foreground: hsl(0 0% 18%);
-  --accent: hsl(190 30% 93%);
-  --accent-foreground: hsl(190 64% 24%);
+  --accent: var(--primary-muted);
+  --accent-foreground: var(--primary-muted-foreground);
   --input: hsl(40 6% 81%);
-  --ring: hsl(190 68% 34%);
-  --chart-1: hsl(190 72% 34%);
+  --ring: var(--brand-navy);
+  --chart-1: var(--primary);
   --chart-2: hsl(146 53% 40%);
   --chart-3: hsl(37 85% 51%);
   --chart-4: hsl(0 65% 56%);
@@ -38,11 +45,41 @@
   --interactive: hsl(0 0% 14% / 4%);
   --interactive-hover: hsl(0 0% 14% / 6%);
   --interactive-active: hsl(0 0% 14% / 9%);
-  --navigation-hover: hsl(0 0% 0% / 5%);
-  --navigation-active: hsl(0 0% 0% / 8%);
+  --navigation-hover: color-mix(in srgb, var(--primary), transparent 94%);
+  --navigation-active: var(--primary-muted);
   --success-surface: hsl(146 48% 94%);
   --warning-surface: hsl(42 86% 93%);
   --error-surface: hsl(0 72% 95%);
+  --flow-trigger: hsl(174 72% 27%);
+  --flow-trigger-surface: hsl(174 55% 93%);
+  --flow-trigger-border: hsl(174 48% 68%);
+  --flow-content: hsl(145 58% 28%);
+  --flow-content-surface: hsl(145 45% 93%);
+  --flow-content-border: hsl(145 42% 70%);
+  --flow-research: hsl(213 78% 43%);
+  --flow-research-surface: hsl(213 82% 95%);
+  --flow-research-border: hsl(213 62% 76%);
+  --flow-ai: hsl(273 69% 47%);
+  --flow-ai-surface: hsl(273 75% 96%);
+  --flow-ai-border: hsl(273 53% 79%);
+  --flow-validation: hsl(187 75% 31%);
+  --flow-validation-surface: hsl(187 58% 93%);
+  --flow-validation-border: hsl(187 48% 69%);
+  --flow-review: hsl(30 87% 38%);
+  --flow-review-surface: hsl(35 90% 94%);
+  --flow-review-border: hsl(34 67% 73%);
+  --flow-draft: hsl(42 87% 30%);
+  --flow-draft-surface: hsl(45 82% 93%);
+  --flow-draft-border: hsl(43 63% 69%);
+  --flow-telegram: hsl(200 86% 42%);
+  --flow-telegram-surface: hsl(200 82% 94%);
+  --flow-telegram-border: hsl(200 70% 70%);
+  --flow-x: hsl(220 12% 16%);
+  --flow-x-surface: hsl(220 15% 94%);
+  --flow-x-border: hsl(220 10% 72%);
+  --flow-blog: hsl(17 77% 42%);
+  --flow-blog-surface: hsl(20 78% 94%);
+  --flow-blog-border: hsl(18 59% 72%);
   --shadow-xs: 0 1px 2px hsl(220 20% 12% / 5%);
   --shadow-sm: 0 1px 3px hsl(220 20% 12% / 7%), 0 1px 2px hsl(220 20% 12% / 4%);
   --shadow-md: 0 8px 24px hsl(220 20% 12% / 10%);
@@ -57,12 +94,12 @@
   --radius: 0.5rem;
   --sidebar: hsl(0 0% 100%);
   --sidebar-foreground: hsl(0 0% 14%);
-  --sidebar-primary: hsl(190 72% 29%);
-  --sidebar-primary-foreground: hsl(0 0% 100%);
+  --sidebar-primary: var(--primary-solid);
+  --sidebar-primary-foreground: var(--primary-solid-foreground);
   --sidebar-accent: var(--navigation-active);
-  --sidebar-accent-foreground: hsl(0 0% 14%);
+  --sidebar-accent-foreground: var(--primary-muted-foreground);
   --sidebar-border: hsl(40 6% 87%);
-  --sidebar-ring: hsl(190 68% 34%);
+  --sidebar-ring: var(--ring);
 }
 
 * {
@@ -209,6 +246,48 @@ textarea {
   }
 }
 
+@keyframes workflow-flow-travel {
+  0%, 62%, 100% {
+    transform: translateX(0);
+    opacity: 0;
+  }
+  68% {
+    opacity: 0.9;
+  }
+  90% {
+    transform: translateX(94px);
+    opacity: 0.9;
+  }
+  94% {
+    transform: translateX(94px);
+    opacity: 0;
+  }
+}
+
+.workflow-connector svg {
+  opacity: 0.76;
+  transition: opacity var(--motion-standard) ease-out, filter var(--motion-standard) ease-out;
+}
+
+.group\/workflow:hover .workflow-connector svg {
+  filter: saturate(1.2);
+  opacity: 1;
+}
+
+.workflow-flow-particle {
+  filter: drop-shadow(0 0 2px currentColor);
+  animation: workflow-flow-travel 4s ease-in-out infinite;
+  animation-delay: var(--workflow-flow-delay, 0s);
+  transform-box: fill-box;
+  transform-origin: center;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .workflow-flow-particle {
+    display: none;
+  }
+}
+
 @theme inline {
   --font-heading: var(--font-sans);
   --font-sans: var(--font-sans);
@@ -225,6 +304,12 @@ textarea {
   --color-chart-3: var(--chart-3);
   --color-chart-2: var(--chart-2);
   --color-chart-1: var(--chart-1);
+  --color-primary-solid-foreground: var(--primary-solid-foreground);
+  --color-primary-solid: var(--primary-solid);
+  --color-primary-active: var(--primary-active);
+  --color-primary-hover: var(--primary-hover);
+  --color-primary-muted-foreground: var(--primary-muted-foreground);
+  --color-primary-muted: var(--primary-muted);
   --color-ring: var(--ring);
   --color-input: var(--input);
   --color-border: var(--border);
@@ -259,25 +344,32 @@ textarea {
 
 .dark {
   color-scheme: dark;
+  --brand-navy: #001F54;
   --background: hsl(0 0% 7%);
   --foreground: hsl(0 0% 89%);
   --card: hsl(0 0% 12%);
   --card-foreground: hsl(0 0% 89%);
   --popover: hsl(0 0% 13%);
   --popover-foreground: hsl(0 0% 89%);
-  --primary: hsl(188 62% 54%);
-  --primary-foreground: hsl(0 0% 8%);
+  --primary: #8FB3F0;
+  --primary-foreground: var(--brand-navy);
+  --primary-solid: var(--brand-navy);
+  --primary-solid-foreground: hsl(0 0% 100%);
+  --primary-hover: #17345F;
+  --primary-active: #224C91;
+  --primary-muted: #17345F;
+  --primary-muted-foreground: #D5E3FF;
   --secondary: hsl(0 0% 16%);
   --secondary-foreground: hsl(0 0% 89%);
   --muted: hsl(0 0% 15%);
   --muted-foreground: hsl(0 0% 62%);
-  --accent: hsl(188 24% 22%);
-  --accent-foreground: hsl(188 47% 80%);
+  --accent: var(--primary-muted);
+  --accent-foreground: var(--primary-muted-foreground);
   --destructive: hsl(0 72% 65%);
   --error: hsl(0 72% 65%);
   --border: hsl(0 0% 100% / 9%);
   --input: hsl(0 0% 100% / 13%);
-  --ring: hsl(188 62% 54%);
+  --ring: #8FB3F0;
   --success: hsl(146 51% 55%);
   --warning: hsl(42 88% 60%);
   --surface: hsl(0 0% 12%);
@@ -285,28 +377,58 @@ textarea {
   --interactive: hsl(0 0% 100% / 5%);
   --interactive-hover: hsl(0 0% 100% / 7%);
   --interactive-active: hsl(0 0% 100% / 10%);
-  --navigation-hover: hsl(0 0% 100% / 5%);
-  --navigation-active: hsl(0 0% 100% / 9%);
+  --navigation-hover: color-mix(in srgb, var(--primary), transparent 88%);
+  --navigation-active: var(--primary-muted);
   --success-surface: hsl(146 44% 15%);
   --warning-surface: hsl(42 48% 16%);
   --error-surface: hsl(0 42% 17%);
+  --flow-trigger: hsl(174 70% 59%);
+  --flow-trigger-surface: hsl(174 46% 14%);
+  --flow-trigger-border: hsl(174 44% 32%);
+  --flow-content: hsl(145 61% 61%);
+  --flow-content-surface: hsl(145 39% 14%);
+  --flow-content-border: hsl(145 37% 31%);
+  --flow-research: hsl(213 88% 69%);
+  --flow-research-surface: hsl(213 45% 17%);
+  --flow-research-border: hsl(213 42% 35%);
+  --flow-ai: hsl(273 85% 75%);
+  --flow-ai-surface: hsl(273 39% 18%);
+  --flow-ai-border: hsl(273 38% 38%);
+  --flow-validation: hsl(187 72% 60%);
+  --flow-validation-surface: hsl(187 43% 15%);
+  --flow-validation-border: hsl(187 39% 33%);
+  --flow-review: hsl(35 92% 66%);
+  --flow-review-surface: hsl(35 44% 16%);
+  --flow-review-border: hsl(35 43% 34%);
+  --flow-draft: hsl(46 90% 65%);
+  --flow-draft-surface: hsl(46 42% 15%);
+  --flow-draft-border: hsl(46 40% 32%);
+  --flow-telegram: hsl(200 91% 62%);
+  --flow-telegram-surface: hsl(200 54% 16%);
+  --flow-telegram-border: hsl(200 50% 35%);
+  --flow-x: hsl(0 0% 92%);
+  --flow-x-surface: hsl(0 0% 18%);
+  --flow-x-border: hsl(0 0% 34%);
+  --flow-blog: hsl(18 88% 67%);
+  --flow-blog-surface: hsl(18 47% 16%);
+  --flow-blog-border: hsl(18 43% 34%);
   --shadow-xs: 0 1px 2px hsl(0 0% 0% / 18%);
   --shadow-sm: 0 2px 6px hsl(0 0% 0% / 20%);
   --shadow-md: 0 12px 32px hsl(0 0% 0% / 28%);
   --shadow-lg: 0 20px 56px hsl(0 0% 0% / 36%);
-  --chart-1: oklch(0.87 0 0);
+  --chart-1: var(--primary);
   --chart-2: oklch(0.556 0 0);
   --chart-3: oklch(0.439 0 0);
   --chart-4: oklch(0.371 0 0);
   --chart-5: oklch(0.269 0 0);
   --sidebar: hsl(0 0% 12%);
   --sidebar-foreground: hsl(0 0% 89%);
-  --sidebar-primary: hsl(188 62% 54%);
-  --sidebar-primary-foreground: hsl(0 0% 8%);
+  --sidebar-primary: var(--primary-solid);
+  --sidebar-primary-foreground: var(--primary-solid-foreground);
   --sidebar-accent: var(--navigation-active);
-  --sidebar-accent-foreground: hsl(0 0% 89%);
+  --sidebar-accent-foreground: var(--primary-muted-foreground);
   --sidebar-border: hsl(0 0% 100% / 9%);
-  --sidebar-ring: hsl(188 62% 54%);
+  --sidebar-ring: var(--ring);
 }
 
 @layer base {
@@ -437,5 +559,143 @@ textarea {
     .nc-page {
       padding: 1.5rem;
     }
+  }
+}
+
+.react-flow {
+  --xy-background-color: var(--background);
+  --xy-node-border-default: 1px solid var(--border);
+  --xy-edge-stroke-default: color-mix(in srgb, var(--muted-foreground), transparent 25%);
+  --xy-edge-stroke-selected-default: var(--primary);
+  --xy-edge-stroke-width-default: 2;
+  --xy-connectionline-stroke-default: var(--primary);
+  --xy-connectionline-stroke-width-default: 2;
+  --xy-handle-background-color-default: var(--primary);
+  --xy-controls-button-background-color-default: var(--card);
+  --xy-controls-button-color-default: var(--foreground);
+  --xy-controls-button-border-color-default: var(--border);
+  --xy-minimap-background-color-default: var(--card);
+}
+
+.react-flow__controls {
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-sm);
+}
+
+.react-flow__controls-button {
+  width: 44px;
+  height: 44px;
+}
+
+.react-flow__node:focus-visible,
+.react-flow__edge:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 3px;
+}
+
+.react-flow__node-newscraft .nc-workflow-node-card {
+  animation: nc-workflow-node-enter var(--motion-standard) ease-out;
+}
+
+.react-flow__node-newscraft.dragging {
+  z-index: 10 !important;
+  transition: none !important;
+}
+
+.react-flow__node-newscraft:not(.dragging) {
+  transition: transform 150ms ease-out;
+}
+
+.react-flow__node-newscraft.selected .nc-workflow-node-card {
+  border-color: var(--primary);
+  box-shadow: var(--shadow-md), 0 0 0 2px color-mix(in srgb, var(--primary), transparent 80%);
+}
+
+.react-flow__edge.selected .react-flow__edge-path,
+.react-flow__edge:focus-visible .react-flow__edge-path {
+  stroke-width: 3;
+}
+
+.nc-workflow-edge {
+  transition: stroke 150ms ease-out, stroke-width 150ms ease-out;
+}
+
+.nc-workflow-edge-routed {
+  stroke-linejoin: round;
+}
+
+.nc-workflow-handle::before {
+  position: absolute;
+  inset: -8px;
+  content: "";
+}
+
+.nc-workflow-handle.connectingfrom {
+  box-shadow: 0 0 0 5px color-mix(in srgb, var(--primary), transparent 78%);
+}
+
+.nc-workflow-handle.connectingto.valid {
+  background: var(--success) !important;
+  box-shadow: 0 0 0 5px color-mix(in srgb, var(--success), transparent 76%);
+}
+
+.nc-workflow-handle.connectingto:not(.valid) {
+  background: var(--destructive) !important;
+  box-shadow: 0 0 0 5px color-mix(in srgb, var(--destructive), transparent 76%);
+}
+
+@keyframes nc-workflow-node-enter {
+  from {
+    opacity: 0;
+    transform: scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.react-flow .react-flow__attribution {
+  color: var(--muted-foreground);
+  background: var(--background);
+}
+
+.react-flow .react-flow__attribution a {
+  color: var(--foreground);
+}
+
+@keyframes nc-clock-digit-enter {
+  from {
+    opacity: 0;
+    transform: translateY(-55%);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.nc-clock-digit-value {
+  animation: nc-clock-digit-enter 180ms ease-out;
+  font-variant-numeric: tabular-nums;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .react-flow__node-newscraft .nc-workflow-node-card {
+    animation: none;
+  }
+
+  .react-flow__node-newscraft:not(.dragging) {
+    transition: none;
+  }
+
+  .nc-workflow-edge {
+    transition: none;
+  }
+
+  .nc-clock-digit-value {
+    animation: none;
   }
 }

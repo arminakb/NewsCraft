@@ -36,12 +36,24 @@ function DialogOverlay({
 function DialogContent({
   className,
   children,
+  overlayClassName,
+  overlayProps,
+  viewportClassName,
   ...props
-}: DialogPrimitive.Popup.Props) {
+}: DialogPrimitive.Popup.Props & {
+  overlayClassName?: string
+  overlayProps?: React.ComponentProps<typeof DialogPrimitive.Backdrop>
+  viewportClassName?: string
+}) {
   return (
     <DialogPortal>
-      <DialogOverlay />
-      <DialogPrimitive.Viewport className="fixed inset-0 z-50 grid min-h-dvh place-items-center overflow-y-auto p-4">
+      <DialogOverlay className={overlayClassName} {...overlayProps} />
+      <DialogPrimitive.Viewport
+        className={cn(
+          "fixed inset-0 z-50 grid min-h-dvh place-items-center overflow-y-auto p-4",
+          viewportClassName,
+        )}
+      >
         <DialogPrimitive.Popup
           data-slot="dialog-content"
           aria-modal="true"

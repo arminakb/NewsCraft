@@ -16,7 +16,7 @@ const variants: Record<StatusTone, "default" | "error" | "neutral" | "success" |
 
 const dotClasses: Record<StatusTone, string> = {
   error: "fill-destructive text-destructive",
-  info: "fill-primary-foreground text-primary-foreground",
+  info: "fill-primary-solid-foreground text-primary-solid-foreground",
   neutral: "fill-muted-foreground text-muted-foreground",
   success: "fill-success text-success",
   warning: "fill-warning text-warning",
