@@ -96,7 +96,7 @@ describe("RouteDetail", () => {
     expect(screen.getByRole("link", { name: "Review revision revision-9" })).toHaveAttribute("href", "/review/revision-9")
     expect(screen.getByRole("link", { name: "Open durable route history" })).toHaveAttribute(
       "href",
-      "/automations/route-1/history",
+      "/automations/telegram/route-1/history",
     )
   })
 
