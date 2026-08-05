@@ -54,6 +54,19 @@ describe("operational pages", () => {
     expect(await screen.findByRole("button", { name: /check techcrunch health, currently broken/i })).toBeInTheDocument()
     expect(screen.getAllByText("Source returned HTTP 503.").length).toBeGreaterThan(0)
     expect(ingestionMocks.checkSourceHealth).toHaveBeenCalledWith(dashboardMock.sources[0].id)
+    const healthNoticeTitle = screen.getByText("Health check complete", { selector: "[data-notice-title]" })
+    expect(healthNoticeTitle.closest("[data-slot='alert']")).toHaveClass(
+      "w-fit",
+      "max-w-full",
+      "self-end",
+      "p-2.5",
+    )
+    expect(healthNoticeTitle.parentElement).toHaveClass("min-w-0", "break-words")
+    expect(healthNoticeTitle.parentElement?.parentElement).toHaveClass(
+      "grid",
+      "grid-cols-[minmax(0,1fr)_auto]",
+      "items-start",
+    )
   })
 
   it("checks all sources with bounded concurrency and progressive updates", async () => {
@@ -119,7 +132,10 @@ describe("operational pages", () => {
     })
 
     expect(await screen.findByRole("button", { name: /check all source health/i })).toBeEnabled()
-    expect(screen.getByText("Source health checks finished with errors")).toBeInTheDocument()
+    expect(
+      screen.getByText("Source health checks finished with errors", { selector: "[data-notice-title]" })
+        .closest("[data-slot='alert']")
+    ).toHaveClass("w-fit", "max-w-full", "self-end", "p-2.5")
   })
 
   it("renders source operations including seeding", async () => {
@@ -146,7 +162,7 @@ describe("operational pages", () => {
     expect(screen.queryByRole("row", { name: /techcrunch/i })).not.toBeInTheDocument()
   })
 
-  it("closes and reopens details for the selected source", async () => {
+  it("opens correct source details only from a row double-click", async () => {
     renderWithQuery(
       <SourcesPage
         initialSources={dashboardMock.sources}
@@ -156,14 +172,20 @@ describe("operational pages", () => {
     )
 
     expect(screen.getByRole("region", { name: /source details/i })).toBeInTheDocument()
+    expect(screen.getByRole("heading", { name: "TechCrunch" })).toBeInTheDocument()
     fireEvent.click(screen.getByRole("button", { name: /close source details/i }))
 
+    expect(screen.queryByRole("button", { name: /show techcrunch source details/i })).not.toBeInTheDocument()
+    expect(screen.queryByRole("button", { name: /open techcrunch details/i })).not.toBeInTheDocument()
+
+    const row = screen.getByRole("row", { name: /dw persian/i })
+    fireEvent.click(row)
     expect(screen.queryByRole("region", { name: /source details/i })).not.toBeInTheDocument()
-    const reopen = screen.getByRole("button", { name: /show techcrunch source details/i })
-    fireEvent.click(reopen)
+
+    fireEvent.doubleClick(row)
 
     expect(screen.getByRole("region", { name: /source details/i })).toBeInTheDocument()
-    expect(screen.getByRole("heading", { name: "TechCrunch" })).toBeInTheDocument()
+    expect(screen.getByRole("heading", { name: "DW Persian" })).toBeInTheDocument()
   })
 
   it("adds an RSS source from the management dialog", async () => {
