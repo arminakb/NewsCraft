@@ -61,7 +61,7 @@ function TemplateCard({ template, creationMode, preferred }: { template: Automat
       router.push(`/automations/${automation.id}`)
     },
   })
-  const stepNames = template.graphSeed.nodes.map((node) => node.type.split("_").map(capitalize).join(" "))
+  const stepNames = template.graphSeed.nodes.map((node) => node.type === "research" ? "AI Research" : node.type.split("_").map(capitalize).join(" "))
 
   return (
     <Card className={preferred ? "ring-2 ring-primary/35" : undefined}>

@@ -46,8 +46,6 @@ from app.automations.models import AutomationRoute
 from app.generation.models import PromptTemplateVersion
 from app.jobs.credential_capabilities import CapabilityStatusService
 from app.jobs.models import WorkflowEvent, WorkflowSchedule
-from app.jobs.repository import JobRepository
-from app.jobs.types import JobOrigin
 from app.security.auth import SecurityPrincipal
 from app.stories.models import StoryRevision
 
@@ -652,15 +650,7 @@ class AutomationDefinitionService:
                 )
         for node in graph.nodes:
             prompt_snapshots: list[tuple[object, object, str]] = []
-            if node.type == "generate_telegram":
-                prompt_snapshots.append(
-                    (
-                        node.config.get("prompt_template_version_id"),
-                        node.config.get("prompt_checksum_sha256"),
-                        "config.prompt_checksum_sha256",
-                    )
-                )
-            elif node.type == "generate_content_pack":
+            if node.type == "generate_content_pack":
                 checksums = node.config.get("prompt_checksums")
                 prompt_ids = node.config.get("prompt_version_ids")
                 if isinstance(checksums, dict) and isinstance(prompt_ids, list):
@@ -869,31 +859,12 @@ class AutomationDefinitionService:
             raise _error("automation_activation_invalid", 409, "Draft must pass server validation before activation.")
         graph = WorkflowGraphV1.model_validate(version.graph)
         plan = verify_compiled_plan(graph, version.compiled_plan)
-        projection = await materialize_runtime_projection(
+        await materialize_runtime_projection(
             self.session,
             automation=automation,
             version=version,
             plan=plan,
         )
-        route = await self.session.get(AutomationRoute, projection.route_id) if projection is not None else None
-        if plan.trigger_kind == "telegram_new_item":
-            assert route is not None
-            requested_at = datetime.now(UTC).isoformat()
-            route.enabled = True
-            route.paused_at = None
-            route.cursor_state = {
-                "status": "initializing",
-                "activation_requested_at": requested_at,
-                "activation_message_id": None,
-                "last_message_id": None,
-                "recent_fingerprints": {},
-            }
-            await JobRepository(self.session).enqueue_job(
-                job_type="telegram.route.initialize",
-                payload={"route_id": str(route.id), "activation_requested_at": requested_at},
-                idempotency_key=f"automation-activate:{automation.id}:{version.id}",
-                origin=JobOrigin.AUTOMATION,
-            )
         automation.active_version_id = version.id
         automation.lifecycle = "active"
         automation.activation_idempotency_key = idempotency_key

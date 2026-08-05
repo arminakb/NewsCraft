@@ -54,7 +54,7 @@ export function familyLabel(family: string) {
   const labels: Record<string, string> = {
     trigger: "Trigger",
     select_filter: "Select & filter",
-    research: "Research",
+    research: "AI Research",
     generate: "Generate",
     validate: "Validate",
     review: "Review",

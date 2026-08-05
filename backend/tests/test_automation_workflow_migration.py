@@ -4,6 +4,7 @@ from app.db import model_registry as _model_registry  # noqa: F401
 from app.db.base import Base
 
 MIGRATION = Path("alembic/versions/0027_versioned_automations.py")
+RETIREMENT_MIGRATION = Path("alembic/versions/0031_retire_obsolete_workflow_nodes.py")
 
 
 def test_versioned_automation_migration_is_additive_and_follows_current_head():
@@ -67,3 +68,15 @@ def test_versioned_automation_models_are_registered_with_safe_columns():
     assert {"automation_run_id", "automation_node_run_id"}.issubset(
         tables["automation_dispatches"].columns.keys()
     )
+
+
+def test_retirement_migration_archives_template_and_pauses_unsafe_active_versions():
+    source = RETIREMENT_MIGRATION.read_text(encoding="utf-8")
+
+    assert 'revision = "0031_retire_obsolete_workflow_nodes"' in source
+    assert 'down_revision = "0030_new_source_item_trigger"' in source
+    assert "breaking-news-telegram" in source
+    assert "jsonb_array_elements" in source
+    assert "automation.active_version_id" in source
+    assert "automation_routes" in source
+    assert "no replacement" in source

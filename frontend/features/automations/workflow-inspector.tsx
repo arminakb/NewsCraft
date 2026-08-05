@@ -27,6 +27,7 @@ import type {
 import {
   catalogDefinition,
   connectWorkflowNodes,
+  deleteWorkflowNode,
   isUnsafeWorkflowField,
   type JsonSchema,
   resolveSchema,
@@ -75,8 +76,28 @@ export function WorkflowInspector({
 }) {
   const node = graph.nodes.find((item) => item.id === selectedNodeId)
   const definition = node ? catalogDefinition(catalog, node.type) : undefined
-  if (!node || !definition) {
+  if (!node) {
     return <div className="grid min-h-48 place-items-center p-5 text-center text-sm text-muted-foreground">Select a workflow step to inspect settings.</div>
+  }
+  if (!definition) {
+    const nodeFindings = findings.filter((item) => item.nodeId === node.id)
+    return (
+      <div className={cn("space-y-4 p-5", className)} aria-label="Unsupported saved step" role="alert">
+        <div>
+          <p className="text-xs font-medium uppercase tracking-wide text-destructive">Unsupported saved step</p>
+          <h2 className="mt-1 font-semibold">Node type <code className="rounded bg-muted px-1 py-0.5 text-sm">{node.type}</code> is no longer available</h2>
+          <p className="mt-2 text-sm text-muted-foreground">This saved step was not replaced automatically. Remove it explicitly or restore a compatible workflow version.</p>
+        </div>
+        {nodeFindings.length ? <div className="space-y-2" aria-live="polite">
+          {nodeFindings.map((finding, index) => <div className="rounded-lg border border-destructive/25 bg-[var(--error-surface)] p-3 text-[13px]" key={`${finding.code}-${index}`}><p className="font-medium text-destructive">{finding.message}</p>{finding.recoveryAction ? <p className="mt-1 text-muted-foreground">{finding.recoveryAction}</p> : null}</div>)}
+        </div> : null}
+        <Button variant="outline" onClick={() => {
+          const result = deleteWorkflowNode(graph, catalog, node.id)
+          if (!result.graph) onRejected(result.error)
+          else onGraphChange(result.graph)
+        }}>Remove unsupported step</Button>
+      </div>
+    )
   }
   const Icon = nodeIcon(definition.uiHints.icon)
   const schema = definition.configSchema as JsonSchema

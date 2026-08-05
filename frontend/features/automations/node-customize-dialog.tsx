@@ -19,7 +19,7 @@ import type { ArticleCollection } from "@/features/articles/types"
 import type { SourceSummary } from "@/features/operations/ingestion-types"
 import type { TelegramAutomationOptions } from "./telegram-types"
 import type { AutomationNodeCatalog, AutomationResource, ValidationFinding, WorkflowGraph } from "./automation-types"
-import { catalogDefinition, validateWorkflowClient } from "./workflow-graph"
+import { catalogDefinition, deleteWorkflowNode, validateWorkflowClient } from "./workflow-graph"
 import { WorkflowInspector } from "./workflow-inspector"
 import { familyLabel, familyStyles, nodeIcon } from "./workflow-node-visual"
 
@@ -102,7 +102,29 @@ export function NodeCustomizeDialog({
     close()
   }
 
-  if (!node || !definition) return null
+  if (!node) return null
+  if (!definition) {
+    const nodeFindings = displayedFindings.filter((finding) => finding.nodeId === node.id)
+    return (
+      <Dialog open onOpenChange={(open) => { if (!open) close() }}>
+        <DialogContent className="max-w-lg" finalFocus={() => returnFocus} initialFocus={closeButtonRef}>
+          <DialogHeader>
+            <DialogTitle>Unsupported saved step</DialogTitle>
+            <DialogDescription>Node type <code>{node.type}</code> is no longer available in the server catalog. It was not replaced automatically.</DialogDescription>
+          </DialogHeader>
+          {nodeFindings.length ? <div className="mt-4 space-y-2" aria-live="polite">{nodeFindings.map((finding, index) => <Alert key={`${finding.code}-${index}`} tone="error" role="alert"><AlertDescription>{finding.message}{finding.recoveryAction ? ` ${finding.recoveryAction}` : ""}</AlertDescription></Alert>)}</div> : null}
+          <DialogFooter className="mt-5">
+            <Button onClick={close} ref={closeButtonRef} type="button" variant="ghost">Keep step</Button>
+            <Button onClick={() => {
+              const result = deleteWorkflowNode(draftGraph, catalog, node.id)
+              if (!result.graph) onRejected(result.error)
+              else { onSave(result.graph); close() }
+            }} type="button" variant="destructive">Remove unsupported step</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    )
+  }
   const Icon = nodeIcon(definition.uiHints.icon)
 
   return (

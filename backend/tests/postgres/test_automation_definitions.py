@@ -195,16 +195,15 @@ async def test_template_seeding_is_idempotent_and_copies_to_inactive_draft(
         await session.commit()
         count = await session.scalar(select(func.count()).select_from(AutomationTemplate))
 
-    assert len(first) == 3
+    assert len(first) == 2
     assert second == []
-    assert count == 3
+    assert count == 2
 
     async with _client(session_factory) as client:
         templates = await client.get("/automation-templates")
         assert templates.status_code == 200
         assert {item["seed_key"] for item in templates.json()} == {
             "blank-workflow",
-            "breaking-news-telegram",
             "research-first-draft",
         }
         blank_template = next(item for item in templates.json() if item["seed_key"] == "blank-workflow")

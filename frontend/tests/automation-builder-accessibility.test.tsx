@@ -42,6 +42,34 @@ describe("Phase 4 workflow editor accessibility", () => {
 
     expect(screen.getByRole("alert")).toHaveTextContent("Saved connection references an unavailable step")
   })
+
+  it("announces retired saved steps and offers explicit removal", () => {
+    const unsupportedGraph = {
+      ...graph,
+      nodes: [graph.nodes[0], { id: "legacy-1", type: "telegram_new_item", config: {} }, graph.nodes[2]],
+      edges: [
+        { sourceNodeId: "trigger-1", sourcePort: "story", targetNodeId: "legacy-1", targetPort: "story" },
+        { sourceNodeId: "legacy-1", sourcePort: "draft", targetNodeId: "draft-1", targetPort: "drafts" },
+      ],
+    }
+    const validation = validateWorkflowClient(unsupportedGraph, catalog as never)
+    render(<WorkflowOrderedEditor graph={unsupportedGraph} catalog={catalog as never} validation={validation} selectedNodeId="legacy-1" onGraphChange={vi.fn()} onSelectedNodeChange={vi.fn()} onInspect={vi.fn()} onRejected={vi.fn()} />)
+
+    expect(screen.getByRole("alert", { name: "Step 2: Unsupported saved step" })).toHaveTextContent("not replaced automatically")
+    expect(screen.getByRole("button", { name: "Remove unsupported step" })).toBeInTheDocument()
+  })
+
+  it("shows the same retired-step state in the inspector", () => {
+    const unsupportedGraph = {
+      ...graph,
+      nodes: [...graph.nodes, { id: "legacy-1", type: "generate_telegram", config: {} }],
+    }
+    const validation = validateWorkflowClient(unsupportedGraph, catalog as never)
+    render(<WorkflowInspector graph={unsupportedGraph} catalog={catalog as never} selectedNodeId="legacy-1" resources={[]} findings={validation.findings} onGraphChange={vi.fn()} onRejected={vi.fn()} />)
+
+    expect(screen.getByRole("alert", { name: "Unsupported saved step" })).toHaveTextContent("generate_telegram")
+    expect(screen.getByRole("button", { name: "Remove unsupported step" })).toBeInTheDocument()
+  })
 })
 
 const graph = {

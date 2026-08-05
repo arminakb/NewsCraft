@@ -74,6 +74,8 @@ async def test_saving_new_collection_membership_starts_one_durable_trigger_run_a
     ) or {}
     assert node_output["output"]["article"]["id"] == str(article.id)
     assert node_output["output"]["article"]["title"] == "First saved article"
+    assert node_output["output"]["collection"] == {"id": collection["id"], "name": "Reading queue"}
+    assert node_output["output"]["trigger"]["event_type"] == "collection.article_added"
     assert node_output["output"]["trigger"]["collection_id"] == collection["id"]
 
 

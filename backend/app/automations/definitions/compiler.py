@@ -41,7 +41,7 @@ class CompiledWorkflowPlan(BaseModel):
     graph_hash: str
     plan_hash: str
     entry_node_id: str
-    trigger_kind: Literal["manual", "schedule", "telegram_new_item", "collection_article_added", "new_source_item"]
+    trigger_kind: Literal["manual", "schedule", "collection_article_added", "new_source_item"]
     stages: tuple[CompiledStage, ...]
     output_node_ids: tuple[str, ...]
     required_job_types: tuple[str, ...]
@@ -51,11 +51,10 @@ class CompiledWorkflowPlan(BaseModel):
 
 
 _TRIGGER_KIND: dict[
-    str, Literal["manual", "schedule", "telegram_new_item", "collection_article_added", "new_source_item"]
+    str, Literal["manual", "schedule", "collection_article_added", "new_source_item"]
 ] = {
     "manual": "manual",
     "schedule": "schedule",
-    "telegram_new_item": "telegram_new_item",
     "collection_article_added": "collection_article_added",
     "new_source_item": "new_source_item",
 }

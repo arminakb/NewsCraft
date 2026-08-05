@@ -13,10 +13,10 @@ const workflows = [
     "active",
     "telegram",
     [
-      stage("trigger", "telegram_new_item", "Telegram new item", "trigger"),
-      stage("generate", "generate_telegram", "Generate Telegram draft", "ai"),
-      stage("review", "human_review", "Human Review", "review"),
-      stage("publish", "telegram_publish", "Publish to Telegram", "publish", ["telegram"]),
+      stage("trigger", "manual", "Manual", "trigger"),
+      stage("research", "research", "AI Research", "content"),
+      stage("generate", "generate_content_pack", "Generate content package", "ai"),
+      stage("draft", "save_drafts", "Save to Drafts", "draft", ["telegram"]),
     ],
   ),
   automation(
@@ -26,7 +26,7 @@ const workflows = [
     "draft",
     [
       stage("trigger", "manual", "Manual", "trigger"),
-      stage("research", "research", "Research", "content"),
+      stage("research", "research", "AI Research", "content"),
       stage("generate", "generate_content_pack", "Generate content package", "ai"),
       stage("draft", "save_drafts", "Save to Drafts", "draft", ["draft"]),
     ],
@@ -51,9 +51,7 @@ test("workflow gallery keeps real previews, nested actions, and keyboard navigat
   await expect(page.getByRole("img", { name: "Output platform: Telegram" })).toBeVisible()
   await expect(page.getByRole("img", { name: "Output platform: Draft" })).toBeVisible()
   await expect(page.locator("[data-platform-logo='telegram']").first()).toBeVisible()
-  await expect(page.getByRole("img", { name: "Workflow stages: Article trigger, AI generation, Human review, Telegram publish." })).toBeVisible()
-  await expect(page.getByRole("img", { name: "Workflow stages: Manual, Research, AI generation, Save to Drafts." })).toBeVisible()
-  await expect(page.locator("[data-stage-type='telegram_new_item'] + span")).toHaveText("Article")
+  await expect(page.getByRole("img", { name: "Workflow stages: Manual, AI Research, AI generation, Save to Drafts." })).toBeVisible()
   await expect(page.getByRole("img", { name: "Success rate: 96%" }).first()).toContainText("96%")
   await expect(page.locator("[data-workflow-status='active'] [data-flow-motion='active']")).toBeVisible()
   await expect(page.locator("[data-workflow-status='paused'] [data-flow-motion='paused']")).toBeVisible()

@@ -61,9 +61,8 @@ test("canvas stays accessible and bounded at tablet and desktop widths", async (
     const library = page.getByRole("complementary", { name: "Node library" })
     await expect(library).toBeVisible()
     await expect(library.getByText("Filter content description")).toHaveCount(0)
-    await expect(library.getByRole("status")).toContainText("No nodes available")
-    await expect(library.locator("[data-node-library-grid]")).toHaveCount(0)
-    await expect(library.getByRole("button", { name: "Filter content", exact: true })).toHaveCount(0)
+    await expect(library.locator("[data-node-library-grid]").first()).toBeVisible()
+    await expect(library.getByRole("button", { name: "Filter content", exact: true })).toBeVisible()
     const canvasBox = await page.getByLabel("Workflow canvas", { exact: true }).boundingBox()
     expect(canvasBox).not.toBeNull()
     expect(canvasBox!.y).toBeLessThanOrEqual(58)
@@ -149,13 +148,13 @@ test("canvas stays accessible and bounded at tablet and desktop widths", async (
   await expectNoSeriousAxeViolations(page)
   await page.getByRole("button", { name: "Toggle color theme" }).click()
   await expect(page.locator("html")).toHaveClass(/dark/)
-  await expect(page.getByRole("complementary", { name: "Node library" }).getByRole("status")).toContainText("No nodes available")
+  await expect(page.getByRole("complementary", { name: "Node library" }).getByRole("button", { name: "Filter content", exact: true })).toBeVisible()
   await page.screenshot({ path: testInfo.outputPath("workflow-editor-1920x1080-dark.png") })
   await expectNoSeriousAxeViolations(page)
   expect(backend.unhandledRequests).toEqual([])
 })
 
-test("Node Library stays empty while canvas keeps persisted nodes", async ({ page }) => {
+test("Node Library keeps available nodes separate from persisted canvas nodes", async ({ page }) => {
   await installWorkflowBackend(page)
   await page.setViewportSize({ width: 1440, height: 900 })
   await page.goto(`/automations/${automationId}`)
@@ -163,8 +162,116 @@ test("Node Library stays empty while canvas keeps persisted nodes", async ({ pag
   const nodes = page.locator(".react-flow__node")
   await expect(nodes).toHaveCount(5)
   const library = page.getByRole("complementary", { name: "Node library" })
-  await expect(library.getByRole("status")).toContainText("No nodes available")
+  await expect(library.getByRole("button", { name: "Filter content", exact: true })).toBeVisible()
   await expect(library.locator(".react-flow__node")).toHaveCount(0)
+})
+
+test("Collection Article Added accepts article processing nodes and preserves the graph", async ({ page }) => {
+  const backend = await installWorkflowBackend(page, {
+    initialGraph: emptyWorkflowGraphFixture(),
+    catalog: collectionArticleNodeCatalog(),
+  })
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await page.goto(`/automations/${automationId}`)
+
+  const canvas = page.getByLabel("Workflow canvas", { exact: true })
+  const library = page.getByRole("complementary", { name: "Node library" })
+  await expect(canvas).toBeVisible()
+  await expect(page.locator(".react-flow__node")).toHaveCount(0)
+  await library.getByRole("button", { name: "Collection article added", exact: true }).click()
+  await expect(page.locator(".react-flow__node")).toHaveCount(1)
+
+  const triggerNode = page.locator('.react-flow__node[data-id="collection-article-added-1"]')
+  await triggerNode.click({ button: "right" })
+  const triggerMenu = page.getByRole("menu", { name: /Select a Feed collection/ })
+  await triggerMenu.getByRole("menuitem", { name: "Customize" }).click()
+  const customizeDialog = page.getByRole("dialog", { name: "Customize Collection article added" })
+  await expect(customizeDialog).toBeVisible()
+  await customizeDialog.getByLabel("Feed collection").selectOption("cccccccc-cccc-4ccc-8ccc-cccccccccccc")
+  await customizeDialog.getByRole("button", { name: "Save changes" }).click()
+  await expect(customizeDialog).toHaveCount(0)
+
+  await library.getByRole("button", { name: "Save to Drafts", exact: true }).click()
+  await expect(page.getByTestId("newsroom-content").getByRole("status")).toContainText("Save to Drafts cannot accept output from Collection article added")
+  await library.getByRole("button", { name: "Filter content", exact: true }).dragTo(canvas)
+  await library.getByRole("button", { name: "AI Research", exact: true }).dragTo(canvas)
+  await library.getByRole("button", { name: "Generate content package", exact: true }).dragTo(canvas)
+  await library.getByRole("button", { name: "Save to Drafts", exact: true }).dragTo(canvas)
+
+  await expect(page.locator(".react-flow__node")).toHaveCount(5)
+  await expect(page.getByRole("region", { name: "Morning newsroom" }).getByRole("alert")).toHaveCount(0)
+  await page.getByRole("button", { name: "Save draft" }).click()
+  await expect.poll(() => backend.lastVersionBody).not.toBeNull()
+  expect(backend.lastVersionBody).toMatchObject({
+    graph: {
+      entry_node_id: "collection-article-added-1",
+      output_node_ids: ["save-drafts-1"],
+      edges: [
+        { source_node_id: "collection-article-added-1", source_port: "article", target_node_id: "filter-content-1", target_port: "story" },
+        { source_node_id: "filter-content-1", source_port: "accepted", target_node_id: "research-1", target_port: "story" },
+        { source_node_id: "research-1", source_port: "story", target_node_id: "generate-content-pack-1", target_port: "story" },
+        { source_node_id: "generate-content-pack-1", source_port: "drafts", target_node_id: "save-drafts-1", target_port: "drafts" },
+      ],
+    },
+  })
+
+  await page.reload()
+  await expect(page.locator(".react-flow__node")).toHaveCount(5)
+  await page.getByRole("button", { name: "Open ordered editor" }).click()
+  const ordered = page.getByRole("dialog", { name: "Ordered workflow editor" })
+  await expect(ordered).toBeVisible()
+  await expect(ordered.getByRole("article")).toHaveCount(5)
+  await expect(backend.unhandledRequests).toEqual([])
+})
+
+test("node actions preserve configuration, clean edges, and persist across reloads", async ({ page }) => {
+  const backend = await installWorkflowBackend(page)
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await page.goto(`/automations/${automationId}`)
+
+  const original = page.locator('.react-flow__node[data-id="filter-2"]')
+  await original.click({ button: "right" })
+  let menu = page.getByRole("menu", { name: "Filter content actions" })
+  await menu.getByRole("menuitem", { name: "Customize" }).click()
+  const customizeDialog = page.getByRole("dialog", { name: "Customize Filter content" })
+  await customizeDialog.getByLabel("Batch size").fill("4")
+  await customizeDialog.getByRole("button", { name: "Save changes" }).click()
+  await expect(customizeDialog).toHaveCount(0)
+
+  await original.click({ button: "right" })
+  menu = page.getByRole("menu", { name: "Filter content actions" })
+  await menu.getByRole("menuitem", { name: "Duplicate" }).click()
+  const duplicate = page.locator('.react-flow__node[data-id="filter-content-1"]')
+  await expect(duplicate).toBeVisible()
+  await expect(page.locator(".react-flow__node")).toHaveCount(6)
+
+  await page.getByRole("button", { name: "Save draft" }).click()
+  await expect.poll(() => backend.lastVersionBody).not.toBeNull()
+  const duplicateSave = backend.lastVersionBody as { graph: { nodes: Array<{ id: string; config: Record<string, unknown> }>; edges: Array<{ source_node_id: string; target_node_id: string }> } }
+  const savedDuplicate = duplicateSave.graph.nodes.find((node) => node.id === "filter-content-1")
+  expect(savedDuplicate?.config).toMatchObject({ batch_size: 4 })
+  expect(duplicateSave.graph.nodes.find((node) => node.id === "filter-2")?.config).toEqual({ batch_size: 4 })
+
+  await page.reload()
+  await expect(page.locator('.react-flow__node[data-id="filter-content-1"]')).toBeVisible()
+  await expect(page.locator(".react-flow__node")).toHaveCount(6)
+
+  await page.locator('.react-flow__node[data-id="filter-content-1"]').click({ button: "right" })
+  menu = page.getByRole("menu", { name: "Filter content actions" })
+  await menu.getByRole("menuitem", { name: "Delete" }).click()
+  await expect(page.locator('.react-flow__node[data-id="filter-content-1"]')).toHaveCount(0)
+  await expect(page.locator(".react-flow__node")).toHaveCount(5)
+
+  await page.getByRole("button", { name: "Save draft" }).click()
+  await expect.poll(() => (backend.lastVersionBody as { graph?: unknown } | null)?.graph).not.toBeNull()
+  const deleteSave = backend.lastVersionBody as { graph: { nodes: Array<{ id: string }>; edges: Array<{ source_node_id: string; target_node_id: string }> } }
+  expect(deleteSave.graph.nodes.some((node) => node.id === "filter-content-1")).toBe(false)
+  expect(deleteSave.graph.edges.some((edge) => edge.source_node_id === "filter-content-1" || edge.target_node_id === "filter-content-1")).toBe(false)
+
+  await page.reload()
+  await expect(page.locator('.react-flow__node[data-id="filter-content-1"]')).toHaveCount(0)
+  await expect(page.locator('.react-flow__node[data-id="filter-2"]')).toBeVisible()
+  expect(backend.unhandledRequests).toEqual([])
 })
 
 test("@performance controlled canvas keeps 5, 15, and 30-node selection responsive", async ({ page }, testInfo) => {
@@ -258,24 +365,40 @@ test("Test Studio resumes persisted dry-run truth and hands off to Runs", async 
   expect(backend.unhandledRequests).toEqual([])
 })
 
-async function installWorkflowBackend(page: Page) {
+type WorkflowBackendOptions = {
+  initialGraph?: ReturnType<typeof workflowGraph>
+  catalog?: ReturnType<typeof nodeCatalog>
+}
+
+async function installWorkflowBackend(page: Page, options: WorkflowBackendOptions = {}) {
   const unhandledRequests = await installMockBackend(page)
   const state: {
     lifecycle: "inactive" | "active" | "paused"
     nodeCount: number
+    initialGraph: ReturnType<typeof workflowGraph> | null
     savedGraph: ReturnType<typeof workflowGraph> | null
     lastVersionBody: Record<string, unknown> | null
     unhandledRequests: string[]
     validated: boolean
     version: number
     revision: number
-  } = { lifecycle: "inactive", nodeCount: 5, savedGraph: null, lastVersionBody: null, unhandledRequests, validated: false, version: 1, revision: 1 }
+  } = {
+    lifecycle: "inactive",
+    nodeCount: options.initialGraph?.nodes.length ?? 5,
+    initialGraph: options.initialGraph ?? null,
+    savedGraph: null,
+    lastVersionBody: null,
+    unhandledRequests,
+    validated: false,
+    version: 1,
+    revision: 1,
+  }
 
   await page.route("**/api/backend/**", async (route) => {
     const request = route.request()
     const path = new URL(request.url()).pathname.replace(/^\/api\/backend/, "")
     if (request.method() === "GET" && path === `/automations/${automationId}`) {
-      await fulfillMockJson(route, automationDetail(state.savedGraph ?? workflowGraph(state.nodeCount), state))
+      await fulfillMockJson(route, automationDetail(state.savedGraph ?? state.initialGraph ?? workflowGraph(state.nodeCount), state))
       return
     }
     if (request.method() === "POST" && path === `/automations/${automationId}/versions`) {
@@ -315,6 +438,16 @@ async function installWorkflowBackend(page: Page) {
       await fulfillMockJson(route, { items: [], next_cursor: null, result_count: 0 })
       return
     }
+    if (request.method() === "GET" && path === "/article-collections") {
+      await fulfillMockJson(route, [{
+        id: "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+        name: "Reading queue",
+        article_count: 1,
+        created_at: "2026-08-01T08:00:00Z",
+        updated_at: "2026-08-01T08:00:00Z",
+      }])
+      return
+    }
     if (request.method() === "POST" && path === `/automations/${automationId}/activate`) {
       state.lifecycle = "active"
       state.revision += 1
@@ -328,7 +461,7 @@ async function installWorkflowBackend(page: Page) {
       return
     }
     if (request.method() === "GET" && path === "/automation-node-catalog") {
-      await fulfillMockJson(route, nodeCatalog())
+      await fulfillMockJson(route, options.catalog ?? nodeCatalog())
       return
     }
     if (request.method() === "POST" && path === "/automation-resource-catalog") {
@@ -499,6 +632,56 @@ function nodeCatalog() {
   }
 }
 
+function emptyWorkflowGraphFixture(): ReturnType<typeof workflowGraph> {
+  return {
+    schema_version: 1,
+    entry_node_id: "",
+    nodes: [],
+    edges: [],
+    output_node_ids: [],
+    metadata: { layout: {} },
+  }
+}
+
+function collectionArticleNodeCatalog() {
+  const collectionArticle = "article.collection_added"
+  const story = "story.revision_ref"
+  const researchedStory = "story.researched_revision_ref"
+  const draftSet = "draft.revision_set_ref"
+  const validatedDraftSet = "draft.validated_revision_set_ref"
+  return {
+    schema_version: 1,
+    max_nodes: 30,
+    max_edges: 60,
+    nodes: [
+      {
+        ...nodeDefinition("collection_article_added", "trigger", "Collection article added", true, [], [port("article", null, [collectionArticle])]),
+        terminal: true,
+        config_schema: {
+          type: "object",
+          properties: {
+            collection_id: { type: "string", title: "Feed collection" },
+          },
+        },
+      },
+      nodeDefinition("filter_content", "select_filter", "Filter content", false, [port("story", 1, [story, collectionArticle])], [port("accepted", null, [story, collectionArticle])]),
+      nodeDefinition("research", "research", "AI Research", false, [port("story", 1, [story, collectionArticle])], [port("story", null, [researchedStory])]),
+      {
+        ...nodeDefinition("generate_content_pack", "generate", "Generate content package", false, [port("story", 1, [story, researchedStory, "story.revision_set_ref", collectionArticle])], [port("drafts", null, [draftSet])]),
+        config_schema: {
+          type: "object",
+          properties: {
+            editorial_profile_id: { type: "string", default: "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee" },
+            provider_profile_id: { type: "string", default: "ffffffff-ffff-4fff-8fff-ffffffffffff" },
+            prompt_version_ids: { type: "array", items: { type: "string" }, default: ["11111111-1111-4111-8111-111111111111"] },
+          },
+        },
+      },
+      { ...nodeDefinition("save_drafts", "output", "Save to Drafts", false, [port("drafts", 1, [draftSet, validatedDraftSet])], []), terminal: true },
+    ],
+  }
+}
+
 function nodeDefinition(type: string, family: string, displayName: string, entry: boolean, inputs: unknown[], outputs: unknown[]) {
   return {
     type,
@@ -517,8 +700,8 @@ function nodeDefinition(type: string, family: string, displayName: string, entry
   }
 }
 
-function port(name: string, maxConnections: number | null) {
-  return { name, artifact_types: ["story.revision_ref"], required: true, max_connections: maxConnections }
+function port(name: string, maxConnections: number | null, artifactTypes = ["story.revision_ref"]) {
+  return { name, artifact_types: artifactTypes, required: true, max_connections: maxConnections }
 }
 
 async function expectNoPageOverflow(page: Page) {

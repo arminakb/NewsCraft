@@ -36,17 +36,11 @@ _MANAGE_HREF: dict[ResourceKind, str] = {
 _RESOURCE_FIELDS: dict[str, dict[str, ResourceKind]] = {
     "collection_article_added": {"collection_id": "collection"},
     "new_source_item": {"source_ids": "source"},
-    "telegram_new_item": {"source_id": "source"},
     "select_content": {"source_ids": "source"},
     "research": {"provider_profile_id": "provider"},
     "generate_content_pack": {
         "editorial_profile_id": "editorial_profile",
         "provider_profile_id": "provider",
-    },
-    "generate_telegram": {
-        "editorial_profile_id": "editorial_profile",
-        "provider_profile_id": "provider",
-        "prompt_template_version_id": "prompt_version",
     },
     "telegram_publish": {"destination_id": "destination"},
 }
@@ -252,7 +246,7 @@ async def summarize_resources(
                     display_name=source.name,
                     state=state,  # type: ignore[arg-type]
                     reason_code=reason,
-                    capabilities=["telegram_new_item"] if source.platform == "telegram_public" else ["select_content"],
+                    capabilities=["source"] if source.platform == "telegram_public" else ["select_content"],
                     referenced_by_active_version=active,
                     manage_href=_MANAGE_HREF[kind],
                 )

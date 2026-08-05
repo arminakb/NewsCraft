@@ -12,6 +12,9 @@ describe("workflow node library", () => {
     expect(screen.getByText("Search nodes")).toBeInTheDocument()
     expect(screen.getByRole("button", { name: "Collection article added" })).toBeInTheDocument()
     expect(screen.getByRole("button", { name: "Filter content" })).toBeInTheDocument()
+    expect(screen.getByRole("button", { name: "AI Research" })).toBeInTheDocument()
+    expect(screen.queryByRole("button", { name: "Telegram new item" })).not.toBeInTheDocument()
+    expect(screen.queryByRole("button", { name: "Generate Telegram draft" })).not.toBeInTheDocument()
     expect(container.querySelector("[data-node-library-grid]")).toBeInTheDocument()
     fireEvent.click(screen.getByRole("button", { name: "Collection article added" }))
     expect(onAdd).toHaveBeenCalledWith("collection_article_added")
@@ -48,6 +51,7 @@ const catalog = {
     node("manual", "trigger", "Manual", true, "Trigger description"),
     node("collection_article_added", "trigger", "Collection article added", true, "Start when an article is saved to a Feed collection."),
     node("filter_content", "select_filter", "Filter content", false, "Long filter instructions must stay out of the tile."),
+    node("research", "research", "AI Research", false, "Research description"),
     node("generate_content_pack", "generate", "Generate content package", false, "Generate description"),
     node("save_drafts", "output", "Save to Drafts", false, "Output description"),
   ],

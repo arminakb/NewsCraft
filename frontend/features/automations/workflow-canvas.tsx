@@ -33,7 +33,7 @@ import { StatusBadge } from "@/components/ui/status-badge"
 import { cn } from "@/lib/utils"
 
 import type { AutomationNodeCatalog, AutomationResource, GraphValidation, WorkflowGraph } from "./automation-types"
-import { catalogDefinition, connectWorkflowNodes, deleteWorkflowNode, duplicateWorkflowNode, updateNodePosition } from "./workflow-graph"
+import { catalogDefinition, connectWorkflowNodes, deleteWorkflowNode, duplicateWorkflowNode, updateNodePosition, workflowNodeActionState } from "./workflow-graph"
 import { alignWorkflowNodePosition, WORKFLOW_EDGE_ALIGNMENT_TOLERANCE, WORKFLOW_SNAP_GRID, workflowEdgeRouting } from "./workflow-layout"
 import { NodeContextMenu, type NodeContextMenuState } from "./node-context-menu"
 import { WORKFLOW_NODE_DRAG_TYPE } from "./workflow-node-library"
@@ -96,7 +96,9 @@ export function WorkflowCanvas({ graph, catalog, validation, selectedNodeId, res
   const baseNodes = useMemo<CanvasNode[]>(() => graph.nodes.map((node, index) => {
     const definition = catalogDefinition(catalog, node.type)
     const point = graph.metadata.layout[node.id] ?? { x: 80 + index * 280, y: 120 }
-    const label = configuredNodeLabel(node, definition?.displayName ?? node.type, resources)
+    const label = definition
+      ? configuredNodeLabel(node, definition.displayName, resources)
+      : "Unsupported saved step"
     const resourceError = node.type === "collection_article_added"
       ? resources.some((resource) => resource.kind === "collection" && resource.id === node.config.collectionId && resource.state !== "ready") ? 1 : 0
       : node.type === "new_source_item"
@@ -107,10 +109,10 @@ export function WorkflowCanvas({ graph, catalog, validation, selectedNodeId, res
       type: "newscraft",
       position: point,
       selected: false,
-      ariaLabel: `${label}, ${definition ? familyLabel(definition.family) : "unknown"} step`,
+      ariaLabel: `${label}, ${definition ? familyLabel(definition.family) : "unsupported saved"} step`,
       data: {
         label,
-        description: definition?.description ?? "Unknown server node",
+        description: definition?.description ?? `Saved node type "${node.type}" is no longer supported. It was not replaced automatically.`,
         family: definition?.family ?? "unknown",
         icon: definition?.uiHints.icon,
         inputs: definition?.inputs.map((port) => port.name) ?? [],
@@ -142,6 +144,7 @@ export function WorkflowCanvas({ graph, catalog, validation, selectedNodeId, res
 
   const onNodesChange = (changes: NodeChange<CanvasNode>[]) => {
     let next = graph
+    const removedNodeIds = new Set<string>()
     const acceptedChanges: NodeChange<CanvasNode>[] = []
     for (const change of changes) {
       if (change.type === "select" && change.selected) onSelectedNodeChange(change.id)
@@ -156,7 +159,7 @@ export function WorkflowCanvas({ graph, catalog, validation, selectedNodeId, res
       if (change.type === "remove") {
         const result = deleteWorkflowNode(next, catalog, change.id)
         if (!result.graph) onRejected(result.error)
-        else { next = result.graph; acceptedChanges.push(change) }
+        else { next = result.graph; removedNodeIds.add(change.id); acceptedChanges.push(change) }
       } else {
         acceptedChanges.push(acceptedChange)
       }
@@ -166,6 +169,7 @@ export function WorkflowCanvas({ graph, catalog, validation, selectedNodeId, res
       nodesRef.current = updated
       return updated
     })
+    if (selectedNodeId && removedNodeIds.has(selectedNodeId)) onSelectedNodeChange(null)
     if (next !== graph) onGraphChange(next)
   }
   const onEdgesChange = (changes: EdgeChange<Edge>[]) => {
@@ -210,7 +214,7 @@ export function WorkflowCanvas({ graph, catalog, validation, selectedNodeId, res
           setNodes((current) => current.map((item) => ({ ...item, selected: item.id === node.id })))
           onSelectedNodeChange(node.id)
           const returnFocus = document.querySelector<HTMLElement>(`.react-flow__node[data-id="${node.id}"]`)
-          const definition = catalogDefinition(catalog, graph.nodes.find((item) => item.id === node.id)?.type ?? "")
+          const actionState = workflowNodeActionState(graph, catalog, node.id)
           const menuWidth = 192
           const menuHeight = 140
           const gutter = 8
@@ -220,8 +224,10 @@ export function WorkflowCanvas({ graph, catalog, validation, selectedNodeId, res
             x: Math.max(gutter, Math.min(event.clientX, window.innerWidth - menuWidth - gutter)),
             y: Math.max(gutter, Math.min(event.clientY, window.innerHeight - menuHeight - gutter)),
             returnFocus,
-            canDuplicate: Boolean(definition && !definition.entry && !definition.terminal),
-            canDelete: Boolean(definition && !definition.entry && !definition.terminal),
+            canDuplicate: actionState.canDuplicate,
+            duplicateDisabledReason: actionState.duplicateReason,
+            canDelete: actionState.canDelete,
+            deleteDisabledReason: actionState.deleteReason,
           })
         }}
         onNodeDragStart={() => closeContextMenu()}

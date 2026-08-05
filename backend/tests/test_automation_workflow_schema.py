@@ -182,57 +182,16 @@ def test_validator_rejects_invalid_ports_cardinality_cycles_and_unreachable_node
     assert "graph_cycle" in codes(raw)
 
 
-def test_telegram_publish_requires_exact_human_review_boundary():
-    source_id = uuid4()
-    profile_id = uuid4()
-    provider_id = uuid4()
-    prompt_id = uuid4()
-    destination_id = uuid4()
-    raw = {
-        "schema_version": 1,
-        "entry_node_id": "trigger-1",
-        "nodes": [
-            {
-                "id": "trigger-1",
-                "type": "telegram_new_item",
-                "config": {"source_id": str(source_id)},
-            },
-            {
-                "id": "generate-1",
-                "type": "generate_telegram",
-                "config": {
-                    "editorial_profile_id": str(profile_id),
-                    "provider_profile_id": str(provider_id),
-                    "prompt_template_version_id": str(prompt_id),
-                    "prompt_checksum_sha256": "a" * 64,
-                },
-            },
-            {
-                "id": "publish-1",
-                "type": "telegram_publish",
-                "config": {"destination_id": str(destination_id)},
-            },
-        ],
-        "edges": [
-            {
-                "source_node_id": "trigger-1",
-                "source_port": "story",
-                "target_node_id": "generate-1",
-                "target_port": "story",
-            },
-            {
-                "source_node_id": "generate-1",
-                "source_port": "draft",
-                "target_node_id": "publish-1",
-                "target_port": "draft",
-            },
-        ],
-        "output_node_ids": ["publish-1"],
-    }
+def test_retired_telegram_workflow_nodes_are_explicitly_invalid():
+    raw = valid_graph()
+    raw["nodes"][0]["type"] = "telegram_new_item"  # type: ignore[index]
+    raw["nodes"][1]["type"] = "generate_telegram"  # type: ignore[index]
 
     result = validate_graph(WorkflowGraphV1.model_validate(raw))
 
-    assert "automation_activation_invalid" in {item.code for item in result.findings}
+    unsupported = [item for item in result.findings if item.code == "node_type_unsupported"]
+    assert {item.node_id for item in unsupported} == {"trigger-1", "generate-1"}
+    assert all(item.recovery_action and "not applied automatically" in item.recovery_action for item in unsupported)
 
 
 def test_node_catalog_is_allowlisted_secret_free_and_matches_registry():

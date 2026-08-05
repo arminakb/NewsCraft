@@ -109,7 +109,7 @@ the feature off and destroy remaining ciphertext when the investigation ends.
 3. Choose **Research more** for the standard budget or **Deep research** for the larger
    budget. Select a configured research profile and wait for the durable run outcome. A
    complete story may be generated without another automatic research run.
-4. Choose **Generate Telegram draft**, select the brand and generation profile, and select
+4. Choose **Generate Telegram pack**, select the brand and generation profile, and select
    both the active Canonical story and Telegram pack prompt-version IDs.
 5. Open **Drafts**, then **Review** the exact generated revision and its evidence map. Use
    **Save revision** to create an immutable pending-review child; regeneration also creates a

@@ -8,7 +8,6 @@ import { useMemo, useState } from "react"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { Input } from "@/components/ui/input"
 import { Select } from "@/components/ui/select"
 import { ErrorState, LoadingState } from "@/components/ui/state-panel"
 import { getArticles } from "@/features/articles/api"
@@ -44,9 +43,7 @@ export default function AutomationTestStudio({
   const runId = searchParams.get("runId")
   const trigger = graph.nodes.find((node) => node.id === graph.entryNodeId)
   const manual = trigger?.type === "manual"
-  const telegram = trigger?.type === "telegram_new_item"
   const [storyId, setStoryId] = useState("")
-  const [sourceMessageId, setSourceMessageId] = useState("")
   const [message, setMessage] = useState<{ tone: "error" | "success" | "warning"; title: string; text: string } | null>(null)
   const feed = useQuery({
     queryKey: ["articles", "automation-test-studio", { limit: 20 }],
@@ -87,7 +84,6 @@ export default function AutomationTestStudio({
         versionNumber,
         dryRun: true,
         ...(manual && storyId ? { storyId } : {}),
-        ...(telegram && sourceMessageId ? { sourceMessageId: Number(sourceMessageId) } : {}),
       },
       idempotencyKey(),
     ),
@@ -102,8 +98,6 @@ export default function AutomationTestStudio({
     },
     onError: (error) => setMessage({ tone: "error", title: "Dry run not started", text: getApiErrorMessage(error) }),
   })
-  const invalidSourceMessage = Boolean(sourceMessageId) && (!Number.isInteger(Number(sourceMessageId)) || Number(sourceMessageId) < 1)
-
   return (
     <div className="flex flex-col gap-4" aria-label="Test Studio controls">
       <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(280px,0.55fr)]">
@@ -124,14 +118,7 @@ export default function AutomationTestStudio({
               </div>
             ) : null}
             {feed.isError ? <p className="text-sm text-destructive" role="alert">Feed inputs unavailable. Saved workflow input remains usable.</p> : null}
-            {telegram ? (
-              <div className="flex flex-col gap-1.5 text-[13px] font-medium">
-                <label htmlFor="test-studio-source-message">Telegram source message ID</label>
-                <Input id="test-studio-source-message" aria-describedby="test-studio-source-message-help" value={sourceMessageId} onChange={(event) => setSourceMessageId(event.target.value)} inputMode="numeric" pattern="[0-9]*" aria-invalid={invalidSourceMessage} placeholder="Optional exact message" />
-                {invalidSourceMessage ? <span id="test-studio-source-message-help" className="text-xs font-normal text-destructive" role="alert">Enter positive integer message ID.</span> : <span id="test-studio-source-message-help" className="text-xs font-normal text-muted-foreground">Leave empty for source adapter default fixture.</span>}
-              </div>
-            ) : null}
-            {!manual && !telegram ? <p className="text-sm text-muted-foreground">Saved trigger supplies deterministic input. No additional input accepted.</p> : null}
+            {!manual ? <p className="text-sm text-muted-foreground">Saved trigger supplies deterministic input. No additional input accepted.</p> : null}
           </CardContent>
         </Card>
         <Card size="sm">
@@ -141,7 +128,7 @@ export default function AutomationTestStudio({
           </CardHeader>
           <CardContent className="flex flex-col gap-2">
             <Button variant="outline" disabled={dirty || validation.isPending || dryRun.isPending} onClick={() => validation.mutate()}>{validation.isPending ? <LoaderCircle data-icon="inline-start" className="animate-spin" aria-hidden="true" /> : <ShieldCheck data-icon="inline-start" aria-hidden="true" />}{validation.isPending ? "Validating…" : "Validate only"}</Button>
-            <Button disabled={dirty || !validated || invalidSourceMessage || validation.isPending || dryRun.isPending} onClick={() => dryRun.mutate()}>{dryRun.isPending ? <LoaderCircle data-icon="inline-start" className="animate-spin" aria-hidden="true" /> : <FlaskConical data-icon="inline-start" aria-hidden="true" />}{dryRun.isPending ? "Starting…" : "Start full dry run"}</Button>
+            <Button disabled={dirty || !validated || validation.isPending || dryRun.isPending} onClick={() => dryRun.mutate()}>{dryRun.isPending ? <LoaderCircle data-icon="inline-start" className="animate-spin" aria-hidden="true" /> : <FlaskConical data-icon="inline-start" aria-hidden="true" />}{dryRun.isPending ? "Starting…" : "Start full dry run"}</Button>
             {dirty ? <p className="text-xs text-muted-foreground">Save draft before testing persisted version.</p> : !validated ? <p className="text-xs text-muted-foreground">Run Validate only before full dry run.</p> : null}
           </CardContent>
         </Card>

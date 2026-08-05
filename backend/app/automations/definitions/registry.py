@@ -42,12 +42,6 @@ class NewSourceItemConfig(_ConfigModel):
     source_ids: list[UUID] = Field(default_factory=list, max_length=50)
 
 
-class TelegramNewItemConfig(_ConfigModel):
-    source_id: UUID | None = None
-    access_mode: Literal["public_html", "mtproto_user"] = "public_html"
-    poll_interval_seconds: int = Field(default=300, ge=60, le=86_400)
-
-
 class ScheduleConfig(_ConfigModel):
     schedule_kind: Literal["daily", "interval"] = "daily"
     timezone: str = Field(default="Asia/Tehran", min_length=1, max_length=255)
@@ -101,23 +95,6 @@ class GenerateContentPackConfig(_ConfigModel):
     def validate_prompt_snapshots(self):
         if set(self.prompt_checksums) != set(self.prompt_version_ids):
             raise ValueError("prompt checksums must match the exact prompt-version IDs")
-        return self
-
-
-class GenerateTelegramConfig(_ConfigModel):
-    editorial_profile_id: UUID | None = None
-    provider_profile_id: UUID | None = None
-    prompt_template_version_id: UUID | None = None
-    prompt_checksum_sha256: Sha256Checksum | None = None
-    model: str | None = Field(default=None, min_length=1, max_length=255)
-    media_policy: Literal["preserve", "omit", "replace_manually"] = "preserve"
-    attribution_policy: Literal["preserve", "remove", "custom"] = "preserve"
-    custom_footer: str | None = Field(default=None, max_length=512)
-
-    @model_validator(mode="after")
-    def validate_attribution(self):
-        if self.attribution_policy == "custom" and not (self.custom_footer or "").strip():
-            raise ValueError("custom attribution requires custom_footer")
         return self
 
 
@@ -198,6 +175,8 @@ class NodeDefinition:
 STORY = ("story.revision_ref",)
 RESEARCHED_STORY = ("story.researched_revision_ref",)
 ANY_STORY = STORY + RESEARCHED_STORY
+COLLECTION_ARTICLE_ARTIFACT = "article.collection_added"
+COLLECTION_ARTICLE = (COLLECTION_ARTICLE_ARTIFACT,)
 STORY_SET = ("story.revision_set_ref",)
 DRAFT_SET = ("draft.revision_set_ref",)
 VALIDATED_DRAFT_SET = ("draft.validated_revision_set_ref",)
@@ -228,7 +207,7 @@ NODE_REGISTRY: dict[str, NodeDefinition] = {
             "Start when a new article is saved to one Feed collection.",
             CollectionArticleAddedConfig,
             {},
-            {"article": PortDefinition(("article.collection_added",), max_connections=None)},
+            {"article": PortDefinition(COLLECTION_ARTICLE, max_connections=None)},
             entry=True,
             terminal=True,
             runtime_status="existing",
@@ -249,19 +228,6 @@ NODE_REGISTRY: dict[str, NodeDefinition] = {
             runtime_owner="source",
             runtime_job_types=("automation.run.start",),
             ui_hints={"icon": "radio", "accent": "green", "settings_section": "sources"},
-        ),
-        NodeDefinition(
-            "telegram_new_item",
-            "trigger",
-            "Telegram new item",
-            "Start after durable new-only Telegram capture.",
-            TelegramNewItemConfig,
-            {},
-            {"story": PortDefinition(STORY, max_connections=None)},
-            entry=True,
-            runtime_owner="source",
-            runtime_job_types=("telegram.route.initialize", "telegram.route.poll"),
-            ui_hints={"icon": "send", "accent": "green", "settings_section": "telegram"},
         ),
         NodeDefinition(
             "schedule",
@@ -296,8 +262,8 @@ NODE_REGISTRY: dict[str, NodeDefinition] = {
             "Filter content",
             "Pass or stop using deterministic allowlisted rules.",
             FilterContentConfig,
-            {"story": PortDefinition(STORY)},
-            {"accepted": PortDefinition(STORY, max_connections=None)},
+            {"story": PortDefinition(STORY + COLLECTION_ARTICLE)},
+            {"accepted": PortDefinition(STORY + COLLECTION_ARTICLE, max_connections=None)},
             runtime_owner="generation",
             runtime_job_types=("telegram.route.process",),
             ui_hints={"icon": "filter", "accent": "blue"},
@@ -305,10 +271,10 @@ NODE_REGISTRY: dict[str, NodeDefinition] = {
         NodeDefinition(
             "research",
             "research",
-            "Research",
+            "AI Research",
             "Add bounded source-grounded research evidence.",
             ResearchConfig,
-            {"story": PortDefinition(STORY)},
+            {"story": PortDefinition(STORY + COLLECTION_ARTICLE)},
             {"story": PortDefinition(RESEARCHED_STORY, max_connections=None)},
             runtime_owner="generation",
             runtime_job_types=("research_story",),
@@ -320,23 +286,11 @@ NODE_REGISTRY: dict[str, NodeDefinition] = {
             "Generate content package",
             "Generate bounded reviewable platform drafts.",
             GenerateContentPackConfig,
-            {"story": PortDefinition(ANY_STORY + STORY_SET)},
+            {"story": PortDefinition(ANY_STORY + STORY_SET + COLLECTION_ARTICLE)},
             {"drafts": PortDefinition(DRAFT_SET, max_connections=None)},
             runtime_owner="generation",
             runtime_job_types=("content_pack.generate", "content_pack.generate_telegram"),
             ui_hints={"icon": "sparkles", "accent": "purple", "settings_section": "llm-providers"},
-        ),
-        NodeDefinition(
-            "generate_telegram",
-            "generate",
-            "Generate Telegram draft",
-            "Generate one evidence-bound Telegram revision.",
-            GenerateTelegramConfig,
-            {"story": PortDefinition(ANY_STORY)},
-            {"draft": PortDefinition(("draft.telegram_revision_ref",), max_connections=None)},
-            runtime_owner="generation",
-            runtime_job_types=("telegram.route.process",),
-            ui_hints={"icon": "message-square", "accent": "purple", "settings_section": "llm-providers"},
         ),
         NodeDefinition(
             "validate",
@@ -406,4 +360,10 @@ def node_catalog() -> AutomationNodeCatalogOut:
     return AutomationNodeCatalogOut(nodes=[definition.catalog_item() for definition in NODE_REGISTRY.values()])
 
 
-__all__ = ["NODE_REGISTRY", "NodeDefinition", "PortDefinition", "node_catalog"]
+__all__ = [
+    "COLLECTION_ARTICLE_ARTIFACT",
+    "NODE_REGISTRY",
+    "NodeDefinition",
+    "PortDefinition",
+    "node_catalog",
+]

@@ -198,6 +198,7 @@ class AutomationRun(Base):
     created_at: Mapped[datetime] = timestamp_now()
 
     __table_args__ = (
+        # Keep the retired discriminator so historical runs remain readable; it is not a current workflow node type.
         CheckConstraint(
             "trigger_kind IN ('manual', 'schedule', 'telegram_new_item', 'collection_article_added', "
             "'new_source_item', 'legacy')",

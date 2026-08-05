@@ -9,18 +9,62 @@ import type {
   WorkflowNode,
 } from "./automation-types"
 
-type GraphEditResult =
+export type GraphEditResult =
   | { graph: WorkflowGraph; error?: never; nodeId?: string }
   | { graph?: never; error: string; nodeId?: never }
+
+export type WorkflowNodeActionState = {
+  canDuplicate: boolean
+  duplicateReason?: string
+  canDelete: boolean
+  deleteReason?: string
+}
+
+const DUPLICATE_OFFSET = { x: 48, y: 48 }
+const TRANSIENT_DUPLICATE_KEYS = new Set([
+  "data",
+  "dragging",
+  "execution",
+  "executionresult",
+  "executionresults",
+  "execution_result",
+  "execution_results",
+  "handles",
+  "handlebounds",
+  "handleboundschange",
+  "hidden",
+  "measured",
+  "position",
+  "positionabsolute",
+  "position_absolute",
+  "resizing",
+  "runtime",
+  "runtimestate",
+  "runtime_state",
+  "selected",
+  "temporary",
+  "temporary_state",
+  "temporaryuistate",
+  "temporary_ui_state",
+  "temp_ui_state",
+  "temp_uistate",
+  "uistate",
+  "ui_state",
+  "validation",
+  "validationerror",
+  "validation_error",
+  "validationerrors",
+  "validation_errors",
+])
+const INSTANCE_IDENTIFIER_KEYS = new Set(["instanceid", "instance_id"])
+const HANDLE_IDENTIFIER_KEYS = new Set(["handleid", "handle_id", "handleids", "handle_ids"])
 
 const requiredResources: Record<string, string[]> = {
   manual: ["storyRevisionId"],
   collection_article_added: ["collectionId"],
   new_source_item: ["sourceIds"],
-  telegram_new_item: ["sourceId"],
   research: ["providerProfileId"],
   generate_content_pack: ["editorialProfileId", "providerProfileId", "promptVersionIds"],
-  generate_telegram: ["editorialProfileId", "providerProfileId", "promptTemplateVersionId", "promptChecksumSha256"],
   telegram_publish: ["destinationId"],
 }
 
@@ -37,6 +81,66 @@ const resourceFields: Record<string, AutomationResourceRequest["kind"]> = {
 
 export function catalogDefinition(catalog: AutomationNodeCatalog, type: string) {
   return catalog.nodes.find((item) => item.type === type)
+}
+
+export function workflowNodeActionState(
+  graph: WorkflowGraph,
+  catalog: AutomationNodeCatalog,
+  nodeId: string,
+): WorkflowNodeActionState {
+  const node = graph.nodes.find((item) => item.id === nodeId)
+  if (!node) {
+    return {
+      canDuplicate: false,
+      duplicateReason: "Step no longer exists.",
+      canDelete: false,
+      deleteReason: "Step no longer exists.",
+    }
+  }
+
+  const definition = catalogDefinition(catalog, node.type)
+  if (!definition) {
+    return {
+      canDuplicate: false,
+      duplicateReason: "Step is not available in the server catalog.",
+      canDelete: true,
+    }
+  }
+
+  const incoming = graph.edges.filter((edge) => edge.targetNodeId === nodeId)
+  const outgoing = graph.edges.filter((edge) => edge.sourceNodeId === nodeId)
+  let deleteReason: string | undefined
+  if (nodeId === graph.entryNodeId || definition.entry) {
+    deleteReason = "Workflow Graph v1 requires one trigger. Edit its settings instead."
+  } else if (graph.outputNodeIds.includes(nodeId)) {
+    deleteReason = "Workflow needs one terminal output. Add another output before deleting this one."
+  } else if (incoming.length > 1 || outgoing.length > 1) {
+    deleteReason = "Delete supports linear Workflow Graph v1 paths only."
+  } else if (incoming[0] && outgoing[0]) {
+    const source = graph.nodes.find((item) => item.id === incoming[0].sourceNodeId)
+    const target = graph.nodes.find((item) => item.id === outgoing[0].targetNodeId)
+    const sourceDefinition = source ? catalogDefinition(catalog, source.type) : undefined
+    const targetDefinition = target ? catalogDefinition(catalog, target.type) : undefined
+    if (!source || !target || !sourceDefinition || !targetDefinition || !compatiblePortPairs(sourceDefinition, targetDefinition)[0]) {
+      deleteReason = "Deleting this step would leave incompatible neighbors."
+    }
+  }
+
+  let duplicateReason: string | undefined
+  if (definition.entry) {
+    duplicateReason = "Workflow Graph v1 supports one trigger. Replace trigger settings instead."
+  } else if (definition.terminal) {
+    duplicateReason = "Workflow Graph v1 keeps one terminal output at the end of its linear path."
+  } else if (graph.nodes.length >= catalog.maxNodes) {
+    duplicateReason = `Workflow is limited to ${catalog.maxNodes} steps.`
+  }
+
+  return {
+    canDuplicate: !duplicateReason,
+    duplicateReason,
+    canDelete: !deleteReason,
+    deleteReason,
+  }
 }
 
 export function orderedWorkflowNodes(graph: WorkflowGraph): WorkflowNode[] {
@@ -141,13 +245,21 @@ export function insertWorkflowNode(
       targetPort: secondPair.targetPort,
     })
   }
+  const replacesTerminalOutput = !successorNode && graph.outputNodeIds.includes(sourceNode.id)
+  const nextOutputNodeIds = successorNode
+    ? graph.outputNodeIds
+    : definition.terminal
+      ? [nodeId]
+      : replacesTerminalOutput
+        ? []
+        : graph.outputNodeIds
   return {
     nodeId,
     graph: {
       ...graph,
       nodes: [...graph.nodes, nextNode],
       edges: nextEdges,
-      outputNodeIds: successorNode ? graph.outputNodeIds : [nodeId],
+      outputNodeIds: nextOutputNodeIds,
       metadata: { layout: { ...graph.metadata.layout, [nodeId]: point } },
     },
   }
@@ -160,11 +272,23 @@ export function deleteWorkflowNode(
 ): GraphEditResult {
   const node = graph.nodes.find((item) => item.id === nodeId)
   if (!node) return { error: "Step no longer exists." }
-  if (nodeId === graph.entryNodeId) return { error: "Trigger cannot be deleted. Edit or replace its settings." }
-  if (graph.outputNodeIds.includes(nodeId)) return { error: "Output cannot be deleted until another terminal output exists." }
+  const actionState = workflowNodeActionState(graph, catalog, nodeId)
+  if (!actionState.canDelete) return { error: actionState.deleteReason ?? "Step cannot be deleted." }
+  if (!catalogDefinition(catalog, node.type)) {
+    const { [nodeId]: _removed, ...layout } = graph.metadata.layout
+    return {
+      graph: {
+        ...graph,
+        entryNodeId: graph.entryNodeId === nodeId ? "" : graph.entryNodeId,
+        nodes: graph.nodes.filter((item) => item.id !== nodeId),
+        edges: graph.edges.filter((edge) => edge.sourceNodeId !== nodeId && edge.targetNodeId !== nodeId),
+        outputNodeIds: graph.outputNodeIds.filter((item) => item !== nodeId),
+        metadata: { layout },
+      },
+    }
+  }
   const incoming = graph.edges.filter((edge) => edge.targetNodeId === nodeId)
   const outgoing = graph.edges.filter((edge) => edge.sourceNodeId === nodeId)
-  if (incoming.length > 1 || outgoing.length > 1) return { error: "Delete supports linear v1 paths only." }
   const nextEdges = graph.edges.filter((edge) => edge.sourceNodeId !== nodeId && edge.targetNodeId !== nodeId)
   if (incoming[0] && outgoing[0]) {
     const source = graph.nodes.find((item) => item.id === incoming[0].sourceNodeId)
@@ -181,6 +305,7 @@ export function deleteWorkflowNode(
       ...graph,
       nodes: graph.nodes.filter((item) => item.id !== nodeId),
       edges: nextEdges,
+      outputNodeIds: graph.outputNodeIds.filter((item) => item !== nodeId),
       metadata: { layout },
     },
   }
@@ -193,7 +318,15 @@ export function duplicateWorkflowNode(
 ): GraphEditResult {
   const node = graph.nodes.find((item) => item.id === nodeId)
   if (!node) return { error: "Step no longer exists." }
-  return insertWorkflowNode(graph, catalog, node.type, node.id, structuredClone(node.config))
+  const actionState = workflowNodeActionState(graph, catalog, nodeId)
+  if (!actionState.canDuplicate) return { error: actionState.duplicateReason ?? "Step cannot be duplicated." }
+  const definition = catalogDefinition(catalog, node.type)
+  if (!definition) return { error: "Step is not available in the server catalog." }
+  const result = insertWorkflowNode(graph, catalog, node.type, node.id, duplicateEditableConfig(node.config, definition.configSchema as JsonSchema))
+  if (!result.graph || !result.nodeId) return result
+  const originalPoint = graph.metadata.layout[node.id] ?? { x: 80, y: 120 }
+  const point = duplicatePoint(result.graph, result.nodeId, originalPoint)
+  return { ...result, graph: updateNodePosition(result.graph, result.nodeId, point) }
 }
 
 export function moveWorkflowNode(
@@ -289,13 +422,13 @@ export function validateWorkflowClient(graph: WorkflowGraph, catalog: Automation
   const edgeKeys = new Set<string>()
   const entry = nodes.get(graph.entryNodeId)
   const entryDefinition = entry ? catalogDefinition(catalog, entry.type) : undefined
-  if (!entryDefinition?.entry) findings.push(finding("graph_entry_invalid", "Choose one supported trigger.", graph.entryNodeId, "Select Manual, Collection article added, New Source Item, Schedule, or Telegram new item."))
+  if (!entryDefinition?.entry) findings.push(finding("graph_entry_invalid", "Choose one supported trigger.", graph.entryNodeId, "Select Manual, Collection article added, New Source Item, or Schedule."))
   if (graph.nodes.filter((node) => catalogDefinition(catalog, node.type)?.entry).length !== 1) {
     findings.push(finding("graph_entry_invalid", "Workflow requires exactly one trigger.", undefined, "Keep one trigger."))
   }
   for (const node of graph.nodes) {
     const definition = catalogDefinition(catalog, node.type)
-    if (!definition) findings.push(finding("node_type_unsupported", "Step is not in server catalog.", node.id, "Remove or replace this step."))
+    if (!definition) findings.push(finding("node_type_unsupported", "Saved workflow contains a node type that is no longer supported.", node.id, "Remove this step explicitly; no replacement was applied automatically."))
     for (const field of requiredResources[node.type] ?? []) {
       const value = node.config[field]
       if (value === null || value === undefined || value === "" || (Array.isArray(value) && value.length === 0)) {
@@ -389,6 +522,56 @@ function uniqueNodeId(graph: WorkflowGraph, type: string) {
   let index = 1
   while (graph.nodes.some((node) => node.id === `${stem}-${index}`)) index += 1
   return `${stem}-${index}`
+}
+
+function duplicatePoint(graph: WorkflowGraph, nodeId: string, originalPoint: { x: number; y: number }) {
+  let offset = DUPLICATE_OFFSET
+  while (Object.entries(graph.metadata.layout).some(([id, point]) => id !== nodeId && point.x === originalPoint.x + offset.x && point.y === originalPoint.y + offset.y)) {
+    offset = { x: offset.x + DUPLICATE_OFFSET.x, y: offset.y + DUPLICATE_OFFSET.y }
+  }
+  return { x: originalPoint.x + offset.x, y: originalPoint.y + offset.y }
+}
+
+function duplicateEditableConfig(config: Record<string, unknown>, schema: JsonSchema): Record<string, unknown> {
+  const cloned = cloneEditableValue(config, resolveSchema(schema), "")
+  return cloned && typeof cloned === "object" && !Array.isArray(cloned) ? cloned as Record<string, unknown> : {}
+}
+
+function cloneEditableValue(value: unknown, schema: JsonSchema, fieldName: string): unknown {
+  if (isTransientDuplicateField(fieldName)) return undefined
+  const resolved = resolveSchema(schema)
+  if (Array.isArray(value)) {
+    return value
+      .map((item) => cloneEditableValue(item, resolved.items ? resolveSchema(resolved.items) : {}, fieldName))
+      .filter((item) => item !== undefined)
+  }
+  if (!value || typeof value !== "object") {
+    return makeDuplicatedIdentifier(value, fieldName)
+  }
+  if (!resolved.properties) return structuredClone(value)
+  const output: Record<string, unknown> = {}
+  for (const [key, item] of Object.entries(value)) {
+    if (!Object.prototype.hasOwnProperty.call(resolved.properties, key)) continue
+    const cloned = cloneEditableValue(item, resolved.properties[key], key)
+    if (cloned !== undefined) output[key] = cloned
+  }
+  return output
+}
+
+function makeDuplicatedIdentifier(value: unknown, fieldName: string): unknown {
+  if (typeof value !== "string" || !isIdentifierField(fieldName)) return structuredClone(value)
+  const suffix = globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`
+  return `${value}-copy-${suffix}`
+}
+
+function isIdentifierField(fieldName: string) {
+  const normalized = fieldName.replace(/([a-z0-9])([A-Z])/g, "$1_$2").toLocaleLowerCase()
+  return INSTANCE_IDENTIFIER_KEYS.has(normalized) || HANDLE_IDENTIFIER_KEYS.has(normalized)
+}
+
+function isTransientDuplicateField(fieldName: string) {
+  const normalized = fieldName.replace(/([a-z0-9])([A-Z])/g, "$1_$2").toLocaleLowerCase()
+  return TRANSIENT_DUPLICATE_KEYS.has(normalized) || TRANSIENT_DUPLICATE_KEYS.has(normalized.replaceAll("_", ""))
 }
 
 function reachableNodeIds(graph: WorkflowGraph) {

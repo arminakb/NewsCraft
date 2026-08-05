@@ -137,7 +137,7 @@ describe("workflow gallery", () => {
       stage("trigger", "manual", "Manual", "trigger"),
       stage("select", "select_content", "Select content", "content"),
       stage("filter", "filter_content", "Filter content", "content"),
-      stage("research", "research", "Research", "content"),
+      stage("research", "research", "AI Research", "content"),
       stage("generate", "generate_content_pack", "Generate content package", "ai"),
       stage("validate", "validate", "Validate", "validation"),
       stage("review", "human_review", "Human Review", "review", [], true),
@@ -174,8 +174,8 @@ describe("workflow gallery", () => {
         automation({ id: "draft", name: "Research notes", lifecycle: "paused", preview: {
           ...preview("draft"),
           stages: [
-            stage("trigger", "telegram_new_item", "Telegram new item", "trigger"),
-            stage("research", "research", "Research", "content"),
+            stage("trigger", "manual", "Manual", "trigger"),
+            stage("research", "research", "AI Research", "content"),
             stage("output", "save_drafts", "Save to Drafts", "draft", ["draft"]),
           ],
         } }),
@@ -200,7 +200,7 @@ describe("workflow gallery", () => {
 
     fireEvent.change(search, { target: { value: "telegram" } })
     expect(screen.getByText("Breaking desk")).toBeInTheDocument()
-    expect(screen.getByText("Research notes")).toBeInTheDocument()
+    expect(screen.queryByText("Research notes")).not.toBeInTheDocument()
 
     fireEvent.change(search, { target: { value: "nothing here" } })
     expect(screen.getByRole("heading", { name: "No workflows match" })).toBeInTheDocument()
@@ -217,9 +217,10 @@ describe("workflow gallery", () => {
     const activePreview = {
       ...preview("telegram"),
       stages: [
-        stage("trigger", "telegram_new_item", "Telegram new item", "trigger"),
-        stage("generate", "generate_telegram", "Generate Telegram draft", "ai"),
-        stage("publish", "telegram_publish", "Publish to Telegram", "publish", ["telegram"]),
+        stage("trigger", "manual", "Manual", "trigger"),
+        stage("research", "research", "AI Research", "content"),
+        stage("generate", "generate_content_pack", "Generate content package", "ai"),
+        stage("draft", "save_drafts", "Save to Drafts", "draft", ["telegram"]),
       ],
       runCount: 24,
       successRate: 96,
@@ -229,23 +230,23 @@ describe("workflow gallery", () => {
     vi.mocked(api.getAutomations).mockResolvedValue({ items: [automation({ lifecycle: "active", preview: activePreview })], nextCursor: null } as never)
     const view = renderPage(<WorkflowLibrary />)
 
-    expect((await screen.findAllByText("Article")).some((item) => item.tagName === "SPAN")).toBe(true)
+    expect((await screen.findAllByText("AI Research")).some((item) => item.tagName === "SPAN")).toBe(true)
     expect(screen.getByText("AI Generate", { selector: "span" })).toBeInTheDocument()
-    expect(screen.getByText("Publish", { selector: "span" })).toBeInTheDocument()
-    const endpoints = screen.getByText("Article to Telegram", { selector: ".sr-only" }).closest("[data-workflow-endpoints]")
+    expect(screen.getByText("Draft", { selector: "span" })).toBeInTheDocument()
+    const endpoints = screen.getByText("Manual to Telegram", { selector: ".sr-only" }).closest("[data-workflow-endpoints]")
     const arrow = endpoints?.querySelector("[data-workflow-arrow]")
     expect(endpoints).toHaveClass("flex", "items-center")
     expect(endpoints).not.toHaveClass("text-center", "justify-center")
     expect(arrow).toHaveClass("size-3", "shrink-0")
     expect(arrow?.getAttribute("style")).toContain("/icons/right-arrow-svgrepo-com.svg")
-    expect(screen.queryByText("Telegram new item")).not.toBeInTheDocument()
+    expect(screen.queryByText("Research", { exact: true })).not.toBeInTheDocument()
     expect(view.container.querySelector("[data-stage-category='trigger']")).toBeInTheDocument()
     expect(view.container.querySelector("[data-stage-category='ai']")).toBeInTheDocument()
-    expect(view.container.querySelector("[data-stage-type='generate_telegram'] .lucide-bot")).toBeInTheDocument()
-    expect(view.container.querySelector("[data-stage-category='publish']")).toBeInTheDocument()
-    expect(view.container.querySelector("[data-stage-type='telegram_publish'] [data-platform-logo='telegram']")).toBeInTheDocument()
-    expect(view.container.querySelectorAll("[data-flow-connector][data-animated='true']")).toHaveLength(2)
-    expect(view.container.querySelectorAll(".workflow-flow-particle")).toHaveLength(2)
+    expect(view.container.querySelector("[data-stage-type='generate_content_pack'] .lucide-bot")).toBeInTheDocument()
+    expect(view.container.querySelector("[data-stage-category='draft']")).toBeInTheDocument()
+    expect(view.container.querySelector("[data-stage-type='save_drafts'] [data-platform-logo='telegram']")).toBeInTheDocument()
+    expect(view.container.querySelectorAll("[data-flow-connector][data-animated='true']")).toHaveLength(3)
+    expect(view.container.querySelectorAll(".workflow-flow-particle")).toHaveLength(3)
     expect(screen.getByRole("img", { name: "Success rate: 96%" })).toHaveTextContent("96%")
     expect(screen.queryByText(/success rate|success/i)).not.toBeInTheDocument()
   })

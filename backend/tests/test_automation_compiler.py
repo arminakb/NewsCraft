@@ -6,6 +6,7 @@ import pytest
 
 from app.automations.definitions.compiler import CompilationError, compile_graph, verify_compiled_plan
 from app.automations.definitions.schemas import WorkflowGraphV1
+from app.automations.definitions.validation import validate_graph
 
 
 def _manual_graph() -> WorkflowGraphV1:
@@ -48,59 +49,6 @@ def _manual_graph() -> WorkflowGraphV1:
     )
 
 
-def _telegram_graph() -> WorkflowGraphV1:
-    return WorkflowGraphV1.model_validate(
-        {
-            "schema_version": 1,
-            "entry_node_id": "trigger-1",
-            "nodes": [
-                {
-                    "id": "trigger-1",
-                    "type": "telegram_new_item",
-                    "config": {"source_id": str(uuid4())},
-                },
-                {
-                    "id": "generate-1",
-                    "type": "generate_telegram",
-                    "config": {
-                        "editorial_profile_id": str(uuid4()),
-                        "provider_profile_id": str(uuid4()),
-                        "prompt_template_version_id": str(uuid4()),
-                        "prompt_checksum_sha256": "a" * 64,
-                    },
-                },
-                {"id": "review-1", "type": "human_review", "config": {}},
-                {
-                    "id": "publish-1",
-                    "type": "telegram_publish",
-                    "config": {"destination_id": str(uuid4())},
-                },
-            ],
-            "edges": [
-                {
-                    "source_node_id": "trigger-1",
-                    "source_port": "story",
-                    "target_node_id": "generate-1",
-                    "target_port": "story",
-                },
-                {
-                    "source_node_id": "generate-1",
-                    "source_port": "draft",
-                    "target_node_id": "review-1",
-                    "target_port": "draft",
-                },
-                {
-                    "source_node_id": "review-1",
-                    "source_port": "approved",
-                    "target_node_id": "publish-1",
-                    "target_port": "draft",
-                },
-            ],
-            "output_node_ids": ["publish-1"],
-        }
-    )
-
-
 def test_compiler_is_deterministic_and_keeps_stable_node_ids():
     graph = _manual_graph()
     reordered = graph.model_copy(
@@ -116,13 +64,36 @@ def test_compiler_is_deterministic_and_keeps_stable_node_ids():
     assert verify_compiled_plan(graph, first.model_dump(mode="json")) == first
 
 
-def test_compiler_records_publication_boundary_for_server_owned_dry_run_skip():
-    plan = compile_graph(_telegram_graph())
+def test_compiler_keeps_server_owned_generation_jobs_and_dry_run_support():
+    plan = compile_graph(_manual_graph())
 
-    assert plan.trigger_kind == "telegram_new_item"
-    assert plan.publishing_node_ids == ("publish-1",)
-    assert "telegram.publish" in plan.required_job_types
+    assert plan.trigger_kind == "manual"
+    assert plan.publishing_node_ids == ()
+    assert "content_pack.generate_telegram" in plan.required_job_types
     assert plan.supports_dry_run is True
+
+
+def test_compiler_rejects_retired_saved_node_types_without_replacement():
+    graph = WorkflowGraphV1.model_validate(
+        {
+            "schema_version": 1,
+            "entry_node_id": "trigger-1",
+            "nodes": [
+                {"id": "trigger-1", "type": "telegram_new_item", "config": {}},
+                {"id": "generate-1", "type": "generate_telegram", "config": {}},
+            ],
+            "edges": [],
+            "output_node_ids": [],
+        }
+    )
+
+    result = validate_graph(graph)
+    unsupported = [item for item in result.findings if item.code == "node_type_unsupported"]
+    assert {item.node_id for item in unsupported} == {"trigger-1", "generate-1"}
+    assert all("not supported" in item.message for item in unsupported)
+    with pytest.raises(CompilationError) as exc:
+        compile_graph(graph)
+    assert exc.value.code == "node_type_unsupported"
 
 
 def test_compiler_rejects_stale_or_tampered_saved_plan():

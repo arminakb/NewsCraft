@@ -6,7 +6,6 @@ import {
   Filter,
   ListFilter,
   MousePointerClick,
-  Newspaper,
   Package,
   Radio,
   Search,
@@ -154,11 +153,10 @@ function StageIcon({ stage }: { stage: AutomationPreviewStage }) {
   const Icon = stage.nodeType === "manual" ? MousePointerClick
     : stage.nodeType === "schedule" ? Clock3
       : stage.nodeType === "new_source_item" ? Radio
-      : stage.nodeType === "telegram_new_item" ? Newspaper
-        : stage.nodeType === "select_content" ? ListFilter
+      : stage.nodeType === "select_content" ? ListFilter
           : stage.nodeType === "filter_content" ? Filter
             : stage.nodeType === "research" ? Search
-              : (stage.nodeType === "generate_content_pack" || stage.nodeType === "generate_telegram") ? Bot
+              : stage.nodeType === "generate_content_pack" ? Bot
                 : stage.nodeType === "validate" ? ShieldCheck
                   : stage.nodeType === "human_review" ? UserCheck
                     : stage.nodeType === "save_drafts" ? FileCheck2
@@ -170,8 +168,7 @@ function StageIcon({ stage }: { stage: AutomationPreviewStage }) {
 export function workflowStageLabel(stage: AutomationPreviewStage) {
   const platform = primaryPlatform(stage.platforms)
   if (stage.nodeType === "new_source_item") return "New source item"
-  if (stage.nodeType === "telegram_new_item") return "Article"
-  if (stage.nodeType === "generate_content_pack" || stage.nodeType === "generate_telegram") return "AI Generate"
+  if (stage.nodeType === "generate_content_pack") return "AI Generate"
   if (stage.nodeType === "human_review") return "Review"
   if (stage.nodeType === "save_drafts" || platform === "draft") return "Draft"
   if (stage.nodeType === "telegram_publish" || platform === "telegram") return "Publish"
@@ -180,7 +177,7 @@ export function workflowStageLabel(stage: AutomationPreviewStage) {
   if (stage.nodeType === "manual_package" || platform === "multi") return "Publish"
   if (stage.nodeType === "select_content") return "Collect"
   if (stage.nodeType === "filter_content") return "Filter"
-  if (stage.nodeType === "research") return "Research"
+  if (stage.nodeType === "research") return "AI Research"
   if (stage.nodeType === "validate") return "Validate"
   if (stage.nodeType === "schedule") return "Schedule"
   if (stage.nodeType === "manual") return "Manual"
@@ -189,9 +186,9 @@ export function workflowStageLabel(stage: AutomationPreviewStage) {
 
 function workflowStageAccessibleLabel(stage: AutomationPreviewStage) {
   if (stage.nodeType === "new_source_item") return "New source item trigger"
-  if (stage.nodeType === "telegram_new_item") return "Article trigger"
   if (stage.nodeType === "telegram_publish") return "Telegram publish"
-  if (stage.nodeType === "generate_content_pack" || stage.nodeType === "generate_telegram") return "AI generation"
+  if (stage.nodeType === "generate_content_pack") return "AI generation"
+  if (stage.nodeType === "research") return "AI Research"
   if (stage.nodeType === "human_review") return "Human review"
   return stage.label
 }

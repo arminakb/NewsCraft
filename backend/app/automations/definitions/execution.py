@@ -17,7 +17,6 @@ from app.automations.definitions.models import (
     Automation,
     AutomationNodeRun,
     AutomationRun,
-    AutomationRuntimeProjection,
     AutomationVersion,
 )
 from app.automations.definitions.registry import PlatformName
@@ -28,15 +27,12 @@ from app.automations.definitions.schemas import (
     AutomationRunStart,
     WorkflowGraphV1,
 )
-from app.automations.models import AutomationRoute
 from app.generation.commands import GeneratePackRequest
 from app.generation.editorial_service import EditorialService
 from app.generation.models import PromptTemplate, PromptTemplateVersion
 from app.generation.multiplatform import PLATFORM_PROMPT_PURPOSE
 from app.jobs.credential_capabilities import CapabilityStatusService
 from app.jobs.models import AutomationControl, WorkflowEvent, WorkflowJob, WorkflowSchedule
-from app.jobs.repository import JobRepository
-from app.jobs.types import JobOrigin
 from app.security.auth import SecurityPrincipal
 from app.stories.models import StoryRevision
 
@@ -179,7 +175,7 @@ async def materialize_runtime_projection(
     automation: Automation,
     version: AutomationVersion,
     plan: CompiledWorkflowPlan,
-) -> AutomationRuntimeProjection | None:
+) -> None:
     if plan.trigger_kind == "schedule":
         trigger = _stage(plan, "schedule")
         select_content = _stage(plan, "select_content")
@@ -215,75 +211,7 @@ async def materialize_runtime_projection(
         schedule.enabled = True
         schedule.pause_sensitive = True
         return None
-    if plan.trigger_kind != "telegram_new_item":
-        return None
-
-    trigger = _stage(plan, "telegram_new_item")
-    generate = _stage(plan, "generate_telegram")
-    publish = _stage(plan, "telegram_publish")
-    if trigger is None or generate is None or publish is None:
-        raise _error(
-            "automation_activation_invalid",
-            409,
-            "Telegram workflow requires trigger, generation, review, and publish stages.",
-        )
-    research = _stage(plan, "research")
-    content_filter = _stage(plan, "filter_content")
-    source_id = _uuid(trigger.config.get("source_id"), "source")
-    destination_id = _uuid(publish.config.get("destination_id"), "destination")
-    brand_id = _uuid(generate.config.get("editorial_profile_id"), "editorial profile")
-    provider_id = _uuid(generate.config.get("provider_profile_id"), "provider")
-    prompt_id = _uuid(generate.config.get("prompt_template_version_id"), "prompt version")
-    projection = await session.get(AutomationRuntimeProjection, automation.id)
-    route = await session.get(AutomationRoute, projection.route_id) if projection is not None else None
-    if route is None:
-        route = AutomationRoute(
-            id=automation.id,
-            name=automation.name,
-            source_id=source_id,
-            destination_id=destination_id,
-            brand_profile_id=brand_id,
-            prompt_template_version_id=prompt_id,
-            ai_provider_profile_id=provider_id,
-            access_mode=str(trigger.config.get("access_mode") or "public_html"),
-        )
-        session.add(route)
-    route.name = automation.name
-    route.source_id = source_id
-    route.destination_id = destination_id
-    route.brand_profile_id = brand_id
-    route.prompt_template_version_id = prompt_id
-    route.prompt_policy = "pinned"
-    route.ai_provider_profile_id = provider_id
-    route.access_mode = str(trigger.config.get("access_mode") or "public_html")
-    route.research_mode = str(research.config.get("mode") if research is not None else "off")
-    filters = dict(content_filter.config) if content_filter is not None else {}
-    if research is not None and research.config.get("provider_profile_id") is not None:
-        filters["research_provider_profile_id"] = str(research.config["provider_profile_id"])
-    if generate.config.get("model") is not None:
-        filters["model"] = generate.config["model"]
-    route.content_filters = filters
-    route.media_policy = str(generate.config.get("media_policy") or "preserve")
-    route.attribution_policy = str(generate.config.get("attribution_policy") or "preserve")
-    route.custom_footer = generate.config.get("custom_footer")  # type: ignore[assignment]
-    route.publishing_policy = "review_required"
-    route.poll_interval_seconds = int(trigger.config.get("poll_interval_seconds") or 300)
-    route.quiet_hours = dict(publish.config.get("quiet_hours") or {})
-    route.retry_policy = dict(publish.config.get("retry_policy") or {})
-    route.backfill_limit = None
-    route.backfill_since = None
-    await session.flush()
-    if projection is None:
-        projection = AutomationRuntimeProjection(
-            automation_id=automation.id,
-            automation_version_id=version.id,
-            route_id=route.id,
-            projection_type="telegram_route",
-        )
-        session.add(projection)
-    else:
-        projection.automation_version_id = version.id
-    return projection
+    return None
 
 
 class AutomationExecutionService:
@@ -358,100 +286,13 @@ class AutomationExecutionService:
                 idempotency_key=idempotency_key,
                 request_hash=request_hash,
             )
-        if plan.trigger_kind != "telegram_new_item":
+        if plan.trigger_kind != "manual":
             raise _error(
                 "automation_run_input_invalid",
                 422,
-                "Phase 3 run start currently requires a Telegram new-item runtime projection.",
+                "On-demand workflow start supports Manual workflows only; scheduled or source-triggered "
+                "workflows start from their trigger.",
             )
-        if body.story_id is not None or body.story_revision_id is not None:
-            raise _error(
-                "automation_run_input_invalid",
-                422,
-                "Telegram workflow input does not accept a Story reference.",
-            )
-        if not body.dry_run:
-            raise _error(
-                "automation_run_input_invalid",
-                422,
-                "On-demand Telegram source execution is dry-run only; live work starts from capture.",
-            )
-        projection = await self.session.get(AutomationRuntimeProjection, automation.id)
-        if projection is None or projection.automation_version_id != version.id:
-            raise _error("automation_activation_invalid", 409, "Version has no active Telegram runtime projection.")
-        route = await self.session.get(AutomationRoute, projection.route_id)
-        if route is None or not route.enabled or (route.cursor_state or {}).get("status") != "ready":
-            raise _error("automation_resource_unavailable", 409, "Telegram runtime projection is not ready.")
-
-        now = datetime.now(UTC)
-        run = AutomationRun(
-            id=uuid4(),
-            automation_id=automation.id,
-            automation_version_id=version.id,
-            trigger_kind=plan.trigger_kind,
-            trigger_metadata={"source_message_id": body.source_message_id},
-            dry_run=True,
-            status="queued",
-            current_node_id=plan.entry_node_id,
-            resource_snapshot={
-                "automation_version": version.version,
-                "graph_hash": version.graph_hash,
-                "compiler_version": plan.compiler_version,
-                "plan_hash": plan.plan_hash,
-                "required_resources": list(plan.required_resources),
-                "node_ids_by_type": _node_map(plan),
-                "route_id": str(route.id),
-            },
-            idempotency_key=idempotency_key,
-            request_hash=request_hash,
-            started_at=now,
-        )
-        self.session.add(run)
-        await self.session.flush()
-        node_rows: dict[str, AutomationNodeRun] = {}
-        for stage in plan.stages:
-            status = "skipped" if stage.node_id in plan.publishing_node_ids else "pending"
-            row = AutomationNodeRun(
-                id=uuid4(),
-                automation_run_id=run.id,
-                node_id=stage.node_id,
-                status=status,
-                finished_at=now if status == "skipped" else None,
-                output_summary={"reason": "dry_run_publication_disabled"} if status == "skipped" else {},
-            )
-            self.session.add(row)
-            node_rows[stage.node_id] = row
-        await self.session.flush()
-        trigger_node = node_rows[plan.entry_node_id]
-        result = await JobRepository(self.session).enqueue_job(
-            job_type="telegram.route.dry_run",
-            payload={
-                "route_id": str(route.id),
-                "source_message_id": body.source_message_id,
-                "force_review": True,
-            },
-            idempotency_key=f"automation-run-root:{run.id}",
-            origin=JobOrigin.MANUAL,
-            automation_run_id=run.id,
-            automation_node_run_id=trigger_node.id,
-        )
-        trigger_node.status = "queued"
-        trigger_node.workflow_job_id = result.job.id
-        run.root_workflow_job_id = result.job.id
-        self.session.add(
-            WorkflowEvent(
-                workflow_job_id=result.job.id,
-                event_type="automation.run.started",
-                actor=f"{principal.principal_type}:{principal.principal_id}"[:255],
-                event_data={
-                    "automation_id": str(automation.id),
-                    "automation_run_id": str(run.id),
-                    "automation_version": version.version,
-                    "dry_run": True,
-                },
-            )
-        )
-        return await _materialize_run(self.session, run)
 
     async def _start_manual_content_pack(
         self,

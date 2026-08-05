@@ -39,15 +39,8 @@ _REQUIRED_RESOURCE_FIELDS: dict[str, tuple[str, ...]] = {
     "manual": ("story_revision_id",),
     "collection_article_added": ("collection_id",),
     "new_source_item": ("source_ids",),
-    "telegram_new_item": ("source_id",),
     "research": ("provider_profile_id",),
     "generate_content_pack": ("editorial_profile_id", "provider_profile_id", "prompt_version_ids"),
-    "generate_telegram": (
-        "editorial_profile_id",
-        "provider_profile_id",
-        "prompt_template_version_id",
-        "prompt_checksum_sha256",
-    ),
     "telegram_publish": ("destination_id",),
 }
 
@@ -99,10 +92,10 @@ def _validate_node_config(node_id: str, node_type: str, config: dict[str, object
         return [
             _finding(
                 "node_type_unsupported",
-                "Node type is not supported.",
+                "Saved workflow contains a node type that is not supported anymore.",
                 node_id=node_id,
                 field_path="type",
-                recovery_action="Choose a node from the server catalog.",
+                recovery_action="Remove this step explicitly; replacement is not applied automatically.",
             )
         ]
     findings = [
@@ -245,8 +238,7 @@ def validate_graph(graph: WorkflowGraphV1) -> GraphValidationResult:
                 node_id=graph.entry_node_id or None,
                 field_path="entry_node_id",
                     recovery_action=(
-                        "Select Manual, Collection article added, New Source Item, Schedule, "
-                        "or Telegram new item as the entry."
+                        "Select Manual, Collection article added, New Source Item, or Schedule as the entry."
                     ),
             )
         )

@@ -64,7 +64,18 @@ async def sync_automation_job_succeeded(
         continuation = await session.get(WorkflowJob, continuation_id)
         if continuation is not None:
             target = node
-            if job.job_type == "research_story":
+            continuation_node_id = result.get("continuation_node_id")
+            if isinstance(continuation_node_id, str) and continuation_node_id:
+                continuation_target = await session.scalar(
+                    select(AutomationNodeRun).where(
+                        AutomationNodeRun.automation_run_id == run.id,
+                        AutomationNodeRun.node_id == continuation_node_id,
+                    )
+                )
+                if continuation_target is None:
+                    return
+                target = continuation_target
+            elif job.job_type == "research_story":
                 node.status = "succeeded"
                 node.finished_at = observed_at
                 generation = await _node_by_type(session, run, "generate_content_pack")
@@ -113,8 +124,7 @@ async def sync_automation_job_succeeded(
 
     if job.job_type == "telegram.route.dry_run":
         run.status = "running"
-        generate = await _node_by_type(session, run, "generate_telegram")
-        run.current_node_id = generate.node_id if generate is not None else node.node_id
+        run.current_node_id = node.node_id
         return
 
     terminal = await _node_by_type(session, run, "save_drafts")

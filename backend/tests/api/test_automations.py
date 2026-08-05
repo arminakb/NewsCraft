@@ -52,14 +52,16 @@ async def test_node_catalog_route_is_strict_and_secret_free():
     assert body["schema_version"] == 1
     assert body["max_nodes"] == 30
     assert body["max_edges"] == 60
-    assert {item["type"] for item in body["nodes"]} >= {
+    node_types = {item["type"] for item in body["nodes"]}
+    assert node_types >= {
         "manual",
-        "telegram_new_item",
-        "generate_telegram",
+        "research",
         "human_review",
         "save_drafts",
         "telegram_publish",
     }
+    assert {"telegram_new_item", "generate_telegram"}.isdisjoint(node_types)
+    assert next(item["display_name"] for item in body["nodes"] if item["type"] == "research") == "AI Research"
     serialized = response.text.casefold()
     for forbidden in ("api_key", "bot_token", "authorization", "secret_ref", "system_template"):
         assert forbidden not in serialized

@@ -167,8 +167,8 @@ The canonical JSON must be business-oriented and independent of React Flow:
   "nodes": [
     {
       "id": "trigger-1",
-      "type": "telegram_new_item",
-      "config": { "source_id": "..." }
+      "type": "manual",
+      "config": { "story_revision_id": "..." }
     }
   ],
   "edges": [
@@ -207,10 +207,10 @@ The server node registry determines what is visible. The Phase 1 capability matr
 
 | Family | V1 nodes | Runtime mapping |
 | --- | --- | --- |
-| Trigger | Manual; Telegram new item; Schedule | API-enqueued run; existing route capture; `WorkflowSchedule` |
+| Trigger | Manual; Collection article added; New Source Item; Schedule | API-enqueued run; collection/source events; `WorkflowSchedule` |
 | Select/filter | Content filter using allowlisted score, canonical content type/topic/language, rewrite readiness, source, term, media, and max-count fields | Deterministic backend query/filter service |
-| Research | Research (optional, bounded) | Existing durable research provider/service and evidence snapshot |
-| Generate | Generate content/package; Telegram format; bounded multi-platform variants | Existing canonical/package generation handlers and platform schemas |
+| Research | AI Research (optional, bounded) | Existing durable research provider/service and evidence snapshot |
+| Generate | Generate content/package with bounded multi-platform variants | Existing canonical/package generation handlers and platform schemas |
 | Validate | Evidence, required fields, length/platform format, source attribution, media requirement, duplicate guard where already implemented | Existing deterministic validators; bounded model evaluation only when explicitly labeled |
 | Review | Human Review | Exact immutable revision approval state |
 | Output | Save to Drafts; Telegram publish after approval; manual Instagram/X/blog package | Existing content pack/revision, Telegram publish boundary, and manual export/checklist flow |

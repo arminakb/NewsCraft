@@ -115,7 +115,7 @@ Representative stable runtime error codes that must retain their current meaning
 
 ### Migrations, contracts, and acceptance
 
-- The current Alembic head is `0026_remove_operator_sessions`; job/schedule, Telegram route, and dispatch sequence foundations are migrations `0005`, `0006`, and `0007` ([versions](../../backend/alembic/versions)). Applied migrations must not be rewritten.
+- The current Alembic head is `0031_retire_obsolete_workflow_nodes`; job/schedule, Telegram route, and dispatch sequence foundations are migrations `0005`, `0006`, and `0007` ([versions](../../backend/alembic/versions)). Applied migrations must not be rewritten.
 - [`backend/scripts/export_openapi.py`](../../backend/scripts/export_openapi.py) deterministically exports [`contracts/openapi.json`](../../contracts/openapi.json).
 - [`test_openapi_contract.py`](../../backend/tests/test_openapi_contract.py), [`openapi-contract.test.ts`](../../frontend/tests/openapi-contract.test.ts), and the CI contract-drift step keep backend and generated TypeScript aligned.
 - [`scripts/test_acceptance.sh`](../../scripts/test_acceptance.sh), [`scripts/test_postgres.sh`](../../scripts/test_postgres.sh), and [`scripts/smoke.py`](../../scripts/smoke.py) own the credential-free acceptance path described in [`release-acceptance.md`](../operations/release-acceptance.md).
@@ -132,7 +132,7 @@ Representative stable runtime error codes that must retain their current meaning
 | Condition | Existing, terminal only | The exact Telegram include/exclude term, minimum text length, and media-required predicate may pass or stop. No expression language or alternative branch. |
 | Schedule | Existing + extension | `WorkflowSchedule` directly enqueues its allowlisted job type. V1 will use `automation.run.start`; a scheduled graph must also have compiler-valid deterministic input selection. |
 | Manual trigger | Existing + extension | Existing content-pack requests prove manual durable generation. The run-start API adds the workflow/version snapshot. |
-| Content trigger | Existing for Telegram | `telegram_new_item` reuses `AutomationRoute` initialization, cursor, polling, and capture. Other feeds/events are deferred. |
+| Content trigger | Existing for Telegram | General Telegram source ingestion remains in the separate route builder and reuses `AutomationRoute` initialization, cursor, polling, and capture. Workflow Graph v1 uses only the supported server triggers. |
 | Content selection | Existing query + extension | Extract the deterministic `ArticleFilters`/`ArticleQuery` service. Only allowlisted fields and bounded result counts are accepted. |
 | Research | Existing | Reuse `research_story`, its bounded provider policy, evidence snapshots, and review-required states. |
 | Generation | Existing | Reuse exact provider/profile/prompt snapshots and current content-pack/Telegram handlers. |
@@ -153,8 +153,8 @@ Representative stable runtime error codes that must retain their current meaning
   "nodes": [
     {
       "id": "trigger-1",
-      "type": "telegram_new_item",
-      "config": { "source_id": "00000000-0000-0000-0000-000000000000" }
+      "type": "manual",
+      "config": { "story_revision_id": "00000000-0000-0000-0000-000000000000" }
     }
   ],
   "edges": [
@@ -196,13 +196,12 @@ Port values are nominal references to persisted server artifacts; graph edges ne
 | Node type | Inputs | Outputs | Safe config | Runtime mapping/status |
 | --- | --- | --- | --- | --- |
 | `manual` | — | `story: story.revision_ref` | exact `story_revision_id` | Run-start wrapper over current manual content-pack flow; extension. |
-| `telegram_new_item` | — | `story: story.revision_ref` | `source_id` plus polling/runtime projection policy | Existing route initialization, poll, capture, and dispatch. |
+| `collection_article_added` | — | `article: article.collection_added` | exact `collection_id` | Durable collection event payload containing article, collection, and trigger context; downstream generation reuses the canonical story/content-pack flow. |
 | `schedule` | — | `tick: run.signal` | daily/interval schedule, timezone, bounded catch-up policy | `WorkflowSchedule` → `automation.run.start`; extension. |
 | `select_content` | `tick?: run.signal` | `stories: story.revision_set_ref` | allowlisted article filters, deterministic sort, `max_count` 1–200 | Extract current `ArticleQuery`; extension. Required for a schedule that needs newsroom content. |
-| `filter_content` | `story: story.revision_ref` | `accepted: story.revision_ref` | include/exclude terms, `min_text_characters`, `require_media` | Existing deterministic Telegram predicate. False is terminal `skipped`, not a branch. |
-| `research` | `story: story.revision_ref` | `story: story.researched_revision_ref` | provider profile ID and current bounded research policy | Existing `research_story`; optional. |
-| `generate_content_pack` | `story: story.revision_ref` or `story.researched_revision_ref` | `drafts: draft.revision_set_ref` | brand/profile/provider IDs, platform allowlist, exact prompt-version IDs/checksums | Existing content-pack generation; bounded multiple outputs. |
-| `generate_telegram` | `story: story.revision_ref` or `story.researched_revision_ref` | `draft: draft.telegram_revision_ref` | brand/profile/provider IDs, exact Telegram prompt-version ID/checksum, current media/attribution policy | Existing `telegram.route.process` generation/finalization. |
+| `filter_content` | `story: story.revision_ref` or `article: article.collection_added` | `accepted: story.revision_ref` or `article.collection_added` | include/exclude terms, `min_text_characters`, `require_media` | Existing deterministic predicate. False is terminal `skipped`, not a branch. |
+| `research` | `story: story.revision_ref` or `article: article.collection_added` | `story: story.researched_revision_ref` | provider profile ID and current bounded research policy | Existing `research_story`; optional. |
+| `generate_content_pack` | `story: story.revision_ref`, `story.researched_revision_ref`, `story.revision_set_ref`, or `article: article.collection_added` | `drafts: draft.revision_set_ref` | brand/profile/provider IDs, platform allowlist, exact prompt-version IDs/checksums | Existing content-pack generation; bounded multiple outputs. |
 | `validate` | `drafts: draft.revision_set_ref` | `valid: draft.validated_revision_set_ref` | allowlisted validator IDs only | Fixed evidence/platform/attribution/media gates. Compiler-owned; not independently retryable. |
 | `human_review` | `draft: draft.telegram_revision_ref` | `approved: draft.approved_telegram_revision_ref` | no bypass flag; optional safe instructions only | Exact current approval/hash boundary. Waiting is persisted. |
 | `save_drafts` | `drafts: draft.revision_set_ref` or `drafts: draft.validated_revision_set_ref` | — | none | Terminal marker for already-persisted immutable revisions. |
@@ -210,6 +209,8 @@ Port values are nominal references to persisted server artifacts; graph edges ne
 | `telegram_publish` | `draft: draft.approved_telegram_revision_ref` | `publication: publication.telegram_ref` | destination ID plus existing quiet-hours/retry policy | Existing durable publish intent and publishing worker. |
 
 Registry advertisement is capability-aware. An extension node remains hidden or non-activatable until its validator, compiler mapping, and focused tests exist. `human_review` is mandatory before `telegram_publish` unless the current server auto-approval policy independently proves all gates and records explicit operator confirmation; a client cannot remove that boundary.
+
+Persisted versions that reference a retired node type remain readable for audit and editor recovery. The server returns `node_type_unsupported`; the client shows the saved type and requires an explicit removal decision. No replacement node or edge is inferred automatically.
 
 ### Explicit deferrals and prohibited nodes
 

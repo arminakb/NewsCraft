@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from uuid import UUID
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -33,8 +32,6 @@ def _graph(*, nodes: list[dict[str, object]], edges: list[dict[str, str]], outpu
         }
     )
 
-
-_EMPTY_UUID = str(UUID(int=0))
 
 SYSTEM_TEMPLATE_SEEDS = (
     SystemTemplateSeed(
@@ -86,51 +83,6 @@ SYSTEM_TEMPLATE_SEEDS = (
             output="draft-1",
         ),
         ("manual", "research", "generation", "drafts"),
-    ),
-    SystemTemplateSeed(
-        "breaking-news-telegram",
-        1,
-        "Breaking News to Telegram",
-        "Capture new Telegram material, generate a Draft, require review, then publish safely.",
-        "advanced",
-        _graph(
-            nodes=[
-                {
-                    "id": "trigger-1",
-                    "type": "telegram_new_item",
-                    "config": {"source_id": _EMPTY_UUID},
-                },
-                {"id": "generate-1", "type": "generate_telegram", "config": {}},
-                {"id": "review-1", "type": "human_review", "config": {}},
-                {
-                    "id": "publish-1",
-                    "type": "telegram_publish",
-                    "config": {"destination_id": _EMPTY_UUID},
-                },
-            ],
-            edges=[
-                {
-                    "source_node_id": "trigger-1",
-                    "source_port": "story",
-                    "target_node_id": "generate-1",
-                    "target_port": "story",
-                },
-                {
-                    "source_node_id": "generate-1",
-                    "source_port": "draft",
-                    "target_node_id": "review-1",
-                    "target_port": "draft",
-                },
-                {
-                    "source_node_id": "review-1",
-                    "source_port": "approved",
-                    "target_node_id": "publish-1",
-                    "target_port": "draft",
-                },
-            ],
-            output="publish-1",
-        ),
-        ("telegram_source", "generation", "human_review", "telegram_destination"),
     ),
 )
 
