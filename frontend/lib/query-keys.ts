@@ -1,5 +1,10 @@
 import type { JobFilters } from "@/features/jobs/types"
 import type { HistoryFilters } from "@/features/operations/types"
+import type {
+  AutomationListFilters,
+  AutomationResourceRequest,
+  AutomationRunFilters,
+} from "@/features/automations/automation-types"
 
 export const queryKeys = {
   sources: ["sources"] as const,
@@ -9,6 +14,10 @@ export const queryKeys = {
   job: (id: string) => ["jobs", id] as const,
   jobSummary: ["jobs", "summary"] as const,
   automationControl: ["automation-control"] as const,
+  dateTimeSettings: ["settings", "date-time"] as const,
+  notifications: ["notifications"] as const,
+  article: (id: string) => ["articles", "detail", id] as const,
+  articleCollections: ["articles", "collections"] as const,
   telegramOptions: ["telegram", "options"] as const,
   telegramSources: ["telegram", "sources"] as const,
   telegramDestinations: ["telegram", "destinations"] as const,
@@ -18,6 +27,20 @@ export const queryKeys = {
   telegramPublicationContext: (id: string) => ["telegram", "publication-context", id] as const,
   telegramPublicationOutcomes: ["telegram", "publication-outcomes"] as const,
   telegramPublishJob: (id: string) => ["telegram", "publish-jobs", id] as const,
+  automations: (filters: AutomationListFilters = {}) => ["automations", filters] as const,
+  automation: (id: string) => ["automations", id] as const,
+  automationVersions: (id: string) => ["automations", id, "versions"] as const,
+  automationVersion: (id: string, version: number) => ["automations", id, "versions", version] as const,
+  automationNodeCatalog: ["automations", "node-catalog"] as const,
+  automationResourceCatalog: (automationId: string | undefined, resources: AutomationResourceRequest[] = []) => [
+    "automations",
+    "resource-catalog",
+    automationId,
+    resources,
+  ] as const,
+  automationTemplates: ["automations", "templates"] as const,
+  automationRuns: (id: string, filters: AutomationRunFilters = {}) => ["automations", id, "runs", filters] as const,
+  automationRun: (id: string) => ["automation-runs", id] as const,
   brandProfiles: ["settings", "brand-profiles"] as const,
   promptTemplates: ["settings", "prompt-templates"] as const,
   promptVersions: (templateId: string) => ["settings", "prompt-templates", templateId, "versions"] as const,
@@ -42,11 +65,11 @@ export const packageQueryKeys = {
   export: (id: string) => ["exports", id] as const,
   manualPlan: (id: string) => ["manual-publication-plans", id] as const,
   manualPlanForRevision: (revisionId: string) => ["manual-publication-plans", "revision", revisionId] as const,
-  calendar: (start: string, end: string, timezone: string) => ["calendar", start, end, timezone] as const,
 }
 
 export const operationsQueryKeys = {
   diagnostics: ["operations", "diagnostics"] as const,
+  health: ["operations", "health"] as const,
   history: (filters: HistoryFilters) => ["operations", "history", filters] as const,
   reconciliations: ["publications", "reconciliation"] as const,
   retentionPolicy: ["operations", "retention-policy"] as const,
