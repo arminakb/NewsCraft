@@ -245,15 +245,17 @@ export function SourceHealthTable({
             "Source health"
           )}
           {onStartIngestion ? (
-            <Button
-              className="h-8 gap-2 px-2"
-              onClick={onStartIngestion}
-              type="button"
-              variant="ghost"
-            >
-              <Play className="size-4" aria-hidden="true" />
-              Start ingestion
-            </Button>
+            <div className="mt-2 rounded-md border border-primary/25 bg-primary/10 p-1">
+              <Button
+                className="min-h-10 gap-2 px-2.5 text-primary hover:bg-primary/15 hover:text-primary"
+                onClick={onStartIngestion}
+                type="button"
+                variant="ghost"
+              >
+                <Play className="size-4" aria-hidden="true" />
+                Start ingestion
+              </Button>
+            </div>
           ) : null}
         </CardTitle>
         <div className="ml-auto min-w-0 max-w-full">

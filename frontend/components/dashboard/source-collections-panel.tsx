@@ -324,15 +324,6 @@ export function SourceCollectionsPanel({
                           actions={[
                             {
                               icon: Pencil,
-                              label: "Rename",
-                              onSelect: (trigger) => {
-                                contextTriggerRef.current = trigger
-                                setActionError(null)
-                                setFormTarget(collection)
-                              },
-                            },
-                            {
-                              icon: Pencil,
                               label: "Edit details",
                               onSelect: (trigger) => {
                                 contextTriggerRef.current = trigger

@@ -152,6 +152,7 @@ describe("operational pages", () => {
     const startIngestion = screen.getByRole("button", { name: "Start ingestion" })
     expect(screen.getAllByRole("button", { name: "Start ingestion" })).toHaveLength(1)
     expect(sourceHealth.parentElement).toContainElement(startIngestion)
+    expect(startIngestion.parentElement).toHaveClass("mt-2", "border-primary/25", "bg-primary/10")
     fireEvent.click(startIngestion)
     expect(screen.getByRole("dialog", { name: "Start ingestion" })).toBeInTheDocument()
     expect(screen.queryByRole("button", { name: /run ingest/i })).not.toBeInTheDocument()

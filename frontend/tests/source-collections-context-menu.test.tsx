@@ -52,12 +52,11 @@ describe("Source Collection context menu", () => {
     expect(contextEvent.defaultPrevented).toBe(true)
     let menu = screen.getByRole("menu", { name: "Manage Morning News" })
     expect(within(menu).getAllByRole("menuitem").map((item) => item.textContent)).toEqual([
-      "Rename",
       "Edit details",
       "Manage sources",
       "Delete",
     ])
-    await waitFor(() => expect(within(menu).getByRole("menuitem", { name: "Rename" })).toHaveFocus())
+    await waitFor(() => expect(within(menu).getByRole("menuitem", { name: "Edit details" })).toHaveFocus())
     fireEvent.keyDown(menu, { key: "Escape" })
     expect(screen.queryByRole("menu")).not.toBeInTheDocument()
     await waitFor(() => expect(row).toHaveFocus())
@@ -70,7 +69,7 @@ describe("Source Collection context menu", () => {
     row.focus()
     fireEvent.keyDown(row, { key: "ContextMenu" })
     menu = screen.getByRole("menu", { name: "Manage Morning News" })
-    fireEvent.click(within(menu).getByRole("menuitem", { name: "Rename" }))
+    fireEvent.click(within(menu).getByRole("menuitem", { name: "Edit details" }))
     const editDialog = await screen.findByRole("dialog", { name: "Edit Source Collection" })
     expect(within(editDialog).getByLabelText("Name")).toHaveValue("Morning News")
     fireEvent.click(within(editDialog).getByRole("button", { name: "Cancel" }))
