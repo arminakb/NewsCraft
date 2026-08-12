@@ -597,14 +597,17 @@ def _run_out(
     *,
     snapshots: list[IngestRunSnapshotSourceOut],
 ) -> SourceCollectionRunOut:
+    processed_successes = max(0, min(run.success_count, run.processed_count - run.failure_count))
+    skipped_count = min(max(0, int((run.stats or {}).get("skipped", 0))), processed_successes)
     return SourceCollectionRunOut(
         id=run.id,
         source_collection_id=run.source_collection_id,
         source_collection_name_at_start=run.source_collection_name_at_start,
         source_count=run.source_count,
         processed_count=run.processed_count,
-        success_count=run.success_count,
+        success_count=processed_successes - skipped_count,
         failure_count=run.failure_count,
+        skipped_count=skipped_count,
         started_at=run.started_at,
         completed_at=run.finished_at,
         status=run.status,

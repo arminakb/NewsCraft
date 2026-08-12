@@ -6,7 +6,7 @@ import {
   useReactTable,
   type ColumnDef,
 } from "@tanstack/react-table"
-import { ChevronLeft, ChevronRight, LoaderCircle, RefreshCw, Trash2 } from "lucide-react"
+import { ChevronLeft, ChevronRight, LoaderCircle, Play, RefreshCw, Trash2 } from "lucide-react"
 import { useMemo, useState } from "react"
 
 import { SourceIcon } from "@/components/dashboard/source-icon"
@@ -32,6 +32,7 @@ type SourceHealthTableProps = {
   onCheckSource?: (sourceId: string) => void
   onDeleteSource?: (source: SourceSummary) => void
   onSelectSource: (sourceId: string) => void
+  onStartIngestion?: () => void
   totalCount?: number
   pageOffset?: number
   pageSize?: number
@@ -78,6 +79,7 @@ export function SourceHealthTable({
   onCheckSource,
   onDeleteSource,
   onSelectSource,
+  onStartIngestion,
   totalCount,
   pageOffset = 0,
   pageSize = 50,
@@ -222,7 +224,7 @@ export function SourceHealthTable({
   return (
     <Card className="rounded-md py-0" size="sm">
       <CardHeader className="flex-row flex-wrap items-center gap-2 border-b px-3 py-2">
-        <CardTitle className="text-base">
+        <CardTitle className="flex flex-col items-start gap-1 text-base">
           {onCheckAll ? (
             <Button
               aria-label={bulkChecking ? "Checking all source health" : "Check all source health"}
@@ -242,6 +244,17 @@ export function SourceHealthTable({
           ) : (
             "Source health"
           )}
+          {onStartIngestion ? (
+            <Button
+              className="h-8 gap-2 px-2"
+              onClick={onStartIngestion}
+              type="button"
+              variant="ghost"
+            >
+              <Play className="size-4" aria-hidden="true" />
+              Start ingestion
+            </Button>
+          ) : null}
         </CardTitle>
         <div className="ml-auto min-w-0 max-w-full">
           <div role="tablist" aria-label="Source platform filter" className="flex max-w-full items-center gap-1 overflow-x-auto">

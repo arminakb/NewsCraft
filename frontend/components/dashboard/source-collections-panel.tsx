@@ -2,10 +2,11 @@
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import {
-  Check,
   ChevronLeft,
   ChevronRight,
-  FolderKanban,
+  Database,
+  Folder,
+  FolderOpen,
   FolderPlus,
   LoaderCircle,
   Pencil,
@@ -17,18 +18,14 @@ import {
   Users,
   X,
 } from "lucide-react"
-import { useEffect, useState, type Dispatch, type SetStateAction } from "react"
+import { useEffect, useRef, useState, type Dispatch, type SetStateAction } from "react"
 
+import { CollectionContextMenu } from "@/components/collections/collection-context-menu"
+import { CollectionNavigationItem } from "@/components/collections/collection-navigation"
 import { Badge } from "@/components/ui/badge"
 import { SourceIcon } from "@/components/dashboard/source-icon"
+import { CollectionRunHistory } from "@/components/dashboard/source-collection-run-history"
 import { Button } from "@/components/ui/button"
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card"
 import { Checkbox, Radio } from "@/components/ui/checkbox"
 import {
   Dialog,
@@ -40,7 +37,6 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
-import { LoadingState } from "@/components/ui/state-panel"
 import { Textarea } from "@/components/ui/textarea"
 import { Select } from "@/components/ui/select"
 import { useDateTime } from "@/components/providers/date-time-provider"
@@ -73,12 +69,14 @@ export const ALL_SOURCES_SCOPE = "all"
 export const UNASSIGNED_SOURCES_SCOPE = "unassigned"
 
 type SourceCollectionsPanelProps = {
+  children: (actions: { onStartIngestion: () => void }) => React.ReactNode
   enableQueries: boolean
   selectedScope: string
   onSelectScope: (scope: string) => void
 }
 
 export function SourceCollectionsPanel({
+  children,
   enableQueries,
   selectedScope,
   onSelectScope,
@@ -92,6 +90,13 @@ export function SourceCollectionsPanel({
   const [ingestMode, setIngestMode] = useState<SourceCollectionIngestMode>("once")
   const [startedRun, setStartedRun] = useState<{ collectionId: string; runId: string } | null>(null)
   const [actionError, setActionError] = useState<string | null>(null)
+  const contextTriggerRef = useRef<HTMLButtonElement | null>(null)
+
+  const restoreContextTrigger = () => {
+    const trigger = contextTriggerRef.current
+    contextTriggerRef.current = null
+    queueMicrotask(() => trigger?.isConnected && trigger.focus())
+  }
 
   const collectionsQuery = useQuery({
     queryKey: queryKeys.sourceCollections,
@@ -130,6 +135,7 @@ export function SourceCollectionsPanel({
         ...(current ?? []).filter((item) => item.id !== collection.id),
       ])
       setFormTarget(undefined)
+      restoreContextTrigger()
       onSelectScope(collection.id)
       setActionError(null)
     },
@@ -144,6 +150,7 @@ export function SourceCollectionsPanel({
         (current ?? []).map((item) => item.id === collection.id ? collection : item),
       )
       setFormTarget(undefined)
+      restoreContextTrigger()
       setActionError(null)
     },
     onError: (error) => setActionError(getApiErrorMessage(error, "Could not update the Source Collection.")),
@@ -205,9 +212,13 @@ export function SourceCollectionsPanel({
   })
   const runHistoryQuery = useQuery({
     queryKey: selectedCollection
-      ? queryKeys.sourceCollectionRuns(selectedCollection.id)
+      ? queryKeys.sourceCollectionRuns(selectedCollection.id, 3, 0)
       : ["source-collections", "runs", "idle"],
-    queryFn: ({ signal }) => getSourceCollectionRuns(selectedCollection!.id, 10, signal),
+    queryFn: ({ signal }) => getSourceCollectionRuns(
+      selectedCollection!.id,
+      { limit: 3, offset: 0 },
+      signal,
+    ),
     enabled: enableQueries && Boolean(selectedCollection),
     staleTime: 5_000,
   })
@@ -216,6 +227,11 @@ export function SourceCollectionsPanel({
     const run = activeRunQuery.data
     if (!run || ["queued", "running"].includes(run.status)) return
     setStartedRun((current) => current?.runId === run.id ? null : current)
+    if (run.sourceCollectionId) {
+      void queryClient.invalidateQueries({
+        queryKey: ["source-collections", run.sourceCollectionId, "runs"],
+      })
+    }
     refreshCollections()
   }, [activeRunQuery.data])
 
@@ -230,37 +246,144 @@ export function SourceCollectionsPanel({
 
   return (
     <>
-      <Card aria-label="Source Collections" className="border-border/70 bg-card/95 shadow-sm" size="sm">
-        <CardHeader className="gap-3 border-b border-border/60 px-3 py-3 sm:flex-row sm:items-start sm:justify-between">
-          <div>
-            <CardTitle className="flex items-center gap-2 text-base">
-              <FolderKanban className="size-4 text-primary" aria-hidden="true" />
-              Source Collections
-            </CardTitle>
-            <CardDescription className="mt-1 max-w-2xl">
-              Curated groups for controlled, one-click ingestion. Each collection holds up to 100 sources.
-            </CardDescription>
-          </div>
-          <div className="flex flex-wrap gap-2 self-start">
-            <Button className="gap-1.5" onClick={openIngestDialog} type="button">
-              <Play className="size-4" aria-hidden="true" />
-              Start ingestion
-            </Button>
-            <Button
-              className="gap-1.5"
-              onClick={() => {
-                setActionError(null)
-                setFormTarget(null)
-              }}
-              type="button"
-              variant="outline"
-            >
-              <FolderPlus className="size-4" aria-hidden="true" />
-              New collection
-            </Button>
-          </div>
-        </CardHeader>
-        <CardContent className="space-y-3 px-3 py-3">
+      <div className="min-w-0 min-[900px]:grid min-[900px]:grid-cols-[216px_minmax(0,1fr)] min-[900px]:items-start lg:grid-cols-[224px_minmax(0,1fr)]">
+        <aside
+          aria-label="Source Collections"
+          className="sticky top-0 z-20 min-w-0 overflow-x-auto border-b border-border/50 bg-card/95 backdrop-blur min-[900px]:top-4 min-[900px]:max-h-[calc(100vh-2rem)] min-[900px]:overflow-x-hidden min-[900px]:overflow-y-auto min-[900px]:rounded-lg min-[900px]:border min-[900px]:bg-card/50 min-[900px]:backdrop-blur-none"
+        >
+          <nav aria-label="Source collection filters" className="flex min-w-max items-center gap-1 p-2 min-[900px]:block min-[900px]:min-w-0 min-[900px]:p-3">
+            <CollectionNavigationItem
+              active={selectedScope === ALL_SOURCES_SCOPE}
+              count={allSourcesCountQuery.data?.total ?? null}
+              countLabel={(count) => `${count} ${count === 1 ? "source" : "sources"}`}
+              icon={Database}
+              label="All Sources"
+              onClick={() => onSelectScope(ALL_SOURCES_SCOPE)}
+            />
+            <div className="min-[900px]:mt-1">
+              <CollectionNavigationItem
+                active={selectedScope === UNASSIGNED_SOURCES_SCOPE}
+                count={unassignedCountQuery.data?.total ?? null}
+                countLabel={(count) => `${count} unassigned ${count === 1 ? "source" : "sources"}`}
+                icon={Users}
+                label="Unassigned"
+                onClick={() => onSelectScope(UNASSIGNED_SOURCES_SCOPE)}
+              />
+            </div>
+
+            <div className="flex items-center justify-between gap-2 px-1 min-[900px]:mt-5 min-[900px]:px-2">
+              <h2 className="hidden text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground min-[900px]:block">
+                Collections
+              </h2>
+              <Button
+                aria-label="Create new Source Collection"
+                className="size-8 min-[900px]:min-h-8 min-[900px]:min-w-8"
+                disabled={collectionsQuery.isPending || collectionsQuery.isError}
+                onClick={() => {
+                  contextTriggerRef.current = null
+                  setActionError(null)
+                  setFormTarget(null)
+                }}
+                size="icon"
+                title="New Source Collection"
+                type="button"
+                variant="ghost"
+              >
+                <FolderPlus className="size-4" aria-hidden="true" />
+              </Button>
+            </div>
+
+            <div className="min-[900px]:mt-2">
+              {collectionsQuery.isPending && enableQueries ? (
+                <div aria-label="Loading Source Collections" className="flex items-center gap-2 px-2 py-1 min-[900px]:block min-[900px]:space-y-2" role="status">
+                  <span className="sr-only">Loading Source Collections</span>
+                  {[0, 1, 2].map((item) => (
+                    <div aria-hidden="true" className="flex h-10 w-24 animate-pulse items-center gap-2 motion-reduce:animate-none min-[900px]:w-auto" key={item}>
+                      <span className="size-4 rounded bg-muted" />
+                      <span className="h-3 w-3/5 rounded bg-muted" />
+                    </div>
+                  ))}
+                </div>
+              ) : null}
+              {collectionsQuery.isError && enableQueries ? (
+                <div className="flex items-center gap-2 rounded-lg border bg-background p-2 min-[900px]:block min-[900px]:space-y-2 min-[900px]:p-3">
+                  <p className="text-xs text-destructive" role="alert">{getApiErrorMessage(collectionsQuery.error, "Collections are unavailable.")}</p>
+                  <Button className="min-h-9 w-full" onClick={() => void collectionsQuery.refetch()} size="sm" variant="outline">Retry</Button>
+                </div>
+              ) : null}
+              {!collectionsQuery.isPending && !collectionsQuery.isError && collections.length === 0 ? (
+                <p className="whitespace-nowrap px-2 py-3 text-xs leading-5 text-muted-foreground">No Source Collections yet.</p>
+              ) : null}
+              {!collectionsQuery.isPending && !collectionsQuery.isError && collections.length ? (
+                <ul className="flex items-center gap-1 min-[900px]:block min-[900px]:space-y-1">
+                  {collections.map((collection) => {
+                    const active = selectedScope === collection.id
+                    return (
+                      <li className="min-w-0 shrink-0" key={collection.id}>
+                        <CollectionContextMenu
+                          actions={[
+                            {
+                              icon: Pencil,
+                              label: "Rename",
+                              onSelect: (trigger) => {
+                                contextTriggerRef.current = trigger
+                                setActionError(null)
+                                setFormTarget(collection)
+                              },
+                            },
+                            {
+                              icon: Pencil,
+                              label: "Edit details",
+                              onSelect: (trigger) => {
+                                contextTriggerRef.current = trigger
+                                setActionError(null)
+                                setFormTarget(collection)
+                              },
+                            },
+                            {
+                              icon: Settings2,
+                              label: "Manage sources",
+                              onSelect: (trigger) => {
+                                contextTriggerRef.current = trigger
+                                setManageTarget(collection)
+                              },
+                            },
+                            {
+                              destructive: true,
+                              icon: Trash2,
+                              label: "Delete",
+                              onSelect: (trigger) => {
+                                contextTriggerRef.current = trigger
+                                setDeleteTarget(collection)
+                              },
+                            },
+                          ]}
+                          label={`Manage ${collection.name}`}
+                        >
+                          {(contextProps) => (
+                            <CollectionNavigationItem
+                              {...contextProps}
+                              active={active}
+                              count={collection.sourceCount}
+                              countLabel={(count) => `${count} ${count === 1 ? "source" : "sources"}`}
+                              icon={active ? FolderOpen : Folder}
+                              label={collection.name}
+                              onClick={() => onSelectScope(collection.id)}
+                              status={collection.activeIngestStatus ? <span className="size-1.5 shrink-0 rounded-full bg-warning" aria-label="Ingestion active" /> : undefined}
+                            />
+                          )}
+                        </CollectionContextMenu>
+                      </li>
+                    )
+                  })}
+                </ul>
+              ) : null}
+            </div>
+
+          </nav>
+        </aside>
+
+        <div className="min-w-0 space-y-4 pt-4 min-[900px]:pl-4 min-[900px]:pt-0 lg:pl-5">
           {actionError ? (
             <div className="flex items-start gap-2 rounded-md border border-destructive/30 bg-[var(--error-surface)] px-3 py-2 text-sm text-destructive" role="alert">
               <X className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
@@ -268,43 +391,8 @@ export function SourceCollectionsPanel({
             </div>
           ) : null}
 
-          <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
-            <ScopeCard
-              active={selectedScope === ALL_SOURCES_SCOPE}
-              count={allSourcesCountQuery.data?.total ?? null}
-              description="Every active source"
-              icon={FolderKanban}
-              label="All Sources"
-              onClick={() => onSelectScope(ALL_SOURCES_SCOPE)}
-            />
-            <ScopeCard
-              active={selectedScope === UNASSIGNED_SOURCES_SCOPE}
-              count={unassignedCountQuery.data?.total ?? null}
-              description="Not in a collection"
-              icon={Users}
-              label="Unassigned"
-              onClick={() => onSelectScope(UNASSIGNED_SOURCES_SCOPE)}
-            />
-            {collections.map((collection) => (
-              <CollectionScopeCard
-                key={collection.id}
-                active={selectedScope === collection.id}
-                collection={collection}
-                onClick={() => onSelectScope(collection.id)}
-              />
-            ))}
-          </div>
-
-          {collectionsQuery.isPending && enableQueries ? <LoadingState title="Loading collections" /> : null}
-          {collectionsQuery.isError && enableQueries ? (
-            <div className="flex items-center justify-between gap-3 rounded-md border border-destructive/30 bg-[var(--error-surface)] px-3 py-2 text-sm text-destructive" role="alert">
-              <span>{getApiErrorMessage(collectionsQuery.error, "Collections are unavailable.")}</span>
-              <Button size="sm" variant="outline" onClick={() => void collectionsQuery.refetch()}>Retry</Button>
-            </div>
-          ) : null}
-
           {selectedCollection ? (
-            <div className="rounded-md border border-border/70 bg-muted/25 p-3">
+            <section aria-label={`${selectedCollection.name} Source Collection`} className="rounded-lg border border-border/70 bg-card/60 p-3 shadow-xs">
               <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
                 <div className="min-w-0">
                   <div className="flex flex-wrap items-center gap-2">
@@ -328,7 +416,10 @@ export function SourceCollectionsPanel({
                 <div className="flex flex-wrap gap-2">
                   <Button
                     className="gap-1.5"
-                    onClick={() => setManageTarget(selectedCollection)}
+                    onClick={() => {
+                      contextTriggerRef.current = null
+                      setManageTarget(selectedCollection)
+                    }}
                     type="button"
                     variant="outline"
                   >
@@ -338,6 +429,7 @@ export function SourceCollectionsPanel({
                   <Button
                     aria-label={`Edit ${selectedCollection.name}`}
                     onClick={() => {
+                      contextTriggerRef.current = null
                       setActionError(null)
                       setFormTarget(selectedCollection)
                     }}
@@ -360,23 +452,32 @@ export function SourceCollectionsPanel({
                   onStop={() => stopMutation.mutate(selectedCollection.id)}
                 />
               ) : null}
-              {runHistoryQuery.data?.items.length ? (
-                <CollectionRunHistory runs={runHistoryQuery.data.items} />
+              {runHistoryQuery.isSuccess ? (
+                <CollectionRunHistory
+                  collectionId={selectedCollection.id}
+                  collectionName={selectedCollection.name}
+                  hasMore={runHistoryQuery.data.hasMore}
+                  runs={runHistoryQuery.data.items}
+                />
               ) : null}
-            </div>
+            </section>
           ) : null}
           {!selectedScopeIsCollection && selectedScope === UNASSIGNED_SOURCES_SCOPE ? (
-            <p className="text-sm text-muted-foreground">Showing sources that are not assigned to any Source Collection.</p>
+            <p className="rounded-lg border border-border/70 bg-muted/25 px-3 py-2 text-sm text-muted-foreground">Showing sources that are not assigned to any Source Collection.</p>
           ) : null}
-        </CardContent>
-      </Card>
+          {children({ onStartIngestion: openIngestDialog })}
+        </div>
+      </div>
 
       <CollectionFormDialog
         collection={formTarget ?? null}
         error={createMutation.isError || updateMutation.isError ? actionError : null}
         isSubmitting={createMutation.isPending || updateMutation.isPending}
         onClose={() => {
-          if (!createMutation.isPending && !updateMutation.isPending) setFormTarget(undefined)
+          if (!createMutation.isPending && !updateMutation.isPending) {
+            setFormTarget(undefined)
+            restoreContextTrigger()
+          }
         }}
         onDelete={formTarget && formTarget !== null ? () => {
           setDeleteTarget(formTarget)
@@ -411,12 +512,23 @@ export function SourceCollectionsPanel({
         <CollectionManagerDialog
           collection={manageTarget}
           onChanged={refreshCollections}
-          onClose={() => setManageTarget(null)}
+          onClose={() => {
+            setManageTarget(null)
+            restoreContextTrigger()
+          }}
           open
         />
       ) : null}
 
-      <Dialog open={Boolean(deleteTarget)} onOpenChange={(open) => !open && setDeleteTarget(null)}>
+      <Dialog
+        open={Boolean(deleteTarget)}
+        onOpenChange={(open) => {
+          if (!open) {
+            setDeleteTarget(null)
+            restoreContextTrigger()
+          }
+        }}
+      >
         <DialogContent className="max-w-md">
           <DialogHeader>
             <DialogTitle>Delete Source Collection?</DialogTitle>
@@ -569,80 +681,11 @@ function CollectionIngestDialog({
   )
 }
 
-function ScopeCard({
-  active,
-  count,
-  description,
-  icon: Icon,
-  label,
-  onClick,
-}: {
-  active: boolean
-  count: number | null
-  description: string
-  icon: typeof FolderKanban
-  label: string
-  onClick: () => void
-}) {
-  return (
-    <button
-      aria-pressed={active}
-      className={`flex min-h-20 cursor-pointer items-center gap-3 rounded-md border px-3 py-2 text-left transition-colors duration-150 focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/30 ${active ? "border-primary/50 bg-primary/5" : "border-border/70 bg-card hover:bg-muted/40"}`}
-      onClick={onClick}
-      type="button"
-    >
-      <span className="grid size-8 shrink-0 place-items-center rounded-md bg-muted text-muted-foreground">
-        <Icon className="size-4" aria-hidden="true" />
-      </span>
-      <span className="min-w-0">
-        <span className="block truncate font-medium">{label}</span>
-        <span className="block truncate text-xs text-muted-foreground">{description}{count !== null ? ` · ${count}` : ""}</span>
-      </span>
-      {active ? <Check className="ml-auto size-4 text-primary" aria-hidden="true" /> : null}
-    </button>
-  )
-}
-
-function CollectionScopeCard({
-  active,
-  collection,
-  onClick,
-}: {
-  active: boolean
-  collection: SourceCollectionSummary
-  onClick: () => void
-}) {
-  const progress = collection.activeIngestSourceCount
-    ? Math.round(((collection.activeIngestProcessedCount ?? 0) / collection.activeIngestSourceCount) * 100)
-    : null
-  return (
-    <button
-      aria-pressed={active}
-      className={`flex min-h-20 cursor-pointer items-center gap-3 rounded-md border px-3 py-2 text-left transition-colors duration-150 focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/30 ${active ? "border-primary/50 bg-primary/5" : "border-border/70 bg-card hover:bg-muted/40"}`}
-      onClick={onClick}
-      type="button"
-    >
-      <span className="grid size-8 shrink-0 place-items-center rounded-md bg-primary/10 text-primary">
-        <Users className="size-4" aria-hidden="true" />
-      </span>
-      <span className="min-w-0 flex-1">
-        <span className="flex items-center gap-1.5">
-          <span className="truncate font-medium">{collection.name}</span>
-          {collection.activeIngestStatus ? <span className="size-1.5 shrink-0 rounded-full bg-warning" aria-label="Ingestion active" /> : null}
-        </span>
-        <span className="block truncate text-xs text-muted-foreground">
-          {collection.sourceCount}/{collection.maximumSources} sources{progress !== null ? ` · ${progress}%` : ""}
-        </span>
-      </span>
-      {active ? <Check className="size-4 text-primary" aria-hidden="true" /> : null}
-    </button>
-  )
-}
-
 function CollectionRunProgress({ run }: { run: SourceCollectionRun }) {
   const { timezone } = useDateTime()
   const progress = run.sourceCount ? Math.round((run.processedCount / run.sourceCount) * 100) : 0
   const terminal = !["queued", "running"].includes(run.status)
+  const remaining = Math.max(0, run.sourceCount - run.processedCount)
   return (
     <div className="mt-4 rounded-md border border-border/70 bg-card px-3 py-3" aria-live="polite">
       <div className="flex flex-wrap items-center gap-2">
@@ -661,6 +704,8 @@ function CollectionRunProgress({ run }: { run: SourceCollectionRun }) {
       <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
         <span>{run.successCount} succeeded</span>
         <span className={run.failureCount ? "text-destructive" : ""}>{run.failureCount} failed</span>
+        {run.skippedCount ? <span>{run.skippedCount} skipped</span> : null}
+        {!terminal ? <span>{remaining} remaining</span> : null}
         <span>Started {formatInTimeZone(run.startedAt, timezone)}</span>
         {run.completedAt ? <span>Completed {formatInTimeZone(run.completedAt, timezone)}</span> : null}
         {run.error ? <span className="text-destructive">{run.error}</span> : null}
@@ -720,32 +765,6 @@ function ContinuousSubscriptionStatus({
       {collection.continuousLastError ? (
         <p className="mt-2 text-xs text-destructive" role="alert">{collection.continuousLastError}</p>
       ) : null}
-    </div>
-  )
-}
-
-function CollectionRunHistory({ runs }: { runs: SourceCollectionRun[] }) {
-  const { timezone } = useDateTime()
-  return (
-    <div className="mt-4 rounded-md border border-border/70 bg-card px-3 py-3">
-      <div className="flex items-center justify-between gap-2">
-        <h4 className="text-sm font-medium">Recent ingestion history</h4>
-        <span className="text-xs text-muted-foreground">{runs.length} shown</span>
-      </div>
-      <div className="mt-2 divide-y divide-border/60">
-        {runs.map((run) => (
-          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 py-2 text-xs" key={run.id}>
-            <span className="font-medium">
-              {run.mode === "continuous" ? `Cycle #${run.continuousCycleNumber ?? "–"}` : "Run once"}
-            </span>
-            <Badge variant={run.failureCount ? "warning" : run.status === "succeeded" ? "success" : "neutral"}>
-              {formatContinuousStatus(run.status)}
-            </Badge>
-            <span className="text-muted-foreground">{run.processedCount}/{run.sourceCount} sources</span>
-            <span className="ml-auto text-muted-foreground">{formatInTimeZone(run.startedAt, timezone)}</span>
-          </div>
-        ))}
-      </div>
     </div>
   )
 }

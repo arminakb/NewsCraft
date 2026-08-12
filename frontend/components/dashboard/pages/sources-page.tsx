@@ -48,8 +48,10 @@ export function SourcesPage({
   const queryClient = useQueryClient()
   const { pushNotice } = useNotices()
   const requestedSourceId = searchParams?.get("source") ?? initialSourceId
+  const requestedScope = searchParams?.get("source_collection_id")
+    ?? (searchParams?.get("unassigned") === "true" ? UNASSIGNED_SOURCES_SCOPE : ALL_SOURCES_SCOPE)
   const [selectedSourceId, setSelectedSourceId] = useState(requestedSourceId ?? initialSources[0]?.id ?? "")
-  const [selectedScope, setSelectedScope] = useState(ALL_SOURCES_SCOPE)
+  const [selectedScope, setSelectedScope] = useState(requestedScope)
   const [sourcePageOffset, setSourcePageOffset] = useState(0)
   const [detailOpen, setDetailOpen] = useState(Boolean(requestedSourceId))
   const [addedSources, setAddedSources] = useState<SourceSummary[]>([])
@@ -60,6 +62,7 @@ export function SourcesPage({
   const [checkingSourceIds, setCheckingSourceIds] = useState<ReadonlySet<string>>(new Set())
   const [bulkChecking, setBulkChecking] = useState(false)
   const checkingSourceIdsRef = useRef(new Set<string>())
+  const requestedScopeRef = useRef(requestedScope)
   const sourcesQuery = useQuery<SourceSummaryList | SourcePage>({
     queryKey: queryKeys.sourcesPage(selectedScope, sourcePageOffset),
     queryFn: ({ signal }) => selectedScope === ALL_SOURCES_SCOPE
@@ -195,6 +198,15 @@ export function SourcesPage({
     }
   }, [searchParams])
 
+  useEffect(() => {
+    if (requestedScopeRef.current === requestedScope) return
+    requestedScopeRef.current = requestedScope
+    setSelectedScope(requestedScope)
+    setSourcePageOffset(0)
+    setSelectedSourceId("")
+    setDetailOpen(false)
+  }, [requestedScope])
+
   function addSource(input: NewSourceInput) {
     createMutation.mutate(input)
   }
@@ -205,10 +217,19 @@ export function SourcesPage({
   }
 
   function selectSourceScope(scope: string) {
+    if (scope === selectedScope) return
     setSelectedScope(scope)
     setSourcePageOffset(0)
     setSelectedSourceId("")
     setDetailOpen(false)
+    const params = new URLSearchParams(searchParams?.toString() ?? "")
+    params.delete("source")
+    params.delete("source_collection_id")
+    params.delete("unassigned")
+    if (scope === UNASSIGNED_SOURCES_SCOPE) params.set("unassigned", "true")
+    else if (scope !== ALL_SOURCES_SCOPE) params.set("source_collection_id", scope)
+    const query = params.toString()
+    window.history.pushState(null, "", query ? `/sources?${query}` : "/sources")
   }
 
   function closeAddDialog() {
@@ -334,33 +355,37 @@ export function SourcesPage({
           enableQueries={enableQueries}
           onSelectScope={selectSourceScope}
           selectedScope={selectedScope}
-        />
-        <div className={detailOpen ? "grid min-w-0 gap-3 xl:grid-cols-[minmax(0,1fr)_minmax(20rem,24rem)]" : "grid min-w-0"}>
-          <div className="min-w-0">
-            <SourceHealthTable
-              bulkChecking={bulkChecking}
-              checkingSourceIds={checkingSourceIds}
-              onCheckAll={() => void runAllHealthChecks()}
-              onCheckSource={(sourceId) => void runHealthCheck(sourceId)}
-              sources={sources}
-              selectedSourceId={selectedSource?.id ?? ""}
-              totalCount={sourceTotal}
-              pageOffset={sourcePageOffset}
-              pageSize={50}
-              hasMore={sourceHasMore}
-              onPageChange={(offset) => {
-                setSourcePageOffset(offset)
-                setSelectedSourceId("")
-                setDetailOpen(false)
-              }}
-              onDeleteSource={requestDelete}
-              onSelectSource={selectSource}
-            />
-          </div>
-          {detailOpen && displayedSourceDetail ? (
-            <SourceDetailPanel source={displayedSourceDetail} open={detailOpen} onOpenChange={setDetailOpen} />
-          ) : null}
-        </div>
+        >
+          {({ onStartIngestion }) => (
+            <div className={detailOpen ? "grid min-w-0 gap-3 xl:grid-cols-[minmax(0,1fr)_minmax(20rem,24rem)]" : "grid min-w-0"}>
+              <div className="min-w-0">
+                <SourceHealthTable
+                  bulkChecking={bulkChecking}
+                  checkingSourceIds={checkingSourceIds}
+                  onCheckAll={() => void runAllHealthChecks()}
+                  onCheckSource={(sourceId) => void runHealthCheck(sourceId)}
+                  sources={sources}
+                  selectedSourceId={selectedSource?.id ?? ""}
+                  totalCount={sourceTotal}
+                  pageOffset={sourcePageOffset}
+                  pageSize={50}
+                  hasMore={sourceHasMore}
+                  onPageChange={(offset) => {
+                    setSourcePageOffset(offset)
+                    setSelectedSourceId("")
+                    setDetailOpen(false)
+                  }}
+                  onDeleteSource={requestDelete}
+                  onSelectSource={selectSource}
+                  onStartIngestion={onStartIngestion}
+                />
+              </div>
+              {detailOpen && displayedSourceDetail ? (
+                <SourceDetailPanel source={displayedSourceDetail} open={detailOpen} onOpenChange={setDetailOpen} />
+              ) : null}
+            </div>
+          )}
+        </SourceCollectionsPanel>
       </OperationsPageFrame>
       <AddSourceDialog
         error={createMutation.isError ? getApiErrorMessage(createMutation.error, "Source creation failed.") : null}

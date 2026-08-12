@@ -6,6 +6,7 @@ import { useEffect, useRef, useState } from "react"
 import { deleteArticleCollection, renameArticleCollection } from "./api"
 import type { ArticleCollection } from "./types"
 
+import { CollectionContextMenu } from "@/components/collections/collection-context-menu"
 import { useEditorialModal } from "@/components/editorial/use-editorial-modal"
 import { Button } from "@/components/ui/button"
 import { ApiError, getApiErrorMessage } from "@/lib/http"
@@ -28,131 +29,19 @@ export function CollectionManagementControl({
   onDeleted: (collection: ArticleCollection) => Promise<void>
   onRenamed: (collection: ArticleCollection) => Promise<void>
 }) {
-  const [menuPosition, setMenuPosition] = useState<{ left: number; top: number } | null>(null)
   const [dialog, setDialog] = useState<"rename" | "delete" | null>(null)
-  const triggerRef = useRef<HTMLButtonElement>(null)
-  const menuRef = useRef<HTMLDivElement>(null)
-  const firstItemRef = useRef<HTMLButtonElement>(null)
-  const secondItemRef = useRef<HTMLButtonElement>(null)
-  const menuId = `collection-menu-${collection.id}`
-
-  useEffect(() => {
-    if (!menuPosition) return
-    queueMicrotask(() => firstItemRef.current?.focus())
-    const menu = menuRef.current
-    if (menu) {
-      const bounds = menu.getBoundingClientRect()
-      const next = clampToViewport(menuPosition.left, menuPosition.top, bounds.width, bounds.height)
-      if (next.left !== menuPosition.left || next.top !== menuPosition.top) setMenuPosition(next)
-    }
-    const closeOnOutsidePress = (event: PointerEvent) => {
-      const target = event.target as Node
-      if (menuRef.current?.contains(target) || triggerRef.current?.contains(target)) return
-      setMenuPosition(null)
-    }
-    const closeOnOutsideFocus = (event: FocusEvent) => {
-      const target = event.target as Node
-      if (menuRef.current?.contains(target) || triggerRef.current?.contains(target)) return
-      setMenuPosition(null)
-    }
-    document.addEventListener("pointerdown", closeOnOutsidePress)
-    document.addEventListener("focusin", closeOnOutsideFocus)
-    return () => {
-      document.removeEventListener("pointerdown", closeOnOutsidePress)
-      document.removeEventListener("focusin", closeOnOutsideFocus)
-    }
-  }, [menuPosition])
-
-  function openAt(left: number, top: number) {
-    setMenuPosition(clampToViewport(left, top, 160, 88))
-  }
-
-  function openFromPointer(event: React.MouseEvent<HTMLButtonElement>) {
-    event.preventDefault()
-    triggerRef.current = event.currentTarget
-    openAt(event.clientX, event.clientY)
-  }
-
-  function handleTriggerKeyDown(event: React.KeyboardEvent<HTMLButtonElement>) {
-    if (event.key !== "ContextMenu" && !(event.shiftKey && event.key === "F10")) return
-    event.preventDefault()
-    triggerRef.current = event.currentTarget
-    const bounds = event.currentTarget.getBoundingClientRect()
-    openAt(bounds.left + 24, bounds.bottom - 4)
-  }
-
-  function closeMenu(restoreFocus: boolean) {
-    setMenuPosition(null)
-    if (restoreFocus) queueMicrotask(() => triggerRef.current?.focus())
-  }
-
-  function handleMenuKeyDown(event: React.KeyboardEvent<HTMLDivElement>) {
-    if (event.key === "Escape") {
-      event.preventDefault()
-      closeMenu(true)
-      return
-    }
-    const items = [firstItemRef.current, secondItemRef.current].filter((item): item is HTMLButtonElement => Boolean(item))
-    const index = items.indexOf(document.activeElement as HTMLButtonElement)
-    let nextIndex: number | null = null
-    if (event.key === "ArrowDown") nextIndex = index < 0 ? 0 : (index + 1) % items.length
-    if (event.key === "ArrowUp") nextIndex = index < 0 ? items.length - 1 : (index - 1 + items.length) % items.length
-    if (event.key === "Home") nextIndex = 0
-    if (event.key === "End") nextIndex = items.length - 1
-    if (nextIndex === null) return
-    event.preventDefault()
-    items[nextIndex]?.focus()
-  }
-
-  function openDialog(nextDialog: "rename" | "delete") {
-    triggerRef.current?.focus()
-    setMenuPosition(null)
-    setDialog(nextDialog)
-  }
 
   return (
     <>
-      {children({
-        "aria-controls": menuPosition ? menuId : undefined,
-        "aria-expanded": Boolean(menuPosition),
-        "aria-haspopup": "menu",
-        buttonRef: triggerRef,
-        onContextMenu: openFromPointer,
-        onKeyDown: handleTriggerKeyDown,
-      })}
-
-      {menuPosition ? (
-        <div
-          aria-label={`Manage ${collection.name}`}
-          className="fixed z-40 w-40 rounded-lg border bg-background p-1 shadow-md"
-          id={menuId}
-          onKeyDown={handleMenuKeyDown}
-          ref={menuRef}
-          role="menu"
-          style={menuPosition}
-        >
-          <button
-            className="flex min-h-10 w-full cursor-pointer items-center gap-2 rounded-md px-2.5 text-left text-sm hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring"
-            onClick={() => openDialog("rename")}
-            ref={firstItemRef}
-            role="menuitem"
-            type="button"
-          >
-            <Pencil className="size-3.5" aria-hidden="true" />
-            Rename
-          </button>
-          <button
-            className="flex min-h-10 w-full cursor-pointer items-center gap-2 rounded-md px-2.5 text-left text-sm text-destructive hover:bg-[var(--error-surface)] focus-visible:ring-2 focus-visible:ring-destructive/40"
-            onClick={() => openDialog("delete")}
-            ref={secondItemRef}
-            role="menuitem"
-            type="button"
-          >
-            <Trash2 className="size-3.5" aria-hidden="true" />
-            Delete
-          </button>
-        </div>
-      ) : null}
+      <CollectionContextMenu
+        actions={[
+          { icon: Pencil, label: "Rename", onSelect: () => setDialog("rename") },
+          { destructive: true, icon: Trash2, label: "Delete", onSelect: () => setDialog("delete") },
+        ]}
+        label={`Manage ${collection.name}`}
+      >
+        {children}
+      </CollectionContextMenu>
 
       <RenameCollectionDialog
         collection={collection}
@@ -168,14 +57,6 @@ export function CollectionManagementControl({
       />
     </>
   )
-}
-
-function clampToViewport(left: number, top: number, width: number, height: number) {
-  const gutter = 8
-  return {
-    left: Math.max(gutter, Math.min(left, window.innerWidth - width - gutter)),
-    top: Math.max(gutter, Math.min(top, window.innerHeight - height - gutter)),
-  }
 }
 
 function RenameCollectionDialog({

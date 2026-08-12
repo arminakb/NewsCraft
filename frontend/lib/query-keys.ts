@@ -27,12 +27,21 @@ export const queryKeys = {
     "runs",
     runId,
   ] as const,
-  sourceCollectionRuns: (collectionId: string, limit = 10) => [
+  sourceCollectionRuns: (collectionId: string, limit = 3, offset = 0) => [
     "source-collections",
     collectionId,
     "runs",
     "list",
     limit,
+    offset,
+  ] as const,
+  sourceCollectionRunHistory: (collectionId: string, pageSize = 25, offset = 0) => [
+    "source-collections",
+    collectionId,
+    "runs",
+    "history",
+    pageSize,
+    offset,
   ] as const,
   diagnostics: ["diagnostics"] as const,
   jobs: (filters: JobFilters = {}) => ["jobs", filters] as const,

@@ -186,6 +186,7 @@ class SourceCollectionRunOut(BaseModel):
     processed_count: int = Field(ge=0, le=100)
     success_count: int = Field(ge=0, le=100)
     failure_count: int = Field(ge=0, le=100)
+    skipped_count: int = Field(default=0, ge=0, le=100)
     started_at: datetime
     completed_at: datetime | None = None
     status: str
@@ -197,7 +198,14 @@ class SourceCollectionRunOut(BaseModel):
     error: str | None = None
     sources: list[IngestRunSnapshotSourceOut] = Field(default_factory=list)
 
-    @field_validator("source_count", "processed_count", "success_count", "failure_count", mode="before")
+    @field_validator(
+        "source_count",
+        "processed_count",
+        "success_count",
+        "failure_count",
+        "skipped_count",
+        mode="before",
+    )
     @classmethod
     def default_progress_counts(cls, value: object) -> int:
         return 0 if value is None else int(value)

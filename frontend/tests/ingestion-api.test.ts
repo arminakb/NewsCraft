@@ -5,6 +5,7 @@ import {
   addSourcesToCollection,
   deleteSource,
   getSourceCollectionRun,
+  getSourceCollectionRuns,
   getSourceCollectionContinuous,
   getSourceCollections,
   getSourcePage,
@@ -359,6 +360,52 @@ describe("ingestion API", () => {
       }),
     ])
     expect(fetchSpy).toHaveBeenCalledWith("/api/backend/ingest/runs?limit=6", undefined)
+  })
+
+  it("requests one explicit Source Collection run-history page and maps persisted summary counts", async () => {
+    const fetchSpy = stubFetch({
+      items: [{
+        id: "run-51",
+        source_collection_id: "collection-1",
+        source_collection_name_at_start: "AI News",
+        source_count: 10,
+        processed_count: 10,
+        success_count: 7,
+        failure_count: 1,
+        skipped_count: 2,
+        started_at: "2026-08-08T08:00:00Z",
+        completed_at: "2026-08-08T08:01:00Z",
+        status: "partial",
+        trigger: "source_collection_continuous",
+        mode: "continuous",
+        continuous_subscription_id: "subscription-1",
+        continuous_cycle_number: 51,
+        error: null,
+        sources: [],
+      }],
+      total: 101,
+      limit: 25,
+      offset: 50,
+      has_more: true,
+    })
+
+    await expect(getSourceCollectionRuns("collection/1", { limit: 25, offset: 50 })).resolves.toEqual(
+      expect.objectContaining({
+        total: 101,
+        offset: 50,
+        hasMore: true,
+        items: [expect.objectContaining({
+          successCount: 7,
+          failureCount: 1,
+          skippedCount: 2,
+          continuousCycleNumber: 51,
+        })],
+      }),
+    )
+    expect(fetchSpy).toHaveBeenCalledWith(
+      "/api/backend/source-collections/collection%2F1/runs?limit=25&offset=50",
+      undefined,
+    )
   })
 
   it("uses explicit continuous mode and maps durable subscription actions", async () => {

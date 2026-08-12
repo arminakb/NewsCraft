@@ -6673,6 +6673,11 @@ export interface components {
             mode: "once" | "continuous";
             /** Processed Count */
             processed_count: number;
+            /**
+             * Skipped Count
+             * @default 0
+             */
+            skipped_count: number;
             /** Source Collection Id */
             source_collection_id?: string | null;
             /** Source Collection Name At Start */

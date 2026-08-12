@@ -145,6 +145,7 @@ export type SourceCollectionRun = {
   processedCount: number
   successCount: number
   failureCount: number
+  skippedCount: number
   startedAt: string
   completedAt: string | null
   status: string
@@ -450,11 +451,13 @@ export async function getSourceCollectionRun(
 
 export async function getSourceCollectionRuns(
   collectionId: string,
-  limit = 10,
+  options: { limit?: number; offset?: number } = {},
   signal?: AbortSignal,
 ): Promise<SourceCollectionRunPage> {
+  const limit = Math.min(Math.max(Math.trunc(options.limit ?? 25), 1), 100)
+  const offset = Math.max(Math.trunc(options.offset ?? 0), 0)
   const payload = await apiRequest<BackendSourceCollectionRunPage>(
-    `/source-collections/${encodeURIComponent(collectionId)}/runs?limit=${limit}&offset=0`,
+    `/source-collections/${encodeURIComponent(collectionId)}/runs?limit=${limit}&offset=${offset}`,
     signal ? { signal } : undefined,
   )
   return {
@@ -535,6 +538,7 @@ type BackendSourceCollectionRun = {
   processed_count: number
   success_count: number
   failure_count: number
+  skipped_count?: number
   started_at: string
   completed_at: string | null
   status: string
@@ -583,6 +587,7 @@ function mapSourceCollectionRun(payload: BackendSourceCollectionRun): SourceColl
     processedCount: payload.processed_count,
     successCount: payload.success_count,
     failureCount: payload.failure_count,
+    skippedCount: payload.skipped_count ?? 0,
     startedAt: payload.started_at,
     completedAt: payload.completed_at,
     status: payload.status,

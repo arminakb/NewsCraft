@@ -10990,6 +10990,13 @@
             "title": "Processed Count",
             "type": "integer"
           },
+          "skipped_count": {
+            "default": 0,
+            "maximum": 100.0,
+            "minimum": 0.0,
+            "title": "Skipped Count",
+            "type": "integer"
+          },
           "source_collection_id": {
             "anyOf": [
               {
