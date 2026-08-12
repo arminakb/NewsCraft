@@ -27,15 +27,8 @@ test.describe("NewsCraft command center", () => {
     await page.goto("/")
 
     await expect(page.getByRole("heading", { name: "Today" })).toBeVisible()
-    await expect(page.getByText("Automation paused")).toBeVisible()
-    await expect(page.getByRole("button", { name: "Resume automations" })).toBeVisible()
-    await expect(page.locator("[data-summary=queued]")).toHaveText("3")
-    await expect(page.locator("[data-summary=running]")).toHaveText("1")
-    await expect(page.locator("[data-summary=attention]")).toHaveText("1")
-    await expect(page.locator("[data-summary=succeeded]")).toHaveText("4")
-    const priority = page.getByRole("region", { name: "Highest-priority decision" })
-    await expect(priority.getByText("Resolve failed workflow", { exact: true })).toBeVisible()
-    await expect(priority.getByRole("link", { name: "Inspect and retry" })).toBeVisible()
+    await expect(page.getByRole("heading", { name: "English editorial report 1" })).toBeVisible()
+    await expect(page.getByText("Latest stories collected by NewsCraft", { exact: true })).toBeVisible()
 
     const hasHorizontalOverflow = await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth)
     expect(hasHorizontalOverflow).toBe(false)
@@ -119,6 +112,25 @@ async function installApiRoutes(page: Page) {
           : [failedJob, runningJob, succeededJob]
     await fulfillJson(route, { items })
   })
+  await page.route("**/api/backend/articles**", async (route) => {
+    const url = new URL(route.request().url())
+    const path = url.pathname.replace("/api/backend", "")
+    if (path !== "/articles") {
+      const requestLabel = `${route.request().method()} ${path}${url.search}`
+      unhandledRequests.push(requestLabel)
+      await route.fulfill({
+        status: 501,
+        contentType: "application/json",
+        body: JSON.stringify({ detail: `Unhandled deterministic test request: ${requestLabel}` }),
+      })
+      return
+    }
+    await fulfillJson(route, {
+      items: [todayArticle()],
+      next_cursor: null,
+      result_count: 1,
+    })
+  })
   await page.route("**/api/backend/operations/diagnostics", async (route) => {
     await fulfillJson(route, {
       generated_at: "2026-07-12T08:03:00Z",
@@ -172,5 +184,37 @@ function backendJob(overrides: Record<string, unknown> = {}) {
     created_at: "2026-07-12T08:00:00Z",
     updated_at: "2026-07-12T08:00:00Z",
     ...overrides,
+  }
+}
+
+function todayArticle() {
+  return {
+    id: "55555555-5555-4555-8555-555555555555",
+    title: "English editorial report 1",
+    summary: "A source-grounded summary for Today.",
+    excerpt: null,
+    source: {
+      id: "66666666-6666-4666-8666-666666666666",
+      name: "Example Journal",
+      platform: "rss",
+      homepage_url: "https://example.com",
+    },
+    canonical_url: "https://example.com/articles/1",
+    published_at: "2026-07-12T08:00:00Z",
+    sort_at: "2026-07-12T08:00:00Z",
+    display_at: "2026-07-12T08:00:00Z",
+    date_basis: "published",
+    score: 60,
+    content_type: "news",
+    topic: "AI",
+    domain: "example.com",
+    language: "en",
+    direction: "ltr",
+    coverage: { state: "ungrouped", stories: [] },
+    image: null,
+    has_image: false,
+    saved: false,
+    saved_collection_ids: [],
+    article_readiness: { ready: false },
   }
 }

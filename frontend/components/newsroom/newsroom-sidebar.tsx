@@ -16,7 +16,10 @@ import { useEffect, useId, useRef } from "react"
 
 import type { JobSummary } from "@/features/jobs/types"
 import { ThemeToggle } from "@/components/theme/theme-toggle"
-import { NotificationsTrigger } from "@/components/newsroom/notifications-sidebar"
+import {
+  NotificationsTrigger,
+  type NotificationsPopoverHandle,
+} from "@/components/newsroom/notifications-sidebar"
 import {
   rememberSettingsReturnPath,
   SETTINGS_RESTORE_FOCUS_KEY,
@@ -58,12 +61,14 @@ export function NewsroomSidebar({
   expanded = false,
   onExpandedChange = () => undefined,
   onNotificationsOpen = () => undefined,
+  notificationsHandle,
   notificationsOpen = false,
   summary,
 }: {
   expanded?: boolean
   onExpandedChange?: (expanded: boolean) => void
-  onNotificationsOpen?: (trigger: HTMLButtonElement) => void
+  onNotificationsOpen?: (trigger: HTMLButtonElement, placement: "mobile" | "sidebar") => void
+  notificationsHandle?: NotificationsPopoverHandle
   notificationsOpen?: boolean
   summary?: JobSummary
 }) {
@@ -208,6 +213,7 @@ export function NewsroomSidebar({
         >
           <NotificationsTrigger
             expanded={expanded}
+            handle={notificationsHandle}
             onOpen={onNotificationsOpen}
             open={notificationsOpen}
           />

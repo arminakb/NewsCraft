@@ -74,6 +74,8 @@
   --flow-telegram: hsl(200 86% 42%);
   --flow-telegram-surface: hsl(200 82% 94%);
   --flow-telegram-border: hsl(200 70% 70%);
+  --flow-beam-start: hsl(207 96% 45%);
+  --flow-beam-highlight: hsl(190 100% 58%);
   --flow-x: hsl(220 12% 16%);
   --flow-x-surface: hsl(220 15% 94%);
   --flow-x-border: hsl(220 10% 72%);
@@ -170,7 +172,123 @@ textarea {
   container-type: inline-size;
 }
 
+@keyframes news-cards-header-enter {
+  from {
+    opacity: 1;
+    filter: blur(4px);
+    transform: translateY(-20px) scale(0.95);
+  }
+  to {
+    opacity: 1;
+    filter: blur(0);
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes news-cards-status-enter {
+  from {
+    opacity: 0;
+    transform: scaleX(0) translateX(-20px);
+    transform-origin: left center;
+  }
+  to {
+    opacity: 1;
+    transform: scaleX(1) translateX(0);
+    transform-origin: left center;
+  }
+}
+
+@keyframes news-cards-card-enter {
+  from {
+    opacity: 0;
+    filter: blur(6px);
+    transform: translateY(30px) scale(0.9);
+  }
+  to {
+    opacity: 1;
+    filter: blur(0);
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes news-cards-backdrop-enter {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes news-cards-modal-enter {
+  from { opacity: 0; transform: scale(0.96) translateY(12px); }
+  to { opacity: 1; transform: scale(1) translateY(0); }
+}
+
+.news-cards-shell--animate .news-cards-header {
+  animation: news-cards-header-enter 520ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.news-cards-shell--animate .news-cards-status-bar {
+  animation: news-cards-status-enter 420ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation-delay: calc(300ms + (var(--news-status-index) * 100ms));
+}
+
+.news-cards-shell--animate .news-cards-card {
+  animation: news-cards-card-enter 520ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation-delay: calc(800ms + (var(--news-card-index) * 120ms));
+}
+
+.news-cards-card {
+  transition: transform 300ms cubic-bezier(0.22, 1, 0.36, 1), box-shadow 300ms ease, border-color 200ms ease;
+}
+
+.news-cards-card:hover {
+  border-color: color-mix(in srgb, var(--foreground), transparent 76%);
+  box-shadow: var(--shadow-md);
+  transform: translateY(-4px) scale(1.01);
+}
+
+.news-cards-card-image img {
+  transition: transform 700ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.news-cards-card:hover .news-cards-card-image img {
+  transform: scale(1.05);
+}
+
+.news-cards-modal-backdrop {
+  animation: news-cards-backdrop-enter 180ms ease-out both;
+}
+
+.news-cards-modal {
+  animation: news-cards-modal-enter 260ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.news-cards-modal-backdrop--closing {
+  animation: news-cards-backdrop-enter 180ms ease-in reverse both;
+}
+
+.news-cards-modal--closing {
+  animation: news-cards-modal-enter 180ms ease-in reverse both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .news-cards-shell--animate .news-cards-header,
+  .news-cards-shell--animate .news-cards-status-bar,
+  .news-cards-shell--animate .news-cards-card,
+  .news-cards-modal-backdrop,
+  .news-cards-modal {
+    animation: none;
+  }
+
+  .news-cards-card,
+  .news-cards-card-image img {
+    transition: none;
+  }
+}
+
 @media (min-width: 900px) {
+  .newsroom-shell {
+    contain: paint;
+  }
+
   .newsroom-scroll {
     scrollbar-width: none;
     -ms-overflow-style: none;
@@ -191,6 +309,7 @@ textarea {
   }
 
   .newsroom-shell {
+    contain: none;
     display: block !important;
     height: auto !important;
     min-height: 100dvh;
@@ -246,44 +365,31 @@ textarea {
   }
 }
 
-@keyframes workflow-flow-travel {
-  0%, 62%, 100% {
-    transform: translateX(0);
-    opacity: 0;
-  }
-  68% {
-    opacity: 0.9;
-  }
-  90% {
-    transform: translateX(94px);
-    opacity: 0.9;
-  }
-  94% {
-    transform: translateX(94px);
-    opacity: 0;
-  }
-}
-
-.workflow-connector svg {
+.workflow-beam-svg {
+  overflow: visible;
   opacity: 0.76;
   transition: opacity var(--motion-standard) ease-out, filter var(--motion-standard) ease-out;
 }
 
-.group\/workflow:hover .workflow-connector svg {
+.group\/workflow:hover .workflow-beam-svg {
   filter: saturate(1.2);
   opacity: 1;
 }
 
-.workflow-flow-particle {
-  filter: drop-shadow(0 0 2px currentColor);
-  animation: workflow-flow-travel 4s ease-in-out infinite;
-  animation-delay: var(--workflow-flow-delay, 0s);
-  transform-box: fill-box;
-  transform-origin: center;
-}
-
 @media (prefers-reduced-motion: reduce) {
-  .workflow-flow-particle {
+  .workflow-beam-svg {
+    transition: none;
+  }
+
+  [data-workflow-beam-moving-path] {
+    display: none;
+  }
+
+  [data-workflow-beam-glow] {
+    display: none;
+  }
+
+  [data-workflow-beam-highlight] {
     display: none;
   }
 }
@@ -406,6 +512,8 @@ textarea {
   --flow-telegram: hsl(200 91% 62%);
   --flow-telegram-surface: hsl(200 54% 16%);
   --flow-telegram-border: hsl(200 50% 35%);
+  --flow-beam-start: hsl(207 100% 70%);
+  --flow-beam-highlight: hsl(188 100% 82%);
   --flow-x: hsl(0 0% 92%);
   --flow-x-surface: hsl(0 0% 18%);
   --flow-x-border: hsl(0 0% 34%);
@@ -596,7 +704,77 @@ textarea {
 }
 
 .react-flow__node-newscraft .nc-workflow-node-card {
+  --nc-workflow-node-max-width: 16rem;
+  display: flex;
+  width: fit-content;
+  min-width: 8.5rem;
+  max-width: var(--nc-workflow-node-max-width);
+  height: 5.25rem;
+  align-items: center;
+  overflow: visible;
+  cursor: grab;
+  border: 1px solid color-mix(in srgb, var(--border), transparent 12%);
+  border-radius: 0.625rem;
+  background: var(--card);
+  color: var(--card-foreground);
+  box-shadow: var(--shadow-xs);
   animation: nc-workflow-node-enter var(--motion-standard) ease-out;
+  transition: border-color 150ms ease-out, box-shadow 150ms ease-out, transform 150ms ease-out;
+}
+
+.react-flow__node-newscraft .nc-workflow-node-card-content {
+  display: flex;
+  width: max-content;
+  max-width: 100%;
+  min-width: 0;
+  align-items: center;
+  gap: 0.625rem;
+  padding: 0.5rem 0.75rem;
+}
+
+.react-flow__node-newscraft .nc-workflow-node-title {
+  min-width: 0;
+  max-width: calc(var(--nc-workflow-node-max-width) - 4.375rem);
+  overflow: hidden;
+  flex: 0 1 auto;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.react-flow__node-newscraft .nc-workflow-node-card:hover {
+  border-color: color-mix(in srgb, var(--primary), var(--border) 55%);
+  box-shadow: var(--shadow-sm);
+}
+
+.react-flow__node-newscraft .nc-workflow-node-card.is-dragging {
+  cursor: grabbing;
+  border-color: color-mix(in srgb, var(--primary), transparent 30%);
+  box-shadow: var(--shadow-md);
+  transform: scale(1.015);
+}
+
+.nc-workflow-node-icon {
+  line-height: 1;
+}
+
+.react-flow__node-newscraft .nc-workflow-handle {
+  width: 0.75rem;
+  height: 0.75rem;
+  border: 2px solid var(--card);
+  border-radius: 999px;
+  background: var(--card);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--primary), transparent 30%);
+  transition: background-color 150ms ease-out, box-shadow 150ms ease-out, transform 150ms ease-out;
+}
+
+.react-flow__node-newscraft .nc-workflow-handle:hover {
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary), transparent 78%);
+  transform: scale(1.1);
+}
+
+.react-flow__node-newscraft.selected .nc-workflow-handle {
+  border-color: var(--primary);
+  background: var(--primary);
 }
 
 .react-flow__node-newscraft.dragging {
@@ -608,7 +786,8 @@ textarea {
   transition: transform 150ms ease-out;
 }
 
-.react-flow__node-newscraft.selected .nc-workflow-node-card {
+.react-flow__node-newscraft.selected .nc-workflow-node-card,
+.react-flow__node-newscraft .nc-workflow-node-card.is-selected {
   border-color: var(--primary);
   box-shadow: var(--shadow-md), 0 0 0 2px color-mix(in srgb, var(--primary), transparent 80%);
 }
@@ -617,6 +796,7 @@ textarea {
 .react-flow__edge:focus-visible .react-flow__edge-path {
   stroke-width: 3;
 }
+
 
 .nc-workflow-edge {
   transition: stroke 150ms ease-out, stroke-width 150ms ease-out;
@@ -688,6 +868,11 @@ textarea {
   }
 
   .react-flow__node-newscraft:not(.dragging) {
+    transition: none;
+  }
+
+  .react-flow__node-newscraft .nc-workflow-node-card,
+  .react-flow__node-newscraft .nc-workflow-handle {
     transition: none;
   }
 

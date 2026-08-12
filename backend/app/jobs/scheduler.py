@@ -9,7 +9,7 @@ from time import monotonic
 from uuid import UUID, uuid4
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from sqlalchemy import Select, select
+from sqlalchemy import Select, and_, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.automations.models import AutomationRoute
@@ -19,11 +19,25 @@ from app.core.outbound_proxy import safe_proxy_diagnostics
 from app.db.models import Source
 from app.db.session import async_session
 from app.jobs.credential_capabilities import CapabilityStatusService
+from app.jobs.errors import JobCapabilityUnavailable
 from app.jobs.events import redact_event_data
-from app.jobs.models import AutomationControl, WorkflowEvent, WorkflowSchedule
+from app.jobs.models import AutomationControl, WorkflowEvent, WorkflowJob, WorkflowSchedule
 from app.jobs.repository import JobRepository
 from app.jobs.runtime import RuntimeHeartbeatService, build_component_id
 from app.jobs.types import JobOrigin
+from app.source_collections.models import (
+    CONTINUOUS_SUBSCRIPTION_ACTIVE_STATUSES,
+    SourceCollectionIngestionSubscription,
+)
+from app.sources.icon_discovery import (
+    ICON_JOB_TYPE,
+    ICON_PLATFORMS,
+    ICON_STATUS_PENDING,
+    ICON_STATUS_QUEUED,
+    ICON_STATUS_RESOLVED,
+    ICON_STATUS_RETRYABLE,
+    ICON_STATUS_UNAVAILABLE,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -36,6 +50,29 @@ class SchedulerTickResult:
     deduplicated: int
     invalid: int
     paused: bool
+    continuous_enqueued: int = 0
+    continuous_deduplicated: int = 0
+    source_icon_enqueued: int = 0
+    source_icon_deduplicated: int = 0
+
+
+def build_due_continuous_subscription_statement(
+    now: datetime,
+) -> Select[tuple[SourceCollectionIngestionSubscription]]:
+    return (
+        select(SourceCollectionIngestionSubscription)
+        .where(
+            SourceCollectionIngestionSubscription.status.in_(CONTINUOUS_SUBSCRIPTION_ACTIVE_STATUSES),
+            SourceCollectionIngestionSubscription.next_cycle_at.is_not(None),
+            SourceCollectionIngestionSubscription.next_cycle_at <= now,
+        )
+        .order_by(
+            SourceCollectionIngestionSubscription.next_cycle_at,
+            SourceCollectionIngestionSubscription.created_at,
+        )
+        .limit(100)
+        .with_for_update(skip_locked=True)
+    )
 
 
 def build_due_schedule_statement(now: datetime) -> Select[tuple[WorkflowSchedule]]:
@@ -47,6 +84,43 @@ def build_due_schedule_statement(now: datetime) -> Select[tuple[WorkflowSchedule
             WorkflowSchedule.next_run_at <= now,
         )
         .order_by(WorkflowSchedule.next_run_at, WorkflowSchedule.created_at)
+        .with_for_update(skip_locked=True)
+    )
+
+
+def build_due_source_icon_statement(
+    now: datetime,
+    config: Settings,
+) -> Select[tuple[Source]]:
+    stale_before = now - timedelta(days=config.source_icon_discovery_ttl_days)
+    abandoned_before = now - timedelta(seconds=max(config.worker_lease_seconds * 2, 300))
+    due_retry = or_(
+        Source.icon_next_retry_at.is_(None),
+        Source.icon_next_retry_at <= now,
+    )
+    eligible = or_(
+        Source.icon_status == ICON_STATUS_PENDING,
+        and_(Source.icon_status.in_((ICON_STATUS_RETRYABLE, ICON_STATUS_UNAVAILABLE)), due_retry),
+        and_(
+            Source.icon_status == ICON_STATUS_RESOLVED,
+            or_(Source.icon_updated_at.is_(None), Source.icon_updated_at <= stale_before),
+            due_retry,
+        ),
+        and_(
+            Source.icon_status == ICON_STATUS_QUEUED,
+            or_(Source.icon_enqueued_at.is_(None), Source.icon_enqueued_at <= abandoned_before),
+        ),
+    )
+    return (
+        select(Source)
+        .where(
+            Source.deleted_at.is_(None),
+            Source.active.is_(True),
+            Source.platform.in_(ICON_PLATFORMS),
+            eligible,
+        )
+        .order_by(Source.created_at, Source.id)
+        .limit(config.source_icon_discovery_batch_size)
         .with_for_update(skip_locked=True)
     )
 
@@ -70,6 +144,14 @@ def _aware(value: datetime, *, name: str) -> datetime:
     if value.tzinfo is None or value.utcoffset() is None:
         raise ValueError(f"{name} must be timezone-aware")
     return value
+
+
+def _cycle_number_from_job(job: WorkflowJob, fallback: int) -> int:
+    try:
+        value = int((job.payload or {}).get("cycle_number", fallback))
+    except (TypeError, ValueError):
+        return fallback
+    return max(1, value)
 
 
 def _parse_local_time(value: str) -> time:
@@ -113,6 +195,8 @@ class SchedulerService:
 
             enqueued = 0
             deduplicated = 0
+            continuous_enqueued = 0
+            continuous_deduplicated = 0
             for route in await self._lock_due_routes(observed_at):
                 if not await self._route_capabilities_available(route, observed_at):
                     continue
@@ -161,8 +245,21 @@ class SchedulerService:
                     )
                     if source is not None:
                         source.next_fetch_at = schedule.next_run_at
+            continuous_enqueued, continuous_deduplicated = await self._schedule_continuous_cycles(observed_at)
+            source_icon_enqueued, source_icon_deduplicated = await self._schedule_source_icons(observed_at)
             await self.session.flush()
-            return SchedulerTickResult(expired, reconciled, enqueued, deduplicated, invalid, False)
+            return SchedulerTickResult(
+                expired,
+                reconciled,
+                enqueued,
+                deduplicated,
+                invalid,
+                False,
+                continuous_enqueued,
+                continuous_deduplicated,
+                source_icon_enqueued,
+                source_icon_deduplicated,
+            )
 
     async def _reconcile_sources(self, now: datetime) -> tuple[int, int]:
         reconciled = 0
@@ -321,6 +418,109 @@ class SchedulerService:
     async def _lock_due_routes(self, now: datetime) -> list[AutomationRoute]:
         return list(await self.session.scalars(build_due_route_statement(now)))
 
+    async def _schedule_continuous_cycles(self, now: datetime) -> tuple[int, int]:
+        """Materialize at most one durable cycle job per subscription.
+
+        The subscription row is locked by the due query. The current job pointer
+        remains set across worker crashes, so lease recovery replays the same
+        cycle instead of creating a second one.
+        """
+
+        if not hasattr(self.session, "scalars"):
+            return 0, 0
+
+        enqueued = 0
+        deduplicated = 0
+        subscriptions = list(
+            await self.session.scalars(build_due_continuous_subscription_statement(now))
+        )
+        for subscription in subscriptions:
+            if subscription.current_cycle_job_id is not None:
+                current_job = await self.session.scalar(
+                    select(WorkflowJob).where(WorkflowJob.id == subscription.current_cycle_job_id)
+                )
+                if current_job is not None and current_job.status in {"queued", "running"}:
+                    continue
+                if current_job is not None and current_job.status in {"failed", "needs_review", "cancelled"}:
+                    subscription.status = "error"
+                    subscription.stopped_at = now
+                    subscription.next_cycle_at = None
+                    subscription.last_error = (
+                        current_job.error_message or "Continuous ingestion cycle did not complete."
+                    )
+                    subscription.current_cycle_job_id = None
+                    subscription.current_cycle_run_id = None
+                    continue
+                if current_job is not None and current_job.status == "succeeded":
+                    cycle_number = _cycle_number_from_job(current_job, int(subscription.cycle_count) + 1)
+                    result_status = str((current_job.result or {}).get("status") or "succeeded")
+                    subscription.cycle_count = max(int(subscription.cycle_count), cycle_number)
+                    subscription.last_cycle_at = now
+                    subscription.last_cycle_status = result_status
+                    subscription.last_success_at = now if result_status == "succeeded" else subscription.last_success_at
+                    subscription.last_error = None if result_status == "succeeded" else subscription.last_error
+                    subscription.current_cycle_job_id = None
+                    subscription.current_cycle_run_id = None
+                    subscription.status = "running"
+                    subscription.next_cycle_at = now + timedelta(minutes=subscription.interval_minutes)
+                    continue
+                subscription.current_cycle_job_id = None
+                subscription.current_cycle_run_id = None
+
+            cycle_number = int(subscription.cycle_count) + 1
+            idempotency_key = f"continuous-source-collection-cycle:{subscription.id}:{cycle_number}"
+            result = await self.repository.enqueue_job(
+                job_type="ingest.collection.continuous_cycle",
+                payload={
+                    "subscription_id": str(subscription.id),
+                    "cycle_number": cycle_number,
+                },
+                idempotency_key=idempotency_key,
+                origin=JobOrigin.SCHEDULER,
+                scheduled_for=subscription.next_cycle_at or now,
+                priority=5,
+                pause_sensitive=False,
+            )
+            subscription.current_cycle_job_id = result.job.id
+            subscription.status = "running"
+            if subscription.started_at is None:
+                subscription.started_at = now
+            if result.created:
+                enqueued += 1
+            else:
+                deduplicated += 1
+        return enqueued, deduplicated
+
+    async def _schedule_source_icons(self, now: datetime) -> tuple[int, int]:
+        if not hasattr(self.session, "scalars"):
+            return 0, 0
+        enqueued = 0
+        deduplicated = 0
+        sources = list(await self.session.scalars(build_due_source_icon_statement(now, self.settings)))
+        for source in sources:
+            source.icon_status = ICON_STATUS_QUEUED
+            source.icon_enqueued_at = now
+            source.icon_attempt = int(source.icon_attempt or 0) + 1
+            try:
+                result = await self.repository.enqueue_job(
+                    job_type=ICON_JOB_TYPE,
+                    payload={"source_id": str(source.id), "attempt": source.icon_attempt},
+                    idempotency_key=f"source-icon:{source.id}:{source.icon_attempt}",
+                    origin=JobOrigin.SCHEDULER,
+                    scheduled_for=now,
+                    priority=-1,
+                    max_attempts=1,
+                    pause_sensitive=False,
+                )
+            except JobCapabilityUnavailable:
+                source.icon_status = ICON_STATUS_PENDING
+                source.icon_enqueued_at = None
+                continue
+            if result.created:
+                enqueued += 1
+            else:
+                deduplicated += 1
+        return enqueued, deduplicated
     async def _route_capabilities_available(
         self,
         route: AutomationRoute,
@@ -410,17 +610,27 @@ async def run_scheduler() -> None:
                         "reconciled": result.reconciled,
                         "enqueued": result.enqueued,
                         "deduplicated": result.deduplicated,
+                        "continuous_enqueued": result.continuous_enqueued,
+                        "continuous_deduplicated": result.continuous_deduplicated,
+                        "source_icon_enqueued": result.source_icon_enqueued,
+                        "source_icon_deduplicated": result.source_icon_deduplicated,
                         "invalid": result.invalid,
                         "paused": result.paused,
                     },
                 }
             )
             logger.info(
-                "scheduler tick expired=%d reconciled=%d enqueued=%d deduplicated=%d invalid=%d paused=%s",
+                "scheduler tick expired=%d reconciled=%d enqueued=%d deduplicated=%d "
+                "continuous_enqueued=%d continuous_deduplicated=%d source_icon_enqueued=%d "
+                "source_icon_deduplicated=%d invalid=%d paused=%s",
                 result.expired_leases,
                 result.reconciled,
                 result.enqueued,
                 result.deduplicated,
+                result.continuous_enqueued,
+                result.continuous_deduplicated,
+                result.source_icon_enqueued,
+                result.source_icon_deduplicated,
                 result.invalid,
                 result.paused,
             )

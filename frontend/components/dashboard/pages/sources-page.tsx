@@ -7,6 +7,11 @@ import { useSearchParams } from "next/navigation"
 
 import { OperationsPageFrame } from "@/components/dashboard/pages/operations-page-frame"
 import { SourceDetailPanel } from "@/components/dashboard/source-detail-panel"
+import {
+  ALL_SOURCES_SCOPE,
+  SourceCollectionsPanel,
+  UNASSIGNED_SOURCES_SCOPE,
+} from "@/components/dashboard/source-collections-panel"
 import { SourceHealthTable } from "@/components/dashboard/source-health-table"
 import {
   AddSourceDialog,
@@ -21,7 +26,10 @@ import {
   deleteSource as deleteSourceRequest,
   getSource,
   getSources,
+  getSourcePage,
   seedSources,
+  type SourcePage,
+  type SourceSummaryList,
 } from "@/features/operations/ingestion-api"
 import type { SourceSummary } from "@/features/operations/ingestion-types"
 import { getApiErrorMessage } from "@/lib/http"
@@ -41,6 +49,8 @@ export function SourcesPage({
   const { pushNotice } = useNotices()
   const requestedSourceId = searchParams?.get("source") ?? initialSourceId
   const [selectedSourceId, setSelectedSourceId] = useState(requestedSourceId ?? initialSources[0]?.id ?? "")
+  const [selectedScope, setSelectedScope] = useState(ALL_SOURCES_SCOPE)
+  const [sourcePageOffset, setSourcePageOffset] = useState(0)
   const [detailOpen, setDetailOpen] = useState(Boolean(requestedSourceId))
   const [addedSources, setAddedSources] = useState<SourceSummary[]>([])
   const [deletedSourceIds, setDeletedSourceIds] = useState<string[]>([])
@@ -50,26 +60,46 @@ export function SourcesPage({
   const [checkingSourceIds, setCheckingSourceIds] = useState<ReadonlySet<string>>(new Set())
   const [bulkChecking, setBulkChecking] = useState(false)
   const checkingSourceIdsRef = useRef(new Set<string>())
-  const sourcesQuery = useQuery({
-    queryKey: queryKeys.sources,
-    queryFn: ({ signal }) => getSources(signal),
-    placeholderData: initialSources,
+  const sourcesQuery = useQuery<SourceSummaryList | SourcePage>({
+    queryKey: queryKeys.sourcesPage(selectedScope, sourcePageOffset),
+    queryFn: ({ signal }) => selectedScope === ALL_SOURCES_SCOPE
+      ? getSources({ limit: 50, offset: sourcePageOffset }, signal)
+      : selectedScope === UNASSIGNED_SOURCES_SCOPE
+        ? getSourcePage({ unassigned: true, limit: 50, offset: sourcePageOffset }, signal)
+        : getSourcePage({ collectionId: selectedScope, limit: 50, offset: sourcePageOffset }, signal),
+    placeholderData: selectedScope === ALL_SOURCES_SCOPE ? initialSources as SourceSummaryList : undefined,
     enabled: enableQueries,
+    refetchInterval: (query) => {
+      const data = query.state.data
+      const rows = data ? (Array.isArray(data) ? data : data.items) : []
+      return rows.some((source) => source.iconStatus === "pending" || source.iconStatus === "queued") ? 5_000 : false
+    },
   })
   const seedMutation = useMutation({
     mutationFn: seedSources,
     onSuccess: () => queryClient.invalidateQueries({ queryKey: queryKeys.sources }),
   })
-  const fetchedSources = sourcesQuery.data ?? initialSources
+  const pageData = sourcesQuery.data
+  const fetchedSources = pageData
+    ? Array.isArray(pageData) ? pageData : pageData.items
+    : initialSources
+  const sourceTotal = pageData
+    ? Array.isArray(pageData) ? pageData.total : pageData.total
+    : initialSources.length
+  const sourceHasMore = pageData
+    ? Array.isArray(pageData) ? pageData.hasMore : pageData.hasMore
+    : false
   const baseSources = useMemo(
-    () => [
-      ...addedSources,
-      ...fetchedSources.filter((source) =>
-        !deletedSourceIds.includes(source.id)
-        && !addedSources.some((addedSource) => addedSource.id === source.id)
-      ),
-    ],
-    [addedSources, deletedSourceIds, fetchedSources]
+    () => selectedScope === ALL_SOURCES_SCOPE
+      ? [
+        ...addedSources,
+        ...fetchedSources.filter((source) =>
+          !deletedSourceIds.includes(source.id)
+          && !addedSources.some((addedSource) => addedSource.id === source.id)
+        ),
+      ]
+      : fetchedSources.filter((source) => !deletedSourceIds.includes(source.id)),
+    [addedSources, deletedSourceIds, fetchedSources, selectedScope]
   )
   const sources = useMemo(
     () => baseSources.map((source) => ({
@@ -143,6 +173,10 @@ export function SourcesPage({
     queryFn: () => getSource(selectedSourceId),
     enabled: Boolean(selectedSourceId) && enableQueries,
     placeholderData: selectedSource,
+    refetchInterval: (query) => {
+      const status = query.state.data?.iconStatus
+      return status === "pending" || status === "queued" ? 5_000 : false
+    },
   })
   const displayedSourceDetail = sourceDetailQuery.data
     ? { ...sourceDetailQuery.data, ...healthOverrides[sourceDetailQuery.data.id] }
@@ -168,6 +202,13 @@ export function SourcesPage({
   function openAddDialog() {
     createMutation.reset()
     setAddDialogOpen(true)
+  }
+
+  function selectSourceScope(scope: string) {
+    setSelectedScope(scope)
+    setSourcePageOffset(0)
+    setSelectedSourceId("")
+    setDetailOpen(false)
   }
 
   function closeAddDialog() {
@@ -289,6 +330,11 @@ export function SourcesPage({
           </div>
         }
       >
+        <SourceCollectionsPanel
+          enableQueries={enableQueries}
+          onSelectScope={selectSourceScope}
+          selectedScope={selectedScope}
+        />
         <div className={detailOpen ? "grid min-w-0 gap-3 xl:grid-cols-[minmax(0,1fr)_minmax(20rem,24rem)]" : "grid min-w-0"}>
           <div className="min-w-0">
             <SourceHealthTable
@@ -298,6 +344,15 @@ export function SourcesPage({
               onCheckSource={(sourceId) => void runHealthCheck(sourceId)}
               sources={sources}
               selectedSourceId={selectedSource?.id ?? ""}
+              totalCount={sourceTotal}
+              pageOffset={sourcePageOffset}
+              pageSize={50}
+              hasMore={sourceHasMore}
+              onPageChange={(offset) => {
+                setSourcePageOffset(offset)
+                setSelectedSourceId("")
+                setDetailOpen(false)
+              }}
               onDeleteSource={requestDelete}
               onSelectSource={selectSource}
             />

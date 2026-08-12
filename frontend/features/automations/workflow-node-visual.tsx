@@ -36,6 +36,40 @@ const icons: Record<string, LucideIcon> = {
   "user-check": UserCheck,
 }
 
+const nodeTypeIcons: Record<string, string> = {
+  manual: "mouse-pointer-click",
+  collection_article_added: "file-text",
+  new_source_item: "radio",
+  schedule: "clock",
+  select_content: "list-filter",
+  filter_content: "filter",
+  research: "search",
+  generate_content_pack: "sparkles",
+  validate: "shield-check",
+  human_review: "user-check",
+  save_drafts: "file-check",
+  manual_package: "package",
+  telegram_publish: "send",
+  story_output: "file-check",
+}
+
+const compactNodeLabels: Record<string, string> = {
+  manual: "Manual",
+  collection_article_added: "Article",
+  new_source_item: "New item",
+  schedule: "Schedule",
+  select_content: "Collect",
+  filter_content: "Filter",
+  research: "Research",
+  generate_content_pack: "AI Generate",
+  validate: "Validate",
+  human_review: "Review",
+  save_drafts: "Drafts",
+  manual_package: "Publish",
+  telegram_publish: "Telegram",
+  story_output: "Output",
+}
+
 export const familyStyles: Record<string, string> = {
   trigger: "border-success/35 bg-[var(--success-surface)] text-success",
   research: "border-violet-500/35 bg-violet-500/10 text-violet-700 dark:text-violet-300",
@@ -46,8 +80,26 @@ export const familyStyles: Record<string, string> = {
   output: "border-warning/35 bg-[var(--warning-surface)] text-warning",
 }
 
+export const familyIconStyles: Record<string, string> = {
+  trigger: "text-success",
+  research: "text-violet-700 dark:text-violet-300",
+  generate: "text-violet-700 dark:text-violet-300",
+  review: "text-violet-700 dark:text-violet-300",
+  select_filter: "text-primary",
+  validate: "text-primary",
+  output: "text-warning",
+}
+
 export function nodeIcon(name: unknown): LucideIcon {
   return typeof name === "string" ? icons[name] ?? Workflow : Workflow
+}
+
+export function nodeTypeIcon(nodeType: string): LucideIcon {
+  return nodeIcon(nodeTypeIcons[nodeType])
+}
+
+export function compactNodeLabel(nodeType: string, fallback: string) {
+  return compactNodeLabels[nodeType] ?? fallback
 }
 
 export function familyLabel(family: string) {

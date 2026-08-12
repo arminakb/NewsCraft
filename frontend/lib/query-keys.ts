@@ -1,5 +1,6 @@
 import type { JobFilters } from "@/features/jobs/types"
 import type { HistoryFilters } from "@/features/operations/types"
+import type { ArticleFilters, ArticleSort } from "@/features/articles/types"
 import type {
   AutomationListFilters,
   AutomationResourceRequest,
@@ -8,7 +9,31 @@ import type {
 
 export const queryKeys = {
   sources: ["sources"] as const,
+  sourcesPage: (scope: string, offset = 0) => ["sources", "page", scope, offset] as const,
   source: (id: string) => ["sources", id] as const,
+  sourceCollections: ["source-collections"] as const,
+  sourceCollection: (id: string) => ["source-collections", id] as const,
+  sourceCollectionSources: (id: string, offset = 0, search = "") => [
+    "source-collections",
+    id,
+    "sources",
+    offset,
+    search,
+  ] as const,
+  unassignedSources: (offset = 0, search = "") => ["source-collections", "unassigned", offset, search] as const,
+  sourceCollectionRun: (collectionId: string, runId: string) => [
+    "source-collections",
+    collectionId,
+    "runs",
+    runId,
+  ] as const,
+  sourceCollectionRuns: (collectionId: string, limit = 10) => [
+    "source-collections",
+    collectionId,
+    "runs",
+    "list",
+    limit,
+  ] as const,
   diagnostics: ["diagnostics"] as const,
   jobs: (filters: JobFilters = {}) => ["jobs", filters] as const,
   job: (id: string) => ["jobs", id] as const,
@@ -17,7 +42,18 @@ export const queryKeys = {
   dateTimeSettings: ["settings", "date-time"] as const,
   notifications: ["notifications"] as const,
   article: (id: string) => ["articles", "detail", id] as const,
+  articlePage: (params: {
+    identity: string
+    sort: ArticleSort
+    filters: ArticleFilters
+    query: string
+    collectionId: string | null
+    page: number
+    cursor: string | null
+  }) => ["articles", "feed-page", params] as const,
   articleCollections: ["articles", "collections"] as const,
+  articleFacets: ["articles", "facets"] as const,
+  feedSummary: ["feed", "summary"] as const,
   telegramOptions: ["telegram", "options"] as const,
   telegramSources: ["telegram", "sources"] as const,
   telegramDestinations: ["telegram", "destinations"] as const,

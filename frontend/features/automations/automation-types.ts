@@ -3,6 +3,13 @@ import type { Camelized } from "@/lib/camelize"
 
 type Schemas = components["schemas"]
 
+export type ArtifactCapability = NonNullable<Schemas["ArtifactInputContract"]["all_of"]>[number]
+export type ArtifactKind = NonNullable<Schemas["ArtifactOutputContract"]["kind"]>
+export type ArtifactInputContract = Camelized<Schemas["ArtifactInputContract"]>
+export type ArtifactOutputContract = Camelized<Schemas["ArtifactOutputContract"]>
+type GeneratedWorkflowArtifact = Camelized<Schemas["WorkflowArtifact_object_"]>
+export type WorkflowArtifact<TPayload = unknown> = Omit<GeneratedWorkflowArtifact, "payload"> & { payload: TPayload }
+
 type GeneratedWorkflowGraph = Camelized<Schemas["WorkflowGraphV1"]>
 type GeneratedWorkflowNode = Camelized<Schemas["WorkflowNode"]>
 

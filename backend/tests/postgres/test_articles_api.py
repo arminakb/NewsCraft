@@ -24,6 +24,9 @@ async def test_articles_summary_and_detail_contracts_are_composed_and_bounded(db
         source_group="news",
         language_hint="en",
         active=True,
+        icon_url="/sources/joined/icon.svg",
+        icon_status="resolved",
+        icon_updated_at=NOW,
     )
     primary = _media("primary", kind="image", fetch_status="remote_only", alt_text="Article image")
     secondary = _media("secondary", kind="video", fetch_status="fetched")
@@ -137,6 +140,9 @@ async def test_articles_summary_and_detail_contracts_are_composed_and_bounded(db
         "name": "Joined Wire",
         "platform": "rss",
         "homepage_url": "https://joined.example",
+        "icon_url": "/sources/joined/icon.svg",
+        "icon_status": "resolved",
+        "icon_updated_at": NOW.isoformat().replace("+00:00", "Z"),
     }
     assert summary["domain"] == "joined.example"
     assert summary["summary"] is None
@@ -199,6 +205,7 @@ async def test_articles_summary_and_detail_contracts_are_composed_and_bounded(db
         "advanced",
     }
     assert detail["content_text"].startswith("  First\n line")
+    assert detail["source"] == summary["source"]
     assert detail["content_origin"] == "unknown"
     assert detail["sanitized_html"] is not None
     assert "<script" not in detail["sanitized_html"]

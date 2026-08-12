@@ -20,7 +20,7 @@ test("explicit theme choice persists across reloads", async ({ page }) => {
   await page.goto("/")
   await page.evaluate(() => window.localStorage.removeItem("newscraft-theme"))
   await page.reload()
-  await expect(page.getByText("No workflow jobs yet", { exact: true })).toBeVisible()
+  await expect(page.getByText("No articles collected yet", { exact: true })).toBeVisible()
 
   const toggle = page
     .getByRole("complementary", { name: "Global navigation" })

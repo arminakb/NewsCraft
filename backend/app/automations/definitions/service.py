@@ -178,8 +178,23 @@ def _automation_preview(
     )
 
 
-def _error(code: str, status: int, message: str) -> AutomationDefinitionError:
-    return AutomationDefinitionError(code, status, message)
+def _error(
+    code: str,
+    status: int,
+    message: str,
+    *,
+    node_id: str | None = None,
+    node_type: str | None = None,
+    field_path: str | None = None,
+) -> AutomationDefinitionError:
+    return AutomationDefinitionError(
+        code,
+        status,
+        message,
+        node_id=node_id,
+        node_type=node_type,
+        field_path=field_path,
+    )
 
 
 def _record_event(
@@ -275,14 +290,27 @@ def _new_version(
     )
 
 
-def _require_saveable(validation: GraphValidationResult, *, allow_empty: bool = False) -> None:
+def _require_saveable(
+    validation: GraphValidationResult,
+    graph: WorkflowGraphV1,
+    *,
+    allow_empty: bool = False,
+) -> None:
     if allow_empty:
         return
     blocking = save_blocking_findings(validation)
     if not blocking:
         return
     first = blocking[0]
-    raise _error(first.code, 422, first.message)
+    node_type = next((node.type for node in graph.nodes if node.id == first.node_id), None)
+    raise _error(
+        first.code,
+        422,
+        first.message,
+        node_id=first.node_id,
+        node_type=node_type,
+        field_path=first.field_path,
+    )
 
 
 class AutomationDefinitionService:
@@ -440,7 +468,7 @@ class AutomationDefinitionService:
             idempotency_key=idempotency_key,
         )
         validation = validate_graph(body.graph)
-        _require_saveable(validation, allow_empty=not body.graph.nodes)
+        _require_saveable(validation, body.graph, allow_empty=not body.graph.nodes)
         self.session.add(automation)
         version = _new_version(
             automation,
@@ -551,7 +579,7 @@ class AutomationDefinitionService:
             or 0
         ) + 1
         validation = validate_graph(body.graph)
-        _require_saveable(validation, allow_empty=not body.graph.nodes)
+        _require_saveable(validation, body.graph, allow_empty=not body.graph.nodes)
         version = _new_version(
             automation,
             body.graph,

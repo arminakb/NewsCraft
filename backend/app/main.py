@@ -49,9 +49,16 @@ async def automation_definition_error(
     _request: Request,
     exc: AutomationDefinitionError,
 ) -> JSONResponse:
+    detail = {"code": exc.code, "message": exc.safe_message}
+    if exc.node_id is not None:
+        detail["node_id"] = exc.node_id
+    if exc.node_type is not None:
+        detail["node_type"] = exc.node_type
+    if exc.field_path is not None:
+        detail["field_path"] = exc.field_path
     return JSONResponse(
         status_code=exc.status_code,
-        content={"detail": {"code": exc.code, "message": exc.safe_message}},
+        content={"detail": detail},
     )
 
 

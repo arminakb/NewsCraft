@@ -127,6 +127,22 @@ async def test_create_version_restore_conflict_archive_and_events_are_durable(
         assert unsupported.status_code == 422
         assert unsupported.json()["detail"]["code"] == "node_type_unsupported"
 
+        invalid_config_graph = _graph()
+        invalid_config_graph["nodes"][1]["config"]["platforms"] = []  # type: ignore[index]
+        invalid_config = await client.post(
+            f"/automations/{automation_id}/versions",
+            headers={"Idempotency-Key": "invalid-config-workflow-2"},
+            json={"expected_revision": 1, "graph": invalid_config_graph, "creation_reason": "invalid config probe"},
+        )
+        assert invalid_config.status_code == 422
+        assert invalid_config.json()["detail"] == {
+            "code": "node_config_invalid",
+            "message": "Generate content package: configuration.platforms must contain at least 1 item.",
+            "node_id": "generate-1",
+            "node_type": "generate_content_pack",
+            "field_path": "config.platforms",
+        }
+
         saved = await client.post(
             f"/automations/{automation_id}/versions",
             headers={"Idempotency-Key": "save-workflow-2"},
@@ -134,6 +150,11 @@ async def test_create_version_restore_conflict_archive_and_events_are_durable(
         )
         assert saved.status_code == 201, saved.text
         assert saved.json()["version"] == 2
+
+        reloaded = await client.get(f"/automations/{automation_id}")
+        assert reloaded.status_code == 200, reloaded.text
+        assert reloaded.json()["draft_version"]["version"] == 2
+        assert reloaded.json()["draft_version"]["graph"] == saved.json()["graph"]
 
         stale = await client.patch(
             f"/automations/{automation_id}",

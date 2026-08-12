@@ -1,9 +1,11 @@
 import {
   createArticleCollection,
+  clearFeed,
   deleteArticleCollection,
   getArticle,
   getArticleCollections,
   getArticleFacets,
+  getFeedSummary,
   getArticles,
   removeArticleFromCollection,
   renameArticleCollection,
@@ -134,6 +136,22 @@ describe("Articles API", () => {
       coverage: [{ value: "complete", count: 1 }],
     })
     expect(request).toHaveBeenCalledWith("/api/backend/articles/facets", undefined)
+  })
+
+  it("loads the Feed summary and clears it through the dedicated endpoint", async () => {
+    const request = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({ article_count: 7 }), {
+        status: 200, headers: { "content-type": "application/json" },
+      }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ cleared_count: 7 }), {
+        status: 200, headers: { "content-type": "application/json" },
+      }))
+    vi.stubGlobal("fetch", request)
+
+    await expect(getFeedSummary()).resolves.toEqual({ articleCount: 7 })
+    await expect(clearFeed()).resolves.toEqual({ clearedCount: 7 })
+    expect(request).toHaveBeenNthCalledWith(1, "/api/backend/feed/summary", undefined)
+    expect(request).toHaveBeenNthCalledWith(2, "/api/backend/feed/clear", { method: "POST" })
   })
 
   it("lists and creates article collections", async () => {

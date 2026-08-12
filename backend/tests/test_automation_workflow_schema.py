@@ -1,14 +1,19 @@
 from __future__ import annotations
 
+import asyncio
+import json
 from copy import deepcopy
 from uuid import uuid4
 
 import pytest
 from pydantic import ValidationError
 
-from app.automations.definitions.registry import NODE_REGISTRY, node_catalog
+from app.automations.definitions.errors import AutomationDefinitionError
+from app.automations.definitions.registry import NODE_REGISTRY, GenerateContentPackConfig, node_catalog
 from app.automations.definitions.schemas import WorkflowGraphV1, canonical_graph_json, graph_sha256
+from app.automations.definitions.service import _require_saveable
 from app.automations.definitions.validation import validate_graph
+from app.main import automation_definition_error
 
 
 def valid_graph() -> dict[str, object]:
@@ -153,6 +158,53 @@ def test_missing_resources_remain_editable_but_unsupported_graphs_block_save():
     raw["nodes"][1]["type"] = "http_request"  # type: ignore[index]
     unsupported = validate_graph(WorkflowGraphV1.model_validate(raw))
     assert {item.code for item in save_blocking_findings(unsupported)} >= {"node_type_unsupported"}
+
+
+def test_factory_default_array_mismatch_reports_exact_node_and_field():
+    raw = valid_graph()
+    raw["nodes"][1]["config"]["platforms"] = []  # type: ignore[index]
+
+    result = validate_graph(WorkflowGraphV1.model_validate(raw))
+    finding = next(item for item in result.findings if item.code == "node_config_invalid")
+
+    assert finding.node_id == "generate-1"
+    assert finding.field_path == "config.platforms"
+    assert finding.message == "Generate content package: configuration.platforms must contain at least 1 item."
+
+
+def test_catalog_exposes_factory_array_constraint_without_its_runtime_default():
+    schema = next(item for item in node_catalog().nodes if item.type == "generate_content_pack").config_schema
+
+    assert schema["properties"]["platforms"]["minItems"] == 1  # type: ignore[index]
+    assert "default" not in schema["properties"]["platforms"]  # type: ignore[index]
+    assert GenerateContentPackConfig.model_validate({}).platforms == ["telegram"]
+
+
+def test_save_rejection_keeps_node_context_in_422_response():
+    raw = valid_graph()
+    raw["nodes"][1]["config"]["platforms"] = []  # type: ignore[index]
+    graph = WorkflowGraphV1.model_validate(raw)
+
+    with pytest.raises(AutomationDefinitionError) as raised:
+        _require_saveable(validate_graph(graph), graph)
+
+    error = raised.value
+    assert error.status_code == 422
+    assert error.node_id == "generate-1"
+    assert error.node_type == "generate_content_pack"
+    assert error.field_path == "config.platforms"
+
+    response = asyncio.run(automation_definition_error(None, error))
+    assert response.status_code == 422
+    assert json.loads(response.body) == {
+        "detail": {
+            "code": "node_config_invalid",
+            "message": "Generate content package: configuration.platforms must contain at least 1 item.",
+            "node_id": "generate-1",
+            "node_type": "generate_content_pack",
+            "field_path": "config.platforms",
+        }
+    }
 
 
 def test_validator_rejects_invalid_ports_cardinality_cycles_and_unreachable_nodes():

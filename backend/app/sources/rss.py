@@ -13,6 +13,7 @@ from app.normalization.text import fingerprint_text
 from app.normalization.titles import normalize_title
 from app.normalization.urls import normalize_url
 from app.sources.base import MediaCandidate, ParsedSourceItem, ParsedSourcePayload
+from app.sources.icon_discovery import extract_feed_identity
 
 
 def parse_rss_feed(
@@ -32,6 +33,7 @@ def parse_rss_feed(
     ]
 
     feed_title = feed.feed.get("title") if getattr(feed, "feed", None) else None
+    identity = extract_feed_identity(xml, source_url)
     return ParsedSourcePayload(
         items=items,
         warnings=warnings,
@@ -40,6 +42,11 @@ def parse_rss_feed(
             "source_url": source_url,
             "feed_title": feed_title,
             "feed_version": feed.get("version"),
+            "publisher_url": identity.publisher_url,
+            "icon_candidates": [
+                {"url": candidate.url, "source": candidate.source}
+                for candidate in identity.candidates
+            ],
         },
     )
 

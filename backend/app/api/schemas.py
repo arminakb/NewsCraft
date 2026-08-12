@@ -32,11 +32,15 @@ class SourceOut(BaseModel):
     last_suitable_count: int | None = 0
     last_media_count: int | None = 0
     fetch_interval_minutes: int | None = 1440
+    icon_url: str | None = None
+    icon_source: str | None = None
+    icon_updated_at: datetime | None = None
+    icon_status: str | None = "pending"
     created_at: datetime | None = None
 
 
 class SourceCreateIn(BaseModel):
-    platform: Literal["rss", "telegram_public"]
+    platform: Literal["rss", "atom", "telegram_public"]
     name: str = Field(min_length=1, max_length=200)
     url: str = Field(min_length=1, max_length=2_048)
     source_group: str = Field(default="general", min_length=1, max_length=100)
@@ -50,10 +54,10 @@ class SourceCreateIn(BaseModel):
 
     @model_validator(mode="after")
     def validate_source_url(self):
-        if self.platform == "rss":
+        if self.platform in {"rss", "atom"}:
             parsed = urlsplit(self.url)
             if parsed.scheme not in {"http", "https"} or not parsed.netloc:
-                raise ValueError("RSS URL must use http:// or https://")
+                raise ValueError("Feed URL must use http:// or https://")
             return self
         if telegram_username_from_url(self.url) is None:
             raise ValueError("Telegram URL must identify a public channel")
@@ -144,6 +148,17 @@ class IngestRunSummaryOut(BaseModel):
     trigger: str
     status: str
     stats: dict[str, Any] = Field(default_factory=dict)
+    source_collection_id: UUID | None = None
+    source_collection_name_at_start: str | None = None
+    source_count: int = 0
+    processed_count: int = 0
+    success_count: int = 0
+    failure_count: int = 0
+
+    @field_validator("source_count", "processed_count", "success_count", "failure_count", mode="before")
+    @classmethod
+    def default_progress_counts(cls, value: object) -> int:
+        return 0 if value is None else int(value)
 
     @field_validator("stats", mode="before")
     @classmethod

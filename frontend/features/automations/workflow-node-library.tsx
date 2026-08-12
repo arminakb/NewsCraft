@@ -15,24 +15,16 @@ export function WorkflowNodeLibrary({
   catalog,
   afterNodeId,
   allowEntry = false,
-  issueCount,
   onAdd,
 }: {
   catalog: AutomationNodeCatalog
   afterNodeId?: string
   allowEntry?: boolean
-  issueCount: number
   onAdd: (type: string) => void
 }) {
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <div className="shrink-0 border-b border-border/60 px-3 py-3">
-        <div className="flex items-baseline justify-between gap-2">
-          <h2 className="font-semibold">Node library</h2>
-          <span className="text-xs tabular-nums text-muted-foreground">{issueCount} {issueCount === 1 ? "issue" : "issues"}</span>
-        </div>
-        <p className="mt-0.5 text-xs text-muted-foreground">Node options will appear here when available.</p>
-      </div>
+      <div className="shrink-0 border-b border-border/60 px-3 py-3"><h2 className="font-semibold">Node library</h2></div>
       <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-3 pb-4">
         <NodePicker
           allowEntry={allowEntry}

@@ -12,6 +12,7 @@ ALL_SCOPES = frozenset(
         "prompts:write",
         "automations:read",
         "automations:write",
+        "feed:write",
         "jobs:read",
         "jobs:write",
     }

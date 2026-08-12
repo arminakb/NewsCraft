@@ -271,7 +271,7 @@ async def _start_collection_downstream(
 
     generation_index = stages.index(generation)
     pre_generation = stages[entry_index + 1 : generation_index]
-    supported_before_generation = {"filter_content", "research"}
+    supported_before_generation = {"filter_content", "research", "human_review"}
     unsupported = [
         stage
         for stage in pre_generation

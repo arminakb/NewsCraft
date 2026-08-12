@@ -166,6 +166,8 @@ async def enqueue_collection_article_added(
                 "plan_hash": plan.plan_hash,
                 "required_resources": list(plan.required_resources),
                 "node_ids_by_type": _node_ids_by_type(plan),
+                "node_types_by_id": {stage.node_id: stage.node_type for stage in plan.stages},
+                "node_order": [stage.node_id for stage in plan.stages],
                 "article_id": str(article_id),
                 "collection_id": str(collection_id),
                 "source_event_id": source_event_id,

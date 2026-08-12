@@ -148,6 +148,8 @@ class IngestionRepository:
 
     async def finish_run(self, run_id: UUID, status: str, stats: dict, error: str | None = None) -> None:
         durable_stats = redact_secrets(stats)
+        checked = max(0, int(stats.get("checked", 0)))
+        failed = max(0, int(stats.get("failed", 0)))
         await self.session.execute(
             update(IngestRun)
             .where(IngestRun.id == run_id)
@@ -156,6 +158,9 @@ class IngestionRepository:
                 status=status,
                 stats=durable_stats if isinstance(durable_stats, dict) else {},
                 error=redact_string(error) if error is not None else None,
+                processed_count=checked,
+                success_count=max(0, checked - failed),
+                failure_count=failed,
             )
         )
 

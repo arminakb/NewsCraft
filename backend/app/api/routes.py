@@ -11,6 +11,7 @@ from app.api.content_packs import router as content_packs_router
 from app.api.control import router as control_router
 from app.api.date_time_settings import router as date_time_settings_router
 from app.api.exports import router as exports_router
+from app.api.feed import router as feed_router
 from app.api.generation_settings import router as generation_settings_router
 from app.api.health import router as health_router
 from app.api.ingest import router as ingest_router
@@ -20,6 +21,7 @@ from app.api.llm_providers import router as llm_providers_router
 from app.api.media import router as media_router
 from app.api.operations import router as operations_router
 from app.api.sources import router as sources_router
+from app.api.source_collections import router as source_collections_router
 from app.api.stories import router as stories_router
 from app.api.telegram_automations import router as telegram_automations_router
 from app.api.telegram_destinations import router as telegram_destinations_router
@@ -29,8 +31,10 @@ from app.api.telegram_sources import router as telegram_sources_router
 router = APIRouter()
 router.include_router(health_router)
 router.include_router(sources_router)
+router.include_router(source_collections_router)
 router.include_router(article_collections_router)
 router.include_router(articles_router)
+router.include_router(feed_router)
 router.include_router(automations_router)
 router.include_router(stories_router)
 router.include_router(ingest_router)

@@ -48,6 +48,7 @@ from app.content.article_metadata import (
 )
 from app.db.models import ArticleCollection, ArticleCollectionItem, ContentItem, ItemMedia, MediaAsset, Source
 from app.db.session import get_session
+from app.feed.service import active_feed_condition
 from app.stories.models import Story, StoryEvidenceSnapshot
 
 router = APIRouter(tags=["articles"])
@@ -242,6 +243,7 @@ def _coverage_facet_statement() -> Select:
         .select_from(ContentItem)
         .outerjoin(active_items, active_items.c.content_item_id == ContentItem.id)
         .outerjoin(complete_items, complete_items.c.content_item_id == ContentItem.id)
+        .where(active_feed_condition())
         .group_by(coverage_state)
         .order_by(coverage_state)
     )
@@ -272,6 +274,9 @@ def _base_article_columns() -> tuple:
         Source.name.label("source_name"),
         Source.platform.label("source_platform"),
         Source.homepage_url.label("source_homepage_url"),
+        Source.icon_url.label("source_icon_url"),
+        Source.icon_status.label("source_icon_status"),
+        Source.icon_updated_at.label("source_icon_updated_at"),
         ContentItem.classification_metadata["source_name"].astext.label("legacy_source_name"),
         ContentItem.classification_metadata["source_platform"].astext.label("legacy_source_platform"),
         MediaAsset.id.label("image_id"),
@@ -301,6 +306,7 @@ class ArticleQuery:
         display_at = _display_at_expression()
         content_type, topic, language = _article_classification_expressions()
         filters = self.filters
+        statement = statement.where(active_feed_condition())
         if filters.search_query is not None:
             if any(character.isalnum() for character in filters.search_query):
                 statement = statement.where(
@@ -563,6 +569,9 @@ def _source(row: Any) -> ArticleSourceOut:
         name=_label(row.source_name) or _label(row.legacy_source_name),
         platform=_label(row.source_platform) or _label(row.legacy_source_platform),
         homepage_url=row.source_homepage_url,
+        icon_url=row.source_icon_url,
+        icon_status=row.source_icon_status,
+        icon_updated_at=row.source_icon_updated_at,
     )
 
 
@@ -639,6 +648,7 @@ async def _classification_facets(session: AsyncSession) -> dict[str, list[Articl
             topic.label("topic"),
             language.label("language"),
         )
+        .where(active_feed_condition())
         .cte("article_classifications")
         .prefix_with("MATERIALIZED")
     )
@@ -938,6 +948,7 @@ async def get_article_facets(
                 func.count(ContentItem.id).label("count"),
             )
             .join(ContentItem, ContentItem.primary_source_id == Source.id)
+            .where(active_feed_condition())
             .group_by(Source.id, Source.name, Source.platform)
             .order_by(Source.name, Source.platform, Source.id)
         )

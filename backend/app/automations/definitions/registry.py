@@ -8,6 +8,10 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from app.automations.definitions.schemas import (
+    ARTIFACT_CAPABILITIES,
+    ARTIFACT_KINDS,
+    ArtifactInputContract,
+    ArtifactOutputContract,
     AutomationNodeCatalogOut,
     NodeCatalogItemOut,
     PortCatalogOut,
@@ -122,9 +126,12 @@ class TelegramPublishConfig(_ConfigModel):
 
 @dataclass(frozen=True, slots=True)
 class PortDefinition:
+    # Kept only for readable legacy graphs and old clients. Compatibility uses contracts below.
     artifact_types: tuple[str, ...]
     required: bool = True
     max_connections: int | None = 1
+    input_contract: ArtifactInputContract | None = None
+    output_contract: ArtifactOutputContract | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -142,6 +149,9 @@ class NodeDefinition:
     runtime_owner: Literal["api", "scheduler", "source", "generation", "publishing", "compiler"] = "compiler"
     runtime_job_types: tuple[str, ...] = ()
     ui_hints: dict[str, object] | None = None
+    input_contract: ArtifactInputContract | None = None
+    output_contract: ArtifactOutputContract | None = None
+    preserves_input_artifact: bool = False
 
     def catalog_item(self) -> NodeCatalogItemOut:
         def ports(values: dict[str, PortDefinition]) -> list[PortCatalogOut]:
@@ -151,6 +161,8 @@ class NodeDefinition:
                     artifact_types=list(port.artifact_types),
                     required=port.required,
                     max_connections=port.max_connections,
+                    input_contract=port.input_contract,
+                    output_contract=port.output_contract,
                 )
                 for name, port in values.items()
             ]
@@ -169,6 +181,15 @@ class NodeDefinition:
             outputs=ports(self.outputs),
             config_schema=self.config_model.model_json_schema(),
             ui_hints=self.ui_hints or {},
+            input_contract=self.input_contract
+            or next((port.input_contract for port in self.inputs.values() if port.input_contract is not None), None),
+            output_contract=self.output_contract
+            or next((port.output_contract for port in self.outputs.values() if port.output_contract is not None), None),
+            preserves_input_artifact=self.preserves_input_artifact
+            or any(
+                port.output_contract and port.output_contract.preserves_input_artifact
+                for port in self.outputs.values()
+            ),
         )
 
 
@@ -182,6 +203,71 @@ DRAFT_SET = ("draft.revision_set_ref",)
 VALIDATED_DRAFT_SET = ("draft.validated_revision_set_ref",)
 ANY_DRAFT_SET = DRAFT_SET + VALIDATED_DRAFT_SET
 
+_ARTICLE_INPUT = ArtifactInputContract(
+    all_of=["textual"],
+    any_of=["article", "generatable"],
+    accepted_kinds=["article", "research"],
+)
+_RESEARCH_INPUT = ArtifactInputContract(
+    all_of=["textual"],
+    any_of=["article", "generatable"],
+    accepted_kinds=["article", "research"],
+)
+_GENERATE_INPUT = ArtifactInputContract(
+    all_of=["generatable"],
+    accepted_kinds=["article", "research"],
+)
+_REVIEWABLE_INPUT = ArtifactInputContract(all_of=["reviewable"])
+_DRAFT_INPUT = ArtifactInputContract(all_of=["draft"], accepted_kinds=["draft"])
+_APPROVED_DRAFT_INPUT = ArtifactInputContract(
+    all_of=["approved", "publishable"],
+    accepted_kinds=["draft"],
+)
+_SCHEDULE_INPUT = ArtifactInputContract(all_of=["schedule-context"], accepted_kinds=["schedule_event"])
+
+_ARTICLE_OUTPUT = ArtifactOutputContract(
+    kind="article",
+    capabilities=["textual", "structured", "article", "reviewable", "generatable"],
+)
+_COLLECTION_ARTICLE_OUTPUT = ArtifactOutputContract(
+    kind="article",
+    capabilities=[
+        "textual",
+        "structured",
+        "article",
+        "reviewable",
+        "generatable",
+        "collection-context",
+    ],
+)
+_SOURCE_ARTICLE_OUTPUT = ArtifactOutputContract(
+    kind="article",
+    capabilities=["textual", "structured", "article", "reviewable", "generatable", "source-context"],
+)
+_SCHEDULE_OUTPUT = ArtifactOutputContract(kind="schedule_event", capabilities=["structured", "schedule-context"])
+_RESEARCH_OUTPUT = ArtifactOutputContract(
+    kind="research",
+    capabilities=["textual", "structured", "research", "reviewable", "generatable"],
+)
+_DRAFT_OUTPUT = ArtifactOutputContract(
+    kind="draft",
+    capabilities=["textual", "structured", "draft", "reviewable"],
+)
+_PRESERVE_DRAFT_OUTPUT = ArtifactOutputContract(
+    kind="draft",
+    capabilities=["structured"],
+    preserves_input_artifact=True,
+)
+_PRESERVE_OUTPUT = ArtifactOutputContract(preserves_input_artifact=True)
+_APPROVED_OUTPUT = ArtifactOutputContract(
+    preserves_input_artifact=True,
+    adds_capabilities=["approved", "publishable"],
+)
+_PUBLICATION_OUTPUT = ArtifactOutputContract(
+    kind="publication",
+    capabilities=["structured", "approved", "publishable"],
+)
+
 
 NODE_REGISTRY: dict[str, NodeDefinition] = {
     item.type: item
@@ -193,7 +279,7 @@ NODE_REGISTRY: dict[str, NodeDefinition] = {
             "Start with an exact saved Story revision.",
             ManualConfig,
             {},
-            {"story": PortDefinition(STORY, max_connections=None)},
+            {"story": PortDefinition(STORY, max_connections=None, output_contract=_ARTICLE_OUTPUT)},
             entry=True,
             runtime_status="existing",
             runtime_owner="api",
@@ -207,7 +293,13 @@ NODE_REGISTRY: dict[str, NodeDefinition] = {
             "Start when a new article is saved to one Feed collection.",
             CollectionArticleAddedConfig,
             {},
-            {"article": PortDefinition(COLLECTION_ARTICLE, max_connections=None)},
+            {
+                "article": PortDefinition(
+                    COLLECTION_ARTICLE,
+                    max_connections=None,
+                    output_contract=_COLLECTION_ARTICLE_OUTPUT,
+                )
+            },
             entry=True,
             terminal=True,
             runtime_status="existing",
@@ -222,7 +314,13 @@ NODE_REGISTRY: dict[str, NodeDefinition] = {
             "Start after a genuinely new RSS, Atom, or public Telegram source item is persisted.",
             NewSourceItemConfig,
             {},
-            {"item": PortDefinition(("source_item.ref", "content_item.ref"), max_connections=None)},
+            {
+                "item": PortDefinition(
+                    ("source_item.ref", "content_item.ref"),
+                    max_connections=None,
+                    output_contract=_SOURCE_ARTICLE_OUTPUT,
+                )
+            },
             entry=True,
             terminal=True,
             runtime_owner="source",
@@ -236,7 +334,7 @@ NODE_REGISTRY: dict[str, NodeDefinition] = {
             "Start on a bounded daily or interval schedule.",
             ScheduleConfig,
             {},
-            {"tick": PortDefinition(("run.signal",), max_connections=None)},
+            {"tick": PortDefinition(("run.signal",), max_connections=None, output_contract=_SCHEDULE_OUTPUT)},
             entry=True,
             runtime_status="extension",
             runtime_owner="scheduler",
@@ -249,8 +347,14 @@ NODE_REGISTRY: dict[str, NodeDefinition] = {
             "Select content",
             "Select a bounded deterministic set of newsroom content.",
             SelectContentConfig,
-            {"tick": PortDefinition(("run.signal",), required=False)},
-            {"stories": PortDefinition(("story.revision_set_ref",), max_connections=None)},
+            {"tick": PortDefinition(("run.signal",), required=False, input_contract=_SCHEDULE_INPUT)},
+            {
+                "stories": PortDefinition(
+                    ("story.revision_set_ref",),
+                    max_connections=None,
+                    output_contract=_ARTICLE_OUTPUT,
+                )
+            },
             runtime_status="extension",
             runtime_owner="generation",
             runtime_job_types=("automation.run.start",),
@@ -262,8 +366,14 @@ NODE_REGISTRY: dict[str, NodeDefinition] = {
             "Filter content",
             "Pass or stop using deterministic allowlisted rules.",
             FilterContentConfig,
-            {"story": PortDefinition(STORY + COLLECTION_ARTICLE)},
-            {"accepted": PortDefinition(STORY + COLLECTION_ARTICLE, max_connections=None)},
+            {"story": PortDefinition(STORY + COLLECTION_ARTICLE, input_contract=_ARTICLE_INPUT)},
+            {
+                "accepted": PortDefinition(
+                    STORY + COLLECTION_ARTICLE,
+                    max_connections=None,
+                    output_contract=_PRESERVE_OUTPUT,
+                )
+            },
             runtime_owner="generation",
             runtime_job_types=("telegram.route.process",),
             ui_hints={"icon": "filter", "accent": "blue"},
@@ -274,8 +384,8 @@ NODE_REGISTRY: dict[str, NodeDefinition] = {
             "AI Research",
             "Add bounded source-grounded research evidence.",
             ResearchConfig,
-            {"story": PortDefinition(STORY + COLLECTION_ARTICLE)},
-            {"story": PortDefinition(RESEARCHED_STORY, max_connections=None)},
+            {"story": PortDefinition(STORY + COLLECTION_ARTICLE, input_contract=_RESEARCH_INPUT)},
+            {"story": PortDefinition(RESEARCHED_STORY, max_connections=None, output_contract=_RESEARCH_OUTPUT)},
             runtime_owner="generation",
             runtime_job_types=("research_story",),
             ui_hints={"icon": "search", "accent": "purple", "settings_section": "llm-providers"},
@@ -286,8 +396,8 @@ NODE_REGISTRY: dict[str, NodeDefinition] = {
             "Generate content package",
             "Generate bounded reviewable platform drafts.",
             GenerateContentPackConfig,
-            {"story": PortDefinition(ANY_STORY + STORY_SET + COLLECTION_ARTICLE)},
-            {"drafts": PortDefinition(DRAFT_SET, max_connections=None)},
+            {"story": PortDefinition(ANY_STORY + STORY_SET + COLLECTION_ARTICLE, input_contract=_GENERATE_INPUT)},
+            {"drafts": PortDefinition(DRAFT_SET, max_connections=None, output_contract=_DRAFT_OUTPUT)},
             runtime_owner="generation",
             runtime_job_types=("content_pack.generate", "content_pack.generate_telegram"),
             ui_hints={"icon": "sparkles", "accent": "purple", "settings_section": "llm-providers"},
@@ -298,8 +408,8 @@ NODE_REGISTRY: dict[str, NodeDefinition] = {
             "Validate",
             "Apply fixed evidence and platform gates.",
             ValidateConfig,
-            {"drafts": PortDefinition(DRAFT_SET)},
-            {"valid": PortDefinition(VALIDATED_DRAFT_SET, max_connections=None)},
+            {"drafts": PortDefinition(DRAFT_SET, input_contract=_DRAFT_INPUT)},
+            {"valid": PortDefinition(VALIDATED_DRAFT_SET, max_connections=None, output_contract=_PRESERVE_OUTPUT)},
             runtime_owner="compiler",
             ui_hints={"icon": "shield-check", "accent": "blue"},
         ),
@@ -309,8 +419,14 @@ NODE_REGISTRY: dict[str, NodeDefinition] = {
             "Human Review",
             "Wait for approval of an exact immutable revision.",
             HumanReviewConfig,
-            {"draft": PortDefinition(("draft.telegram_revision_ref",))},
-            {"approved": PortDefinition(("draft.approved_telegram_revision_ref",), max_connections=None)},
+            {"draft": PortDefinition(("draft.telegram_revision_ref",), input_contract=_REVIEWABLE_INPUT)},
+            {
+                "approved": PortDefinition(
+                    ("draft.approved_telegram_revision_ref",),
+                    max_connections=None,
+                    output_contract=_APPROVED_OUTPUT,
+                )
+            },
             runtime_owner="api",
             ui_hints={"icon": "user-check", "accent": "purple"},
         ),
@@ -320,7 +436,7 @@ NODE_REGISTRY: dict[str, NodeDefinition] = {
             "Save to Drafts",
             "Finish with persisted immutable draft revisions.",
             EmptyConfig,
-            {"drafts": PortDefinition(ANY_DRAFT_SET)},
+            {"drafts": PortDefinition(ANY_DRAFT_SET, input_contract=_DRAFT_INPUT)},
             {},
             terminal=True,
             runtime_owner="compiler",
@@ -332,8 +448,14 @@ NODE_REGISTRY: dict[str, NodeDefinition] = {
             "Manual publishing package",
             "Create a reviewable package for manual publication.",
             ManualPackageConfig,
-            {"drafts": PortDefinition(DRAFT_SET)},
-            {"package": PortDefinition(("export.manual_package_ref",), max_connections=None)},
+            {"drafts": PortDefinition(DRAFT_SET, input_contract=_DRAFT_INPUT)},
+            {
+                "package": PortDefinition(
+                    ("export.manual_package_ref",),
+                    max_connections=None,
+                    output_contract=_PRESERVE_DRAFT_OUTPUT,
+                )
+            },
             terminal=True,
             runtime_owner="generation",
             runtime_job_types=("build_export",),
@@ -345,8 +467,14 @@ NODE_REGISTRY: dict[str, NodeDefinition] = {
             "Publish to Telegram",
             "Publish an approved exact revision through the publishing worker.",
             TelegramPublishConfig,
-            {"draft": PortDefinition(("draft.approved_telegram_revision_ref",))},
-            {"publication": PortDefinition(("publication.telegram_ref",), max_connections=None)},
+            {"draft": PortDefinition(("draft.approved_telegram_revision_ref",), input_contract=_APPROVED_DRAFT_INPUT)},
+            {
+                "publication": PortDefinition(
+                    ("publication.telegram_ref",),
+                    max_connections=None,
+                    output_contract=_PUBLICATION_OUTPUT,
+                )
+            },
             terminal=True,
             runtime_owner="publishing",
             runtime_job_types=("telegram.publish",),
@@ -357,7 +485,11 @@ NODE_REGISTRY: dict[str, NodeDefinition] = {
 
 
 def node_catalog() -> AutomationNodeCatalogOut:
-    return AutomationNodeCatalogOut(nodes=[definition.catalog_item() for definition in NODE_REGISTRY.values()])
+    return AutomationNodeCatalogOut(
+        nodes=[definition.catalog_item() for definition in NODE_REGISTRY.values()],
+        artifact_capabilities=list(ARTIFACT_CAPABILITIES),
+        artifact_kinds=list(ARTIFACT_KINDS),
+    )
 
 
 __all__ = [

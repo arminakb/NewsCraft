@@ -148,7 +148,14 @@ function ArticleDetailHeader({ article }: { article: ArticleSummary | ArticleDet
       <ArticleHeroMedia article={article} />
       <div className="flex min-w-0 flex-col justify-center px-4 pb-5 pt-4 sm:px-6 md:py-8 md:pr-14">
         <div className="flex min-w-0 items-center gap-2 text-sm text-muted-foreground">
-          <SourceIcon className="size-8 shrink-0" platform={(article.source.platform ?? "unknown") as SourcePlatform} />
+          <SourceIcon
+            className="size-8 shrink-0"
+            iconUrl={article.source.iconUrl}
+            iconUpdatedAt={article.source.iconUpdatedAt}
+            name={article.source.name}
+            platform={(article.source.platform ?? "unknown") as SourcePlatform}
+            sourceId={article.source.id ?? undefined}
+          />
           <bdi className="min-w-0 break-words font-medium text-foreground" dir="auto">
             {article.source.name ?? "Unknown source"}
           </bdi>

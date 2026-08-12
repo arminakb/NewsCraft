@@ -12,7 +12,10 @@ import {
   settingsNavItem,
   type NewsroomNavItem,
 } from "@/components/newsroom/newsroom-sidebar"
-import { NotificationsTrigger } from "@/components/newsroom/notifications-sidebar"
+import {
+  NotificationsTrigger,
+  type NotificationsPopoverHandle,
+} from "@/components/newsroom/notifications-sidebar"
 import { ThemeToggle } from "@/components/theme/theme-toggle"
 import {
   rememberSettingsReturnPath,
@@ -23,11 +26,13 @@ import { cn } from "@/lib/utils"
 const mobilePrimaryItems = primaryNavItems
 
 export function MobileNewsroomNav({
+  notificationsHandle,
   notificationsOpen = false,
   onNotificationsOpen = () => undefined,
 }: {
+  notificationsHandle?: NotificationsPopoverHandle
   notificationsOpen?: boolean
-  onNotificationsOpen?: (trigger: HTMLButtonElement) => void
+  onNotificationsOpen?: (trigger: HTMLButtonElement, placement: "mobile" | "sidebar") => void
 }) {
   const pathname = usePathname()
   const [open, setOpen] = useState(false)
@@ -119,9 +124,10 @@ export function MobileNewsroomNav({
               </div>
               <div className="flex items-center gap-2">
                 <NotificationsTrigger
+                  handle={notificationsHandle}
                   onOpen={(trigger) => {
                     setOpen(false)
-                    onNotificationsOpen(triggerRef.current ?? trigger)
+                    onNotificationsOpen(triggerRef.current ?? trigger, "mobile")
                   }}
                   open={notificationsOpen}
                   placement="mobile"

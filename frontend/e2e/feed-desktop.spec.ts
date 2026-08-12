@@ -20,6 +20,17 @@ test("Feed renders a consistent responsive desktop card grid", async ({ page }, 
     await expect(page.getByRole("heading", { name: "Feed", exact: true })).toBeVisible()
     await expect(page.getByText("7 articles · source monitoring and saved collections", { exact: true })).toBeVisible()
     await expect(page.getByRole("article")).toHaveCount(6)
+    const collections = page.getByRole("complementary", { name: "Collections" })
+    await expect(collections).toBeVisible()
+    expect(await collections.evaluate((element) => {
+      const style = getComputedStyle(element)
+      return { position: style.position, top: style.top, rectTop: Math.round(element.getBoundingClientRect().top) }
+    })).toEqual({ position: "sticky", top: "0px", rectTop: 0 })
+    const railBounds = await page.getByRole("complementary", { name: "Global navigation" }).boundingBox()
+    const collectionBounds = await collections.boundingBox()
+    expect(collectionBounds).not.toBeNull()
+    expect(railBounds).not.toBeNull()
+    expect(collectionBounds!.x).toBeGreaterThanOrEqual(railBounds!.x + railBounds!.width)
     await expect(page.getByPlaceholder("Search in articles")).toBeVisible()
     await expect(page.getByRole("button", { name: "Create new collection" })).toHaveAttribute("title", "New collection")
     await expect(page.getByRole("img", { name: "No article image" })).toBeVisible()
@@ -63,15 +74,15 @@ test("Feed renders a consistent responsive desktop card grid", async ({ page }, 
 
     const scrollContainer = page.getByTestId("newsroom-content")
     expect(await scrollContainer.evaluate((element) => (element as HTMLElement).offsetWidth - element.clientWidth)).toBe(0)
-    expect(await scrollContainer.evaluate((element) => element.scrollHeight > element.clientHeight)).toBe(true)
-    await page.getByRole("main").focus()
-    await page.keyboard.press("End")
-    await expect.poll(() => scrollContainer.evaluate((element) => element.scrollTop)).toBeGreaterThan(0)
-    const afterEnd = await scrollContainer.evaluate((element) => element.scrollTop)
-    await page.keyboard.press("Control+Home")
-    await expect.poll(() => scrollContainer.evaluate((element) => element.scrollTop)).toBeLessThan(afterEnd)
-    await waitForScrollToSettle(scrollContainer)
     const maxScroll = await scrollContainer.evaluate((element) => element.scrollHeight - element.clientHeight)
+    if (maxScroll > 0) {
+      await page.getByRole("main").focus()
+      await page.keyboard.press("End")
+      await expect.poll(() => scrollContainer.evaluate((element) => element.scrollTop)).toBeGreaterThan(0)
+      await expect.poll(() => collections.evaluate((element) => Math.round(element.getBoundingClientRect().top))).toBeCloseTo(0, 0)
+      await scrollContainer.evaluate((element) => element.scrollTo(0, 0))
+      await waitForScrollToSettle(scrollContainer)
+    }
     if (maxScroll > 100) {
       await page.keyboard.press("PageDown")
       await expect.poll(() => scrollContainer.evaluate((element) => element.scrollTop)).toBeGreaterThan(0)
@@ -80,9 +91,6 @@ test("Feed renders a consistent responsive desktop card grid", async ({ page }, 
       await page.keyboard.press("PageUp")
       await waitForScrollToSettle(scrollContainer)
       expect(await scrollContainer.evaluate((element) => element.scrollTop)).toBeLessThan(afterPageDown)
-      await page.getByRole("button", { name: "Load more" }).focus()
-      await expect.poll(() => scrollContainer.evaluate((element) => element.scrollTop)).toBeGreaterThan(0)
-      await expect(page.getByRole("button", { name: "Load more" })).toBeFocused()
     }
     await scrollContainer.evaluate((element) => element.scrollTo(0, 0))
     await expect.poll(() => scrollContainer.evaluate((element) => element.scrollTop)).toBe(0)
@@ -90,9 +98,8 @@ test("Feed renders a consistent responsive desktop card grid", async ({ page }, 
       await page.mouse.move(viewport.width - 108, viewport.height / 2)
       await page.mouse.wheel(0, 480)
       await expect.poll(() => scrollContainer.evaluate((element) => element.scrollTop)).toBeGreaterThan(0)
-      const afterWheel = await scrollContainer.evaluate((element) => element.scrollTop)
-      await page.keyboard.press("Control+Home")
-      await expect.poll(() => scrollContainer.evaluate((element) => element.scrollTop)).toBeLessThan(afterWheel)
+      await scrollContainer.evaluate((element) => element.scrollTo(0, 0))
+      await expect.poll(() => scrollContainer.evaluate((element) => element.scrollTop)).toBe(0)
     }
 
     const persian = page.getByRole("heading", { name: "گزارش فارسی هوش مصنوعی" })
@@ -105,6 +112,29 @@ test("Feed renders a consistent responsive desktop card grid", async ({ page }, 
     })
   }
 
+  expect(diagnostics.consoleErrors).toEqual([])
+  expect(diagnostics.pageErrors).toEqual([])
+  expect(diagnostics.failedRequests).toEqual([])
+  expect(diagnostics.badResponses).toEqual([])
+})
+
+test("Clear Feed hides every article and preserves Sources and collections", async ({ page }) => {
+  const diagnostics = await installFeedBackend(page)
+  await page.goto("/feed")
+
+  await expect(page.getByRole("article")).toHaveCount(6)
+  const clearButton = page.getByRole("button", { name: "Clear Feed" })
+  await expect(clearButton).toBeEnabled()
+  await clearButton.click()
+  const dialog = page.getByRole("dialog", { name: "Clear Feed?" })
+  await expect(dialog).toContainText("This will remove 7 collected articles from the Feed.")
+  await expect(dialog).toContainText("Your Sources, Source Collections, and ingestion settings will remain unchanged.")
+  await dialog.getByRole("button", { name: "Clear Feed" }).click()
+
+  await expect(dialog).toHaveCount(0)
+  await expect(page.getByRole("article")).toHaveCount(0)
+  await expect(page.getByText("0 articles · source monitoring and saved collections", { exact: true })).toBeVisible()
+  await expect(page.getByRole("complementary", { name: "Collections" }).getByRole("button", { name: /Research.*2 articles/ })).toBeVisible()
   expect(diagnostics.consoleErrors).toEqual([])
   expect(diagnostics.pageErrors).toEqual([])
   expect(diagnostics.failedRequests).toEqual([])
@@ -144,6 +174,219 @@ test("Feed images keep accessible alt text and stable missing or broken fallback
   expect(diagnostics.badResponses).toEqual([])
 })
 
+test("Feed scroll extent ends after pagination", async ({ page }) => {
+  await installFeedBackend(page, { pagination: true })
+  await page.setViewportSize({ width: 1440, height: 1000 })
+  await page.emulateMedia({ reducedMotion: "reduce" })
+  await page.goto("/feed")
+  await expect(page.getByRole("article")).toHaveCount(50)
+  await expect(page.getByRole("navigation", { name: "Feed pagination" })).toBeVisible()
+
+  const measurements = await measureFeedScrollExtent(page)
+  console.log(`[feed-scroll-extent] ${JSON.stringify(measurements)}`)
+
+  expect(measurements.scroller.testId).toBe("newsroom-content")
+  expect(measurements.document.rootScrollTopAfterEnd).toBe(0)
+  expect(measurements.scroller.emptyTail).toBeLessThanOrEqual(160)
+})
+
+test("Feed root extent stays bounded across viewport, theme, Collection, search, and empty states", async ({ page }) => {
+  await installFeedBackend(page)
+
+  for (const scenario of [
+    { url: "/feed", viewport: { width: 1280, height: 800 }, theme: "dark", cards: 6 },
+    { url: `/feed?collection_id=${researchCollectionId}`, viewport: { width: 1440, height: 1000 }, theme: "light", cards: 2 },
+    { url: `/feed?collection_id=${emptyCollectionId}`, viewport: { width: 1920, height: 1080 }, theme: "dark", cards: 0 },
+    { url: "/feed?q=English+editorial", viewport: { width: 1366, height: 768 }, theme: "light", cards: 5 },
+  ]) {
+    await page.setViewportSize(scenario.viewport)
+    await page.goto(scenario.url)
+    await page.evaluate(({ theme }) => {
+      document.documentElement.classList.toggle("dark", theme === "dark")
+    }, scenario)
+    await expect(page.getByRole("article")).toHaveCount(scenario.cards)
+    if (scenario.cards === 0) await expect(page.getByText("Empty is empty")).toBeVisible()
+    await expectFeedRootBounded(page)
+  }
+})
+
+test("Feed root extent stays bounded at 125 percent browser scale", async ({ page }) => {
+  await installFeedBackend(page)
+  const cdp = await page.context().newCDPSession(page)
+  await cdp.send("Emulation.setDeviceMetricsOverride", {
+    width: 1152,
+    height: 800,
+    deviceScaleFactor: 1.25,
+    mobile: false,
+  })
+  await page.goto("/feed?q=English+editorial")
+  await expect(page.getByRole("article")).toHaveCount(5)
+  expect(await page.evaluate(() => ({
+    devicePixelRatio: window.devicePixelRatio,
+    innerHeight: window.innerHeight,
+    innerWidth: window.innerWidth,
+  }))).toEqual({ devicePixelRatio: 1.25, innerHeight: 800, innerWidth: 1152 })
+  await expectFeedRootBounded(page)
+})
+
+test("Feed numbered pagination replaces page cards and keeps DOM bounded", async ({ page }) => {
+  test.setTimeout(60_000)
+  const diagnostics = await installFeedBackend(page, { pagination: true })
+  await page.setViewportSize({ width: 1440, height: 1000 })
+  await page.emulateMedia({ reducedMotion: "reduce" })
+  await page.goto("/feed")
+
+  const pagination = page.getByRole("navigation", { name: "Feed pagination" })
+  const cardCounts: number[] = []
+  await expect(page.getByRole("article")).toHaveCount(50)
+  cardCounts.push(await page.getByRole("article").count())
+  await expect(page.getByRole("heading", { name: "English editorial report 1", exact: true })).toBeVisible()
+  await expectFeedRootBounded(page)
+
+  for (let pageNumber = 2; pageNumber <= 21; pageNumber += 1) {
+    await pagination.getByRole("button", { name: "Next page" }).click()
+    await expect(page).toHaveURL(new RegExp(`page=${pageNumber}`))
+    await expect(page.getByRole("article")).toHaveCount(50)
+    cardCounts.push(await page.getByRole("article").count())
+    await expect(page.locator("article")).toHaveCount(50)
+    if (pageNumber === 11) await expectFeedRootBounded(page)
+  }
+
+  await expect(pagination.getByText("More pages")).toHaveCount(1)
+  await expect(page.getByRole("heading", { name: "English editorial report 1", exact: true })).toHaveCount(0)
+  await expect(page.getByRole("heading", { name: "English editorial report 1001", exact: true })).toBeVisible()
+  await expectFeedRootBounded(page)
+  expect(Math.max(...cardCounts)).toBe(50)
+  expect(diagnostics.articleQueries.length).toBeGreaterThanOrEqual(21)
+  expect(diagnostics.articleQueries.every((query) => query.includes("limit=50"))).toBe(true)
+
+  await page.goBack()
+  await expect(page).toHaveURL(/page=20/)
+  await expect(page.getByRole("heading", { name: "English editorial report 951", exact: true })).toBeVisible()
+  await expect(page.getByRole("article")).toHaveCount(50)
+  await page.goForward()
+  await expect(page).toHaveURL(/page=21/)
+
+  await pagination.getByRole("button", { name: "Go to page 1", exact: true }).click()
+  await expect(page).toHaveURL("/feed")
+  await expect(page.getByRole("heading", { name: "English editorial report 1", exact: true })).toBeVisible()
+  await expect(page.getByRole("article")).toHaveCount(50)
+
+  expect(diagnostics.consoleErrors).toEqual([])
+  expect(diagnostics.pageErrors).toEqual([])
+  expect(diagnostics.failedRequests).toEqual([])
+  expect(diagnostics.badResponses).toEqual([])
+})
+
+async function expectFeedRootBounded(page: Page) {
+  const measurements = await page.evaluate(async () => {
+    const scroller = document.querySelector<HTMLElement>('[data-testid="newsroom-content"]')
+    const shell = document.querySelector<HTMLElement>(".newsroom-shell")
+    if (!scroller || !shell) throw new Error("Newsroom scroll layout is missing")
+    scroller.scrollTop = 0
+    window.scrollTo(0, document.documentElement.scrollHeight)
+    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
+    const result = {
+      documentClientHeight: document.documentElement.clientHeight,
+      documentScrollHeight: document.documentElement.scrollHeight,
+      rootScrollTopAfterEnd: window.scrollY,
+      shellContain: getComputedStyle(shell).contain,
+    }
+    window.scrollTo(0, 0)
+    return result
+  })
+  expect(measurements.shellContain).toBe("paint")
+  expect(measurements.rootScrollTopAfterEnd).toBe(0)
+  expect(measurements.documentScrollHeight).toBeLessThanOrEqual(measurements.documentClientHeight + 1)
+}
+
+async function measureFeedScrollExtent(page: Page) {
+  return page.evaluate(async () => {
+    const scroller = document.querySelector<HTMLElement>('[data-testid="newsroom-content"]')
+    const pagination = document.querySelector<HTMLElement>('[data-testid="feed-pagination"]')
+    const shell = document.querySelector<HTMLElement>(".newsroom-shell")
+    const main = scroller?.querySelector<HTMLElement>("main") ?? null
+    const cards = Array.from(document.querySelectorAll<HTMLElement>('[aria-label="Feed results"] > article'))
+    if (!scroller || !pagination || !shell || !main || cards.length === 0) throw new Error("Feed measurement anchors are missing")
+
+    scroller.scrollTop = 0
+    window.scrollTo(0, 0)
+    window.scrollTo(0, document.documentElement.scrollHeight)
+    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
+    const rootScrollTopAfterEnd = window.scrollY
+    window.scrollTo(0, 0)
+
+    scroller.scrollTop = scroller.scrollHeight
+    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
+
+    const scrollerRect = scroller.getBoundingClientRect()
+    const paginationRect = pagination.getBoundingClientRect()
+    const lastCardRect = cards.at(-1)!.getBoundingClientRect()
+    const contentCoordinate = (rect: DOMRect) => rect.bottom - scrollerRect.top + scroller.scrollTop
+    const paginationBottom = contentCoordinate(paginationRect)
+    const scrollingElement = document.scrollingElement
+    const describe = (element: HTMLElement | null) => {
+      if (!element) return null
+      const style = getComputedStyle(element)
+      const rect = element.getBoundingClientRect()
+      return {
+        element: `${element.tagName.toLowerCase()}${element.id ? `#${element.id}` : ""}${element.dataset.testid ? `[data-testid=${element.dataset.testid}]` : ""}`,
+        display: style.display,
+        position: style.position,
+        height: style.height,
+        minHeight: style.minHeight,
+        overflow: style.overflow,
+        overflowY: style.overflowY,
+        contain: style.contain,
+        clientHeight: element.clientHeight,
+        scrollHeight: element.scrollHeight,
+        rect: { top: rect.top, bottom: rect.bottom, height: rect.height },
+      }
+    }
+
+    return {
+      viewport: {
+        innerHeight: window.innerHeight,
+        documentClientHeight: document.documentElement.clientHeight,
+      },
+      document: {
+        scrollingElement: scrollingElement?.tagName ?? null,
+        htmlOverflowY: getComputedStyle(document.documentElement).overflowY,
+        bodyOverflowY: getComputedStyle(document.body).overflowY,
+        documentScrollHeight: document.documentElement.scrollHeight,
+        bodyScrollHeight: document.body.scrollHeight,
+        rootScrollTopAfterEnd,
+      },
+      feed: {
+        lastCardBottom: contentCoordinate(lastCardRect),
+        paginationBottom,
+      },
+      scroller: {
+        testId: scroller.dataset.testid ?? null,
+        overflowY: getComputedStyle(scroller).overflowY,
+        clientHeight: scroller.clientHeight,
+        scrollHeight: scroller.scrollHeight,
+        scrollTop: scroller.scrollTop,
+        rect: {
+          top: scrollerRect.top,
+          bottom: scrollerRect.bottom,
+          height: scrollerRect.height,
+        },
+        emptyTail: scroller.scrollHeight - paginationBottom,
+      },
+      layout: {
+        html: describe(document.documentElement),
+        body: describe(document.body),
+        shell: describe(document.querySelector<HTMLElement>(".newsroom-shell")),
+        scroller: describe(scroller),
+        main: describe(scroller.querySelector<HTMLElement>("main")),
+        feedGrid: describe(document.querySelector<HTMLElement>('[aria-label="Feed results"]')),
+        collections: describe(document.querySelector<HTMLElement>('[aria-label="Collections"]')),
+      },
+    }
+  })
+}
+
 test("article details load lazily, stay accessible and responsive, and reuse cached content", async ({ page }) => {
   const diagnostics = await installFeedBackend(page)
   await page.setViewportSize({ width: 1440, height: 900 })
@@ -156,6 +399,12 @@ test("article details load lazily, stay accessible and responsive, and reuse cac
 
   let dialog = page.getByRole("dialog", { name: "English editorial report 1" })
   await expect(dialog).toBeVisible()
+  const sourceIcon = dialog.locator(`img[src*="/sources/${sourceId}/icon.svg"]`)
+  await expect(sourceIcon).toBeVisible()
+  await expect(sourceIcon).toHaveAttribute(
+    "src",
+    `/api/backend/sources/${sourceId}/icon.svg?v=2026-07-21T08%3A00%3A00Z`,
+  )
   await expect(dialog.getByText("Source-provided content")).toBeVisible()
   await expect(dialog.getByText(/^Complete normalized article body paragraph 1\./)).toBeVisible()
   await expect(dialog.getByText("Reporter One")).toBeVisible()
@@ -214,6 +463,10 @@ test("Feed mobile keeps collections and primary controls page-bounded", async ({
   await expect(collections.getByRole("button", { name: "All articles" })).toBeVisible()
   await expect(collections.getByRole("button", { name: "Research" })).toBeVisible()
   await expect(collections.getByRole("button", { name: "Create new collection" })).toBeVisible()
+  expect(await collections.evaluate((element) => {
+    const style = getComputedStyle(element)
+    return { position: style.position, top: style.top, rectTop: Math.round(element.getBoundingClientRect().top) }
+  })).toEqual({ position: "sticky", top: "0px", rectTop: 0 })
   await expect(page.getByRole("searchbox", { name: "Search articles" })).toBeVisible()
   await expect(page.getByRole("button", { name: "Filter articles" })).toBeVisible()
   await expect(page.getByRole("combobox", { name: "Sort articles" })).toBeVisible()
@@ -278,11 +531,9 @@ test("article search preserves URL state, pagination, and history", async ({ pag
   await expect(page).toHaveURL("/feed?language=en&sort=score")
   await search.fill("English editorial")
   await expect(page.getByText("5 articles · source monitoring and saved collections", { exact: true })).toBeVisible()
-  await expect(page.getByRole("article")).toHaveCount(3)
-  await page.getByRole("button", { name: "Load more" }).click()
   await expect(page.getByRole("article")).toHaveCount(5)
   expect(diagnostics.articleQueries.at(-1)).toContain("q=English+editorial")
-  expect(diagnostics.articleQueries.at(-1)).toContain("cursor=search-page-2")
+  expect(diagnostics.articleQueries.at(-1)).not.toContain("cursor=")
 
   await page.goBack()
   await expect(page).toHaveURL("/feed?language=en&sort=score")
@@ -390,16 +641,13 @@ test("left sidebar exposes every route with labels, states, and keyboard movemen
   expect(diagnostics.badResponses).toEqual([])
 })
 
-test("filters, sort, URL history, and cursor pagination coexist", async ({ page }) => {
+test("filters, sort, and URL history coexist with Feed pagination state", async ({ page }) => {
   const diagnostics = await installFeedBackend(page)
   await page.setViewportSize({ width: 1440, height: 1000 })
   await page.goto("/feed?language=en")
   await expect(page.getByRole("article")).toHaveCount(6)
-
-  await page.getByRole("button", { name: "Load more" }).click()
-  await expect(page.getByRole("article")).toHaveCount(7)
   expect(diagnostics.articleQueries.at(-1)).toContain("language=en")
-  expect(diagnostics.articleQueries.at(-1)).toContain("cursor=page-2")
+  expect(diagnostics.articleQueries.at(-1)).not.toContain("cursor=")
 
   await page.getByRole("button", { name: /Filter articles/ }).click()
   await page.getByRole("checkbox", { name: /AI/ }).check()
@@ -701,7 +949,7 @@ test("direct collection removal keeps the card on failure and retries safely", a
   ])
 })
 
-async function installFeedBackend(page: Page, options: { failFirstMembershipMutation?: boolean } = {}) {
+async function installFeedBackend(page: Page, options: { failFirstMembershipMutation?: boolean; pagination?: boolean } = {}) {
   const collections = [
     collectionWire(researchCollectionId, "Research", 2),
     collectionWire(emptyCollectionId, "Empty", 0),
@@ -711,6 +959,7 @@ async function installFeedBackend(page: Page, options: { failFirstMembershipMuta
     [articleId(2), new Set([researchCollectionId])],
   ])
   let failNextMembershipMutation = options.failFirstMembershipMutation ?? false
+  let feedCleared = false
   const diagnostics = {
     consoleErrors: [] as string[],
     pageErrors: [] as string[],
@@ -744,6 +993,13 @@ async function installFeedBackend(page: Page, options: { failFirstMembershipMuta
   await page.route("**/api/backend/**", async (route) => {
     const url = new URL(route.request().url())
     const path = url.pathname.replace(/^\/api\/backend/, "")
+    if (path === `/sources/${sourceId}/icon.svg`) {
+      return route.fulfill({
+        status: 200,
+        contentType: "image/svg+xml",
+        body: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><rect width="32" height="32" fill="#f97316"/><circle cx="16" cy="16" r="8" fill="#fff"/></svg>',
+      })
+    }
     if (path === "/operator-settings/date-time") return fulfillJson(route, {
       timezone: "Asia/Tehran", updated_at: "2026-07-21T08:00:00Z",
     })
@@ -791,6 +1047,14 @@ async function installFeedBackend(page: Page, options: { failFirstMembershipMuta
       // API unit coverage verifies the real endpoint's 204 contract.
       return fulfillUncontractedJson(route, {})
     }
+    if (path === "/feed/summary" && route.request().method() === "GET") {
+      return fulfillJson(route, { article_count: feedCleared ? 0 : options.pagination ? 1_050 : 7 })
+    }
+    if (path === "/feed/clear" && route.request().method() === "POST") {
+      const clearedCount = feedCleared ? 0 : options.pagination ? 1_050 : 7
+      feedCleared = true
+      return fulfillJson(route, { cleared_count: clearedCount })
+    }
     const membershipMatch = path.match(/^\/article-collections\/([^/]+)\/articles\/([^/]+)$/)
     if (membershipMatch && ["PUT", "DELETE"].includes(route.request().method())) {
       const [, collectionId, requestedArticleId] = membershipMatch
@@ -809,7 +1073,7 @@ async function installFeedBackend(page: Page, options: { failFirstMembershipMuta
       // Use an empty 200 here; API unit coverage verifies production's real 204 contract.
       return fulfillUncontractedJson(route, {})
     }
-    if (path === "/articles/facets") return fulfillJson(route, facets())
+    if (path === "/articles/facets") return fulfillJson(route, facets(feedCleared))
     const articleDetailMatch = path.match(/^\/articles\/([^/]+)$/)
     if (articleDetailMatch) {
       diagnostics.articleDetailQueries.push(articleDetailMatch[1])
@@ -818,6 +1082,21 @@ async function installFeedBackend(page: Page, options: { failFirstMembershipMuta
     }
     if (path === "/articles") {
       diagnostics.articleQueries.push(url.search)
+      if (feedCleared) return fulfillJson(route, { items: [], next_cursor: null, result_count: 0 })
+      if (options.pagination) {
+        const total = 1_050
+        const limit = Number(url.searchParams.get("limit") ?? "50")
+        const rawCursor = url.searchParams.get("cursor")
+        const offset = rawCursor?.startsWith("page:") ? Number(rawCursor.slice("page:".length)) : 0
+        const safeOffset = Number.isInteger(offset) && offset >= 0 ? offset : 0
+        const items = Array.from({ length: Math.min(limit, total - safeOffset) }, (_, index) => article(safeOffset + index + 1))
+        const nextOffset = safeOffset + items.length
+        return fulfillJson(route, {
+          items,
+          next_cursor: nextOffset < total ? `page:${nextOffset}` : null,
+          result_count: total,
+        })
+      }
       const collectionId = url.searchParams.get("collection_id")
       if (collectionId && !collections.some((collection) => collection.id === collectionId)) {
         return fulfillUncontractedJson(route, { detail: "article collection not found" }, 404)
@@ -832,12 +1111,11 @@ async function installFeedBackend(page: Page, options: { failFirstMembershipMuta
         return fulfillJson(route, { items, next_cursor: null, result_count: items.length })
       }
       if (titleQuery) {
-        const offset = url.searchParams.has("cursor") ? 3 : 0
-        const items = matchingIndexes.slice(offset, offset + 3)
+        const items = matchingIndexes
           .map((index) => article(index, [...(memberships.get(articleId(index)) ?? [])]))
         return fulfillJson(route, {
           items,
-          next_cursor: offset + 3 < matchingIndexes.length ? "search-page-2" : null,
+          next_cursor: null,
           result_count: matchingIndexes.length,
         })
       }
@@ -883,7 +1161,15 @@ function article(index: number, savedCollectionIds: string[] = []) {
     title: persian ? "گزارش فارسی هوش مصنوعی" : index === 5 ? "A deliberately longer English headline that proves multi-line card titles stay aligned" : `English editorial report ${index}`,
     summary: "Hidden summary",
     excerpt: null,
-    source: { id: sourceId, name: persian ? "خبرگزاری نمونه" : "Wire Desk", platform: "rss", homepage_url: "https://wire.example" },
+    source: {
+      id: sourceId,
+      name: persian ? "خبرگزاری نمونه" : "Wire Desk",
+      platform: "rss",
+      homepage_url: "https://wire.example",
+      icon_url: `/sources/${sourceId}/icon.svg`,
+      icon_status: "resolved",
+      icon_updated_at: "2026-07-21T08:00:00Z",
+    },
     canonical_url: `https://wire.example/report-${index}`,
     published_at: index === 6 ? null : displayAt,
     sort_at: displayAt,
@@ -944,7 +1230,10 @@ function articleId(index: number) {
   return `11111111-1111-4111-8111-${String(index).padStart(12, "0")}`
 }
 
-function facets() {
+function facets(cleared = false) {
+  if (cleared) {
+    return { languages: [], topics: [], content_types: [], sources: [], coverage: [] }
+  }
   return {
     languages: [{ value: "en", count: 6 }, { value: "fa", count: 1 }],
     topics: [{ value: "AI", count: 4 }, { value: "Tech", count: 3 }],

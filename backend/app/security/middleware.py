@@ -77,6 +77,8 @@ def mutation_rule(method: str, path: str) -> MutationRule | None:
         scope, resource = "automations:write", "automation"
     elif first == "jobs":
         scope, resource = "jobs:write", "job"
+    elif first == "feed":
+        scope, resource = "feed:write", "feed"
     elif first == "codex-gateway":
         if parts[1:] in (["pair"], ["heartbeat"]):
             # These endpoints authenticate one-time or paired Codex credentials
@@ -98,6 +100,7 @@ def mutation_rule(method: str, path: str) -> MutationRule | None:
         "restore-as-draft",
         "retry",
         "cancel",
+        "clear",
         "rotate",
         "rotate-token",
         "rotate-credentials",

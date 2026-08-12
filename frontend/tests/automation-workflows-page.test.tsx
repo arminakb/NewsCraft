@@ -5,11 +5,12 @@ import { AutomationTemplatesPage } from "@/features/automations/automation-templ
 import * as api from "@/features/automations/automation-api"
 import { NewWorkflowPage } from "@/features/automations/new-workflow-page"
 import { WorkflowLibrary } from "@/features/automations/workflow-library"
-import { summarizePreviewStages } from "@/features/automations/workflow-mini-preview"
+import { summarizePreviewStages, WorkflowMiniPreview } from "@/features/automations/workflow-mini-preview"
 import type { AutomationPlatform, AutomationPreview, AutomationPreviewStage } from "@/features/automations/automation-types"
 
 const push = vi.fn()
 const searchParams = new URLSearchParams()
+let rectSpy: ReturnType<typeof vi.spyOn> | undefined
 
 vi.mock("next/navigation", () => ({
   usePathname: () => "/automations",
@@ -36,9 +37,29 @@ vi.mock("@/features/automations/automation-api", () => ({
 describe("workflow gallery", () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    vi.stubGlobal("ResizeObserver", class {
+      observe() {}
+      disconnect() {}
+    })
+    rectSpy = vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue({
+      bottom: 88,
+      height: 88,
+      left: 0,
+      right: 320,
+      top: 0,
+      width: 320,
+      x: 0,
+      y: 0,
+      toJSON: () => ({}),
+    })
     searchParams.delete("blank")
     searchParams.delete("name")
     vi.mocked(api.getAutomationRuns).mockResolvedValue({ items: [], nextCursor: null })
+  })
+
+  afterEach(() => {
+    rectSpy?.mockRestore()
+    vi.unstubAllGlobals()
   })
 
   it("keeps empty, loading, and error states useful", async () => {
@@ -90,7 +111,7 @@ describe("workflow gallery", () => {
     expect(screen.getByRole("img", { name: "Workflow stages: Manual, AI generation, Save to Drafts." })).toBeInTheDocument()
     expect(screen.getByText("Manual", { selector: "span[title='Manual']" })).toBeInTheDocument()
     expect(screen.getByText("Manual to Draft", { selector: ".sr-only" })).toBeInTheDocument()
-    expect(view.container.querySelector("[data-stage-type='generate_content_pack'] .lucide-bot")).toBeInTheDocument()
+    expect(view.container.querySelector("[data-stage-type='generate_content_pack'] .lucide-sparkles")).toBeInTheDocument()
     expect(view.container.querySelector("[data-workflow-card] [data-slot='badge']")).not.toBeInTheDocument()
     expect(screen.getByText("Not run yet")).toBeInTheDocument()
     expect(screen.queryByText("Daily package")).not.toBeInTheDocument()
@@ -110,6 +131,63 @@ describe("workflow gallery", () => {
 
     expect(await screen.findByText("Empty", { exact: true })).toBeInTheDocument()
     expect(screen.queryByText("Workflow preview unavailable")).not.toBeInTheDocument()
+  })
+
+  it.each([
+    { name: "one node", stages: [stage("one", "manual", "Manual", "trigger")], visibleNodes: 1, beams: 0, overflow: null },
+    {
+      name: "two nodes",
+      stages: [stage("one", "manual", "Manual", "trigger"), stage("two", "save_drafts", "Save to Drafts", "draft", ["draft"])],
+      visibleNodes: 2,
+      beams: 1,
+      overflow: null,
+    },
+    {
+      name: "four nodes",
+      stages: [
+        stage("one", "manual", "Manual", "trigger"),
+        stage("two", "research", "AI Research", "content"),
+        stage("three", "validate", "Validate", "validation"),
+        stage("four", "save_drafts", "Save to Drafts", "draft", ["draft"]),
+      ],
+      visibleNodes: 4,
+      beams: 3,
+      overflow: null,
+    },
+    {
+      name: "many nodes",
+      stages: [
+        stage("one", "manual", "Manual", "trigger"),
+        stage("two", "select_content", "Select content", "content"),
+        stage("three", "filter_content", "Filter content", "content"),
+        stage("four", "research", "AI Research", "content"),
+        stage("five", "generate_content_pack", "Generate content package", "ai"),
+        stage("six", "validate", "Validate", "validation"),
+        stage("seven", "human_review", "Human Review", "review"),
+        stage("eight", "telegram_publish", "Publish to Telegram", "publish", ["telegram"]),
+      ],
+      visibleNodes: 4,
+      beams: 4,
+      overflow: "+4",
+    },
+    {
+      name: "unsupported node",
+      stages: [stage("unsupported", "removed_node", "Removed node", "unknown")],
+      visibleNodes: 1,
+      beams: 0,
+      overflow: null,
+    },
+  ])("keeps $name preview contained and readable", ({ stages, visibleNodes, beams, overflow }) => {
+    const view = render(<WorkflowMiniPreview paused={false} stages={stages} />)
+
+    expect(view.container.querySelectorAll("[data-stage-type]")).toHaveLength(visibleNodes)
+    expect(view.container.querySelectorAll("[data-flow-connector][data-animated='true']")).toHaveLength(beams)
+    if (overflow) expect(view.container).toHaveTextContent(overflow)
+    else expect(view.container).not.toHaveTextContent(/\+\d+/)
+    if (stages[0]?.nodeType === "removed_node") {
+      expect(view.container.querySelector("[data-stage-type='removed_node'] .lucide-workflow")).toBeInTheDocument()
+      expect(view.container.querySelector("[data-stage-type='removed_node'] .lucide-triangle-alert")).toBeInTheDocument()
+    }
   })
 
   it("shows output identity from actual preview outputs, including fallback cases", async () => {
@@ -163,7 +241,7 @@ describe("workflow gallery", () => {
     expect(screen.getByRole("img", { name: /4 additional workflow steps are collapsed visually/ })).toBeInTheDocument()
     expect(screen.getByText("+4")).toBeInTheDocument()
     expect(view.container.querySelector("[data-flow-motion='paused']")).toBeInTheDocument()
-    expect(view.container.querySelector(".workflow-flow-particle")).not.toBeInTheDocument()
+    expect(view.container.querySelector("[data-workflow-beam='animated']")).not.toBeInTheDocument()
     expect(screen.getByTitle(/A very long workflow title/)).toBeInTheDocument()
   })
 
@@ -242,11 +320,11 @@ describe("workflow gallery", () => {
     expect(screen.queryByText("Research", { exact: true })).not.toBeInTheDocument()
     expect(view.container.querySelector("[data-stage-category='trigger']")).toBeInTheDocument()
     expect(view.container.querySelector("[data-stage-category='ai']")).toBeInTheDocument()
-    expect(view.container.querySelector("[data-stage-type='generate_content_pack'] .lucide-bot")).toBeInTheDocument()
+    expect(view.container.querySelector("[data-stage-type='generate_content_pack'] .lucide-sparkles")).toBeInTheDocument()
     expect(view.container.querySelector("[data-stage-category='draft']")).toBeInTheDocument()
     expect(view.container.querySelector("[data-stage-type='save_drafts'] [data-platform-logo='telegram']")).toBeInTheDocument()
     expect(view.container.querySelectorAll("[data-flow-connector][data-animated='true']")).toHaveLength(3)
-    expect(view.container.querySelectorAll(".workflow-flow-particle")).toHaveLength(3)
+    expect(view.container.querySelectorAll("[data-workflow-beam='animated']")).toHaveLength(3)
     expect(screen.getByRole("img", { name: "Success rate: 96%" })).toHaveTextContent("96%")
     expect(screen.queryByText(/success rate|success/i)).not.toBeInTheDocument()
   })
@@ -268,7 +346,7 @@ describe("workflow gallery", () => {
     expect(screen.queryByText("Needs attention")).not.toBeInTheDocument()
     expect(view.container.querySelectorAll("[data-flow-connector][data-animated='true']")).toHaveLength(1)
     expect(view.container.querySelectorAll("[data-flow-connector][data-animated='false']")).toHaveLength(2)
-    expect(view.container.querySelectorAll(".workflow-flow-particle")).toHaveLength(1)
+    expect(view.container.querySelectorAll("[data-workflow-beam='animated']")).toHaveLength(1)
   })
 
   it("opens cards and creation with native keyboard-capable buttons while menu remains independent", async () => {

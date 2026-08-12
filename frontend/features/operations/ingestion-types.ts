@@ -27,6 +27,10 @@ export type SourceSummary = {
   addedAt: string
   lastCheckedAt?: string | null
   failureReason?: string | null
+  iconUrl?: string | null
+  iconSource?: string | null
+  iconUpdatedAt?: string | null
+  iconStatus?: "pending" | "queued" | "resolved" | "retryable" | "unavailable" | string | null
 }
 
 export type SourceHealthResult = {
@@ -38,7 +42,7 @@ export type SourceHealthResult = {
 }
 
 export type CreateSourceInput = {
-  platform: "rss" | "telegram_public"
+  platform: "rss" | "atom" | "telegram_public"
   name: string
   url: string
   category: string

@@ -5,7 +5,7 @@ import type { components } from "../lib/api/generated"
 import { installMockBackend } from "./support/mock-backend"
 
 const ROUTES = [
-  { path: "/", name: "Today", heading: "Today", readyText: "No workflow jobs yet" },
+  { path: "/", name: "Today", heading: "Today", readyText: "No articles collected yet" },
   { path: "/automations", name: "Automations", heading: null, readyText: "No workflows yet" },
   { path: "/operations", name: "Operations Center", heading: "Operations Center", readyText: "Database connectivity is available" },
 ] as const
@@ -207,7 +207,7 @@ test("responsive shell switches at 900px and exposes one skip target", async ({ 
 
   await page.setViewportSize({ width: 899, height: 844 })
   await page.goto("/")
-  await expect(page.getByText("No workflow jobs yet", { exact: true })).toBeVisible()
+  await expect(page.getByText("No articles collected yet", { exact: true })).toBeVisible()
   await expect(page.getByRole("navigation", { name: "Mobile newsroom navigation" })).toBeVisible()
   await expect(page.getByRole("navigation", { name: "Mobile newsroom navigation" }).getByRole("button", { name: "Open navigation" })).toBeVisible()
   await expect(page.getByRole("navigation", { name: "Newsroom navigation", exact: true })).toBeHidden()
@@ -237,7 +237,7 @@ test("responsive shell switches at 900px and exposes one skip target", async ({ 
 test("direct navigation stays bounded across mobile, tablet, landscape, and short desktop", async ({ page }) => {
   const unhandledRequests = await installMockBackend(page)
   await page.goto("/")
-  await expect(page.getByText("No workflow jobs yet", { exact: true })).toBeVisible()
+  await expect(page.getByText("No articles collected yet", { exact: true })).toBeVisible()
 
   for (const viewport of [
     { width: 375, height: 667 },

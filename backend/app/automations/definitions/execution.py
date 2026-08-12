@@ -11,6 +11,7 @@ from zoneinfo import ZoneInfo
 from sqlalchemy import and_, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.automations.definitions.artifacts import make_artifact, normalize_artifact, summary_with_artifact
 from app.automations.definitions.compiler import CompiledWorkflowPlan, verify_compiled_plan
 from app.automations.definitions.errors import AutomationDefinitionError
 from app.automations.definitions.models import (
@@ -107,6 +108,17 @@ async def _materialize_run(session: AsyncSession, run: AutomationRun) -> Automat
         node_data = AutomationNodeRunOut.model_validate(item).model_dump()
         for field in ("input_summary", "output_summary", "usage", "retry_metadata"):
             node_data[field] = _safe_projection_value(node_data[field])
+        if isinstance(node_data.get("output_summary"), dict):
+            artifact = normalize_artifact(
+                node_data["output_summary"],
+                source_node_id=item.node_id,
+                workflow_id=str(run.automation_id),
+                workflow_version_id=str(run.automation_version_id),
+                run_id=str(run.id),
+            )
+            if artifact is not None:
+                node_data["output_summary"] = summary_with_artifact(node_data["output_summary"], artifact)
+                node_data["artifact"] = artifact.model_dump(mode="json")
         node_outputs.append(AutomationNodeRunOut.model_validate(node_data))
     return AutomationRunOut(**run_data, nodes=node_outputs)
 
@@ -335,6 +347,16 @@ class AutomationExecutionService:
         await require_exact_generation_prompts(self.session, generate_config=generate.config)
         research = _stage(plan, "research")
         now = datetime.now(UTC)
+        manual_artifact = make_artifact(
+            kind="article",
+            capabilities=["textual", "structured", "article", "reviewable", "generatable"],
+            payload={"story_revision_id": str(revision.id), "story_id": str(revision.story_id)},
+            source_node_id=manual.node_id,
+            workflow_id=str(automation.id),
+            workflow_version_id=str(version.id),
+            trigger_type="manual",
+            occurred_at=now,
+        )
         run = AutomationRun(
             id=uuid4(),
             automation_id=automation.id,
@@ -355,6 +377,9 @@ class AutomationExecutionService:
                 "plan_hash": plan.plan_hash,
                 "required_resources": list(plan.required_resources),
                 "node_ids_by_type": _node_map(plan),
+                "node_types_by_id": {stage.node_id: stage.node_type for stage in plan.stages},
+                "node_order": [stage.node_id for stage in plan.stages],
+                "current_artifact": manual_artifact.model_dump(mode="json"),
             },
             idempotency_key=idempotency_key,
             request_hash=request_hash,
@@ -376,9 +401,9 @@ class AutomationExecutionService:
                 finished_at=now if status in {"succeeded", "skipped"} else None,
                 input_summary={"story_revision_id": str(revision.id)} if stage.node_id == manual.node_id else {},
                 output_summary=(
-                    {"reason": "dry_run_publication_disabled"}
+                    summary_with_artifact({"reason": "dry_run_publication_disabled"}, manual_artifact)
                     if status == "skipped"
-                    else {}
+                    else summary_with_artifact({}, manual_artifact) if stage.node_id == manual.node_id else {}
                 ),
             )
             self.session.add(row)

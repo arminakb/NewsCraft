@@ -58,6 +58,12 @@ export function AutomationRunDetail({ run }: { run: AutomationRun }) {
                 </div>
               </CardHeader>
               <CardContent className="flex flex-col gap-3">
+                {node.artifact ? (
+                  <div className="flex flex-wrap items-center gap-2 rounded-lg border border-primary/15 bg-primary/5 p-2.5" aria-label={`Artifact ${humanize(node.artifact.kind)} with capabilities ${node.artifact.capabilities.join(", ")}`}>
+                    <StatusBadge tone="info">{humanize(node.artifact.kind)} artifact</StatusBadge>
+                    <span className="text-xs text-muted-foreground">{node.artifact.capabilities.join(" · ")}</span>
+                  </div>
+                ) : null}
                 <dl className="grid gap-2 text-[13px] sm:grid-cols-2">
                   <Metric label="Attempt" value={String(node.attempt)} />
                   <Metric label="Timing" value={duration(node.startedAt, node.finishedAt)} />

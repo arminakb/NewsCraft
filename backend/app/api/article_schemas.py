@@ -24,6 +24,9 @@ class ArticleSourceOut(BaseModel):
     name: str | None
     platform: str | None
     homepage_url: str | None
+    icon_url: str | None = None
+    icon_status: str | None = None
+    icon_updated_at: datetime | None = None
 
 
 class ArticleImageOut(BaseModel):

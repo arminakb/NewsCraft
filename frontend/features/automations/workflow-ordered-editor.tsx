@@ -89,7 +89,8 @@ export function WorkflowOrderedEditor({
           }
           const Icon = nodeIcon(definition.uiHints.icon)
           const label = configuredNodeLabel(node, definition.displayName, resources)
-          const errors = validation.findings.filter((item) => item.nodeId === node.id && item.severity === "error").length
+          const hasError = validation.findings.some((item) => item.nodeId === node.id && item.severity === "error")
+          const hasWarning = validation.findings.some((item) => item.nodeId === node.id && item.severity === "warning")
           const selected = selectedNodeId === node.id
           const actions = workflowNodeActionState(graph, catalog, node.id)
           const duplicateReasonId = `${node.id}-duplicate-disabled-reason`
@@ -101,7 +102,7 @@ export function WorkflowOrderedEditor({
                 <div className="flex items-start gap-3">
                   <button className={cn("grid size-11 shrink-0 place-items-center rounded-lg border focus-visible:ring-2 focus-visible:ring-ring/50", familyStyles[definition.family] ?? "bg-muted")} aria-label={`Select ${label}`} onClick={() => onSelectedNodeChange(node.id)} type="button"><Icon className="size-5" aria-hidden="true" /></button>
                   <div className="min-w-0 flex-1">
-                    <div className="flex flex-wrap items-center gap-2"><span className="text-xs tabular-nums text-muted-foreground">Step {index + 1}</span><StatusBadge tone={errors ? "error" : "neutral"}>{errors ? `${errors} issues` : familyLabel(definition.family)}</StatusBadge></div>
+                    <div className="flex flex-wrap items-center gap-2"><span className="text-xs tabular-nums text-muted-foreground">Step {index + 1}</span><StatusBadge tone={hasError ? "error" : hasWarning ? "warning" : "neutral"}>{familyLabel(definition.family)}</StatusBadge></div>
                     <h3 className="mt-1 font-medium">{label}</h3>
                     <p className="mt-0.5 text-xs text-muted-foreground">{definition.description}</p>
                   </div>

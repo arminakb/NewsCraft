@@ -1,7 +1,8 @@
 "use client"
 
+import { Popover } from "@base-ui/react/popover"
 import { useQuery } from "@tanstack/react-query"
-import { useCallback, useRef, useState } from "react"
+import { useCallback, useMemo, useRef, useState } from "react"
 
 import { DateTimeProvider } from "@/components/providers/date-time-provider"
 import { NotificationsSidebar } from "@/components/newsroom/notifications-sidebar"
@@ -21,13 +22,16 @@ export function NewsroomShell({
 }) {
   const [sidebarExpanded, setSidebarExpanded] = useState(false)
   const [notificationsOpen, setNotificationsOpen] = useState(false)
+  const [notificationPlacement, setNotificationPlacement] = useState<"mobile" | "sidebar">("sidebar")
   const notificationTriggerRef = useRef<HTMLButtonElement | null>(null)
+  const notificationPopoverHandle = useMemo(() => Popover.createHandle(), [])
   const summaryQuery = useQuery({
     queryKey: queryKeys.jobSummary,
     queryFn: getJobSummary,
   })
-  const openNotifications = useCallback((trigger: HTMLButtonElement) => {
+  const openNotifications = useCallback((trigger: HTMLButtonElement, placement: "mobile" | "sidebar") => {
     notificationTriggerRef.current = trigger
+    setNotificationPlacement(placement)
     setNotificationsOpen(true)
   }, [])
   const changeNotificationsOpen = useCallback((open: boolean) => {
@@ -53,6 +57,7 @@ export function NewsroomShell({
       >
         <NewsroomSidebar
           expanded={sidebarExpanded}
+          notificationsHandle={notificationPopoverHandle}
           onExpandedChange={setSidebarExpanded}
           onNotificationsOpen={openNotifications}
           notificationsOpen={notificationsOpen}
@@ -68,11 +73,18 @@ export function NewsroomShell({
           </main>
         </div>
         <MobileNewsroomNav
+          notificationsHandle={notificationPopoverHandle}
           notificationsOpen={notificationsOpen}
           onNotificationsOpen={openNotifications}
         />
       </div>
-      <NotificationsSidebar open={notificationsOpen} onOpenChange={changeNotificationsOpen} />
+      <NotificationsSidebar
+        handle={notificationPopoverHandle}
+        open={notificationsOpen}
+        onOpenChange={changeNotificationsOpen}
+        placement={notificationPlacement}
+        trigger={notificationTriggerRef.current}
+      />
       {settings}
     </DateTimeProvider>
   )

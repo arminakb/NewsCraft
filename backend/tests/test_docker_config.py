@@ -23,6 +23,8 @@ PROXY_ENVIRONMENT_NAMES = {
 
 API_ENVIRONMENT_NAMES = {
     "DATABASE_URL",
+    "CONTINUOUS_INGESTION_INTERVAL_MINUTES",
+    "SOURCE_ICON_DISCOVERY_TTL_DAYS",
     "MEDIA_ROOT",
     "EXPORT_ROOT",
     "READINESS_REQUIRED_CAPABILITIES",
@@ -39,6 +41,14 @@ API_ENVIRONMENT_NAMES = {
 SOURCE_WORKER_ENVIRONMENT_NAMES = {
     "NEWSCRAFT_COMPONENT_ID",
     "DATABASE_URL",
+    "CONTINUOUS_INGESTION_INTERVAL_MINUTES",
+    "SOURCE_ICON_DISCOVERY_BATCH_SIZE",
+    "SOURCE_ICON_DISCOVERY_TTL_DAYS",
+    "SOURCE_ICON_DISCOVERY_RETRY_BASE_SECONDS",
+    "SOURCE_ICON_DISCOVERY_RETRY_MAX_SECONDS",
+    "SOURCE_ICON_DISCOVERY_TIMEOUT_SECONDS",
+    "SOURCE_ICON_DISCOVERY_MAX_BYTES",
+    "SOURCE_ICON_DISCOVERY_MAX_REDIRECTS",
     "HTTP_PROXY",
     "HTTPS_PROXY",
     "ALL_PROXY",
@@ -71,7 +81,13 @@ PUBLISHING_WORKER_ENVIRONMENT_NAMES = {
     "TELEGRAM_API_READ_TIMEOUT_SECONDS",
     "TELEGRAM_DESTINATION_NEWS_TOKEN",
 }
-SCHEDULER_ENVIRONMENT_NAMES = {"NEWSCRAFT_COMPONENT_ID", "DATABASE_URL"}
+SCHEDULER_ENVIRONMENT_NAMES = {
+    "NEWSCRAFT_COMPONENT_ID",
+    "DATABASE_URL",
+    "CONTINUOUS_INGESTION_INTERVAL_MINUTES",
+    "SOURCE_ICON_DISCOVERY_BATCH_SIZE",
+    "SOURCE_ICON_DISCOVERY_TTL_DAYS",
+}
 ALL_COMPOSE_SERVICES = {
     "backup",
     "postgres",
@@ -417,9 +433,10 @@ def test_worker_and_scheduler_healthchecks_verify_identity_capability_and_job_co
             "--component-type": "worker",
             "--expected-capabilities": "generation,ingestion,source",
             "--expected-job-types": (
-                "build_export,content_pack.generate,content_pack.generate_telegram,"
-                "content_pack.regenerate,execute_retention,ingest.collect,manual_intake,"
-                "operations.canary.source_generation,research_story,story.group_pending,"
+                "automation.run.start,build_export,content_pack.generate,content_pack.generate_telegram,"
+                "content_pack.regenerate,execute_retention,ingest.collect,ingest.collection.continuous_cycle,"
+                "manual_intake,operations.canary.source_generation,research_story,source.icon.discover,"
+                "story.group_pending,"
                 "telegram.route.backfill,"
                 "telegram.route.dry_run,telegram.route.initialize,telegram.route.poll,"
                 "telegram.route.process"

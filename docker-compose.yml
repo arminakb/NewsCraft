@@ -77,6 +77,8 @@ services:
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000
     environment:
       DATABASE_URL: postgresql+asyncpg://newscraft:newscraft@newscraft-postgres:5432/newscraft
+      CONTINUOUS_INGESTION_INTERVAL_MINUTES: ${CONTINUOUS_INGESTION_INTERVAL_MINUTES:-15}
+      SOURCE_ICON_DISCOVERY_TTL_DAYS: ${SOURCE_ICON_DISCOVERY_TTL_DAYS:-30}
       MEDIA_ROOT: /data/media
       EXPORT_ROOT: /data/exports
       READINESS_REQUIRED_CAPABILITIES: ${READINESS_REQUIRED_CAPABILITIES:-}
@@ -135,6 +137,14 @@ services:
     environment:
       NEWSCRAFT_COMPONENT_ID: worker-source-generation
       DATABASE_URL: postgresql+asyncpg://newscraft:newscraft@newscraft-postgres:5432/newscraft
+      CONTINUOUS_INGESTION_INTERVAL_MINUTES: ${CONTINUOUS_INGESTION_INTERVAL_MINUTES:-15}
+      SOURCE_ICON_DISCOVERY_BATCH_SIZE: ${SOURCE_ICON_DISCOVERY_BATCH_SIZE:-25}
+      SOURCE_ICON_DISCOVERY_TTL_DAYS: ${SOURCE_ICON_DISCOVERY_TTL_DAYS:-30}
+      SOURCE_ICON_DISCOVERY_RETRY_BASE_SECONDS: ${SOURCE_ICON_DISCOVERY_RETRY_BASE_SECONDS:-3600}
+      SOURCE_ICON_DISCOVERY_RETRY_MAX_SECONDS: ${SOURCE_ICON_DISCOVERY_RETRY_MAX_SECONDS:-604800}
+      SOURCE_ICON_DISCOVERY_TIMEOUT_SECONDS: ${SOURCE_ICON_DISCOVERY_TIMEOUT_SECONDS:-10}
+      SOURCE_ICON_DISCOVERY_MAX_BYTES: ${SOURCE_ICON_DISCOVERY_MAX_BYTES:-2000000}
+      SOURCE_ICON_DISCOVERY_MAX_REDIRECTS: ${SOURCE_ICON_DISCOVERY_MAX_REDIRECTS:-5}
       HTTP_PROXY: ${HTTP_PROXY-}
       HTTPS_PROXY: ${HTTPS_PROXY-}
       ALL_PROXY: ${ALL_PROXY-}
@@ -166,7 +176,7 @@ services:
       api:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "python", "-m", "app.jobs.healthcheck", "--component-id", "worker-source-generation", "--component-type", "worker", "--expected-capabilities", "generation,ingestion,source", "--expected-job-types", "automation.run.start,build_export,content_pack.generate,content_pack.generate_telegram,content_pack.regenerate,execute_retention,ingest.collect,manual_intake,operations.canary.source_generation,research_story,story.group_pending,telegram.route.backfill,telegram.route.dry_run,telegram.route.initialize,telegram.route.poll,telegram.route.process", "--max-age-seconds", "120"]
+      test: ["CMD", "python", "-m", "app.jobs.healthcheck", "--component-id", "worker-source-generation", "--component-type", "worker", "--expected-capabilities", "generation,ingestion,source", "--expected-job-types", "automation.run.start,build_export,content_pack.generate,content_pack.generate_telegram,content_pack.regenerate,execute_retention,ingest.collect,ingest.collection.continuous_cycle,manual_intake,operations.canary.source_generation,research_story,source.icon.discover,story.group_pending,telegram.route.backfill,telegram.route.dry_run,telegram.route.initialize,telegram.route.poll,telegram.route.process", "--max-age-seconds", "120"]
       interval: 15s
       timeout: 5s
       retries: 4
@@ -222,6 +232,9 @@ services:
     environment:
       NEWSCRAFT_COMPONENT_ID: scheduler
       DATABASE_URL: postgresql+asyncpg://newscraft:newscraft@newscraft-postgres:5432/newscraft
+      CONTINUOUS_INGESTION_INTERVAL_MINUTES: ${CONTINUOUS_INGESTION_INTERVAL_MINUTES:-15}
+      SOURCE_ICON_DISCOVERY_BATCH_SIZE: ${SOURCE_ICON_DISCOVERY_BATCH_SIZE:-25}
+      SOURCE_ICON_DISCOVERY_TTL_DAYS: ${SOURCE_ICON_DISCOVERY_TTL_DAYS:-30}
     depends_on:
       postgres:
         condition: service_healthy

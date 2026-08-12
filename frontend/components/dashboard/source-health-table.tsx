@@ -6,7 +6,7 @@ import {
   useReactTable,
   type ColumnDef,
 } from "@tanstack/react-table"
-import { LoaderCircle, RefreshCw, Trash2 } from "lucide-react"
+import { ChevronLeft, ChevronRight, LoaderCircle, RefreshCw, Trash2 } from "lucide-react"
 import { useMemo, useState } from "react"
 
 import { SourceIcon } from "@/components/dashboard/source-icon"
@@ -32,11 +32,17 @@ type SourceHealthTableProps = {
   onCheckSource?: (sourceId: string) => void
   onDeleteSource?: (source: SourceSummary) => void
   onSelectSource: (sourceId: string) => void
+  totalCount?: number
+  pageOffset?: number
+  pageSize?: number
+  hasMore?: boolean
+  onPageChange?: (offset: number) => void
 }
 
 const filters: { label: string; value: "all" | SourcePlatform }[] = [
   { label: "All", value: "all" },
   { label: "RSS", value: "rss" },
+  { label: "Atom", value: "atom" },
   { label: "Telegram", value: "telegram_public" },
 ]
 
@@ -72,6 +78,11 @@ export function SourceHealthTable({
   onCheckSource,
   onDeleteSource,
   onSelectSource,
+  totalCount,
+  pageOffset = 0,
+  pageSize = 50,
+  hasMore = false,
+  onPageChange,
 }: SourceHealthTableProps) {
   const { timezone } = useDateTime()
   const [filter, setFilter] = useState<"all" | SourcePlatform>("all")
@@ -82,6 +93,7 @@ export function SourceHealthTable({
   const counts = {
     all: sources.length,
     rss: sources.filter((source) => source.platform === "rss").length,
+    atom: sources.filter((source) => source.platform === "atom").length,
     telegram: sources.filter((source) => source.platform === "telegram_public").length,
   }
 
@@ -90,7 +102,15 @@ export function SourceHealthTable({
       {
         id: "type",
         header: "Type",
-        cell: ({ row }) => <SourceIcon platform={row.original.platform} />,
+        cell: ({ row }) => (
+          <SourceIcon
+            iconUrl={row.original.iconUrl}
+            iconUpdatedAt={row.original.iconUpdatedAt}
+            name={row.original.name}
+            platform={row.original.platform}
+            sourceId={row.original.id}
+          />
+        ),
       },
       {
         id: "source",
@@ -226,7 +246,13 @@ export function SourceHealthTable({
         <div className="ml-auto min-w-0 max-w-full">
           <div role="tablist" aria-label="Source platform filter" className="flex max-w-full items-center gap-1 overflow-x-auto">
             {filters.map((item) => {
-              const total = item.value === "all" ? counts.all : item.value === "rss" ? counts.rss : counts.telegram
+              const total = item.value === "all"
+                ? counts.all
+                : item.value === "rss"
+                  ? counts.rss
+                  : item.value === "atom"
+                    ? counts.atom
+                    : counts.telegram
               return (
                 <button
                   key={item.value}
@@ -294,8 +320,36 @@ export function SourceHealthTable({
             )}
           </TableBody>
         </Table>
-        <div className="flex h-9 items-center justify-end border-t px-3 text-sm text-muted-foreground">
-          <span>Showing {visibleSources.length} of {counts.all}</span>
+        <div className="flex min-h-9 items-center justify-between gap-2 border-t px-3 text-sm text-muted-foreground">
+          <span>
+            {totalCount !== undefined && totalCount !== counts.all
+              ? `Showing ${totalCount === 0 ? 0 : pageOffset + 1}–${Math.min(pageOffset + visibleSources.length, totalCount)} of ${totalCount}`
+              : `Showing ${visibleSources.length} of ${counts.all}`}
+          </span>
+          {onPageChange && totalCount !== undefined && totalCount > pageSize ? (
+            <div className="flex items-center gap-1">
+              <Button
+                aria-label="Previous source page"
+                disabled={pageOffset === 0}
+                onClick={() => onPageChange(Math.max(0, pageOffset - pageSize))}
+                size="icon-xs"
+                type="button"
+                variant="ghost"
+              >
+                <ChevronLeft className="size-4" aria-hidden="true" />
+              </Button>
+              <Button
+                aria-label="Next source page"
+                disabled={!hasMore}
+                onClick={() => onPageChange(pageOffset + pageSize)}
+                size="icon-xs"
+                type="button"
+                variant="ghost"
+              >
+                <ChevronRight className="size-4" aria-hidden="true" />
+              </Button>
+            </div>
+          ) : null}
         </div>
       </CardContent>
     </Card>

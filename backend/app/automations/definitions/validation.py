@@ -1,14 +1,24 @@
 from __future__ import annotations
 
+import re
 from collections import Counter, defaultdict, deque
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
+from typing import cast
 
 from pydantic import ValidationError
 
+from app.automations.definitions.artifacts import (
+    ArtifactShape,
+    CompatibilityStatus,
+    legacy_artifact_shape,
+    match_input_contract,
+    shape_for_output_contract,
+)
 from app.automations.definitions.registry import NODE_REGISTRY, NodeDefinition
 from app.automations.definitions.schemas import (
     GraphValidationResult,
     ValidationFinding,
+    WorkflowEdge,
     WorkflowGraphV1,
     graph_sha256,
 )
@@ -86,6 +96,41 @@ def _forbidden_paths(value: object, prefix: str = "config") -> Iterable[str]:
         yield prefix
 
 
+def _display_config_path(field_path: str) -> str:
+    return field_path.replace("config.", "configuration.", 1) if field_path.startswith("config.") else field_path
+
+
+def _error_field_path(definition: NodeDefinition, error: Mapping[str, object]) -> str:
+    location = error.get("loc")
+    if isinstance(location, tuple) or isinstance(location, list):
+        if location:
+            return "config." + ".".join(str(part) for part in location)
+    message = str(error.get("msg", ""))
+    for field in definition.config_model.model_fields:
+        if re.search(rf"\b{re.escape(field)}\b", message):
+            return f"config.{field}"
+    return "config"
+
+
+def _schema_error_message(definition: NodeDefinition, field_path: str, error: Mapping[str, object]) -> str:
+    error_type = str(error.get("type", ""))
+    raw_context = error.get("ctx")
+    context = cast(Mapping[str, object], raw_context) if isinstance(raw_context, Mapping) else {}
+    if error_type == "missing":
+        reason = "is required."
+    elif error_type == "extra_forbidden":
+        reason = "is not supported."
+    elif error_type == "too_short":
+        minimum = context.get("min_length", "the minimum number of")
+        reason = f"must contain at least {minimum} item{'s' if minimum != 1 else ''}."
+    elif error_type == "too_long":
+        maximum = context.get("max_length", "the maximum number of")
+        reason = f"must contain at most {maximum} item{'s' if maximum != 1 else ''}."
+    else:
+        reason = "is invalid."
+    return f"{definition.display_name}: {_display_config_path(field_path)} {reason}"
+
+
 def _validate_node_config(node_id: str, node_type: str, config: dict[str, object]) -> list[ValidationFinding]:
     definition = NODE_REGISTRY.get(node_type)
     if definition is None:
@@ -101,7 +146,7 @@ def _validate_node_config(node_id: str, node_type: str, config: dict[str, object
     findings = [
         _finding(
             "node_config_invalid",
-            "Node configuration contains a prohibited credential or executable field.",
+            f"{definition.display_name}: {_display_config_path(path)} is not supported.",
             node_id=node_id,
             field_path=path,
             recovery_action="Remove the field and select a saved resource by ID.",
@@ -114,9 +159,9 @@ def _validate_node_config(node_id: str, node_type: str, config: dict[str, object
         findings.extend(
             _finding(
                 "node_config_invalid",
-                "Node configuration does not match the server schema.",
+                _schema_error_message(definition, field_path := _error_field_path(definition, error), error),
                 node_id=node_id,
-                field_path="config." + ".".join(str(part) for part in error["loc"]),
+                field_path=field_path,
                 recovery_action="Correct the highlighted field.",
             )
             for error in exc.errors(include_url=False)
@@ -129,7 +174,7 @@ def _validate_node_config(node_id: str, node_type: str, config: dict[str, object
             findings.append(
                 _finding(
                     "automation_resource_unavailable",
-                    "Required resource is not configured.",
+                    f"{definition.display_name}: configuration.{field} is required.",
                     node_id=node_id,
                     field_path=f"config.{field}",
                     recovery_action="Select a saved resource.",
@@ -157,10 +202,72 @@ def save_blocking_findings(result: GraphValidationResult) -> list[ValidationFind
     return [finding for finding in result.findings if finding.code in _SAVE_BLOCKING_CODES]
 
 
-def _compatible(source: NodeDefinition, source_port: str, target: NodeDefinition, target_port: str) -> bool:
-    source_types = source.outputs[source_port].artifact_types
-    target_types = target.inputs[target_port].artifact_types
-    return bool(set(source_types) & set(target_types))
+def _output_shape(
+    graph: WorkflowGraphV1,
+    nodes_by_id: Mapping[str, object],
+    node_id: str,
+    port_name: str,
+    cache: dict[tuple[str, str], ArtifactShape],
+    visiting: set[tuple[str, str]],
+) -> ArtifactShape:
+    key = (node_id, port_name)
+    if key in cache:
+        return cache[key]
+    if key in visiting:
+        return ArtifactShape(kind=None, capabilities=frozenset(), known=False)
+    node = nodes_by_id.get(node_id)
+    definition = NODE_REGISTRY.get(node.type) if node is not None and hasattr(node, "type") else None
+    port = definition.outputs.get(port_name) if definition is not None else None
+    if definition is None or port is None:
+        return ArtifactShape(kind=None, capabilities=frozenset(), known=False)
+    visiting.add(key)
+    upstream: ArtifactShape | None = None
+    output_contract = port.output_contract or definition.output_contract
+    if output_contract is None:
+        # Boundary fallback for historical catalogs; current registry ports all declare contracts.
+        legacy_shapes = [legacy_artifact_shape(item) for item in port.artifact_types]
+        known_shapes = [item for item in legacy_shapes if item.known]
+        if len(known_shapes) == 1:
+            shape = known_shapes[0]
+        else:
+            shape = ArtifactShape(kind=None, capabilities=frozenset(), known=False)
+    else:
+        incoming = [edge for edge in graph.edges if edge.target_node_id == node_id]
+        if len(incoming) == 1:
+            edge = incoming[0]
+            upstream = _output_shape(graph, nodes_by_id, edge.source_node_id, edge.source_port, cache, visiting)
+        shape = shape_for_output_contract(output_contract, upstream)
+    visiting.remove(key)
+    cache[key] = shape
+    return shape
+
+
+def _edge_compatibility(
+    graph: WorkflowGraphV1,
+    nodes_by_id: Mapping[str, object],
+    edge: WorkflowEdge,
+    cache: dict[tuple[str, str], ArtifactShape],
+) -> CompatibilityStatus:
+    source_node = nodes_by_id.get(edge.source_node_id)
+    target_node = nodes_by_id.get(edge.target_node_id)
+    source_definition = (
+        NODE_REGISTRY.get(source_node.type)
+        if source_node is not None and hasattr(source_node, "type")
+        else None
+    )
+    target_definition = (
+        NODE_REGISTRY.get(target_node.type)
+        if target_node is not None and hasattr(target_node, "type")
+        else None
+    )
+    if source_definition is None or target_definition is None:
+        return "incompatible"
+    source_port = source_definition.outputs.get(edge.source_port)
+    target_port = target_definition.inputs.get(edge.target_port)
+    if source_port is None or target_port is None:
+        return "incompatible"
+    shape = _output_shape(graph, nodes_by_id, edge.source_node_id, edge.source_port, cache, set())
+    return match_input_contract(shape, target_port.input_contract or target_definition.input_contract)
 
 
 def _cycle_nodes(adjacency: dict[str, list[str]], node_ids: set[str]) -> set[str]:
@@ -258,6 +365,7 @@ def validate_graph(graph: WorkflowGraphV1) -> GraphValidationResult:
     input_counts: Counter[tuple[str, str]] = Counter()
     output_counts: Counter[tuple[str, str]] = Counter()
     edge_keys: set[tuple[str, str, str, str]] = set()
+    shape_cache: dict[tuple[str, str], ArtifactShape] = {}
     for index, edge in enumerate(graph.edges):
         key = (edge.source_node_id, edge.source_port, edge.target_node_id, edge.target_port)
         if key in edge_keys:
@@ -322,16 +430,27 @@ def validate_graph(graph: WorkflowGraphV1) -> GraphValidationResult:
                 )
             )
             continue
-        if not _compatible(source_definition, edge.source_port, target_definition, edge.target_port):
+        compatibility = _edge_compatibility(graph, nodes_by_id, edge, shape_cache)
+        if compatibility == "incompatible":
             findings.append(
                 _finding(
                     "edge_port_invalid",
-                    "Connected ports carry incompatible artifact types.",
+                    "Connected ports require incompatible artifact capabilities or kinds.",
                     edge_index=index,
-                    recovery_action="Connect ports with a shared artifact type.",
+                    recovery_action="Connect an output whose artifact contract satisfies the input contract.",
                 )
             )
             continue
+        if compatibility == "incomplete":
+            findings.append(
+                _finding(
+                    "edge_artifact_contract_incomplete",
+                    "Artifact compatibility is incomplete until an upstream artifact is available.",
+                    edge_index=index,
+                    severity="warning",
+                    recovery_action="Configure and run the upstream step before activation.",
+                )
+            )
         adjacency[source_node.id].append(target_node.id)
         reverse[target_node.id].append(source_node.id)
         input_counts[(target_node.id, edge.target_port)] += 1

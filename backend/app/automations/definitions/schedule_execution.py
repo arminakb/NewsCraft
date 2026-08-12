@@ -9,6 +9,7 @@ from uuid import UUID, uuid4
 from pydantic import BaseModel, ConfigDict, ValidationError
 from sqlalchemy import func, select
 
+from app.automations.definitions.artifacts import make_artifact, summary_with_artifact
 from app.automations.definitions.collection_execution import (
     COLLECTION_ARTICLE_ADDED_TRIGGER,
     handle_collection_article_added,
@@ -176,8 +177,31 @@ def build_scheduled_automation_handler(profile_resolver: Any) -> JobHandler:
                 run_ids.append(str(existing.id))
                 continue
             dry_run = bool(control.dry_run) if control is not None else False
+            run_id = uuid4()
+            schedule_artifact = make_artifact(
+                kind="schedule_event",
+                capabilities=["structured", "schedule-context"],
+                payload={"scheduled_for": (job.scheduled_for or job.created_at).isoformat()},
+                source_node_id=trigger.node_id,
+                workflow_id=str(automation.id),
+                workflow_version_id=str(version.id),
+                run_id=str(run_id),
+                trigger_type="schedule",
+                occurred_at=job.scheduled_for or job.created_at,
+            )
+            selection_artifact = make_artifact(
+                kind="article",
+                capabilities=["textual", "structured", "article", "reviewable", "generatable"],
+                payload={"story_revision_id": str(revision.id), "story_id": str(revision.story_id)},
+                source_node_id=selection.node_id,
+                workflow_id=str(automation.id),
+                workflow_version_id=str(version.id),
+                run_id=str(run_id),
+                trigger_type="schedule",
+                occurred_at=job.scheduled_for or job.created_at,
+            )
             run = AutomationRun(
-                id=uuid4(),
+                id=run_id,
                 automation_id=automation.id,
                 automation_version_id=version.id,
                 trigger_kind="schedule",
@@ -196,6 +220,9 @@ def build_scheduled_automation_handler(profile_resolver: Any) -> JobHandler:
                     "plan_hash": plan.plan_hash,
                     "required_resources": list(plan.required_resources),
                     "node_ids_by_type": _node_map(plan),
+                    "node_types_by_id": {stage.node_id: stage.node_type for stage in plan.stages},
+                    "node_order": [stage.node_id for stage in plan.stages],
+                    "current_artifact": selection_artifact.model_dump(mode="json"),
                     "selected_story_revision_id": str(revision.id),
                 },
                 idempotency_key=run_key,
@@ -217,7 +244,15 @@ def build_scheduled_automation_handler(profile_resolver: Any) -> JobHandler:
                     started_at=now if succeeded else None,
                     finished_at=now if succeeded or skipped else None,
                     input_summary={"story_revision_id": str(revision.id)} if succeeded else {},
-                    output_summary={"reason": "dry_run_publication_disabled"} if skipped else {},
+                    output_summary=(
+                        {"reason": "dry_run_publication_disabled"}
+                        if skipped
+                        else summary_with_artifact({}, schedule_artifact)
+                        if stage.node_id == trigger.node_id
+                        else summary_with_artifact({}, selection_artifact)
+                        if stage.node_id == selection.node_id
+                        else {}
+                    ),
                 )
                 context.session.add(node)
                 nodes[stage.node_id] = node

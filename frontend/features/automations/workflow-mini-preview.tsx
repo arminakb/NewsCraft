@@ -1,26 +1,18 @@
-import {
-  Bot,
-  CircleHelp,
-  Clock3,
-  FileCheck2,
-  Filter,
-  ListFilter,
-  MousePointerClick,
-  Package,
-  Radio,
-  Search,
-  ShieldCheck,
-  TriangleAlert,
-  UserCheck,
-} from "lucide-react"
-import { memo, useId, type CSSProperties } from "react"
+"use client"
+
+import { TriangleAlert } from "lucide-react"
+import { memo, useEffect, useMemo, useRef, useState } from "react"
 
 import { cn } from "@/lib/utils"
 
 import type { AutomationPreviewStage } from "./automation-types"
+import { AnimatedBeam } from "./workflow-animated-beam"
+import { nodeTypeIcon } from "./workflow-node-visual"
 import { primaryPlatform, WorkflowPlatformIcon } from "./workflow-platform-icon"
 
 const MAX_VISIBLE_STAGES = 4
+const PREVIEW_ICON_SIZE = 32
+const PREVIEW_BEAM_OFFSET = PREVIEW_ICON_SIZE / 2 + 2
 const priority: Record<AutomationPreviewStage["category"], number> = {
   trigger: 0,
   content: 50,
@@ -31,6 +23,12 @@ const priority: Record<AutomationPreviewStage["category"], number> = {
   publish: 110,
   unknown: 10,
 }
+
+type PreviewElementRef = { current: HTMLElement | null }
+
+type PreviewItem =
+  | { kind: "stage"; key: string; stage: AutomationPreviewStage; stageIndex: number }
+  | { kind: "overflow"; key: string; hiddenCount: number; stageIndex: number }
 
 export const WorkflowMiniPreview = memo(function WorkflowMiniPreview({
   stages,
@@ -43,7 +41,16 @@ export const WorkflowMiniPreview = memo(function WorkflowMiniPreview({
   const accessibleSummary = stages.length
     ? `Workflow stages: ${stages.map(workflowStageAccessibleLabel).join(", ")}.${summary.hiddenCount ? ` ${summary.hiddenCount} additional workflow steps are collapsed visually.` : ""}`
     : "Workflow preview unavailable."
-  const attentionIndex = summary.visible.findIndex((stage) => stage.needsAttention)
+  const attentionIndex = summary.visible.findIndex((stage) => stage.needsAttention || stage.category === "unknown")
+  const items = useMemo(() => buildPreviewItems(summary), [summary])
+  const itemSignature = items.map((item) => item.key).join("|")
+  const itemRefs = useMemo(
+    () => new Map(items.map((item) => [item.key, { current: null } as PreviewElementRef])),
+    [itemSignature],
+  )
+  const containerRef = useRef<HTMLDivElement>(null)
+  const reducedMotion = usePrefersReducedMotion()
+  const flowActive = !paused && !reducedMotion
 
   if (!summary.visible.length) {
     return <p aria-label="Empty" className="flex min-h-20 items-center text-sm text-muted-foreground">Empty</p>
@@ -52,82 +59,144 @@ export const WorkflowMiniPreview = memo(function WorkflowMiniPreview({
   return (
     <div
       aria-label={accessibleSummary}
-      className={cn("flex min-h-20 items-center", paused && "opacity-80")}
+      className={cn("flex min-h-[88px] min-w-0 items-center", paused && "opacity-80")}
       data-flow-motion={paused ? "paused" : "active"}
+      data-reduced-motion={reducedMotion ? "true" : "false"}
       role="img"
     >
-      <div aria-hidden="true" className="flex min-w-0 flex-1 items-start justify-between">
-        {summary.visible.map((stage, index) => {
-          const connectorActive = !paused && (attentionIndex < 0 || index < attentionIndex)
-          return (
-            <div className="contents" key={stage.nodeId}>
-              {index ? <WorkflowConnector active={connectorActive} index={index} stage={stage} /> : null}
-              <div className="relative flex w-12 shrink-0 flex-col items-center gap-1.5 text-center">
+      <div className="relative min-h-[88px] w-full min-w-0 overflow-hidden px-1 py-2" ref={containerRef}>
+        <div aria-hidden="true" className="pointer-events-none absolute inset-0 z-0">
+          {items.slice(0, -1).map((item, index) => {
+            const nextItem = items[index + 1]
+            const fromRef = itemRefs.get(item.key)
+            const toRef = itemRefs.get(nextItem.key)
+            if (!fromRef || !toRef) return null
+
+            const targetStage = nextItem.kind === "stage"
+              ? nextItem.stage
+              : item.kind === "stage"
+                ? item.stage
+                : summary.visible[0]
+            const active = flowActive && (attentionIndex < 0 || nextItem.stageIndex < attentionIndex)
+            return (
+              <AnimatedBeam
+                animated={active}
+                className={connectorStyle(targetStage)}
+                containerRef={containerRef}
+                delay={index * 0.35}
+                duration={4.6}
+                endXOffset={-PREVIEW_BEAM_OFFSET}
+                fromRef={fromRef}
+                gradientStartColor="var(--flow-beam-start)"
+                gradientStopColor="var(--flow-beam-highlight)"
+                key={`${item.key}-${nextItem.key}`}
+                pathColor="var(--muted-foreground)"
+                pathOpacity={0.42}
+                pathWidth={1.55}
+                startXOffset={PREVIEW_BEAM_OFFSET}
+                toRef={toRef}
+              />
+            )
+          })}
+        </div>
+
+        <div
+          className="relative z-10 grid w-full min-w-0 items-start gap-x-1"
+          style={{ gridTemplateColumns: `repeat(${items.length}, minmax(0, 1fr))` }}
+        >
+          {items.map((item) => {
+            const itemRef = itemRefs.get(item.key)
+            if (item.kind === "overflow") {
+              return (
+                <div className="flex min-w-0 flex-col items-center gap-1 text-center" key={item.key}>
+                  <span
+                    aria-hidden="true"
+                    className="grid size-8 shrink-0 place-items-center rounded-full border border-dashed border-border/80 bg-muted/80 px-0.5 text-[11px] font-semibold leading-none text-muted-foreground"
+                    ref={(element) => { if (itemRef) itemRef.current = element }}
+                  >
+                    +{item.hiddenCount}
+                  </span>
+                  <span className="max-w-full text-[12px] leading-4 text-muted-foreground">more</span>
+                </div>
+              )
+            }
+
+            return (
+              <div className="flex min-w-0 flex-col items-center gap-1 text-center" key={item.key}>
                 <span
                   className={cn(
-                    "grid size-[30px] place-items-center rounded-lg border shadow-xs ring-1 ring-inset ring-white/10",
-                    stageStyle(stage),
+                    "relative grid size-8 shrink-0 place-items-center rounded-lg border shadow-xs ring-1 ring-inset ring-white/10",
+                    stageStyle(item.stage),
                   )}
-                  data-stage-category={stage.category}
-                  data-stage-type={stage.nodeType}
+                  data-node-icon={item.stage.nodeType}
+                  data-stage-category={item.stage.category}
+                  data-stage-type={item.stage.nodeType}
+                  ref={(element) => { if (itemRef) itemRef.current = element }}
                 >
-                  <StageIcon stage={stage} />
+                  <StageIcon stage={item.stage} />
+                  {item.stage.needsAttention || item.stage.category === "unknown" ? (
+                    <span className="absolute -end-1 -top-1 grid size-4 place-items-center rounded-full bg-[var(--error-surface)] text-destructive shadow-xs">
+                      <TriangleAlert aria-hidden="true" className="size-2.5" />
+                    </span>
+                  ) : null}
                 </span>
-                <span className="whitespace-nowrap text-[12px] leading-4 text-muted-foreground" title={stage.label}>
-                  {workflowStageLabel(stage)}
+                <span
+                  className="max-w-full text-[12px] leading-4 text-muted-foreground [overflow-wrap:anywhere]"
+                  title={item.stage.label}
+                >
+                  {workflowStageLabel(item.stage)}
                 </span>
-                {stage.needsAttention ? (
-                  <span className="absolute end-0 top-[-3px] grid size-4 place-items-center rounded-full bg-[var(--error-surface)] text-destructive">
-                    <TriangleAlert className="size-2.5" />
-                  </span>
-                ) : null}
               </div>
-              {index === summary.collapseAfter && summary.hiddenCount ? (
-                <div className="flex shrink-0 flex-col items-center gap-1.5 px-0.5">
-                  <span className="grid h-[30px] min-w-7 place-items-center rounded-full border border-dashed bg-muted px-1 text-xs font-semibold text-muted-foreground">…</span>
-                  <span className="text-[12px] leading-4 text-muted-foreground">+{summary.hiddenCount}</span>
-                </div>
-              ) : null}
-            </div>
-          )
-        })}
+            )
+          })}
+        </div>
       </div>
     </div>
   )
 })
 
-function WorkflowConnector({ active, index, stage }: { active: boolean; index: number; stage: AutomationPreviewStage }) {
-  const gradientId = useId().replace(/:/g, "")
-  return (
-    <span
-      className={cn("workflow-connector relative mt-[11px] h-2 min-w-2 flex-1", connectorStyle(stage))}
-      data-animated={active ? "true" : "false"}
-      data-flow-connector
-    >
-      <svg className="h-full w-full overflow-visible" preserveAspectRatio="none" viewBox="0 0 100 8">
-        <defs>
-          <linearGradient id={gradientId} x1="0" x2="1">
-            <stop offset="0" stopColor="var(--border)" />
-            <stop offset="0.58" stopColor="currentColor" stopOpacity="0.42" />
-            <stop offset="1" stopColor="currentColor" stopOpacity="0.78" />
-          </linearGradient>
-        </defs>
-        <path d="M3 4H97" fill="none" stroke={`url(#${gradientId})`} strokeLinecap="round" strokeWidth="1.4" vectorEffect="non-scaling-stroke" />
-        <circle cx="3" cy="4" fill="var(--border)" r="1.35" />
-        <circle cx="97" cy="4" fill="currentColor" opacity="0.72" r="1.45" />
-        {active ? (
-          <circle
-            className="workflow-flow-particle"
-            cx="3"
-            cy="4"
-            fill="currentColor"
-            r="1.8"
-            style={{ "--workflow-flow-delay": `${index * 0.55}s` } as CSSProperties}
-          />
-        ) : null}
-      </svg>
-    </span>
-  )
+function StageIcon({ stage }: { stage: AutomationPreviewStage }) {
+  const platform = primaryPlatform(stage.platforms)
+  if (stage.platforms.length) return <WorkflowPlatformIcon className="size-[18px] shrink-0" platform={platform} />
+  const Icon = nodeTypeIcon(stage.nodeType)
+  return <Icon aria-hidden="true" className="size-[18px] shrink-0 stroke-[1.8]" />
+}
+
+function usePrefersReducedMotion() {
+  const [reducedMotion, setReducedMotion] = useState(() => (
+    typeof window !== "undefined" && window.matchMedia?.("(prefers-reduced-motion: reduce)").matches === true
+  ))
+
+  useEffect(() => {
+    const mediaQuery = window.matchMedia?.("(prefers-reduced-motion: reduce)")
+    if (!mediaQuery) return
+
+    const update = () => setReducedMotion(mediaQuery.matches)
+    update()
+    mediaQuery.addEventListener?.("change", update)
+    return () => mediaQuery.removeEventListener?.("change", update)
+  }, [])
+
+  return reducedMotion
+}
+
+function buildPreviewItems(summary: ReturnType<typeof summarizePreviewStages>): PreviewItem[] {
+  const items: PreviewItem[] = summary.visible.map((stage, stageIndex) => ({
+    kind: "stage",
+    key: stage.nodeId,
+    stage,
+    stageIndex,
+  }))
+  if (!summary.hiddenCount || summary.collapseAfter < 0) return items
+
+  const insertAt = Math.min(summary.collapseAfter + 1, items.length - 1)
+  items.splice(insertAt, 0, {
+    kind: "overflow",
+    key: `overflow-${summary.visible[0]?.nodeId ?? "workflow"}`,
+    hiddenCount: summary.hiddenCount,
+    stageIndex: insertAt,
+  })
+  return items
 }
 
 export function summarizePreviewStages(stages: AutomationPreviewStage[], limit = MAX_VISIBLE_STAGES) {
@@ -146,23 +215,6 @@ export function summarizePreviewStages(stages: AutomationPreviewStage[], limit =
     hiddenCount: stages.length - visible.length,
     collapseAfter: firstGapIndex > 0 ? firstGapIndex - 1 : visible.length - 2,
   }
-}
-
-function StageIcon({ stage }: { stage: AutomationPreviewStage }) {
-  if (stage.platforms.length) return <WorkflowPlatformIcon platform={primaryPlatform(stage.platforms)} className="size-4" />
-  const Icon = stage.nodeType === "manual" ? MousePointerClick
-    : stage.nodeType === "schedule" ? Clock3
-      : stage.nodeType === "new_source_item" ? Radio
-      : stage.nodeType === "select_content" ? ListFilter
-          : stage.nodeType === "filter_content" ? Filter
-            : stage.nodeType === "research" ? Search
-              : stage.nodeType === "generate_content_pack" ? Bot
-                : stage.nodeType === "validate" ? ShieldCheck
-                  : stage.nodeType === "human_review" ? UserCheck
-                    : stage.nodeType === "save_drafts" ? FileCheck2
-                      : stage.nodeType === "manual_package" ? Package
-                        : CircleHelp
-  return <Icon className="size-4" />
 }
 
 export function workflowStageLabel(stage: AutomationPreviewStage) {
@@ -185,6 +237,7 @@ export function workflowStageLabel(stage: AutomationPreviewStage) {
 }
 
 function workflowStageAccessibleLabel(stage: AutomationPreviewStage) {
+  if (stage.category === "unknown") return "Unsupported workflow step"
   if (stage.nodeType === "new_source_item") return "New source item trigger"
   if (stage.nodeType === "telegram_publish") return "Telegram publish"
   if (stage.nodeType === "generate_content_pack") return "AI generation"

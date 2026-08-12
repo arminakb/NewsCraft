@@ -1,6 +1,10 @@
 import type {
   AutomationNodeCatalog,
   AutomationNodeDefinition,
+  ArtifactCapability,
+  ArtifactInputContract,
+  ArtifactKind,
+  ArtifactOutputContract,
   AutomationResourceRequest,
   GraphValidation,
   ValidationFinding,
@@ -8,6 +12,14 @@ import type {
   WorkflowGraph,
   WorkflowNode,
 } from "./automation-types"
+
+export type CompatibilityStatus = "compatible" | "incomplete" | "incompatible"
+
+type ArtifactShape = {
+  kind: ArtifactKind | null
+  capabilities: Set<ArtifactCapability>
+  known: boolean
+}
 
 export type GraphEditResult =
   | { graph: WorkflowGraph; error?: never; nodeId?: string }
@@ -77,6 +89,24 @@ const resourceFields: Record<string, AutomationResourceRequest["kind"]> = {
   promptTemplateVersionId: "prompt_version",
   promptVersionIds: "prompt_version",
   destinationId: "destination",
+}
+
+const legacyConfigAliases: Record<string, Record<string, string>> = {
+  generate_content_pack: {
+    brandProfileId: "editorialProfileId",
+    brand_profile_id: "editorialProfileId",
+  },
+  new_source_item: {
+    sourceId: "sourceIds",
+    source_id: "sourceIds",
+  },
+  validate: {
+    validators: "validatorIds",
+    validator_ids: "validatorIds",
+  },
+  manual_package: {
+    platform: "platforms",
+  },
 }
 
 export function catalogDefinition(catalog: AutomationNodeCatalog, type: string) {
@@ -168,8 +198,146 @@ export function orderedWorkflowNodes(graph: WorkflowGraph): WorkflowNode[] {
 
 export function compatiblePortPairs(source: AutomationNodeDefinition, target: AutomationNodeDefinition) {
   return source.outputs.flatMap((output) => target.inputs
-    .filter((input) => output.artifactTypes.some((type) => input.artifactTypes.includes(type)))
+    .filter((input) => staticPortCompatibility(source, output, target, input) !== "incompatible")
     .map((input) => ({ sourcePort: output.name, targetPort: input.name })))
+}
+
+export function connectionCompatibility(
+  graph: WorkflowGraph,
+  catalog: AutomationNodeCatalog,
+  edge: WorkflowEdge,
+): CompatibilityStatus {
+  const sourceNode = graph.nodes.find((node) => node.id === edge.sourceNodeId)
+  const targetNode = graph.nodes.find((node) => node.id === edge.targetNodeId)
+  const source = sourceNode ? catalogDefinition(catalog, sourceNode.type) : undefined
+  const target = targetNode ? catalogDefinition(catalog, targetNode.type) : undefined
+  const output = source?.outputs.find((port) => port.name === edge.sourcePort)
+  const input = target?.inputs.find((port) => port.name === edge.targetPort)
+  if (!source || !target || !output || !input) return "incompatible"
+  if (!hasContract(output, input, source, target)) return legacyPortCompatibility(output, input)
+  const shape = artifactShapeForOutput(graph, catalog, edge.sourceNodeId, edge.sourcePort)
+  return matchInputContract(shape, inputContract(target, input))
+}
+
+function staticPortCompatibility(
+  source: AutomationNodeDefinition,
+  output: AutomationNodeDefinition["outputs"][number],
+  target: AutomationNodeDefinition,
+  input: AutomationNodeDefinition["inputs"][number],
+): CompatibilityStatus {
+  if (!hasContract(output, input, source, target)) return legacyPortCompatibility(output, input)
+  return matchInputContract(staticOutputShape(outputContract(source, output)), inputContract(target, input))
+}
+
+function hasContract(
+  output: AutomationNodeDefinition["outputs"][number],
+  input: AutomationNodeDefinition["inputs"][number],
+  source: AutomationNodeDefinition,
+  target: AutomationNodeDefinition,
+) {
+  return Boolean(outputContract(source, output) || inputContract(target, input))
+}
+
+function inputContract(
+  definition: AutomationNodeDefinition,
+  port: AutomationNodeDefinition["inputs"][number],
+): ArtifactInputContract | null {
+  return port.inputContract ?? definition.inputContract ?? null
+}
+
+function outputContract(
+  definition: AutomationNodeDefinition,
+  port: AutomationNodeDefinition["outputs"][number],
+): ArtifactOutputContract | null {
+  return port.outputContract ?? definition.outputContract ?? null
+}
+
+function legacyPortCompatibility(
+  output: AutomationNodeDefinition["outputs"][number],
+  input: AutomationNodeDefinition["inputs"][number],
+): CompatibilityStatus {
+  // Boundary fallback for catalogs captured before capability contracts shipped.
+  return output.artifactTypes.some((type) => input.artifactTypes.includes(type)) ? "compatible" : "incompatible"
+}
+
+function legacyShape(artifactType: string): ArtifactShape {
+  const base = { capabilities: new Set<ArtifactCapability>(), known: true }
+  if (artifactType === "article_package") return { kind: "article", capabilities: new Set(["textual", "structured", "article", "reviewable", "generatable"]), known: true }
+  if (artifactType === "research_package") return { kind: "research", capabilities: new Set(["textual", "structured", "research", "reviewable", "generatable"]), known: true }
+  if (artifactType === "package" || artifactType === "draft_package" || artifactType === "content_package") return { kind: "draft", capabilities: new Set(["textual", "structured", "draft", "reviewable"]), known: true }
+  if (artifactType === "story.revision_ref" || artifactType === "article.collection_added" || artifactType === "source_item.ref" || artifactType === "content_item.ref" || artifactType === "story.revision_set_ref") {
+    const context: ArtifactCapability | null = artifactType === "article.collection_added" ? "collection-context" : artifactType === "source_item.ref" || artifactType === "content_item.ref" ? "source-context" : null
+    const capabilities: ArtifactCapability[] = ["textual", "structured", "article", "reviewable", "generatable"]
+    if (context) capabilities.push(context)
+    return { kind: "article", capabilities: new Set<ArtifactCapability>(capabilities), known: true }
+  }
+  if (artifactType === "story.researched_revision_ref") return { kind: "research", capabilities: new Set(["textual", "structured", "research", "reviewable", "generatable"]), known: true }
+  if (artifactType.startsWith("draft.") || artifactType === "export.manual_package_ref") {
+    const capabilities = new Set<ArtifactCapability>(["textual", "structured", "draft", "reviewable"])
+    if (artifactType === "draft.approved_telegram_revision_ref") capabilities.add("approved"), capabilities.add("publishable")
+    return { kind: "draft", capabilities, known: true }
+  }
+  if (artifactType === "run.signal") return { kind: "schedule_event", capabilities: new Set(["structured", "schedule-context"]), known: true }
+  if (artifactType === "publication.telegram_ref") return { kind: "publication", capabilities: new Set(["structured", "approved", "publishable"]), known: true }
+  return { kind: null, ...base, known: false }
+}
+
+function staticOutputShape(contract: ArtifactOutputContract | null): ArtifactShape {
+  if (!contract) return { kind: null, capabilities: new Set(), known: false }
+  return {
+    kind: contract.kind ?? null,
+    capabilities: new Set([...(contract.capabilities ?? []), ...(contract.addsCapabilities ?? [])]),
+    known: Boolean(contract.kind) && !contract.preservesInputArtifact,
+  }
+}
+
+function artifactShapeForOutput(
+  graph: WorkflowGraph,
+  catalog: AutomationNodeCatalog,
+  nodeId: string,
+  portName: string,
+  cache = new Map<string, ArtifactShape>(),
+  visiting = new Set<string>(),
+): ArtifactShape {
+  const cacheKey = `${nodeId}:${portName}`
+  const cached = cache.get(cacheKey)
+  if (cached) return cached
+  if (visiting.has(cacheKey)) return { kind: null, capabilities: new Set(), known: false }
+  const node = graph.nodes.find((item) => item.id === nodeId)
+  const definition = node ? catalogDefinition(catalog, node.type) : undefined
+  const port = definition?.outputs.find((item) => item.name === portName)
+  if (!definition || !port) return { kind: null, capabilities: new Set(), known: false }
+  const contract = outputContract(definition, port)
+  if (!contract) {
+    const shapes = port.artifactTypes.map(legacyShape).filter((shape) => shape.known)
+    const shape = shapes.length === 1 ? shapes[0] : { kind: null, capabilities: new Set<ArtifactCapability>(), known: false }
+    cache.set(cacheKey, shape)
+    return shape
+  }
+  visiting.add(cacheKey)
+  const incoming = graph.edges.filter((edge) => edge.targetNodeId === nodeId)
+  const upstream = incoming.length === 1
+    ? artifactShapeForOutput(graph, catalog, incoming[0].sourceNodeId, incoming[0].sourcePort, cache, visiting)
+    : { kind: null, capabilities: new Set<ArtifactCapability>(), known: false }
+  visiting.delete(cacheKey)
+  const shape = contract.preservesInputArtifact
+    ? {
+        kind: contract.kind ?? upstream.kind,
+        capabilities: new Set([...upstream.capabilities, ...(contract.capabilities ?? []), ...(contract.addsCapabilities ?? [])]),
+        known: upstream.known && Boolean(contract.kind ?? upstream.kind),
+      }
+    : staticOutputShape(contract)
+  cache.set(cacheKey, shape)
+  return shape
+}
+
+function matchInputContract(shape: ArtifactShape, contract: ArtifactInputContract | null): CompatibilityStatus {
+  if (!contract) return "incompatible"
+  if (!shape.known) return "incomplete"
+  if (contract.acceptedKinds?.length && !contract.acceptedKinds.includes(shape.kind as ArtifactKind)) return "incompatible"
+  if (contract.allOf?.some((capability) => !shape.capabilities.has(capability))) return "incompatible"
+  if (contract.anyOf?.length && !contract.anyOf.some((capability) => shape.capabilities.has(capability))) return "incompatible"
+  return "compatible"
 }
 
 export function insertWorkflowNode(
@@ -375,8 +543,12 @@ export function connectWorkflowNodes(
   if (target.entry) return { error: "Trigger steps cannot receive incoming connections." }
   const output = source.outputs.find((port) => port.name === edge.sourcePort)
   const input = target.inputs.find((port) => port.name === edge.targetPort)
-  if (!output || !input || !output.artifactTypes.some((type) => input.artifactTypes.includes(type))) {
-    return { error: `Ports ${edge.sourcePort} and ${edge.targetPort} are incompatible.` }
+  if (!output || !input) {
+    return { error: `Ports ${edge.sourcePort} and ${edge.targetPort} are unavailable.` }
+  }
+  const compatibility = connectionCompatibility(graph, catalog, edge)
+  if (compatibility === "incompatible") {
+    return { error: `Ports ${edge.sourcePort} and ${edge.targetPort} require incompatible artifact capabilities.` }
   }
   const outgoingCount = graph.edges.filter((item) => item.sourceNodeId === edge.sourceNodeId && item.sourcePort === edge.sourcePort).length
   const incomingCount = graph.edges.filter((item) => item.targetNodeId === edge.targetNodeId && item.targetPort === edge.targetPort).length
@@ -449,9 +621,10 @@ export function validateWorkflowClient(graph: WorkflowGraph, catalog: Automation
     const targetNode = nodes.get(edge.targetNodeId)
     const source = sourceNode ? catalogDefinition(catalog, sourceNode.type) : undefined
     const target = targetNode ? catalogDefinition(catalog, targetNode.type) : undefined
-    const compatible = source && target && source.outputs.some((output) => output.name === edge.sourcePort && target.inputs.some((input) => input.name === edge.targetPort && output.artifactTypes.some((type) => input.artifactTypes.includes(type))))
+    const compatible = source && target ? connectionCompatibility(graph, catalog, edge) : "incompatible"
     if (target?.entry) findings.push({ ...finding("edge_port_invalid", "Trigger steps cannot receive incoming connections.", targetNode?.id, "Keep the trigger first and connect only from its output."), edgeIndex: index })
-    else if (!compatible) findings.push({ ...finding("edge_port_invalid", "Connected ports are incompatible.", targetNode?.id, "Choose ports sharing an artifact type."), edgeIndex: index })
+    else if (compatible === "incompatible") findings.push({ ...finding("edge_port_invalid", "Connected ports require incompatible artifact capabilities.", targetNode?.id, "Choose an output satisfying the input contract."), edgeIndex: index })
+    else if (compatible === "incomplete") findings.push({ ...finding("edge_artifact_contract_incomplete", "Artifact compatibility is incomplete until an upstream artifact is available.", targetNode?.id, "Configure and run the upstream step before activation.", undefined, "warning"), edgeIndex: index })
     else {
       const inputKey = `${edge.targetNodeId}:${edge.targetPort}`
       const outputKey = `${edge.sourceNodeId}:${edge.sourcePort}`
@@ -490,21 +663,63 @@ export function defaultConfig(definition: AutomationNodeDefinition): Record<stri
   return Object.fromEntries(Object.entries(properties).flatMap(([key, value]) => {
     const field = resolveSchema(value)
     if (field.default !== undefined) return [[key, structuredClone(field.default)]]
-    if (field.type === "array") return [[key, []]]
+    if (field.type === "array" && (field.minItems === undefined || field.minItems === 0)) return [[key, []]]
     if (field.type === "boolean") return [[key, false]]
     return []
   }))
 }
 
+/**
+ * Rebuild the graph boundary from catalog-backed editable fields.
+ * Artifact contracts and editor/runtime metadata belong to the catalog/UI,
+ * never to WorkflowNode.config.
+ */
+export function normalizeWorkflowGraphForSave(graph: WorkflowGraph, catalog: AutomationNodeCatalog): WorkflowGraph {
+  const layout = Object.fromEntries(
+    Object.entries(graph.metadata?.layout ?? {}).flatMap(([nodeId, point]) => (
+      point && Number.isFinite(point.x) && Number.isFinite(point.y)
+        ? [[nodeId, { x: point.x, y: point.y }]]
+        : []
+    )),
+  )
+  return {
+    schemaVersion: 1,
+    entryNodeId: graph.entryNodeId,
+    nodes: graph.nodes.map((node) => {
+      const definition = catalogDefinition(catalog, node.type)
+      const rawConfig = workflowNodeConfig(node)
+      return {
+        id: node.id,
+        type: node.type,
+        config: definition ? normalizeNodeConfig(node.type, rawConfig, definition.configSchema as JsonSchema) : structuredClone(rawConfig),
+      }
+    }),
+    edges: graph.edges.map((edge) => ({
+      sourceNodeId: edge.sourceNodeId,
+      sourcePort: edge.sourcePort,
+      targetNodeId: edge.targetNodeId,
+      targetPort: edge.targetPort,
+    })),
+    outputNodeIds: [...graph.outputNodeIds],
+    metadata: { layout },
+  }
+}
+
+/** Alias kept explicit for save-request call sites and serialization tests. */
+export const serializeWorkflowGraph = normalizeWorkflowGraphForSave
+
 export type JsonSchema = {
-  type?: string
+  type?: string | string[]
   title?: string
   description?: string
   default?: unknown
   enum?: unknown[]
   anyOf?: JsonSchema[]
   properties?: Record<string, JsonSchema>
+  additionalProperties?: boolean | JsonSchema
   items?: JsonSchema
+  minItems?: number
+  maxItems?: number
   minimum?: number
   maximum?: number
   minLength?: number
@@ -515,6 +730,104 @@ export type JsonSchema = {
 
 export function resolveSchema(schema: JsonSchema): JsonSchema {
   return schema.anyOf?.find((item) => item.type !== "null") ?? schema
+}
+
+function normalizeNodeConfig(nodeType: string, rawConfig: Record<string, unknown>, schema: JsonSchema): Record<string, unknown> {
+  const source = applyLegacyConfigAliases(nodeType, rawConfig)
+  const output: Record<string, unknown> = {}
+  for (const [schemaKey, fieldSchema] of Object.entries(resolveSchema(schema).properties ?? {})) {
+    const key = camelizeConfigKey(schemaKey)
+    const sourceKey = findConfigKey(source, key)
+    if (!sourceKey) continue
+    const value = normalizeConfigValue(source[sourceKey], fieldSchema)
+    if (value !== undefined) output[key] = value
+  }
+  return output
+}
+
+function normalizeConfigValue(value: unknown, schema: JsonSchema): unknown {
+  if (value === undefined) return undefined
+  if (value === null) return null
+  const resolved = resolveSchema(schema)
+  if (Array.isArray(value)) {
+    return value.map((item) => normalizeConfigValue(item, resolved.items ?? {}))
+  }
+  if (!isRecord(value)) return structuredClone(value)
+  if (resolved.properties) {
+    const output: Record<string, unknown> = {}
+    for (const [schemaKey, fieldSchema] of Object.entries(resolved.properties)) {
+      const key = camelizeConfigKey(schemaKey)
+      const sourceKey = findConfigKey(value, key)
+      if (!sourceKey) continue
+      const item = normalizeConfigValue(value[sourceKey], fieldSchema)
+      if (item !== undefined) output[key] = item
+    }
+    return output
+  }
+  if (resolved.additionalProperties && typeof resolved.additionalProperties === "object") {
+    return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, normalizeConfigValue(item, resolved.additionalProperties as JsonSchema)]))
+  }
+  if (resolved.additionalProperties === false) return {}
+  return structuredClone(value)
+}
+
+function applyLegacyConfigAliases(nodeType: string, config: Record<string, unknown>): Record<string, unknown> {
+  const source = { ...config }
+  for (const [alias, target] of Object.entries(legacyConfigAliases[nodeType] ?? {})) {
+    if (!findConfigKey(source, target) && hasOwn(source, alias)) {
+      const value = source[alias]
+      source[target] = (target === "sourceIds" || target === "platforms") && typeof value === "string" ? [value] : value
+    }
+  }
+  if (nodeType === "generate_content_pack") {
+    if (!findConfigKey(source, "promptVersionIds")) {
+      const legacyPromptId = firstConfigValue(source, ["promptTemplateVersionId", "promptVersionId"])
+      if (typeof legacyPromptId === "string" && legacyPromptId) source.promptVersionIds = [legacyPromptId]
+    }
+    if (!findConfigKey(source, "promptChecksums")) {
+      const checksum = firstConfigValue(source, ["promptChecksumSha256", "promptChecksum"])
+      const configuredPromptIds = firstConfigValue(source, ["promptVersionIds"])
+      const promptId = firstConfigValue(source, ["promptTemplateVersionId", "promptVersionId"])
+        ?? (Array.isArray(configuredPromptIds) && configuredPromptIds.length === 1 ? configuredPromptIds[0] : undefined)
+      if (typeof checksum === "string" && typeof promptId === "string" && promptId) source.promptChecksums = { [promptId]: checksum }
+    }
+  }
+  return source
+}
+
+function workflowNodeConfig(node: WorkflowNode): Record<string, unknown> {
+  const value = node as unknown as Record<string, unknown>
+  if (hasOwn(value, "config") && isRecord(value.config)) return value.config
+  return isRecord(value.configuration) ? value.configuration : {}
+}
+
+function firstConfigValue(source: Record<string, unknown>, keys: string[]) {
+  for (const key of keys) {
+    const actual = findConfigKey(source, key)
+    if (actual) return source[actual]
+  }
+  return undefined
+}
+
+function findConfigKey(source: Record<string, unknown>, key: string) {
+  const candidates = [key, camelizeConfigKey(key), snakeizeConfigKey(key)]
+  return candidates.find((candidate) => hasOwn(source, candidate))
+}
+
+function camelizeConfigKey(key: string) {
+  return key.replace(/_([a-z])/g, (_match, letter: string) => letter.toUpperCase())
+}
+
+function snakeizeConfigKey(key: string) {
+  return key.replace(/[A-Z]/g, (letter) => `_${letter.toLowerCase()}`)
+}
+
+function hasOwn(value: Record<string, unknown>, key: string): key is string {
+  return Object.prototype.hasOwnProperty.call(value, key)
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value)
 }
 
 function uniqueNodeId(graph: WorkflowGraph, type: string) {
@@ -601,8 +914,8 @@ function hasCycle(graph: WorkflowGraph) {
   return graph.nodes.some((node) => visit(node.id))
 }
 
-function finding(code: string, message: string, nodeId?: string, recoveryAction?: string, fieldPath?: string): ValidationFinding {
-  return { code, severity: "error", message, nodeId: nodeId ?? null, edgeIndex: null, fieldPath: fieldPath ?? null, recoveryAction: recoveryAction ?? null }
+function finding(code: string, message: string, nodeId?: string, recoveryAction?: string, fieldPath?: string, severity: "error" | "warning" = "error"): ValidationFinding {
+  return { code, severity, message, nodeId: nodeId ?? null, edgeIndex: null, fieldPath: fieldPath ?? null, recoveryAction: recoveryAction ?? null }
 }
 
 function findUnsafeField(value: unknown, prefix = ""): string | null {

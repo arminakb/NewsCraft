@@ -54,7 +54,14 @@ export function SourceDetailPanel({
       <div className="p-4 xl:max-h-[calc(100vh-8rem)] xl:overflow-y-auto">
         <section aria-labelledby="source-identity-heading">
           <div className="flex items-start gap-3">
-            <SourceIcon platform={source.platform} className="size-11 shrink-0" />
+            <SourceIcon
+              className="size-11 shrink-0"
+              iconUrl={source.iconUrl}
+              iconUpdatedAt={source.iconUpdatedAt}
+              name={source.name}
+              platform={source.platform}
+              sourceId={source.id}
+            />
             <div className="min-w-0 flex-1">
               <div className="flex flex-wrap items-center gap-2">
                 <h3 className="min-w-0 break-words text-lg font-semibold leading-6" id="source-identity-heading">

@@ -23,6 +23,119 @@ ResourceKind = Literal[
 ResourceState = Literal["ready", "disabled", "stale", "unavailable", "not_configured"]
 PreviewPlatform = Literal["telegram", "instagram", "x", "blog", "draft", "multi", "unknown"]
 PreviewCategory = Literal["trigger", "content", "ai", "validation", "review", "draft", "publish", "unknown"]
+ArtifactKind = Literal["article", "research", "draft", "schedule_event", "publication"]
+ArtifactCapability = Literal[
+    "textual",
+    "structured",
+    "article",
+    "research",
+    "draft",
+    "reviewable",
+    "generatable",
+    "approved",
+    "publishable",
+    "collection-context",
+    "source-context",
+    "schedule-context",
+]
+ARTIFACT_SCHEMA_VERSION = 1
+CAPABILITY_VOCABULARY_VERSION = 1
+ARTIFACT_CAPABILITIES: tuple[ArtifactCapability, ...] = (
+    "textual",
+    "structured",
+    "article",
+    "research",
+    "draft",
+    "reviewable",
+    "generatable",
+    "approved",
+    "publishable",
+    "collection-context",
+    "source-context",
+    "schedule-context",
+)
+ARTIFACT_KINDS: tuple[ArtifactKind, ...] = ("article", "research", "draft", "schedule_event", "publication")
+
+class WorkflowArtifactTrigger(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    type: str = Field(min_length=1, max_length=80)
+    occurred_at: datetime
+
+
+class WorkflowArtifactContext(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    source_node_id: NodeId
+    workflow_id: str | None = None
+    workflow_version_id: str | None = None
+    run_id: str | None = None
+    trigger: WorkflowArtifactTrigger | None = None
+
+
+class WorkflowArtifact[T](BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    schema_version: Literal[1] = 1
+    kind: ArtifactKind
+    capabilities: list[ArtifactCapability] = Field(min_length=1)
+    payload: T
+    context: WorkflowArtifactContext
+    metadata: dict[str, object] | None = None
+
+    @field_validator("capabilities")
+    @classmethod
+    def unique_capabilities(cls, value: list[ArtifactCapability]) -> list[ArtifactCapability]:
+        if len(value) != len(set(value)):
+            raise ValueError("artifact capabilities must be unique")
+        return value
+
+
+class ArtifactInputContract(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    all_of: list[ArtifactCapability] = Field(default_factory=list)
+    any_of: list[ArtifactCapability] = Field(default_factory=list)
+    accepted_kinds: list[ArtifactKind] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def unique_requirements(self) -> ArtifactInputContract:
+        if not self.all_of and not self.any_of and not self.accepted_kinds:
+            raise ValueError("input contract must declare a capability or accepted kind")
+        if len(self.all_of) != len(set(self.all_of)):
+            raise ValueError("all_of capabilities must be unique")
+        if len(self.any_of) != len(set(self.any_of)):
+            raise ValueError("any_of capabilities must be unique")
+        if len(self.accepted_kinds) != len(set(self.accepted_kinds)):
+            raise ValueError("accepted_kinds must be unique")
+        return self
+
+
+class ArtifactOutputContract(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    kind: ArtifactKind | None = None
+    capabilities: list[ArtifactCapability] = Field(default_factory=list)
+    preserves_input_artifact: bool = False
+    adds_capabilities: list[ArtifactCapability] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def validate_output_shape(self) -> ArtifactOutputContract:
+        if self.kind is None and not self.preserves_input_artifact:
+            raise ValueError("output contract needs kind unless it preserves its input artifact")
+        if len(self.capabilities) != len(set(self.capabilities)):
+            raise ValueError("output capabilities must be unique")
+        if len(self.adds_capabilities) != len(set(self.adds_capabilities)):
+            raise ValueError("added capabilities must be unique")
+        return self
+
+
+class WorkflowNodeContract(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    input: ArtifactInputContract | None = None
+    output: ArtifactOutputContract | None = None
+    preserves_input_artifact: bool = False
 
 
 class WorkflowLayoutPoint(BaseModel):
@@ -209,6 +322,7 @@ class AutomationNodeRunOut(BaseModel):
     output_summary: dict[str, object]
     usage: dict[str, object]
     retry_metadata: dict[str, object]
+    artifact: WorkflowArtifact[object] | None = None
     safe_error_code: str | None
     safe_error_message: str | None
     started_at: datetime | None
@@ -331,6 +445,8 @@ class PortCatalogOut(BaseModel):
     artifact_types: list[str]
     required: bool = True
     max_connections: int | None = None
+    input_contract: ArtifactInputContract | None = None
+    output_contract: ArtifactOutputContract | None = None
 
 
 class NodeCatalogItemOut(BaseModel):
@@ -349,12 +465,19 @@ class NodeCatalogItemOut(BaseModel):
     outputs: list[PortCatalogOut]
     config_schema: dict[str, object]
     ui_hints: dict[str, object]
+    input_contract: ArtifactInputContract | None = None
+    output_contract: ArtifactOutputContract | None = None
+    preserves_input_artifact: bool | None = None
 
 
 class AutomationNodeCatalogOut(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     schema_version: Literal[1] = 1
+    artifact_schema_version: Literal[1] = Field(default_factory=lambda: 1)
+    capability_vocabulary_version: Literal[1] = Field(default_factory=lambda: 1)
+    artifact_capabilities: list[ArtifactCapability] = Field(default_factory=lambda: list(ARTIFACT_CAPABILITIES))
+    artifact_kinds: list[ArtifactKind] = Field(default_factory=lambda: list(ARTIFACT_KINDS))
     max_nodes: int = 30
     max_edges: int = 60
     nodes: list[NodeCatalogItemOut]
@@ -417,6 +540,13 @@ class TemplateCreateAutomationIn(BaseModel):
 
 
 __all__ = [
+    "ARTIFACT_CAPABILITIES",
+    "ARTIFACT_KINDS",
+    "ARTIFACT_SCHEMA_VERSION",
+    "ArtifactCapability",
+    "ArtifactInputContract",
+    "ArtifactKind",
+    "ArtifactOutputContract",
     "AutomationCreate",
     "AutomationDetailOut",
     "AutomationLifecycleInput",
@@ -438,6 +568,7 @@ __all__ = [
     "AutomationVersionOut",
     "AutomationVersionPageOut",
     "AutomationVersionRestore",
+    "CAPABILITY_VOCABULARY_VERSION",
     "GraphValidationResult",
     "NodeCatalogItemOut",
     "PortCatalogOut",
@@ -445,6 +576,10 @@ __all__ = [
     "ResourceRequest",
     "TemplateCreateAutomationIn",
     "ValidationFinding",
+    "WorkflowArtifact",
+    "WorkflowArtifactContext",
+    "WorkflowArtifactTrigger",
+    "WorkflowNodeContract",
     "WorkflowEdge",
     "WorkflowGraphV1",
     "WorkflowLayoutPoint",

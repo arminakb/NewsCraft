@@ -385,3 +385,5 @@ async def test_collection_generation_completion_finishes_saved_drafts_node() -> 
     assert run.status == "succeeded"
     assert run.current_node_id is None
     assert run.finished_at is not None
+    assert generation_node.output_summary["artifact"]["kind"] == "draft"
+    assert drafts_node.output_summary["artifact"]["kind"] == "draft"

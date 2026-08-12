@@ -6,7 +6,7 @@ import type { components } from "../lib/api/generated"
 
 type SourceRecord = components["schemas"]["SourceOut"]
 
-const sources = [
+export const sources = [
   {
     id: "11111111-1111-4111-8111-111111111111",
     platform: "rss",
@@ -19,6 +19,7 @@ const sources = [
     language_hint: "en",
     fetch_interval_minutes: 30,
     health_status: "healthy",
+    icon_status: "pending",
     last_fetch_at: "2026-07-27T08:00:00Z",
     last_success_at: "2026-07-27T08:00:00Z",
     last_failure_at: null,
@@ -40,6 +41,7 @@ const sources = [
     language_hint: "fa",
     fetch_interval_minutes: 30,
     health_status: "degraded",
+    icon_status: "pending",
     last_fetch_at: "2026-07-27T07:45:00Z",
     last_success_at: "2026-07-27T07:45:00Z",
     last_failure_at: "2026-07-27T07:30:00Z",
@@ -154,7 +156,7 @@ test("Sources management stays inside narrow portrait and landscape viewports", 
   expect(unhandledRequests).toEqual([])
 })
 
-async function installSourcesApi(
+export async function installSourcesApi(
   page: import("@playwright/test").Page,
   initialSources: SourceRecord[],
 ) {
@@ -180,8 +182,86 @@ async function installSourcesApi(
     })
   })
 
+  await page.route("**/api/backend/source-collections", async (route) => {
+    if (route.request().method() === "GET") {
+      await fulfillMockJson(route, [])
+      return
+    }
+    await route.fallback()
+  })
+
+  await page.route("**/api/backend/source-collections/unassigned/sources**", async (route) => {
+    if (route.request().method() === "GET") {
+      const url = new URL(route.request().url())
+      const requestedLimit = Number(url.searchParams.get("limit") ?? "50")
+      const limit = Number.isInteger(requestedLimit) ? Math.min(Math.max(requestedLimit, 1), 100) : 50
+      const requestedOffset = Number(url.searchParams.get("offset") ?? "0")
+      const offset = Number.isInteger(requestedOffset) && requestedOffset >= 0 ? requestedOffset : 0
+      await fulfillMockJson(route, {
+        items: records.slice(offset, offset + limit),
+        total: records.length,
+        limit,
+        offset,
+        has_more: offset + limit < records.length,
+      })
+      return
+    }
+    await route.fallback()
+  })
+
+  await page.route("**/api/backend/sources/search", async (route) => {
+    const url = new URL(route.request().url())
+    const search = url.searchParams.get("search")?.trim().toLocaleLowerCase()
+    const platform = url.searchParams.get("platform")
+    const filtered = records.filter((source) => {
+      if (platform && source.platform !== platform) return false
+      if (!search) return true
+      return source.name.toLocaleLowerCase().includes(search)
+        || source.source_group.toLocaleLowerCase().includes(search)
+        || source.feed_url?.toLocaleLowerCase().includes(search)
+        || source.telegram_username?.toLocaleLowerCase().includes(search)
+    })
+    const requestedLimit = Number(url.searchParams.get("limit") ?? "50")
+    const limit = Number.isInteger(requestedLimit) ? Math.min(Math.max(requestedLimit, 1), 100) : 50
+    const requestedOffset = Number(url.searchParams.get("offset") ?? "0")
+    const offset = Number.isInteger(requestedOffset) && requestedOffset >= 0 ? requestedOffset : 0
+    await fulfillMockJson(route, {
+      items: filtered.slice(offset, offset + limit),
+      total: filtered.length,
+      limit,
+      offset,
+      has_more: offset + limit < filtered.length,
+    })
+  })
+
   await page.route("**/api/backend/sources/*", async (route) => {
-    const sourceId = decodeURIComponent(new URL(route.request().url()).pathname.split("/").at(-1) ?? "")
+    const pathname = new URL(route.request().url()).pathname
+    if (route.request().method() === "GET" && pathname.endsWith("/sources/search")) {
+      const url = new URL(route.request().url())
+      const search = url.searchParams.get("search")?.trim().toLocaleLowerCase()
+      const platform = url.searchParams.get("platform")
+      const filtered = records.filter((source) => {
+        if (platform && source.platform !== platform) return false
+        if (!search) return true
+        return source.name.toLocaleLowerCase().includes(search)
+          || source.source_group.toLocaleLowerCase().includes(search)
+          || source.feed_url?.toLocaleLowerCase().includes(search)
+          || source.telegram_username?.toLocaleLowerCase().includes(search)
+      })
+      const requestedLimit = Number(url.searchParams.get("limit") ?? "50")
+      const limit = Number.isInteger(requestedLimit) ? Math.min(Math.max(requestedLimit, 1), 100) : 50
+      const requestedOffset = Number(url.searchParams.get("offset") ?? "0")
+      const offset = Number.isInteger(requestedOffset) && requestedOffset >= 0 ? requestedOffset : 0
+      await fulfillMockJson(route, {
+        items: filtered.slice(offset, offset + limit),
+        total: filtered.length,
+        limit,
+        offset,
+        has_more: offset + limit < filtered.length,
+      })
+      return
+    }
+    const sourceId = decodeURIComponent(pathname.split("/").at(-1) ?? "")
     const source = records.find((item) => item.id === sourceId)
     if (route.request().method() === "DELETE") {
       records = records.filter((item) => item.id !== sourceId)
@@ -194,7 +274,7 @@ async function installSourcesApi(
   await page.route("**/api/backend/sources", async (route) => {
     if (route.request().method() === "POST") {
       const input = route.request().postDataJSON() as {
-        platform: "rss" | "telegram_public"
+        platform: "rss" | "atom" | "telegram_public"
         name: string
         url: string
         source_group: string
@@ -208,12 +288,13 @@ async function installSourcesApi(
         name: input.name,
         source_group: input.source_group,
         active: true,
-        feed_url: input.platform === "rss" ? input.url : null,
+        feed_url: input.platform === "rss" || input.platform === "atom" ? input.url : null,
         homepage_url: null,
         telegram_username: input.platform === "telegram_public" ? input.url.split("/").at(-1) ?? null : null,
         language_hint: input.language_hint,
         fetch_interval_minutes: input.fetch_interval_minutes,
         health_status: "unknown",
+        icon_status: "pending",
         last_fetch_at: null,
         last_success_at: null,
         last_failure_at: null,

@@ -205,6 +205,22 @@ export async function installMockBackend(
       await fulfillContractJson(route, method, path, { items: [] })
       return
     }
+    if (method === "GET" && path === "/feed/summary") {
+      await fulfillContractJson(route, method, path, { article_count: 0 })
+      return
+    }
+    if (method === "POST" && path === "/feed/clear") {
+      await fulfillContractJson(route, method, path, { cleared_count: 0 })
+      return
+    }
+    if (method === "GET" && path === "/articles") {
+      await fulfillContractJson(route, method, path, {
+        items: [],
+        next_cursor: null,
+        result_count: 0,
+      })
+      return
+    }
     if (method === "GET" && path === "/telegram/publication-outcomes") {
       await fulfillContractJson(route, method, path, [])
       return

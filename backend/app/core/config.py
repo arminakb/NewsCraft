@@ -36,6 +36,15 @@ class Settings(BaseSettings):
     worker_poll_seconds: float = Field(default=1.0, gt=0)
     worker_lease_seconds: int = Field(default=120, ge=30)
     worker_heartbeat_seconds: int = Field(default=30, ge=5)
+    ingestion_source_concurrency: int = Field(default=8, ge=1, le=32)
+    source_icon_discovery_batch_size: int = Field(default=25, ge=1, le=100)
+    source_icon_discovery_ttl_days: int = Field(default=30, ge=1, le=365)
+    source_icon_discovery_retry_base_seconds: int = Field(default=3_600, ge=60, le=86_400)
+    source_icon_discovery_retry_max_seconds: int = Field(default=604_800, ge=3_600, le=2_592_000)
+    source_icon_discovery_timeout_seconds: float = Field(default=10.0, gt=0, le=60)
+    source_icon_discovery_max_bytes: int = Field(default=2_000_000, ge=16_384, le=10_000_000)
+    source_icon_discovery_max_redirects: int = Field(default=5, ge=0, le=10)
+    continuous_ingestion_interval_minutes: int = Field(default=15, ge=1, le=1440)
     expected_runtime_component_ids: str = "worker-source-generation,worker-publishing,scheduler"
     readiness_required_capabilities: str = ""
     readiness_timeout_seconds: float = Field(default=0.9, gt=0, le=5)

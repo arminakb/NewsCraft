@@ -87,6 +87,11 @@ class JobRepository:
     async def _locked_job(self, job_id: UUID) -> WorkflowJob | None:
         return await self.session.scalar(select(WorkflowJob).where(WorkflowJob.id == job_id).with_for_update())
 
+    async def get_by_idempotency_key(self, idempotency_key: str) -> WorkflowJob | None:
+        return await self.session.scalar(
+            select(WorkflowJob).where(WorkflowJob.idempotency_key == idempotency_key)
+        )
+
     async def _locked_expired_job(self, job_id: UUID) -> WorkflowJob | None:
         return await self.session.scalar(
             select(WorkflowJob)
@@ -559,6 +564,25 @@ class JobRepository:
                 "progress_message": job.progress_message,
             },
         )
+        await self.session.flush()
+        return True
+
+    async def update_progress(
+        self,
+        *,
+        job_id: UUID,
+        worker_id: str,
+        progress: int,
+        progress_message: str | None = None,
+        now: datetime | None = None,
+    ) -> bool:
+        observed_at = _now(now)
+        job = await self._locked_job(job_id)
+        if job is None or not self._has_active_lease(job, worker_id=worker_id, now=observed_at):
+            return False
+        job.progress = max(0, min(100, int(progress)))
+        if progress_message is not None:
+            job.progress_message = str(redact_secrets(progress_message))
         await self.session.flush()
         return True
 

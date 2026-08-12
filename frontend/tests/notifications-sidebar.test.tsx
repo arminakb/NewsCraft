@@ -77,18 +77,44 @@ describe("notifications sidebar", () => {
     const dialog = await screen.findByRole("dialog", { name: "Your notifications" })
     expect(within(dialog).getByText("Saved")).toBeInTheDocument()
     expect(dialog.querySelector(".overflow-y-auto")).toHaveClass("overscroll-contain")
-    expect(within(dialog).getByRole("tab", { name: /Verified/ })).toBeInTheDocument()
+    expect(within(dialog).getByRole("tab", { name: /^All/ })).toBeInTheDocument()
+    expect(within(dialog).getByRole("tab", { name: /^Approvals/ })).toBeInTheDocument()
+    expect(within(dialog).getByRole("tab", { name: /^Issues/ })).toBeInTheDocument()
+    expect(within(dialog).queryByRole("button", { name: "Notification settings" })).not.toBeInTheDocument()
+    expect(
+      within(dialog).queryByRole("button", { name: /Clear all notifications|Mark all notifications as read/ }),
+    ).not.toBeInTheDocument()
 
     fireEvent.click(within(dialog).getByRole("button", { name: "Dismiss Saved" }))
-    expect(within(dialog).getByText("No notifications yet.")).toBeInTheDocument()
+    expect(within(dialog).getByText("We'll let you know when we have news for you.")).toBeInTheDocument()
   })
 
-  it("shows loading, empty, and error states without inventing rows", () => {
+  it("keeps fixed dimensions across empty, loading, and error states", () => {
     const { rerender } = renderApp(
-      <NotificationsSidebar loading onOpenChange={() => undefined} open />,
+      <NotificationsSidebar notifications={[]} onOpenChange={() => undefined} open />,
+    )
+    const emptyDialog = screen.getByRole("dialog", { name: "Your notifications" })
+    expect(emptyDialog).toHaveClass(
+      "h-[575px]",
+      "w-[450px]",
+      "max-h-[calc(100dvh-1rem)]",
+      "max-w-[calc(100vw-1rem)]",
+    )
+    expect(within(emptyDialog).getByText("We'll let you know when we have news for you.")).toBeInTheDocument()
+    expect(within(emptyDialog).queryByText("Saved")).not.toBeInTheDocument()
+
+    rerender(
+      <QueryClientProvider client={new QueryClient()}>
+        <ThemeProvider>
+          <NoticeProvider>
+            <NotificationsSidebar loading onOpenChange={() => undefined} open />
+          </NoticeProvider>
+        </ThemeProvider>
+      </QueryClientProvider>,
     )
     expect(screen.getByRole("status", { name: /loading notifications/i })).toHaveTextContent("Loading notifications")
     expect(screen.queryByText("Saved")).not.toBeInTheDocument()
+    expect(screen.getByRole("dialog", { name: "Your notifications" })).toHaveClass("h-[575px]", "w-[450px]")
 
     rerender(
       <QueryClientProvider client={new QueryClient()}>
@@ -100,6 +126,7 @@ describe("notifications sidebar", () => {
       </QueryClientProvider>,
     )
     expect(screen.getByRole("alert")).toHaveTextContent("Notification service unavailable")
+    expect(screen.getByRole("dialog", { name: "Your notifications" })).toHaveClass("h-[575px]", "w-[450px]")
   })
 
   it("keeps reference row variants and filters when real records are supplied", async () => {
@@ -137,6 +164,16 @@ describe("notifications sidebar", () => {
         user: { avatar: "", fallback: "A", name: "Ammar" },
       },
       {
+        action: "started following",
+        content: "You have a new follower.",
+        id: "follow-1",
+        isRead: true,
+        timeAgo: "5 hours ago",
+        timestamp: "Friday 12:40 PM",
+        type: "follow",
+        user: { avatar: "", fallback: "R", name: "Riley" },
+      },
+      {
         action: "mentioned you in",
         content: "Please review this mention.",
         id: "mention-1",
@@ -158,18 +195,59 @@ describe("notifications sidebar", () => {
     expect(within(dialog).getByRole("button", { name: "Download draft.mp4" })).toBeInTheDocument()
     expect(within(dialog).getByRole("button", { name: "Accept" })).toBeInTheDocument()
 
-    fireEvent.click(within(dialog).getByRole("tab", { name: /Mentions/ }))
+    fireEvent.click(within(dialog).getByRole("tab", { name: /^Approvals/ }))
+    expect(within(dialog).getByText("You have a new follower.")).toBeInTheDocument()
+    expect(within(dialog).queryByText("Please review this mention.")).not.toBeInTheDocument()
+    expect(dialog).toHaveClass("h-[575px]", "w-[450px]")
+
+    fireEvent.click(within(dialog).getByRole("tab", { name: /^Issues/ }))
     expect(within(dialog).getByText("Please review this mention.")).toBeInTheDocument()
     expect(within(dialog).queryByText("draft.mp4")).not.toBeInTheDocument()
+    expect(within(dialog).queryByText("You have a new follower.")).not.toBeInTheDocument()
   })
 
-  it("keeps drawer surfaces token-driven in dark mode", async () => {
+  it("shows an independent empty state for a filter with no matching notifications", async () => {
+    const records: Notification[] = [
+      {
+        action: "needs approval for",
+        content: "Review the completed brief.",
+        id: "approval-1",
+        isRead: false,
+        timeAgo: "Just now",
+        timestamp: "Just now",
+        type: "approval",
+        user: { avatar: "", fallback: "N", name: "NewsCraft" },
+      },
+    ]
+
+    renderApp(<NotificationsSidebar notifications={records} onOpenChange={() => undefined} open />)
+    const dialog = await screen.findByRole("dialog", { name: "Your notifications" })
+    const popupClassName = dialog.className
+
+    fireEvent.click(within(dialog).getByRole("tab", { name: /^Issues/ }))
+    expect(within(dialog).getByText("We'll let you know when we have news for you.")).toBeInTheDocument()
+    expect(dialog.className).toBe(popupClassName)
+
+    fireEvent.click(within(dialog).getByRole("tab", { name: /^Approvals/ }))
+    expect(within(dialog).getByText("Review the completed brief.")).toBeInTheDocument()
+    expect(dialog.className).toBe(popupClassName)
+  })
+
+  it("keeps popup surfaces token-driven in dark mode", async () => {
     document.documentElement.classList.add("dark")
     try {
       renderApp(<NewsroomShell><section>Page content</section></NewsroomShell>)
       fireEvent.click(screen.getByRole("button", { name: "Open notifications" }))
       const dialog = await screen.findByRole("dialog", { name: "Your notifications" })
       expect(dialog).toHaveClass("bg-card", "border-border/70")
+      expect(dialog).toHaveClass(
+        "nc-notifications-popup",
+        "h-[575px]",
+        "w-[450px]",
+        "max-h-[calc(100dvh-1rem)]",
+        "max-w-[calc(100vw-1rem)]",
+      )
+      expect(dialog.querySelector("[data-notifications-scroll]")).toBeInTheDocument()
       expect(document.querySelector(".nc-dialog-scrim")).toHaveClass("nc-dialog-scrim")
     } finally {
       document.documentElement.classList.remove("dark")

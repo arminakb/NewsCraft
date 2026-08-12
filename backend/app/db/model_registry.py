@@ -54,6 +54,12 @@ from app.publishing.models import (
 from app.research.models import ResearchAttempt, ResearchRun, ResearchSource
 from app.retention.models import RetentionPolicy, RetentionRun
 from app.security.models import EncryptedSecret, SecurityAuditEvent
+from app.source_collections.models import (
+    IngestRunSourceSnapshot,
+    SourceCollection,
+    SourceCollectionIngestionSubscription,
+    SourceCollectionMembership,
+)
 from app.stories.models import Story, StoryEvidenceLink, StoryEvidenceSnapshot, StoryRevision
 
 _MAPPED_CLASSES = (
@@ -107,6 +113,10 @@ _MAPPED_CLASSES = (
     RetentionRun,
     EncryptedSecret,
     SecurityAuditEvent,
+    SourceCollection,
+    SourceCollectionIngestionSubscription,
+    SourceCollectionMembership,
+    IngestRunSourceSnapshot,
     ResearchAttempt,
     ResearchRun,
     ResearchSource,

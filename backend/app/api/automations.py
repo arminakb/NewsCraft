@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Annotated, Literal
 from uuid import UUID
 
@@ -9,7 +9,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.automations.definitions.execution import AutomationExecutionService
-from app.automations.definitions.models import AutomationTemplate
+from app.automations.definitions.models import AutomationRun, AutomationTemplate
 from app.automations.definitions.registry import node_catalog
 from app.automations.definitions.resources import summarize_resources
 from app.automations.definitions.schemas import (
@@ -427,6 +427,22 @@ async def list_automation_runs(
 
 @router.get("/automation-runs/{run_id}", response_model=AutomationRunOut)
 async def get_automation_run(run_id: UUID, session: InjectedSession, _principal: ReadPrincipal):
+    return await AutomationExecutionService(session).get(run_id)
+
+
+@router.post("/automation-runs/{run_id}/review/approve", response_model=AutomationRunOut)
+async def approve_automation_artifact_review(
+    run_id: UUID,
+    session: InjectedSession,
+    _principal: WritePrincipal,
+):
+    run = await session.get(AutomationRun, run_id)
+    if run is None:
+        raise HTTPException(404, detail={"code": "automation_run_not_found"})
+    from app.automations.definitions.runtime_state import continue_automation_artifact_review
+
+    await continue_automation_artifact_review(session, run_id=run_id, observed_at=datetime.now(UTC))
+    await session.commit()
     return await AutomationExecutionService(session).get(run_id)
 
 

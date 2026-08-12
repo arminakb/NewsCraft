@@ -23,6 +23,7 @@ import type {
   AutomationVersionPage,
   GraphValidation,
 } from "./automation-types"
+import { normalizeWorkflowGraphForSave } from "./workflow-graph"
 
 type Schemas = components["schemas"]
 
@@ -71,10 +72,12 @@ export async function getAutomation(id: string, signal?: AbortSignal): Promise<A
 export async function createAutomation(
   input: AutomationCreateInput,
   idempotencyKey: string,
+  catalog?: AutomationNodeCatalog,
 ): Promise<AutomationDetail> {
+  const body = catalog ? { ...input, graph: normalizeWorkflowGraphForSave(input.graph, catalog) } : input
   return camelize(await apiRequest<Schemas["AutomationDetailOut"]>(
     "/automations",
-    json("POST", input, idempotencyKey),
+    json("POST", body, idempotencyKey),
   )) as unknown as AutomationDetail
 }
 
@@ -139,10 +142,12 @@ export async function createAutomationVersion(
   automationId: string,
   input: AutomationVersionInput,
   idempotencyKey: string,
+  catalog?: AutomationNodeCatalog,
 ): Promise<AutomationVersion> {
+  const body = catalog ? { ...input, graph: normalizeWorkflowGraphForSave(input.graph, catalog) } : input
   return camelize(await apiRequest<Schemas["AutomationVersionOut"]>(
     `/automations/${encodeURIComponent(automationId)}/versions`,
-    json("POST", input, idempotencyKey),
+    json("POST", body, idempotencyKey),
   )) as unknown as AutomationVersion
 }
 
@@ -226,6 +231,13 @@ export async function getAutomationRun(runId: string, signal?: AbortSignal): Pro
   return camelize(await apiRequest<Schemas["AutomationRunOut"]>(
     `/automation-runs/${encodeURIComponent(runId)}`,
     withSignal(undefined, signal),
+  )) as unknown as AutomationRun
+}
+
+export async function approveAutomationArtifactReview(runId: string): Promise<AutomationRun> {
+  return camelize(await apiRequest<Schemas["AutomationRunOut"]>(
+    `/automation-runs/${encodeURIComponent(runId)}/review/approve`,
+    json("POST", {}),
   )) as unknown as AutomationRun
 }
 

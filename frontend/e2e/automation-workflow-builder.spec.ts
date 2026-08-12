@@ -166,6 +166,53 @@ test("Node Library keeps available nodes separate from persisted canvas nodes", 
   await expect(library.locator(".react-flow__node")).toHaveCount(0)
 })
 
+test("Needs attention opens grouped validation findings and stays usable in dark mode", async ({ page }) => {
+  const findings = Array.from({ length: 7 }, (_value, index) => ({
+    code: `node_config_invalid_${index}`,
+    severity: "error" as const,
+    message: `Configuration issue ${index + 1} requires review.`,
+    node_id: "filter-1",
+    edge_index: null,
+    field_path: `config.rule${index + 1}`,
+    recovery_action: "Update the step configuration.",
+  }))
+  const backend = await installWorkflowBackend(page, { validationFindings: findings })
+  await page.setViewportSize({ width: 390, height: 844 })
+  await page.goto(`/automations/${automationId}`)
+
+  const trigger = page.getByRole("button", { name: "Needs attention, 7 issues" })
+  await expect(trigger).toBeVisible()
+  await trigger.focus()
+  await page.keyboard.press("Enter")
+
+  let dialog = page.getByRole("dialog", { name: "Needs attention" })
+  await expect(dialog).toBeVisible()
+  await expect(dialog).toContainText("7 issues found.")
+  await expect(dialog.getByRole("heading", { name: "Filter content" })).toBeVisible()
+  await expect(dialog.getByRole("listitem")).toHaveCount(7)
+  await expect(dialog.locator(".overflow-y-auto")).toHaveCount(1)
+  const dialogBox = await dialog.boundingBox()
+  expect(dialogBox).not.toBeNull()
+  expect(dialogBox!.height).toBeLessThanOrEqual(844 - 32)
+  await expectNoSeriousAxeViolations(page)
+
+  await page.keyboard.press("Escape")
+  await expect(dialog).toHaveCount(0)
+  await expect(trigger).toBeFocused()
+
+  await page.getByRole("button", { name: "Open navigation" }).click()
+  await page.getByRole("button", { name: "Toggle color theme" }).click()
+  await page.getByRole("button", { name: "Close navigation panel" }).click()
+  await expect(page.locator("html")).toHaveClass(/dark/)
+  await trigger.focus()
+  await page.keyboard.press("Enter")
+  dialog = page.getByRole("dialog", { name: "Needs attention" })
+  await expect(dialog).toBeVisible()
+  await expectNoSeriousAxeViolations(page)
+  await dialog.getByRole("button", { name: "Close needs attention" }).click()
+  expect(backend.unhandledRequests).toEqual([])
+})
+
 test("Collection Article Added accepts article processing nodes and preserves the graph", async ({ page }) => {
   const backend = await installWorkflowBackend(page, {
     initialGraph: emptyWorkflowGraphFixture(),
@@ -199,6 +246,25 @@ test("Collection Article Added accepts article processing nodes and preserves th
   await library.getByRole("button", { name: "Save to Drafts", exact: true }).dragTo(canvas)
 
   await expect(page.locator(".react-flow__node")).toHaveCount(5)
+  const cardMetrics = await page.locator(".react-flow__node").evaluateAll((nodes) => Object.fromEntries(nodes.map((node) => {
+    const card = node.querySelector<HTMLElement>(".nc-workflow-node-card")
+    if (!card) throw new Error("Workflow node card is missing")
+    const cardRect = card.getBoundingClientRect()
+    const leftHandle = card.querySelector<HTMLElement>(".target")?.getBoundingClientRect()
+    const rightHandle = card.querySelector<HTMLElement>(".source")?.getBoundingClientRect()
+    return [node.getAttribute("data-id"), {
+      width: Number.parseFloat(getComputedStyle(card).width),
+      minWidth: Number.parseFloat(getComputedStyle(card).minWidth),
+      leftEdgeOffset: leftHandle ? Math.abs(leftHandle.left + leftHandle.width / 2 - cardRect.left) : null,
+      rightEdgeOffset: rightHandle ? Math.abs(rightHandle.left + rightHandle.width / 2 - cardRect.right) : null,
+      verticalOffset: rightHandle ? Math.abs(rightHandle.top + rightHandle.height / 2 - (cardRect.top + cardRect.height / 2)) : null,
+    }]
+  })))
+  expect(cardMetrics["filter-content-1"].width).toBeGreaterThanOrEqual(cardMetrics["filter-content-1"].minWidth)
+  expect(cardMetrics["generate-content-pack-1"].width).toBeGreaterThan(cardMetrics["filter-content-1"].width)
+  expect(cardMetrics["generate-content-pack-1"].leftEdgeOffset).toBeLessThan(1)
+  expect(cardMetrics["generate-content-pack-1"].rightEdgeOffset).toBeLessThan(1)
+  expect(cardMetrics["generate-content-pack-1"].verticalOffset).toBeLessThan(1)
   await expect(page.getByRole("region", { name: "Morning newsroom" }).getByRole("alert")).toHaveCount(0)
   await page.getByRole("button", { name: "Save draft" }).click()
   await expect.poll(() => backend.lastVersionBody).not.toBeNull()
@@ -222,6 +288,62 @@ test("Collection Article Added accepts article processing nodes and preserves th
   await expect(ordered).toBeVisible()
   await expect(ordered.getByRole("article")).toHaveCount(5)
   await expect(backend.unhandledRequests).toEqual([])
+})
+
+test("workflow node cards size future labels without moving handles off the card edges", async ({ page }) => {
+  await installWorkflowBackend(page, {
+    initialGraph: nodeCardSizingGraph(),
+    catalog: nodeCardSizingCatalog(),
+  })
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await page.goto(`/automations/${automationId}`)
+
+  await expect(page.locator(".react-flow__node")).toHaveCount(7)
+  const cardMetrics = await page.locator(".react-flow__node").evaluateAll((nodes) => nodes.map((node) => {
+    const card = node.querySelector<HTMLElement>(".nc-workflow-node-card")
+    if (!card) throw new Error("Workflow node card is missing")
+    const cardRect = card.getBoundingClientRect()
+    const style = getComputedStyle(card)
+    const leftHandle = card.querySelector<HTMLElement>(".target")?.getBoundingClientRect()
+    const rightHandle = card.querySelector<HTMLElement>(".source")?.getBoundingClientRect()
+    return {
+      label: card.querySelector<HTMLElement>(".nc-workflow-node-title")?.textContent?.trim(),
+      width: Number.parseFloat(style.width),
+      minWidth: Number.parseFloat(style.minWidth),
+      maxWidth: Number.parseFloat(style.maxWidth),
+      leftEdgeOffset: leftHandle ? Math.abs(leftHandle.left + leftHandle.width / 2 - cardRect.left) : null,
+      rightEdgeOffset: rightHandle ? Math.abs(rightHandle.left + rightHandle.width / 2 - cardRect.right) : null,
+      verticalOffset: rightHandle ? Math.abs(rightHandle.top + rightHandle.height / 2 - (cardRect.top + cardRect.height / 2)) : null,
+    }
+  }))
+  const byLabel = Object.fromEntries(cardMetrics.map((metric) => [metric.label, metric]))
+  expect(byLabel.Review.width).toBe(byLabel.Review.minWidth)
+  expect(byLabel.Publish.width).toBe(byLabel.Publish.minWidth)
+  expect(byLabel["AI Generate"].width).toBeGreaterThan(byLabel.Review.width)
+  expect(byLabel["AI Research"].width).toBeGreaterThan(byLabel.Review.width)
+  expect(byLabel["Scheduled Trigger"].width).toBeGreaterThan(byLabel["AI Generate"].width)
+  expect(byLabel["Collection Article Added"].width).toBeGreaterThan(byLabel["Scheduled Trigger"].width)
+  expect(byLabel["New Source Item"].width).toBeGreaterThan(byLabel.Review.width)
+  for (const metric of cardMetrics) {
+    expect(metric.width).toBeLessThanOrEqual(metric.maxWidth)
+    if (metric.leftEdgeOffset !== null) expect(metric.leftEdgeOffset).toBeLessThan(1)
+    if (metric.rightEdgeOffset !== null) expect(metric.rightEdgeOffset).toBeLessThan(1)
+    if (metric.verticalOffset !== null) expect(metric.verticalOffset).toBeLessThan(1)
+  }
+  const firstEdgeEndpoint = await page.locator(".react-flow__edge-path").first().evaluate((element) => {
+    const path = element as SVGPathElement
+    const point = path.getPointAtLength(0)
+    const matrix = path.getScreenCTM()
+    if (!matrix) return null
+    return { x: point.x * matrix.a + point.y * matrix.c + matrix.e, y: point.x * matrix.b + point.y * matrix.d + matrix.f }
+  })
+  const firstSourceCenter = await page.locator('[data-id="future-node-0"] .source').evaluate((element) => {
+    const rect = element.getBoundingClientRect()
+    return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 }
+  })
+  expect(firstEdgeEndpoint).not.toBeNull()
+  expect(Math.abs(firstEdgeEndpoint!.x - firstSourceCenter.x)).toBeLessThan(2)
+  expect(Math.abs(firstEdgeEndpoint!.y - firstSourceCenter.y)).toBeLessThan(2)
 })
 
 test("node actions preserve configuration, clean edges, and persist across reloads", async ({ page }) => {
@@ -368,6 +490,15 @@ test("Test Studio resumes persisted dry-run truth and hands off to Runs", async 
 type WorkflowBackendOptions = {
   initialGraph?: ReturnType<typeof workflowGraph>
   catalog?: ReturnType<typeof nodeCatalog>
+  validationFindings?: Array<{
+    code: string
+    severity: "error" | "warning"
+    message: string
+    node_id: string | null
+    edge_index: number | null
+    field_path: string | null
+    recovery_action: string | null
+  }>
 }
 
 async function installWorkflowBackend(page: Page, options: WorkflowBackendOptions = {}) {
@@ -380,6 +511,7 @@ async function installWorkflowBackend(page: Page, options: WorkflowBackendOption
     lastVersionBody: Record<string, unknown> | null
     unhandledRequests: string[]
     validated: boolean
+    validationFindings: WorkflowBackendOptions["validationFindings"]
     version: number
     revision: number
   } = {
@@ -390,6 +522,7 @@ async function installWorkflowBackend(page: Page, options: WorkflowBackendOption
     lastVersionBody: null,
     unhandledRequests,
     validated: false,
+    validationFindings: options.validationFindings ?? [],
     version: 1,
     revision: 1,
   }
@@ -473,7 +606,7 @@ async function installWorkflowBackend(page: Page, options: WorkflowBackendOption
   return state
 }
 
-function automationVersion(graph: ReturnType<typeof workflowGraph>, versionNumber: number, valid = false) {
+function automationVersion(graph: ReturnType<typeof workflowGraph>, versionNumber: number, valid = false, findings: WorkflowBackendOptions["validationFindings"] = []) {
   return {
     id: versionNumber === 1 ? versionId : savedVersionId,
     automation_id: automationId,
@@ -483,7 +616,7 @@ function automationVersion(graph: ReturnType<typeof workflowGraph>, versionNumbe
     graph_hash: `browser-fixture-${versionNumber}`,
     compiler_version: "workflow-graph-v1",
     compiled_plan: {},
-    validation_summary: { valid, graph_hash: `browser-fixture-${versionNumber}`, findings: [] },
+    validation_summary: { valid, graph_hash: `browser-fixture-${versionNumber}`, findings },
     creation_actor_type: "human",
     creation_actor_id: "local-owner",
     creation_reason: "browser fixture",
@@ -493,9 +626,9 @@ function automationVersion(graph: ReturnType<typeof workflowGraph>, versionNumbe
 
 function automationDetail(
   graph: ReturnType<typeof workflowGraph>,
-  state: { lifecycle: "inactive" | "active" | "paused"; revision: number; validated: boolean; version: number },
+  state: { lifecycle: "inactive" | "active" | "paused"; revision: number; validated: boolean; validationFindings: WorkflowBackendOptions["validationFindings"]; version: number },
 ) {
-  const version = automationVersion(graph, state.version, state.validated)
+  const version = automationVersion(graph, state.version, state.validated, state.validationFindings)
   return {
     ...automationOut(state),
     active_version_id: state.lifecycle === "active" ? version.id : null,
@@ -679,6 +812,56 @@ function collectionArticleNodeCatalog() {
       },
       { ...nodeDefinition("save_drafts", "output", "Save to Drafts", false, [port("drafts", 1, [draftSet, validatedDraftSet])], []), terminal: true },
     ],
+  }
+}
+
+function nodeCardSizingGraph(): ReturnType<typeof workflowGraph> {
+  const types = [
+    "future_review",
+    "future_publish",
+    "future_generate",
+    "future_research",
+    "future_scheduled",
+    "future_collection",
+    "future_source",
+  ]
+  const nodes = types.map((type, index) => ({ id: `future-node-${index}`, type, config: {} }))
+  return {
+    schema_version: 1,
+    entry_node_id: nodes[0].id,
+    nodes,
+    edges: nodes.slice(1).map((node, index) => ({
+      source_node_id: nodes[index].id,
+      source_port: "output",
+      target_node_id: node.id,
+      target_port: "input",
+    })),
+    output_node_ids: [nodes.at(-1)?.id ?? nodes[0].id],
+    metadata: {
+      layout: Object.fromEntries(nodes.map((node, index) => [node.id, { x: 80 + index * 260, y: 80 }])),
+    },
+  }
+}
+
+function nodeCardSizingCatalog() {
+  const definitions = [
+    ["future_review", "review", "Review", "user-check"],
+    ["future_publish", "output", "Publish", "package"],
+    ["future_generate", "generate", "AI Generate", "sparkles"],
+    ["future_research", "research", "AI Research", "search"],
+    ["future_scheduled", "trigger", "Scheduled Trigger", "clock"],
+    ["future_collection", "trigger", "Collection Article Added", "file-text"],
+    ["future_source", "trigger", "New Source Item", "radio"],
+  ] as const
+  return {
+    schema_version: 1,
+    max_nodes: 30,
+    max_edges: 60,
+    nodes: definitions.map(([type, family, displayName, icon], index) => ({
+      ...nodeDefinition(type, family, displayName, index === 0, index === 0 ? [] : [port("input", 1)], index === definitions.length - 1 ? [] : [port("output", null)]),
+      terminal: index === definitions.length - 1,
+      ui_hints: { icon },
+    })),
   }
 }
 

@@ -88,7 +88,7 @@ export function AddSourceDialog({
         <div>
           <h2 className="text-xl font-semibold" id={titleId}>Add source</h2>
           <p className="mt-1 text-sm leading-6 text-muted-foreground" id={descriptionId}>
-            Add an RSS feed or public Telegram channel to this source list.
+            Add an RSS or Atom feed or public Telegram channel to this source list.
           </p>
         </div>
 
@@ -103,6 +103,7 @@ export function AddSourceDialog({
               value={form.platform}
             >
               <option value="rss">RSS feed</option>
+              <option value="atom">Atom feed</option>
               <option value="telegram_public">Telegram channel</option>
             </Select>
           </Field>
@@ -123,15 +124,15 @@ export function AddSourceDialog({
           <div className="sm:col-span-2">
             <Field
               error={touched && validationError?.field === "url" ? validationError.message : null}
-              hint={form.platform === "rss" ? "Use a complete http:// or https:// feed URL." : "Use @channel, channel name, or a t.me URL."}
-              label={form.platform === "rss" ? "Feed URL" : "Telegram channel"}
+              hint={form.platform === "rss" || form.platform === "atom" ? "Use a complete http:// or https:// feed URL." : "Use @channel, channel name, or a t.me URL."}
+              label={form.platform === "rss" || form.platform === "atom" ? "Feed URL" : "Telegram channel"}
               required
             >
               <Input
                 autoComplete="url"
                 onBlur={() => setTouched(true)}
                 onChange={(event) => setForm((current) => ({ ...current, url: event.target.value }))}
-                placeholder={form.platform === "rss" ? "https://example.com/feed.xml" : "@channel"}
+                placeholder={form.platform === "rss" || form.platform === "atom" ? "https://example.com/feed.xml" : "@channel"}
                 value={form.url}
               />
             </Field>
@@ -312,7 +313,7 @@ function validateSource(form: NewSourceInput): { field: "name" | "url" | "fetchI
   if (!isValidSourceUrl(form.platform, form.url)) {
     return {
       field: "url",
-      message: form.platform === "rss"
+        message: form.platform === "rss" || form.platform === "atom"
         ? "Enter a valid http:// or https:// feed URL."
         : "Enter a public Telegram channel or t.me URL.",
     }
@@ -338,7 +339,7 @@ function isValidSourceUrl(platform: NewSourceInput["platform"], value: string) {
 
 function normalizeSourceUrl(platform: NewSourceInput["platform"], value: string) {
   const trimmed = value.trim()
-  if (platform === "rss") return trimmed
+  if (platform === "rss" || platform === "atom") return trimmed
   if (/^https?:\/\/t\.me\//.test(trimmed)) return trimmed
   return `https://t.me/${trimmed.replace(/^@/, "")}`
 }

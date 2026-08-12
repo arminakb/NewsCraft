@@ -59,11 +59,12 @@ def build_default_registry(
     destination_secret_resolver: Any | None = None,
     telegram_route_resolver: Any | None = None,
     research_backend_resolver: Any | None = None,
+    icon_discovery_service: Any | None = None,
     export_root: str | Path = "/data/exports",
     media_root: str | Path = "/data/media",
 ) -> JobHandlerRegistry:
     from app.automations.definitions.handler_wrapper import with_automation_projection
-    from app.jobs.handlers import handle_ingest_collect
+    from app.jobs.handlers import handle_ingest_collect, handle_source_collection_continuous_cycle
     from app.stories.handlers import group_pending_content, handle_manual_intake
 
     if capabilities is None:
@@ -96,6 +97,7 @@ def build_default_registry(
 
         registry.register(SOURCE_GENERATION_CANARY, handle_worker_canary)
         registry.register("ingest.collect", handle_ingest_collect)
+        registry.register("ingest.collection.continuous_cycle", handle_source_collection_continuous_cycle)
         registry.register("manual_intake", handle_manual_intake)
         registry.register("story.group_pending", group_pending_content)
     if "source" in selected:
@@ -108,6 +110,13 @@ def build_default_registry(
         registry.register("telegram.route.dry_run", with_automation_projection(route_handlers.dry_run))
         registry.register("telegram.route.initialize", route_handlers.initialize)
         registry.register("telegram.route.poll", route_handlers.poll)
+        if icon_discovery_service is not None:
+            from app.sources.icon_discovery import ICON_JOB_TYPE, build_source_icon_discovery_handler
+
+            registry.register(
+                ICON_JOB_TYPE,
+                build_source_icon_discovery_handler(icon_discovery_service),
+            )
     if "generation" in selected:
         from app.automations.definitions.schedule_execution import build_scheduled_automation_handler
         from app.automations.telegram.handlers import build_telegram_process_handler
@@ -136,7 +145,9 @@ def build_default_registry(
         )
         registry.register(
             "build_export",
-            build_export_handler(export_root=Path(export_root), media_root=Path(media_root)),
+            with_automation_projection(
+                build_export_handler(export_root=Path(export_root), media_root=Path(media_root)),
+            ),
         )
         registry.register(
             "execute_retention",

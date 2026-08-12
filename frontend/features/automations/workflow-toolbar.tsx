@@ -15,6 +15,7 @@ import {
   Undo2,
 } from "lucide-react"
 import Link from "next/link"
+import type { RefObject } from "react"
 
 import { Button, buttonVariants } from "@/components/ui/button"
 import {
@@ -30,7 +31,8 @@ type WorkflowToolbarProps = {
   versionNumber: number
   dirty: boolean
   lifecycle: { label: string; tone: StatusTone }
-  readiness: { label: string; tone: StatusTone }
+  readiness: { label: string; tone: StatusTone; issueCount: number }
+  attentionTriggerRef?: RefObject<HTMLButtonElement | null>
   pending: boolean
   savePending: boolean
   validationPending: boolean
@@ -45,6 +47,7 @@ type WorkflowToolbarProps = {
   onOpenOrderedEditor: () => void
   onOpenHistory: () => void
   onOpenTestStudio: () => void
+  onOpenAttention?: () => void
   onSave: () => void
   onValidate: () => void
   onLifecycleAction: () => void
@@ -56,6 +59,7 @@ export function WorkflowToolbar({
   dirty,
   lifecycle,
   readiness,
+  attentionTriggerRef,
   pending,
   savePending,
   validationPending,
@@ -70,10 +74,13 @@ export function WorkflowToolbar({
   onOpenOrderedEditor,
   onOpenHistory,
   onOpenTestStudio,
+  onOpenAttention,
   onSave,
   onValidate,
   onLifecycleAction,
 }: WorkflowToolbarProps) {
+  const hasAttention = readiness.issueCount > 0 && Boolean(onOpenAttention)
+
   return (
     <header
       aria-label="Workflow toolbar"
@@ -94,7 +101,21 @@ export function WorkflowToolbar({
       </div>
       <div className="flex min-w-0 items-center justify-end gap-1 overflow-x-auto py-1" data-workflow-toolbar-actions>
         <StatusBadge className="hidden min-[1100px]:inline-flex" tone={lifecycle.tone}>{lifecycle.label}</StatusBadge>
-        <StatusBadge className="hidden min-[1200px]:inline-flex" tone={readiness.tone}>{readiness.label}</StatusBadge>
+        {hasAttention ? (
+          <Button
+            aria-label={`${readiness.label}, ${readiness.issueCount} ${readiness.issueCount === 1 ? "issue" : "issues"}`}
+            className="min-h-11 gap-1.5 px-1.5 min-[900px]:min-h-8"
+            onClick={onOpenAttention}
+            ref={attentionTriggerRef}
+            size="sm"
+            title="Review workflow validation issues"
+            type="button"
+            variant="ghost"
+          >
+            <StatusBadge className="pointer-events-none" tone={readiness.tone}>{readiness.label}</StatusBadge>
+            <span aria-hidden="true" className="rounded-md border border-border/70 bg-muted px-1.5 py-0.5 text-[11px] font-medium tabular-nums text-muted-foreground">{readiness.issueCount}</span>
+          </Button>
+        ) : <StatusBadge className="hidden min-[1200px]:inline-flex" tone={readiness.tone}>{readiness.label}</StatusBadge>}
         <Button aria-label="Undo workflow change" disabled={undoDisabled || pending} onClick={onUndo} size="icon" variant="ghost"><Undo2 aria-hidden="true" /></Button>
         <Button aria-label="Redo workflow change" disabled={redoDisabled || pending} onClick={onRedo} size="icon" variant="ghost"><Redo2 aria-hidden="true" /></Button>
         <Button aria-label="Open ordered editor" disabled={pending} onClick={onOpenOrderedEditor} size="icon" variant="ghost"><ListTree aria-hidden="true" /></Button>

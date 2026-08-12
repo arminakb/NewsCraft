@@ -20,7 +20,6 @@ type NoticeContextValue = {
   pushNotice: (notice: NoticeInput) => void
   notices: readonly Notice[]
   dismissNotice: (id: string) => void
-  clearNotices: () => void
 }
 
 const NoticeContext = createContext<NoticeContextValue | null>(null)
@@ -51,12 +50,8 @@ export function NoticeProvider({ children }: { children: React.ReactNode }) {
     setNotices((current) => current.filter((notice) => notice.id !== id))
   }, [])
 
-  const clearNotices = useCallback(() => {
-    setNotices([])
-  }, [])
-
   return (
-    <NoticeContext.Provider value={{ clearNotices, dismissNotice, notices, pushNotice }}>
+    <NoticeContext.Provider value={{ dismissNotice, notices, pushNotice }}>
       {children}
       <div
         role="status"

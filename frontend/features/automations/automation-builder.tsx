@@ -5,7 +5,7 @@ import dynamic from "next/dynamic"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { AlertTriangle, X } from "lucide-react"
-import { useEffect, useMemo, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 
 import { useDirtyNavigation } from "@/components/editorial/use-dirty-navigation"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
@@ -42,11 +42,12 @@ import {
 } from "./automation-api"
 import type { AutomationDetail, AutomationResource, AutomationVersion, GraphValidation, WorkflowGraph } from "./automation-types"
 import { useWorkflowEditorState, workflowIsDirty } from "./workflow-editor-state"
-import { insertWorkflowNode, updateNodePosition, validateWorkflowClient, workflowResourceRequests } from "./workflow-graph"
+import { insertWorkflowNode, normalizeWorkflowGraphForSave, updateNodePosition, validateWorkflowClient, workflowResourceRequests } from "./workflow-graph"
 import { NodeCustomizeDialog } from "./node-customize-dialog"
 import { WorkflowNodeLibrary } from "./workflow-node-library"
 import { WorkflowOrderedEditor } from "./workflow-ordered-editor"
 import { WorkflowToolbar } from "./workflow-toolbar"
+import { WorkflowValidationDialog } from "./workflow-validation-dialog"
 
 const WorkflowCanvas = dynamic(() => import("./workflow-canvas"), {
   ssr: false,
@@ -102,7 +103,8 @@ export function AutomationBuilder({ automationId }: { automationId: string }) {
 function AutomationBuilderReady({ automation, catalog, initialVersion }: { automation: AutomationDetail; catalog: Awaited<ReturnType<typeof getAutomationNodeCatalog>>; initialVersion: AutomationVersion }) {
   const router = useRouter()
   const queryClient = useQueryClient()
-  const [state, dispatch] = useWorkflowEditorState(initialVersion.graph)
+  const initialGraph = useMemo(() => normalizeWorkflowGraphForSave(initialVersion.graph, catalog), [catalog, initialVersion.graph])
+  const [state, dispatch] = useWorkflowEditorState(initialGraph)
   const dirty = workflowIsDirty(state)
   const releaseDirty = useDirtyNavigation(dirty, "Discard unsaved workflow changes?")
   const [revision, setRevision] = useState(automation.revision)
@@ -116,8 +118,11 @@ function AutomationBuilderReady({ automation, catalog, initialVersion }: { autom
   const [customizeNode, setCustomizeNode] = useState<{ nodeId: string; returnFocus: HTMLElement | null } | null>(null)
   const [testOpen, setTestOpen] = useState(false)
   const [historyOpen, setHistoryOpen] = useState(false)
+  const [attentionOpen, setAttentionOpen] = useState(false)
   const [desktopCanvas, setDesktopCanvas] = useState(false)
+  const attentionTriggerRef = useRef<HTMLButtonElement>(null)
   const clientValidation = useMemo(() => validateWorkflowClient(state.graph, catalog), [catalog, state.graph])
+  const currentValidation = dirty ? clientValidation : serverValidation ?? clientValidation
   const requests = useMemo(() => workflowResourceRequests(state.graph), [state.graph])
   const resources = useQuery({
     queryKey: queryKeys.automationResourceCatalog(automation.id, requests),
@@ -138,7 +143,7 @@ function AutomationBuilderReady({ automation, catalog, initialVersion }: { autom
   })
   const saveBlocked = clientValidation.findings.some((item) => structuralCodes.has(item.code))
   const resourceBlocked = resources.isPending || resources.isError || Boolean(resources.data?.resources.some((resource) => resource.state !== "ready"))
-  const readiness = editorReadiness(serverValidation, resources.data?.resources, resources.isPending, resources.isError)
+  const readiness = editorReadiness(currentValidation, resources.data?.resources, resources.isPending, resources.isError)
 
   useEffect(() => {
     const media = window.matchMedia("(min-width: 768px)")
@@ -163,7 +168,7 @@ function AutomationBuilderReady({ automation, catalog, initialVersion }: { autom
   const showMessage = (tone: EditorMessage["tone"], text: string) => setMessage({ tone, text })
 
   const saveMutation = useMutation({
-    mutationFn: (graph: WorkflowGraph) => createAutomationVersion(automation.id, { expectedRevision: revision, graph, creationReason: "workflow builder save" }, key("save")),
+    mutationFn: (graph: WorkflowGraph) => createAutomationVersion(automation.id, { expectedRevision: revision, graph, creationReason: "workflow builder save" }, key("save"), catalog),
     onSuccess: async (version) => {
       dispatch({ type: "saved", graph: version.graph })
       setRevision((value) => value + 1)
@@ -189,7 +194,7 @@ function AutomationBuilderReady({ automation, catalog, initialVersion }: { autom
     onError: (error) => showMessage("error", getApiErrorMessage(error)),
   })
   const copyMutation = useMutation({
-    mutationFn: () => createAutomation({ name: `${automation.name} conflict copy`, description: automation.description, graph: state.graph, creationReason: "conflict recovery copy" }, key("conflict-copy")),
+    mutationFn: () => createAutomation({ name: `${automation.name} conflict copy`, description: automation.description, graph: state.graph, creationReason: "conflict recovery copy" }, key("conflict-copy"), catalog),
     onSuccess: async (copy) => { releaseDirty(); await queryClient.invalidateQueries({ queryKey: ["automations"] }); router.push(`/automations/${copy.id}`) },
     onError: (error) => showMessage("error", getApiErrorMessage(error)),
   })
@@ -225,6 +230,7 @@ function AutomationBuilderReady({ automation, catalog, initialVersion }: { autom
         lifecycleDisabled={pending || dirty || (lifecycle !== "active" && resourceBlocked) || lifecycle === "archived" || (lifecycle !== "active" && serverValidation?.valid !== true)}
         lifecyclePending={lifecycleMutation.isPending}
         onLifecycleAction={() => lifecycleMutation.mutate()}
+        onOpenAttention={() => setAttentionOpen(true)}
         onOpenHistory={() => setHistoryOpen(true)}
         onOpenOrderedEditor={() => setOrderedOpen(true)}
         onOpenTestStudio={() => setTestOpen(true)}
@@ -234,6 +240,7 @@ function AutomationBuilderReady({ automation, catalog, initialVersion }: { autom
         onValidate={() => validationMutation.mutate()}
         pending={pending}
         readiness={readiness}
+        attentionTriggerRef={attentionTriggerRef}
         redoDisabled={!state.future.length}
         saveDisabled={pending || !dirty || saveBlocked}
         savePending={saveMutation.isPending}
@@ -275,7 +282,7 @@ function AutomationBuilderReady({ automation, catalog, initialVersion }: { autom
         ) : null}
         <div className="min-h-0 flex-1 min-[768px]:grid min-[768px]:grid-cols-[minmax(0,1fr)] min-[1024px]:grid-cols-[272px_minmax(0,1fr)]">
           <aside className="hidden min-h-0 border-r border-border/60 bg-muted/20 min-[1024px]:block" aria-label="Node library">
-            <WorkflowNodeLibrary allowEntry={!state.graph.nodes.length} catalog={catalog} afterNodeId={state.selectedNodeId ?? undefined} issueCount={clientValidation.findings.length} onAdd={addNode} />
+            <WorkflowNodeLibrary allowEntry={!state.graph.nodes.length} catalog={catalog} afterNodeId={state.selectedNodeId ?? undefined} onAdd={addNode} />
           </aside>
           <div className="min-h-0 min-w-0 overflow-y-auto bg-muted/20 p-3 min-[768px]:overflow-hidden min-[768px]:p-0">
             {desktopCanvas ? (
@@ -307,18 +314,19 @@ function AutomationBuilderReady({ automation, catalog, initialVersion }: { autom
         </SheetContent>
       </Sheet>
       {customizeNode ? <NodeCustomizeDialog key={customizeNode.nodeId} graph={state.graph} catalog={catalog} nodeId={customizeNode.nodeId} resources={resources.data?.resources ?? []} collections={collections.data} collectionsPending={collections.isPending} collectionsError={collections.error} onRetryCollections={() => void collections.refetch()} sources={sources.data} sourcesPending={sources.isPending} sourcesError={sources.error} onRetrySources={() => void sources.refetch()} options={options.data} findings={(dirty ? clientValidation : serverValidation ?? clientValidation).findings} returnFocus={customizeNode.returnFocus} onSave={commit} onClose={() => setCustomizeNode(null)} onRejected={reject} /> : null}
+      {attentionOpen ? <WorkflowValidationDialog catalog={catalog} findings={currentValidation.findings} graph={state.graph} onOpenChange={setAttentionOpen} onSelectNode={(nodeId) => dispatch({ type: "select", nodeId })} open returnFocus={attentionTriggerRef.current} /> : null}
       <Dialog open={conflictOpen} onOpenChange={setConflictOpen}>
         <DialogContent>
           <DialogHeader><DialogTitle>Workflow changed on server</DialogTitle><DialogDescription>Draft was not overwritten. Reload latest server version or preserve current graph as new inactive copy.</DialogDescription></DialogHeader>
           <Alert tone="warning"><AlertTriangle aria-hidden="true" className="sr-only" /><AlertTitle>No silent overwrite</AlertTitle><AlertDescription>Current unsaved graph remains in this editor until you choose.</AlertDescription></Alert>
           <DialogFooter>
             <DialogClose className={buttonVariants({ variant: "ghost" })}>Keep editing</DialogClose>
-            <Button variant="outline" onClick={() => void getAutomation(automation.id).then((latest) => { const version = latest.draftVersion ?? latest.activeVersion; if (!version) return; dispatch({ type: "reload", graph: version.graph }); setRevision(latest.revision); setVersionNumber(version.version); setCurrentVersion(version); setServerValidation(validationFromVersion(version)); setConflictOpen(false) })}>Reload server draft</Button>
+            <Button variant="outline" onClick={() => void getAutomation(automation.id).then((latest) => { const version = latest.draftVersion ?? latest.activeVersion; if (!version) return; dispatch({ type: "reload", graph: normalizeWorkflowGraphForSave(version.graph, catalog) }); setRevision(latest.revision); setVersionNumber(version.version); setCurrentVersion(version); setServerValidation(validationFromVersion(version)); setConflictOpen(false) })}>Reload server draft</Button>
             <Button disabled={copyMutation.isPending || saveBlocked} onClick={() => copyMutation.mutate()}>{copyMutation.isPending ? "Copying…" : "Create recovery copy"}</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
-      {historyOpen ? <AutomationVersionHistory open={historyOpen} onOpenChange={setHistoryOpen} automationId={automation.id} activeVersionId={automation.activeVersionId} draftVersionId={currentVersion.id} currentVersion={currentVersion} expectedRevision={revision} onRestored={(version) => { dispatch({ type: "reload", graph: version.graph }); setRevision((value) => value + 1); setVersionNumber(version.version); setCurrentVersion(version); setServerValidation(validationFromVersion(version)); showMessage("success", `Version ${version.version} restored as new draft.`) }} /> : null}
+      {historyOpen ? <AutomationVersionHistory open={historyOpen} onOpenChange={setHistoryOpen} automationId={automation.id} activeVersionId={automation.activeVersionId} draftVersionId={currentVersion.id} currentVersion={currentVersion} expectedRevision={revision} onRestored={(version) => { dispatch({ type: "reload", graph: normalizeWorkflowGraphForSave(version.graph, catalog) }); setRevision((value) => value + 1); setVersionNumber(version.version); setCurrentVersion(version); setServerValidation(validationFromVersion(version)); showMessage("success", `Version ${version.version} restored as new draft.`) }} /> : null}
     </section>
   )
 }
@@ -330,13 +338,15 @@ function validationFromVersion(version: AutomationVersion): GraphValidation | nu
     : null
 }
 
-function editorReadiness(validation: GraphValidation | null, resources: AutomationResource[] | undefined, pending: boolean, error = false): { label: string; tone: StatusTone } {
-  if (pending) return { label: "Checking readiness", tone: "warning" }
-  if (error) return { label: "Resource check failed", tone: "error" }
+function editorReadiness(validation: GraphValidation | null, resources: AutomationResource[] | undefined, pending: boolean, error = false): { label: string; tone: StatusTone; issueCount: number } {
+  const issueCount = validation?.findings.length ?? 0
+  if (issueCount) return { label: "Needs attention", tone: validation?.findings.some((item) => item.severity === "error") ? "error" : "warning", issueCount }
+  if (pending) return { label: "Checking readiness", tone: "warning", issueCount: 0 }
+  if (error) return { label: "Resource check failed", tone: "error", issueCount: 0 }
   const blocked = resources?.find((resource) => resource.state !== "ready")
-  if (blocked) return { label: humanize(blocked.state), tone: blocked.state === "unavailable" || blocked.state === "disabled" ? "error" : "warning" }
-  if (!validation) return { label: "Validate draft", tone: "warning" }
-  return validation.valid ? { label: "Ready", tone: "success" } : { label: "Needs attention", tone: "error" }
+  if (blocked) return { label: humanize(blocked.state), tone: blocked.state === "unavailable" || blocked.state === "disabled" ? "error" : "warning", issueCount: 0 }
+  if (!validation) return { label: "Validate draft", tone: "warning", issueCount: 0 }
+  return validation.valid ? { label: "Ready", tone: "success", issueCount: 0 } : { label: "Validate draft", tone: "warning", issueCount: 0 }
 }
 
 function lifecycleTone(lifecycle: AutomationDetail["lifecycle"]): StatusTone {

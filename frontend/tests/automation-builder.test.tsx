@@ -221,6 +221,43 @@ describe("Phase 4 automation builder", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Pause" }))
     await waitFor(() => expect(api.pauseAutomation).toHaveBeenCalledWith("automation-1", 2))
   })
+
+  it("opens current validation findings from Needs attention and returns focus on close", async () => {
+    vi.mocked(api.getAutomation).mockResolvedValue({
+      ...detail,
+      draftVersion: {
+        ...version,
+        validationSummary: {
+          valid: false,
+          graphHash: "hash",
+          findings: [{ code: "node_config_invalid", severity: "error", message: "Required resource is not configured.", nodeId: "generate-1", edgeIndex: null, fieldPath: "config.providerProfileId", recoveryAction: "Select a saved resource." }],
+        },
+      },
+    } as never)
+    renderBuilder()
+    await screen.findByRole("region", { name: "Ordered workflow editor" })
+
+    const trigger = screen.getByRole("button", { name: "Needs attention, 1 issue" })
+    expect(trigger).toBeInTheDocument()
+    fireEvent.click(trigger)
+
+    const dialog = await screen.findByRole("dialog", { name: "Needs attention" })
+    expect(within(dialog).getByText("Required resource is not configured.")).toBeInTheDocument()
+    expect(within(dialog).getByRole("heading", { name: "Generate content package" })).toBeInTheDocument()
+    expect(within(dialog).getByText("Field: Config · Provider Profile Id")).toBeInTheDocument()
+
+    fireEvent.keyDown(document, { key: "Escape" })
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Needs attention" })).not.toBeInTheDocument())
+    expect(trigger).toHaveFocus()
+  })
+
+  it("does not render a Needs attention trigger when validation has no findings", async () => {
+    renderBuilder()
+    await screen.findByRole("region", { name: "Ordered workflow editor" })
+
+    expect(screen.queryByRole("button", { name: /Needs attention/ })).not.toBeInTheDocument()
+    expect(screen.queryByText(/\b0 issues\b/)).not.toBeInTheDocument()
+  })
 })
 
 function renderBuilder() {

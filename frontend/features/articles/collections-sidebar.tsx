@@ -51,7 +51,7 @@ export function CollectionsSidebar({
     <>
     <aside
       aria-label="Collections"
-      className="sticky top-14 z-20 min-w-0 overflow-x-auto border-b border-border/50 bg-card/95 backdrop-blur min-[900px]:h-[calc(100vh-3.5rem)] min-[900px]:overflow-x-hidden min-[900px]:overflow-y-auto min-[900px]:border-b-0 min-[900px]:border-r min-[900px]:bg-card/50 min-[900px]:backdrop-blur-none"
+      className="sticky top-0 z-20 min-w-0 overflow-x-auto border-b border-border/50 bg-card/95 backdrop-blur min-[900px]:h-screen min-[900px]:overflow-x-hidden min-[900px]:overflow-y-auto min-[900px]:border-b-0 min-[900px]:border-r min-[900px]:bg-card/50 min-[900px]:backdrop-blur-none"
     >
       <div className="min-w-max p-2 min-[900px]:min-w-0 min-[900px]:space-y-5 min-[900px]:p-3 lg:p-4">
         <nav aria-label="Feed collections" className="flex items-center gap-1 min-[900px]:block">

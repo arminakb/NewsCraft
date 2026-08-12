@@ -9,6 +9,8 @@ import type {
   ArticleDetail,
   ArticlePage,
   ArticleSort,
+  FeedClearResult,
+  FeedSummary,
 } from "./types"
 
 type Schemas = components["schemas"]
@@ -71,6 +73,14 @@ export async function removeArticleFromCollection(collectionId: string, articleI
 
 export async function getArticleFacets(): Promise<ArticleFacets> {
   return camelize(await apiRequest<Schemas["ArticleFacetsOut"]>("/articles/facets"))
+}
+
+export async function getFeedSummary(signal?: AbortSignal): Promise<FeedSummary> {
+  return camelize(await apiRequest<Schemas["FeedSummaryOut"]>("/feed/summary", signal ? { signal } : undefined))
+}
+
+export async function clearFeed(): Promise<FeedClearResult> {
+  return camelize(await apiRequest<Schemas["FeedClearOut"]>("/feed/clear", { method: "POST" }))
 }
 
 function appendFilters(params: URLSearchParams, filters?: ArticleFilters) {

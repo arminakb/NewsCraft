@@ -75,6 +75,7 @@ def test_mutation_rules_use_one_resource_specific_scope_per_settings_resource():
         ("POST", "/operations/retention-preview"): "settings:write",
         ("POST", "/operations/retention-runs"): "settings:write",
         ("POST", "/jobs/99e6ff1f-96fb-42a7-9a94-a78a7a06539d/retry"): "jobs:write",
+        ("POST", "/feed/clear"): "feed:write",
     }
     assert {key: mutation_rule(*key).required_scope for key in expected} == expected
     assert mutation_rule("GET", "/llm-providers") is None

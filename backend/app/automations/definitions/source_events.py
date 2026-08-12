@@ -172,6 +172,8 @@ async def enqueue_source_item_created(
                 "plan_hash": plan.plan_hash,
                 "required_resources": list(plan.required_resources),
                 "node_ids_by_type": _node_ids_by_type(plan),
+                "node_types_by_id": {stage.node_id: stage.node_type for stage in plan.stages},
+                "node_order": [stage.node_id for stage in plan.stages],
                 "source_item_id": str(source_item_id),
                 "source_id": str(source_id),
                 "content_item_id": str(content_item_id) if content_item_id is not None else None,

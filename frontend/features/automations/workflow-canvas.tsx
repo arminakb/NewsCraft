@@ -29,7 +29,6 @@ import {
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react"
 
 import { useTheme } from "@/components/providers/theme-provider"
-import { StatusBadge } from "@/components/ui/status-badge"
 import { cn } from "@/lib/utils"
 
 import type { AutomationNodeCatalog, AutomationResource, GraphValidation, WorkflowGraph } from "./automation-types"
@@ -37,29 +36,31 @@ import { catalogDefinition, connectWorkflowNodes, deleteWorkflowNode, duplicateW
 import { alignWorkflowNodePosition, WORKFLOW_EDGE_ALIGNMENT_TOLERANCE, WORKFLOW_SNAP_GRID, workflowEdgeRouting } from "./workflow-layout"
 import { NodeContextMenu, type NodeContextMenuState } from "./node-context-menu"
 import { WORKFLOW_NODE_DRAG_TYPE } from "./workflow-node-library"
-import { configuredNodeLabel, familyLabel, familyStyles, nodeIcon } from "./workflow-node-visual"
+import { compactNodeLabel, configuredNodeLabel, familyIconStyles, familyLabel, nodeIcon, nodeTypeIcon } from "./workflow-node-visual"
 
 type CanvasNodeData = {
   label: string
-  description: string
+  displayLabel: string
+  nodeType: string
   family: string
   icon: unknown
   inputs: string[]
   outputs: string[]
   errorCount: number
+  warningCount: number
 }
 type CanvasNode = Node<CanvasNodeData, "newscraft">
 
 const WorkflowCanvasNode = memo(function WorkflowCanvasNode({ data, dragging, selected }: NodeProps<CanvasNode>) {
-  const Icon = nodeIcon(data.icon)
+  const Icon = typeof data.icon === "string" ? nodeIcon(data.icon) : nodeTypeIcon(data.nodeType)
   return (
-    <div className={cn("nc-workflow-node-card w-60 cursor-grab rounded-xl border bg-card text-card-foreground shadow-sm transition-[border-color,box-shadow,transform] duration-150 ease-out active:cursor-grabbing motion-reduce:transition-none", dragging ? "scale-[1.015] border-primary/70 shadow-lg" : selected ? "border-primary shadow-md ring-2 ring-primary/20" : "border-border/70 hover:border-primary/45 hover:shadow-md")}>
-      {data.inputs.map((port, index) => <Handle aria-label={`Input port ${port}`} className="nc-workflow-handle !size-4 !border-[3px] !border-card !bg-primary-solid" id={port} key={port} position={Position.Left} role="img" style={{ top: `${((index + 1) / (data.inputs.length + 1)) * 100}%` }} type="target" />)}
-      <div className="flex min-h-28 items-start gap-3 p-3.5">
-        <span className={cn("grid size-10 shrink-0 place-items-center rounded-lg border", familyStyles[data.family] ?? "bg-muted")}><Icon className="size-5" aria-hidden="true" /></span>
-        <div className="min-w-0 flex-1"><div className="flex flex-wrap items-center gap-1.5"><span className="text-xs uppercase tracking-wide text-muted-foreground">{familyLabel(data.family)}</span>{data.errorCount ? <StatusBadge tone="error">{data.errorCount}</StatusBadge> : null}</div><p className="mt-1 text-sm font-semibold leading-5">{data.label}</p><p className="mt-1 line-clamp-2 text-xs leading-4 text-muted-foreground">{data.description}</p></div>
+    <div className={cn("nc-workflow-node-card", dragging && "is-dragging", selected && "is-selected")} title={data.label}>
+      {data.inputs.map((port, index) => <Handle aria-label={`Input port ${port}`} className="nc-workflow-handle" id={port} key={port} position={Position.Left} role="img" style={{ top: `${((index + 1) / (data.inputs.length + 1)) * 100}%` }} type="target" />)}
+      <div className="nc-workflow-node-card-content">
+        <span className={cn("nc-workflow-node-icon grid size-9 shrink-0 place-items-center", familyIconStyles[data.family] ?? "text-muted-foreground")}><Icon className="size-8 stroke-[1.8]" aria-hidden="true" /></span>
+        <span className="nc-workflow-node-title text-sm font-medium leading-5">{data.displayLabel}</span>
       </div>
-      {data.outputs.map((port, index) => <Handle aria-label={`Output port ${port}`} className="nc-workflow-handle !size-4 !border-[3px] !border-card !bg-primary-solid" id={port} key={port} position={Position.Right} role="img" style={{ top: `${((index + 1) / (data.outputs.length + 1)) * 100}%` }} type="source" />)}
+      {data.outputs.map((port, index) => <Handle aria-label={`Output port ${port}`} className="nc-workflow-handle" id={port} key={port} position={Position.Right} role="img" style={{ top: `${((index + 1) / (data.outputs.length + 1)) * 100}%` }} type="source" />)}
     </div>
   )
 })
@@ -112,12 +113,14 @@ export function WorkflowCanvas({ graph, catalog, validation, selectedNodeId, res
       ariaLabel: `${label}, ${definition ? familyLabel(definition.family) : "unsupported saved"} step`,
       data: {
         label,
-        description: definition?.description ?? `Saved node type "${node.type}" is no longer supported. It was not replaced automatically.`,
+        displayLabel: definition ? compactNodeLabel(node.type, definition.displayName) : "Unsupported",
+        nodeType: node.type,
         family: definition?.family ?? "unknown",
         icon: definition?.uiHints.icon,
         inputs: definition?.inputs.map((port) => port.name) ?? [],
         outputs: definition?.outputs.map((port) => port.name) ?? [],
         errorCount: validation.findings.filter((item) => item.nodeId === node.id && item.severity === "error").length + resourceError,
+        warningCount: validation.findings.filter((item) => item.nodeId === node.id && item.severity === "warning").length,
       },
     }
   }), [catalog, graph, resources, validation.findings])

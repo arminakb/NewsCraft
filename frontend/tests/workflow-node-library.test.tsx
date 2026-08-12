@@ -5,10 +5,11 @@ import { NodePicker, WorkflowNodeLibrary } from "@/features/automations/workflow
 describe("workflow node library", () => {
   it("renders the server catalog, including the collection article trigger", () => {
     const onAdd = vi.fn()
-    const { container } = render(<WorkflowNodeLibrary allowEntry catalog={catalog as never} issueCount={2} onAdd={onAdd} />)
+    const { container } = render(<WorkflowNodeLibrary allowEntry catalog={catalog as never} onAdd={onAdd} />)
 
     expect(screen.getByRole("heading", { name: "Node library" })).toBeInTheDocument()
-    expect(screen.getByText("2 issues")).toBeInTheDocument()
+    expect(screen.queryByText("Node options will appear here when available.")).not.toBeInTheDocument()
+    expect(screen.queryByText(/\bissues?\b/)).not.toBeInTheDocument()
     expect(screen.getByText("Search nodes")).toBeInTheDocument()
     expect(screen.getByRole("button", { name: "Collection article added" })).toBeInTheDocument()
     expect(screen.getByRole("button", { name: "Filter content" })).toBeInTheDocument()
@@ -22,7 +23,7 @@ describe("workflow node library", () => {
 
   it("keeps the accessible empty state for an empty server catalog", () => {
     const onAdd = vi.fn()
-    const { container } = render(<WorkflowNodeLibrary catalog={{ ...catalog, nodes: [] } as never} issueCount={2} onAdd={onAdd} />)
+    const { container } = render(<WorkflowNodeLibrary catalog={{ ...catalog, nodes: [] } as never} onAdd={onAdd} />)
 
     expect(screen.getByRole("status")).toHaveTextContent("No nodes available")
     expect(screen.getByText("Node definitions will appear here when they are ready to add.")).toBeInTheDocument()
