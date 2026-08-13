@@ -18,9 +18,9 @@ from pydantic import ValidationError
 from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.dependencies import SessionDependency
 from app.core.config import settings
 from app.core.redaction import redact_secrets
-from app.db.session import get_session
 from app.exports.models import (
     BuildExportPayload,
     ExpiredExportArtifact,
@@ -38,7 +38,6 @@ from app.jobs.types import JobOrigin, JobStatus
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
-SessionDependency = Depends(get_session)
 MAX_EXPORT_REBUILD_GENERATIONS = 32
 
 

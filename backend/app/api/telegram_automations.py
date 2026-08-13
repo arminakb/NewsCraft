@@ -11,6 +11,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.capabilities import CapabilityStatusDependency
+from app.api.dependencies import InjectedSession, SessionDependency
 from app.api.telegram_destinations import (
     get_job_repository,
 )
@@ -27,7 +28,6 @@ from app.api.telegram_schemas import (
 from app.automations.models import AutomationDispatch, AutomationRoute, TelegramSourceConfig
 from app.core.redaction import redact_string
 from app.db.models import Source
-from app.db.session import get_session
 from app.generation.models import AIProviderProfile, BrandProfile, PromptTemplate, PromptTemplateVersion
 from app.jobs.credential_capabilities import CapabilityStatusService, provider_shape_capabilities
 from app.jobs.repository import EnqueueJobResult, JobRepository
@@ -37,11 +37,9 @@ from app.publishing.models import Destination
 from app.stories.models import StoryRevision
 
 router = APIRouter(prefix="/telegram/automations", tags=["telegram"])
-SessionDependency = Depends(get_session)
 #: Dispatch history is append-only and unbounded; the listing answers
 #: newest-first, so this ceiling trims only the tail of an audit log.
 DISPATCH_CEILING = 200
-InjectedSession = Annotated[AsyncSession, Depends(get_session)]
 JobRepositoryDependency = Annotated[JobRepository, Depends(get_job_repository)]
 
 

@@ -8,7 +8,7 @@ from fastapi import APIRouter, Depends, Header, HTTPException, Query
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.dependencies import scoped_principal_dependency
+from app.api.dependencies import InjectedSession, scoped_principal_dependency
 from app.automations.definitions.execution import AutomationExecutionService
 from app.automations.definitions.models import AutomationRun, AutomationTemplate
 from app.automations.definitions.registry import node_catalog
@@ -36,12 +36,10 @@ from app.automations.definitions.schemas import (
 )
 from app.automations.definitions.service import AutomationDefinitionService
 from app.core.config import settings
-from app.db.session import get_session
 from app.jobs.credential_capabilities import CapabilityStatusService
 from app.security.auth import SecurityPrincipal
 
 router = APIRouter(tags=["automations"])
-InjectedSession = Annotated[AsyncSession, Depends(get_session)]
 IdempotencyKey = Annotated[str, Header(alias="Idempotency-Key", min_length=1, max_length=200)]
 
 

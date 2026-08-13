@@ -3,12 +3,12 @@ from __future__ import annotations
 from datetime import datetime
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.session import get_session
+from app.api.dependencies import SessionDependency
 from app.operator_settings.models import (
     DATE_TIME_SETTINGS_ID,
     DEFAULT_OPERATOR_TIMEZONE,
@@ -16,7 +16,6 @@ from app.operator_settings.models import (
 )
 
 router = APIRouter(prefix="/operator-settings", tags=["operator-settings"])
-SessionDependency = Depends(get_session)
 
 
 def validate_iana_timezone(value: str) -> str:

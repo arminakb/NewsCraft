@@ -2,18 +2,17 @@ from __future__ import annotations
 
 import logging
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, HTTPException, status
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.session import get_session
+from app.api.dependencies import SessionDependency
 from app.feed.service import clear_active_feed, count_active_feed
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/feed", tags=["feed"])
-SessionDependency = Depends(get_session)
 
 
 class FeedSummaryOut(BaseModel):

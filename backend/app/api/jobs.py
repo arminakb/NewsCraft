@@ -2,11 +2,11 @@ from datetime import UTC, datetime
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.session import get_session
+from app.api.dependencies import SessionDependency
 from app.generation.revision_fence import public_job_result
 from app.jobs.errors import InvalidJobTransition
 from app.jobs.events import redact_event_data
@@ -16,7 +16,6 @@ from app.jobs.schemas import JobDetailOut, JobEventOut, JobListOut, JobOut, JobS
 from app.jobs.types import JobErrorClass, JobStatus
 
 router = APIRouter()
-SessionDependency = Depends(get_session)
 
 
 @router.get("/jobs", response_model=JobListOut)

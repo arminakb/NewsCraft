@@ -1,13 +1,25 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from typing import Annotated
 
-from fastapi import HTTPException, Request
+from fastapi import Depends, HTTPException, Request
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
+from app.db.session import get_session
 from app.security.application_principal import resolve_application_principal
 from app.security.auth import AuthenticationFailure, SecurityPrincipal
 from app.security.middleware import MUTATION_METHODS
+
+#: The request-scoped database session, as a parameter default. Routers import
+#: this instead of re-deriving ``Depends(get_session)``, so the session seam has
+#: exactly one definition to swap when the wiring changes.
+SessionDependency = Depends(get_session)
+
+#: The same seam as an annotation, for handlers that prefer ``session:
+#: InjectedSession`` over a parameter default.
+InjectedSession = Annotated[AsyncSession, Depends(get_session)]
 
 #: Default denial code. The automation surface publishes
 #: ``insufficient_permission`` instead (see the policy note next to
@@ -111,6 +123,8 @@ def scoped_principal_dependency(
 
 __all__ = [
     "SCOPE_DENIED_CODE",
+    "InjectedSession",
+    "SessionDependency",
     "authorize_request",
     "principal_dependency",
     "request_principal",

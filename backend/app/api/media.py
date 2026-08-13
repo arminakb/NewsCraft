@@ -1,13 +1,12 @@
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Query
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.dependencies import SessionDependency
 from app.api.schemas import MediaAssetListOut
 from app.db.models import MediaAsset
-from app.db.session import get_session
 
 router = APIRouter()
-SessionDependency = Depends(get_session)
 
 
 @router.get("/media-assets", response_model=list[MediaAssetListOut])

@@ -7,21 +7,20 @@ from datetime import datetime
 from typing import Any
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.sql import Select
 
+from app.api.dependencies import SessionDependency
 from app.core.redaction import redact_secrets
 from app.db.models import ContentItem, Source
-from app.db.session import get_session
 from app.generation.models import AIProviderProfile
 from app.research.models import ResearchAttempt, ResearchRun, ResearchSource
 from app.stories.models import StoryEvidenceSnapshot
 
 router = APIRouter(tags=["library"])
-SessionDependency = Depends(get_session)
 
 _EXCERPT_LIMIT = 500
 _ERROR_SUMMARY_LIMIT = 500

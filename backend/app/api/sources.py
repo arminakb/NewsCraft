@@ -3,12 +3,13 @@ from datetime import UTC, datetime
 from pathlib import Path
 from uuid import UUID, uuid4
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import FileResponse
 from sqlalchemy import delete, func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.dependencies import SessionDependency
 from app.api.schemas import (
     SourceCreateIn,
     SourceDetailOut,
@@ -20,7 +21,6 @@ from app.automations.definitions.resources import count_automation_definitions_r
 from app.automations.models import AutomationRoute
 from app.core.config import settings
 from app.db.models import Source
-from app.db.session import get_session
 from app.ingestion.seed_sources import seed_sources
 from app.jobs.errors import JobCapabilityUnavailable
 from app.jobs.types import JobOrigin
@@ -31,7 +31,6 @@ from app.sources.health import SourceHealthCheck, check_source_health
 from app.sources.icon_discovery import enqueue_source_icon_discovery
 
 router = APIRouter()
-SessionDependency = Depends(get_session)
 
 
 @router.get("/sources", response_model=list[SourceOut])

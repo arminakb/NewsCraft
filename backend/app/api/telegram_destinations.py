@@ -3,11 +3,11 @@ from __future__ import annotations
 from typing import Literal
 from uuid import UUID, uuid4
 
-from fastapi import APIRouter, Depends, HTTPException, Request, Response
+from fastapi import APIRouter, HTTPException, Request, Response
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.dependencies import request_principal
+from app.api.dependencies import SessionDependency, request_principal
 from app.api.telegram_schemas import (
     TelegramCheckOut,
     TelegramDestinationAcceptedOut,
@@ -23,7 +23,6 @@ from app.api.telegram_schemas import (
     TelegramProxyPatch,
 )
 from app.core.config import settings
-from app.db.session import get_session
 from app.generation.revision_fence import public_job_result
 from app.jobs.models import WorkflowJob
 from app.jobs.repository import JobRepository
@@ -41,7 +40,6 @@ from app.security.schemas import SecretWriteIn
 from app.security.secret_store import MasterKeyRing, SecretStoreError
 
 router = APIRouter(prefix="/telegram", tags=["telegram"])
-SessionDependency = Depends(get_session)
 
 
 def get_job_repository(session: AsyncSession = SessionDependency) -> JobRepository:

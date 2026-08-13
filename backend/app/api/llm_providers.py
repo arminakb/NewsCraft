@@ -2,14 +2,13 @@ from __future__ import annotations
 
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Request, Response
+from fastapi import APIRouter, HTTPException, Request, Response
 from pydantic import ValidationError
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.dependencies import request_principal
+from app.api.dependencies import SessionDependency, request_principal
 from app.core.config import settings
-from app.db.session import get_session
 from app.llm_providers.schemas import (
     LLMProviderCreate,
     LLMProviderDependenciesOut,
@@ -26,7 +25,6 @@ from app.security.secret_store import (
 )
 
 router = APIRouter(prefix="/llm-providers", tags=["llm-providers"])
-SessionDependency = Depends(get_session)
 
 
 def _service(

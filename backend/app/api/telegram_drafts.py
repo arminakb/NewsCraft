@@ -2,17 +2,17 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 from datetime import UTC, datetime
-from typing import Annotated, Any
+from typing import Any
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Response
+from fastapi import APIRouter, HTTPException, Response
 from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, field_validator
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.capabilities import CapabilityStatusDependency
+from app.api.dependencies import InjectedSession, SessionDependency
 from app.automations.models import AutomationDispatch
-from app.db.session import get_session
 from app.generation.models import PlatformVariant, PlatformVariantRevision
 from app.jobs.models import WorkflowJob
 from app.jobs.schemas import JobAcceptedOut
@@ -60,11 +60,9 @@ __all__ = [
 
 router = APIRouter(prefix="/telegram", tags=["telegram"])
 draft_router = APIRouter(prefix="/drafts")
-SessionDependency = Depends(get_session)
 #: Every telegram revision ever written is a candidate here; the listing reads
 #: newest-first, so this ceiling trims only the tail of the outcome history.
 OUTCOME_CEILING = 200
-InjectedSession = Annotated[AsyncSession, Depends(get_session)]
 
 
 class TelegramContentHashIn(BaseModel):

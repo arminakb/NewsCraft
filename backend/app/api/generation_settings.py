@@ -10,7 +10,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.capabilities import CapabilityStatusDependency
-from app.api.dependencies import principal_dependency
+from app.api.dependencies import SessionDependency, principal_dependency
 from app.api.generation_schemas import (
     AIProviderProfileOut,
     BrandProfileCreate,
@@ -21,7 +21,6 @@ from app.api.generation_schemas import (
     PromptTemplateVersionCreate,
     PromptTemplateVersionOut,
 )
-from app.db.session import get_session
 from app.generation.canonical import CanonicalStoryOutput
 from app.generation.default_prompts import (
     manual_generation_provider_schema,
@@ -36,7 +35,6 @@ from app.jobs.credential_capabilities import CapabilityStatus, CapabilityStatusS
 from app.security.auth import SecurityPrincipal
 
 router = APIRouter(tags=["generation-settings"])
-SessionDependency = Depends(get_session)
 
 
 PrincipalDependency = Annotated[SecurityPrincipal, Depends(principal_dependency())]

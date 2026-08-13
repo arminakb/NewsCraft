@@ -15,9 +15,9 @@ from app.api.content_pack_mappers import (
     _research_request_out,
     _revision_out,
 )
+from app.api.dependencies import SessionDependency
 from app.api.editorial_errors import editorial_http_error
 from app.api.stories import _story_summary
-from app.db.session import get_session
 from app.exports.service import (
     ExportContractError,
     export_revision_content_hash,
@@ -45,7 +45,6 @@ from app.jobs.models import WorkflowJob
 from app.stories.models import Story, StoryEvidenceSnapshot, StoryRevision
 
 router = APIRouter(tags=["content-packs"])
-SessionDependency = Depends(get_session)
 
 
 class RenderedRevisionHtmlOut(BaseModel):

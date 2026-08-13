@@ -3,10 +3,10 @@ from __future__ import annotations
 from typing import Annotated, NoReturn
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, Response
+from fastapi import APIRouter, Header, HTTPException, Query, Request, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.dependencies import authorize_request
+from app.api.dependencies import SessionDependency, authorize_request
 from app.codex_gateway.credentials import GatewayCredentialHasher, GatewayKeyUnavailable
 from app.codex_gateway.schemas import (
     CapabilityOut,
@@ -30,11 +30,9 @@ from app.codex_gateway.service import (
     pairing_out,
 )
 from app.core.config import settings
-from app.db.session import get_session
 from app.security.auth import SecurityPrincipal
 
 router = APIRouter(prefix="/codex-gateway", tags=["codex-gateway"])
-SessionDependency = Depends(get_session)
 
 
 def _client_ip(request: Request) -> str:
