@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState, type ReactNode } from "react"
+import { useEffect, useRef, useState, type ReactNode } from "react"
 import { useQuery } from "@tanstack/react-query"
 import Link from "next/link"
 import {
@@ -21,6 +21,7 @@ import {
   type LucideIcon,
 } from "lucide-react"
 
+import { useEditorialModal } from "@/components/editorial/use-editorial-modal"
 import { useDateTime } from "@/components/providers/date-time-provider"
 import { Badge } from "@/components/ui/badge"
 import { Button, buttonVariants } from "@/components/ui/button"
@@ -780,16 +781,20 @@ function ArticleDialog({
   timezone: string
   onClose: () => void
 }) {
+  const dialogRef = useRef<HTMLElement | null>(null)
+  const closeRef = useRef<HTMLButtonElement | null>(null)
   const title = article.title?.trim() || "Untitled article"
   const sourceUrl = safeOriginalArticleUrl(article.canonicalUrl)
   const summary = article.summary?.trim() || article.excerpt?.trim() || "Full article text is not available in the Today summary."
   const time = getArticleCardTime(article.displayAt, article.dateBasis, Date.now(), timezone)
 
+  useEditorialModal({ open: true, containerRef: dialogRef, initialFocusRef: closeRef, onClose })
+
   return (
     <>
-      <button className="fixed inset-0 z-50 cursor-pointer border-0 bg-foreground/45 backdrop-blur-sm" aria-label="Close story" onClick={onClose} type="button" />
-      <section className="fixed left-1/2 top-1/2 z-50 w-[min(680px,calc(100vw-2rem))] -translate-x-1/2 -translate-y-1/2 rounded-xl border border-border bg-card text-card-foreground shadow-2xl" role="dialog" aria-modal="true" aria-labelledby="today-article-dialog-title">
-        <Button className="absolute right-3 top-3" variant="ghost" size="icon" aria-label="Close story" onClick={onClose} type="button">
+      <div className="fixed inset-0 z-50 cursor-pointer bg-foreground/45 backdrop-blur-sm" aria-hidden="true" onPointerDown={onClose} />
+      <section className="fixed left-1/2 top-1/2 z-50 w-[min(680px,calc(100vw-2rem))] -translate-x-1/2 -translate-y-1/2 rounded-xl border border-border bg-card text-card-foreground shadow-2xl" ref={dialogRef} role="dialog" aria-modal="true" aria-labelledby="today-article-dialog-title" tabIndex={-1}>
+        <Button className="absolute right-3 top-3" variant="ghost" size="icon" aria-label="Close story" onClick={onClose} ref={closeRef} type="button">
           <X aria-hidden="true" />
         </Button>
         <div className="space-y-4 p-6 sm:p-8">
