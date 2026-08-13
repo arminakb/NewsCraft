@@ -14,7 +14,7 @@ from uuid import UUID
 from sqlalchemy import and_, func, or_, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.config import Settings, settings
+from app.core.config import READINESS_CAPABILITIES, Settings, settings
 from app.core.outbound_proxy import safe_proxy_diagnostics
 from app.core.redaction import redact_string
 from app.db.schema import SCHEMA_HEAD
@@ -40,7 +40,6 @@ from app.operations.health_schemas import (
 from app.security.secret_store import SecretStoreRuntime
 
 RUNBOOK_ROOT = "/docs/operations/readiness-and-health"
-SAFE_CAPABILITIES = frozenset({"generation", "ingestion", "publishing", "scheduling", "source"})
 SAFE_JOB_TYPE = re.compile(r"^[a-z][a-z0-9_.]{0,127}$")
 SAFE_COMPONENT_ID = re.compile(r"^[A-Za-z0-9_.:-]{1,128}$")
 SECRET_REFERENCE = re.compile(
@@ -969,11 +968,13 @@ def _queue_thresholds(job_type: str) -> tuple[int, int]:
 
 
 def _configured_capabilities(value: str) -> tuple[str, ...]:
-    configured = tuple(sorted({part.strip().casefold() for part in value.split(",") if part.strip()}))
-    invalid = set(configured) - SAFE_CAPABILITIES
-    if invalid:
-        raise ValueError("readiness required capabilities contain unsupported values")
-    return configured
+    """Split the already-normalized settings value.
+
+    `Settings.validate_readiness_required_capabilities` casefolds, sorts and
+    rejects anything outside `READINESS_CAPABILITIES` before the value is
+    stored, so this is a plain split rather than a second allow-list.
+    """
+    return tuple(part for part in value.split(",") if part)
 
 
 def _safe_component_id(value: object) -> str:
@@ -993,7 +994,9 @@ def _safe_component_type(value: object) -> str:
 def _safe_capabilities(values: object) -> tuple[str, ...]:
     if not isinstance(values, Sequence) or isinstance(values, (str, bytes, bytearray)):
         return ()
-    return tuple(sorted({str(value).casefold() for value in values if str(value).casefold() in SAFE_CAPABILITIES}))
+    return tuple(
+        sorted({str(value).casefold() for value in values if str(value).casefold() in READINESS_CAPABILITIES})
+    )
 
 
 def _safe_job_types(values: object) -> tuple[str, ...]:
