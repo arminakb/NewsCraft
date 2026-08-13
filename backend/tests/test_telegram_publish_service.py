@@ -673,6 +673,67 @@ async def test_reviewed_schedule_exact_replay_survives_a_lost_response_after_due
 
 
 @pytest.mark.asyncio
+async def test_reviewed_schedule_replay_tolerates_worker_rewritten_plan_payload_hash(monkeypatch):
+    """A crashed publish worker leaves the rendered-plan digest on the intent.
+
+    ``publication._load_context`` overwrites ``PublishJob.payload_hash`` with the
+    rendered-plan hash and commits that before the claim transaction. If the
+    worker then dies, the row is still ``scheduled`` and the operator must be
+    able to replay the identical schedule request.
+    """
+
+    fixture = _schedule_fixture()
+    now = datetime(2026, 7, 13, 4, 0, tzinfo=UTC)
+    due = now + timedelta(hours=2)
+    key = f"telegram-publish:{fixture.destination.id}:{fixture.revision.id}:{fixture.revision.content_hash}"
+    workflow = WorkflowJob(
+        id=uuid4(),
+        job_type="telegram.publish",
+        status="queued",
+        payload={},
+        idempotency_key=key,
+        origin="manual",
+        pause_sensitive=True,
+        scheduled_for=due,
+    )
+    publish = PublishJob(
+        id=uuid4(),
+        workflow_job_id=workflow.id,
+        destination_id=fixture.destination.id,
+        platform_variant_revision_id=fixture.revision.id,
+        status="scheduled",
+        idempotency_key=key,
+        payload_hash="b" * 64,
+        scheduled_for=due,
+    )
+    assert publish.payload_hash != fixture.revision.content_hash
+    workflow.payload = {"publish_job_id": str(publish.id)}
+    session = _schedule_session(fixture, publish_job=publish, workflow_job=workflow)
+
+    async def dispatch_for_revision(_session, _revision):
+        return fixture.dispatch
+
+    class Repository:
+        def __init__(self, _session):
+            raise AssertionError("Exact replay must not call JobRepository")
+
+    monkeypatch.setattr("app.publishing.telegram.scheduling._revision_dispatch", dispatch_for_revision)
+    monkeypatch.setattr("app.publishing.telegram.scheduling.JobRepository", Repository)
+
+    result = await schedule_reviewed_telegram(
+        session,
+        revision_id=fixture.revision.id,
+        request=_schedule_request(fixture, due),
+        clock=lambda: now,
+    )
+
+    assert result.created is False
+    assert result.publish_job is publish
+    assert result.workflow_job is workflow
+    assert not [item for item in session.added if isinstance(item, WorkflowEvent)]
+
+
+@pytest.mark.asyncio
 async def test_reviewed_schedule_recovers_insert_race_as_exact_replay(monkeypatch):
     fixture = _schedule_fixture()
     now = datetime(2026, 7, 13, 4, 0, tzinfo=UTC)
