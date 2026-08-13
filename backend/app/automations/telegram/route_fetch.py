@@ -20,13 +20,28 @@ from app.automations.telegram.handler_contracts import (
 )
 from app.automations.telegram.registry import TelegramSourceRegistry
 from app.db.models import Source
-from app.jobs.errors import PermanentJobError, RetryableJobError
+from app.jobs.errors import NeedsReviewJobError, PermanentJobError, RetryableJobError
 from app.jobs.models import AutomationControl
 from app.jobs.registry import JobContext
 from app.jobs.repository import JobRepository
 from app.jobs.types import JobExecution, JobOrigin, job_payload_copy
 
 logger = logging.getLogger(__name__)
+
+# Ceiling on the ``telegram-route-deferred:`` chain.
+#
+# A deferral re-enqueues the same job under a NEW idempotency key (the sequence
+# is part of the key), so the chain cannot collapse itself. The trigger is a
+# durable state — a paused route or a global pause — not a transient one, so
+# without a ceiling a route left paused accrues one WorkflowJob row per poll
+# interval forever (>=2,880/day at the 30s interval floor).
+#
+# 720 links bound the chain at ~6h of a floor-interval route and days of a
+# slower one. Exhausting it is not data loss: `build_due_route_statement`
+# re-enqueues a poll as soon as the route is unpaused and due. It does need an
+# operator for an initialize/backfill chain, which is why exhaustion surfaces
+# as needs_review rather than a silent drop.
+MAX_DEFER_SEQUENCE = 720
 
 
 async def _load_route(
@@ -247,6 +262,14 @@ async def _defer_route_job(
     payload = job_payload_copy(job)
     root_job_id = str(payload.get("defer_root_job_id") or job.id)
     next_sequence = int(payload.get("defer_sequence") or 0) + 1
+    if next_sequence > MAX_DEFER_SEQUENCE:
+        raise NeedsReviewJobError(
+            code="telegram_route_deferral_exhausted",
+            message=(
+                f"Telegram route deferred {MAX_DEFER_SEQUENCE} times without running; "
+                "resume the route or clear the pause"
+            ),
+        )
     payload.update(
         {
             "defer_root_job_id": root_job_id,
