@@ -152,9 +152,13 @@ class ReadinessService:
                 if one != 1:
                     raise RuntimeError("database connectivity probe failed")
                 schema_revision = await self.session.scalar(text("SELECT version_num FROM alembic_version"))
-                observed_at = await database_time(self.session)
                 if required_capabilities:
                     heartbeats = await RuntimeHeartbeatService(self.session).list_recent(limit=10_000)
+                # Read the clock only AFTER every projected row, so a heartbeat
+                # committed while we were reading cannot postdate the database
+                # reference and be misread as clock skew. See the ordering rule in
+                # app/operations/diagnostics.py and OperationalHealthService.snapshot.
+                observed_at = await database_time(self.session)
         except Exception, TimeoutError:  # noqa: BLE001 - readiness returns a safe constant code
             latency_ms = max(0, int((time.monotonic() - started) * 1_000))
             checks["database"] = DependencyHealth(
@@ -202,7 +206,17 @@ class ReadinessService:
             runbook_url=f"{RUNBOOK_ROOT}#schema-mismatch",
         )
 
-        components, _coverage = build_component_health(heartbeats, reference_time=observed_at, config=self.config)
+        generated_at = snapshot_high_water(
+            fallback_time,
+            observed_at,
+            *(row.observed_at for row in heartbeats),
+        )
+        components, _coverage = build_component_health(
+            heartbeats,
+            reference_time=generated_at,
+            database_time_value=observed_at,
+            config=self.config,
+        )
         for capability in required_capabilities:
             available = any(
                 component.state == HealthState.HEALTHY and capability in component.capabilities
@@ -213,11 +227,6 @@ class ReadinessService:
                 available=available,
                 observed_at=observed_at,
             )
-        generated_at = snapshot_high_water(
-            fallback_time,
-            observed_at,
-            *(row.observed_at for row in heartbeats),
-        )
         return _readiness_snapshot(generated_at, checks, required_capabilities)
 
 
