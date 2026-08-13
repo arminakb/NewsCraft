@@ -337,7 +337,7 @@ async def start_source_collection_ingest(
         if run_id is not None:
             run = await session.get(IngestRun, run_id)
             if run is not None:
-                return _accepted(run, existing_job.id, deduplicated=True)
+                return _accepted(run, existing_job.id, collection_id=collection_id, deduplicated=True)
 
     collection = await get_collection(session, collection_id, lock=True)
     if collection is None:
@@ -413,7 +413,12 @@ async def start_source_collection_ingest(
         pause_sensitive=False,
     )
     await session.commit()
-    return _accepted(run, result.job.id, deduplicated=not result.created)
+    return _accepted(
+        run,
+        result.job.id,
+        collection_id=collection_id,
+        deduplicated=not result.created,
+    )
 
 
 @router.post(
@@ -629,11 +634,17 @@ def _run_id_from_job(job: WorkflowJob) -> UUID | None:
         return None
 
 
-def _accepted(run: IngestRun, job_id: UUID, *, deduplicated: bool) -> CollectionIngestAcceptedOut:
+def _accepted(
+    run: IngestRun,
+    job_id: UUID,
+    *,
+    collection_id: UUID,
+    deduplicated: bool,
+) -> CollectionIngestAcceptedOut:
     return CollectionIngestAcceptedOut(
         job_id=job_id,
         run_id=run.id,
-        source_collection_id=run.source_collection_id,
+        source_collection_id=run.source_collection_id or collection_id,
         source_collection_name=run.source_collection_name_at_start or "Source Collection",
         source_count=run.source_count,
         status="queued" if run.status == "queued" else run.status,

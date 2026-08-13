@@ -176,7 +176,13 @@ async def test_application_lifespan_seeds_defaults_in_one_transaction(monkeypatc
         assert model == "gpt-5.4"
         calls.append("codex")
 
+    async def seed_templates(value):
+        assert value is session
+        calls.append("templates")
+        return []
+
     monkeypatch.setattr(main, "async_session", lambda: session)
+    monkeypatch.setattr(main, "seed_automation_templates", seed_templates)
     monkeypatch.setattr(main, "seed_default_telegram_prompt", seed_prompt)
     monkeypatch.setattr(main, "seed_default_telegram_configuration", seed_configuration)
     monkeypatch.setattr(main, "seed_default_editorial_prompts", seed_editorial)
@@ -190,6 +196,7 @@ async def test_application_lifespan_seeds_defaults_in_one_transaction(monkeypatc
         "editorial",
         "configuration",
         "codex",
+        "templates",
         "commit",
         "exit",
         "serve",

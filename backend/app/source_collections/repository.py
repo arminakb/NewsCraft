@@ -215,7 +215,7 @@ def source_page_query(
 
 
 async def list_collections(session: AsyncSession) -> list[Mapping[str, Any]]:
-    return list(
+    rows = (
         (
             await session.execute(
                 collection_projection().order_by(
@@ -227,10 +227,11 @@ async def list_collections(session: AsyncSession) -> list[Mapping[str, Any]]:
         .mappings()
         .all()
     )
+    return [dict(row) for row in rows]
 
 
 async def get_collection_projection(session: AsyncSession, collection_id: UUID) -> Mapping[str, Any] | None:
-    return (
+    row = (
         (
             await session.execute(
                 collection_projection().where(SourceCollection.id == collection_id)
@@ -239,6 +240,7 @@ async def get_collection_projection(session: AsyncSession, collection_id: UUID) 
         .mappings()
         .one_or_none()
     )
+    return None if row is None else dict(row)
 
 
 async def get_collection(session: AsyncSession, collection_id: UUID, *, lock: bool = False) -> SourceCollection | None:

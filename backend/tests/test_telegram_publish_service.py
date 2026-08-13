@@ -298,6 +298,7 @@ def test_registry_registers_publish_capability_only_with_complete_dependency_bun
     registry = build_default_registry(telegram_client=client, destination_secret_resolver=resolver)
     assert registry.job_types() == (
         "ingest.collect",
+        "ingest.collection.continuous_cycle",
         "manual_intake",
         "operations.canary.publishing",
         "operations.canary.source_generation",

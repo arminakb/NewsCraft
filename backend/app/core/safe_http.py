@@ -188,15 +188,17 @@ class SafeHttpClient:
         if transport is not None and network_backend is not None:
             raise ValueError("transport and network_backend are mutually exclusive")
         self._pinned_backend = _PinnedAsyncNetworkBackend(network_backend or httpcore.AnyIOBackend())
-        if transport is None:
-            resolved_policy = proxy_policy or OutboundProxyPolicy.from_environment()
-            effective_transport = (
-                _ProxyAwarePinnedTransport(resolved_policy, self._pinned_backend)
-                if resolved_policy.endpoints
-                else _PinnedAsyncTransport(self._pinned_backend)
-            )
-        else:
+        effective_transport: httpx.AsyncBaseTransport
+        if transport is not None:
             effective_transport = transport
+        elif proxy_policy is not None and proxy_policy.endpoints:
+            # Only an explicit caller-supplied policy may leave the pinned path.
+            # Ambient proxy variables stay ignored here so the documented
+            # `direct_pinned_ssrf` exception keeps DNS resolution, address
+            # pinning, and redirect revalidation inside this client.
+            effective_transport = _ProxyAwarePinnedTransport(proxy_policy, self._pinned_backend)
+        else:
+            effective_transport = _PinnedAsyncTransport(self._pinned_backend)
         self._client = httpx.AsyncClient(
             timeout=timeout,
             follow_redirects=False,

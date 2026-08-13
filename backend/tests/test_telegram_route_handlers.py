@@ -652,6 +652,7 @@ def test_default_registry_adds_only_source_handlers_when_dependencies_are_suppli
 
     assert registry.job_types() == (
         "ingest.collect",
+        "ingest.collection.continuous_cycle",
         "manual_intake",
         "operations.canary.source_generation",
         "story.group_pending",

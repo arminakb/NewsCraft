@@ -6,7 +6,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from app.api.schemas import SourceOut
+from app.api.schemas import SourceOut, coerce_progress_count
 from app.source_collections.repository import normalize_description, normalize_source_collection_name
 
 
@@ -208,7 +208,7 @@ class SourceCollectionRunOut(BaseModel):
     )
     @classmethod
     def default_progress_counts(cls, value: object) -> int:
-        return 0 if value is None else int(value)
+        return coerce_progress_count(value)
 
 
 class SourceCollectionRunPageOut(BaseModel):

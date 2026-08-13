@@ -25,6 +25,8 @@ def test_workflow_job_columns_support_leases_retries_progress_and_attention():
         "priority",
         "idempotency_key",
         "origin",
+        "automation_run_id",
+        "automation_node_run_id",
         "pause_sensitive",
         "scheduled_for",
         "attempt_count",

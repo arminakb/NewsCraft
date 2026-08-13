@@ -70,7 +70,7 @@ async def search_sources(
         offset=offset,
     )
     return SourcePageOut(
-        items=list(page.items),
+        items=[SourceOut.model_validate(item) for item in page.items],
         total=page.total,
         limit=page.limit,
         offset=page.offset,

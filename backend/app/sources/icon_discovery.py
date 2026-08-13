@@ -254,10 +254,14 @@ def extract_website_icon_candidates(html: str | bytes, base_url: str) -> tuple[I
         href = _absolute_http_url(_text(link.get("href")), base_url)
         if not href:
             continue
-        rel = link.get("rel", [])
-        if isinstance(rel, str):
-            rel = rel.split()
-        rel_set = {str(value).casefold() for value in rel}
+        raw_rel = link.get("rel")
+        if raw_rel is None:
+            rel: list[str] = []
+        elif isinstance(raw_rel, str):
+            rel = raw_rel.split()
+        else:
+            rel = [str(value) for value in raw_rel]
+        rel_set = {value.casefold() for value in rel}
         if "apple-touch-icon" in rel_set:
             grouped["website_apple_touch_icon"].append(IconCandidate(href, "website_apple_touch_icon"))
         elif "shortcut" in rel_set and "icon" in rel_set:
@@ -729,7 +733,10 @@ def build_source_icon_discovery_handler(
         payload = dict(job.payload)
         try:
             source_id = UUID(str(payload.get("source_id")))
-            attempt = int(payload.get("attempt"))
+            raw_attempt = payload.get("attempt")
+            if not isinstance(raw_attempt, int | float | str):
+                raise TypeError("attempt must be numeric")
+            attempt = int(raw_attempt)
         except (TypeError, ValueError):
             raise PermanentJobError(
                 code="source_icon_payload_invalid",

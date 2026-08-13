@@ -9,6 +9,16 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 from app.core.redaction import redact_secrets
 
 
+def coerce_progress_count(value: object) -> int:
+    """Normalize a stored progress counter to a plain non-null integer."""
+
+    if value is None:
+        return 0
+    if isinstance(value, int | float | str | Decimal):
+        return int(value)
+    raise ValueError("progress counts must be numeric")
+
+
 class SourceOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -158,7 +168,7 @@ class IngestRunSummaryOut(BaseModel):
     @field_validator("source_count", "processed_count", "success_count", "failure_count", mode="before")
     @classmethod
     def default_progress_counts(cls, value: object) -> int:
-        return 0 if value is None else int(value)
+        return coerce_progress_count(value)
 
     @field_validator("stats", mode="before")
     @classmethod

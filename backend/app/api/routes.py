@@ -20,8 +20,8 @@ from app.api.library import router as library_router
 from app.api.llm_providers import router as llm_providers_router
 from app.api.media import router as media_router
 from app.api.operations import router as operations_router
-from app.api.sources import router as sources_router
 from app.api.source_collections import router as source_collections_router
+from app.api.sources import router as sources_router
 from app.api.stories import router as stories_router
 from app.api.telegram_automations import router as telegram_automations_router
 from app.api.telegram_destinations import router as telegram_destinations_router
