@@ -19,6 +19,7 @@ from app.core.outbound_proxy import build_outbound_http_client
 from app.core.redaction import redact_secrets, redact_string
 from app.db.models import IngestRun, Source
 from app.ingestion.repository import IngestionRepository, build_item_identities
+from app.normalization.titles import normalize_title
 from app.source_collections.models import IngestRunSourceSnapshot
 from app.sources.registry import parser_for_source
 
@@ -765,7 +766,18 @@ def _source_quality_issue(
 
 
 def _is_suitable_item(item) -> bool:
-    return bool((item.content_text or "").strip() and (item.title or "").strip())
+    """Judge an item the way persistence will store it, not the way the feed shipped it.
+
+    Platforms such as Telegram carry no title field, so the parser emits an
+    empty one and `_content_item_values` synthesises the stored title from the
+    body via `normalize_title`. Requiring a parser-supplied title here reported
+    every title-less platform as permanently degraded.
+    """
+
+    body = item.content_text or ""
+    if not body.strip():
+        return False
+    return bool(normalize_title(item.title or "", body).title.strip())
 
 
 def _source_is_disabled(source: Source) -> bool:
