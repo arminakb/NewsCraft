@@ -56,6 +56,7 @@ from app.publishing.telegram.service_contracts import (
     immediate_publish_intent_key,
     reviewed_schedule_intent_key,
 )
+from app.publishing.telegram.service_contracts import revision_dispatch as _revision_dispatch
 from app.stories.models import StoryEvidenceSnapshot, StoryRevision
 
 
@@ -69,35 +70,6 @@ def _canonical_hash(value: Any) -> str:
         separators=(",", ":"),
     ).encode("utf-8")
     return hashlib.sha256(encoded).hexdigest()
-
-
-async def _revision_dispatch(session: Any, revision: PlatformVariantRevision) -> AutomationDispatch | None:
-    current: PlatformVariantRevision | None = revision
-    expected_variant_id = revision.platform_variant_id
-    seen: set[UUID] = set()
-    while current is not None and current.id not in seen:
-        if current.platform_variant_id != expected_variant_id:
-            return None
-        seen.add(current.id)
-        dispatch = await session.scalar(
-            select(AutomationDispatch)
-            .where(AutomationDispatch.variant_revision_id == current.id)
-            .order_by(AutomationDispatch.created_at.desc())
-            .limit(1)
-            .execution_options(populate_existing=True)
-        )
-        if dispatch is not None:
-            return dispatch
-        current = (
-            await session.get(
-                PlatformVariantRevision,
-                current.parent_revision_id,
-                populate_existing=True,
-            )
-            if current.parent_revision_id
-            else None
-        )
-    return None
 
 
 def _schedule_utc(value: datetime, *, field: str) -> datetime:

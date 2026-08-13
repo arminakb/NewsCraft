@@ -69,6 +69,51 @@ def reviewed_schedule_intent_key(*, destination_id: UUID, revision_id: UUID, con
     return f"telegram-publish-schedule:{destination_id}:{revision_id}:{content_hash}"
 
 
+async def revision_dispatch(session: Any, revision: PlatformVariantRevision) -> AutomationDispatch | None:
+    """Walk a revision's ancestry to the automation dispatch that produced it.
+
+    Canonical implementation shared by every Telegram publish entry point
+    (reviewed schedule, draft publish, worker publication, reconciliation) so
+    provenance resolves under one freshness and platform rule everywhere:
+    non-Telegram variants never resolve, and both reads bypass any stale
+    identity-mapped row.
+    """
+
+    variant = await session.get(
+        PlatformVariant,
+        revision.platform_variant_id,
+        populate_existing=True,
+    )
+    if variant is None or variant.platform != "telegram":
+        return None
+    expected_variant_id = revision.platform_variant_id
+    current: PlatformVariantRevision | None = revision
+    seen: set[UUID] = set()
+    while current is not None and current.id not in seen:
+        if current.platform_variant_id != expected_variant_id:
+            return None
+        seen.add(current.id)
+        dispatch = await session.scalar(
+            select(AutomationDispatch)
+            .where(AutomationDispatch.variant_revision_id == current.id)
+            .order_by(AutomationDispatch.created_at.desc())
+            .limit(1)
+            .execution_options(populate_existing=True)
+        )
+        if dispatch is not None:
+            return dispatch
+        current = (
+            await session.get(
+                PlatformVariantRevision,
+                current.parent_revision_id,
+                populate_existing=True,
+            )
+            if current.parent_revision_id is not None
+            else None
+        )
+    return None
+
+
 class PublishValidationError(RuntimeError):
     def __init__(self, code: str, message: str) -> None:
         self.code = code
