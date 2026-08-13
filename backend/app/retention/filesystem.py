@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import os
 import shutil
 import stat
@@ -108,6 +109,22 @@ def _media_claim_identity(media_root: Path, stored_path: str) -> str:
     return resolved.relative_to(resolved_root).as_posix()
 
 
+def _claimed_media_identities(media_root: Path, stored_paths: list[str]) -> tuple[set[str], bool]:
+    """Classify stored media paths into canonical claim identities.
+
+    Purely synchronous (many blocking path syscalls), so callers on an event loop
+    must hand the whole batch to a worker thread instead of walking row by row.
+    """
+    identities: set[str] = set()
+    unclassifiable = False
+    for stored_path in stored_paths:
+        try:
+            identities.add(_media_claim_identity(media_root, stored_path))
+        except _UnsafeStoragePath:
+            unclassifiable = True
+    return identities, unclassifiable
+
+
 def _delete_relative_owned(root_value: Path, relative_path: str, *, directory: bool) -> None:
     relative = PurePosixPath(relative_path)
     if (
@@ -199,6 +216,7 @@ async def finish_filesystem_phase(
     reclaimed_media_paths: set[str] = set()
     reclaimed_media_ids: set[UUID] = set()
     unclassifiable_media_claim = False
+    claimed_storage_paths: list[str] = []
     if any(intent.category == "unreferenced_media" for intent in intents):
         await session.execute(
             text(
@@ -208,11 +226,15 @@ async def finish_filesystem_phase(
         )
         reclaimed_media_ids = await referenced_media_ids()
         claimed_media = await session.scalars(select(MediaAsset).where(MediaAsset.storage_path.is_not(None)))
-        for media in claimed_media:
-            try:
-                reclaimed_media_paths.add(_media_claim_identity(media_root, str(media.storage_path)))
-            except _UnsafeStoragePath:
-                unclassifiable_media_claim = True
+        claimed_storage_paths = [str(media.storage_path) for media in claimed_media]
+    # The SHARE lock above only has to cover the protection *read*. Committing here
+    # releases it (and the run row lock) before any blocking filesystem work runs, so
+    # ingestion/generation/publishing writers are never stalled by a deletion pass.
+    await session.commit()
+    if claimed_storage_paths:
+        reclaimed_media_paths, unclassifiable_media_claim = await asyncio.to_thread(
+            _claimed_media_identities, media_root, claimed_storage_paths
+        )
     media_record_ids_by_path: dict[str, set[UUID]] = {}
     for intent in intents:
         if intent.category == "unreferenced_media":
@@ -235,7 +257,8 @@ async def finish_filesystem_phase(
                 skipped[intent.category] = int(skipped.get(intent.category, 0)) + 1
             continue
         try:
-            _delete_relative_owned(
+            await asyncio.to_thread(
+                _delete_relative_owned,
                 root,
                 intent.relative_path,
                 directory=intent.operation == "delete_tree",
@@ -255,13 +278,22 @@ async def finish_filesystem_phase(
     await injector.hit(
         "retention.after_filesystem_delete_before_finalize",
         {
-            "retention_run_id": str(run.id),
+            "retention_run_id": str(run_id),
             "cleanup_intent_count": len(intents),
         },
     )
+    # Second, short transaction: re-take the run row and persist the outcome. The
+    # first transaction was committed before the deletion pass, so `run` may be
+    # expired here.
+    run = await session.scalar(select(RetentionRun).where(RetentionRun.id == run_id).with_for_update())
+    if run is None:  # pragma: no cover - the run row is protected by its own FKs
+        raise RetentionNotFound(f"retention run {run_id} was not found")
     run.count_snapshot = counts
     run.error_snapshot = errors
-    run.status = "partial" if errors else "succeeded"
+    # Only filesystem-phase findings can be retried by re-running this phase.
+    # Database-phase findings stay visible in the snapshot but must not pin the
+    # run at "partial", which would make the workflow job retry forever.
+    run.status = "partial" if any(error.get("phase") == "filesystem" for error in errors) else "succeeded"
     run.finished_at = now()
     await session.flush()
     await session.commit()

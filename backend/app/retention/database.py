@@ -363,6 +363,7 @@ class RetentionDatabaseExecutor:
                         except _UnsafeStoragePath:
                             errors.append(
                                 {
+                                    "phase": "database",
                                     "category": candidate.category,
                                     "record_type": candidate.record_type,
                                     "record_id": str(candidate.record_id),
@@ -386,6 +387,7 @@ class RetentionDatabaseExecutor:
                 if canonical_path is None:
                     errors.append(
                         {
+                            "phase": "database",
                             "category": candidate.category,
                             "record_type": candidate.record_type,
                             "record_id": str(candidate.record_id),
@@ -421,6 +423,7 @@ class RetentionDatabaseExecutor:
                 except _UnsafeStoragePath:
                     errors.append(
                         {
+                            "phase": "database",
                             "category": candidate.category,
                             "record_type": candidate.record_type,
                             "record_id": str(candidate.record_id),
