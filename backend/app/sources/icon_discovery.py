@@ -2,9 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import logging
-import os
 import re
-import tempfile
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
@@ -27,6 +25,7 @@ from app.jobs.errors import PermanentJobError
 from app.jobs.registry import JobContext
 from app.jobs.repository import JobRepository
 from app.jobs.types import JobExecution, JobOrigin
+from app.media.atomic_files import atomic_write
 from app.normalization.url_safety import UnsafeUrlError, validate_public_http_url
 
 ICON_JOB_TYPE = "source.icon.discover"
@@ -674,14 +673,10 @@ def persist_icon_bytes(media_root: Path | str, body: bytes, mime_type: str) -> s
     digest = hashlib.sha256(body).hexdigest()
     suffix = _ALLOWED_MIME_TYPES.get(mime_type, ".bin")
     root = Path(media_root) / "source-icons" / digest[:2]
-    root.mkdir(parents=True, exist_ok=True)
     target = root / f"{digest}{suffix}"
     if target.exists():
         return str(target)
-    with tempfile.NamedTemporaryFile(prefix=f".{digest}-", dir=root, delete=False) as temporary:
-        temporary.write(body)
-        temporary_path = Path(temporary.name)
-    os.replace(temporary_path, target)
+    atomic_write(target, body)
     return str(target)
 
 

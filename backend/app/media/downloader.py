@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import os
 from hashlib import sha256
 from pathlib import Path
 
@@ -10,6 +9,7 @@ from sqlalchemy import select, text
 from app.core.config import settings
 from app.core.safe_http import SafeHttpClient, SafeHttpError
 from app.db.models import MediaAsset
+from app.media.atomic_files import atomic_write
 from app.normalization.url_safety import UnsafeUrlError, validate_public_http_url
 
 IMAGE_MIME_EXTENSIONS = {
@@ -127,7 +127,7 @@ class MediaDownloader:
         )
         if asset is None:
             return "skipped"
-        _atomic_write(storage_path, content)
+        atomic_write(storage_path, content)
 
         asset.checksum_sha256 = checksum
         asset.storage_path = str(storage_path)
@@ -165,9 +165,3 @@ def _extension_for_image(content_type: str | None, url: str) -> str:
         return ".jpg" if suffix == ".jpeg" else suffix
     return ".bin"
 
-
-def _atomic_write(path: Path, content: bytes) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    temporary_path = path.with_suffix(f"{path.suffix}.tmp")
-    temporary_path.write_bytes(content)
-    os.replace(temporary_path, path)
