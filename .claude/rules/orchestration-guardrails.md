@@ -13,6 +13,14 @@ in `.claude/skills/orchestrate/SKILL.md`.
   paths — no two concurrent workers share a writable path, migration,
   schema, lockfile, barrel/index file, or repo-wide config. The
   orchestrator pre-assigns migration/sequence numbers in the packets.
+- Ownership exists for exclusivity between CONCURRENT workers, never to
+  strangle a worker (owner directive, 2026-08-13). Grant the BROADEST
+  writable scope that does not overlap a sibling: a solo worker can own an
+  entire vertical (`backend/**`, `frontend/**`) including its tests. A
+  packet scoped so tight the worker cannot fix what it legitimately finds
+  (a missing test file, a sibling import, a helper next door) produces
+  BLOCKED churn and half-fixes — that is a packet failure, not worker
+  discipline.
 - Worker and fixer reports are claims, not evidence: inspect every complete
   diff AND re-run the gates before committing. Gates are exit-code-based
   (never grep'd test output, never `$?` after a pipe) and always include

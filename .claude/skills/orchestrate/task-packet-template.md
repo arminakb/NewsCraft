@@ -16,7 +16,9 @@ OBJECTIVE:
 <one paragraph: what to build and the user-visible outcome>
 
 OWNED_PATHS:
-- <glob or path the worker may modify>
+- <glob or path the worker may modify — be GENEROUS: the broadest scope
+  that does not overlap a concurrent sibling; a solo worker can own a
+  whole vertical. Tight scopes cripple workers (owner directive).>
 - <its test paths>
 
 PRE_ASSIGNED_IDENTIFIERS:
