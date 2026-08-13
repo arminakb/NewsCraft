@@ -18,6 +18,7 @@ from app.api.content_pack_mappers import (
 from app.api.dependencies import SessionDependency
 from app.api.editorial_errors import editorial_http_error
 from app.api.stories import _story_summary
+from app.automations.definitions.runtime_state import continue_automation_review
 from app.exports.service import (
     ExportContractError,
     export_revision_content_hash,
@@ -326,8 +327,6 @@ async def regenerate_variant(
 async def approve_revision(revision_id: UUID, body: ApprovalRequest, session: AsyncSession = SessionDependency):
     try:
         result = await EditorialService(session).approve_revision(revision_id, body)
-        from app.automations.definitions.runtime_state import continue_automation_review
-
         assert result.approved_at is not None
         await continue_automation_review(
             session,

@@ -13,6 +13,7 @@ from app.automations.definitions.execution import AutomationExecutionService
 from app.automations.definitions.models import AutomationRun, AutomationTemplate
 from app.automations.definitions.registry import node_catalog
 from app.automations.definitions.resources import summarize_resources
+from app.automations.definitions.runtime_state import continue_automation_artifact_review
 from app.automations.definitions.schemas import (
     AutomationCreate,
     AutomationDetailOut,
@@ -435,8 +436,6 @@ async def approve_automation_artifact_review(
     run = await session.get(AutomationRun, run_id)
     if run is None:
         raise HTTPException(404, detail={"code": "automation_run_not_found"})
-    from app.automations.definitions.runtime_state import continue_automation_artifact_review
-
     await continue_automation_artifact_review(session, run_id=run_id, observed_at=datetime.now(UTC))
     await session.commit()
     return await AutomationExecutionService(session).get(run_id)

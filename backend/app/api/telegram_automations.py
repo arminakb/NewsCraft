@@ -30,6 +30,7 @@ from app.core.redaction import redact_string
 from app.db.models import Source
 from app.generation.models import AIProviderProfile, BrandProfile, PromptTemplate, PromptTemplateVersion
 from app.jobs.credential_capabilities import CapabilityStatusService, provider_shape_capabilities
+from app.jobs.errors import JobCapabilityUnavailable
 from app.jobs.repository import EnqueueJobResult, JobRepository
 from app.jobs.schemas import JobAcceptedOut
 from app.jobs.types import JobOrigin
@@ -160,8 +161,6 @@ async def _require_route_capabilities(
         try:
             research_id = UUID(str(research_profile_id))
         except ValueError:
-            from app.jobs.errors import JobCapabilityUnavailable
-
             raise JobCapabilityUnavailable(
                 code="job_capability_unknown",
                 job_type=job_type,
