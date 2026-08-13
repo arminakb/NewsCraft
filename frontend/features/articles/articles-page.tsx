@@ -102,6 +102,7 @@ async function resolveArticlePageCursor({
 export function ArticlesPage() {
   const router = useRouter()
   const queryClient = useQueryClient()
+  const { timezone } = useDateTime()
   const pathname = usePathname()
   const searchParams = useSearchParams()
   const search = searchParams.toString()
@@ -160,7 +161,8 @@ export function ArticlesPage() {
     filters,
     titleQuery,
     collectionId: selectedCollectionId,
-  }), [filters, selectedCollectionId, sort, titleQuery])
+    timezone,
+  }), [filters, selectedCollectionId, sort, timezone, titleQuery])
   const cursorStoreRef = useRef<{ identity: string; cursors: ArticleCursorStore } | null>(null)
   if (cursorStoreRef.current?.identity !== articleQueryIdentity) {
     cursorStoreRef.current = { identity: articleQueryIdentity, cursors: new Map([[1, null]]) }
@@ -182,7 +184,8 @@ export function ArticlesPage() {
       ...(selectedCollectionId ? { collectionId: selectedCollectionId } : {}),
       cursor,
       limit: PAGE_SIZE,
-    }, signal), [filters, selectedCollectionId, sort, titleQuery])
+      timezone,
+    }, signal), [filters, selectedCollectionId, sort, timezone, titleQuery])
   const queryKeyFor = useCallback((page: number, cursor: string | null) => queryKeys.articlePage({
     identity: articleQueryIdentity,
     sort,

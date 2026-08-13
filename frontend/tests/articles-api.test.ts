@@ -11,8 +11,14 @@ import {
   renameArticleCollection,
   saveArticleToCollection,
 } from "@/features/articles/api"
+import { EMPTY_ARTICLE_FILTERS } from "@/features/articles/filter-state"
+import { DEFAULT_TIME_ZONE, zonedLocalDateTimeToUtc } from "@/lib/date-time"
 
 const articleId = "11111111-1111-4111-8111-111111111111"
+
+function emptyFilters() {
+  return { ...EMPTY_ARTICLE_FILTERS }
+}
 
 describe("Articles API", () => {
   afterEach(() => vi.unstubAllGlobals())
@@ -116,11 +122,65 @@ describe("Articles API", () => {
         hasImage: true, scoreMin: 20, scoreMax: 80, dateFrom: "2026-07-01", dateTo: "2026-07-21",
       },
       limit: 50,
+      timezone: "UTC",
     })
     expect(request).toHaveBeenCalledWith(
-      "/api/backend/articles?sort=newest&limit=50&language=en&topic=AI&topic=Tech&content_type=news&source_id=22222222-2222-4222-8222-222222222222&coverage=complete&coverage=ungrouped&has_image=true&score_min=20&score_max=80&date_from=2026-07-01T00%3A00%3A00Z&date_to=2026-07-22T00%3A00%3A00Z",
+      "/api/backend/articles?sort=newest&limit=50&language=en&topic=AI&topic=Tech&content_type=news&source_id=22222222-2222-4222-8222-222222222222&coverage=complete&coverage=ungrouped&has_image=true&score_min=20&score_max=80&date_from=2026-07-01T00%3A00%3A00.000Z&date_to=2026-07-22T00%3A00%3A00.000Z",
       undefined,
     )
+  })
+
+  it("resolves calendar date bounds in the configured display timezone", async () => {
+    const request = vi.fn().mockResolvedValue(new Response(JSON.stringify(articlePage()), {
+      status: 200, headers: { "content-type": "application/json" },
+    }))
+    vi.stubGlobal("fetch", request)
+    await getArticles({
+      sort: "newest",
+      filters: { ...emptyFilters(), dateFrom: "2026-07-01", dateTo: "2026-07-21" },
+      limit: 50,
+      timezone: "Asia/Tehran",
+    })
+
+    const url = new URL(String(vi.mocked(request).mock.calls[0]?.[0]), "https://newscraft.test")
+    expect(url.searchParams.get("date_from")).toBe("2026-06-30T20:30:00.000Z")
+    expect(url.searchParams.get("date_to")).toBe("2026-07-21T20:30:00.000Z")
+  })
+
+  it("defaults date bounds to the default display timezone when none is supplied", async () => {
+    const request = vi.fn().mockResolvedValue(new Response(JSON.stringify(articlePage()), {
+      status: 200, headers: { "content-type": "application/json" },
+    }))
+    vi.stubGlobal("fetch", request)
+    await getArticles({
+      sort: "newest",
+      filters: { ...emptyFilters(), dateFrom: "2026-07-01", dateTo: "2026-07-01" },
+      limit: 50,
+    })
+
+    const url = new URL(String(vi.mocked(request).mock.calls[0]?.[0]), "https://newscraft.test")
+    const expectedFrom = zonedLocalDateTimeToUtc("2026-07-01T00:00", DEFAULT_TIME_ZONE)
+    const expectedTo = zonedLocalDateTimeToUtc("2026-07-02T00:00", DEFAULT_TIME_ZONE)
+    expect(url.searchParams.get("date_from")).toBe(expectedFrom)
+    expect(url.searchParams.get("date_to")).toBe(expectedTo)
+    expect(expectedFrom).not.toBe("2026-07-01T00:00:00.000Z")
+  })
+
+  it("crosses a daylight-saving boundary on the day the offset changes", async () => {
+    const request = vi.fn().mockResolvedValue(new Response(JSON.stringify(articlePage()), {
+      status: 200, headers: { "content-type": "application/json" },
+    }))
+    vi.stubGlobal("fetch", request)
+    await getArticles({
+      sort: "newest",
+      filters: { ...emptyFilters(), dateFrom: "2026-03-07", dateTo: "2026-03-08" },
+      limit: 50,
+      timezone: "America/New_York",
+    })
+
+    const url = new URL(String(vi.mocked(request).mock.calls[0]?.[0]), "https://newscraft.test")
+    expect(url.searchParams.get("date_from")).toBe("2026-03-07T05:00:00.000Z")
+    expect(url.searchParams.get("date_to")).toBe("2026-03-09T04:00:00.000Z")
   })
 
   it("fetches and maps facet values", async () => {
