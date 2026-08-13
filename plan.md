@@ -32,6 +32,14 @@ this plan; the evidence column owns the detail.
 
 ## 2. Existing architecture findings
 
+> **Pre-implementation snapshot (recorded before Phase 1; annotated
+> 2026-08-13).** Everything in section 2 describes the checkout *as it was
+> when the plan was written* and is no longer an accurate description of
+> the code. It is retained as the record of what the six phases started
+> from. The binding parts of this plan are sections 3, 4, 5 and 6 — read
+> those, not this one, for current obligations. Individual statements that
+> are now demonstrably false are corrected in place below.
+
 ### 2.1 Backend and persistence already in place
 
 NewsCraft already has a strong execution spine that should be extended rather than replaced:
@@ -103,15 +111,17 @@ Dry runs enter through a durable `telegram.route.dry_run` job, carry `force_revi
 ### 2.4 Frontend already in place
 
 - Next.js 16 App Router, React 19, TypeScript 5.9, TanStack Query 5, Tailwind CSS 4, Base UI/shadcn primitives, and Lucide icons are already established.
-- The current pages are `/automations`, `/automations/new`, `/automations/[routeId]`, and `/automations/[routeId]/history`.
+- The current pages are `/automations`, `/automations/new`, `/automations/[routeId]`, and `/automations/[routeId]/history`. *(Snapshot only. The shipped tree also has `/automations/runs`, `/automations/templates`, and the `/automations/telegram/**` compatibility subtree.)*
 - Current Automation UI consists of a Telegram route card list, a long form that creates a source and route, a route detail page, dry run/backfill actions, dispatch history, and a history timeline.
 - The Automation API client and query keys are Telegram-route-specific. They already use the same-origin `/api/backend/...` path through `apiRequest`.
 - Reusable primitives already exist for Button, Card, Dialog, Tooltip, Table, Badge/StatusBadge, Alert, inputs, Select, progress, skeleton/loading/error/empty states, page headers, dirty-navigation handling, and notices.
 - `ProviderBrandIcon` and the Content Settings Telegram destination cards can be reused for safe resource presentation.
-- There is no current repository UI primitive for Tabs, Sheet/Drawer, Menu, or a schema-generated Form, and there is no diagram dependency in `frontend/package.json`.
+- There is no current repository UI primitive for Tabs, Sheet/Drawer, Menu, or a schema-generated Form, and there is no diagram dependency in `frontend/package.json`. *(Snapshot only. `frontend/package.json` now pins `"@xyflow/react": "12.11.2"`, added by the builder canvas work; see [`automation-workflow-builder-xyflow-decision.md`](docs/implementation-notes/automation-workflow-builder-xyflow-decision.md).)*
 - Existing Automation tests cover safe options, conservative review defaults, dry-run durability messaging, pause/resume, prompt pinning, destination readiness, and browser flows. The current Playwright mock backend already models Telegram Automation routes and can be extended rather than replaced.
 
 ### 2.5 Gaps that the implementation must close
+
+*(Snapshot only. These gaps were closed by Phases 1–6 — `backend/app/automations/definitions/` now holds the node registry, compiler, execution, and versioned workflow models, and the frontend has the library, Templates and Runs views. Kept as the record of what the phases were commissioned to fix; per the Phase status table above, the remaining open item is quality-baseline debt, not these gaps.)*
 
 1. The current `AutomationRoute` cannot represent a versioned node graph.
 2. Current route mutation means active and historical executions are not pinned to an immutable Automation version.
