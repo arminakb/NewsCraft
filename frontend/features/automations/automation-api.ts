@@ -1,5 +1,5 @@
 import type { components } from "@/lib/api/generated"
-import { camelize } from "@/lib/camelize"
+import { camelize, FREE_FORM_MAP_FIELDS } from "@/lib/camelize"
 import { apiRequest } from "@/lib/http"
 
 import type {
@@ -28,12 +28,12 @@ import { normalizeWorkflowGraphForSave } from "./workflow-graph"
 type Schemas = components["schemas"]
 
 function snakeize(value: unknown, preserveKeys = false): unknown {
-  if (Array.isArray(value)) return value.map((item) => snakeize(item))
+  if (Array.isArray(value)) return value.map((item) => snakeize(item, preserveKeys))
   if (value === null || typeof value !== "object") return value
   return Object.fromEntries(
     Object.entries(value).map(([key, item]) => [
       preserveKeys ? key : key.replace(/[A-Z]/g, (letter) => `_${letter.toLowerCase()}`),
-      snakeize(item, key === "layout" || key === "promptChecksums" || key === "prompt_checksums"),
+      snakeize(item, FREE_FORM_MAP_FIELDS.has(key)),
     ]),
   )
 }

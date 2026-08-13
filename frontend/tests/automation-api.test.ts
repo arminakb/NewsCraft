@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 import {
   createAutomation,
   createAutomationVersion,
+  getAutomation,
   getAutomationRun,
   getAutomationRuns,
   getAutomationNodeCatalog,
@@ -82,6 +83,45 @@ describe("generalized Automation API", () => {
     const second = fetch.mock.calls[1][1] as RequestInit
     expect(second.headers).toMatchObject({ "Idempotency-Key": "save-2" })
     expect(JSON.parse(second.body as string).expected_revision).toBe(1)
+  })
+
+  it("keeps free-form layout and prompt-checksum keys byte-for-byte through read and save", async () => {
+    // Node ids may legitimately contain underscores (backend NodeId pattern),
+    // so neither camelize on read nor snakeize on save may rewrite these keys.
+    const backendGraph = {
+      schema_version: 1,
+      entry_node_id: "generate_content_pack_1",
+      nodes: [{
+        id: "generate_content_pack_1",
+        type: "generate_content_pack",
+        config: { prompt_checksums: { "prompt_version_1": "a".repeat(64) } },
+      }],
+      edges: [],
+      output_node_ids: ["generate_content_pack_1"],
+      metadata: { layout: { generate_content_pack_1: { x: 240, y: 160 } } },
+    }
+    const fetch = vi.fn<typeof globalThis.fetch>((_input, init) => response(
+      init?.method === "POST"
+        ? { id: "version" }
+        : {
+          id: "automation",
+          draft_version: { id: "version", version: 1, graph: backendGraph },
+          active_version: null,
+        },
+    ))
+    vi.stubGlobal("fetch", fetch)
+
+    const detail = await getAutomation("automation")
+    const readGraph = detail.draftVersion!.graph
+    expect(Object.keys(readGraph.metadata.layout)).toEqual(["generate_content_pack_1"])
+    expect(readGraph.metadata.layout.generate_content_pack_1).toEqual({ x: 240, y: 160 })
+    expect(readGraph.nodes[0].config.promptChecksums).toEqual({ "prompt_version_1": "a".repeat(64) })
+
+    await createAutomationVersion("automation", { expectedRevision: 1, graph: readGraph }, "round-trip")
+
+    const saved = JSON.parse((fetch.mock.calls[1][1] as RequestInit).body as string)
+    expect(saved.graph.metadata.layout).toEqual({ generate_content_pack_1: { x: 240, y: 160 } })
+    expect(saved.graph.nodes[0].config.prompt_checksums).toEqual({ "prompt_version_1": "a".repeat(64) })
   })
 
   it("serializes an empty workflow without inserting graph defaults", async () => {
