@@ -10,7 +10,7 @@ LAST_UPDATED_BY: wingman-host (local session)
 OBJECTIVE: Full-codebase refactor — fix all bugs, remove redundancy and
   dead code, decompose oversized modules, make every gate green. Owner:
   "every stone turned", "give me a clean repo".
-PHASE: wave2 fixing (5 workers)
+PHASE: wave2 round3 (chained batch fixers)
 INTEGRATION_BRANCH: agent/finish-refactor-plan
 BASE_SHA: 8d5129a (merge of origin/main 46b4489 + orchestrator kit)
 CURRENT_HEAD_SHA: 397671c (gate fixes integrated: 3155f34 frontend test fix, 397671c backend gate fix)
