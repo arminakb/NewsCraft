@@ -54,7 +54,11 @@ def _service(request: Request, session: AsyncSession, *, needs_key: bool) -> Tel
             key_ring = MasterKeyRing.from_settings(settings)
         except SecretStoreError:
             raise HTTPException(503, detail={"code": "secret_store_unavailable"}) from None
-    return TelegramLifecycleService(session, principal=request_principal(request), key_ring=key_ring)
+    return TelegramLifecycleService(
+        session,
+        principal=request_principal(request, read_scope="destinations:read"),
+        key_ring=key_ring,
+    )
 
 
 def _http_error(exc: Exception) -> HTTPException:

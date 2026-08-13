@@ -48,7 +48,7 @@ def _service(
             raise HTTPException(503, detail={"code": exc.public_code}) from None
     return LLMProviderService(
         session,
-        principal=request_principal(request),
+        principal=request_principal(request, read_scope="providers:read"),
         secret_store=secret_store,
         config=settings,
     )
