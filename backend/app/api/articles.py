@@ -124,23 +124,11 @@ def _search_vector_expression():
 
 
 def _story_completeness_subquery():
-    source_host = func.lower(
-        func.regexp_replace(
-            func.split_part(
-                func.split_part(func.coalesce(StoryEvidenceSnapshot.source_url, ""), "://", 2),
-                "/",
-                1,
-            ),
-            r":\d+$",
-            "",
-        )
-    )
-    source_label = func.lower(func.trim(StoryEvidenceSnapshot.snapshot_metadata["source_label"].astext))
-    source_identity = case(
-        (source_host != "", "host:" + source_host),
-        (source_label != "", "source:" + source_label),
-        else_=None,
-    )
+    # Source identity and the primary flag are NOT re-derived here: they are
+    # persisted by app.stories.models through app.research.completeness, which is
+    # the canonical rule. Re-deriving them in SQL cannot reproduce IDNA/public
+    # suffix reduction and would make this filter contradict each story's own
+    # completeness payload.
     body_characters = func.sum(
         func.char_length(
             func.regexp_replace(
@@ -151,13 +139,11 @@ def _story_completeness_subquery():
             )
         )
     )
-    has_primary = func.bool_or(
-        func.coalesce(StoryEvidenceSnapshot.snapshot_metadata["is_primary"].astext == "true", False)
-    )
+    has_primary = func.coalesce(func.bool_or(StoryEvidenceSnapshot.is_primary), False)
     return (
         select(
             StoryEvidenceSnapshot.story_id.label("story_id"),
-            func.count(func.distinct(source_identity)).label("source_count"),
+            func.count(func.distinct(StoryEvidenceSnapshot.source_identity)).label("source_count"),
             body_characters.label("body_character_count"),
             has_primary.label("has_primary"),
         )

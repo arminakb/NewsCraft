@@ -2,14 +2,46 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
+from typing import Any, Protocol
 
-from sqlalchemy import CheckConstraint, DateTime, ForeignKey, Index, Integer, Text, UniqueConstraint, text
+from sqlalchemy import (
+    Boolean,
+    CheckConstraint,
+    DateTime,
+    ForeignKey,
+    Index,
+    Integer,
+    Text,
+    UniqueConstraint,
+    text,
+)
 from sqlalchemy.dialects.postgresql import JSONB, UUID
+from sqlalchemy.engine.interfaces import Dialect
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.sql import func
 
 from app.db.base import Base, timestamp_now, uuid_pk
 from app.stories.states import INBOX
+
+
+class _DefaultContext(Protocol):
+    dialect: Dialect
+
+    def get_current_parameters(self) -> dict[str, Any]: ...
+
+
+def _snapshot_identity_default(context: _DefaultContext) -> str | None:
+    # Imported lazily: app.research imports app.stories at module scope.
+    from app.research.completeness import snapshot_source_identity
+
+    parameters = context.get_current_parameters()
+    return snapshot_source_identity(parameters.get("source_url"), parameters.get("snapshot_metadata"))
+
+
+def _snapshot_primary_default(context: _DefaultContext) -> bool:
+    from app.research.completeness import snapshot_is_primary
+
+    return snapshot_is_primary(context.get_current_parameters().get("snapshot_metadata"))
 
 
 class Story(Base):
@@ -57,6 +89,13 @@ class StoryEvidenceSnapshot(Base):
     published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     content_sha256: Mapped[str] = mapped_column(Text, nullable=False)
     snapshot_metadata: Mapped[dict] = mapped_column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
+    # Derived at write time from source_url/snapshot_metadata through the canonical
+    # rule in app.research.completeness so SQL coverage filters and the Python
+    # completeness report cannot disagree. Never set these by hand.
+    source_identity: Mapped[str | None] = mapped_column(Text, nullable=True, default=_snapshot_identity_default)
+    is_primary: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=text("false"), default=_snapshot_primary_default
+    )
     captured_at: Mapped[datetime] = timestamp_now()
 
     __table_args__ = (

@@ -22,6 +22,8 @@ PLATFORM_SPINE_COLUMNS = {
         "published_at",
         "content_sha256",
         "snapshot_metadata",
+        "source_identity",
+        "is_primary",
         "captured_at",
     },
     "story_revisions": {
