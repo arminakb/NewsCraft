@@ -37,11 +37,9 @@ import { queryKeys } from "@/lib/query-keys"
 
 export function SourcesPage({
   initialSources = [],
-  enableQueries = true,
   initialSourceId = null,
 }: {
   initialSources?: SourceSummary[]
-  enableQueries?: boolean
   initialSourceId?: string | null
 }) {
   const searchParams = useSearchParams()
@@ -71,7 +69,6 @@ export function SourcesPage({
         ? getSourcePage({ unassigned: true, limit: 50, offset: sourcePageOffset }, signal)
         : getSourcePage({ collectionId: selectedScope, limit: 50, offset: sourcePageOffset }, signal),
     placeholderData: selectedScope === ALL_SOURCES_SCOPE ? initialSources as SourceSummaryList : undefined,
-    enabled: enableQueries,
     refetchInterval: (query) => {
       const data = query.state.data
       const rows = data ? (Array.isArray(data) ? data : data.items) : []
@@ -174,7 +171,7 @@ export function SourcesPage({
   const sourceDetailQuery = useQuery({
     queryKey: selectedSourceId ? queryKeys.source(selectedSourceId) : ["sources", "detail"],
     queryFn: () => getSource(selectedSourceId),
-    enabled: Boolean(selectedSourceId) && enableQueries,
+    enabled: Boolean(selectedSourceId),
     placeholderData: selectedSource,
     refetchInterval: (query) => {
       const status = query.state.data?.iconStatus
@@ -335,7 +332,6 @@ export function SourcesPage({
   return (
     <>
       <OperationsPageFrame
-        enableQueries={enableQueries}
         title="Sources"
         subtitle="Manage RSS feeds and public Telegram channels."
         actions={
@@ -352,7 +348,6 @@ export function SourcesPage({
         }
       >
         <SourceCollectionsPanel
-          enableQueries={enableQueries}
           onSelectScope={selectSourceScope}
           selectedScope={selectedScope}
         >
