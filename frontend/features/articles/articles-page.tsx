@@ -344,7 +344,7 @@ export function ArticlesPage() {
 
   useEffect(() => {
     queryClient.removeQueries({
-      queryKey: ["articles", "feed-page"],
+      queryKey: queryKeys.articlePages,
       type: "inactive",
       predicate: (cachedQuery) => {
         const params = cachedQuery.queryKey[2]
@@ -502,7 +502,7 @@ export function ArticlesPage() {
     try {
       const result = await clearFeedMutation.mutateAsync()
       const emptyPage: ArticlePage = { items: [], nextCursor: null, resultCount: 0 }
-      queryClient.setQueriesData<ArticlePage>({ queryKey: ["articles", "feed-page"] }, (current) => (
+      queryClient.setQueriesData<ArticlePage>({ queryKey: queryKeys.articlePages }, (current) => (
         current ? { ...current, ...emptyPage } : current
       ))
       queryClient.setQueryData<FeedSummary>(queryKeys.feedSummary, { articleCount: 0 })
@@ -515,10 +515,10 @@ export function ArticlesPage() {
         ? "Feed was already empty."
         : `Feed cleared. ${formatNumber(result.clearedCount)} ${result.clearedCount === 1 ? "article" : "articles"} removed.`)
       await Promise.all([
-        queryClient.invalidateQueries({ queryKey: ["articles", "feed-page"] }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.articlePages }),
         queryClient.invalidateQueries({ queryKey: queryKeys.articleFacets }),
       ])
-      queryClient.removeQueries({ queryKey: ["articles", "feed-page"], type: "inactive" })
+      queryClient.removeQueries({ queryKey: queryKeys.articlePages, type: "inactive" })
     } catch {
       // Keep the dialog open so the operator can retry or cancel.
     }

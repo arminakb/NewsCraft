@@ -78,12 +78,12 @@ export function TodayPage() {
   const { timezone } = useDateTime()
   const [selectedArticle, setSelectedArticle] = useState<ArticleSummary | null>(null)
   const articlesQuery = useQuery({
-    queryKey: ["today", "articles", TODAY_ARTICLE_LIMIT],
+    queryKey: queryKeys.articlesToday(TODAY_ARTICLE_LIMIT),
     queryFn: ({ signal }) => getArticles({ sort: "newest", limit: TODAY_ARTICLE_LIMIT }, signal),
     staleTime: 30_000,
   })
   const sourcesQuery = useQuery({
-    queryKey: ["today", "sources"],
+    queryKey: queryKeys.sourcesToday,
     queryFn: ({ signal }) => getSourcePage({ limit: 1 }, signal),
     staleTime: 30_000,
   })
@@ -108,7 +108,7 @@ export function TodayPage() {
     staleTime: 30_000,
   })
   const ingestRunsQuery = useQuery({
-    queryKey: ["today", "ingest-runs", TODAY_INGEST_RUN_LIMIT],
+    queryKey: queryKeys.ingestRunsToday(TODAY_INGEST_RUN_LIMIT),
     queryFn: ({ signal }) => getIngestRuns(TODAY_INGEST_RUN_LIMIT, signal),
     staleTime: 15_000,
   })

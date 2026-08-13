@@ -107,12 +107,12 @@ export function SourceCollectionsPanel({
   const collections = collectionsQuery.data ?? []
   const selectedCollection = collections.find((collection) => collection.id === selectedScope) ?? null
   const allSourcesCountQuery = useQuery({
-    queryKey: ["sources", "count"],
+    queryKey: queryKeys.sourcesCount,
     queryFn: ({ signal }) => getSourcePage({ limit: 1, offset: 0 }, signal),
     staleTime: 10_000,
   })
   const unassignedCountQuery = useQuery({
-    queryKey: ["source-collections", "unassigned", "count"],
+    queryKey: queryKeys.unassignedSourcesCount,
     queryFn: ({ signal }) => getUnassignedSources({ limit: 1, offset: 0 }, signal),
     staleTime: 10_000,
   })
@@ -224,7 +224,7 @@ export function SourceCollectionsPanel({
     setStartedRun((current) => current?.runId === run.id ? null : current)
     if (run.sourceCollectionId) {
       void queryClient.invalidateQueries({
-        queryKey: ["source-collections", run.sourceCollectionId, "runs"],
+        queryKey: queryKeys.sourceCollectionAllRuns(run.sourceCollectionId),
       })
     }
     refreshCollections()
@@ -879,7 +879,7 @@ function CollectionManagerDialog({
     enabled: open,
   })
   const availableQuery = useQuery({
-    queryKey: ["source-collections", collection.id, "available", availableOffset, settledSearch],
+    queryKey: queryKeys.sourceCollectionAvailableSources(collection.id, availableOffset, settledSearch),
     queryFn: ({ signal }) => getSourcePage({
       excludeCollectionId: collection.id,
       search: settledSearch,

@@ -169,7 +169,7 @@ export function SourcesPage({
   })
   const selectedSource = sources.find((source) => source.id === selectedSourceId) ?? sources[0]
   const sourceDetailQuery = useQuery({
-    queryKey: selectedSourceId ? queryKeys.source(selectedSourceId) : ["sources", "detail"],
+    queryKey: selectedSourceId ? queryKeys.source(selectedSourceId) : queryKeys.sourceDetailIdle,
     queryFn: () => getSource(selectedSourceId),
     enabled: Boolean(selectedSourceId),
     placeholderData: selectedSource,
