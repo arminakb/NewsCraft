@@ -14,7 +14,7 @@ from uuid import UUID
 from sqlalchemy import and_, func, or_, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.config import Settings, settings
+from app.core.config import READINESS_CAPABILITIES, Settings, settings
 from app.core.outbound_proxy import safe_proxy_diagnostics
 from app.core.redaction import redact_string
 from app.db.schema import SCHEMA_HEAD
@@ -40,7 +40,6 @@ from app.operations.health_schemas import (
 from app.security.secret_store import SecretStoreRuntime
 
 RUNBOOK_ROOT = "/docs/operations/readiness-and-health"
-SAFE_CAPABILITIES = frozenset({"generation", "ingestion", "publishing", "scheduling", "source"})
 SAFE_JOB_TYPE = re.compile(r"^[a-z][a-z0-9_.]{0,127}$")
 SAFE_COMPONENT_ID = re.compile(r"^[A-Za-z0-9_.:-]{1,128}$")
 SECRET_REFERENCE = re.compile(
@@ -102,6 +101,91 @@ async def probe_storage_directory(
     )
 
 
+def _database_dependency(*, connected: bool, observed_at: datetime, latency_ms: int) -> DependencyHealth:
+    """The single "database" dependency entry every readiness surface reports."""
+    if connected:
+        return DependencyHealth(
+            state=HealthState.HEALTHY,
+            code="database_connected",
+            observed_at=observed_at,
+            latency_ms=latency_ms,
+            message="Database connectivity is available",
+            runbook_url=f"{RUNBOOK_ROOT}#database-unavailable",
+        )
+    return DependencyHealth(
+        state=HealthState.UNAVAILABLE,
+        code="database_unavailable",
+        observed_at=observed_at,
+        latency_ms=latency_ms,
+        message="Database connectivity is unavailable",
+        runbook_url=f"{RUNBOOK_ROOT}#database-unavailable",
+    )
+
+
+def _database_dependencies(
+    *,
+    observed_at: datetime,
+    latency_ms: int,
+    schema_revision: object,
+) -> dict[str, DependencyHealth]:
+    """The ("database", "schema") pair for a database that answered its probes."""
+    current = schema_revision == SCHEMA_HEAD
+    return {
+        "database": _database_dependency(connected=True, observed_at=observed_at, latency_ms=latency_ms),
+        "schema": DependencyHealth(
+            state=HealthState.HEALTHY if current else HealthState.UNAVAILABLE,
+            code="schema_current" if current else "schema_mismatch",
+            observed_at=observed_at,
+            latency_ms=latency_ms,
+            message="Database schema is current" if current else "Database schema is not current",
+            runbook_url=f"{RUNBOOK_ROOT}#schema-mismatch",
+        ),
+    }
+
+
+def _unreachable_database_dependencies(*, observed_at: datetime, latency_ms: int) -> dict[str, DependencyHealth]:
+    """The ("database", "schema") pair for a database that failed its probes."""
+    return {
+        "database": _database_dependency(connected=False, observed_at=observed_at, latency_ms=latency_ms),
+        "schema": DependencyHealth(
+            state=HealthState.UNKNOWN,
+            code="schema_unknown",
+            observed_at=observed_at,
+            latency_ms=latency_ms,
+            message="Database schema state could not be verified",
+            runbook_url=f"{RUNBOOK_ROOT}#schema-mismatch",
+        ),
+    }
+
+
+def _default_storage_probe(config: Settings) -> StorageProbe:
+    """The storage probe every health surface uses when none is injected."""
+
+    async def probe(name: str, path: Path, observed_at: datetime) -> DependencyHealth:
+        return await probe_storage_directory(
+            name,
+            path,
+            observed_at,
+            timeout_seconds=config.health_storage_timeout_seconds,
+        )
+
+    return probe
+
+
+async def _storage_dependencies(
+    probe: StorageProbe,
+    config: Settings,
+    observed_at: datetime,
+) -> dict[str, DependencyHealth]:
+    """The ("media_storage", "export_storage") pair, probed concurrently."""
+    names = ("media_storage", "export_storage")
+    results = await asyncio.gather(
+        probe(names[0], Path(config.media_root), observed_at),
+        probe(names[1], Path(config.export_root), observed_at),
+    )
+    return dict(zip(names, results, strict=True))
+
+
 class ReadinessService:
     def __init__(
         self,
@@ -114,35 +198,14 @@ class ReadinessService:
         self.session = session
         self.config = config
         self.clock = clock or (lambda: datetime.now(UTC))
-        self.storage_probe = storage_probe or self._probe_storage
-
-    async def _probe_storage(self, name: str, path: Path, observed_at: datetime) -> DependencyHealth:
-        return await probe_storage_directory(
-            name,
-            path,
-            observed_at,
-            timeout_seconds=self.config.health_storage_timeout_seconds,
-        )
+        self.storage_probe = storage_probe or _default_storage_probe(config)
 
     async def snapshot(self) -> ReadinessSnapshot:
         fallback_time = normalize_utc(self.clock(), field="readiness clock")
         checks: dict[str, DependencyHealth] = {}
         required_capabilities = _configured_capabilities(self.config.readiness_required_capabilities)
 
-        storage_results = await asyncio.gather(
-            self.storage_probe("media_storage", Path(self.config.media_root), fallback_time),
-            self.storage_probe("export_storage", Path(self.config.export_root), fallback_time),
-        )
-        checks.update(
-            {
-                name: result
-                for name, result in zip(
-                    ("media_storage", "export_storage"),
-                    storage_results,
-                    strict=True,
-                )
-            }
-        )
+        checks.update(await _storage_dependencies(self.storage_probe, self.config, fallback_time))
 
         started = time.monotonic()
         heartbeats: list[RuntimeHeartbeat] = []
@@ -152,27 +215,16 @@ class ReadinessService:
                 if one != 1:
                     raise RuntimeError("database connectivity probe failed")
                 schema_revision = await self.session.scalar(text("SELECT version_num FROM alembic_version"))
-                observed_at = await database_time(self.session)
                 if required_capabilities:
                     heartbeats = await RuntimeHeartbeatService(self.session).list_recent(limit=10_000)
-        except Exception, TimeoutError:  # noqa: BLE001 - readiness returns a safe constant code
+                # Read the clock only AFTER every projected row, so a heartbeat
+                # committed while we were reading cannot postdate the database
+                # reference and be misread as clock skew. See the ordering rule in
+                # app/operations/diagnostics.py and OperationalHealthService.snapshot.
+                observed_at = await database_time(self.session)
+        except Exception:  # noqa: BLE001 - readiness returns a safe constant code
             latency_ms = max(0, int((time.monotonic() - started) * 1_000))
-            checks["database"] = DependencyHealth(
-                state=HealthState.UNAVAILABLE,
-                code="database_unavailable",
-                observed_at=fallback_time,
-                latency_ms=latency_ms,
-                message="Database connectivity is unavailable",
-                runbook_url=f"{RUNBOOK_ROOT}#database-unavailable",
-            )
-            checks["schema"] = DependencyHealth(
-                state=HealthState.UNKNOWN,
-                code="schema_unknown",
-                observed_at=fallback_time,
-                latency_ms=latency_ms,
-                message="Database schema state could not be verified",
-                runbook_url=f"{RUNBOOK_ROOT}#schema-mismatch",
-            )
+            checks.update(_unreachable_database_dependencies(observed_at=fallback_time, latency_ms=latency_ms))
             for capability in required_capabilities:
                 checks[f"capability:{capability}"] = _capability_dependency(
                     capability,
@@ -183,26 +235,25 @@ class ReadinessService:
             return _readiness_snapshot(fallback_time, checks, required_capabilities)
 
         latency_ms = max(0, int((time.monotonic() - started) * 1_000))
-        checks["database"] = DependencyHealth(
-            state=HealthState.HEALTHY,
-            code="database_connected",
-            observed_at=observed_at,
-            latency_ms=latency_ms,
-            message="Database connectivity is available",
-            runbook_url=f"{RUNBOOK_ROOT}#database-unavailable",
-        )
-        checks["schema"] = DependencyHealth(
-            state=HealthState.HEALTHY if schema_revision == SCHEMA_HEAD else HealthState.UNAVAILABLE,
-            code="schema_current" if schema_revision == SCHEMA_HEAD else "schema_mismatch",
-            observed_at=observed_at,
-            latency_ms=latency_ms,
-            message=(
-                "Database schema is current" if schema_revision == SCHEMA_HEAD else "Database schema is not current"
-            ),
-            runbook_url=f"{RUNBOOK_ROOT}#schema-mismatch",
+        checks.update(
+            _database_dependencies(
+                observed_at=observed_at,
+                latency_ms=latency_ms,
+                schema_revision=schema_revision,
+            )
         )
 
-        components, _coverage = build_component_health(heartbeats, reference_time=observed_at, config=self.config)
+        generated_at = snapshot_high_water(
+            fallback_time,
+            observed_at,
+            *(row.observed_at for row in heartbeats),
+        )
+        components, _coverage = build_component_health(
+            heartbeats,
+            reference_time=generated_at,
+            database_time_value=observed_at,
+            config=self.config,
+        )
         for capability in required_capabilities:
             available = any(
                 component.state == HealthState.HEALTHY and capability in component.capabilities
@@ -213,11 +264,6 @@ class ReadinessService:
                 available=available,
                 observed_at=observed_at,
             )
-        generated_at = snapshot_high_water(
-            fallback_time,
-            observed_at,
-            *(row.observed_at for row in heartbeats),
-        )
         return _readiness_snapshot(generated_at, checks, required_capabilities)
 
 
@@ -276,13 +322,8 @@ class SecretReadinessService:
                 observed_at = await database_time(self.session)
         except Exception:  # noqa: BLE001 - readiness exposes safe constants only
             latency_ms = max(0, int((time.monotonic() - started) * 1_000))
-            checks["database"] = DependencyHealth(
-                state=HealthState.UNAVAILABLE,
-                code="database_unavailable",
-                observed_at=fallback_time,
-                latency_ms=latency_ms,
-                message="Database connectivity is unavailable",
-                runbook_url=f"{RUNBOOK_ROOT}#database-unavailable",
+            checks["database"] = _database_dependency(
+                connected=False, observed_at=fallback_time, latency_ms=latency_ms
             )
             checks["secret_schema"] = DependencyHealth(
                 state=HealthState.UNKNOWN,
@@ -295,14 +336,7 @@ class SecretReadinessService:
             return _readiness_snapshot(fallback_time, checks, ())
 
         latency_ms = max(0, int((time.monotonic() - started) * 1_000))
-        checks["database"] = DependencyHealth(
-            state=HealthState.HEALTHY,
-            code="database_connected",
-            observed_at=observed_at,
-            latency_ms=latency_ms,
-            message="Database connectivity is available",
-            runbook_url=f"{RUNBOOK_ROOT}#database-unavailable",
-        )
+        checks["database"] = _database_dependency(connected=True, observed_at=observed_at, latency_ms=latency_ms)
         schema_available = relation is not None
         checks["secret_schema"] = DependencyHealth(
             state=HealthState.HEALTHY if schema_available else HealthState.UNAVAILABLE,
@@ -331,33 +365,16 @@ class OperationalHealthService:
         self.session = session
         self.config = config
         self.clock = clock or (lambda: datetime.now(UTC))
-        self.storage_probe = storage_probe or self._probe_storage
-
-    async def _probe_storage(self, name: str, path: Path, observed_at: datetime) -> DependencyHealth:
-        return await probe_storage_directory(
-            name,
-            path,
-            observed_at,
-            timeout_seconds=self.config.health_storage_timeout_seconds,
-        )
+        self.storage_probe = storage_probe or _default_storage_probe(config)
 
     async def snapshot(self) -> OperationalHealthSnapshot:
         fallback_time = normalize_utc(self.clock(), field="operations health clock")
-        storage_results = await asyncio.gather(
-            self.storage_probe("media_storage", Path(self.config.media_root), fallback_time),
-            self.storage_probe("export_storage", Path(self.config.export_root), fallback_time),
-        )
-        dependencies = {
-            name: result
-            for name, result in zip(
-                ("media_storage", "export_storage"),
-                storage_results,
-                strict=True,
-            )
-        }
+        dependencies = await _storage_dependencies(self.storage_probe, self.config, fallback_time)
+        # Started outside the try so a probe that fails or times out still reports
+        # what it cost, the way ReadinessService.snapshot does.
+        started = time.monotonic()
         try:
             async with asyncio.timeout(self.config.readiness_timeout_seconds):
-                started = time.monotonic()
                 if await self.session.scalar(text("SELECT 1")) != 1:
                     raise RuntimeError("database connectivity probe failed")
                 schema_revision = await self.session.scalar(text("SELECT version_num FROM alembic_version"))
@@ -367,23 +384,9 @@ class OperationalHealthService:
                 recovery_rows = await self._recovery_rows(query_time)
                 database_observed_at = await database_time(self.session)
                 database_latency_ms = max(0, int((time.monotonic() - started) * 1_000))
-        except Exception, TimeoutError:  # noqa: BLE001 - operational output is fail-closed and sanitized
-            dependencies["database"] = DependencyHealth(
-                state=HealthState.UNAVAILABLE,
-                code="database_unavailable",
-                observed_at=fallback_time,
-                latency_ms=0,
-                message="Database connectivity is unavailable",
-                runbook_url=f"{RUNBOOK_ROOT}#database-unavailable",
-            )
-            dependencies["schema"] = DependencyHealth(
-                state=HealthState.UNKNOWN,
-                code="schema_unknown",
-                observed_at=fallback_time,
-                latency_ms=0,
-                message="Database schema state could not be verified",
-                runbook_url=f"{RUNBOOK_ROOT}#schema-mismatch",
-            )
+        except Exception:  # noqa: BLE001 - operational output is fail-closed and sanitized
+            latency_ms = max(0, int((time.monotonic() - started) * 1_000))
+            dependencies.update(_unreachable_database_dependencies(observed_at=fallback_time, latency_ms=latency_ms))
             components, _coverage = build_component_health(
                 [],
                 reference_time=fallback_time,
@@ -398,23 +401,12 @@ class OperationalHealthService:
             database_observed_at,
             *(row.observed_at for row in heartbeats),
         )
-        dependencies["database"] = DependencyHealth(
-            state=HealthState.HEALTHY,
-            code="database_connected",
-            observed_at=database_observed_at,
-            latency_ms=database_latency_ms,
-            message="Database connectivity is available",
-            runbook_url=f"{RUNBOOK_ROOT}#database-unavailable",
-        )
-        dependencies["schema"] = DependencyHealth(
-            state=HealthState.HEALTHY if schema_revision == SCHEMA_HEAD else HealthState.UNAVAILABLE,
-            code="schema_current" if schema_revision == SCHEMA_HEAD else "schema_mismatch",
-            observed_at=database_observed_at,
-            latency_ms=database_latency_ms,
-            message=(
-                "Database schema is current" if schema_revision == SCHEMA_HEAD else "Database schema is not current"
-            ),
-            runbook_url=f"{RUNBOOK_ROOT}#schema-mismatch",
+        dependencies.update(
+            _database_dependencies(
+                observed_at=database_observed_at,
+                latency_ms=database_latency_ms,
+                schema_revision=schema_revision,
+            )
         )
         components, coverage = build_component_health(
             heartbeats,
@@ -967,11 +959,8 @@ def _queue_thresholds(job_type: str) -> tuple[int, int]:
 
 
 def _configured_capabilities(value: str) -> tuple[str, ...]:
-    configured = tuple(sorted({part.strip().casefold() for part in value.split(",") if part.strip()}))
-    invalid = set(configured) - SAFE_CAPABILITIES
-    if invalid:
-        raise ValueError("readiness required capabilities contain unsupported values")
-    return configured
+    """Split the value the settings validator already casefolded, sorted and vetted."""
+    return tuple(part for part in value.split(",") if part)
 
 
 def _safe_component_id(value: object) -> str:
@@ -991,7 +980,9 @@ def _safe_component_type(value: object) -> str:
 def _safe_capabilities(values: object) -> tuple[str, ...]:
     if not isinstance(values, Sequence) or isinstance(values, (str, bytes, bytearray)):
         return ()
-    return tuple(sorted({str(value).casefold() for value in values if str(value).casefold() in SAFE_CAPABILITIES}))
+    return tuple(
+        sorted({str(value).casefold() for value in values if str(value).casefold() in READINESS_CAPABILITIES})
+    )
 
 
 def _safe_job_types(values: object) -> tuple[str, ...]:

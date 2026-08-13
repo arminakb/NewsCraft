@@ -572,6 +572,86 @@ async def test_articles_filter_all_coverage_states(db_session: AsyncSession):
     }
 
 
+async def test_coverage_filter_facets_and_item_payload_share_the_python_completeness_rule(
+    db_session: AsyncSession,
+):
+    """The SQL coverage rule must not re-derive source identity or the primary flag.
+
+    Before the persisted identity/primary columns, ``subdomains`` counted as two
+    independent sources in SQL and one in Python, and a truthy non-``true``
+    ``is_primary`` value was primary in Python and not in SQL. Both stories below
+    therefore had a coverage filter and a facet count that contradicted the
+    ``coverage.state`` returned on the item itself.
+    """
+
+    subdomains_item = _article(title="Same registrable domain")
+    truthy_primary_item = _article(title="Truthy primary flag")
+    db_session.add_all([subdomains_item, truthy_primary_item])
+    await db_session.flush()
+    subdomains_story = _story("Same registrable domain")
+    truthy_primary_story = _story("Truthy primary flag")
+    db_session.add_all([subdomains_story, truthy_primary_story])
+    await db_session.flush()
+    db_session.add_all(
+        [
+            _evidence(
+                subdomains_story.id,
+                subdomains_item.id,
+                "identity-a",
+                "a" * 450,
+                "https://a.example.com/one",
+                is_primary=True,
+            ),
+            _evidence(
+                subdomains_story.id,
+                None,
+                "identity-b",
+                "b" * 450,
+                "https://b.example.com/two",
+            ),
+            _evidence(
+                truthy_primary_story.id,
+                truthy_primary_item.id,
+                "primary-a",
+                "a" * 450,
+                "https://one.example/primary",
+                snapshot_metadata={"is_primary": "yes"},
+            ),
+            _evidence(
+                truthy_primary_story.id,
+                None,
+                "primary-b",
+                "b" * 450,
+                "https://two.example/primary",
+            ),
+        ]
+    )
+    await db_session.commit()
+
+    listed = await _get(db_session, "/articles")
+    assert listed.status_code == 200
+    states = {item["title"]: item["coverage"]["state"] for item in listed.json()["items"]}
+    assert states == {
+        "Same registrable domain": "incomplete",
+        "Truthy primary flag": "complete",
+    }
+
+    complete = await _get(db_session, "/articles?coverage=complete")
+    assert complete.status_code == 200
+    assert [item["id"] for item in complete.json()["items"]] == [str(truthy_primary_item.id)]
+
+    incomplete = await _get(db_session, "/articles?coverage=incomplete")
+    assert incomplete.status_code == 200
+    assert [item["id"] for item in incomplete.json()["items"]] == [str(subdomains_item.id)]
+
+    facets = await _get(db_session, "/articles/facets")
+    assert facets.status_code == 200
+    assert facets.json()["coverage"] == [
+        {"value": "complete", "count": 1},
+        {"value": "incomplete", "count": 1},
+    ]
+
+
 async def test_filtered_cursor_is_stable_and_rejected_after_filter_change(db_session: AsyncSession):
     english = [
         _article(
@@ -1018,6 +1098,7 @@ def _evidence(
     source_url: str,
     *,
     is_primary: bool = False,
+    snapshot_metadata: dict | None = None,
 ) -> StoryEvidenceSnapshot:
     return StoryEvidenceSnapshot(
         story_id=story_id,
@@ -1029,5 +1110,5 @@ def _evidence(
         authors=["Reporter"],
         published_at=NOW,
         content_sha256=(suffix.encode().hex() + "0" * 64)[:64],
-        snapshot_metadata={"is_primary": is_primary},
+        snapshot_metadata={"is_primary": is_primary} if snapshot_metadata is None else snapshot_metadata,
     )

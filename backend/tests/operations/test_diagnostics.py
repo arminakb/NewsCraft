@@ -4,10 +4,13 @@ from uuid import UUID
 
 import pytest
 
+from app.core.config import settings
 from app.jobs.models import AutomationControl
 from app.jobs.runtime import RuntimeHeartbeatService
 from app.jobs.types import JobStatus
 from app.operations.diagnostics import OperationsDiagnostics, _publish_receipt_attention
+from app.operations.health import build_component_health
+from app.operations.health_schemas import HealthState
 
 NOW = datetime(2026, 7, 13, 8, 30, tzinfo=UTC)
 PUBLISH_JOB_ID = UUID("11111111-1111-4111-8111-111111111111")
@@ -46,7 +49,7 @@ def test_ambiguous_and_dispatching_receipts_project_publication_attention():
 
 
 class FrozenClock:
-    def now(self) -> datetime:
+    def __call__(self) -> datetime:
         return NOW
 
 
@@ -148,16 +151,25 @@ class FakeSession:
 
 @pytest.mark.asyncio
 async def test_snapshot_uses_exact_heartbeat_thresholds_and_expected_persisted_union():
+    # Thresholds come from the configured component budgets, not from a second
+    # hard-coded 30s/90s ladder: workers are fresh to 60s and unavailable past
+    # 120s, schedulers fresh to 45s and unavailable past 90s.
     heartbeats = [
-        _heartbeat("at-healthy-boundary", NOW - timedelta(seconds=30)),
-        _heartbeat("just-degraded", NOW - timedelta(seconds=30, microseconds=1)),
+        _heartbeat("at-healthy-boundary", NOW - timedelta(seconds=settings.worker_health_fresh_seconds)),
+        _heartbeat(
+            "just-degraded",
+            NOW - timedelta(seconds=settings.worker_health_fresh_seconds, microseconds=1),
+        ),
         _heartbeat(
             "at-degraded-boundary",
-            NOW - timedelta(seconds=90),
+            NOW - timedelta(seconds=settings.scheduler_health_unavailable_seconds),
             component_type="scheduler",
             capabilities=["scheduling"],
         ),
-        _heartbeat("just-down", NOW - timedelta(seconds=90, microseconds=1)),
+        _heartbeat(
+            "just-down",
+            NOW - timedelta(seconds=settings.worker_health_unavailable_seconds, microseconds=1),
+        ),
         _heartbeat("additional-local-instance", NOW - timedelta(seconds=4)),
     ]
     session = FakeSession(heartbeats=heartbeats)
@@ -198,6 +210,26 @@ async def test_snapshot_uses_exact_heartbeat_thresholds_and_expected_persisted_u
     assert "runtime_metadata" not in str(serialized)
     assert "should-never-leave-storage" not in str(serialized)
     assert "LIMIT 10000" in session.scalar_sql[0]
+
+    # /operations/diagnostics is a projection of the canonical component health,
+    # so it can never contradict /operations/health for the same heartbeats.
+    canonical, _coverage = build_component_health(
+        heartbeats,
+        reference_time=NOW,
+        config=settings,
+        expected_component_ids=(
+            " just-down, at-healthy-boundary, missing-component, at-degraded-boundary, just-down "
+        ),
+    )
+    expected_status = {
+        HealthState.HEALTHY: "healthy",
+        HealthState.STALE: "degraded",
+        HealthState.UNAVAILABLE: "down",
+        HealthState.UNKNOWN: "unknown",
+    }
+    assert {name: component.status for name, component in snapshot.components.items()} == {
+        name: expected_status[component.state] for name, component in canonical.items()
+    }
 
 
 @pytest.mark.asyncio

@@ -1,13 +1,15 @@
 from __future__ import annotations
 
+import asyncio
 import hashlib
 from collections.abc import Mapping
 from datetime import datetime, timedelta
 from pathlib import Path
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import Select, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import aliased
 
 from app.db.models import ContentItem, ItemMedia, MediaAsset, RawPayload, SourceItem
 from app.exports.models import BuildExportPayload, ExportArtifact
@@ -35,9 +37,7 @@ from app.retention.contracts import (
     _uuid_values,
 )
 from app.retention.filesystem import (
-    _media_claim_identity,
-    _media_relative_path,
-    _UnsafeStoragePath,
+    _classified_media_claims,
 )
 from app.retention.models import RetentionRun
 from app.stories.models import StoryEvidenceSnapshot
@@ -101,6 +101,28 @@ class RetentionPlanner:
             if isinstance(result, Mapping) and result.get("state") != "expired":
                 referenced.update(_uuid_values(result))
         return referenced
+
+    async def _publication_referencing_job_ids(self, candidate_job_ids: Select[tuple[UUID]]) -> set[UUID]:
+        """Jobs whose events mention a published revision, scanned in Python.
+
+        The revision reference can sit anywhere inside the event JSON, so the
+        disjointness test stays in Python — but the scan is restricted to the
+        events of jobs that are already candidates instead of walking the whole
+        workflow_events table.
+        """
+        published_revision_ids = set(await self.session.scalars(select(Publication.platform_variant_revision_id)))
+        if not published_revision_ids:
+            return set()
+        event_rows = await self.session.execute(
+            select(WorkflowEvent.workflow_job_id, WorkflowEvent.event_data).where(
+                WorkflowEvent.workflow_job_id.in_(candidate_job_ids)
+            )
+        )
+        return {
+            workflow_job_id
+            for workflow_job_id, event_data in event_rows
+            if workflow_job_id is not None and not _uuid_values(event_data).isdisjoint(published_revision_ids)
+        }
 
     async def _raw_state(self, row: RawPayload) -> dict[str, object]:
         source_items = list(
@@ -236,8 +258,39 @@ class RetentionPlanner:
         lock: bool = False,
         media_root: Path | None = None,
     ) -> list[RetentionCandidate]:
-        candidates: list[RetentionCandidate] = []
+        """Concatenate the per-category collectors into one sorted plan.
 
+        Each collector owns exactly one (category, record_type) pair and applies
+        the same filters in the same order it always did; they run sequentially so
+        the statement — and therefore the row-lock — order is unchanged.
+        """
+        candidates: list[RetentionCandidate] = []
+        candidates.extend(await self._raw_payload_candidates(policy, now=now, only=only, lock=lock))
+        candidates.extend(await self._completed_job_candidates(policy, now=now, only=only, lock=lock))
+        candidates.extend(await self._research_attempt_candidates(policy, now=now, only=only, lock=lock))
+        candidates.extend(await self._generation_attempt_candidates(policy, now=now, only=only, lock=lock))
+        candidates.extend(await self._publish_attempt_candidates(policy, now=now, only=only, lock=lock))
+        candidates.extend(await self._export_artifact_candidates(policy, now=now, only=only, lock=lock))
+        candidates.extend(
+            await self._unreferenced_media_candidates(
+                policy,
+                now=now,
+                only=only,
+                lock=lock,
+                media_root=media_root,
+            )
+        )
+        return sorted(candidates, key=_candidate_sort_key)
+
+    async def _raw_payload_candidates(
+        self,
+        policy: RetentionPolicyInput,
+        *,
+        now: datetime,
+        only: set[tuple[RetentionCategory, RetentionRecordType, UUID]] | None,
+        lock: bool,
+    ) -> list[RetentionCandidate]:
+        candidates: list[RetentionCandidate] = []
         raw_statement = select(RawPayload).where(RawPayload.captured_at < now - timedelta(days=policy.raw_payload_days))
         raw_ids = self._only_ids(only, "raw_payload", "raw_payload")
         if raw_ids is not None:
@@ -288,41 +341,40 @@ class RetentionPlanner:
                     state_hash=_state_hash(state),
                 )
             )
+        return candidates
 
-        protected_job_ids = set(
-            value
-            for value in await self.session.scalars(
-                select(PublishJob.workflow_job_id).where(PublishJob.workflow_job_id.is_not(None))
-            )
-            if value is not None
-        )
-        protected_job_ids.update(
-            value
-            for value in await self.session.scalars(
-                select(RetentionRun.workflow_job_id).where(RetentionRun.workflow_job_id.is_not(None))
-            )
-            if value is not None
-        )
-        published_revision_ids = set(await self.session.scalars(select(Publication.platform_variant_revision_id)))
-        if published_revision_ids:
-            event_rows = await self.session.execute(
-                select(WorkflowEvent.workflow_job_id, WorkflowEvent.event_data).where(
-                    WorkflowEvent.workflow_job_id.is_not(None)
-                )
-            )
-            protected_job_ids.update(
-                workflow_job_id
-                for workflow_job_id, event_data in event_rows
-                if workflow_job_id is not None and not _uuid_values(event_data).isdisjoint(published_revision_ids)
-            )
-        completed_statement = select(WorkflowJob).where(
+    async def _completed_job_candidates(
+        self,
+        policy: RetentionPolicyInput,
+        *,
+        now: datetime,
+        only: set[tuple[RetentionCategory, RetentionRecordType, UUID]] | None,
+        lock: bool,
+    ) -> list[RetentionCandidate]:
+        candidates: list[RetentionCandidate] = []
+        # Jobs owned by a publish or retention record are protected in SQL: the
+        # ownership tables are joined by correlated EXISTS instead of being
+        # materialised into Python sets that then grow the bind-parameter list.
+        completed_conditions = [
             WorkflowJob.finished_at < now - timedelta(days=policy.completed_job_days),
             WorkflowJob.status.in_((JobStatus.SUCCEEDED, JobStatus.CANCELLED)),
             WorkflowJob.job_type.notin_(("build_export", "execute_retention")),
-        )
+            ~select(1)
+            .select_from(PublishJob)
+            .where(PublishJob.workflow_job_id == WorkflowJob.id)
+            .exists(),
+            ~select(1)
+            .select_from(RetentionRun)
+            .where(RetentionRun.workflow_job_id == WorkflowJob.id)
+            .exists(),
+        ]
         completed_ids = self._only_ids(only, "completed_job", "workflow_job")
         if completed_ids is not None:
-            completed_statement = completed_statement.where(WorkflowJob.id.in_(completed_ids))
+            completed_conditions.append(WorkflowJob.id.in_(completed_ids))
+        protected_job_ids = await self._publication_referencing_job_ids(
+            select(WorkflowJob.id).where(*completed_conditions)
+        )
+        completed_statement = select(WorkflowJob).where(*completed_conditions)
         if lock:
             completed_statement = completed_statement.with_for_update()
         for completed_job in await self.session.scalars(completed_statement):
@@ -358,14 +410,35 @@ class RetentionPlanner:
                     state_hash=_state_hash(state),
                 )
             )
+        return candidates
 
+    async def _research_attempt_candidates(
+        self,
+        policy: RetentionPolicyInput,
+        *,
+        now: datetime,
+        only: set[tuple[RetentionCategory, RetentionRecordType, UUID]] | None,
+        lock: bool,
+    ) -> list[RetentionCandidate]:
+        candidates: list[RetentionCandidate] = []
         attempt_cutoff = now - timedelta(days=policy.attempt_metadata_days)
-        all_research_attempts = list(await self.session.scalars(select(ResearchAttempt)))
-        protected_research_run_ids = {
-            row.research_run_id
-            for row in all_research_attempts
-            if row.finished_at is None or row.finished_at >= attempt_cutoff or row.status != "succeeded"
-        }
+        # A run is protected when ANY of its attempts is unfinished, recent, or
+        # unsuccessful. Expressed as a correlated EXISTS over a self-alias so the
+        # protection set never becomes a bind-parameter list.
+        sibling_research_attempt = aliased(ResearchAttempt)
+        research_run_protected = (
+            select(1)
+            .select_from(sibling_research_attempt)
+            .where(
+                sibling_research_attempt.research_run_id == ResearchAttempt.research_run_id,
+                or_(
+                    sibling_research_attempt.finished_at.is_(None),
+                    sibling_research_attempt.finished_at >= attempt_cutoff,
+                    sibling_research_attempt.status != "succeeded",
+                ),
+            )
+            .exists()
+        )
         research_statement = (
             select(ResearchAttempt)
             .join(ResearchRun, ResearchRun.id == ResearchAttempt.research_run_id)
@@ -374,7 +447,7 @@ class RetentionPlanner:
                 ResearchAttempt.status == "succeeded",
                 ResearchRun.status == "succeeded",
                 ResearchRun.result_story_revision_id.is_(None),
-                ResearchAttempt.research_run_id.notin_(protected_research_run_ids),
+                ~research_run_protected,
             )
         )
         research_ids = self._only_ids(only, "attempt_metadata", "research_attempt")
@@ -407,39 +480,55 @@ class RetentionPlanner:
                     state_hash=_state_hash(state),
                 )
             )
+        return candidates
 
-        referenced_generation_attempt_ids = set(
-            value
-            for value in await self.session.scalars(
-                select(PlatformVariantRevision.generation_attempt_id).where(
-                    PlatformVariantRevision.generation_attempt_id.is_not(None)
-                )
-            )
-            if value is not None
+    async def _generation_attempt_candidates(
+        self,
+        policy: RetentionPolicyInput,
+        *,
+        now: datetime,
+        only: set[tuple[RetentionCategory, RetentionRecordType, UUID]] | None,
+        lock: bool,
+    ) -> list[RetentionCandidate]:
+        candidates: list[RetentionCandidate] = []
+        attempt_cutoff = now - timedelta(days=policy.attempt_metadata_days)
+        sibling_generation_attempt = aliased(GenerationAttempt)
+        sibling_attempt_referenced = (
+            select(1)
+            .select_from(PlatformVariantRevision)
+            .where(PlatformVariantRevision.generation_attempt_id == sibling_generation_attempt.id)
+            .exists()
         )
-        all_generation_attempts = list(await self.session.scalars(select(GenerationAttempt)))
-        protected_generation_run_ids = {
-            row.generation_run_id
-            for row in all_generation_attempts
-            if row.id in referenced_generation_attempt_ids
-            or row.finished_at is None
-            or row.finished_at >= attempt_cutoff
-            or row.status not in GENERATION_SUCCESS_STATUSES
-        }
-        protected_generation_run_ids.update(
-            await self.session.scalars(
-                select(GenerationRun.id).where(
-                    (GenerationRun.status.notin_(GENERATION_SUCCESS_STATUSES))
-                    | (GenerationRun.story_revision_id.is_not(None))
-                    | (GenerationRun.finished_at.is_(None))
-                    | (GenerationRun.finished_at >= attempt_cutoff)
-                )
+        generation_run_protected = or_(
+            select(1)
+            .select_from(sibling_generation_attempt)
+            .where(
+                sibling_generation_attempt.generation_run_id == GenerationAttempt.generation_run_id,
+                or_(
+                    sibling_attempt_referenced,
+                    sibling_generation_attempt.finished_at.is_(None),
+                    sibling_generation_attempt.finished_at >= attempt_cutoff,
+                    sibling_generation_attempt.status.notin_(GENERATION_SUCCESS_STATUSES),
+                ),
             )
+            .exists(),
+            select(1)
+            .select_from(GenerationRun)
+            .where(
+                GenerationRun.id == GenerationAttempt.generation_run_id,
+                or_(
+                    GenerationRun.status.notin_(GENERATION_SUCCESS_STATUSES),
+                    GenerationRun.story_revision_id.is_not(None),
+                    GenerationRun.finished_at.is_(None),
+                    GenerationRun.finished_at >= attempt_cutoff,
+                ),
+            )
+            .exists(),
         )
         generation_statement = select(GenerationAttempt).where(
             GenerationAttempt.finished_at < attempt_cutoff,
             GenerationAttempt.status.in_(GENERATION_SUCCESS_STATUSES),
-            GenerationAttempt.generation_run_id.notin_(protected_generation_run_ids),
+            ~generation_run_protected,
         )
         generation_ids = self._only_ids(only, "attempt_metadata", "generation_attempt")
         if generation_ids is not None:
@@ -475,28 +564,51 @@ class RetentionPlanner:
                     state_hash=_state_hash(state),
                 )
             )
+        return candidates
 
-        protected_publish_job_ids = set(await self.session.scalars(select(Publication.publish_job_id)))
-        protected_publish_job_ids.update(
-            await self.session.scalars(
-                select(PublishOperationReceipt.publish_job_id).where(
-                    PublishOperationReceipt.status.in_(("pending", "ambiguous"))
-                )
+    async def _publish_attempt_candidates(
+        self,
+        policy: RetentionPolicyInput,
+        *,
+        now: datetime,
+        only: set[tuple[RetentionCategory, RetentionRecordType, UUID]] | None,
+        lock: bool,
+    ) -> list[RetentionCandidate]:
+        candidates: list[RetentionCandidate] = []
+        attempt_cutoff = now - timedelta(days=policy.attempt_metadata_days)
+        sibling_publish_attempt = aliased(PublishAttempt)
+        publish_job_protected = or_(
+            select(1)
+            .select_from(Publication)
+            .where(Publication.publish_job_id == PublishAttempt.publish_job_id)
+            .exists(),
+            select(1)
+            .select_from(PublishOperationReceipt)
+            .where(
+                PublishOperationReceipt.publish_job_id == PublishAttempt.publish_job_id,
+                PublishOperationReceipt.status.in_(("pending", "ambiguous")),
             )
-        )
-        all_publish_attempts = list(await self.session.scalars(select(PublishAttempt)))
-        protected_publish_job_ids.update(
-            row.publish_job_id
-            for row in all_publish_attempts
-            if row.finished_at is None or row.finished_at >= attempt_cutoff or row.status != "succeeded"
-        )
-        protected_publish_job_ids.update(
-            await self.session.scalars(select(PublishJob.id).where(PublishJob.status != "succeeded"))
+            .exists(),
+            select(1)
+            .select_from(sibling_publish_attempt)
+            .where(
+                sibling_publish_attempt.publish_job_id == PublishAttempt.publish_job_id,
+                or_(
+                    sibling_publish_attempt.finished_at.is_(None),
+                    sibling_publish_attempt.finished_at >= attempt_cutoff,
+                    sibling_publish_attempt.status != "succeeded",
+                ),
+            )
+            .exists(),
+            select(1)
+            .select_from(PublishJob)
+            .where(PublishJob.id == PublishAttempt.publish_job_id, PublishJob.status != "succeeded")
+            .exists(),
         )
         publish_statement = select(PublishAttempt).where(
             PublishAttempt.finished_at < attempt_cutoff,
             PublishAttempt.status == "succeeded",
-            PublishAttempt.publish_job_id.notin_(protected_publish_job_ids),
+            ~publish_job_protected,
         )
         publish_ids = self._only_ids(only, "attempt_metadata", "publish_attempt")
         if publish_ids is not None:
@@ -528,7 +640,17 @@ class RetentionPlanner:
                     state_hash=_state_hash(state),
                 )
             )
+        return candidates
 
+    async def _export_artifact_candidates(
+        self,
+        policy: RetentionPolicyInput,
+        *,
+        now: datetime,
+        only: set[tuple[RetentionCategory, RetentionRecordType, UUID]] | None,
+        lock: bool,
+    ) -> list[RetentionCandidate]:
+        candidates: list[RetentionCandidate] = []
         export_statement = select(WorkflowJob).where(
             WorkflowJob.job_type == "build_export",
             WorkflowJob.status == JobStatus.SUCCEEDED,
@@ -582,9 +704,30 @@ class RetentionPlanner:
                     state_hash=_state_hash(state),
                 )
             )
+        return candidates
 
+    async def _unreferenced_media_candidates(
+        self,
+        policy: RetentionPolicyInput,
+        *,
+        now: datetime,
+        only: set[tuple[RetentionCategory, RetentionRecordType, UUID]] | None,
+        lock: bool,
+        media_root: Path | None,
+    ) -> list[RetentionCandidate]:
+        candidates: list[RetentionCandidate] = []
+        # Only the four columns the path classification needs; loading whole
+        # entities here also parked stale MediaAsset rows in the identity map
+        # that the locked re-read below would then return unrefreshed.
         all_stored_media = list(
-            await self.session.scalars(select(MediaAsset).where(MediaAsset.storage_path.is_not(None)))
+            await self.session.execute(
+                select(
+                    MediaAsset.id,
+                    MediaAsset.storage_path,
+                    MediaAsset.created_at,
+                    MediaAsset.fetch_status,
+                ).where(MediaAsset.storage_path.is_not(None))
+            )
         )
         referenced_media_ids = await self._referenced_media_ids()
         eligible_media_ids = {
@@ -595,28 +738,17 @@ class RetentionPlanner:
             and row.id not in referenced_media_ids
         }
         owned_media_root = media_root or self.media_root
-        canonical_media_paths: dict[UUID, str] = {}
-        deletion_authorized_ids: set[UUID] = set()
-        unclassifiable_media_claim = False
-        for stored_media in all_stored_media:
-            try:
-                canonical_media_paths[stored_media.id] = _media_claim_identity(
-                    owned_media_root,
-                    str(stored_media.storage_path),
-                )
-            except _UnsafeStoragePath:
-                unclassifiable_media_claim = True
-                continue
-            try:
-                strict_identity = _media_relative_path(
-                    owned_media_root,
-                    str(stored_media.storage_path),
-                )
-            except _UnsafeStoragePath:
-                continue
-            if strict_identity == canonical_media_paths[stored_media.id]:
-                deletion_authorized_ids.add(stored_media.id)
-        if unclassifiable_media_claim:
+        # Classifying one media row costs O(path depth) blocking syscalls; the
+        # whole batch goes to a worker thread so an interactive preview request
+        # never stalls the event loop for the API process.
+        classification = await asyncio.to_thread(
+            _classified_media_claims,
+            owned_media_root,
+            [(row.id, str(row.storage_path)) for row in all_stored_media],
+        )
+        canonical_media_paths = classification.canonical_paths
+        deletion_authorized_ids = set(classification.deletion_authorized)
+        if classification.unclassifiable:
             deletion_authorized_ids.clear()
         blocked_shared_paths = {
             canonical_path
@@ -657,5 +789,4 @@ class RetentionPlanner:
                     state_hash=_state_hash(state),
                 )
             )
-
-        return sorted(candidates, key=_candidate_sort_key)
+        return candidates

@@ -8,7 +8,7 @@ from datetime import datetime, timedelta
 from typing import Literal
 from uuid import UUID
 
-from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, model_validator
+from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, ValidationError, model_validator
 
 from app.jobs.models import WorkflowJob
 from app.retention.models import (
@@ -40,7 +40,11 @@ RETENTION_CATEGORIES: tuple[RetentionCategory, ...] = (
     "export_artifact",
     "unreferenced_media",
 )
-RETENTION_CONFIRMATION = "DELETE PREVIEWED DATA"
+# A plain alias, not a `type` statement: pydantic gives PEP 695 aliases their own
+# named OpenAPI component, and this one must stay an inline enum in the published
+# contract. The annotation on the constant is what keeps the two in step.
+RetentionConfirmationPhrase = Literal["DELETE PREVIEWED DATA"]
+RETENTION_CONFIRMATION: RetentionConfirmationPhrase = "DELETE PREVIEWED DATA"
 RETENTION_PREVIEW_TTL = timedelta(minutes=30)
 RAW_PAYLOAD_SCRUBBED_URL = "retention:scrubbed"
 GENERATION_SUCCESS_STATUSES = ("succeeded", "completed")
@@ -122,6 +126,113 @@ class RetentionCleanupIntent(BaseModel):
     record_id: UUID
     operation: Literal["delete_tree", "delete_file"]
     relative_path: str
+
+
+type RetentionExecutionPhase = Literal[
+    "scrubbed",
+    "expired",
+    "skipped",
+    "database_skipped",
+    "filesystem_skipped",
+    "filesystem_deleted",
+]
+
+
+def _zero_counts() -> dict[RetentionCategory, int]:
+    return {category: 0 for category in RETENTION_CATEGORIES}
+
+
+def _completed_counts(value: dict[RetentionCategory, int]) -> dict[RetentionCategory, int]:
+    counts = _zero_counts()
+    counts.update(value)
+    return counts
+
+
+class RetentionExecutionCounts(BaseModel):
+    """Per-phase, per-category bookkeeping of one retention execution.
+
+    Every category is always present, so callers index the phase dicts
+    directly instead of defaulting a missing key at each read site.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    scrubbed: dict[RetentionCategory, int] = Field(default_factory=_zero_counts)
+    expired: dict[RetentionCategory, int] = Field(default_factory=_zero_counts)
+    skipped: dict[RetentionCategory, int] = Field(default_factory=_zero_counts)
+    database_skipped: dict[RetentionCategory, int] = Field(default_factory=_zero_counts)
+    filesystem_skipped: dict[RetentionCategory, int] = Field(default_factory=_zero_counts)
+    filesystem_deleted: dict[RetentionCategory, int] = Field(default_factory=_zero_counts)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _accept_legacy_snapshots(cls, value: object) -> object:
+        """Rows written before `database_skipped` existed carry only `skipped`."""
+        if not isinstance(value, Mapping):
+            return value
+        data = dict(value)
+        if data.get("database_skipped") is None and isinstance(data.get("skipped"), Mapping):
+            data["database_skipped"] = dict(data["skipped"])
+        return data
+
+    @model_validator(mode="after")
+    def _complete_every_category(self) -> RetentionExecutionCounts:
+        for phase, counts in self.phases().items():
+            if set(counts) != set(RETENTION_CATEGORIES):
+                setattr(self, phase, _completed_counts(counts))
+        return self
+
+    def phases(self) -> dict[RetentionExecutionPhase, dict[RetentionCategory, int]]:
+        """The live phase dicts, keyed by phase name (mutating a value counts)."""
+        return {
+            "scrubbed": self.scrubbed,
+            "expired": self.expired,
+            "skipped": self.skipped,
+            "database_skipped": self.database_skipped,
+            "filesystem_skipped": self.filesystem_skipped,
+            "filesystem_deleted": self.filesystem_deleted,
+        }
+
+    def increment(self, phase: RetentionExecutionPhase, category: RetentionCategory) -> None:
+        self.phases()[phase][category] += 1
+
+    def reset(self, phase: RetentionExecutionPhase) -> None:
+        self.phases()[phase].update(_zero_counts())
+
+
+class RetentionCountSnapshot(BaseModel):
+    """The `retention_runs.count_snapshot` JSONB blob, parsed once per read.
+
+    The persisted shape is the preview summary per category plus an
+    `execution` object; `from_snapshot`/`to_snapshot` are the only places that
+    know it.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    categories: dict[RetentionCategory, RetentionCategorySummary] = Field(default_factory=dict)
+    execution: RetentionExecutionCounts = Field(default_factory=RetentionExecutionCounts)
+
+    @classmethod
+    def from_snapshot(cls, value: Mapping[str, object]) -> RetentionCountSnapshot:
+        """Parse a persisted snapshot, refusing an unusable one outright.
+
+        This is the bookkeeping of an irreversible deletion: a shape violation
+        must stop the run rather than degrade into a silently skipped write.
+        """
+        payload = dict(value)
+        execution = payload.pop("execution", None)
+        try:
+            return cls.model_validate({"categories": payload, "execution": execution or {}})
+        except ValidationError as exc:
+            raise RetentionConflict(f"retention count snapshot is invalid: {exc.error_count()} problem(s)") from exc
+
+    def to_snapshot(self) -> dict[str, object]:
+        snapshot: dict[str, object] = {
+            category: summary.model_dump(mode="json") for category, summary in self.categories.items()
+        }
+        snapshot["execution"] = self.execution.model_dump(mode="json")
+        return snapshot
 
 
 class RetentionExecutionPlan(BaseModel):

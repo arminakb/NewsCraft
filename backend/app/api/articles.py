@@ -49,6 +49,7 @@ from app.content.article_metadata import (
 from app.db.models import ArticleCollection, ArticleCollectionItem, ContentItem, ItemMedia, MediaAsset, Source
 from app.db.session import get_session
 from app.feed.service import active_feed_condition
+from app.research.completeness import MIN_BODY_CHARACTERS, MIN_INDEPENDENT_SOURCES
 from app.stories.models import Story, StoryEvidenceSnapshot
 
 router = APIRouter(tags=["articles"])
@@ -124,23 +125,11 @@ def _search_vector_expression():
 
 
 def _story_completeness_subquery():
-    source_host = func.lower(
-        func.regexp_replace(
-            func.split_part(
-                func.split_part(func.coalesce(StoryEvidenceSnapshot.source_url, ""), "://", 2),
-                "/",
-                1,
-            ),
-            r":\d+$",
-            "",
-        )
-    )
-    source_label = func.lower(func.trim(StoryEvidenceSnapshot.snapshot_metadata["source_label"].astext))
-    source_identity = case(
-        (source_host != "", "host:" + source_host),
-        (source_label != "", "source:" + source_label),
-        else_=None,
-    )
+    # Source identity and the primary flag are NOT re-derived here: they are
+    # persisted by app.stories.models through app.research.completeness, which is
+    # the canonical rule. Re-deriving them in SQL cannot reproduce IDNA/public
+    # suffix reduction and would make this filter contradict each story's own
+    # completeness payload.
     body_characters = func.sum(
         func.char_length(
             func.regexp_replace(
@@ -151,18 +140,34 @@ def _story_completeness_subquery():
             )
         )
     )
-    has_primary = func.bool_or(
-        func.coalesce(StoryEvidenceSnapshot.snapshot_metadata["is_primary"].astext == "true", False)
-    )
+    has_primary = func.coalesce(func.bool_or(StoryEvidenceSnapshot.is_primary), False)
     return (
         select(
             StoryEvidenceSnapshot.story_id.label("story_id"),
-            func.count(func.distinct(source_identity)).label("source_count"),
+            func.count(func.distinct(StoryEvidenceSnapshot.source_identity)).label("source_count"),
             body_characters.label("body_character_count"),
             has_primary.label("has_primary"),
         )
         .group_by(StoryEvidenceSnapshot.story_id)
         .subquery("story_completeness")
+    )
+
+
+def _active_story_criteria(story) -> tuple:
+    """The single definition of "this story still represents the coverage"."""
+    return (story.superseded_by_id.is_(None),)
+
+
+def _completeness_criteria(completeness) -> tuple:
+    """The SQL form of app.research.completeness.evaluate_completeness.
+
+    The row-level coverage state and the coverage facet counts read the same
+    thresholds from here, so a page's badges cannot disagree with its totals.
+    """
+    return (
+        completeness.c.source_count >= MIN_INDEPENDENT_SOURCES,
+        completeness.c.body_character_count >= MIN_BODY_CHARACTERS,
+        completeness.c.has_primary.is_(True),
     )
 
 
@@ -175,7 +180,7 @@ def _active_story_exists():
         .join(story, story.id == link.story_id)
         .where(
             link.content_item_id == ContentItem.id,
-            story.superseded_by_id.is_(None),
+            *_active_story_criteria(story),
         )
     ).correlate(ContentItem)
 
@@ -191,10 +196,8 @@ def _complete_story_exists():
         .join(completeness, completeness.c.story_id == story.id)
         .where(
             link.content_item_id == ContentItem.id,
-            story.superseded_by_id.is_(None),
-            completeness.c.source_count >= 2,
-            completeness.c.body_character_count >= 800,
-            completeness.c.has_primary.is_(True),
+            *_active_story_criteria(story),
+            *_completeness_criteria(completeness),
         )
     ).correlate(ContentItem)
 
@@ -213,7 +216,7 @@ def _coverage_facet_statement() -> Select:
     active_items = (
         select(active_link.content_item_id.label("content_item_id"))
         .join(active_story, active_story.id == active_link.story_id)
-        .where(active_story.superseded_by_id.is_(None))
+        .where(*_active_story_criteria(active_story))
         .group_by(active_link.content_item_id)
         .subquery("active_story_items")
     )
@@ -225,10 +228,8 @@ def _coverage_facet_statement() -> Select:
         .join(complete_story, complete_story.id == complete_link.story_id)
         .join(completeness, completeness.c.story_id == complete_story.id)
         .where(
-            complete_story.superseded_by_id.is_(None),
-            completeness.c.source_count >= 2,
-            completeness.c.body_character_count >= 800,
-            completeness.c.has_primary.is_(True),
+            *_active_story_criteria(complete_story),
+            *_completeness_criteria(completeness),
         )
         .group_by(complete_link.content_item_id)
         .subquery("complete_story_items")

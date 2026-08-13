@@ -8,7 +8,12 @@ import pytest
 from sqlalchemy.dialects import postgresql
 
 from app.operations.history import (
+    _DOMAIN_JOB_EVENT_TYPES,
+    _EVENT_CATEGORY_RULES,
+    _JOB_CATEGORY_RULES,
     HistoryService,
+    _category_expression,
+    _category_for,
     decode_history_cursor,
     encode_history_cursor,
     history_statement,
@@ -468,3 +473,35 @@ async def test_history_rejects_invalid_cursor_and_subject_type_before_querying()
         await service.list(subject_type="story", subject_id="not-a-uuid")
 
     assert session.statements == []
+
+
+def test_sql_and_python_category_rules_share_one_taxonomy():
+    """Every enumerated type is classified identically by both halves.
+
+    history_statement filters rows with the SQL CASE while _entry drops any row
+    _category_for cannot label, and the page/next-cursor arithmetic runs before
+    that filtering — so drift between the two hands the client a short page with
+    a non-null cursor. Generating both from the ordered rule tables makes the
+    drift impossible; this test pins the generation.
+    """
+    sql = str(_category_expression().compile(dialect=postgresql.dialect(), compile_kwargs={"literal_binds": True}))
+
+    for event_types, category in _EVENT_CATEGORY_RULES:
+        assert event_types, "an empty rule would silently classify nothing"
+        for event_type in event_types:
+            assert _category_for(event_type, None) == category
+            assert f"'{event_type}'" in sql
+        assert f"'{category}'" in sql
+
+    assert _category_for("automation.route.dispatched", None) == "automation"
+    assert "LIKE 'automation." in sql  # the trailing wildcard is paramstyle-escaped
+
+    for job_types, category in _JOB_CATEGORY_RULES:
+        assert job_types
+        for job_type in job_types:
+            assert _category_for(_DOMAIN_JOB_EVENT_TYPES[0], job_type) == category
+            assert f"'{job_type}'" in sql
+
+    assert _category_for("nothing.recognised", None) is None
+    assert _category_for(_DOMAIN_JOB_EVENT_TYPES[0], "unmapped.job") is None
+    assert "ELSE 'unknown'" in sql

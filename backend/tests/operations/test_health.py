@@ -142,6 +142,61 @@ async def test_readiness_succeeds_for_database_schema_storage_and_required_capab
     assert all(check.state == HealthState.HEALTHY for check in snapshot.checks.values())
 
 
+class ConcurrentHeartbeatSession(ReadinessSession):
+    """clock_timestamp() advances while a worker commits a heartbeat mid-request.
+
+    Models READ COMMITTED reality: the heartbeat row lands after the request
+    starts, so it legitimately postdates any clock read taken before the
+    heartbeat query.
+    """
+
+    def __init__(self, *, clock_before, clock_after, **kwargs):
+        super().__init__(**kwargs)
+        self.clock_before = clock_before
+        self.clock_after = clock_after
+        self.heartbeats_read = False
+
+    async def scalar(self, statement):
+        if "clock_timestamp" in str(statement):
+            return self.clock_after if self.heartbeats_read else self.clock_before
+        return await super().scalar(statement)
+
+    async def scalars(self, statement):
+        rows = await super().scalars(statement)
+        self.heartbeats_read = True
+        return rows
+
+
+@pytest.mark.asyncio
+async def test_readiness_reads_the_database_clock_after_heartbeats(tmp_path):
+    """A heartbeat committed during the request must not read as clock skew.
+
+    Regression: readiness used to read database_time() BEFORE list_recent and
+    pass it as reference_time with no database_time_value, the inverse of
+    OperationalHealthService, so a heartbeat committed in between exceeded the
+    1s tolerance and turned the capability check into a 503.
+    """
+
+    (tmp_path / "media").mkdir()
+    (tmp_path / "exports").mkdir()
+    session = ConcurrentHeartbeatSession(
+        clock_before=NOW,
+        clock_after=NOW + timedelta(seconds=3),
+        heartbeats=[_heartbeat("worker-source-generation", NOW + timedelta(seconds=2))],
+    )
+
+    snapshot = await ReadinessService(
+        session,
+        config=_config(tmp_path, readiness_required_capabilities="source"),
+        clock=lambda: NOW,
+    ).snapshot()
+
+    assert session.heartbeats_read is True
+    assert snapshot.status == "ready"
+    assert snapshot.checks["capability:source"].state == HealthState.HEALTHY
+    assert snapshot.checks["capability:source"].code == "capability_available"
+
+
 @pytest.mark.asyncio
 async def test_readiness_fails_when_configured_required_capability_has_no_fresh_worker(tmp_path):
     (tmp_path / "media").mkdir()
