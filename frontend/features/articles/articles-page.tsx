@@ -7,7 +7,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 
 import { ActiveFilterChips, ArticleFilterControl } from "./article-filter-control"
 import { ArticlePagination } from "./article-pagination"
-import { ArticleDetailDialog, safeArticleUrl } from "./article-detail-dialog"
+import { ArticleDetailDialog } from "./article-detail-dialog"
 import { getArticleCardClassifications, getArticleCardTime } from "./article-card-metadata"
 import { clearFeed, getArticleCollections, getArticleFacets, getArticles, getFeedSummary, removeArticleFromCollection } from "./api"
 import { CollectionsSidebar } from "./collections-sidebar"
@@ -38,6 +38,7 @@ import { EmptyState, ErrorState } from "@/components/ui/state-panel"
 import { formatNumber } from "@/lib/format"
 import { ApiError, getApiErrorMessage } from "@/lib/http"
 import { queryKeys } from "@/lib/query-keys"
+import { safeHttpUrl } from "@/lib/url"
 
 const PAGE_SIZE = 50
 const ARTICLE_PAGE_STALE_TIME = 15_000
@@ -968,7 +969,7 @@ function ArticleCard({
   const { timezone } = useDateTime()
   const classifications = getArticleCardClassifications(article)
   const time = getArticleCardTime(article.displayAt, article.dateBasis, Date.now(), timezone)
-  const originalUrl = safeArticleUrl(article.canonicalUrl)
+  const originalUrl = safeHttpUrl(article.canonicalUrl)
 
   return (
     <article className="group relative isolate flex h-full min-w-0 flex-col overflow-hidden rounded-lg border border-border/50 bg-card shadow-xs transition-[border-color,box-shadow] hover:border-foreground/20 hover:shadow-sm">

@@ -8,7 +8,9 @@
 // Do not "simplify" this module into camelize(); do not copy its style into
 // clients that consume ordinary, schema-backed endpoints.
 
-const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
+import { safeHttpUrl } from "@/lib/url"
+
+const UUID_PATTERN =/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 const SHA256_PATTERN = /^[0-9a-f]{64}$/
 
 export function exactObject<const K extends string>(
@@ -75,14 +77,8 @@ export function sha256(value: unknown, message: string): string {
 }
 
 export function httpUrl(value: unknown, message: string): string {
-  if (typeof value !== "string") throw new Error(message)
-  try {
-    const url = new URL(value)
-    if (!["http:", "https:"].includes(url.protocol) || url.username || url.password) throw new Error(message)
-    return value
-  } catch {
-    throw new Error(message)
-  }
+  if (typeof value !== "string" || safeHttpUrl(value) === null) throw new Error(message)
+  return value
 }
 
 export function nullableHttpUrl(value: unknown, message: string): string | null {

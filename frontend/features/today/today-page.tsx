@@ -50,6 +50,7 @@ import type {
 } from "@/features/operations/ingestion-api"
 import type { OperationsSnapshot } from "@/features/operations/types"
 import { getApiErrorMessage } from "@/lib/http"
+import { safeHttpUrl } from "@/lib/url"
 import { formatInTimeZone } from "@/lib/date-time"
 import { formatNumber, titleCase } from "@/lib/format"
 import { operationsQueryKeys, queryKeys } from "@/lib/query-keys"
@@ -784,7 +785,7 @@ function ArticleDialog({
   const dialogRef = useRef<HTMLElement | null>(null)
   const closeRef = useRef<HTMLButtonElement | null>(null)
   const title = article.title?.trim() || "Untitled article"
-  const sourceUrl = safeOriginalArticleUrl(article.canonicalUrl)
+  const sourceUrl = safeHttpUrl(article.canonicalUrl)
   const summary = article.summary?.trim() || article.excerpt?.trim() || "Full article text is not available in the Today summary."
   const time = getArticleCardTime(article.displayAt, article.dateBasis, Date.now(), timezone)
 
@@ -864,12 +865,3 @@ function internalHref(value: string | null | undefined) {
   return value?.startsWith("/") ? value : null
 }
 
-function safeOriginalArticleUrl(value: string | null) {
-  if (!value) return null
-  try {
-    const url = new URL(value)
-    return url.protocol === "http:" || url.protocol === "https:" ? url.href : null
-  } catch {
-    return null
-  }
-}
