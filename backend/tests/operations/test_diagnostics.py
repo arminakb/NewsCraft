@@ -49,7 +49,7 @@ def test_ambiguous_and_dispatching_receipts_project_publication_attention():
 
 
 class FrozenClock:
-    def now(self) -> datetime:
+    def __call__(self) -> datetime:
         return NOW
 
 

@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Mapping, Sequence
 from datetime import UTC, datetime
-from typing import Literal, Protocol
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy import and_, func, or_, select
@@ -24,7 +24,7 @@ from app.operations.health import (
     normalize_utc,
     snapshot_high_water,
 )
-from app.operations.health_schemas import HealthState
+from app.operations.health_schemas import Clock, HealthState
 from app.publishing.models import Destination, Publication, PublishJob, PublishOperationReceipt
 from app.research.models import ResearchAttempt, ResearchRun
 
@@ -75,13 +75,6 @@ class OperationsSnapshot(BaseModel):
     outbound_proxy: ProxyDiagnostics
 
 
-class Clock(Protocol):
-    def now(self) -> datetime: ...
-
-
-ClockSource = Clock | Callable[[], datetime]
-
-
 class OperationsDiagnostics:
     """Build a read-only operational projection from already-durable state."""
 
@@ -89,7 +82,7 @@ class OperationsDiagnostics:
         self,
         session: AsyncSession,
         *,
-        clock: ClockSource | None = None,
+        clock: Clock | None = None,
         expected_runtime_component_ids: str | None = None,
     ) -> None:
         self.session = session
@@ -343,13 +336,8 @@ class OperationsDiagnostics:
         return _newest_distinct(candidates, limit=100)
 
 
-def _now(clock: ClockSource | None) -> datetime:
-    if clock is None:
-        value = datetime.now(UTC)
-    elif callable(clock):
-        value = clock()
-    else:
-        value = clock.now()
+def _now(clock: Clock | None) -> datetime:
+    value = datetime.now(UTC) if clock is None else clock()
     return normalize_utc(value, field="clock")
 
 
