@@ -1,5 +1,15 @@
 # Proposed personal-use information architecture
 
+> **Superseded 2026-08-13 — historical record only.** This proposal was
+> written against the pre-newsroom shell and its route names (`/inbox`,
+> `/drafts`, `/library`, `/content`, `/runs`, `/media`), none of which
+> exist today. The shipped navigation is Today (`/`), Sources
+> (`/sources`), Feed (`/feed`), Automations (`/automations`), Operations
+> Center (`/operations`), and Settings, defined in
+> [`frontend/components/newsroom/newsroom-sidebar.tsx`](../../frontend/components/newsroom/newsroom-sidebar.tsx).
+> Keep this file as the record of why that shell was chosen; do not read
+> it as a description of the current information architecture.
+
 ## Design goal
 
 Optimize the primary shell for one operator completing the common sequence:
