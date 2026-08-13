@@ -61,7 +61,30 @@ def test_malformed_feed_marks_source_degraded() -> None:
 
     assert source.health_status == "degraded"
     assert source.last_error_type == "malformed_feed"
-    assert source.failure_count == 1
+    # A parse-quality issue is not a transport failure: the counter operators
+    # watch (and reset) must not grow while the feed keeps answering 200.
+    assert source.failure_count == 0
+    assert source.last_failure_at is None
+
+
+def test_repeated_quality_issues_do_not_inflate_the_transport_failure_counter() -> None:
+    source = _source()
+    source.failure_count = 3
+
+    for _ in range(3):
+        _record_source_success(
+            source,
+            SimpleNamespace(status_code=200),
+            parse_count=4,
+            suitable_count=0,
+            media_count=0,
+            parser_warnings=[],
+        )
+
+    assert source.health_status == "degraded"
+    assert source.last_error_type == "zero_suitable_items"
+    assert source.failure_count == 0
+    assert source.last_failure_at is None
 
 
 def test_not_modified_preserves_existing_health_counts() -> None:

@@ -684,9 +684,15 @@ def _record_source_success(
         source.health_status = "disabled"
         return
     if error_type:
+        # The fetch itself succeeded, so the transport-failure state stays
+        # untouched: `failure_count`/`last_failure_at` count consecutive
+        # transport failures (operators reset the counter by hand and it is
+        # published on the source), and a feed that reliably answers 200 with
+        # nothing usable must not inflate them forever. `health_status`
+        # separates this 'degraded' parse-quality state from a 'broken' source,
+        # which is what disambiguates the diagnostic `last_error_*` pair.
         source.health_status = "degraded"
-        source.last_failure_at = now
-        source.failure_count = int(source.failure_count or 0) + 1
+        source.failure_count = 0
         source.last_error_type = redact_string(error_type)
         source.last_error_message = redact_string(error_message) if error_message is not None else None
         return
