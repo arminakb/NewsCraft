@@ -124,7 +124,6 @@ def plan_item_media_rows(
         role = _media_role(media_asset, candidate, primary_image_assigned)
         if role == "primary_image":
             primary_image_assigned = True
-        media_asset.is_primary = role == "primary_image"
         rows.append(
             {
                 "content_item_id": content_item_id,
