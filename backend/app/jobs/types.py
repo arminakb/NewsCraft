@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import math
-import re
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -11,6 +10,7 @@ from typing import Any, Protocol, cast
 from uuid import UUID
 
 from app.core.redaction import redact_secrets
+from app.jobs.secret_policy import restore_exempt_secrets
 
 
 class JobStatus(StrEnum):
@@ -52,9 +52,6 @@ class JobType(StrEnum):
     AUTOMATION_RUN_START = "automation.run.start"
 
 
-_RETENTION_PREVIEW_TOKEN_PATTERN = re.compile(r"^[0-9a-f]{64}$")
-
-
 def _freeze_json(value: object) -> object:
     if value is None or isinstance(value, str | bool | int):
         return value
@@ -84,11 +81,8 @@ def _thaw_json(value: object) -> object:
 
 def _reject_secret_payload(job_type: str, payload: dict[str, Any]) -> None:
     sanitized = redact_secrets(payload)
-    if job_type == "execute_retention":
-        preview_token = payload.get("preview_token")
-        if isinstance(preview_token, str) and _RETENTION_PREVIEW_TOKEN_PATTERN.fullmatch(preview_token):
-            if isinstance(sanitized, dict):
-                sanitized["preview_token"] = preview_token
+    if isinstance(sanitized, dict):
+        sanitized = restore_exempt_secrets(job_type, payload, sanitized)
     if sanitized != payload:
         raise ValueError("job execution payload contains a secret value")
 

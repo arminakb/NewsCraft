@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import re
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -15,10 +14,9 @@ from app.jobs.capability_gate import api_capability_gate_enabled, require_availa
 from app.jobs.errors import InvalidJobTransition
 from app.jobs.events import redact_event_data
 from app.jobs.models import AutomationControl, WorkflowEvent, WorkflowJob
+from app.jobs.secret_policy import restore_exempt_secrets
 from app.jobs.types import JobErrorClass, JobOrigin, JobStatus
 from app.retention.models import RetentionRun
-
-_RETENTION_PREVIEW_TOKEN_PATTERN = re.compile(r"^[0-9a-f]{64}$")
 
 
 @dataclass(frozen=True, slots=True)
@@ -52,15 +50,7 @@ def _redact_job_payload(job_type: str, payload: dict[str, Any]) -> dict[str, Any
     sanitized = redact_secrets(payload)
     if not isinstance(sanitized, dict):  # pragma: no cover - dict input contract
         return {}
-
-    if job_type == "execute_retention":
-        preview_token = payload.get("preview_token")
-        if isinstance(preview_token, str) and _RETENTION_PREVIEW_TOKEN_PATTERN.fullmatch(preview_token):
-            # This opaque, server-generated capability is required by the retention
-            # handler. Keep the exemption local to its validated job contract so the
-            # same key remains secret everywhere else.
-            sanitized["preview_token"] = preview_token
-    return sanitized
+    return restore_exempt_secrets(job_type, payload, sanitized)
 
 
 class JobRepository:
