@@ -19,8 +19,6 @@ import type {
   TelegramPublishAccepted,
   TelegramPublishJob,
   TelegramPublishReceipt,
-  TelegramReconcileInput,
-  TelegramReconciliationResult,
   TelegramRoute,
   TelegramRouteAccepted,
   TelegramRouteBackfillInput,
@@ -192,36 +190,8 @@ export async function getTelegramPublishJob(id: string): Promise<TelegramPublish
   return mapTelegramPublishJob(await apiRequest<BackendTelegramPublishJob>(`/telegram/publish-jobs/${encodeURIComponent(id)}`))
 }
 
-export function reconcileTelegramPublishJob(id: string, input: TelegramReconcileInput): Promise<TelegramReconciliationResult>
-export function reconcileTelegramPublishJob(
-  id: string,
-  input: { outcome: TelegramReconcileInput["outcome"]; remoteMessageIds?: number[]; permalink?: string | null }
-): Promise<TelegramReconciliationResult>
-export async function reconcileTelegramPublishJob(
-  id: string,
-  input: { outcome: TelegramReconcileInput["outcome"]; remoteMessageIds?: number[]; permalink?: string | null }
-): Promise<TelegramReconciliationResult> {
-  const row = await apiRequest<Record<string, unknown>>(
-    `/telegram/publish-jobs/${encodeURIComponent(id)}/reconcile`,
-    json("POST", { outcome: input.outcome, remote_message_ids: input.outcome === "published" ? (input.remoteMessageIds ?? []) : [], ...(input.outcome === "published" && input.permalink !== undefined ? { permalink: input.permalink } : {}) })
-  )
-  if (Array.isArray(row.remote_message_ids)) {
-    const publication = mapTelegramPublication(row as unknown as BackendTelegramPublication)
-    return {
-      publishJobId: publication.publishJobId,
-      reconciliationStatus: "confirmed",
-      receipts: [],
-      publication,
-    }
-  }
-  return {
-    publishJobId: row.publish_job_id as string,
-    reconciliationStatus: row.reconciliation_status as TelegramReconciliationResult["reconciliationStatus"],
-    receipts: ((row.receipts as BackendTelegramReceipt[] | undefined) ?? []).map(mapTelegramReceipt),
-    ...(row.publication ? { publication: mapTelegramPublication(row.publication as BackendTelegramPublication) } : {}),
-    ...(row.job ? { job: mapJobAccepted(row.job as BackendJobAccepted) } : {}),
-  }
-}
+// Reconciliation decisions have exactly one client:
+// features/operations/api.ts submitReconciliationDecision.
 
 export async function getBrandProfiles(): Promise<BrandProfile[]> {
   return apiRequest<BrandProfile[]>("/brand-profiles")

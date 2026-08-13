@@ -208,16 +208,6 @@ export type TelegramPublishJob = {
   receipts: TelegramPublishReceipt[]
   publication: TelegramPublication | null
 }
-export type TelegramReconcileInput =
-  | { outcome: "published"; remoteMessageIds: number[]; permalink?: string | null }
-  | { outcome: "not_published"; remoteMessageIds?: never; permalink?: never }
-export type TelegramReconciliationResult = {
-  publishJobId: string
-  reconciliationStatus: "confirmed" | "requeued"
-  receipts: TelegramPublishReceipt[]
-  publication?: TelegramPublication
-  job?: JobAccepted
-}
 
 export type BrandProfile = Schemas["BrandProfileOut"]
 export type BrandProfileInput = Schemas["BrandProfileCreate"]
