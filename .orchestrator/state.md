@@ -10,7 +10,7 @@ LAST_UPDATED_BY: wingman-host (local session)
 OBJECTIVE: Full-codebase refactor — fix all bugs, remove redundancy and
   dead code, decompose oversized modules, make every gate green. Owner:
   "every stone turned", "give me a clean repo".
-PHASE: wave2 round3 (chained batch fixers)
+PHASE: wave2 round3 continuation — 7 chains (wf_c0148e94-bb4)
 INTEGRATION_BRANCH: agent/finish-refactor-plan
 BASE_SHA: 8d5129a (merge of origin/main 46b4489 + orchestrator kit)
 CURRENT_HEAD_SHA: 397671c (gate fixes integrated: 3155f34 frontend test fix, 397671c backend gate fix)
@@ -53,11 +53,12 @@ BASELINE_AT_8d5129a (pre-fix evidence):
   modules ≥1000 lines.
 
 ACTIVE_WORKERS:
-- workflow wf_6312237a-39c "wave2-fixers": 5 worktree-isolated Opus max
-  fixers — wave2a-ingest (28 P1/P2), wave2a-ops (22 P1/P2),
-  wave2b-publish (39), wave2b-frontend (62), wave2b-core (17, incl.
-  default-allow security P1). Packets in .orchestrator/tasks/, findings
-  in .orchestrator/runs/refactor-2026-08-13/verify/.
+- workflow wf_c0148e94-bb4: 7 parallel chains of ≤6-item batches (default
+  subagents, opus/high, worktree-isolated): ingest(8 batches from d60b5b8),
+  ops(6 from fdc2ace), publish(7 from cd9650e), frontend(11 from 9e1d16e),
+  core(3 from a651d3e), editorial(6 from 641f0d7), docs-sync(4 from
+  641f0d7). Chain branches worktree-wf_b8457128-6f8-* hold the 52
+  salvaged commits pending integration.
 VERIFY_COMPLETE: all 20 slices verified. 372 CONFIRMED total
   (54 P1 / 160 P2 / 161 P3 incl. orchestrator-observed flake), 136
   REJECTED. confirmed-all.json is the master list. Deferred-for-conflict
