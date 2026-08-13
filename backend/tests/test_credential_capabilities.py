@@ -10,6 +10,7 @@ from app.core.secrets import EnvironmentSecretResolver
 from app.generation.models import AIProviderProfile
 from app.jobs.credential_capabilities import (
     CapabilityObservation,
+    CapabilityStatusService,
     WorkerCredentialCapabilityObserver,
     project_capability_status,
 )
@@ -220,6 +221,31 @@ async def test_revoking_provider_credential_does_not_change_source_or_publishing
     assert destination_observation.state == "available"
     assert not any(canary in encoded for canary in remaining.values())
     assert not any(reference in encoded for reference in remaining)
+
+
+async def test_capability_status_service_answers_many_questions_from_one_snapshot():
+    observation = _observation()
+    heartbeats = [_heartbeat(observation)]
+
+    class _CountingSession:
+        def __init__(self) -> None:
+            self.scans = 0
+
+        async def scalars(self, _statement: object) -> list[RuntimeHeartbeat]:
+            self.scans += 1
+            return heartbeats
+
+    session = _CountingSession()
+    service = CapabilityStatusService(session, config=Settings(_env_file=None), clock=lambda: NOW)
+
+    first = await service.get("provider", observation.resource_id, "generation")
+    second = await service.get("provider", observation.resource_id, "generation")
+    third = await service.get("provider", uuid4(), "generation")
+
+    assert session.scans == 1
+    assert first.status == "available"
+    assert second == first
+    assert third.status == "unknown"
 
 
 async def test_generic_provider_reports_key_ring_outage_as_invalid_configuration():
