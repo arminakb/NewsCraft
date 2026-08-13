@@ -5,7 +5,7 @@
 - **Strict status:** IMPLEMENTATION COMPLETE — HEALTHY-HARDWARE AXE AND MANUAL VERIFICATION PENDING
 - **Starting revision:** `cc603b3` on `phase-12-diagnostics-accessibility`
 - **Model:** GPT-5 Codex
-- **Authoritative source:** `solutions.md`, Phase 12
+- **Authoritative source:** `docs/archive/solutions.md`, Phase 12
 - **Prerequisites:** Phase 10's repaired `/operations/diagnostics` and reconciliation mocks plus Phase 7's blocking browser job are present.
 
 The documented defect was confirmed in source: the shared destructive badge used 12 px destructive text over 10%/20% translucent same-token backgrounds. Diagnostics used that badge for its highest-priority error attention and used light-theme-only ad hoc component status classes.

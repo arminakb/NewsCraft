@@ -5,7 +5,7 @@
 - **Strict status:** IMPLEMENTATION COMPLETE — FIRST REMOTE RUN AND BRANCH PROTECTION PENDING
 - **Starting revision:** `42eb369` on `phase-07-ci`
 - **Model:** GPT-5 Codex
-- **Authoritative source:** `solutions.md`, Phase 7
+- **Authoritative source:** `docs/archive/solutions.md`, Phase 7
 - **Prerequisite:** Phase 8 commit `42eb369` supplies frozen Python/npm graphs, immutable image inputs, audits, and dependency inventory.
 
 The starting revision had `.github/dependabot.yml` but no workflow. A merge could therefore bypass every backend, database, migration, frontend, contract, Compose, security, and browser check. The root cause was missing executable repository policy, not a missing local test command.

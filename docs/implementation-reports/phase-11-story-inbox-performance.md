@@ -4,7 +4,7 @@
 
 - **Strict status:** IMPLEMENTATION COMPLETE — HEALTHY-HARDWARE BROWSER BUDGET EXECUTION PENDING
 - **Starting revision:** `b8703c2` on `phase-11-story-inbox-performance`
-- **Authoritative source:** `solutions.md`, Phase 11
+- **Authoritative source:** `docs/archive/solutions.md`, Phase 11
 - **Prerequisites:** Phase 7's nightly runner, Phase 8's frozen frontend dependencies, Phase 10's typed cursor contract, and Phase 12's accessibility coverage are present.
 
 The scaling defect was confirmed directly in source. The Inbox requested 200 stories, appended every cursor page into an unbounded DOM, stored selected IDs in an array, performed `includes` for each rendered row, and passed new closures to every non-memoized row on each parent render. The audit's 201-row Vitest case therefore exercised a real scaling problem even though host contention contributed to its timeout.

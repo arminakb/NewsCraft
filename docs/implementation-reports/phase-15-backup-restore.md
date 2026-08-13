@@ -4,7 +4,7 @@
 
 - **Strict status:** IMPLEMENTATION COMPLETE — HEALTHY-HARDWARE DISPOSABLE RESTORE EXECUTION PENDING
 - **Starting revision:** `5f057ce` on `phase-15-backup-restore`
-- **Authoritative source:** `solutions.md`, Phase 15
+- **Authoritative source:** `docs/archive/solutions.md`, Phase 15
 - **Prerequisites:** Phase 3 service control, Phase 6 credential separation, Phase 7 scheduled evidence retention, Phase 8 pinned images, and Phase 9 readiness/smoke are present.
 
 The prior tool verified a plaintext archive but captured PostgreSQL, media, and exports sequentially while writers remained active. It had no encryption, generation retention, compatible-client enforcement, safe new-project restore orchestrator, automatic integrity/canary/smoke proof, or retained signed drill result.

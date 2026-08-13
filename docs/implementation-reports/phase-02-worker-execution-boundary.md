@@ -16,6 +16,11 @@ The deferred deployed gate is now verified. On source revision `5ad72dc49bdb9189
 
 Because the requested `plan.md` was unavailable, the implementation was checked against the Phase 2 contract in `solutions.md` and against the current code rather than assuming that artifact was current. This missing source file remains a documentation risk.
 
+> **Resolved 2026-08-13.** The documentation risk recorded above is closed:
+> the root-level `solutions.md` cited throughout this report has been
+> restored from commit `8f0923d` to `docs/archive/solutions.md`, so its
+> Phase 2 contract is readable again.
+
 ## Problem reproduction
 
 Documented problem reproduced: **YES, at the causal boundary**.
