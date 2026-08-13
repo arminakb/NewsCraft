@@ -163,14 +163,19 @@ export function ArticlesPage() {
     collectionId: selectedCollectionId,
     timezone,
   }), [filters, selectedCollectionId, sort, timezone, titleQuery])
-  const cursorStoreRef = useRef<{ identity: string; cursors: ArticleCursorStore } | null>(null)
-  if (cursorStoreRef.current?.identity !== articleQueryIdentity) {
-    cursorStoreRef.current = { identity: articleQueryIdentity, cursors: new Map([[1, null]]) }
-  }
-  const cursorStore = cursorStoreRef.current.cursors
-  if (currentPage === 1) cursorStore.set(1, null)
-  if (currentPage > 1 && urlCursor) cursorStore.set(currentPage, urlCursor)
-  const currentCursor = currentPage === 1 ? null : cursorStore.get(currentPage)
+  // One cursor map per query identity. Deriving it here keeps the render
+  // pure: the map is created, never mutated, while rendering, and every
+  // write happens from an effect below.
+  const cursorStore = useMemo<ArticleCursorStore>(
+    () => new Map([[1, null]]),
+    [articleQueryIdentity],
+  )
+  useEffect(() => {
+    if (currentPage > 1 && urlCursor) cursorStore.set(currentPage, urlCursor)
+  }, [currentPage, cursorStore, urlCursor])
+  const currentCursor = currentPage === 1
+    ? null
+    : urlCursor ?? cursorStore.get(currentPage)
   const pageCursorResolved = currentPage === 1 || currentCursor !== undefined
   const facetsQuery = useQuery({
     queryKey: queryKeys.articleFacets,
