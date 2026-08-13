@@ -3,7 +3,6 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react"
 
 import { NoticeProvider } from "@/components/providers/notice-provider"
 import {
-  getTelegramDestinations,
   getTelegramDispatches,
   getTelegramPublicationContext,
   getTelegramPublishJob,
@@ -12,6 +11,7 @@ import {
 } from "@/features/automations/telegram-api"
 import { getAutomationControl } from "@/features/control/api"
 import { TelegramReviewWorkspace } from "@/features/review/telegram-review-workspace"
+import { getTelegramDestinations } from "@/features/settings/content-settings-api"
 
 vi.mock("@/features/control/api", () => ({ getAutomationControl: vi.fn() }))
 vi.mock("@/features/automations/telegram-api", () => ({
@@ -19,9 +19,9 @@ vi.mock("@/features/automations/telegram-api", () => ({
   getTelegramDispatches: vi.fn(),
   getTelegramPublishJob: vi.fn(),
   getTelegramRoute: vi.fn(),
-  getTelegramDestinations: vi.fn(),
   publishTelegramDraft: vi.fn(),
 }))
+vi.mock("@/features/settings/content-settings-api", () => ({ getTelegramDestinations: vi.fn() }))
 
 const revision = {
   id: "11111111-1111-4111-8111-111111111111",
@@ -87,7 +87,7 @@ describe("TelegramReviewWorkspace", () => {
     } as never)
     vi.mocked(getTelegramDestinations).mockResolvedValue([{
       id: "81111111-1111-4111-8111-111111111111",
-      healthStatus: "healthy",
+      health_status: "healthy",
       enabled: true,
       configured: true,
     }] as never)
@@ -142,7 +142,7 @@ describe("TelegramReviewWorkspace", () => {
     ["global pause", { control: { globalPause: true }, route: {}, destination: {}, payload: {} }],
     ["global dry run", { control: { dryRun: true }, route: {}, destination: {}, payload: {} }],
     ["route paused", { control: {}, route: { pausedAt: "2026-07-12T09:00:00Z" }, destination: {}, payload: {} }],
-    ["destination unhealthy", { control: {}, route: {}, destination: { healthStatus: "unhealthy" }, payload: {} }],
+    ["destination unhealthy", { control: {}, route: {}, destination: { health_status: "unhealthy" }, payload: {} }],
     ["destination unavailable", { control: {}, route: {}, destination: { configured: false }, payload: {} }],
     ["manual media replacement", { control: {}, route: {}, destination: {}, payload: { mediaPolicy: "replace_manually" } }],
   ])("shows the independent %s blocker", async (label, state) => {
@@ -163,7 +163,7 @@ describe("TelegramReviewWorkspace", () => {
     } as never)
     vi.mocked(getTelegramDestinations).mockResolvedValue([{
       id: "81111111-1111-4111-8111-111111111111",
-      healthStatus: "healthy",
+      health_status: "healthy",
       enabled: true,
       configured: true,
       ...state.destination,

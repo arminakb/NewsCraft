@@ -55,15 +55,9 @@ export type TelegramSourceInput = {
   sessionSecretRef?: string | null
 }
 
-export type TelegramDestination = {
-  id: string
-  name: string
-  targetRef: string
-  enabled: boolean
-  healthStatus: TelegramDestinationHealth
-  configured: boolean
-  capabilityState: CredentialCapabilityState
-}
+// The destination row type is the generated TelegramDestinationOut, exported as
+// TelegramDestination from features/settings/content-settings-api.ts — a second
+// hand-written camelCase copy of the same endpoint lived here and drifted.
 
 export type TelegramContentFilters = {
   model?: string | null

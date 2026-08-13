@@ -12,7 +12,7 @@ import type {
   PromptVersion,
   PromptVersionInput,
   TelegramAutomationOptions,
-  TelegramDestination,
+  TelegramDestinationHealth,
   TelegramDispatch,
   TelegramPublication,
   TelegramPublicationContext,
@@ -68,7 +68,7 @@ const defined = (value: Record<string, unknown>) =>
 export async function getTelegramAutomationOptions(): Promise<TelegramAutomationOptions> {
   const row = await apiRequest<{
     sources: Array<{ id: string; name: string; access_mode: TelegramRoute["accessMode"]; capability_state: unknown }>
-    destinations: Array<{ id: string; name: string; health_status: TelegramDestination["healthStatus"]; capability_state: unknown }>
+    destinations: Array<{ id: string; name: string; health_status: TelegramDestinationHealth; capability_state: unknown }>
     brand_profiles: Array<{ id: string; name: string }>
     prompt_template_versions: Array<{ id: string; version: number; is_active: boolean; checksum_sha256: string }>
     ai_provider_profiles: Array<{ id: string; name: string; provider_type: "fake" | "openrouter" | "codex"; default_model: string | null; configured: boolean; capabilities: { generation: boolean; research: boolean }; capability_states: { generation?: unknown; research?: unknown } }>
@@ -96,9 +96,9 @@ export async function createTelegramSource(input: TelegramSourceInput): Promise<
   return mapTelegramSource(row)
 }
 
-export async function getTelegramDestinations(): Promise<TelegramDestination[]> {
-  return (await apiRequest<Array<Record<string, unknown>>>("/telegram/destinations")).map(mapTelegramDestination)
-}
+// Destination listing has exactly one client:
+// features/settings/content-settings-api.ts getTelegramDestinations, typed
+// against the generated TelegramDestinationOut schema.
 
 export async function getTelegramRoutes(): Promise<TelegramRoute[]> {
   return (await apiRequest<BackendTelegramRoute[]>("/telegram/automations")).map(mapTelegramRoute)
@@ -242,9 +242,6 @@ export function mapTelegramPublishJob(row: BackendTelegramPublishJob): TelegramP
 
 function mapTelegramSource(row: Record<string, unknown>): TelegramSource {
   return { id: row.id as string, name: row.name as string, channelRef: row.channel_ref as string, accessMode: row.access_mode as TelegramSource["accessMode"], languageHint: row.language_hint as string | null, configured: row.configured as boolean, capabilityState: mapCredentialCapabilityState(row.capability_state) }
-}
-function mapTelegramDestination(row: Record<string, unknown>): TelegramDestination {
-  return { id: row.id as string, name: row.name as string, targetRef: row.target_ref as string, enabled: row.enabled as boolean, healthStatus: row.health_status as TelegramDestination["healthStatus"], configured: row.configured as boolean, capabilityState: mapCredentialCapabilityState(row.capability_state) }
 }
 function mapTelegramDispatch(row: Record<string, unknown>): TelegramDispatch {
   return { id: row.id as string, routeId: row.route_id as string, sourceItemId: row.source_item_id as string, storyId: row.story_id as string, storyRevisionId: row.story_revision_id as string, sourceKey: row.source_key as string, sourceFingerprint: row.source_fingerprint as string, sourceMessageIds: row.source_message_ids as number[], dispatchKind: row.dispatch_kind as TelegramDispatch["dispatchKind"], status: row.status as string, generationRunId: row.generation_run_id as string | null, variantRevisionId: row.variant_revision_id as string | null, publishJobId: row.publish_job_id as string | null, errorCode: row.error_code as string | null, errorMessage: row.error_message as string | null, createdAt: row.created_at as string, updatedAt: row.updated_at as string }
