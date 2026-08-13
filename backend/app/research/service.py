@@ -13,11 +13,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.redaction import redact_secrets, redact_string
 from app.generation.models import AIProviderProfile
 from app.generation.provider_settings import (
-    CodexProviderSettings,
-    OpenRouterProviderSettings,
+    ProviderShapeError,
     ResearchBudgetSettings,
+    UnsupportedProviderTypeError,
     default_research_budgets,
-    effective_codex_provider_settings,
+    validate_provider_shape,
 )
 from app.jobs.capability_gate import api_capability_gate_enabled
 from app.jobs.credential_capabilities import CapabilityStatusService, provider_shape_capabilities
@@ -146,36 +146,28 @@ class ResearchService:
         shaped, _codes = provider_shape_capabilities(profile)
         if not shaped["research"]:
             raise ResearchRequestError("Selected research provider profile is invalid")
-        model = profile.default_model
-        if profile.provider_type == "fake":
-            if profile.secret_ref is not None or dict(profile.settings or {}):
-                raise ResearchRequestError("Selected research provider profile is invalid")
-            model = model or "fake-v1"
+        try:
+            shape = validate_provider_shape(
+                provider_type=profile.provider_type,
+                default_model=profile.default_model,
+                secret_ref=profile.secret_ref,
+                settings=profile.settings,
+            )
+        except UnsupportedProviderTypeError:
+            raise ResearchRequestError("Selected research provider profile is unsupported") from None
+        except ProviderShapeError:
+            raise ResearchRequestError("Selected research provider profile is invalid") from None
+        if shape.provider_type == "fake":
             selected = getattr(default_research_budgets(), depth)
-        elif profile.provider_type == "codex":
-            if profile.secret_ref is not None or not model:
-                raise ResearchRequestError("Selected research provider profile is invalid")
-            try:
-                configured = effective_codex_provider_settings(
-                    CodexProviderSettings.model_validate(dict(profile.settings or {}))
-                )
-            except ValueError:
-                raise ResearchRequestError("Selected research provider profile is invalid") from None
-            assert configured.research_budgets is not None
-            selected = getattr(configured.research_budgets, depth)
-        elif profile.provider_type == "openrouter":
-            if not profile.secret_ref or not model:
-                raise ResearchRequestError("Selected research provider profile is invalid")
-            try:
-                configured_or = OpenRouterProviderSettings.model_validate(dict(profile.settings or {}))
-            except ValueError:
-                raise ResearchRequestError("Selected research provider profile is invalid") from None
-            if configured_or.pricing is None or configured_or.research_budgets is None:
-                raise ResearchRequestError("Selected research provider profile is unavailable")
-            selected = getattr(configured_or.research_budgets, depth)
+        elif shape.codex is not None:
+            assert shape.codex.research_budgets is not None
+            selected = getattr(shape.codex.research_budgets, depth)
         else:
-            raise ResearchRequestError("Selected research provider profile is unsupported")
-        return ResolvedResearchProfile(profile=profile, model=model, budget=_budget(selected))
+            assert shape.openrouter is not None
+            if shape.openrouter.pricing is None or shape.openrouter.research_budgets is None:
+                raise ResearchRequestError("Selected research provider profile is unavailable")
+            selected = getattr(shape.openrouter.research_budgets, depth)
+        return ResolvedResearchProfile(profile=profile, model=shape.model, budget=_budget(selected))
 
     async def request(
         self,

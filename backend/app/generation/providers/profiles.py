@@ -8,7 +8,6 @@ from typing import Any
 from uuid import UUID
 
 import httpx
-from pydantic import ValidationError
 
 from app.core.codex_exec import CodexExecutor
 from app.core.config import Settings, settings
@@ -18,9 +17,10 @@ from app.generation.invalid_output_quarantine import AgeInvalidOutputQuarantine
 from app.generation.models import AIProviderProfile
 from app.generation.provider_identity import provider_configuration_identity
 from app.generation.provider_settings import (
-    CodexProviderSettings,
     OpenRouterProviderSettings,
-    effective_codex_provider_settings,
+    ProviderShapeError,
+    ValidatedProviderShape,
+    validate_provider_shape,
 )
 from app.generation.providers.base import GenerationProvider
 from app.generation.providers.openai_compatible import OpenAICompatibleProvider
@@ -101,9 +101,7 @@ class ProviderProfileResolver:
         profile: AIProviderProfile,
         model_override: str | None,
     ) -> ResolvedProviderProfile:
-        if profile.secret_ref is not None or dict(profile.settings or {}):
-            raise ProviderProfileConfigurationError("Fake provider profile has invalid settings")
-        model = model_override or profile.default_model or "fake-v1"
+        model = self._validated_shape(profile, model_override=model_override).model
         identity = provider_configuration_identity(
             profile_id=profile.id,
             provider_type="fake",
@@ -122,17 +120,13 @@ class ProviderProfileResolver:
     def _resolve_codex(self, profile: AIProviderProfile) -> ResolvedProviderProfile:
         if not self.application_settings.codex_enabled:
             raise ProviderProfileConfigurationError("Codex provider is disabled")
-        if profile.secret_ref is not None:
-            raise ProviderProfileConfigurationError("Codex provider profile cannot have a secret reference")
-        if not profile.default_model:
-            raise ProviderProfileConfigurationError("Selected provider profile has no model")
+        shape = self._validated_shape(profile)
+        assert shape.codex is not None
+        validated = shape.codex
         executable = self.executable_resolver(self.application_settings.codex_executable)
         if executable is None:
             raise ProviderProfileConfigurationError("Codex executable is unavailable")
         try:
-            validated = effective_codex_provider_settings(
-                CodexProviderSettings.model_validate(dict(profile.settings or {}))
-            )
             provider = self.provider_registry.create(
                 "codex",
                 executor=self.codex_executor_factory(executable),
@@ -143,36 +137,47 @@ class ProviderProfileResolver:
         identity = provider_configuration_identity(
             profile_id=profile.id,
             provider_type="codex",
-            resolved_model=profile.default_model,
+            resolved_model=shape.model,
             safe_settings=validated.model_dump(mode="json"),
         )
         return ResolvedProviderProfile(
             profile_id=profile.id,
             provider_type="codex",
-            model=profile.default_model,
+            model=shape.model,
             configuration_revision=identity.revision,
             configuration_checksum=identity.checksum,
             provider=provider,
         )
+
+    def _validated_shape(
+        self,
+        profile: AIProviderProfile,
+        *,
+        model_override: str | None = None,
+    ) -> ValidatedProviderShape:
+        """Apply the shared per-provider-type shape rules in this resolver's error taxonomy."""
+
+        try:
+            return validate_provider_shape(
+                provider_type=profile.provider_type,
+                default_model=profile.default_model,
+                secret_ref=profile.secret_ref,
+                settings=profile.settings,
+                model_override=model_override,
+                setting_defaults={"base_url": self.application_settings.openrouter_base_url},
+            )
+        except ProviderShapeError as error:
+            raise ProviderProfileConfigurationError(str(error)) from None
 
     def _openrouter_settings(
         self,
         profile: AIProviderProfile,
         model_override: str | None,
     ) -> tuple[str, OpenRouterProviderSettings]:
-        model = model_override or profile.default_model
-        if not model:
-            raise ProviderProfileConfigurationError("Selected provider profile has no model")
-        if not profile.secret_ref:
-            raise ProviderProfileConfigurationError("Selected provider profile has no secret reference")
-        raw_settings: dict[str, Any] = {
-            "base_url": self.application_settings.openrouter_base_url,
-            **dict(profile.settings or {}),
-        }
-        try:
-            validated = OpenRouterProviderSettings.model_validate(raw_settings)
-        except ValidationError:
-            raise ProviderProfileConfigurationError("Selected provider profile settings are invalid") from None
+        shape = self._validated_shape(profile, model_override=model_override)
+        assert shape.openrouter is not None
+        model = shape.model
+        validated = shape.openrouter
         if (
             validated.base_url.scheme != "https"
             or validated.base_url.username is not None
