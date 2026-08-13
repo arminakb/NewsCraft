@@ -392,10 +392,12 @@ class ProductionWorkflowRepository:
         self.session.stage("raw", kwargs.copy())
         return payload
 
-    async def upsert_source_item(self, **kwargs):
+    async def upsert_source_item_with_created(self, **kwargs):
         value = SimpleNamespace(id=uuid4(), content_item_id=None)
         self.session.stage("source_item", kwargs.copy())
-        return value
+        # `False` keeps this double off the source-item event path, which needs
+        # the real automations tables rather than this staged session.
+        return value, False
 
     async def upsert_content_item(self, **kwargs):
         value = SimpleNamespace(id=uuid4())

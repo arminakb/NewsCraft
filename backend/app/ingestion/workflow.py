@@ -285,8 +285,7 @@ class IngestionWorkflow:
         try:
             async with session.begin_nested():
                 for parsed_item in batch.parsed_items:
-                    source_item, created = await _upsert_source_item_with_created(
-                        repository,
+                    source_item, created = await repository.upsert_source_item_with_created(
                         run_id=run_id,
                         source_id=source.id,
                         raw_payload_id=payload.id,
@@ -649,19 +648,6 @@ class _PersistedResponse:
 
 def _build_http_client() -> httpx.AsyncClient:
     return build_outbound_http_client(timeout=20.0)
-
-
-async def _upsert_source_item_with_created(
-    repository: IngestionRepository,
-    **kwargs: Any,
-) -> tuple[Any, bool]:
-    method = getattr(repository, "upsert_source_item_with_created", None)
-    if callable(method):
-        return await method(**kwargs)
-    # Small repository doubles used by ingestion unit tests predate the
-    # insert/update signal. They still exercise persistence, but cannot emit
-    # a source-item event without the real repository boundary.
-    return await repository.upsert_source_item(**kwargs), False
 
 
 def _source_request_url(source: Source) -> str:
