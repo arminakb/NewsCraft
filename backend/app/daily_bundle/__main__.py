@@ -29,8 +29,11 @@ class DailyBundleDependencies:
     ingestion_workflow_factory: Callable[[httpx.AsyncClient], IngestionWorkflow] = lambda client: IngestionWorkflow(
         http_client=client
     )
+    # The feed client is deliberately not reused for media: media URLs come
+    # from third-party feed bodies, so MediaDownloader builds its own pinned
+    # SafeHttpClient instead.
     media_downloader_factory: Callable[[Any, httpx.AsyncClient], MediaDownloader] = lambda session, client: (
-        MediaDownloader(session, http_client=client)
+        MediaDownloader(session)
     )
     exporter: Callable[[Any, datetime, datetime, Path], Any] = export_daily_bundle
     now: Callable[[], datetime] = lambda: datetime.now(UTC)

@@ -8,8 +8,9 @@ import httpx
 from sqlalchemy import select, text
 
 from app.core.config import settings
-from app.core.outbound_proxy import build_outbound_http_client
+from app.core.safe_http import SafeHttpClient, SafeHttpError
 from app.db.models import MediaAsset
+from app.normalization.url_safety import UnsafeUrlError, validate_public_http_url
 
 IMAGE_MIME_EXTENSIONS = {
     "image/jpeg": ".jpg",
@@ -22,10 +23,18 @@ MAX_IMAGE_BYTES = 15 * 1024 * 1024
 
 
 class MediaDownloader:
+    """Fetch remote media through the pinned, size-capped public HTTP boundary.
+
+    Media URLs are third-party input: they are harvested from remote feed
+    bodies, so every request must go through `SafeHttpClient` (DNS pinning,
+    public-address-only, per-hop redirect revalidation, bounded body) with the
+    shared deny-list applied to the requested and the final URL.
+    """
+
     def __init__(
         self,
         session,
-        http_client: httpx.AsyncClient | None = None,
+        http_client: SafeHttpClient | None = None,
         media_root: str | Path | None = None,
         max_image_bytes: int = MAX_IMAGE_BYTES,
     ):
@@ -35,20 +44,20 @@ class MediaDownloader:
         self.max_image_bytes = max_image_bytes
 
     async def download_missing(self, limit: int = 100) -> dict[str, int]:
+        if self.http_client is not None:
+            return await self._download_missing(self.http_client, limit)
+        async with SafeHttpClient(timeout=30.0, max_response_bytes=self.max_image_bytes) as client:
+            return await self._download_missing(client, limit)
+
+    async def _download_missing(self, client: SafeHttpClient, limit: int) -> dict[str, int]:
         counts = {"checked": 0, "downloaded": 0, "skipped": 0, "failed": 0}
-        owns_client = self.http_client is None
-        client = self.http_client or build_outbound_http_client(timeout=30.0, follow_redirects=True)
-        try:
-            assets = await self._load_missing_assets(limit)
-            for asset in assets:
-                counts["checked"] += 1
-                result = await self._download_asset(client, asset)
-                counts[result] += 1
-            await self.session.flush()
-            return counts
-        finally:
-            if owns_client:
-                await client.aclose()
+        assets = await self._load_missing_assets(limit)
+        for asset in assets:
+            counts["checked"] += 1
+            result = await self._download_asset(client, asset)
+            counts[result] += 1
+        await self.session.flush()
+        return counts
 
     async def _load_missing_assets(self, limit: int) -> list[MediaAsset]:
         stmt = (
@@ -60,31 +69,36 @@ class MediaDownloader:
         assets = await self.session.scalars(stmt)
         return list(assets)[:limit]
 
-    async def _download_asset(self, client: httpx.AsyncClient, asset: MediaAsset) -> str:
+    async def _download_asset(self, client: SafeHttpClient, asset: MediaAsset) -> str:
         if asset.kind != "image":
             asset.fetch_status = "skipped"
             return "skipped"
 
         try:
-            head = await client.head(asset.normalized_url, follow_redirects=True)
-        except httpx.HTTPError:
-            head = None
-
-        if head is not None and head.status_code < 400:
-            if _content_length_too_large(head.headers.get("content-length"), self.max_image_bytes):
-                asset.fetch_status = "skipped"
-                return "skipped"
-            content_type = _normalized_content_type(head.headers.get("content-type"))
-            if content_type and not content_type.startswith("image/"):
-                asset.fetch_status = "skipped"
-                return "skipped"
+            validate_public_http_url(asset.normalized_url)
+        except UnsafeUrlError:
+            asset.fetch_status = "skipped"
+            return "skipped"
 
         try:
             response = await client.get(asset.normalized_url, follow_redirects=True)
-            if response.status_code >= 400:
-                asset.fetch_status = "failed"
-                return "failed"
+        except SafeHttpError:
+            # Rejected target, oversized body, or redirect loop: never retried,
+            # and reported as "skipped" so the stored status cannot be read as
+            # an internal-host probe.
+            asset.fetch_status = "skipped"
+            return "skipped"
         except httpx.HTTPError:
+            asset.fetch_status = "failed"
+            return "failed"
+
+        try:
+            validate_public_http_url(str(response.url))
+        except UnsafeUrlError:
+            asset.fetch_status = "skipped"
+            return "skipped"
+
+        if response.status_code >= 400:
             asset.fetch_status = "failed"
             return "failed"
 
@@ -121,15 +135,6 @@ class MediaDownloader:
         asset.mime_type = content_type
         asset.fetch_status = "downloaded"
         return "downloaded"
-
-
-def _content_length_too_large(value: str | None, max_size: int) -> bool:
-    if not value:
-        return False
-    try:
-        return int(value) > max_size
-    except ValueError:
-        return False
 
 
 def _normalized_content_type(value: str | None) -> str | None:

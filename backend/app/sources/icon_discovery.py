@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import hashlib
-import ipaddress
 import logging
 import os
 import re
@@ -28,6 +27,7 @@ from app.jobs.errors import PermanentJobError
 from app.jobs.registry import JobContext
 from app.jobs.repository import JobRepository
 from app.jobs.types import JobExecution, JobOrigin
+from app.normalization.url_safety import UnsafeUrlError, validate_public_http_url
 
 ICON_JOB_TYPE = "source.icon.discover"
 ICON_PLATFORMS = ("rss", "atom")
@@ -59,14 +59,6 @@ _ALLOWED_RESPONSE_MIME_TYPES = frozenset(
 )
 _MAX_ICON_DIMENSION = 4096
 _MAX_CANDIDATES = 12
-_BLOCKED_HOSTS = {
-    "instance-data",
-    "localhost",
-    "metadata",
-    "metadata.google.internal",
-    "host.docker.internal",
-}
-_BLOCKED_HOST_SUFFIXES = (".internal", ".localhost", ".local", ".home.arpa", ".intranet")
 _SVG_EXTERNAL_REFERENCE = re.compile(
     r"(?:xlink:)?(?:href|src)\s*=\s*['\"]\s*(?:https?:|//|data:|javascript:|vbscript:)",
     re.I,
@@ -278,21 +270,10 @@ def extract_website_icon_candidates(html: str | bytes, base_url: str) -> tuple[I
 def validate_icon_url(value: str) -> str:
     """Reject local, private, metadata, credentialed, and unsupported icon URLs."""
 
-    parsed = urlsplit(value)
-    if parsed.scheme not in {"http", "https"} or not parsed.hostname:
-        raise IconCandidateError("unsafe_url", retryable=False)
-    if parsed.username is not None or parsed.password is not None:
-        raise IconCandidateError("unsafe_url", retryable=False)
-    hostname = parsed.hostname.rstrip(".").casefold()
     try:
-        address = ipaddress.ip_address(hostname)
-    except ValueError:
-        if hostname in _BLOCKED_HOSTS or hostname.endswith(_BLOCKED_HOST_SUFFIXES):
-            raise IconCandidateError("unsafe_url", retryable=False) from None
-    else:
-        if not address.is_global:
-            raise IconCandidateError("unsafe_url", retryable=False)
-    return value
+        return validate_public_http_url(value)
+    except UnsafeUrlError:
+        raise IconCandidateError("unsafe_url", retryable=False) from None
 
 
 def _content_type(response: httpx.Response) -> str | None:
