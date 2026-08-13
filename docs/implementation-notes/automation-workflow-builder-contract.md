@@ -115,7 +115,7 @@ Representative stable runtime error codes that must retain their current meaning
 
 ### Migrations, contracts, and acceptance
 
-- The current Alembic head is `0031_retire_obsolete_workflow_nodes`; job/schedule, Telegram route, and dispatch sequence foundations are migrations `0005`, `0006`, and `0007` ([versions](../../backend/alembic/versions)). Applied migrations must not be rewritten.
+- The Alembic head this document was last checked against is `0035_feed_clear`; the single source of truth is `SCHEMA_HEAD` in [`backend/app/db/schema.py`](../../backend/app/db/schema.py), which readiness compares against the deployed revision — quote it from there rather than from this document. Job/schedule, Telegram route, and dispatch sequence foundations are migrations `0005`, `0006`, and `0007` ([versions](../../backend/alembic/versions)). Applied migrations must not be rewritten.
 - [`backend/scripts/export_openapi.py`](../../backend/scripts/export_openapi.py) deterministically exports [`contracts/openapi.json`](../../contracts/openapi.json).
 - [`test_openapi_contract.py`](../../backend/tests/test_openapi_contract.py), [`openapi-contract.test.ts`](../../frontend/tests/openapi-contract.test.ts), and the CI contract-drift step keep backend and generated TypeScript aligned.
 - [`scripts/test_acceptance.sh`](../../scripts/test_acceptance.sh), [`scripts/test_postgres.sh`](../../scripts/test_postgres.sh), and [`scripts/smoke.py`](../../scripts/smoke.py) own the credential-free acceptance path described in [`release-acceptance.md`](../operations/release-acceptance.md).
