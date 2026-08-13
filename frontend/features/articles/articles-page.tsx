@@ -25,7 +25,7 @@ import {
 import { SaveToCollectionDialog } from "./save-to-collection-dialog"
 import type { ArticleCollection, ArticleImage, ArticlePage, ArticleSort, ArticleSummary, FeedSummary } from "./types"
 
-import { useEditorialModal } from "@/components/editorial/use-editorial-modal"
+import { EditorialDialog } from "@/components/editorial/editorial-dialog"
 import { DirectionBoundary } from "@/components/newsroom/direction-boundary"
 import { useDateTime } from "@/components/providers/date-time-provider"
 import { Alert } from "@/components/ui/alert"
@@ -859,21 +859,10 @@ function ClearFeedDialog({
   open: boolean
   pending: boolean
 }) {
-  const dialogRef = useRef<HTMLElement | null>(null)
   const cancelRef = useRef<HTMLButtonElement | null>(null)
   const titleId = "clear-feed-dialog-title"
   const descriptionId = "clear-feed-dialog-description"
   const errorId = "clear-feed-dialog-error"
-
-  useEditorialModal({
-    open,
-    containerRef: dialogRef,
-    initialFocusRef: cancelRef,
-    onClose,
-    canClose: !pending,
-  })
-
-  if (!open) return null
 
   const description = count === null
     ? loadingCount
@@ -883,22 +872,16 @@ function ClearFeedDialog({
   const confirmDisabled = pending || loadingCount || count === null
 
   return (
-    <div
-      aria-hidden={false}
-      className="nc-dialog-scrim fixed inset-0 z-50 grid place-items-center overflow-y-auto bg-background/45 p-4 backdrop-blur-[2px] motion-reduce:transition-none"
-      onClick={(event) => {
-        if (event.target === event.currentTarget && !pending) onClose()
-      }}
+    <EditorialDialog
+      canClose={!pending}
+      className="overflow-y-auto bg-background/45 backdrop-blur-[2px] motion-reduce:transition-none"
+      describedBy={`${descriptionId}${clearError ? ` ${errorId}` : ""}`}
+      initialFocusRef={cancelRef}
+      labelledBy={titleId}
+      onClose={onClose}
+      open={open}
     >
-      <section
-        aria-describedby={`${descriptionId}${clearError ? ` ${errorId}` : ""}`}
-        aria-labelledby={titleId}
-        aria-modal="true"
-        className="nc-dialog w-full max-w-md space-y-5 p-5"
-        ref={dialogRef}
-        role="dialog"
-        tabIndex={-1}
-      >
+      <div className="nc-dialog w-full max-w-md space-y-5 p-5">
         <div className="space-y-2">
           <h2 className="text-base font-semibold" id={titleId}>Clear Feed?</h2>
           <div className="space-y-2 text-sm text-muted-foreground" id={descriptionId}>
@@ -944,8 +927,8 @@ function ClearFeedDialog({
             {pending ? "Clearing…" : "Clear Feed"}
           </Button>
         </div>
-      </section>
-    </div>
+      </div>
+    </EditorialDialog>
   )
 }
 

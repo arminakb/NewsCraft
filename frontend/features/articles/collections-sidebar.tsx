@@ -9,7 +9,7 @@ import { MAX_COLLECTION_NAME_LENGTH, validateCollectionName } from "./collection
 import type { ArticleCollection } from "./types"
 
 import { CollectionNavigationItem } from "@/components/collections/collection-navigation"
-import { useEditorialModal } from "@/components/editorial/use-editorial-modal"
+import { EditorialDialog } from "@/components/editorial/editorial-dialog"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { formatNumber } from "@/lib/format"
@@ -172,7 +172,6 @@ function NewCollectionDialog({
   const [touched, setTouched] = useState(false)
   const [pending, setPending] = useState(false)
   const [serverError, setServerError] = useState<string | null>(null)
-  const dialogRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
   const cancelRef = useRef<HTMLButtonElement>(null)
   const trimmedName = name.trim()
@@ -185,16 +184,6 @@ function NewCollectionDialog({
     setServerError(null)
     onClose()
   }
-
-  useEditorialModal({
-    open,
-    containerRef: dialogRef,
-    initialFocusRef: inputRef,
-    onClose: close,
-    canClose: !pending,
-  })
-
-  if (!open) return null
 
   async function submit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -218,15 +207,13 @@ function NewCollectionDialog({
   const showValidation = touched && validationError
 
   return (
-    <div
-      aria-describedby="new-collection-description"
-      aria-labelledby="new-collection-title"
-      aria-modal="true"
-      className="nc-dialog-scrim fixed inset-0 z-50 grid place-items-center p-4"
-      onMouseDown={(event) => { if (event.target === event.currentTarget) close() }}
-      ref={dialogRef}
-      role="dialog"
-      tabIndex={-1}
+    <EditorialDialog
+      canClose={!pending}
+      describedBy="new-collection-description"
+      initialFocusRef={inputRef}
+      labelledBy="new-collection-title"
+      onClose={close}
+      open={open}
     >
       <form className="nc-dialog w-full max-w-md space-y-5 p-5" onSubmit={submit}>
         <div>
@@ -274,6 +261,6 @@ function NewCollectionDialog({
           </Button>
         </div>
       </form>
-    </div>
+    </EditorialDialog>
   )
 }

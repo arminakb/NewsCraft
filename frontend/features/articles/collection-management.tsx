@@ -8,7 +8,7 @@ import { MAX_COLLECTION_NAME_LENGTH, validateCollectionName } from "./collection
 import type { ArticleCollection } from "./types"
 
 import { CollectionContextMenu } from "@/components/collections/collection-context-menu"
-import { useEditorialModal } from "@/components/editorial/use-editorial-modal"
+import { EditorialDialog } from "@/components/editorial/editorial-dialog"
 import { Button } from "@/components/ui/button"
 import { ApiError, getApiErrorMessage } from "@/lib/http"
 
@@ -75,7 +75,6 @@ function RenameCollectionDialog({
   const [touched, setTouched] = useState(false)
   const [pending, setPending] = useState(false)
   const [serverError, setServerError] = useState<string | null>(null)
-  const dialogRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
   const busyRef = useRef(false)
   const trimmedName = name.trim()
@@ -93,9 +92,6 @@ function RenameCollectionDialog({
     if (pending || busyRef.current) return
     onClose()
   }
-
-  useEditorialModal({ open, containerRef: dialogRef, initialFocusRef: inputRef, onClose: close, canClose: !pending })
-  if (!open) return null
 
   async function submit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -118,15 +114,13 @@ function RenameCollectionDialog({
 
   const showValidation = touched && validationError
   return (
-    <div
-      aria-describedby="rename-collection-description"
-      aria-labelledby="rename-collection-title"
-      aria-modal="true"
-      className="nc-dialog-scrim fixed inset-0 z-50 grid place-items-center p-4"
-      onMouseDown={(event) => { if (event.target === event.currentTarget) close() }}
-      ref={dialogRef}
-      role="dialog"
-      tabIndex={-1}
+    <EditorialDialog
+      canClose={!pending}
+      describedBy="rename-collection-description"
+      initialFocusRef={inputRef}
+      labelledBy="rename-collection-title"
+      onClose={close}
+      open={open}
     >
       <form className="nc-dialog w-full max-w-md space-y-5 p-5" onSubmit={submit}>
         <div>
@@ -169,7 +163,7 @@ function RenameCollectionDialog({
           </Button>
         </div>
       </form>
-    </div>
+    </EditorialDialog>
   )
 }
 
@@ -186,7 +180,6 @@ function DeleteCollectionDialog({
 }) {
   const [pending, setPending] = useState(false)
   const [serverError, setServerError] = useState<string | null>(null)
-  const dialogRef = useRef<HTMLDivElement>(null)
   const cancelRef = useRef<HTMLButtonElement>(null)
   const busyRef = useRef(false)
 
@@ -198,9 +191,6 @@ function DeleteCollectionDialog({
     if (pending || busyRef.current) return
     onClose()
   }
-
-  useEditorialModal({ open, containerRef: dialogRef, initialFocusRef: cancelRef, onClose: close, canClose: !pending })
-  if (!open) return null
 
   async function remove() {
     if (pending || busyRef.current) return
@@ -229,15 +219,13 @@ function DeleteCollectionDialog({
   }
 
   return (
-    <div
-      aria-describedby="delete-collection-description"
-      aria-labelledby="delete-collection-title"
-      aria-modal="true"
-      className="nc-dialog-scrim fixed inset-0 z-50 grid place-items-center p-4"
-      onMouseDown={(event) => { if (event.target === event.currentTarget) close() }}
-      ref={dialogRef}
-      role="dialog"
-      tabIndex={-1}
+    <EditorialDialog
+      canClose={!pending}
+      describedBy="delete-collection-description"
+      initialFocusRef={cancelRef}
+      labelledBy="delete-collection-title"
+      onClose={close}
+      open={open}
     >
       <div className="nc-dialog w-full max-w-md space-y-5 p-5">
         <div>
@@ -256,7 +244,7 @@ function DeleteCollectionDialog({
           </Button>
         </div>
       </div>
-    </div>
+    </EditorialDialog>
   )
 }
 
