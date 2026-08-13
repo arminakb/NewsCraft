@@ -197,3 +197,35 @@ async def test_test_environment_route_resolver_uses_no_network_bot_client():
     assert bot == {"id": 9001, "username": "newscraft_test_bot"}
     assert chat["username"] == "newscraft_smoke"
     assert member == {"status": "administrator", "administrator": True}
+
+
+async def test_client_for_destination_does_not_swallow_caller_body_errors():
+    """A ValueError from the publish body must not be reclassified as proxy init failure.
+
+    ``client_for_destination`` is an async context manager, so an exception
+    raised in the caller's ``async with`` body is thrown back in at the
+    ``yield``. Keeping the ``yield`` outside the ValueError/ImportError handler
+    is what stops a body error (e.g. a pydantic ``ValidationError``, which
+    subclasses ``ValueError``) from becoming a non-retryable
+    ``telegram_proxy_client_initialization_failed`` permanent failure.
+    """
+
+    resolver = TelegramRouteResolver(
+        key_ring=None,
+        principal=SecurityPrincipal("internal_service", "test", frozenset({"destinations:read"})),
+        config=Settings(_env_file=None, app_env="test"),
+    )
+    destination = Destination(
+        platform="telegram",
+        name="Live",
+        target_ref="@newscraft_live",
+        secret_ref="encrypted:test",
+    )
+
+    with pytest.raises(ValueError, match="body failure"):
+        async with resolver.client_for_destination(None, destination):
+            raise ValueError("body failure")
+
+    with pytest.raises(ImportError, match="body import failure"):
+        async with resolver.client_for_destination(None, destination):
+            raise ImportError("body import failure")

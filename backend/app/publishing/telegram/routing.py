@@ -296,15 +296,19 @@ class TelegramRouteResolver:
             connect=self.config.telegram_proxy_connect_timeout_seconds,
         )
         try:
-            async with httpx.AsyncClient(
+            http = httpx.AsyncClient(
                 proxy=proxy_url,
                 timeout=timeout,
                 follow_redirects=False,
                 trust_env=False,
-            ) as http:
-                yield TelegramBotClient(http)
+            )
         except ValueError, ImportError:
             raise TelegramConfigurationError("telegram_proxy_client_initialization_failed") from None
+        # The yield stays outside the handler: exceptions raised in the caller's
+        # `async with` body are thrown back in at the yield, and catching them
+        # here would misreport publish failures as a permanent proxy-init error.
+        async with http:
+            yield TelegramBotClient(http)
 
 
 __all__ = [
