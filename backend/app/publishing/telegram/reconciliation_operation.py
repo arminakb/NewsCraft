@@ -4,7 +4,7 @@ from datetime import UTC, datetime
 from typing import Annotated, Any, Literal
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Response
+from fastapi import Depends, HTTPException, Response
 from pydantic import BaseModel, ConfigDict, Field, HttpUrl, field_validator, model_validator
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -35,9 +35,10 @@ from app.publishing.telegram.service import (
     validate_reconciliation,
 )
 
-router = APIRouter(prefix="/telegram", tags=["telegram"])
-
-SessionDependency = Depends(get_session)
+# This module owns the reconciliation operation's request model and handler
+# body; app/api/telegram_drafts.py owns the route table that mounts it. It
+# therefore declares no router of its own — a second APIRouter(prefix=
+# "/telegram") here was never decorated and never mounted.
 InjectedSession = Annotated[AsyncSession, Depends(get_session)]
 
 
