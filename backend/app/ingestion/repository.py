@@ -539,9 +539,27 @@ class IngestionRepository:
                 )
             )
             await self.session.execute(stmt)
-        await self.session.execute(
-            update(ContentItem).where(ContentItem.id == content_item_id).values(primary_image_id=primary_image_id)
-        )
+        # Re-ingestion sees only what the current parse produced. Writing the
+        # planned value unconditionally cleared a previously-resolved primary
+        # image whenever a later parse shipped no media (or only media that
+        # `_can_be_primary` rejects). Publish a new primary when we have one,
+        # and otherwise clear the stored one only when this parse actually
+        # re-planned that same asset into a non-primary role.
+        if primary_image_id is not None:
+            await self.session.execute(
+                update(ContentItem).where(ContentItem.id == content_item_id).values(primary_image_id=primary_image_id)
+            )
+        else:
+            demoted_asset_ids = {row["media_asset_id"] for row in rows}
+            if demoted_asset_ids:
+                await self.session.execute(
+                    update(ContentItem)
+                    .where(
+                        ContentItem.id == content_item_id,
+                        ContentItem.primary_image_id.in_(demoted_asset_ids),
+                    )
+                    .values(primary_image_id=None)
+                )
         await self.session.flush()
 
 
