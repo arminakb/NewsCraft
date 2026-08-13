@@ -245,16 +245,14 @@ class IngestionWorkflow:
             raw_text=batch.raw_text,
             parser_warnings=list(batch.parser_warnings),
         )
-        source.etag = batch.headers.get("etag") or source.etag
-        source.last_modified = batch.headers.get("last-modified") or source.last_modified
         source.last_fetch_at = datetime.now(UTC)
         source.last_http_status = batch.http_status
 
         response = _PersistedResponse(batch)
-        if batch.http_status == 304:
-            _record_source_not_modified(source, response)  # type: ignore[arg-type]
-            return SourcePersistResult(skipped=1)
         if batch.http_status >= 400:
+            # Error responses (CDN error pages in particular) routinely carry their
+            # own validators; adopting them would make the next conditional request
+            # return 304 for the error page and an ongoing outage read as healthy.
             error = RuntimeError(f"HTTP {batch.http_status} for {batch.request_url}")
             _record_source_failure(
                 source,
@@ -271,6 +269,11 @@ class IngestionWorkflow:
                     },
                 ),
             )
+        source.etag = batch.headers.get("etag") or source.etag
+        source.last_modified = batch.headers.get("last-modified") or source.last_modified
+        if batch.http_status == 304:
+            _record_source_not_modified(source, response)  # type: ignore[arg-type]
+            return SourcePersistResult(skipped=1)
         if batch.processing_failure is not None:
             return SourcePersistResult(fetched=1, processing_failure=batch.processing_failure)
 
