@@ -42,6 +42,7 @@ from app.automations.telegram.route_fetch import (
 from app.automations.telegram.route_policy import evaluate_content_filter, next_allowed_at
 from app.jobs.errors import PermanentJobError, RetryableJobError
 from app.jobs.registry import JobContext, JobHandler
+from app.jobs.repository import JobRepository
 from app.jobs.types import JobExecution, job_payload_copy
 
 logger = logging.getLogger(__name__)
@@ -53,6 +54,9 @@ class TelegramRouteDependencies:
     media_stager: Any
     page_budget: int
     clock: Callable[[], datetime]
+    # Explicit queue writer for route continuations. ``None`` means the
+    # helpers build one from the job's own session; tests inject a fake.
+    job_repository: JobRepository | None = None
 
     def now(self) -> datetime:
         return self.clock()
@@ -70,7 +74,7 @@ async def _defer_if_paused(
     deferred_until = dependencies.now() + timedelta(seconds=max(loaded.route.poll_interval_seconds, 30))
     await _defer_route_job(
         context,
-        dependencies.media_stager,
+        repository=dependencies.job_repository,
         route=loaded.route,
         job=job,
         scheduled_for=deferred_until,
@@ -209,7 +213,7 @@ async def initialize_route(
                     deferred_until = dependencies.now() + timedelta(seconds=max(locked.poll_interval_seconds, 30))
                     await _defer_route_job(
                         context,
-                        dependencies.media_stager,
+                        repository=dependencies.job_repository,
                         route=locked,
                         job=job,
                         scheduled_for=deferred_until,
@@ -233,7 +237,7 @@ async def initialize_route(
                 locked.cursor_state = locked_state
                 await _enqueue_continuation(
                     context,
-                    dependencies.media_stager,
+                    repository=dependencies.job_repository,
                     route_id=route.id,
                     last_scanned_id=last_scanned,
                     activation_requested_at=str(requested_raw),
@@ -264,7 +268,7 @@ async def initialize_route(
                 deferred_until = dependencies.now() + timedelta(seconds=max(locked.poll_interval_seconds, 30))
                 await _defer_route_job(
                     context,
-                    dependencies.media_stager,
+                    repository=dependencies.job_repository,
                     route=locked,
                     job=job,
                     scheduled_for=deferred_until,
@@ -300,6 +304,7 @@ async def initialize_route(
                 job=job,
                 context=context,
                 media_stager=dependencies.media_stager,
+                repository=dependencies.job_repository,
                 activation_requested_at=str(requested_raw),
                 required_status="catching_up",
                 deferred_until=dependencies.now() + timedelta(seconds=max(route.poll_interval_seconds, 30)),
@@ -326,6 +331,7 @@ async def initialize_route(
                 job=job,
                 context=context,
                 media_stager=dependencies.media_stager,
+                repository=dependencies.job_repository,
                 activation_requested_at=str(requested_raw),
                 required_status="catching_up",
                 deferred_until=dependencies.now() + timedelta(seconds=max(route.poll_interval_seconds, 30)),
@@ -336,7 +342,7 @@ async def initialize_route(
         if step.state is not None:
             progress = await _persist_forward_progress(
                 context,
-                dependencies.media_stager,
+                repository=dependencies.job_repository,
                 route_id=route.id,
                 job=job,
                 state_key="initialization_forward",
@@ -361,7 +367,7 @@ async def initialize_route(
                     deferred_until = dependencies.now() + timedelta(seconds=max(locked.poll_interval_seconds, 30))
                     await _defer_route_job(
                         context,
-                        dependencies.media_stager,
+                        repository=dependencies.job_repository,
                         route=locked,
                         job=job,
                         scheduled_for=deferred_until,
@@ -398,7 +404,7 @@ async def initialize_route(
                     deferred_until = dependencies.now() + timedelta(seconds=max(locked.poll_interval_seconds, 30))
                     await _defer_route_job(
                         context,
-                        dependencies.media_stager,
+                        repository=dependencies.job_repository,
                         route=locked,
                         job=job,
                         scheduled_for=deferred_until,
@@ -424,7 +430,7 @@ async def initialize_route(
             deferred_until = dependencies.now() + timedelta(seconds=max(locked.poll_interval_seconds, 30))
             await _defer_route_job(
                 context,
-                dependencies.media_stager,
+                repository=dependencies.job_repository,
                 route=locked,
                 job=job,
                 scheduled_for=deferred_until,
@@ -436,7 +442,7 @@ async def initialize_route(
             }
         await _enqueue_continuation(
             context,
-            dependencies.media_stager,
+            repository=dependencies.job_repository,
             route_id=route.id,
             last_scanned_id=cursor,
             activation_requested_at=str(requested_raw),
@@ -493,7 +499,7 @@ async def poll_route(
     if not step.envelopes and step.state is not None:
         progress = await _persist_forward_progress(
             context,
-            dependencies.media_stager,
+            repository=dependencies.job_repository,
             route_id=route.id,
             job=job,
             state_key="poll_forward",
@@ -523,6 +529,7 @@ async def poll_route(
             job=job,
             context=context,
             media_stager=dependencies.media_stager,
+            repository=dependencies.job_repository,
             force_review=True,
             activation_requested_at=expected_activation,
             required_status="ready",
@@ -547,6 +554,7 @@ async def poll_route(
             job=job,
             context=context,
             media_stager=dependencies.media_stager,
+            repository=dependencies.job_repository,
             enqueue_process=decision.accepted,
             scheduled_for=scheduled_for,
             filter_reason=decision.reason,
@@ -563,7 +571,7 @@ async def poll_route(
     if step.state is not None:
         progress = await _persist_forward_progress(
             context,
-            dependencies.media_stager,
+            repository=dependencies.job_repository,
             route_id=route.id,
             job=job,
             state_key="poll_forward",
@@ -593,7 +601,7 @@ async def poll_route(
             deferred_until = dependencies.now() + timedelta(seconds=max(locked.poll_interval_seconds, 30))
             await _defer_route_job(
                 context,
-                dependencies.media_stager,
+                repository=dependencies.job_repository,
                 route=locked,
                 job=job,
                 scheduled_for=deferred_until,
@@ -661,6 +669,7 @@ async def backfill_route(
             job=job,
             context=context,
             media_stager=dependencies.media_stager,
+            repository=dependencies.job_repository,
             force_review=True,
             activation_requested_at=expected_activation,
             required_status="ready",
@@ -714,6 +723,7 @@ async def dry_run_route(
         job=job,
         context=context,
         media_stager=dependencies.media_stager,
+        repository=dependencies.job_repository,
         force_review=True,
         activation_requested_at=expected_activation,
         required_status="ready",
@@ -745,6 +755,7 @@ def build_telegram_route_handlers(
     *,
     page_budget: int = 10,
     clock: Callable[[], datetime] | None = None,
+    job_repository: JobRepository | None = None,
 ) -> TelegramRouteHandlers:
     if page_budget <= 0:
         raise ValueError("page_budget must be positive")
@@ -753,6 +764,7 @@ def build_telegram_route_handlers(
         media_stager=media_stager,
         page_budget=page_budget,
         clock=clock or (lambda: datetime.now(UTC)),
+        job_repository=job_repository,
     )
     return TelegramRouteHandlers(
         initialize=_bound_handler(initialize_route, dependencies),

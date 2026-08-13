@@ -98,6 +98,7 @@ async def _capture(
     job: JobExecution,
     context: JobContext,
     media_stager: Any,
+    repository: JobRepository | None = None,
     enqueue_process: bool = True,
     scheduled_for: datetime | None = None,
     force_review: bool = False,
@@ -123,7 +124,7 @@ async def _capture(
             if pause_reason is not None:
                 await _defer_route_job(
                     context,
-                    media_stager,
+                    repository=repository,
                     route=locked,
                     job=job,
                     scheduled_for=deferred_until,
@@ -201,17 +202,27 @@ def _validate_locked_route(
     return None
 
 
+def _job_repository(context: JobContext, repository: JobRepository | None) -> JobRepository:
+    """Resolve the queue writer for route continuations.
+
+    Callers pass the repository explicitly; ``None`` means "use the one that
+    belongs to this job's session".
+    """
+
+    return repository if repository is not None else JobRepository(context.session)
+
+
 async def _enqueue_continuation(
     context: JobContext,
-    media_stager: Any,
     *,
+    repository: JobRepository | None = None,
     route_id: UUID,
     last_scanned_id: int,
     activation_requested_at: str,
     phase: str,
     continuation_state: dict[str, Any],
 ):
-    repository = media_stager if hasattr(media_stager, "enqueue_job") else JobRepository(context.session)
+    repository = _job_repository(context, repository)
     digest = hashlib.sha256(json.dumps(continuation_state, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
     return await repository.enqueue_job(
         job_type="telegram.route.initialize",
@@ -226,13 +237,13 @@ async def _enqueue_continuation(
 
 async def _defer_route_job(
     context: JobContext,
-    media_stager: Any,
     *,
+    repository: JobRepository | None = None,
     route: AutomationRoute,
     job: JobExecution,
     scheduled_for: datetime,
 ) -> None:
-    repository = media_stager if hasattr(media_stager, "enqueue_job") else JobRepository(context.session)
+    repository = _job_repository(context, repository)
     payload = job_payload_copy(job)
     root_job_id = str(payload.get("defer_root_job_id") or job.id)
     next_sequence = int(payload.get("defer_sequence") or 0) + 1
@@ -253,8 +264,8 @@ async def _defer_route_job(
 
 async def _enqueue_forward_continuation(
     context: JobContext,
-    media_stager: Any,
     *,
+    repository: JobRepository | None = None,
     route_id: UUID,
     job: JobExecution,
     state: dict[str, Any],
@@ -264,7 +275,7 @@ async def _enqueue_forward_continuation(
         activation_requested_at = str(state["activation_requested_at"])
         await _enqueue_continuation(
             context,
-            media_stager,
+            repository=repository,
             route_id=route_id,
             last_scanned_id=last_scanned_id,
             activation_requested_at=activation_requested_at,
@@ -272,7 +283,7 @@ async def _enqueue_forward_continuation(
             continuation_state=state,
         )
         return
-    repository = media_stager if hasattr(media_stager, "enqueue_job") else JobRepository(context.session)
+    repository = _job_repository(context, repository)
     digest = hashlib.sha256(json.dumps(state, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
     await repository.enqueue_job(
         job_type=job.job_type,
@@ -284,8 +295,8 @@ async def _enqueue_forward_continuation(
 
 async def _persist_forward_progress(
     context: JobContext,
-    media_stager: Any,
     *,
+    repository: JobRepository | None = None,
     route_id: UUID,
     job: JobExecution,
     state_key: str,
@@ -309,7 +320,7 @@ async def _persist_forward_progress(
         if pause_reason is not None:
             await _defer_route_job(
                 context,
-                media_stager,
+                repository=repository,
                 route=locked,
                 job=job,
                 scheduled_for=deferred_until,
@@ -324,7 +335,7 @@ async def _persist_forward_progress(
         locked.cursor_state = cursor_state
         await _enqueue_forward_continuation(
             context,
-            media_stager,
+            repository=repository,
             route_id=route_id,
             job=job,
             state=stored_state,
