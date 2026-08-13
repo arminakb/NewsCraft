@@ -237,6 +237,66 @@ async def test_cancellation_between_fetch_and_persistence_leaves_recoverable_run
     assert session.events == ["begin:prepare", "commit:prepare"]
 
 
+@pytest.mark.asyncio
+async def test_exception_escaping_the_source_loop_marks_the_run_failed_before_propagating():
+    """A stranded `running` row blocks every later ingest for the collection."""
+
+    class ExplodingBookkeepingWorkflow(BoundaryWorkflow):
+        def __init__(self):
+            super().__init__(fail=True)
+            self.aborted = []
+
+        async def record_source_failure(self, session, *, run_id, source, error):
+            raise RuntimeError("failure bookkeeping exploded")
+
+        async def abort_run(self, session, *, run_id, stats, error):
+            self.aborted.append((run_id, stats, error))
+
+    session = TransactionTrackingSession()
+    workflow = ExplodingBookkeepingWorkflow()
+
+    with pytest.raises(RuntimeError, match="failure bookkeeping exploded"):
+        await workflow.run(session=session, platforms=None, source_ids=None, trigger="workflow_job")
+
+    assert workflow.finished == []
+    assert len(workflow.aborted) == 1
+    _, aborted_stats, aborted_error = workflow.aborted[0]
+    assert aborted_error == "failure bookkeeping exploded"
+    assert aborted_stats["checked"] == 1
+    assert session.events == [
+        "begin:prepare",
+        "commit:prepare",
+        "begin:failure:source-1",
+        "rollback:failure:source-1",
+        "begin:abort",
+        "commit:abort",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_finish_run_failure_still_marks_the_run_failed():
+    class ExplodingFinishWorkflow(BoundaryWorkflow):
+        def __init__(self):
+            super().__init__()
+            self.aborted = []
+
+        async def finish_run(self, session, *, run_id, stats):
+            raise RuntimeError("finish exploded")
+
+        async def abort_run(self, session, *, run_id, stats, error):
+            self.aborted.append((run_id, stats, error))
+
+    session = TransactionTrackingSession()
+    workflow = ExplodingFinishWorkflow()
+
+    with pytest.raises(RuntimeError, match="finish exploded"):
+        await workflow.run(session=session, platforms=None, source_ids=None, trigger="workflow_job")
+
+    assert len(workflow.aborted) == 1
+    assert workflow.aborted[0][2] == "finish exploded"
+    assert session.events[-2:] == ["begin:abort", "commit:abort"]
+
+
 class StagedTransaction(AbstractAsyncContextManager):
     def __init__(self, session, label, *, nested=False):
         self.session = session

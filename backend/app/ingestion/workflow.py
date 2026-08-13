@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Awaitable, Callable, Mapping
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from types import MappingProxyType
@@ -371,6 +371,47 @@ class IngestionWorkflow:
         status = "partial" if stats["failed"] else "succeeded"
         await IngestionRepository(session).finish_run(run_id, status=status, stats=stats)
 
+    async def abort_run(
+        self,
+        session: AsyncSession,
+        *,
+        run_id: UUID,
+        stats: dict[str, Any],
+        error: str,
+    ) -> None:
+        """Write the terminal `failed` state for a run that could not complete."""
+        await IngestionRepository(session).finish_run(run_id, status="failed", stats=stats, error=error)
+
+    async def _abort_run_quietly(
+        self,
+        session: AsyncSession,
+        *,
+        run_id: UUID,
+        stats: dict[str, Any],
+        error: Exception,
+    ) -> None:
+        """Best-effort terminal write for a run whose loop raised.
+
+        Without it the row stays `running` forever: the partial unique index
+        `uq_ingest_runs_active_source_collection` then rejects every later
+        snapshot for the same collection, so a single escaping exception wedges
+        the collection permanently. The original exception must still surface,
+        so every failure of this write is swallowed.
+        """
+        try:
+            if _has_transaction(session):
+                await session.rollback()
+            async with _transaction(session, "abort"):
+                await self.abort_run(
+                    session,
+                    run_id=run_id,
+                    stats=_sanitized_stats(stats),
+                    error=str(error),
+                )
+        except Exception:  # noqa: BLE001 - the original failure must surface unchanged
+            with suppress(Exception):
+                await session.rollback()
+
     async def _fetch_one(
         self,
         source: PreparedSource,
@@ -549,19 +590,26 @@ class IngestionWorkflow:
                                 name=f"ingest-fetch:{next_source.id}",
                             )
                         )
+        except Exception as exc:  # noqa: BLE001 - the run row must never stay `running`
+            await self._abort_run_quietly(session, run_id=prepared.run_id, stats=stats, error=exc)
+            raise
         finally:
             if pending:
                 for task in pending:
                     task.cancel()
                 await asyncio.gather(*pending, return_exceptions=True)
 
-        async with _transaction(session, "finish"):
-            safe_stats = _sanitized_stats(stats)
-            await self.finish_run(
-                session,
-                run_id=prepared.run_id,
-                stats=safe_stats,
-            )
+        try:
+            async with _transaction(session, "finish"):
+                safe_stats = _sanitized_stats(stats)
+                await self.finish_run(
+                    session,
+                    run_id=prepared.run_id,
+                    stats=safe_stats,
+                )
+        except Exception as exc:  # noqa: BLE001 - the run row must never stay `running`
+            await self._abort_run_quietly(session, run_id=prepared.run_id, stats=stats, error=exc)
+            raise
         return safe_stats
 
     async def _after_fetch(self, source: PreparedSource, batch: FetchedSourceBatch) -> None:
