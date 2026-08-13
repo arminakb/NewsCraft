@@ -5,6 +5,7 @@ import { useEffect, useRef, useState } from "react"
 
 import { createArticleCollection } from "./api"
 import { CollectionManagementControl } from "./collection-management"
+import { MAX_COLLECTION_NAME_LENGTH, validateCollectionName } from "./collection-validation"
 import type { ArticleCollection } from "./types"
 
 import { CollectionNavigationItem } from "@/components/collections/collection-navigation"
@@ -175,11 +176,7 @@ function NewCollectionDialog({
   const inputRef = useRef<HTMLInputElement>(null)
   const cancelRef = useRef<HTMLButtonElement>(null)
   const trimmedName = name.trim()
-  const validationError = trimmedName.length === 0
-    ? "Enter a collection name."
-    : trimmedName.length > 60
-      ? "Collection name must be 60 characters or fewer."
-      : null
+  const validationError = validateCollectionName(name)
 
   function close() {
     if (pending) return
@@ -261,7 +258,7 @@ function NewCollectionDialog({
           />
           <span className="flex justify-between gap-3 text-xs font-normal text-muted-foreground" id="collection-name-help">
             <span>1–60 characters</span>
-            <span aria-label={`${trimmedName.length} of 60 characters`}>{trimmedName.length}/60</span>
+            <span aria-label={`${trimmedName.length} of ${MAX_COLLECTION_NAME_LENGTH} characters`}>{trimmedName.length}/{MAX_COLLECTION_NAME_LENGTH}</span>
           </span>
         </label>
 

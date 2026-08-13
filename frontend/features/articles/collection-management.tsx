@@ -4,6 +4,7 @@ import { LoaderCircle, Pencil, Trash2 } from "lucide-react"
 import { useEffect, useRef, useState } from "react"
 
 import { deleteArticleCollection, renameArticleCollection } from "./api"
+import { MAX_COLLECTION_NAME_LENGTH, validateCollectionName } from "./collection-validation"
 import type { ArticleCollection } from "./types"
 
 import { CollectionContextMenu } from "@/components/collections/collection-context-menu"
@@ -79,11 +80,7 @@ function RenameCollectionDialog({
   const busyRef = useRef(false)
   const trimmedName = name.trim()
   const unchanged = normalizedName(trimmedName) === normalizedName(collection.name)
-  const validationError = trimmedName.length === 0
-    ? "Enter a collection name."
-    : trimmedName.length > 60
-      ? "Collection name must be 60 characters or fewer."
-      : null
+  const validationError = validateCollectionName(name)
 
   useEffect(() => {
     if (!open) return
@@ -159,7 +156,7 @@ function RenameCollectionDialog({
           />
           <span className="flex justify-between gap-3 text-xs font-normal text-muted-foreground">
             <span>{unchanged && !validationError ? "Name is unchanged." : "1–60 characters"}</span>
-            <span>{trimmedName.length}/60</span>
+            <span>{trimmedName.length}/{MAX_COLLECTION_NAME_LENGTH}</span>
           </span>
         </label>
         {showValidation ? <p className="text-sm text-destructive" id="rename-collection-error" role="alert">{validationError}</p> : null}

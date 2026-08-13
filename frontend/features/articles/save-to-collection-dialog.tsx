@@ -8,6 +8,7 @@ import {
   removeArticleFromCollection,
   saveArticleToCollection,
 } from "./api"
+import { validateCollectionName } from "./collection-validation"
 import type { ArticleCollection, ArticleSummary } from "./types"
 
 import { DirectionBoundary } from "@/components/newsroom/direction-boundary"
@@ -59,11 +60,7 @@ export function SaveToCollectionDialog({
   const nameId = useId()
   const busy = pending || createPending
   const trimmedName = name.trim()
-  const nameError = trimmedName.length === 0
-    ? "Enter a collection name."
-    : trimmedName.length > 60
-      ? "Collection name must be 60 characters or fewer."
-      : null
+  const nameError = validateCollectionName(name)
 
   useEffect(() => {
     if (!open || !article) return
