@@ -43,6 +43,32 @@ class ResearchBudget(BaseModel):
     max_total_chars: int = Field(default=120_000, ge=10_000, le=500_000)
 
 
+def describe_source_integrity_violation(
+    *,
+    url: str,
+    content_text: str,
+    content_sha256: str,
+    evidence_key: str,
+) -> str | None:
+    """Return why the materialized content fails to back ``evidence_key``, or ``None``.
+
+    This is the single definition of discovered-source integrity: the content hash
+    must cover the materialized text and the evidence key must be derivable from the
+    normalized URL plus that hash.
+    """
+
+    if hashlib.sha256(content_text.encode("utf-8")).hexdigest() != content_sha256:
+        return "content_sha256 does not match materialized content"
+    expected = build_evidence_key(
+        content_item_id=None,
+        source_url=url,
+        content_sha256=content_sha256,
+    )
+    if evidence_key != expected:
+        return "evidence_key does not match normalized URL and content hash"
+    return None
+
+
 class DiscoveredSourcePayload(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -58,15 +84,14 @@ class DiscoveredSourcePayload(BaseModel):
 
     @model_validator(mode="after")
     def evidence_key_matches_materialized_content(self) -> DiscoveredSourcePayload:
-        if hashlib.sha256(self.content_text.encode("utf-8")).hexdigest() != self.content_sha256:
-            raise ValueError("content_sha256 does not match materialized content")
-        expected = build_evidence_key(
-            content_item_id=None,
-            source_url=str(self.url),
+        violation = describe_source_integrity_violation(
+            url=str(self.url),
+            content_text=self.content_text,
             content_sha256=self.content_sha256,
+            evidence_key=self.evidence_key,
         )
-        if self.evidence_key != expected:
-            raise ValueError("evidence_key does not match normalized URL and content hash")
+        if violation is not None:
+            raise ValueError(violation)
         return self
 
 

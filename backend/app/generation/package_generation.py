@@ -12,16 +12,17 @@ from app.core.faults import FaultInjector, NoopFaultInjector
 from app.generation import package_inputs
 from app.generation.generation_helpers import (
     _artifact_requires_review,
+    _assemble_telegram_revision,
     _checkpoint_execution,
     _job_payload,
     _pack_budget_state,
     _pack_job_result,
     _platform_stage_input,
     _redacted_dict,
+    _require_active_prompt_version,
     _require_exact_active_prompt,
     _require_exact_regeneration_dispatch,
     _required_uuid,
-    require_prompt_integrity,
 )
 from app.generation.models import (
     BrandProfile,
@@ -29,7 +30,6 @@ from app.generation.models import (
     GenerationRun,
     PlatformVariant,
     PlatformVariantRevision,
-    PromptTemplate,
     PromptTemplateVersion,
 )
 from app.generation.multiplatform import PLATFORM_ORDER, PLATFORM_PROMPT_PURPOSE
@@ -48,20 +48,12 @@ from app.generation.platform_output import (
 from app.generation.platform_output import (
     validate_provider_output as _validate_provider_output,
 )
-from app.generation.platform_schemas import (
-    Platform,
-    TelegramVariantPayload,
-)
-from app.generation.platform_validation import (
-    revision_gates_from_issues,
-    validate_platform_payload,
-)
+from app.generation.platform_schemas import Platform
 from app.generation.provider_execution import _invoke
 from app.generation.revision_fence import (
     RegenerationFenceConflict,
     require_revision_write_allowed,
 )
-from app.generation.telegram_schema import assemble_telegram_variant
 from app.jobs.errors import NeedsReviewJobError, PermanentJobError, RetryableJobError
 from app.jobs.registry import JobContext
 from app.jobs.types import JobExecution
@@ -87,30 +79,15 @@ async def _initial_prompts(
                 code="generation_prompt_mapping_invalid",
                 message="Generation prompt mapping is invalid",
             ) from None
-        active = list(
-            await context.session.scalars(
-                select(PromptTemplateVersion)
-                .join(PromptTemplate, PromptTemplate.id == PromptTemplateVersion.prompt_template_id)
-                .where(
-                    PromptTemplateVersion.is_active.is_(True),
-                    PromptTemplate.purpose_key == PLATFORM_PROMPT_PURPOSE[platform],
-                )
-                .with_for_update()
-            )
+        checksum = checksums.get(platform)
+        prompts[platform] = await _require_active_prompt_version(
+            context.session,
+            purpose_key=PLATFORM_PROMPT_PURPOSE[platform],
+            prompt_id=prompt_id,
+            prompt_checksum=checksum if isinstance(checksum, str) else None,
+            invalid_code="generation_platform_prompt_configuration_invalid",
+            invalid_message="Platform prompt configuration is invalid",
         )
-        if len(active) != 1 or active[0].id != prompt_id or checksums.get(platform) != active[0].checksum_sha256:
-            raise PermanentJobError(
-                code="generation_platform_prompt_configuration_invalid",
-                message="Platform prompt configuration is invalid",
-            )
-        try:
-            require_prompt_integrity(active[0])
-        except ValueError:
-            raise PermanentJobError(
-                code="generation_prompt_integrity_failed",
-                message="Generation prompt snapshot integrity failed",
-            ) from None
-        prompts[platform] = active[0]
     return prompts
 
 
@@ -583,24 +560,12 @@ async def _materialize_revision(
     parent: PlatformVariantRevision | None,
 ) -> tuple[dict[str, Any], list[dict[str, Any]], bool]:
     if generated.platform == "telegram":
-        try:
-            assert generated.default_direction is not None
-            content = assemble_telegram_variant(
-                generated.authored,
-                trusted_parent=parent.content if parent is not None else None,
-                default_direction=generated.default_direction,
-            ).model_dump(mode="json")
-            payload = TelegramVariantPayload.model_validate(content)
-            issues = validate_platform_payload("telegram", payload)
-        except TypeError, ValueError:
-            raise NeedsReviewJobError(
-                code="generation_telegram_parent_invalid",
-                message="Trusted Telegram parent context is invalid",
-            ) from None
-        return (
-            content,
-            revision_gates_from_issues(issues),
-            any(item.severity == "error" for item in issues),
+        return _assemble_telegram_revision(
+            generated.authored,
+            parent=parent,
+            default_direction=generated.default_direction,
+            invalid_code="generation_telegram_parent_invalid",
+            invalid_message="Trusted Telegram parent context is invalid",
         )
     authorized_media, _source_media = await _trusted_story_media(
         context.session,

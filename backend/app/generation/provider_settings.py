@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+from collections.abc import Mapping
+from dataclasses import dataclass
 from decimal import Decimal
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, HttpUrl, field_validator
 
@@ -144,16 +146,84 @@ def effective_codex_provider_settings(value: CodexProviderSettings) -> CodexProv
     )
 
 
+class ProviderShapeError(ValueError):
+    """A provider profile does not satisfy the shape its provider type requires."""
+
+
+class UnsupportedProviderTypeError(ProviderShapeError):
+    """The provider profile names a provider type this build cannot execute."""
+
+
+@dataclass(frozen=True, slots=True)
+class ValidatedProviderShape:
+    """The one parsed answer to "is this profile usable for its provider type?"."""
+
+    provider_type: str
+    model: str
+    codex: CodexProviderSettings | None = None
+    openrouter: OpenRouterProviderSettings | None = None
+
+
+def validate_provider_shape(
+    *,
+    provider_type: str,
+    default_model: str | None,
+    secret_ref: str | None,
+    settings: Mapping[str, Any] | None,
+    model_override: str | None = None,
+    setting_defaults: Mapping[str, Any] | None = None,
+) -> ValidatedProviderShape:
+    """Validate a provider profile's secret/model/settings shape for its provider type.
+
+    This is the single definition of what each ``provider_type`` requires. Callers
+    translate :class:`ProviderShapeError` into their own error taxonomy and layer
+    their own extra requirements (transport wiring, research budgets) on top of the
+    returned, already-parsed settings.
+    """
+
+    model = model_override or default_model
+    raw = dict(settings or {})
+    if provider_type == "fake":
+        if secret_ref is not None or raw:
+            raise ProviderShapeError("Fake provider profile has invalid settings")
+        return ValidatedProviderShape(provider_type="fake", model=model or "fake-v1")
+    if provider_type == "codex":
+        if secret_ref is not None:
+            raise ProviderShapeError("Codex provider profile cannot have a secret reference")
+        if not model:
+            raise ProviderShapeError("Selected provider profile has no model")
+        try:
+            codex = effective_codex_provider_settings(CodexProviderSettings.model_validate(raw))
+        except TypeError, ValueError:
+            raise ProviderShapeError("Selected provider profile settings are invalid") from None
+        return ValidatedProviderShape(provider_type="codex", model=model, codex=codex)
+    if provider_type == "openrouter":
+        if not model:
+            raise ProviderShapeError("Selected provider profile has no model")
+        if not secret_ref:
+            raise ProviderShapeError("Selected provider profile has no secret reference")
+        try:
+            openrouter = OpenRouterProviderSettings.model_validate({**dict(setting_defaults or {}), **raw})
+        except TypeError, ValueError:
+            raise ProviderShapeError("Selected provider profile settings are invalid") from None
+        return ValidatedProviderShape(provider_type="openrouter", model=model, openrouter=openrouter)
+    raise UnsupportedProviderTypeError("Selected provider type is unsupported")
+
+
 __all__ = [
     "CodexGenerationLimits",
     "CodexProviderSettings",
     "OpenRouterProviderSettings",
     "ProviderPricingSettings",
+    "ProviderShapeError",
     "QualifiedGenerationPolicy",
     "ResearchBudgetSettings",
     "ResearchBudgetsSettings",
+    "UnsupportedProviderTypeError",
+    "ValidatedProviderShape",
     "default_codex_provider_settings",
     "default_research_budgets",
     "effective_codex_provider_settings",
     "merge_provider_settings",
+    "validate_provider_shape",
 ]

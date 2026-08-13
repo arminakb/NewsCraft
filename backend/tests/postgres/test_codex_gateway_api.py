@@ -1,15 +1,16 @@
 from __future__ import annotations
 
 import base64
+from datetime import UTC, datetime, timedelta
 
 import pytest
 from httpx import ASGITransport, AsyncClient
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 import app.api.codex_gateway as codex_api
 from app.codex_gateway.credentials import GatewayCredentialHasher
-from app.codex_gateway.models import CodexConnection, CodexPairingSession
+from app.codex_gateway.models import CodexConnection, CodexPairingSession, CodexRateLimitBucket
 from app.codex_gateway.service import CodexGatewayService, GatewayError
 from app.core.config import Settings
 from app.db.session import get_session
@@ -254,6 +255,71 @@ async def test_rate_limit_is_database_backed_and_returns_safe_retry_metadata(
     assert captured.value.code == "rate_limited"
     assert captured.value.status_code == 429
     assert captured.value.retry_after_seconds is not None
+
+
+async def test_malformed_authorization_headers_cannot_mint_fresh_rate_limit_buckets(
+    db_session: AsyncSession,
+):
+    config = _config()
+    service = CodexGatewayService(
+        db_session,
+        hasher=GatewayCredentialHasher.from_settings(config),
+        config=config,
+    )
+
+    codes = []
+    for header in ("Bearer  alpha", "Bearer  beta", "Bearer  gamma"):
+        with pytest.raises(GatewayError) as captured:
+            await service.authenticate(header, endpoint_class="malformed_endpoint", rate_limit=2)
+        codes.append(captured.value.code)
+    await db_session.commit()
+
+    assert codes == ["credential_invalid", "credential_invalid", "rate_limited"]
+    buckets = await db_session.scalar(
+        select(func.count())
+        .select_from(CodexRateLimitBucket)
+        .where(CodexRateLimitBucket.category == "malformed_endpoint")
+    )
+    assert buckets == 1
+
+
+async def test_expired_rate_limit_buckets_are_pruned(db_session: AsyncSession):
+    config = _config()
+    service = CodexGatewayService(
+        db_session,
+        hasher=GatewayCredentialHasher.from_settings(config),
+        config=config,
+    )
+
+    await service.consume_rate_limit(
+        category="stale_endpoint",
+        subject="stale-subject",
+        limit=10,
+        window_seconds=60,
+    )
+    await db_session.commit()
+    stale = await db_session.scalar(
+        select(func.count()).select_from(CodexRateLimitBucket).where(CodexRateLimitBucket.category == "stale_endpoint")
+    )
+    assert stale == 1
+
+    later = CodexGatewayService(
+        db_session,
+        hasher=GatewayCredentialHasher.from_settings(config),
+        config=config,
+        clock=lambda: datetime.now(UTC) + timedelta(seconds=3_600),
+    )
+    await later.consume_rate_limit(
+        category="fresh_endpoint",
+        subject="fresh-subject",
+        limit=10,
+        window_seconds=60,
+    )
+    await db_session.commit()
+
+    remaining = set(await db_session.scalars(select(CodexRateLimitBucket.category)))
+    assert "stale_endpoint" not in remaining
+    assert "fresh_endpoint" in remaining
 
 
 async def _request(session: AsyncSession, method: str, path: str, **kwargs):

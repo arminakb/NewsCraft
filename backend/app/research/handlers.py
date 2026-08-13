@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import hashlib
 import inspect
 import shutil
 from collections.abc import Awaitable, Callable
@@ -21,16 +20,20 @@ from app.jobs.events import redact_event_data
 from app.jobs.models import WorkflowEvent, WorkflowJob
 from app.jobs.registry import JobContext, JobHandler
 from app.jobs.types import JobExecution, job_payload_copy
-from app.research.base import ResearchBackend, ResearchBudgetExceeded, ResearchRequest
+from app.research.base import ResearchBackend, ResearchBudgetExceeded, ResearchRequest, budget_exceeded
 from app.research.citations import CitationIntegrityError, resolve_candidate_brief
 from app.research.continuations import (
     enqueue_bound_continuation,
     normalize_continuation,
 )
 from app.research.models import ResearchAttempt, ResearchRun, ResearchSource
-from app.research.schemas import DiscoveredSourcePayload, ResearchBudget
+from app.research.schemas import (
+    DiscoveredSourcePayload,
+    ResearchBudget,
+    describe_source_integrity_violation,
+)
 from app.research.service import ResearchRequestError, ResearchService, evidence_set_hash
-from app.stories.evidence import EvidenceRecord, build_evidence_key
+from app.stories.evidence import EvidenceRecord
 from app.stories.models import Story, StoryEvidenceLink, StoryEvidenceSnapshot, StoryRevision
 from app.workflows.states import ResearchRunState, require_research_run_transition
 
@@ -165,17 +168,7 @@ def _validate_result_contract(
     if result.requested_model != requested_model:
         raise CitationIntegrityError("research result requested model mismatch")
     usage = result.usage
-    over_budget = (
-        usage.model_calls > budget.max_model_calls
-        or usage.input_tokens > budget.max_input_tokens
-        or usage.output_tokens > budget.max_output_tokens
-        or usage.estimated_cost_usd > budget.max_cost_usd
-        or usage.queries > budget.max_queries
-        or usage.pages > budget.max_pages
-        or usage.fetched_characters > budget.max_total_chars
-        or result.elapsed_ms > budget.max_elapsed_seconds * 1_000
-    )
-    if over_budget:
+    if budget_exceeded(budget, usage, result.elapsed_ms):
         raise CitationIntegrityError("research result usage exceeds budget")
     source_characters = sum(len(source.content_text) for source in result.output.sources)
     if usage.pages < len(result.output.sources) or usage.fetched_characters != source_characters:
@@ -595,9 +588,20 @@ def build_research_story_handler(
 
 
 def _validate_source(source: DiscoveredSourcePayload) -> None:
-    digest = hashlib.sha256(source.content_text.encode()).hexdigest()
-    expected = build_evidence_key(content_item_id=None, source_url=str(source.url), content_sha256=digest)
-    if digest != source.content_sha256 or expected != source.evidence_key:
+    """Re-assert discovered-source integrity at the persistence boundary.
+
+    The payload model already enforces this on construction; this keeps the
+    guarantee for instances that bypass validation (``model_construct``) and
+    translates it into the job-side citation error.
+    """
+
+    violation = describe_source_integrity_violation(
+        url=str(source.url),
+        content_text=source.content_text,
+        content_sha256=source.content_sha256,
+        evidence_key=source.evidence_key,
+    )
+    if violation is not None:
         raise CitationIntegrityError("research source integrity check failed")
 
 

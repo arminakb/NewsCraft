@@ -1033,6 +1033,7 @@ async def test_all_selected_prompts_lock_in_canonical_order_before_first_provide
         async def scalars(self, statement):
             if statement.column_descriptions[0].get("entity") is PromptTemplateVersion:
                 assert statement._for_update_arg is not None
+                assert statement.get_execution_options().get("populate_existing") is True
             return await super().scalars(statement)
 
     fixture = _pack_handler_fixture(platforms=("blog", "instagram"))
@@ -1055,7 +1056,7 @@ async def test_all_selected_prompts_lock_in_canonical_order_before_first_provide
         provider_calls += 1
         raise AssertionError("provider must not run before every prompt passes preflight")
 
-    monkeypatch.setattr("app.generation.package_generation.require_prompt_integrity", require_integrity)
+    monkeypatch.setattr("app.generation.generation_helpers.require_prompt_integrity", require_integrity)
     monkeypatch.setattr("app.generation.package_generation._invoke", invoke)
 
     with pytest.raises(PermanentJobError) as caught:

@@ -23,6 +23,11 @@ from app.generation.multiplatform import (
     ordered_distinct_citations,
     payload_claims,
 )
+from app.generation.package_evidence import (
+    LockedEvidenceStage,
+    LockedStoryEvidenceError,
+    load_locked_story_evidence,
+)
 from app.generation.platform_media import trusted_story_media, validate_payload_media_assignments
 from app.generation.platform_schemas import (
     BlogVariantPayload,
@@ -44,11 +49,19 @@ from app.jobs.types import JobOrigin
 from app.research.citations import CitationIntegrityError, validate_citations
 from app.research.schemas import CitationRef, Claim
 from app.stories.evidence import EvidenceRecord
-from app.stories.models import StoryEvidenceSnapshot, StoryRevision
+from app.stories.models import StoryRevision
 
 
 def _job_out(result: Any) -> JobAcceptedOut:
     return JobAcceptedOut(job_id=result.job.id, status=result.job.status, deduplicated=not result.created)
+
+
+_LOCKED_EVIDENCE_MESSAGES: dict[LockedEvidenceStage, str] = {
+    "citations_invalid": "story revision citations are invalid",
+    "citations_missing": "story revision citations are empty",
+    "evidence_missing": "story revision evidence is missing",
+    "citation_integrity": "story revision evidence no longer matches",
+}
 
 
 class EditorialService:
@@ -195,42 +208,10 @@ class EditorialService:
 
     async def _evidence_records(self, story_revision: StoryRevision) -> dict[UUID, EvidenceRecord]:
         try:
-            citations = [CitationRef.model_validate(item) for item in story_revision.citations]
-        except TypeError, ValueError:
-            raise InvalidGenerationRequest("story revision citations are invalid", code="citation_integrity") from None
-        snapshot_ids = {item.evidence_snapshot_id for item in citations}
-        if not snapshot_ids:
-            raise InvalidGenerationRequest("story revision citations are empty", code="citation_integrity")
-        rows = list(
-            await self.session.scalars(
-                select(StoryEvidenceSnapshot).where(
-                    StoryEvidenceSnapshot.id.in_(snapshot_ids),
-                    StoryEvidenceSnapshot.story_id == story_revision.story_id,
-                )
-            )
-        )
-        records = {
-            row.id: EvidenceRecord(
-                evidence_key=row.evidence_key,
-                evidence_snapshot_id=row.id,
-                content_item_id=row.content_item_id,
-                title=row.title,
-                content_text=row.content_text,
-                content_sha256=row.content_sha256,
-                source_url=row.source_url,
-                authors=tuple(row.authors or []),
-                published_at=row.published_at,
-                captured_at=row.captured_at,
-            )
-            for row in rows
-        }
-        if set(records) != snapshot_ids:
-            raise InvalidGenerationRequest("story revision evidence is missing", code="citation_integrity")
-        try:
-            validate_citations([Claim(text="Locked story evidence", citations=citations)], records)
-        except ValueError:
+            _citations, records = await load_locked_story_evidence(self.session, story_revision)
+        except LockedStoryEvidenceError as error:
             raise InvalidGenerationRequest(
-                "story revision evidence no longer matches",
+                _LOCKED_EVIDENCE_MESSAGES[error.stage],
                 code="citation_integrity",
             ) from None
         return records
