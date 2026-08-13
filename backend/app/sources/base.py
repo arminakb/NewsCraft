@@ -1,5 +1,36 @@
 from dataclasses import dataclass, field
 from datetime import datetime
+from typing import Protocol
+
+
+class SourceFetchTarget(Protocol):
+    """Everything the fetch and parse helpers read off a source.
+
+    Both the ORM `Source` row and the frozen `PreparedSource` snapshot the
+    ingestion workflow hands to network code satisfy this, so the helpers can
+    be annotated once instead of claiming a `Source` they never mutate.
+    """
+
+    @property
+    def name(self) -> str: ...
+
+    @property
+    def platform(self) -> str: ...
+
+    @property
+    def feed_url(self) -> str | None: ...
+
+    @property
+    def telegram_username(self) -> str | None: ...
+
+    @property
+    def default_timezone(self) -> str: ...
+
+    @property
+    def etag(self) -> str | None: ...
+
+    @property
+    def last_modified(self) -> str | None: ...
 
 
 @dataclass(slots=True)

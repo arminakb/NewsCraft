@@ -21,6 +21,7 @@ from app.db.models import IngestRun, Source
 from app.ingestion.repository import IngestionRepository, build_item_identities
 from app.normalization.titles import normalize_title
 from app.source_collections.models import IngestRunSourceSnapshot
+from app.sources.base import SourceFetchTarget
 from app.sources.registry import parser_for_source
 
 DEFAULT_HEADERS = {"User-Agent": "NewsCraftBot/1.0"}
@@ -182,7 +183,7 @@ class IngestionWorkflow:
         here when neither the run nor the constructor provided one.
         """
 
-        request_url = _source_request_url(source)  # type: ignore[arg-type]
+        request_url = _source_request_url(source)
         active = client or self.http_client
         owns_client = active is None
         if active is None:
@@ -190,7 +191,7 @@ class IngestionWorkflow:
         try:
             response = await active.get(
                 request_url,
-                headers=_request_headers(source),  # type: ignore[arg-type]
+                headers=_request_headers(source),
                 follow_redirects=True,
             )
             warnings: tuple[str, ...] = ()
@@ -198,7 +199,7 @@ class IngestionWorkflow:
             processing_failure = None
             if response.status_code < 400 and response.status_code != 304:
                 try:
-                    parsed = _parse_source_payload(source, response.text, request_url)  # type: ignore[arg-type]
+                    parsed = _parse_source_payload(source, response.text, request_url)
                 except asyncio.CancelledError:
                     raise
                 except Exception as exc:  # noqa: BLE001 - retain fetched evidence for classified failure
@@ -251,7 +252,6 @@ class IngestionWorkflow:
         source.last_fetch_at = datetime.now(UTC)
         source.last_http_status = batch.http_status
 
-        response = _PersistedResponse(batch)
         if batch.http_status >= 400:
             # Error responses (CDN error pages in particular) routinely carry their
             # own validators; adopting them would make the next conditional request
@@ -275,7 +275,7 @@ class IngestionWorkflow:
         source.etag = batch.headers.get("etag") or source.etag
         source.last_modified = batch.headers.get("last-modified") or source.last_modified
         if batch.http_status == 304:
-            _record_source_not_modified(source, response)  # type: ignore[arg-type]
+            _record_source_not_modified(source, batch.http_status)
             return SourcePersistResult(skipped=1)
         if batch.processing_failure is not None:
             return SourcePersistResult(fetched=1, processing_failure=batch.processing_failure)
@@ -337,7 +337,7 @@ class IngestionWorkflow:
         suitable_count = sum(1 for item in batch.parsed_items if _is_suitable_item(item))
         _record_source_success(
             source,
-            response,  # type: ignore[arg-type]
+            batch.http_status,
             parse_count=parse_count,
             suitable_count=suitable_count,
             media_count=media_count,
@@ -640,17 +640,11 @@ class IngestionWorkflow:
         stats["errors"].extend(result.errors)
 
 
-class _PersistedResponse:
-    def __init__(self, batch: FetchedSourceBatch) -> None:
-        self.status_code = batch.http_status
-        self.headers = batch.headers
-
-
 def _build_http_client() -> httpx.AsyncClient:
     return build_outbound_http_client(timeout=20.0)
 
 
-def _source_request_url(source: Source) -> str:
+def _source_request_url(source: SourceFetchTarget) -> str:
     if source.platform in {"rss", "atom"} and source.feed_url:
         return source.feed_url
     if source.platform == "telegram_public" and source.telegram_username:
@@ -658,7 +652,7 @@ def _source_request_url(source: Source) -> str:
     raise ValueError(f"Source {source.name} is missing fetch URL data")
 
 
-def _request_headers(source: Source) -> dict[str, str]:
+def _request_headers(source: SourceFetchTarget) -> dict[str, str]:
     headers = dict(DEFAULT_HEADERS)
     if source.etag:
         headers["If-None-Match"] = source.etag
@@ -667,7 +661,7 @@ def _request_headers(source: Source) -> dict[str, str]:
     return headers
 
 
-def _payload_kind(source: Source) -> str:
+def _payload_kind(source: SourceFetchTarget) -> str:
     if source.platform in {"rss", "atom"}:
         return "feed_xml"
     if source.platform == "telegram_public":
@@ -675,7 +669,7 @@ def _payload_kind(source: Source) -> str:
     return "raw"
 
 
-def _parse_source_payload(source: Source, raw_text: str, request_url: str):
+def _parse_source_payload(source: SourceFetchTarget, raw_text: str, request_url: str):
     parser = parser_for_source(source)
     if source.platform in {"rss", "atom"}:
         return parser(
@@ -691,7 +685,7 @@ def _parse_source_payload(source: Source, raw_text: str, request_url: str):
 
 def _record_source_success(
     source: Source,
-    response: httpx.Response,
+    http_status: int,
     *,
     parse_count: int,
     suitable_count: int,
@@ -700,7 +694,7 @@ def _record_source_success(
 ) -> None:
     now = datetime.now(UTC)
     source.last_fetch_at = now
-    source.last_http_status = response.status_code
+    source.last_http_status = http_status
     source.last_success_at = now
     source.last_parse_count = parse_count
     source.last_suitable_count = suitable_count
@@ -724,10 +718,10 @@ def _record_source_success(
     source.last_error_message = None
 
 
-def _record_source_not_modified(source: Source, response: httpx.Response) -> None:
+def _record_source_not_modified(source: Source, http_status: int) -> None:
     now = datetime.now(UTC)
     source.last_fetch_at = now
-    source.last_http_status = response.status_code
+    source.last_http_status = http_status
     source.last_success_at = now
     if _source_is_disabled(source):
         source.health_status = "disabled"
