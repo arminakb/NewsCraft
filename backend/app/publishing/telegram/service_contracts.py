@@ -48,6 +48,27 @@ from app.publishing.telegram.renderer import TelegramPublishNeedsReview, build_p
 from app.stories.models import StoryEvidenceSnapshot, StoryRevision
 
 
+def immediate_publish_intent_key(*, destination_id: UUID, revision_id: UUID, content_hash: str) -> str:
+    """Idempotency key of the immediate Telegram publish intent.
+
+    Used by the automation dispatcher and by the operator "publish now" action.
+    """
+
+    return f"telegram-publish:{destination_id}:{revision_id}:{content_hash}"
+
+
+def reviewed_schedule_intent_key(*, destination_id: UUID, revision_id: UUID, content_hash: str) -> str:
+    """Idempotency key of the operator-reviewed *scheduled* Telegram intent.
+
+    Deliberately namespaced away from :func:`immediate_publish_intent_key`: the
+    two intents carry different durable shapes (``queued`` with no due time vs.
+    ``scheduled`` with an exact one) and sharing a key made an already-queued
+    immediate publish indistinguishable from a drifted schedule replay.
+    """
+
+    return f"telegram-publish-schedule:{destination_id}:{revision_id}:{content_hash}"
+
+
 class PublishValidationError(RuntimeError):
     def __init__(self, code: str, message: str) -> None:
         self.code = code

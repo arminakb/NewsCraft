@@ -53,6 +53,8 @@ from app.publishing.telegram.service_contracts import (
     ReviewedTelegramScheduleError,
     ReviewedTelegramScheduleRequest,
     ReviewedTelegramScheduleResult,
+    immediate_publish_intent_key,
+    reviewed_schedule_intent_key,
 )
 from app.stories.models import StoryEvidenceSnapshot, StoryRevision
 
@@ -266,10 +268,27 @@ async def schedule_reviewed_telegram(
             "Telegram revision hash no longer matches its content",
         )
 
-    idempotency_key = f"telegram-publish:{request.destination_id}:{revision.id}:{revision.content_hash}"
+    idempotency_key = reviewed_schedule_intent_key(
+        destination_id=request.destination_id,
+        revision_id=revision.id,
+        content_hash=revision.content_hash,
+    )
     publish_job = await session.scalar(
         select(PublishJob)
         .where(PublishJob.idempotency_key == idempotency_key)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
+    immediate_publish_job = await session.scalar(
+        select(PublishJob)
+        .where(
+            PublishJob.idempotency_key
+            == immediate_publish_intent_key(
+                destination_id=request.destination_id,
+                revision_id=revision.id,
+                content_hash=revision.content_hash,
+            )
+        )
         .with_for_update()
         .execution_options(populate_existing=True)
     )
@@ -298,6 +317,15 @@ async def schedule_reviewed_telegram(
 
     publish_job_created = False
     if publish_job is None:
+        if immediate_publish_job is not None:
+            # An immediate publish intent already owns this revision/destination
+            # pair. Minting a second, scheduled intent would let both dispatch
+            # and publish the same revision twice, so refuse with an explanation
+            # instead of a bare schedule conflict.
+            raise ReviewedTelegramScheduleError(
+                "telegram_publish_already_queued",
+                "Telegram revision is already queued for immediate publication",
+            )
         observed_at = _schedule_utc(
             schedule_clock(),
             field="Scheduling clock",

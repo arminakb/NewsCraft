@@ -11,6 +11,7 @@ from app.automations.models import AutomationDispatch, AutomationRoute
 from app.automations.telegram.handlers import enqueue_telegram_publish_intent
 from app.generation.models import PlatformVariant, PlatformVariantRevision
 from app.generation.revision_validation import RevisionValidationError, validate_approvable_revision
+from app.jobs.errors import NeedsReviewJobError
 from app.jobs.events import redact_event_data
 from app.jobs.models import WorkflowEvent
 from app.publishing.models import Destination, PublishJob
@@ -169,12 +170,19 @@ async def publish_reviewed_draft(
         "publishing",
         job_type="telegram.publish",
     )
-    publish_job = await enqueue_telegram_publish_intent(
-        session,
-        revision=revision,
-        destination=destination,
-        dispatch=dispatch if dispatch.variant_revision_id == revision.id else None,
-    )
+    try:
+        publish_job = await enqueue_telegram_publish_intent(
+            session,
+            revision=revision,
+            destination=destination,
+            dispatch=dispatch if dispatch.variant_revision_id == revision.id else None,
+        )
+    except NeedsReviewJobError as exc:
+        if exc.code != "telegram_publish_already_scheduled":
+            raise
+        raise ReviewedTelegramDraftError(
+            "Telegram draft is already scheduled for publication",
+        ) from None
     append_draft_event(
         session,
         event_type="telegram.revision.publish_requested",

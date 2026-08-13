@@ -360,6 +360,7 @@ class _RacingScheduleSession(_ScheduleSession):
         self.workflow_job = workflow_job
         self.table_calls = {}
         self.raise_insert_conflict = True
+        self.immediate_publish_job = None
 
     async def scalar(self, statement):
         self.statements.append(statement)
@@ -373,7 +374,13 @@ class _RacingScheduleSession(_ScheduleSession):
         if "FROM publish_jobs" in sql:
             count = self.table_calls.get("publish_jobs", 0)
             self.table_calls["publish_jobs"] = count + 1
-            return None if count == 0 else self.publish_job
+            if count == 0:
+                # reviewed-schedule intent lookup
+                return None
+            if count == 1:
+                # immediate publish intent lookup
+                return self.immediate_publish_job
+            return self.publish_job
         if "FROM destinations" in sql:
             return self.fixture.destination
         if "FROM workflow_jobs" in sql:
@@ -469,7 +476,15 @@ def _schedule_request(fixture, due, *, content_hash=None, destination_id=None):
     )
 
 
-def _schedule_session(fixture, *, publish_job=None, workflow_job=None, publication=None, latest_id=None):
+def _schedule_session(
+    fixture,
+    *,
+    publish_job=None,
+    workflow_job=None,
+    publication=None,
+    latest_id=None,
+    immediate_publish_job=None,
+):
     return _ScheduleSession(
         scalars=[
             fixture.revision,
@@ -477,6 +492,7 @@ def _schedule_session(fixture, *, publish_job=None, workflow_job=None, publicati
             fixture.revision,
             fixture.revision.id if latest_id is None else latest_id,
             publish_job,
+            immediate_publish_job,
             fixture.destination,
             workflow_job,
             *([publication] if publish_job is not None and workflow_job is not None else []),
@@ -528,7 +544,7 @@ async def test_reviewed_schedule_creates_identical_durable_due_times_and_one_red
         clock=lambda: now,
     )
 
-    key = f"telegram-publish:{fixture.destination.id}:{fixture.revision.id}:{fixture.revision.content_hash}"
+    key = f"telegram-publish-schedule:{fixture.destination.id}:{fixture.revision.id}:{fixture.revision.content_hash}"
     assert result.created is True
     assert result.publish_job.status == "scheduled"
     assert result.publish_job.scheduled_for == normalized_due
@@ -564,8 +580,9 @@ async def test_reviewed_schedule_creates_identical_durable_due_times_and_one_red
     assert session.statements[2].get_execution_options().get("populate_existing") is True
     assert "platform_variant_revisions" in query_order[3]
     assert "publish_jobs" in query_order[4]
-    assert "destinations" in query_order[5]
-    assert "workflow_jobs" in query_order[6]
+    assert "publish_jobs" in query_order[5]
+    assert "destinations" in query_order[6]
+    assert "workflow_jobs" in query_order[7]
 
 
 @pytest.mark.asyncio
@@ -573,7 +590,7 @@ async def test_reviewed_schedule_exact_replay_reuses_both_rows_without_event_or_
     fixture = _schedule_fixture()
     now = datetime(2026, 7, 13, 4, 0, tzinfo=UTC)
     due = now + timedelta(hours=2)
-    key = f"telegram-publish:{fixture.destination.id}:{fixture.revision.id}:{fixture.revision.content_hash}"
+    key = f"telegram-publish-schedule:{fixture.destination.id}:{fixture.revision.id}:{fixture.revision.content_hash}"
     workflow = WorkflowJob(
         id=uuid4(),
         job_type="telegram.publish",
@@ -625,7 +642,7 @@ async def test_reviewed_schedule_exact_replay_survives_a_lost_response_after_due
     fixture = _schedule_fixture()
     due = datetime(2026, 7, 13, 6, 0, tzinfo=UTC)
     now = due + timedelta(minutes=5)
-    key = f"telegram-publish:{fixture.destination.id}:{fixture.revision.id}:{fixture.revision.content_hash}"
+    key = f"telegram-publish-schedule:{fixture.destination.id}:{fixture.revision.id}:{fixture.revision.content_hash}"
     workflow = WorkflowJob(
         id=uuid4(),
         job_type="telegram.publish",
@@ -685,7 +702,7 @@ async def test_reviewed_schedule_replay_tolerates_worker_rewritten_plan_payload_
     fixture = _schedule_fixture()
     now = datetime(2026, 7, 13, 4, 0, tzinfo=UTC)
     due = now + timedelta(hours=2)
-    key = f"telegram-publish:{fixture.destination.id}:{fixture.revision.id}:{fixture.revision.content_hash}"
+    key = f"telegram-publish-schedule:{fixture.destination.id}:{fixture.revision.id}:{fixture.revision.content_hash}"
     workflow = WorkflowJob(
         id=uuid4(),
         job_type="telegram.publish",
@@ -738,7 +755,7 @@ async def test_reviewed_schedule_recovers_insert_race_as_exact_replay(monkeypatc
     fixture = _schedule_fixture()
     now = datetime(2026, 7, 13, 4, 0, tzinfo=UTC)
     due = now + timedelta(hours=2)
-    key = f"telegram-publish:{fixture.destination.id}:{fixture.revision.id}:{fixture.revision.content_hash}"
+    key = f"telegram-publish-schedule:{fixture.destination.id}:{fixture.revision.id}:{fixture.revision.content_hash}"
     workflow = WorkflowJob(
         id=uuid4(),
         job_type="telegram.publish",
@@ -786,55 +803,56 @@ async def test_reviewed_schedule_recovers_insert_race_as_exact_replay(monkeypatc
     assert result.created is False
     assert result.publish_job is publish
     assert result.workflow_job is workflow
-    assert session.table_calls["publish_jobs"] == 2
+    assert session.table_calls["publish_jobs"] == 3
     assert not [item for item in session.added if isinstance(item, WorkflowEvent)]
 
 
 @pytest.mark.asyncio
-async def test_reviewed_schedule_maps_concurrent_immediate_intent_to_stable_conflict(monkeypatch):
+async def test_reviewed_schedule_reports_an_already_queued_immediate_intent_explicitly(monkeypatch):
+    """The immediate and the reviewed-schedule intents no longer share a key.
+
+    A revision queued for immediate publication must be refused with a distinct,
+    explanatory 409 rather than the opaque schedule-conflict the shared
+    idempotency key used to produce.
+    """
+
     fixture = _schedule_fixture()
     now = datetime(2026, 7, 13, 4, 0, tzinfo=UTC)
     due = now + timedelta(hours=2)
-    key = f"telegram-publish:{fixture.destination.id}:{fixture.revision.id}:{fixture.revision.content_hash}"
-    workflow = WorkflowJob(
+    immediate_key = f"telegram-publish:{fixture.destination.id}:{fixture.revision.id}:{fixture.revision.content_hash}"
+    immediate = PublishJob(
         id=uuid4(),
-        job_type="telegram.publish",
-        status="queued",
-        payload={},
-        idempotency_key=key,
-        origin="automation",
-        pause_sensitive=True,
-        scheduled_for=now,
-    )
-    publish = PublishJob(
-        id=uuid4(),
-        workflow_job_id=workflow.id,
+        workflow_job_id=uuid4(),
         destination_id=fixture.destination.id,
         platform_variant_revision_id=fixture.revision.id,
         status="queued",
-        idempotency_key=key,
+        idempotency_key=immediate_key,
         payload_hash=fixture.revision.content_hash,
         scheduled_for=None,
     )
-    workflow.payload = {"publish_job_id": str(publish.id)}
-    session = _RacingScheduleSession(
-        fixture,
-        publish_job=publish,
-        workflow_job=workflow,
-    )
+    session = _schedule_session(fixture, immediate_publish_job=immediate)
 
     async def dispatch_for_revision(_session, _revision):
         return fixture.dispatch
 
-    monkeypatch.setattr("app.publishing.telegram.scheduling._revision_dispatch", dispatch_for_revision)
+    class Repository:
+        def __init__(self, _session):
+            raise AssertionError("A refused schedule must not enqueue")
 
-    with pytest.raises(ReviewedTelegramScheduleError, match="conflicts"):
+    monkeypatch.setattr("app.publishing.telegram.scheduling._revision_dispatch", dispatch_for_revision)
+    monkeypatch.setattr("app.publishing.telegram.scheduling.JobRepository", Repository)
+
+    with pytest.raises(ReviewedTelegramScheduleError) as excinfo:
         await schedule_reviewed_telegram(
             session,
             revision_id=fixture.revision.id,
             request=_schedule_request(fixture, due),
             clock=lambda: now,
         )
+
+    assert excinfo.value.code == "telegram_publish_already_queued"
+    assert excinfo.value.status_code == 409
+    assert not [item for item in session.added if isinstance(item, PublishJob)]
 
 
 @pytest.mark.parametrize(
@@ -1024,7 +1042,7 @@ async def test_reviewed_schedule_rejects_existing_intent_or_workflow_drift(
     fixture = _schedule_fixture()
     now = datetime(2026, 7, 13, 5, 0, tzinfo=UTC)
     due = now + timedelta(hours=1)
-    key = f"telegram-publish:{fixture.destination.id}:{fixture.revision.id}:{fixture.revision.content_hash}"
+    key = f"telegram-publish-schedule:{fixture.destination.id}:{fixture.revision.id}:{fixture.revision.content_hash}"
     workflow = WorkflowJob(
         id=uuid4(),
         job_type="telegram.publish",
