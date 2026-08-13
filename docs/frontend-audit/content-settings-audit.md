@@ -171,7 +171,7 @@ Destination creation enqueues `telegram.destination.check`. The page refetches i
 
 ### Environment and startup fallbacks
 
-- Browser API calls use `NEXT_PUBLIC_API_BASE_URL` when set, otherwise `/api/backend`. The Next proxy resolves `API_INTERNAL_BASE_URL`, then `NEXT_PUBLIC_API_BASE_URL`, then `http://localhost:8000`; Compose supplies `http://api:8000`.
+- Browser API calls use `NEXT_PUBLIC_API_BASE_URL` when set, otherwise `/api/backend` (it should normally stay unset so browser traffic keeps flowing through the proxy). The Next proxy resolves its upstream from `API_INTERNAL_BASE_URL`, then `http://localhost:8000`, and deliberately ignores `NEXT_PUBLIC_API_BASE_URL`; Compose supplies `http://api:8000`.
 - Backend settings load from process environment and `.env`. `OPENROUTER_BASE_URL` defaults to `https://openrouter.ai/api/v1`; `OPENROUTER_DEFAULT_MODEL` defaults to `openai/gpt-5-mini`.
 - Provider-profile `settings.base_url` overrides the runtime OpenRouter base URL. Since create/seed normally persists a base URL, later environment changes usually do not affect existing profiles.
 - `CODEX_ENABLED=false`, `CODEX_EXECUTABLE=codex`, and the hardcoded seeded model `gpt-5.4` govern Codex. Executable/auth changes require worker runtime reload; API restart also rewrites the persisted Codex profile.
