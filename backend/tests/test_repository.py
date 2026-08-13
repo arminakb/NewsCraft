@@ -12,9 +12,11 @@ from app.ingestion.repository import (
     _identity_insert_statement,
     _media_asset_values,
     build_item_identities,
+    dedupe_media_candidates,
     plan_item_media_rows,
 )
 from app.sources.base import MediaCandidate, ParsedSourceItem
+from app.sources.rss import _extract_media_candidates
 
 
 def test_build_item_identities_marks_strong_and_weak_scopes():
@@ -263,3 +265,98 @@ def test_remote_reingest_does_not_erase_downloaded_media_metadata():
     assert asset.fetch_status == "downloaded"
     assert asset.source_field == "telegram_capture"
     assert asset.media_source_type == "stored"
+
+
+def test_duplicate_urls_resolve_to_the_strongest_candidate():
+    lead = MediaCandidate(
+        "https://e.test/lead.jpg",
+        "https://e.test/lead.jpg",
+        "image",
+        "media_content",
+        width=1200,
+        height=630,
+        confidence=1.0,
+    )
+    inline = MediaCandidate(
+        "https://e.test/lead.jpg",
+        "https://e.test/lead.jpg",
+        "image",
+        "inline_img",
+        confidence=0.7,
+    )
+
+    deduped = dedupe_media_candidates([lead, inline])
+
+    assert len(deduped) == 1
+    assert deduped[0].source_field == "media_content"
+    assert deduped[0].width == 1200
+
+
+def test_plan_item_media_rows_uses_the_strongest_duplicate_candidate():
+    content_item_id = uuid4()
+    asset = MediaAsset(
+        id=uuid4(),
+        original_url="https://e.test/lead.jpg",
+        normalized_url="https://e.test/lead.jpg",
+        url_hash="lead",
+        kind="image",
+        source_field="media_content",
+        width=1200,
+        height=630,
+        fetch_status="remote_only",
+        media_quality="good",
+        is_primary_candidate=True,
+    )
+    parsed_item = ParsedSourceItem(
+        external_id_raw="guid-1",
+        external_id_norm="guid-1",
+        source_url="https://example.com/a",
+        source_url_norm="https://example.com/a",
+        canonical_url_candidate="https://example.com/a",
+        title="AI News",
+        summary="summary",
+        content_html=None,
+        content_text="body",
+        author=None,
+        categories=[],
+        published_raw=None,
+        published_at=None,
+        date_parse_status="missing",
+        media_candidates=[
+            MediaCandidate(
+                "https://e.test/lead.jpg",
+                "https://e.test/lead.jpg",
+                "image",
+                "media_content",
+                width=1200,
+                height=630,
+                confidence=1.0,
+            ),
+            MediaCandidate(
+                "https://e.test/lead.jpg",
+                "https://e.test/lead.jpg",
+                "image",
+                "inline_img",
+                confidence=0.7,
+            ),
+        ],
+    )
+
+    rows = plan_item_media_rows(content_item_id, [asset], parsed_item)
+
+    assert len(rows) == 1
+    assert rows[0]["extracted_from"] == "media_content"
+
+
+def test_rss_media_extraction_emits_one_candidate_per_url():
+    entry = {
+        "media_content": [{"url": "https://e.test/lead.jpg", "medium": "image", "width": "1200", "height": "630"}],
+        "links": [],
+        "enclosures": [],
+    }
+    html = '<p>text</p><img src="https://e.test/lead.jpg" alt="lead"/>'
+
+    candidates = _extract_media_candidates(entry, html, "https://example.com/a")
+
+    assert [candidate.source_field for candidate in candidates] == ["media_content"]
+    assert candidates[0].width == 1200

@@ -189,7 +189,7 @@ def _external_id_norm(
 
 def _extract_media_candidates(entry: Any, content_html: str | None, source_url: str) -> list[MediaCandidate]:
     candidates: list[MediaCandidate] = []
-    seen: set[tuple[str, str]] = set()
+    seen: set[str] = set()
 
     for media in entry.get("media_content") or []:
         _append_media_candidate(candidates, seen, media, source_url, "media_content", confidence=1.0)
@@ -221,7 +221,7 @@ def _extract_media_candidates(entry: Any, content_html: str | None, source_url: 
 
 def _append_media_candidate(
     candidates: list[MediaCandidate],
-    seen: set[tuple[str, str]],
+    seen: set[str],
     media: dict,
     base_url: str,
     source_field: str,
@@ -233,10 +233,12 @@ def _append_media_candidate(
     normalized_url = normalize_url(original_url, base_url)
     if not is_http_media_url(normalized_url):
         return
-    dedupe_key = (normalized_url, source_field)
-    if dedupe_key in seen:
+    # Keyed on the URL alone: the fields are appended strongest-first, so the
+    # first sighting is the highest-confidence one. Keying on (url, field) let
+    # one image enter twice and the weaker copy then won downstream.
+    if normalized_url in seen:
         return
-    seen.add(dedupe_key)
+    seen.add(normalized_url)
 
     mime_type = media.get("type")
     medium = media.get("medium")

@@ -110,13 +110,38 @@ def build_item_identities(source: Source, parsed_item: ParsedSourceItem) -> list
     return list(deduped.values())
 
 
+def dedupe_media_candidates(candidates: list[MediaCandidate]) -> list[MediaCandidate]:
+    """Collapse candidates that point at one URL, keeping the strongest claim.
+
+    Parsers may surface the same image through several fields (a `<media:content>`
+    lead image that also appears as an inline `<img>`). Keyed only by URL, a plain
+    dict comprehension kept whichever entry came last — the weakest one — which
+    then overwrote the strong candidate's dimensions and quality on the shared
+    asset row and emitted a second `item_media` row for the same asset.
+    """
+
+    strongest: dict[str, MediaCandidate] = {}
+    order: list[str] = []
+    for candidate in candidates:
+        existing = strongest.get(candidate.normalized_url)
+        if existing is None:
+            strongest[candidate.normalized_url] = candidate
+            order.append(candidate.normalized_url)
+        elif candidate.confidence > existing.confidence:
+            strongest[candidate.normalized_url] = candidate
+    return [strongest[url] for url in order]
+
+
 def plan_item_media_rows(
     content_item_id: UUID,
     media_assets: list[MediaAsset],
     parsed_item: ParsedSourceItem,
 ) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
-    candidates_by_url = {candidate.normalized_url: candidate for candidate in parsed_item.media_candidates}
+    candidates_by_url = {
+        candidate.normalized_url: candidate
+        for candidate in dedupe_media_candidates(parsed_item.media_candidates)
+    }
     primary_image_assigned = False
 
     for sort_order, media_asset in enumerate(media_assets):
@@ -452,7 +477,7 @@ class IngestionRepository:
         # can hold a row while waiting for the other's table lock.
         await self.session.execute(text("LOCK TABLE content_items, item_media, media_assets IN ROW EXCLUSIVE MODE"))
         assets: list[MediaAsset] = []
-        for candidate in parsed_item.media_candidates:
+        for candidate in dedupe_media_candidates(parsed_item.media_candidates):
             assets.append(await self._upsert_media_asset(candidate))
         await self.session.flush()
         return assets
