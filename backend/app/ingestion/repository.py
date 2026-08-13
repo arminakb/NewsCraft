@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import UTC, datetime
 from decimal import Decimal
 from hashlib import sha256
@@ -384,7 +385,7 @@ class IngestionRepository:
         values = _content_item_values(source, parsed_item)
         if existing:
             await self._merge_duplicate_content_items(existing, matches[1:])
-            values = _preserve_more_complete_content(existing, values)
+            values = _preserve_more_complete_content(source, existing, parsed_item, values)
             for key, value in values.items():
                 if key in {"first_seen_at", "created_at"}:
                     continue
@@ -791,15 +792,31 @@ def _content_item_values(source: Source, parsed_item: ParsedSourceItem) -> dict[
     return values
 
 
-def _preserve_more_complete_content(existing: ContentItem, values: dict[str, Any]) -> dict[str, Any]:
+def _preserve_more_complete_content(
+    source: Source,
+    existing: ContentItem,
+    parsed_item: ParsedSourceItem,
+    values: dict[str, Any],
+) -> dict[str, Any]:
+    """Keep the fuller stored body — and everything derived from it.
+
+    A summary-only re-parse of an item first seen with full text must not
+    downgrade classification, scoring, quality or rewrite readiness, so the
+    derived values are recomputed from the preserved body instead of being
+    patched on top of excerpt-derived ones.
+    """
+
     stored_text = existing.content_text or ""
     incoming_text = str(values.get("content_text") or "")
     if _normalized_content_length(incoming_text) >= _normalized_content_length(stored_text):
         return values
 
-    preserved = dict(values)
-    preserved["content_text"] = existing.content_text
-    preserved["content_html_sanitized"] = existing.content_html_sanitized
+    preserved_item = replace(
+        parsed_item,
+        content_text=stored_text,
+        content_html=existing.content_html_sanitized,
+    )
+    preserved = _content_item_values(source, preserved_item)
 
     incoming_metrics = dict(preserved.get("metrics") or {})
     stored_metrics = existing.metrics if isinstance(existing.metrics, dict) else {}
