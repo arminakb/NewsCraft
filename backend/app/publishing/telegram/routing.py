@@ -17,7 +17,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import Settings, settings
 from app.publishing.models import Destination, TelegramProxyProfile
 from app.publishing.telegram.client import TelegramBotClient
-from app.publishing.telegram.contracts import TelegramOperationResult, TelegramPublishOperation
 from app.security.auth import SecurityPrincipal
 from app.security.models import EncryptedSecret
 from app.security.secret_store import EncryptedSecretStore, MasterKeyRing, SecretStoreError
@@ -46,35 +45,17 @@ class ValidatedProxyEndpoint:
     port: int
 
 
-class _TestTelegramBotClient(TelegramBotClient):
-    """Deterministic Bot API boundary used only by fixture-backed test runs."""
+def build_acceptance_bot_client(config: Settings) -> TelegramBotClient:
+    """Build the fixture-backed Bot API double owned by the acceptance package.
 
-    def __init__(self) -> None:
-        pass
+    The double lives in ``app.automations.telegram.acceptance_fixture`` and
+    raises if the process is not a fixture-backed test run, so this factory
+    cannot quietly substitute a no-op transport for a real publish.
+    """
 
-    async def execute(self, operation: TelegramPublishOperation, token: str) -> TelegramOperationResult:
-        del token
-        return TelegramOperationResult(
-            remote_message_ids=(9_001 + operation.index,),
-            response_metadata={"ok": True, "test_transport": True},
-        )
+    from app.automations.telegram.acceptance_fixture import AcceptanceTelegramBotClient
 
-    async def get_me(self, token: str) -> dict[str, Any]:
-        del token
-        return {"id": 9_001, "username": "newscraft_test_bot"}
-
-    async def get_chat(self, target_ref: str, token: str) -> dict[str, Any]:
-        del token
-        return {
-            "id": -1_009_001,
-            "type": "channel",
-            "username": target_ref.removeprefix("@"),
-            "title": "NewsCraft test channel",
-        }
-
-    async def get_chat_member(self, target_ref: str, user_id: int, token: str) -> dict[str, Any]:
-        del target_ref, user_id, token
-        return {"status": "administrator", "administrator": True}
+    return AcceptanceTelegramBotClient(config=config)
 
 
 def normalize_telegram_target(raw: str) -> NormalizedTelegramTarget:
@@ -218,10 +199,26 @@ class TelegramRouteResolver:
         key_ring: MasterKeyRing | None,
         principal: SecurityPrincipal,
         config: Settings = settings,
+        acceptance_client_factory: Callable[[Settings], TelegramBotClient] = build_acceptance_bot_client,
     ) -> None:
         self.key_ring = key_ring
         self.principal = principal
         self.config = config
+        self._acceptance_client_factory = acceptance_client_factory
+
+    def _uses_acceptance_client(self, destination: Destination) -> bool:
+        """Fixture-backed test runs bypass the Bot API for direct destinations.
+
+        ``Settings`` already refuses a fixture path outside ``APP_ENV=test``, and
+        the client the factory returns re-checks that invariant, so this branch
+        cannot be reached by a production deployment.
+        """
+
+        return (
+            self.config.app_env == "test"
+            and self.config.telegram_acceptance_fixture_path is not None
+            and destination.proxy_profile_id is None
+        )
 
     def _store(self, session: AsyncSession) -> EncryptedSecretStore:
         if self.key_ring is None:
@@ -278,12 +275,8 @@ class TelegramRouteResolver:
         session: AsyncSession,
         destination: Destination,
     ) -> AsyncIterator[TelegramBotClient]:
-        if (
-            self.config.app_env == "test"
-            and self.config.telegram_acceptance_fixture_path is not None
-            and destination.proxy_profile_id is None
-        ):
-            yield _TestTelegramBotClient()
+        if self._uses_acceptance_client(destination):
+            yield self._acceptance_client_factory(self.config)
             return
         proxy_url: str | None = None
         if destination.proxy_profile_id is not None:

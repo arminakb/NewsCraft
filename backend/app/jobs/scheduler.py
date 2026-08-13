@@ -197,8 +197,13 @@ class SchedulerService:
             deduplicated = 0
             continuous_enqueued = 0
             continuous_deduplicated = 0
+            capability_status = CapabilityStatusService(
+                self.session,
+                config=self.settings,
+                clock=lambda: observed_at,
+            )
             for route in await self._lock_due_routes(observed_at):
-                if not await self._route_capabilities_available(route, observed_at):
+                if not await self._route_capabilities_available(route, capability_status):
                     continue
                 due_time = route.next_poll_at
                 if due_time is None:  # pragma: no cover - due query excludes nulls
@@ -524,13 +529,8 @@ class SchedulerService:
     async def _route_capabilities_available(
         self,
         route: AutomationRoute,
-        observed_at: datetime,
+        status: CapabilityStatusService,
     ) -> bool:
-        status = CapabilityStatusService(
-            self.session,
-            config=self.settings,
-            clock=lambda: observed_at,
-        )
         required = [
             await status.get("source", route.source_id, "source"),
             await status.get(

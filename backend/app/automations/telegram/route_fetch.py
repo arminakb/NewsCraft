@@ -20,13 +20,28 @@ from app.automations.telegram.handler_contracts import (
 )
 from app.automations.telegram.registry import TelegramSourceRegistry
 from app.db.models import Source
-from app.jobs.errors import PermanentJobError, RetryableJobError
+from app.jobs.errors import NeedsReviewJobError, PermanentJobError, RetryableJobError
 from app.jobs.models import AutomationControl
 from app.jobs.registry import JobContext
 from app.jobs.repository import JobRepository
 from app.jobs.types import JobExecution, JobOrigin, job_payload_copy
 
 logger = logging.getLogger(__name__)
+
+# Ceiling on the ``telegram-route-deferred:`` chain.
+#
+# A deferral re-enqueues the same job under a NEW idempotency key (the sequence
+# is part of the key), so the chain cannot collapse itself. The trigger is a
+# durable state — a paused route or a global pause — not a transient one, so
+# without a ceiling a route left paused accrues one WorkflowJob row per poll
+# interval forever (>=2,880/day at the 30s interval floor).
+#
+# 720 links bound the chain at ~6h of a floor-interval route and days of a
+# slower one. Exhausting it is not data loss: `build_due_route_statement`
+# re-enqueues a poll as soon as the route is unpaused and due. It does need an
+# operator for an initialize/backfill chain, which is why exhaustion surfaces
+# as needs_review rather than a silent drop.
+MAX_DEFER_SEQUENCE = 720
 
 
 async def _load_route(
@@ -98,6 +113,7 @@ async def _capture(
     job: JobExecution,
     context: JobContext,
     media_stager: Any,
+    repository: JobRepository | None = None,
     enqueue_process: bool = True,
     scheduled_for: datetime | None = None,
     force_review: bool = False,
@@ -123,7 +139,7 @@ async def _capture(
             if pause_reason is not None:
                 await _defer_route_job(
                     context,
-                    media_stager,
+                    repository=repository,
                     route=locked,
                     job=job,
                     scheduled_for=deferred_until,
@@ -201,17 +217,27 @@ def _validate_locked_route(
     return None
 
 
+def _job_repository(context: JobContext, repository: JobRepository | None) -> JobRepository:
+    """Resolve the queue writer for route continuations.
+
+    Callers pass the repository explicitly; ``None`` means "use the one that
+    belongs to this job's session".
+    """
+
+    return repository if repository is not None else JobRepository(context.session)
+
+
 async def _enqueue_continuation(
     context: JobContext,
-    media_stager: Any,
     *,
+    repository: JobRepository | None = None,
     route_id: UUID,
     last_scanned_id: int,
     activation_requested_at: str,
     phase: str,
     continuation_state: dict[str, Any],
 ):
-    repository = media_stager if hasattr(media_stager, "enqueue_job") else JobRepository(context.session)
+    repository = _job_repository(context, repository)
     digest = hashlib.sha256(json.dumps(continuation_state, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
     return await repository.enqueue_job(
         job_type="telegram.route.initialize",
@@ -226,16 +252,24 @@ async def _enqueue_continuation(
 
 async def _defer_route_job(
     context: JobContext,
-    media_stager: Any,
     *,
+    repository: JobRepository | None = None,
     route: AutomationRoute,
     job: JobExecution,
     scheduled_for: datetime,
 ) -> None:
-    repository = media_stager if hasattr(media_stager, "enqueue_job") else JobRepository(context.session)
+    repository = _job_repository(context, repository)
     payload = job_payload_copy(job)
     root_job_id = str(payload.get("defer_root_job_id") or job.id)
     next_sequence = int(payload.get("defer_sequence") or 0) + 1
+    if next_sequence > MAX_DEFER_SEQUENCE:
+        raise NeedsReviewJobError(
+            code="telegram_route_deferral_exhausted",
+            message=(
+                f"Telegram route deferred {MAX_DEFER_SEQUENCE} times without running; "
+                "resume the route or clear the pause"
+            ),
+        )
     payload.update(
         {
             "defer_root_job_id": root_job_id,
@@ -253,8 +287,8 @@ async def _defer_route_job(
 
 async def _enqueue_forward_continuation(
     context: JobContext,
-    media_stager: Any,
     *,
+    repository: JobRepository | None = None,
     route_id: UUID,
     job: JobExecution,
     state: dict[str, Any],
@@ -264,7 +298,7 @@ async def _enqueue_forward_continuation(
         activation_requested_at = str(state["activation_requested_at"])
         await _enqueue_continuation(
             context,
-            media_stager,
+            repository=repository,
             route_id=route_id,
             last_scanned_id=last_scanned_id,
             activation_requested_at=activation_requested_at,
@@ -272,7 +306,7 @@ async def _enqueue_forward_continuation(
             continuation_state=state,
         )
         return
-    repository = media_stager if hasattr(media_stager, "enqueue_job") else JobRepository(context.session)
+    repository = _job_repository(context, repository)
     digest = hashlib.sha256(json.dumps(state, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
     await repository.enqueue_job(
         job_type=job.job_type,
@@ -284,8 +318,8 @@ async def _enqueue_forward_continuation(
 
 async def _persist_forward_progress(
     context: JobContext,
-    media_stager: Any,
     *,
+    repository: JobRepository | None = None,
     route_id: UUID,
     job: JobExecution,
     state_key: str,
@@ -309,7 +343,7 @@ async def _persist_forward_progress(
         if pause_reason is not None:
             await _defer_route_job(
                 context,
-                media_stager,
+                repository=repository,
                 route=locked,
                 job=job,
                 scheduled_for=deferred_until,
@@ -324,7 +358,7 @@ async def _persist_forward_progress(
         locked.cursor_state = cursor_state
         await _enqueue_forward_continuation(
             context,
-            media_stager,
+            repository=repository,
             route_id=route_id,
             job=job,
             state=stored_state,

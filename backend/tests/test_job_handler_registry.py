@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.generation.providers.registry import ProviderRegistry
 from app.jobs.errors import DuplicateJobHandlerError, UnknownJobTypeError
 from app.jobs.registry import JobContext, JobHandlerRegistry, build_default_registry
-from app.jobs.types import JobExecution
+from app.jobs.types import JobExecution, JobType
 
 
 async def _handler(job: JobExecution, context: JobContext) -> dict[str, Any]:
@@ -150,3 +150,38 @@ def test_every_registered_handler_accepts_immutable_job_execution():
     for job_type in registry.job_types():
         handler = registry.get(job_type)
         assert get_type_hints(handler)["job"] is JobExecution, job_type
+
+
+def test_job_type_enum_matches_the_fully_capable_registry():
+    """JobType is the routable-work inventory, so drift either way is a bug.
+
+    A registered type missing from the enum means the enum lies about what the
+    worker can run; an enum member nothing registers means an enqueue against
+    it produces a queued row that dies at claim time with UnknownJobTypeError
+    (app/jobs/registry.py raises it, app/jobs/worker.py catches it on claim).
+    """
+
+    registry = build_default_registry(
+        capabilities=("ingestion", "source", "generation", "publishing"),
+        source_registry=object(),
+        media_stager=object(),
+        profile_resolver=object(),
+        telegram_client=object(),
+        destination_secret_resolver=object(),
+        research_backend_resolver=object(),
+        icon_discovery_service=object(),
+    )
+
+    assert set(registry.job_types()) == {member.value for member in JobType}
+
+
+def test_registry_keys_are_plain_strings_so_enum_and_literal_lookups_agree():
+    registry = JobHandlerRegistry()
+
+    registry.register(JobType.MANUAL_INTAKE, _handler)
+
+    assert registry.job_types() == ("manual_intake",)
+    assert registry.get("manual_intake") is _handler
+    assert registry.get(JobType.MANUAL_INTAKE) is _handler
+    with pytest.raises(DuplicateJobHandlerError, match="manual_intake"):
+        registry.register("manual_intake", _handler)

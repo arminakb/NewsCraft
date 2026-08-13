@@ -1,101 +1,41 @@
 from __future__ import annotations
 
-# ruff: noqa: F401
-import hashlib
-import inspect
-from collections.abc import Callable, Iterable, Sequence
-from dataclasses import dataclass
-from datetime import UTC, datetime, timedelta
-from typing import Any, Literal, Protocol
+from collections.abc import Callable
+from datetime import UTC, datetime
+from typing import Any
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict
-from sqlalchemy import exists, func, select
+from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 
-from app.automations.models import AutomationDispatch, AutomationRoute
-from app.automations.telegram.decisions import (
-    classify_publication_failure,
-    reconciliation_required,
-)
-from app.core.faults import FaultInjector, NoopFaultInjector
-from app.core.redaction import redact_secrets, redact_string
-from app.db.models import ItemMedia, MediaAsset, SourceItem
-from app.generation.models import ContentPack, PlatformVariant, PlatformVariantRevision
+from app.automations.canonical_json import sha256_canonical
+from app.automations.models import AutomationRoute
+from app.generation.models import PlatformVariant, PlatformVariantRevision
 from app.generation.revision_validation import RevisionValidationError, validate_approvable_revision
 from app.generation.telegram_schema import (
-    TelegramEvidenceCitation,
     TelegramVariantContent,
 )
-from app.jobs.errors import NeedsReviewJobError, PermanentJobError, RetryableJobError
 from app.jobs.events import redact_event_data
-from app.jobs.models import AutomationControl, WorkflowEvent, WorkflowJob
+from app.jobs.models import WorkflowEvent, WorkflowJob
 from app.jobs.repository import JobRepository
 from app.jobs.types import JobOrigin, JobStatus
 from app.publishing.models import (
     Destination,
     Publication,
-    PublishAttempt,
     PublishJob,
-    PublishOperationReceipt,
 )
-from app.publishing.telegram.client import (
-    TelegramClientError,
-    TelegramRateLimited,
-    TelegramRetryableBeforeDispatch,
-)
-from app.publishing.telegram.renderer import TelegramPublishNeedsReview, build_publish_plan
 from app.publishing.telegram.service_contracts import (
-    PublishValidationError,
-    ReconciliationCase,
-    ReconciliationDestination,
-    ReconciliationOperationSummary,
     ReviewedTelegramScheduleError,
     ReviewedTelegramScheduleRequest,
     ReviewedTelegramScheduleResult,
+    immediate_publish_intent_key,
+    reviewed_schedule_intent_key,
 )
-from app.stories.models import StoryEvidenceSnapshot, StoryRevision
+from app.publishing.telegram.service_contracts import revision_dispatch as _revision_dispatch
 
 
 def _canonical_hash(value: Any) -> str:
-    import json
-
-    encoded = json.dumps(
-        value,
-        ensure_ascii=False,
-        sort_keys=True,
-        separators=(",", ":"),
-    ).encode("utf-8")
-    return hashlib.sha256(encoded).hexdigest()
-
-
-async def _revision_dispatch(session: Any, revision: PlatformVariantRevision) -> AutomationDispatch | None:
-    current: PlatformVariantRevision | None = revision
-    expected_variant_id = revision.platform_variant_id
-    seen: set[UUID] = set()
-    while current is not None and current.id not in seen:
-        if current.platform_variant_id != expected_variant_id:
-            return None
-        seen.add(current.id)
-        dispatch = await session.scalar(
-            select(AutomationDispatch)
-            .where(AutomationDispatch.variant_revision_id == current.id)
-            .order_by(AutomationDispatch.created_at.desc())
-            .limit(1)
-            .execution_options(populate_existing=True)
-        )
-        if dispatch is not None:
-            return dispatch
-        current = (
-            await session.get(
-                PlatformVariantRevision,
-                current.parent_revision_id,
-                populate_existing=True,
-            )
-            if current.parent_revision_id
-            else None
-        )
-    return None
+    return sha256_canonical(value)
 
 
 def _schedule_utc(value: datetime, *, field: str) -> datetime:
@@ -132,11 +72,17 @@ def _validate_schedule_replay(
             "telegram_schedule_already_published",
             "Telegram revision is already published",
         )
+    # ``payload_hash`` is deliberately absent from this predicate. The publish
+    # worker rewrites it to the rendered-plan digest while preparing a dispatch
+    # (publication._load_context), and that rewrite is committed before the job
+    # is claimed. A crash between those two points must still let the operator
+    # replay the exact same reviewed schedule, so revision identity is pinned by
+    # the destination, the revision, the idempotency key (which already embeds
+    # the content hash) and the linked workflow job instead.
     if (
         publish_job.destination_id != destination.id
         or publish_job.platform_variant_revision_id != revision.id
         or publish_job.idempotency_key != idempotency_key
-        or publish_job.payload_hash != revision.content_hash
         or publish_job.workflow_job_id != workflow_job.id
         or publish_job.status != "scheduled"
         or not _row_time_matches(publish_job.scheduled_for, scheduled_for)
@@ -260,10 +206,27 @@ async def schedule_reviewed_telegram(
             "Telegram revision hash no longer matches its content",
         )
 
-    idempotency_key = f"telegram-publish:{request.destination_id}:{revision.id}:{revision.content_hash}"
+    idempotency_key = reviewed_schedule_intent_key(
+        destination_id=request.destination_id,
+        revision_id=revision.id,
+        content_hash=revision.content_hash,
+    )
     publish_job = await session.scalar(
         select(PublishJob)
         .where(PublishJob.idempotency_key == idempotency_key)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
+    immediate_publish_job = await session.scalar(
+        select(PublishJob)
+        .where(
+            PublishJob.idempotency_key
+            == immediate_publish_intent_key(
+                destination_id=request.destination_id,
+                revision_id=revision.id,
+                content_hash=revision.content_hash,
+            )
+        )
         .with_for_update()
         .execution_options(populate_existing=True)
     )
@@ -292,6 +255,15 @@ async def schedule_reviewed_telegram(
 
     publish_job_created = False
     if publish_job is None:
+        if immediate_publish_job is not None:
+            # An immediate publish intent already owns this revision/destination
+            # pair. Minting a second, scheduled intent would let both dispatch
+            # and publish the same revision twice, so refuse with an explanation
+            # instead of a bare schedule conflict.
+            raise ReviewedTelegramScheduleError(
+                "telegram_publish_already_queued",
+                "Telegram revision is already queued for immediate publication",
+            )
         observed_at = _schedule_utc(
             schedule_clock(),
             field="Scheduling clock",

@@ -98,7 +98,7 @@ class MemoryScheduler(SchedulerService):
             and route.next_poll_at <= now
         ]
 
-    async def _route_capabilities_available(self, route, observed_at):
+    async def _route_capabilities_available(self, route, capability_status):
         return True
 
 

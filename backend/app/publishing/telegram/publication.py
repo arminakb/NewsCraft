@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import inspect
 from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import UUID
@@ -34,9 +33,13 @@ from app.publishing.telegram.client import (
     TelegramRetryableBeforeDispatch,
 )
 from app.publishing.telegram.publication_support import (
+    _ClaimOutcome,
     _close_running_publish_attempts,
+    _mark_publish_blocked,
     _PublishContext,
     _record_failure,
+    _release_claim_for_retry,
+    _short_circuit_result,
 )
 from app.publishing.telegram.reconciliation import (
     derive_telegram_permalink,
@@ -46,37 +49,11 @@ from app.publishing.telegram.reconciliation import (
 )
 from app.publishing.telegram.renderer import TelegramPublishNeedsReview, build_publish_plan
 from app.publishing.telegram.scheduling import _canonical_hash, _revision_dispatch
+from app.publishing.telegram.secret_resolution import resolve_destination_secret
 from app.publishing.telegram.service_contracts import (
     PublishValidationError,
 )
 from app.stories.models import StoryEvidenceSnapshot, StoryRevision
-
-
-async def _resolve_secret(resolver: Any, secret_ref: str) -> str:
-    target = getattr(resolver, "resolve", None)
-    if target is None and callable(resolver):
-        target = resolver
-    if target is None:
-        raise PermanentJobError(
-            code="telegram_destination_secret_missing",
-            message="Destination secret is unavailable",
-        )
-    try:
-        value = target(secret_ref)
-        if inspect.isawaitable(value):
-            value = await value
-    except Exception:
-        raise PermanentJobError(
-            code="telegram_destination_secret_missing",
-            message="Destination secret is unavailable",
-        ) from None
-    if not isinstance(value, str) or not value:
-        raise PermanentJobError(
-            code="telegram_destination_secret_missing",
-            message="Destination secret is unavailable",
-        )
-    return value
-
 
 _ROUTE_UNSET = object()
 
@@ -617,6 +594,132 @@ async def _revalidate_claim(session: Any, context: _PublishContext) -> PublishJo
     return publish_job
 
 
+async def _prepare_publish(
+    session: Any,
+    publish_job_id: UUID,
+    observed_at: datetime,
+    *,
+    expected_proxy_profile_id: UUID | None | object,
+) -> Any:
+    try:
+        async with session.begin():
+            return await _load_context(
+                session,
+                publish_job_id,
+                observed_at,
+                expected_proxy_profile_id=expected_proxy_profile_id,
+            )
+    except (NeedsReviewJobError, PermanentJobError) as exc:
+        await _mark_publish_blocked(session, publish_job_id, exc.code)
+        raise
+
+
+async def _claim_operation(
+    session: Any,
+    prepared: _PublishContext,
+    operation: Any,
+    claim_time: datetime,
+) -> _ClaimOutcome:
+    claimed_attempt_count = 0
+    retry_at: datetime | None = None
+    claim_error: NeedsReviewJobError | None = None
+    competing_claim = False
+    async with session.begin():
+        try:
+            publish_job = await _revalidate_claim(session, prepared)
+        except NeedsReviewJobError as exc:
+            claim_error = exc
+            publish_job = await session.scalar(
+                select(PublishJob)
+                .where(PublishJob.id == prepared.publish_job_id)
+                .with_for_update()
+                .execution_options(populate_existing=True)
+            )
+        if publish_job is None:
+            raise NeedsReviewJobError(
+                code="telegram_publish_job_missing",
+                message="Telegram publish job is missing",
+            )
+        receipt = await session.scalar(
+            select(PublishOperationReceipt)
+            .where(
+                PublishOperationReceipt.publish_job_id == prepared.publish_job_id,
+                PublishOperationReceipt.operation_index == operation.index,
+            )
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )
+        if receipt is None:
+            raise NeedsReviewJobError(
+                code="telegram_publish_receipt_missing",
+                message="Telegram publish receipt is missing",
+            )
+        if claim_error is not None:
+            attempt = await session.get(
+                PublishAttempt,
+                prepared.attempt_id,
+                populate_existing=True,
+            )
+            publish_job.status = "attention"
+            if attempt is not None and attempt.status == "running":
+                attempt.status = "needs_review"
+                attempt.error_class = "needs_review"
+                attempt.error_code = redact_string(claim_error.code)
+                attempt.error_message = redact_string(claim_error.message)
+                attempt.finished_at = claim_time
+        elif receipt.status == "succeeded":
+            return _ClaimOutcome(already_succeeded=True)
+        elif receipt.status == "dispatching":
+            competing_claim = True
+            retry_at = (receipt.updated_at or claim_time) + timedelta(minutes=5)
+            attempt = await session.get(
+                PublishAttempt,
+                prepared.attempt_id,
+                populate_existing=True,
+            )
+            if attempt is not None and attempt.status == "running":
+                attempt.status = "failed"
+                attempt.error_class = "retryable"
+                attempt.error_code = redact_string("telegram_publish_in_progress")
+                attempt.error_message = redact_string("Another Telegram publish claim is in progress")
+                attempt.finished_at = claim_time
+        elif receipt.status != "pending":
+            claim_error = NeedsReviewJobError(
+                code="telegram_publish_receipt_not_sendable",
+                message="Telegram publish receipt requires attention",
+            )
+            attempt = await session.get(
+                PublishAttempt,
+                prepared.attempt_id,
+                populate_existing=True,
+            )
+            if receipt.status == "ambiguous":
+                publish_job.status = "reconciliation_required"
+            else:
+                publish_job.status = "attention"
+            if attempt is not None and attempt.status == "running":
+                attempt.status = "needs_review"
+                attempt.error_class = "needs_review"
+                attempt.error_code = redact_string(claim_error.code)
+                attempt.error_message = redact_string(claim_error.message)
+                attempt.finished_at = claim_time
+        elif receipt.next_attempt_at and receipt.next_attempt_at > claim_time:
+            retry_at = receipt.next_attempt_at
+        else:
+            receipt.status = "dispatching"
+            receipt.attempt_count += 1
+            receipt.next_attempt_at = None
+            receipt.updated_at = claim_time
+            publish_job.status = "dispatching"
+            claimed_attempt_count = receipt.attempt_count
+    return _ClaimOutcome(
+        claimed_attempt_count=claimed_attempt_count,
+        retry_at=retry_at,
+        competing_claim=competing_claim,
+        claim_error=claim_error,
+    )
+
+
 async def publish_telegram(
     session: Any,
     *,
@@ -629,172 +732,39 @@ async def publish_telegram(
 ) -> dict[str, Any]:
     injector = fault_injector if fault_injector is not None else NoopFaultInjector()
     clock = now or (lambda: datetime.now(UTC))
-    observed_at = clock()
-    try:
-        async with session.begin():
-            prepared = await _load_context(
-                session,
-                publish_job_id,
-                observed_at,
-                expected_proxy_profile_id=expected_proxy_profile_id,
-            )
-    except (NeedsReviewJobError, PermanentJobError) as exc:
-        async with session.begin():
-            publish_job = await session.scalar(
-                select(PublishJob)
-                .where(PublishJob.id == publish_job_id)
-                .with_for_update()
-                .execution_options(populate_existing=True)
-            )
-            if publish_job is not None:
-                publish_job.status = "attention"
-                session.add(
-                    WorkflowEvent(
-                        workflow_job_id=publish_job.workflow_job_id,
-                        event_type="telegram.publish.blocked",
-                        actor="automation",
-                        event_data=redact_event_data(
-                            {
-                                "publish_job_id": str(publish_job.id),
-                                "error_code": exc.code,
-                            }
-                        ),
-                    )
-                )
-        raise
+    prepared = await _prepare_publish(
+        session,
+        publish_job_id,
+        clock(),
+        expected_proxy_profile_id=expected_proxy_profile_id,
+    )
     if isinstance(prepared, dict):
-        if prepared.get("reconciliation_required"):
-            raise NeedsReviewJobError(
-                code="telegram_publish_reconciliation_required",
-                message="Telegram publish requires reconciliation",
-            )
-        prepared_retry_at = prepared.get("retry_at")
-        if isinstance(prepared_retry_at, datetime):
-            raise RetryableJobError(
-                code="telegram_publish_not_due",
-                message="Telegram publish retry is not due",
-                retry_at=prepared_retry_at,
-            )
-        return prepared
+        return _short_circuit_result(prepared)
 
     token: str | None = None
     for operation in prepared.plan.operations:
-        claimed_attempt_count = 0
-        retry_at: datetime | None = None
-        claim_time = clock()
-        claim_error: NeedsReviewJobError | None = None
-        competing_claim = False
-        async with session.begin():
-            try:
-                publish_job = await _revalidate_claim(session, prepared)
-            except NeedsReviewJobError as exc:
-                claim_error = exc
-                publish_job = await session.scalar(
-                    select(PublishJob)
-                    .where(PublishJob.id == prepared.publish_job_id)
-                    .with_for_update()
-                    .execution_options(populate_existing=True)
-                )
-            if publish_job is None:
-                raise NeedsReviewJobError(
-                    code="telegram_publish_job_missing",
-                    message="Telegram publish job is missing",
-                )
-            receipt = await session.scalar(
-                select(PublishOperationReceipt)
-                .where(
-                    PublishOperationReceipt.publish_job_id == prepared.publish_job_id,
-                    PublishOperationReceipt.operation_index == operation.index,
-                )
-                .with_for_update()
-                .execution_options(populate_existing=True)
+        claim = await _claim_operation(session, prepared, operation, clock())
+        if claim.claim_error is not None:
+            raise claim.claim_error
+        if claim.already_succeeded:
+            continue
+        if claim.retry_at is not None:
+            await _release_claim_for_retry(
+                session,
+                prepared,
+                retry_at=claim.retry_at,
+                competing_claim=claim.competing_claim,
+                finished_at=clock(),
             )
-            if receipt is None:
-                raise NeedsReviewJobError(
-                    code="telegram_publish_receipt_missing",
-                    message="Telegram publish receipt is missing",
-                )
-            if claim_error is not None:
-                attempt = await session.get(
-                    PublishAttempt,
-                    prepared.attempt_id,
-                    populate_existing=True,
-                )
-                publish_job.status = "attention"
-                if attempt is not None and attempt.status == "running":
-                    attempt.status = "needs_review"
-                    attempt.error_class = "needs_review"
-                    attempt.error_code = redact_string(claim_error.code)
-                    attempt.error_message = redact_string(claim_error.message)
-                    attempt.finished_at = claim_time
-            elif receipt.status == "succeeded":
-                continue
-            elif receipt.status == "dispatching":
-                competing_claim = True
-                retry_at = (receipt.updated_at or claim_time) + timedelta(minutes=5)
-                attempt = await session.get(
-                    PublishAttempt,
-                    prepared.attempt_id,
-                    populate_existing=True,
-                )
-                if attempt is not None and attempt.status == "running":
-                    attempt.status = "failed"
-                    attempt.error_class = "retryable"
-                    attempt.error_code = redact_string("telegram_publish_in_progress")
-                    attempt.error_message = redact_string("Another Telegram publish claim is in progress")
-                    attempt.finished_at = claim_time
-            elif receipt.status != "pending":
-                claim_error = NeedsReviewJobError(
-                    code="telegram_publish_receipt_not_sendable",
-                    message="Telegram publish receipt requires attention",
-                )
-                attempt = await session.get(
-                    PublishAttempt,
-                    prepared.attempt_id,
-                    populate_existing=True,
-                )
-                if receipt.status == "ambiguous":
-                    publish_job.status = "reconciliation_required"
-                else:
-                    publish_job.status = "attention"
-                if attempt is not None and attempt.status == "running":
-                    attempt.status = "needs_review"
-                    attempt.error_class = "needs_review"
-                    attempt.error_code = redact_string(claim_error.code)
-                    attempt.error_message = redact_string(claim_error.message)
-                    attempt.finished_at = claim_time
-            elif receipt.next_attempt_at and receipt.next_attempt_at > claim_time:
-                retry_at = receipt.next_attempt_at
-            else:
-                receipt.status = "dispatching"
-                receipt.attempt_count += 1
-                receipt.next_attempt_at = None
-                receipt.updated_at = claim_time
-                publish_job.status = "dispatching"
-                claimed_attempt_count = receipt.attempt_count
-        if claim_error is not None:
-            raise claim_error
-        if retry_at is not None:
-            async with session.begin():
-                attempt = await session.get(PublishAttempt, prepared.attempt_id)
-                publish_job = await session.get(PublishJob, prepared.publish_job_id)
-                if attempt is not None and attempt.status == "running":
-                    attempt.status = "failed"
-                    attempt.error_class = "retryable"
-                    attempt.error_code = redact_string("telegram_publish_not_due")
-                    attempt.error_message = redact_string("Telegram publish retry is not due")
-                    attempt.finished_at = clock()
-                if publish_job is not None and not competing_claim:
-                    publish_job.status = "queued"
-                    publish_job.scheduled_for = retry_at
             raise RetryableJobError(
                 code="telegram_publish_not_due",
                 message="Telegram publish retry is not due",
-                retry_at=retry_at,
+                retry_at=claim.retry_at,
             )
+        claimed_attempt_count = claim.claimed_attempt_count
         if token is None:
             try:
-                token = await _resolve_secret(secret_resolver, prepared.destination_secret_ref)
+                token = await resolve_destination_secret(secret_resolver, prepared.destination_secret_ref)
             except Exception as exc:
                 mapped = await _record_failure(
                     session,

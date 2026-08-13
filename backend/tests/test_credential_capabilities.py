@@ -10,12 +10,14 @@ from app.core.secrets import EnvironmentSecretResolver
 from app.generation.models import AIProviderProfile
 from app.jobs.credential_capabilities import (
     CapabilityObservation,
+    CapabilityStatusService,
     WorkerCredentialCapabilityObserver,
     project_capability_status,
 )
 from app.jobs.models import RuntimeHeartbeat
 from app.llm_providers.models import LLMProvider
 from app.publishing.models import Destination
+from app.security.models import EncryptedSecret
 
 NOW = datetime(2026, 7, 18, 12, 0, tzinfo=UTC)
 
@@ -219,3 +221,71 @@ async def test_revoking_provider_credential_does_not_change_source_or_publishing
     assert destination_observation.state == "available"
     assert not any(canary in encoded for canary in remaining.values())
     assert not any(reference in encoded for reference in remaining)
+
+
+async def test_capability_status_service_answers_many_questions_from_one_snapshot():
+    observation = _observation()
+    heartbeats = [_heartbeat(observation)]
+
+    class _CountingSession:
+        def __init__(self) -> None:
+            self.scans = 0
+
+        async def scalars(self, _statement: object) -> list[RuntimeHeartbeat]:
+            self.scans += 1
+            return heartbeats
+
+    session = _CountingSession()
+    service = CapabilityStatusService(session, config=Settings(_env_file=None), clock=lambda: NOW)
+
+    first = await service.get("provider", observation.resource_id, "generation")
+    second = await service.get("provider", observation.resource_id, "generation")
+    third = await service.get("provider", uuid4(), "generation")
+
+    assert session.scans == 1
+    assert first.status == "available"
+    assert second == first
+    assert third.status == "unknown"
+
+
+async def test_generic_provider_reports_key_ring_outage_as_invalid_configuration():
+    stored = EncryptedSecret(
+        id=uuid4(),
+        purpose="llm_provider_api_key",
+        owner_type="llm_provider",
+        owner_id=uuid4(),
+        ciphertext=b"0" * 32,
+        nonce=b"0" * 12,
+        key_version="v0",
+    )
+    profile = LLMProvider(
+        id=uuid4(),
+        name="OpenAI Compatible",
+        protocol="openai_compatible",
+        base_url="https://provider.invalid/v1",
+        default_model="model-v1",
+        enabled=True,
+        secret_id=stored.id,
+        settings={},
+        health_status="healthy",
+        generation_capability="ready",
+        research_capability="ready",
+    )
+
+    class _KeylessSession:
+        async def get(self, model: object, identifier: object) -> EncryptedSecret:
+            return stored
+
+    observer = WorkerCredentialCapabilityObserver(
+        _KeylessSession(),
+        secret_resolver=EnvironmentSecretResolver({}),
+        config=Settings(_env_file=None, secret_master_key=None),
+    )
+
+    observations = await observer._generic_provider(profile)
+
+    assert all(item.state == "unavailable" for item in observations)
+    assert [item.failure_code for item in observations] == [
+        "invalid_configuration",
+        "invalid_configuration",
+    ]

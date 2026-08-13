@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import re
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -15,10 +14,9 @@ from app.jobs.capability_gate import api_capability_gate_enabled, require_availa
 from app.jobs.errors import InvalidJobTransition
 from app.jobs.events import redact_event_data
 from app.jobs.models import AutomationControl, WorkflowEvent, WorkflowJob
-from app.jobs.types import JobErrorClass, JobOrigin, JobStatus
+from app.jobs.secret_policy import restore_exempt_secrets
+from app.jobs.types import JobErrorClass, JobOrigin, JobStatus, JobType
 from app.retention.models import RetentionRun
-
-_RETENTION_PREVIEW_TOKEN_PATTERN = re.compile(r"^[0-9a-f]{64}$")
 
 
 @dataclass(frozen=True, slots=True)
@@ -52,15 +50,7 @@ def _redact_job_payload(job_type: str, payload: dict[str, Any]) -> dict[str, Any
     sanitized = redact_secrets(payload)
     if not isinstance(sanitized, dict):  # pragma: no cover - dict input contract
         return {}
-
-    if job_type == "execute_retention":
-        preview_token = payload.get("preview_token")
-        if isinstance(preview_token, str) and _RETENTION_PREVIEW_TOKEN_PATTERN.fullmatch(preview_token):
-            # This opaque, server-generated capability is required by the retention
-            # handler. Keep the exemption local to its validated job contract so the
-            # same key remains secret everywhere else.
-            sanitized["preview_token"] = preview_token
-    return sanitized
+    return restore_exempt_secrets(job_type, payload, sanitized)
 
 
 class JobRepository:
@@ -389,7 +379,7 @@ class JobRepository:
     async def enqueue_job(
         self,
         *,
-        job_type: str,
+        job_type: JobType | str,
         payload: dict[str, Any],
         idempotency_key: str,
         origin: JobOrigin,
@@ -400,17 +390,16 @@ class JobRepository:
         automation_run_id: UUID | None = None,
         automation_node_run_id: UUID | None = None,
     ) -> EnqueueJobResult:
+        job_type = str(job_type)
         effective_scheduled_for = _now(scheduled_for)
         safe_payload = _redact_job_payload(job_type, payload)
         if api_capability_gate_enabled(self.session):
-            existing = await self.session.scalar(
-                select(WorkflowJob).where(WorkflowJob.idempotency_key == idempotency_key)
+            existing = await self._existing_job_result(
+                idempotency_key=idempotency_key,
+                effective_scheduled_for=effective_scheduled_for,
             )
             if existing is not None:
-                if existing.scheduled_for is None:
-                    existing.scheduled_for = effective_scheduled_for
-                    await self.session.flush()
-                return EnqueueJobResult(job=existing, created=False)
+                return existing
             await require_available_job_type(self.session, job_type)
         statement = (
             insert(WorkflowJob)
@@ -444,9 +433,32 @@ class JobRepository:
             await self.session.flush()
             return EnqueueJobResult(job=job, created=True)
 
-        job = await self.session.scalar(select(WorkflowJob).where(WorkflowJob.idempotency_key == idempotency_key))
-        if job is None:  # pragma: no cover - conflict target guarantees a matching row
+        existing = await self._existing_job_result(
+            idempotency_key=idempotency_key,
+            effective_scheduled_for=effective_scheduled_for,
+        )
+        if existing is None:  # pragma: no cover - conflict target guarantees a matching row
             raise RuntimeError("Idempotent workflow job could not be loaded")
+        return existing
+
+    async def _existing_job_result(
+        self,
+        *,
+        idempotency_key: str,
+        effective_scheduled_for: datetime,
+    ) -> EnqueueJobResult | None:
+        """Resolve an idempotent enqueue hit, backfilling a missing schedule.
+
+        Both enqueue paths — the capability-gate pre-check and the
+        insert-conflict fallback — owe the caller the same contract: the row
+        that already owns the key, never re-created, with ``scheduled_for``
+        filled in if an earlier enqueue left it open. Returns ``None`` when no
+        row holds the key yet.
+        """
+
+        job = await self.session.scalar(select(WorkflowJob).where(WorkflowJob.idempotency_key == idempotency_key))
+        if job is None:
+            return None
         if job.scheduled_for is None:
             job.scheduled_for = effective_scheduled_for
             await self.session.flush()
@@ -718,7 +730,9 @@ class JobRepository:
         previous_status = str(job.status)
         observed_at = _now(now)
         job.status = JobStatus.QUEUED
-        job.origin = JobOrigin.RETRY
+        # The origin is provenance, not a retry marker: rewriting it to RETRY made a
+        # pause-exempt job (origin MANUAL, pause_sensitive False) permanently
+        # unclaimable under a global pause. The job.retried event below records the retry.
         job.scheduled_for = observed_at
         job.finished_at = None
         job.started_at = None

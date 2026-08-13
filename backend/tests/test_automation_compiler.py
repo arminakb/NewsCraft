@@ -4,7 +4,12 @@ from uuid import uuid4
 
 import pytest
 
-from app.automations.definitions.compiler import CompilationError, compile_graph, verify_compiled_plan
+from app.automations.definitions.compiler import (
+    LEGACY_COMPILER_VERSION,
+    CompilationError,
+    compile_graph,
+    verify_compiled_plan,
+)
 from app.automations.definitions.schemas import WorkflowGraphV1
 from app.automations.definitions.validation import validate_graph
 
@@ -105,6 +110,26 @@ def test_compiler_rejects_stale_or_tampered_saved_plan():
         verify_compiled_plan(graph, raw)
 
     assert exc.value.code == "automation_compiled_plan_stale"
+
+
+def test_compiler_recompiles_only_the_recognised_legacy_placeholder_plan():
+    graph = _manual_graph()
+    placeholder = {
+        "compiler_version": LEGACY_COMPILER_VERSION,
+        "projection_type": "telegram_route",
+        "route_id": str(uuid4()),
+    }
+
+    assert verify_compiled_plan(graph, placeholder) == compile_graph(graph)
+
+    for tampered in (
+        {**placeholder, "projection_type": "something_else"},
+        {**placeholder, "stages": []},
+        {"compiler_version": LEGACY_COMPILER_VERSION},
+    ):
+        with pytest.raises(CompilationError) as exc:
+            verify_compiled_plan(graph, tampered)
+        assert exc.value.code == "automation_compiled_plan_stale"
 
 
 def test_compiler_rejects_non_linear_fan_out_with_stable_error():

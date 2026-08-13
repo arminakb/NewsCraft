@@ -1,8 +1,60 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 
 import httpx
+
+from app.core.config import Settings, settings
+from app.publishing.telegram.client import TelegramBotClient
+from app.publishing.telegram.contracts import TelegramOperationResult, TelegramPublishOperation
+
+
+class AcceptanceFixtureMisconfigured(RuntimeError):
+    """Raised when the fixture-backed Bot API double is built outside a test run."""
+
+
+class AcceptanceTelegramBotClient(TelegramBotClient):
+    """Deterministic Bot API boundary used only by fixture-backed acceptance runs.
+
+    This client reports every publish as succeeded without touching the Telegram
+    Bot API, so it must never be reachable from a real deployment. The
+    constructor therefore refuses to build unless the process is explicitly a
+    fixture-backed test run: a mis-set ``APP_ENV`` fails loudly here instead of
+    silently no-opping live publishes.
+    """
+
+    def __init__(self, *, config: Settings = settings) -> None:
+        if config.app_env != "test" or config.telegram_acceptance_fixture_path is None:
+            raise AcceptanceFixtureMisconfigured(
+                "AcceptanceTelegramBotClient requires APP_ENV=test with "
+                "TELEGRAM_ACCEPTANCE_FIXTURE_PATH configured"
+            )
+        self.config = config
+
+    async def execute(self, operation: TelegramPublishOperation, token: str) -> TelegramOperationResult:
+        del token
+        return TelegramOperationResult(
+            remote_message_ids=(9_001 + operation.index,),
+            response_metadata={"ok": True, "test_transport": True},
+        )
+
+    async def get_me(self, token: str) -> dict[str, Any]:
+        del token
+        return {"id": 9_001, "username": "newscraft_test_bot"}
+
+    async def get_chat(self, target_ref: str, token: str) -> dict[str, Any]:
+        del token
+        return {
+            "id": -1_009_001,
+            "type": "channel",
+            "username": target_ref.removeprefix("@"),
+            "title": "NewsCraft test channel",
+        }
+
+    async def get_chat_member(self, target_ref: str, user_id: int, token: str) -> dict[str, Any]:
+        del target_ref, user_id, token
+        return {"status": "administrator", "administrator": True}
 
 
 class TelegramAcceptanceFixtureTransport(httpx.AsyncBaseTransport):
@@ -47,4 +99,8 @@ def _fixture_content_type(path: str) -> str:
     }.get(suffix, "application/octet-stream")
 
 
-__all__ = ["TelegramAcceptanceFixtureTransport"]
+__all__ = [
+    "AcceptanceFixtureMisconfigured",
+    "AcceptanceTelegramBotClient",
+    "TelegramAcceptanceFixtureTransport",
+]
