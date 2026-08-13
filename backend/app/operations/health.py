@@ -382,9 +382,11 @@ class OperationalHealthService:
                 strict=True,
             )
         }
+        # Started outside the try so a probe that fails or times out still reports
+        # what it cost, the way ReadinessService.snapshot does.
+        started = time.monotonic()
         try:
             async with asyncio.timeout(self.config.readiness_timeout_seconds):
-                started = time.monotonic()
                 if await self.session.scalar(text("SELECT 1")) != 1:
                     raise RuntimeError("database connectivity probe failed")
                 schema_revision = await self.session.scalar(text("SELECT version_num FROM alembic_version"))
@@ -395,7 +397,8 @@ class OperationalHealthService:
                 database_observed_at = await database_time(self.session)
                 database_latency_ms = max(0, int((time.monotonic() - started) * 1_000))
         except Exception:  # noqa: BLE001 - operational output is fail-closed and sanitized
-            dependencies.update(_unreachable_database_dependencies(observed_at=fallback_time, latency_ms=0))
+            latency_ms = max(0, int((time.monotonic() - started) * 1_000))
+            dependencies.update(_unreachable_database_dependencies(observed_at=fallback_time, latency_ms=latency_ms))
             components, _coverage = build_component_health(
                 [],
                 reference_time=fallback_time,
