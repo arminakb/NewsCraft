@@ -17,7 +17,7 @@ This audit reviews `origin/armin` against updated `main` after the `Amir` ingest
 | Diagnostics API | `newscraft/services/diagnostics_service.py`, `newscraft/api/routers/diagnostics.py` | review | Check behavior and async rewrite cost |
 | Approval workflow | `newscraft/repositories/approved_article_repository.py`, `newscraft/api/routers/approved.py` | review | May map cleanly to `content_items.status` |
 | Draft workflow | `newscraft/repositories/content_draft_repository.py`, `newscraft/api/routers/content_pipeline.py` | review | Useful for future agent output |
-| SQLite migration | `scripts/migrate_sqlite_to_postgres.py` | review | Useful only if legacy SQLite files still matter |
+| SQLite migration | `scripts/migrate_sqlite_to_postgres.py` (artifact not retained) | review | Useful only if legacy SQLite files still matter |
 | Docker migration startup | `docker-compose.yml` | review | Useful pattern, must fit `backend/` layout |
 | Telethon connector | `newscraft/connectors/fetchers.py` | reject | Current direction is public Telegram pages through `https://t.me/s/...` |
 | Root `newscraft/` backend | `newscraft/**` | reject as wholesale merge | Competes with `backend/` foundation |
@@ -38,7 +38,9 @@ Integrated:
 - Approval workflow.
 - Draft workflow.
 - Docker migration startup.
-- SQLite migration reader.
+- SQLite migration reader. (No longer present: there is no
+  `scripts/migrate_sqlite_to_postgres.py` in the tree or in Git history.
+  Recorded here as a historical integration decision only.)
 
 Rejected or deferred:
 

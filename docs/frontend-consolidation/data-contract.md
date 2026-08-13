@@ -254,6 +254,14 @@ Not implemented in Phase 1:
 
 ## Evidence inspected
 
+> **Note (2026-08-13):** this list records what was read on 2026-07-21.
+> Five of the paths below no longer exist after the newsroom refactor:
+> `frontend/lib/api-client.ts`,
+> `frontend/lib/editorial-api.ts`, `frontend/features/library/api.ts`,
+> `frontend/components/dashboard/pages/content-items-page.tsx`, and
+> `frontend/components/editorial/story-inbox.tsx`. Read them through Git
+> history if the evidence trail matters; do not expect them in the tree.
+
 - `backend/app/db/models.py`
 - `backend/app/stories/models.py`
 - `backend/app/research/models.py`

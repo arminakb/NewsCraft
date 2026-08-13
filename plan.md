@@ -9,7 +9,7 @@
 - **Implementation shape:** Six ordered phases with independently verifiable exit gates.
 - **Primary product principle:** A domain-specific **Guided Visual Workflow Builder**, not a general-purpose no-code platform.
 - **Architecture principle:** The canvas is an editor for a backend-owned definition. It never becomes a browser-side workflow runtime.
-- **Reference image:** `ref/26cbe0a6-85f9-44d6-bd4d-3f085e9080dd.png` (1536×1024). It is inspiration for hierarchy, panel composition, node legibility, and responsive adaptation only.
+- **Reference image:** `ref/26cbe0a6-85f9-44d6-bd4d-3f085e9080dd.png` (1536×1024) — **artifact not retained.** The `ref/` directory was never tracked and is absent from the tree and from Git history, so this input cannot be re-read. It was inspiration for hierarchy, panel composition, node legibility, and responsive adaptation only; the shipped editor is the reference for those now.
 - **Completion rule:** The work is not complete if the frontend is still mocked, a dry run can publish, a graph bypasses durable jobs, or PostgreSQL/browser acceptance has not exercised the real path.
 
 This plan is based on the current checkout, including its existing uncommitted work. Every implementation phase must preserve unrelated changes and must not rewrite applied migrations.

@@ -36,7 +36,7 @@ No database migration was required.
 - `frontend/e2e/support/mock-backend.ts`
 - `frontend/e2e/accessibility.spec.ts`
 - `frontend/e2e/dashboard.spec.ts`
-- `frontend/e2e/editorial-studio.spec.ts`
+- `frontend/e2e/editorial-studio.spec.ts` (artifact not retained; deleted in `1d0ba3f`, last present in `ae5efd1`)
 - `frontend/tests/openapi-contract.test.ts`
 - `frontend/tests/operations-api.test.ts`
 - `frontend/package.json`, `frontend/package-lock.json`

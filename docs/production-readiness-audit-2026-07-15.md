@@ -509,9 +509,9 @@ Real Telegram publishing should be tested only after the user supplies a control
 
 ## 10. Evidence index
 
-- Architecture report: `graphify-out/GRAPH_REPORT.md`
-- Interactive architecture graph: `graphify-out/graph.html`
-- Machine-readable graph: `graphify-out/graph.json`
+- Architecture report: `graphify-out/GRAPH_REPORT.md` (artifact not retained; `graphify-out/` was never tracked and is absent from the tree and from Git history)
+- Interactive architecture graph: `graphify-out/graph.html` (artifact not retained)
+- Machine-readable graph: `graphify-out/graph.json` (artifact not retained)
 - Stock smoke artifact already present in the workspace: `validation/production-readiness-2026-07-14/smoke-results/smoke-20260714T203527258821Z-55fbb26b.json`
 - Audit-only raw acceptance and recovery evidence: `/tmp/newscraft-acceptance-output/`
 - Live-browser screenshots: `/tmp/newscraft-desktop-today.png`, `/tmp/newscraft-desktop-diagnostics.png`
