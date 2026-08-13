@@ -258,8 +258,39 @@ class RetentionPlanner:
         lock: bool = False,
         media_root: Path | None = None,
     ) -> list[RetentionCandidate]:
-        candidates: list[RetentionCandidate] = []
+        """Concatenate the per-category collectors into one sorted plan.
 
+        Each collector owns exactly one (category, record_type) pair and applies
+        the same filters in the same order it always did; they run sequentially so
+        the statement — and therefore the row-lock — order is unchanged.
+        """
+        candidates: list[RetentionCandidate] = []
+        candidates.extend(await self._raw_payload_candidates(policy, now=now, only=only, lock=lock))
+        candidates.extend(await self._completed_job_candidates(policy, now=now, only=only, lock=lock))
+        candidates.extend(await self._research_attempt_candidates(policy, now=now, only=only, lock=lock))
+        candidates.extend(await self._generation_attempt_candidates(policy, now=now, only=only, lock=lock))
+        candidates.extend(await self._publish_attempt_candidates(policy, now=now, only=only, lock=lock))
+        candidates.extend(await self._export_artifact_candidates(policy, now=now, only=only, lock=lock))
+        candidates.extend(
+            await self._unreferenced_media_candidates(
+                policy,
+                now=now,
+                only=only,
+                lock=lock,
+                media_root=media_root,
+            )
+        )
+        return sorted(candidates, key=_candidate_sort_key)
+
+    async def _raw_payload_candidates(
+        self,
+        policy: RetentionPolicyInput,
+        *,
+        now: datetime,
+        only: set[tuple[RetentionCategory, RetentionRecordType, UUID]] | None,
+        lock: bool,
+    ) -> list[RetentionCandidate]:
+        candidates: list[RetentionCandidate] = []
         raw_statement = select(RawPayload).where(RawPayload.captured_at < now - timedelta(days=policy.raw_payload_days))
         raw_ids = self._only_ids(only, "raw_payload", "raw_payload")
         if raw_ids is not None:
@@ -310,7 +341,17 @@ class RetentionPlanner:
                     state_hash=_state_hash(state),
                 )
             )
+        return candidates
 
+    async def _completed_job_candidates(
+        self,
+        policy: RetentionPolicyInput,
+        *,
+        now: datetime,
+        only: set[tuple[RetentionCategory, RetentionRecordType, UUID]] | None,
+        lock: bool,
+    ) -> list[RetentionCandidate]:
+        candidates: list[RetentionCandidate] = []
         # Jobs owned by a publish or retention record are protected in SQL: the
         # ownership tables are joined by correlated EXISTS instead of being
         # materialised into Python sets that then grow the bind-parameter list.
@@ -369,7 +410,17 @@ class RetentionPlanner:
                     state_hash=_state_hash(state),
                 )
             )
+        return candidates
 
+    async def _research_attempt_candidates(
+        self,
+        policy: RetentionPolicyInput,
+        *,
+        now: datetime,
+        only: set[tuple[RetentionCategory, RetentionRecordType, UUID]] | None,
+        lock: bool,
+    ) -> list[RetentionCandidate]:
+        candidates: list[RetentionCandidate] = []
         attempt_cutoff = now - timedelta(days=policy.attempt_metadata_days)
         # A run is protected when ANY of its attempts is unfinished, recent, or
         # unsuccessful. Expressed as a correlated EXISTS over a self-alias so the
@@ -429,7 +480,18 @@ class RetentionPlanner:
                     state_hash=_state_hash(state),
                 )
             )
+        return candidates
 
+    async def _generation_attempt_candidates(
+        self,
+        policy: RetentionPolicyInput,
+        *,
+        now: datetime,
+        only: set[tuple[RetentionCategory, RetentionRecordType, UUID]] | None,
+        lock: bool,
+    ) -> list[RetentionCandidate]:
+        candidates: list[RetentionCandidate] = []
+        attempt_cutoff = now - timedelta(days=policy.attempt_metadata_days)
         sibling_generation_attempt = aliased(GenerationAttempt)
         sibling_attempt_referenced = (
             select(1)
@@ -502,7 +564,18 @@ class RetentionPlanner:
                     state_hash=_state_hash(state),
                 )
             )
+        return candidates
 
+    async def _publish_attempt_candidates(
+        self,
+        policy: RetentionPolicyInput,
+        *,
+        now: datetime,
+        only: set[tuple[RetentionCategory, RetentionRecordType, UUID]] | None,
+        lock: bool,
+    ) -> list[RetentionCandidate]:
+        candidates: list[RetentionCandidate] = []
+        attempt_cutoff = now - timedelta(days=policy.attempt_metadata_days)
         sibling_publish_attempt = aliased(PublishAttempt)
         publish_job_protected = or_(
             select(1)
@@ -567,7 +640,17 @@ class RetentionPlanner:
                     state_hash=_state_hash(state),
                 )
             )
+        return candidates
 
+    async def _export_artifact_candidates(
+        self,
+        policy: RetentionPolicyInput,
+        *,
+        now: datetime,
+        only: set[tuple[RetentionCategory, RetentionRecordType, UUID]] | None,
+        lock: bool,
+    ) -> list[RetentionCandidate]:
+        candidates: list[RetentionCandidate] = []
         export_statement = select(WorkflowJob).where(
             WorkflowJob.job_type == "build_export",
             WorkflowJob.status == JobStatus.SUCCEEDED,
@@ -621,7 +704,18 @@ class RetentionPlanner:
                     state_hash=_state_hash(state),
                 )
             )
+        return candidates
 
+    async def _unreferenced_media_candidates(
+        self,
+        policy: RetentionPolicyInput,
+        *,
+        now: datetime,
+        only: set[tuple[RetentionCategory, RetentionRecordType, UUID]] | None,
+        lock: bool,
+        media_root: Path | None,
+    ) -> list[RetentionCandidate]:
+        candidates: list[RetentionCandidate] = []
         # Only the four columns the path classification needs; loading whole
         # entities here also parked stale MediaAsset rows in the identity map
         # that the locked re-read below would then return unrefreshed.
@@ -695,5 +789,4 @@ class RetentionPlanner:
                     state_hash=_state_hash(state),
                 )
             )
-
-        return sorted(candidates, key=_candidate_sort_key)
+        return candidates

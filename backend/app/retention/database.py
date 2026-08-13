@@ -19,23 +19,29 @@ from app.retention.contracts import (
     RAW_PAYLOAD_SCRUBBED_URL,
     RETENTION_CATEGORIES,
     RetentionCandidate,
+    RetentionCategory,
     RetentionCleanupIntent,
     RetentionConflict,
     RetentionCountSnapshot,
     RetentionExecutionPlan,
     RetentionNotFound,
     RetentionPolicyInput,
+    RetentionRecordType,
     _snapshot_candidates,
     _snapshot_intents,
     build_preview_token,
 )
 from app.retention.filesystem import (
+    MediaClaimClassification,
     _classified_media_claims,
     _export_relative_path,
     _media_relative_path,
     _UnsafeStoragePath,
 )
 from app.retention.models import RETENTION_SCHEMA_REVISION, RetentionRun
+
+# A candidate's stable identity across the preview and the execution phases.
+_CandidateIdentity = tuple[RetentionCategory, RetentionRecordType, UUID]
 
 
 class RetentionDatabaseExecutor:
@@ -191,6 +197,130 @@ class RetentionDatabaseExecutor:
             return
         raise RetentionConflict(f"unsupported attempt record type {candidate.record_type!r}")
 
+    async def _executable_candidates(self, run: RetentionRun, preview_token: str) -> list[RetentionCandidate]:
+        """The persisted plan, proven to still be the plan this token authorized."""
+        try:
+            candidates = _snapshot_candidates(run)
+        except RetentionConflict:
+            await self._fail_run(
+                run,
+                code="retention_snapshot_invalid",
+                message="The persisted retention candidate snapshot is invalid",
+            )
+            raise
+        expected_token = build_preview_token(
+            RetentionPolicyInput.model_validate(run.policy_snapshot),
+            candidates,
+            schema_revision=run.schema_revision,
+        )
+        if expected_token != preview_token:
+            await self._fail_run(
+                run,
+                code="retention_snapshot_token_invalid",
+                message="The persisted retention preview no longer matches its token",
+            )
+            raise RetentionConflict("preview token does not match its server snapshot")
+        return candidates
+
+    async def _lock_protection_tables(self) -> None:
+        # These tables contain JSON/no-FK protection edges. SHARE prevents a new
+        # reference from appearing between the protection query and the DB marker.
+        await self.session.execute(
+            text(
+                "LOCK TABLE content_items, item_media, media_assets, workflow_jobs, "
+                "publish_jobs, platform_variant_revisions, "
+                "generation_attempts, generation_runs, research_attempts, research_runs, "
+                "publish_attempts, publications, publish_operation_receipts, source_items, "
+                "story_evidence_snapshots, "
+                "workflow_events IN SHARE MODE"
+            )
+        )
+
+    async def _revalidate(
+        self,
+        run: RetentionRun,
+        candidates: list[RetentionCandidate],
+        *,
+        media_root: Path,
+    ) -> dict[_CandidateIdentity, RetentionCandidate]:
+        """Re-collect the snapshot's identities under lock, keyed for lookup.
+
+        A candidate missing from the result, or carrying a different state hash,
+        has changed since the preview and must not be touched.
+        """
+        identities = {(candidate.category, candidate.record_type, candidate.record_id) for candidate in candidates}
+        current_candidates = await self.collect_candidates(
+            RetentionPolicyInput.model_validate(run.policy_snapshot),
+            now=self.now(),
+            only=identities,
+            lock=True,
+            media_root=media_root,
+        )
+        return {
+            (candidate.category, candidate.record_type, candidate.record_id): candidate
+            for candidate in current_candidates
+        }
+
+    async def _classify_media(self, media_root: Path) -> MediaClaimClassification:
+        """Same classification the planner ran; one implementation so the two
+        phases can never disagree about which rows claim which file. The
+        per-row path syscalls go to a worker thread instead of the event loop.
+        """
+        stored_media_rows = list(
+            await self.session.execute(
+                select(MediaAsset.id, MediaAsset.storage_path).where(MediaAsset.storage_path.is_not(None))
+            )
+        )
+        return await asyncio.to_thread(
+            _classified_media_claims,
+            media_root,
+            [(row.id, str(row.storage_path)) for row in stored_media_rows],
+        )
+
+    @staticmethod
+    def _invalid_canonical_paths(
+        candidates: list[RetentionCandidate],
+        current: dict[_CandidateIdentity, RetentionCandidate],
+        classification: MediaClaimClassification,
+    ) -> set[str]:
+        """Paths no deletion may claim: any file some unverified row also claims."""
+        rows_by_canonical_path = classification.ids_by_path
+        unchanged_media_ids = {
+            candidate.record_id
+            for candidate in candidates
+            if candidate.record_type == "media_asset"
+            and (current_candidate := current.get((candidate.category, candidate.record_type, candidate.record_id)))
+            is not None
+            and current_candidate.state_hash == candidate.state_hash
+        }
+        invalid_canonical_paths = {
+            relative_path
+            for relative_path, record_ids in rows_by_canonical_path.items()
+            if not record_ids.issubset(unchanged_media_ids)
+        }
+        if classification.unclassifiable:
+            invalid_canonical_paths.update(rows_by_canonical_path)
+        return invalid_canonical_paths
+
+    @staticmethod
+    def _invalid_generation_run_ids(
+        candidates: list[RetentionCandidate],
+        current: dict[_CandidateIdentity, RetentionCandidate],
+        generation_attempt_rows: dict[UUID, GenerationAttempt | None],
+    ) -> set[UUID]:
+        """Runs with a changed sibling attempt: the shared run state stays intact."""
+        invalid_generation_run_ids: set[UUID] = set()
+        for candidate in candidates:
+            if candidate.record_type != "generation_attempt":
+                continue
+            generation_attempt = generation_attempt_rows[candidate.record_id]
+            current_candidate = current.get((candidate.category, candidate.record_type, candidate.record_id))
+            if generation_attempt is not None and (
+                current_candidate is None or current_candidate.state_hash != candidate.state_hash
+            ):
+                invalid_generation_run_ids.add(generation_attempt.generation_run_id)
+        return invalid_generation_run_ids
+
     async def execute_db_phase(
         self,
         run_id: UUID,
@@ -216,52 +346,9 @@ class RetentionDatabaseExecutor:
         if run.status != "queued":
             raise RetentionConflict(f"retention run cannot execute from status {run.status!r}")
 
-        try:
-            candidates = _snapshot_candidates(run)
-        except RetentionConflict:
-            await self._fail_run(
-                run,
-                code="retention_snapshot_invalid",
-                message="The persisted retention candidate snapshot is invalid",
-            )
-            raise
-        expected_token = build_preview_token(
-            RetentionPolicyInput.model_validate(run.policy_snapshot),
-            candidates,
-            schema_revision=run.schema_revision,
-        )
-        if expected_token != preview_token:
-            await self._fail_run(
-                run,
-                code="retention_snapshot_token_invalid",
-                message="The persisted retention preview no longer matches its token",
-            )
-            raise RetentionConflict("preview token does not match its server snapshot")
-
-        # These tables contain JSON/no-FK protection edges. SHARE prevents a new
-        # reference from appearing between the protection query and the DB marker.
-        await self.session.execute(
-            text(
-                "LOCK TABLE content_items, item_media, media_assets, workflow_jobs, "
-                "publish_jobs, platform_variant_revisions, "
-                "generation_attempts, generation_runs, research_attempts, research_runs, "
-                "publish_attempts, publications, publish_operation_receipts, source_items, "
-                "story_evidence_snapshots, "
-                "workflow_events IN SHARE MODE"
-            )
-        )
-        identities = {(candidate.category, candidate.record_type, candidate.record_id) for candidate in candidates}
-        current_candidates = await self.collect_candidates(
-            RetentionPolicyInput.model_validate(run.policy_snapshot),
-            now=self.now(),
-            only=identities,
-            lock=True,
-            media_root=media_root,
-        )
-        current = {
-            (candidate.category, candidate.record_type, candidate.record_id): candidate
-            for candidate in current_candidates
-        }
+        candidates = await self._executable_candidates(run, preview_token)
+        await self._lock_protection_tables()
+        current = await self._revalidate(run, candidates, media_root=media_root)
         observed_at = self.now()
         counts = self._execution_counts(run)
         errors = list(run.error_snapshot)
@@ -272,52 +359,15 @@ class RetentionDatabaseExecutor:
             for candidate in candidates
             if candidate.record_type == "media_asset"
         }
-        stored_media_rows = list(
-            await self.session.execute(
-                select(MediaAsset.id, MediaAsset.storage_path).where(MediaAsset.storage_path.is_not(None))
-            )
-        )
-        # Same classification the planner ran; one implementation so the two
-        # phases can never disagree about which rows claim which file. The
-        # per-row path syscalls go to a worker thread instead of the event loop.
-        classification = await asyncio.to_thread(
-            _classified_media_claims,
-            media_root,
-            [(row.id, str(row.storage_path)) for row in stored_media_rows],
-        )
+        classification = await self._classify_media(media_root)
         canonical_media_paths = classification.canonical_paths
-        rows_by_canonical_path = classification.ids_by_path
-        unclassifiable_media_claim = classification.unclassifiable
-        unchanged_media_ids = {
-            candidate.record_id
-            for candidate in candidates
-            if candidate.record_type == "media_asset"
-            and (current_candidate := current.get((candidate.category, candidate.record_type, candidate.record_id)))
-            is not None
-            and current_candidate.state_hash == candidate.state_hash
-        }
-        invalid_canonical_paths = {
-            relative_path
-            for relative_path, record_ids in rows_by_canonical_path.items()
-            if not record_ids.issubset(unchanged_media_ids)
-        }
-        if unclassifiable_media_claim:
-            invalid_canonical_paths.update(rows_by_canonical_path)
+        invalid_canonical_paths = self._invalid_canonical_paths(candidates, current, classification)
         generation_attempt_rows = {
             candidate.record_id: await self.session.get(GenerationAttempt, candidate.record_id)
             for candidate in candidates
             if candidate.record_type == "generation_attempt"
         }
-        invalid_generation_run_ids: set[UUID] = set()
-        for candidate in candidates:
-            if candidate.record_type != "generation_attempt":
-                continue
-            generation_attempt = generation_attempt_rows[candidate.record_id]
-            current_candidate = current.get((candidate.category, candidate.record_type, candidate.record_id))
-            if generation_attempt is not None and (
-                current_candidate is None or current_candidate.state_hash != candidate.state_hash
-            ):
-                invalid_generation_run_ids.add(generation_attempt.generation_run_id)
+        invalid_generation_run_ids = self._invalid_generation_run_ids(candidates, current, generation_attempt_rows)
 
         for candidate in candidates:
             identity = (candidate.category, candidate.record_type, candidate.record_id)
