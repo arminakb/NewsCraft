@@ -155,29 +155,36 @@ def _pack_job_result(
     return result
 
 
-async def _require_exact_active_prompt(
+async def _require_active_prompt_version(
     session: Any,
-    platform: Platform,
+    *,
+    purpose_key: str,
     prompt_id: UUID,
-    prompt_checksum: str,
+    prompt_checksum: str | None,
+    invalid_code: str,
+    invalid_message: str,
 ) -> PromptTemplateVersion:
+    """Pin generation to the exact active prompt version recorded at enqueue time.
+
+    Single source of truth for the prompt-pinning fence: the locked row is
+    re-read with ``populate_existing`` so a stale identity-map copy can never
+    satisfy the checksum comparison.
+    """
+
     active = list(
         await session.scalars(
             select(PromptTemplateVersion)
             .join(PromptTemplate, PromptTemplate.id == PromptTemplateVersion.prompt_template_id)
             .where(
                 PromptTemplateVersion.is_active.is_(True),
-                PromptTemplate.purpose_key == PLATFORM_PROMPT_PURPOSE[platform],
+                PromptTemplate.purpose_key == purpose_key,
             )
             .with_for_update()
             .execution_options(populate_existing=True)
         )
     )
     if len(active) != 1 or active[0].id != prompt_id or active[0].checksum_sha256 != prompt_checksum:
-        raise PermanentJobError(
-            code="generation_platform_prompt_configuration_invalid",
-            message="Platform prompt configuration is invalid",
-        )
+        raise PermanentJobError(code=invalid_code, message=invalid_message)
     try:
         require_prompt_integrity(active[0])
     except ValueError:
@@ -186,6 +193,22 @@ async def _require_exact_active_prompt(
             message="Generation prompt snapshot integrity failed",
         ) from None
     return active[0]
+
+
+async def _require_exact_active_prompt(
+    session: Any,
+    platform: Platform,
+    prompt_id: UUID,
+    prompt_checksum: str | None,
+) -> PromptTemplateVersion:
+    return await _require_active_prompt_version(
+        session,
+        purpose_key=PLATFORM_PROMPT_PURPOSE[platform],
+        prompt_id=prompt_id,
+        prompt_checksum=prompt_checksum,
+        invalid_code="generation_platform_prompt_configuration_invalid",
+        invalid_message="Platform prompt configuration is invalid",
+    )
 
 
 async def _require_exact_active_canonical_prompt(
@@ -193,31 +216,14 @@ async def _require_exact_active_canonical_prompt(
     prompt_id: UUID,
     prompt_checksum: str,
 ) -> PromptTemplateVersion:
-    active = list(
-        await session.scalars(
-            select(PromptTemplateVersion)
-            .join(PromptTemplate, PromptTemplate.id == PromptTemplateVersion.prompt_template_id)
-            .where(
-                PromptTemplateVersion.is_active.is_(True),
-                PromptTemplate.purpose_key == "canonical_story",
-            )
-            .with_for_update()
-            .execution_options(populate_existing=True)
-        )
+    return await _require_active_prompt_version(
+        session,
+        purpose_key="canonical_story",
+        prompt_id=prompt_id,
+        prompt_checksum=prompt_checksum,
+        invalid_code="generation_canonical_prompt_configuration_invalid",
+        invalid_message="Canonical prompt configuration is invalid",
     )
-    if len(active) != 1 or active[0].id != prompt_id or active[0].checksum_sha256 != prompt_checksum:
-        raise PermanentJobError(
-            code="generation_canonical_prompt_configuration_invalid",
-            message="Canonical prompt configuration is invalid",
-        )
-    try:
-        require_prompt_integrity(active[0])
-    except ValueError:
-        raise PermanentJobError(
-            code="generation_prompt_integrity_failed",
-            message="Generation prompt snapshot integrity failed",
-        ) from None
-    return active[0]
 
 
 async def _require_exact_regeneration_dispatch(

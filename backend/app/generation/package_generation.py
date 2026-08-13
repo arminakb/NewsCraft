@@ -18,10 +18,10 @@ from app.generation.generation_helpers import (
     _pack_job_result,
     _platform_stage_input,
     _redacted_dict,
+    _require_active_prompt_version,
     _require_exact_active_prompt,
     _require_exact_regeneration_dispatch,
     _required_uuid,
-    require_prompt_integrity,
 )
 from app.generation.models import (
     BrandProfile,
@@ -29,7 +29,6 @@ from app.generation.models import (
     GenerationRun,
     PlatformVariant,
     PlatformVariantRevision,
-    PromptTemplate,
     PromptTemplateVersion,
 )
 from app.generation.multiplatform import PLATFORM_ORDER, PLATFORM_PROMPT_PURPOSE
@@ -87,30 +86,15 @@ async def _initial_prompts(
                 code="generation_prompt_mapping_invalid",
                 message="Generation prompt mapping is invalid",
             ) from None
-        active = list(
-            await context.session.scalars(
-                select(PromptTemplateVersion)
-                .join(PromptTemplate, PromptTemplate.id == PromptTemplateVersion.prompt_template_id)
-                .where(
-                    PromptTemplateVersion.is_active.is_(True),
-                    PromptTemplate.purpose_key == PLATFORM_PROMPT_PURPOSE[platform],
-                )
-                .with_for_update()
-            )
+        checksum = checksums.get(platform)
+        prompts[platform] = await _require_active_prompt_version(
+            context.session,
+            purpose_key=PLATFORM_PROMPT_PURPOSE[platform],
+            prompt_id=prompt_id,
+            prompt_checksum=checksum if isinstance(checksum, str) else None,
+            invalid_code="generation_platform_prompt_configuration_invalid",
+            invalid_message="Platform prompt configuration is invalid",
         )
-        if len(active) != 1 or active[0].id != prompt_id or checksums.get(platform) != active[0].checksum_sha256:
-            raise PermanentJobError(
-                code="generation_platform_prompt_configuration_invalid",
-                message="Platform prompt configuration is invalid",
-            )
-        try:
-            require_prompt_integrity(active[0])
-        except ValueError:
-            raise PermanentJobError(
-                code="generation_prompt_integrity_failed",
-                message="Generation prompt snapshot integrity failed",
-            ) from None
-        prompts[platform] = active[0]
     return prompts
 
 
