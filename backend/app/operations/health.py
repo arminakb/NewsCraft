@@ -158,6 +158,34 @@ def _unreachable_database_dependencies(*, observed_at: datetime, latency_ms: int
     }
 
 
+def _default_storage_probe(config: Settings) -> StorageProbe:
+    """The storage probe every health surface uses when none is injected."""
+
+    async def probe(name: str, path: Path, observed_at: datetime) -> DependencyHealth:
+        return await probe_storage_directory(
+            name,
+            path,
+            observed_at,
+            timeout_seconds=config.health_storage_timeout_seconds,
+        )
+
+    return probe
+
+
+async def _storage_dependencies(
+    probe: StorageProbe,
+    config: Settings,
+    observed_at: datetime,
+) -> dict[str, DependencyHealth]:
+    """The ("media_storage", "export_storage") pair, probed concurrently."""
+    names = ("media_storage", "export_storage")
+    results = await asyncio.gather(
+        probe(names[0], Path(config.media_root), observed_at),
+        probe(names[1], Path(config.export_root), observed_at),
+    )
+    return dict(zip(names, results, strict=True))
+
+
 class ReadinessService:
     def __init__(
         self,
@@ -170,35 +198,14 @@ class ReadinessService:
         self.session = session
         self.config = config
         self.clock = clock or (lambda: datetime.now(UTC))
-        self.storage_probe = storage_probe or self._probe_storage
-
-    async def _probe_storage(self, name: str, path: Path, observed_at: datetime) -> DependencyHealth:
-        return await probe_storage_directory(
-            name,
-            path,
-            observed_at,
-            timeout_seconds=self.config.health_storage_timeout_seconds,
-        )
+        self.storage_probe = storage_probe or _default_storage_probe(config)
 
     async def snapshot(self) -> ReadinessSnapshot:
         fallback_time = normalize_utc(self.clock(), field="readiness clock")
         checks: dict[str, DependencyHealth] = {}
         required_capabilities = _configured_capabilities(self.config.readiness_required_capabilities)
 
-        storage_results = await asyncio.gather(
-            self.storage_probe("media_storage", Path(self.config.media_root), fallback_time),
-            self.storage_probe("export_storage", Path(self.config.export_root), fallback_time),
-        )
-        checks.update(
-            {
-                name: result
-                for name, result in zip(
-                    ("media_storage", "export_storage"),
-                    storage_results,
-                    strict=True,
-                )
-            }
-        )
+        checks.update(await _storage_dependencies(self.storage_probe, self.config, fallback_time))
 
         started = time.monotonic()
         heartbeats: list[RuntimeHeartbeat] = []
@@ -358,30 +365,11 @@ class OperationalHealthService:
         self.session = session
         self.config = config
         self.clock = clock or (lambda: datetime.now(UTC))
-        self.storage_probe = storage_probe or self._probe_storage
-
-    async def _probe_storage(self, name: str, path: Path, observed_at: datetime) -> DependencyHealth:
-        return await probe_storage_directory(
-            name,
-            path,
-            observed_at,
-            timeout_seconds=self.config.health_storage_timeout_seconds,
-        )
+        self.storage_probe = storage_probe or _default_storage_probe(config)
 
     async def snapshot(self) -> OperationalHealthSnapshot:
         fallback_time = normalize_utc(self.clock(), field="operations health clock")
-        storage_results = await asyncio.gather(
-            self.storage_probe("media_storage", Path(self.config.media_root), fallback_time),
-            self.storage_probe("export_storage", Path(self.config.export_root), fallback_time),
-        )
-        dependencies = {
-            name: result
-            for name, result in zip(
-                ("media_storage", "export_storage"),
-                storage_results,
-                strict=True,
-            )
-        }
+        dependencies = await _storage_dependencies(self.storage_probe, self.config, fallback_time)
         # Started outside the try so a probe that fails or times out still reports
         # what it cost, the way ReadinessService.snapshot does.
         started = time.monotonic()
