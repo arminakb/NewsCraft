@@ -11,15 +11,19 @@ export type Camelized<Value> =
       : Value
 
 // Fields whose VALUE is a free-form map keyed by caller-supplied identifiers
-// (workflow node ids, prompt version ids). Those child keys are data, not
-// contract field names, so neither direction of the case conversion may rewrite
-// them — a node id such as `generate_content_pack_1` must survive read → save
-// byte-for-byte. This is the single table; features/automations/automation-api.ts
-// snakeize() consumes it for the outbound direction.
+// (workflow node ids, prompt version ids) or captured verbatim from an external
+// service. Those child keys are data, not contract field names, so neither
+// direction of the case conversion may rewrite them — a node id such as
+// `generate_content_pack_1` must survive read → save byte-for-byte, and a
+// Telegram API response must keep its own `message_id` spelling. This is the
+// single table; features/automations/automation-api.ts snakeize() consumes it
+// for the outbound direction.
 export const FREE_FORM_MAP_FIELDS: ReadonlySet<string> = new Set([
   "layout",
   "promptChecksums",
   "prompt_checksums",
+  "responseMetadata",
+  "response_metadata",
 ])
 
 export function camelize<Value>(value: Value): Camelized<Value> {

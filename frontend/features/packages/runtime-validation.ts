@@ -1,3 +1,13 @@
+// Deliberate exception to the `camelize()` decoding rule.
+//
+// Every other feature client decodes backend payloads with lib/camelize.ts,
+// which trusts the generated OpenAPI types. Package payloads are LLM-authored
+// content packs whose shape is only as trustworthy as the model that produced
+// them, so they are validated field by field at runtime — an unexpected or
+// missing key must fail loudly here rather than reach the editor as `undefined`.
+// Do not "simplify" this module into camelize(); do not copy its style into
+// clients that consume ordinary, schema-backed endpoints.
+
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 const SHA256_PATTERN = /^[0-9a-f]{64}$/
 
