@@ -31,7 +31,7 @@ from app.operations.history import (
     HistorySubjectType,
     decode_history_cursor,
 )
-from app.retention.contracts import RetentionPreview
+from app.retention.contracts import RetentionConfirmationPhrase, RetentionPreview
 from app.retention.models import RetentionRun
 from app.retention.service import (
     RetentionCategory,
@@ -125,7 +125,7 @@ class RetentionRunCreateIn(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     preview_token: str = Field(pattern=r"^[0-9a-f]{64}$")
-    confirmation: Literal["DELETE PREVIEWED DATA"]
+    confirmation: RetentionConfirmationPhrase
 
 
 class RetentionRunOut(BaseModel):

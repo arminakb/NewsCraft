@@ -40,7 +40,8 @@ RETENTION_CATEGORIES: tuple[RetentionCategory, ...] = (
     "export_artifact",
     "unreferenced_media",
 )
-RETENTION_CONFIRMATION = "DELETE PREVIEWED DATA"
+type RetentionConfirmationPhrase = Literal["DELETE PREVIEWED DATA"]
+RETENTION_CONFIRMATION: RetentionConfirmationPhrase = "DELETE PREVIEWED DATA"
 RETENTION_PREVIEW_TTL = timedelta(minutes=30)
 RAW_PAYLOAD_SCRUBBED_URL = "retention:scrubbed"
 GENERATION_SUCCESS_STATUSES = ("succeeded", "completed")
