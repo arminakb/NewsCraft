@@ -485,7 +485,7 @@ async def test_real_workflow_parser_failure_preserves_fetched_raw_evidence_and_r
         assert session.in_transaction() is False
         raise RuntimeError("parser exploded")
 
-    monkeypatch.setattr("app.ingestion.workflow._parse_source_payload", fail_parser)
+    monkeypatch.setattr("app.ingestion.workflow.parse_source_payload", fail_parser)
     async with _successful_client(session) as client:
         result = await IngestionWorkflow(http_client=client).run(
             session=session,
@@ -520,7 +520,7 @@ async def test_real_workflow_media_failure_preserves_raw_evidence_and_rolls_back
     ProductionWorkflowRepository.fail_media = True
     monkeypatch.setattr("app.ingestion.workflow.IngestionRepository", ProductionWorkflowRepository)
     monkeypatch.setattr(
-        "app.ingestion.workflow._parse_source_payload",
+        "app.ingestion.workflow.parse_source_payload",
         lambda *args, **kwargs: _parsed_payload_with_media(),
     )
     try:

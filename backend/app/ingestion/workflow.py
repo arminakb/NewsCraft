@@ -22,7 +22,7 @@ from app.ingestion.repository import IngestionRepository, build_item_identities
 from app.normalization.titles import normalize_title
 from app.source_collections.models import IngestRunSourceSnapshot
 from app.sources.base import SourceFetchTarget
-from app.sources.registry import parser_for_source
+from app.sources.fetch_target import parse_source_payload, source_request_url
 
 DEFAULT_HEADERS = {"User-Agent": "NewsCraftBot/1.0"}
 
@@ -183,7 +183,7 @@ class IngestionWorkflow:
         here when neither the run nor the constructor provided one.
         """
 
-        request_url = _source_request_url(source)
+        request_url = source_request_url(source)
         active = client or self.http_client
         owns_client = active is None
         if active is None:
@@ -199,7 +199,7 @@ class IngestionWorkflow:
             processing_failure = None
             if response.status_code < 400 and response.status_code != 304:
                 try:
-                    parsed = _parse_source_payload(source, response.text, request_url)
+                    parsed = parse_source_payload(source, response.text, request_url)
                 except asyncio.CancelledError:
                     raise
                 except Exception as exc:  # noqa: BLE001 - retain fetched evidence for classified failure
@@ -644,14 +644,6 @@ def _build_http_client() -> httpx.AsyncClient:
     return build_outbound_http_client(timeout=20.0)
 
 
-def _source_request_url(source: SourceFetchTarget) -> str:
-    if source.platform in {"rss", "atom"} and source.feed_url:
-        return source.feed_url
-    if source.platform == "telegram_public" and source.telegram_username:
-        return f"https://t.me/s/{source.telegram_username}"
-    raise ValueError(f"Source {source.name} is missing fetch URL data")
-
-
 def _request_headers(source: SourceFetchTarget) -> dict[str, str]:
     headers = dict(DEFAULT_HEADERS)
     if source.etag:
@@ -667,20 +659,6 @@ def _payload_kind(source: SourceFetchTarget) -> str:
     if source.platform == "telegram_public":
         return "telegram_html"
     return "raw"
-
-
-def _parse_source_payload(source: SourceFetchTarget, raw_text: str, request_url: str):
-    parser = parser_for_source(source)
-    if source.platform in {"rss", "atom"}:
-        return parser(
-            raw_text,
-            source_name=source.name,
-            source_url=source.feed_url or request_url,
-            default_timezone=source.default_timezone or "UTC",
-        )
-    if source.platform == "telegram_public":
-        return parser(raw_text, channel=source.telegram_username)
-    raise ValueError(f"Unsupported source platform: {source.platform}")
 
 
 def _record_source_success(

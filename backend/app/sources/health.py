@@ -9,7 +9,11 @@ import httpx
 from app.core.outbound_proxy import build_outbound_http_client
 from app.core.redaction import redact_string
 from app.db.models import Source
-from app.sources.registry import parser_for_source
+from app.sources.fetch_target import (
+    MissingFetchTarget,
+    parse_source_payload,
+    source_request_url,
+)
 
 HEALTH_CHECK_HEADERS = {"User-Agent": "NewsCraftBot/1.0"}
 
@@ -31,7 +35,7 @@ async def check_source_health(
     owns_client = http_client is None
     client = http_client or build_outbound_http_client(timeout=15.0)
     try:
-        request_url = _request_url(source)
+        request_url = source_request_url(source)
         response = await client.get(
             request_url,
             headers=HEALTH_CHECK_HEADERS,
@@ -50,7 +54,7 @@ async def check_source_health(
                 http_status=response.status_code,
             )
 
-        parsed = _parse_response(source, response.text, request_url)
+        parsed = parse_source_payload(source, response.text, request_url)
         malformed = next(
             (warning for warning in parsed.warnings if warning.startswith("bozo_feed:")),
             None,
@@ -74,6 +78,9 @@ async def check_source_health(
         )
     except asyncio.CancelledError:
         raise
+    except MissingFetchTarget:
+        # Operator-facing wording: the source is unconfigured, not unreachable.
+        return _broken(checked_at, reason="Source is missing connectivity information.")
     except Exception as exc:  # noqa: BLE001 - health result must classify transport and validation failures
         return _broken(
             checked_at,
@@ -82,28 +89,6 @@ async def check_source_health(
     finally:
         if owns_client:
             await client.aclose()
-
-
-def _request_url(source: Source) -> str:
-    if source.platform in {"rss", "atom"} and source.feed_url:
-        return source.feed_url
-    if source.platform == "telegram_public" and source.telegram_username:
-        return f"https://t.me/s/{source.telegram_username}"
-    raise ValueError("Source is missing connectivity information.")
-
-
-def _parse_response(source: Source, raw_text: str, request_url: str):
-    parser = parser_for_source(source)
-    if source.platform in {"rss", "atom"}:
-        return parser(
-            raw_text,
-            source_name=source.name,
-            source_url=source.feed_url or request_url,
-            default_timezone=source.default_timezone or "UTC",
-        )
-    if source.platform == "telegram_public":
-        return parser(raw_text, channel=source.telegram_username)
-    raise ValueError(f"Unsupported source platform: {source.platform}")
 
 
 def _broken(
