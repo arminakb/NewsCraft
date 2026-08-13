@@ -72,7 +72,7 @@ class BoundaryWorkflow(IngestionWorkflow):
     async def prepare_run(self, session, *, platforms, source_ids, trigger):
         return PreparedIngestionRun(run_id=uuid4(), sources=(self.source,))
 
-    async def fetch_source(self, source):
+    async def fetch_source(self, source, *, client=None):
         assert self._active_session.in_transaction() is False
         self.fetch_calls.append(source.name)
         if self.cancel:
@@ -148,7 +148,7 @@ async def test_fetch_failure_happens_outside_transaction_then_records_short_fail
 @pytest.mark.asyncio
 async def test_workflow_failure_stats_are_sanitized_before_finish_and_return():
     class SecretBoundaryWorkflow(BoundaryWorkflow):
-        async def fetch_source(self, source):
+        async def fetch_source(self, source, *, client=None):
             raise RuntimeError('fetch {"authorization":"Bearer workflow-message-canary"}')
 
     session = TransactionTrackingSession()

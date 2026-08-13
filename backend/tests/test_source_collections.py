@@ -116,7 +116,7 @@ async def test_ingestion_fetch_window_is_bounded_by_source_concurrency(monkeypat
         async def prepare_run(self, session, *, platforms, source_ids, trigger):
             return PreparedIngestionRun(run_id=uuid4(), sources=self.sources)
 
-        async def fetch_source(self, source):
+        async def fetch_source(self, source, *, client=None):
             self.active_fetches += 1
             self.maximum_active_fetches = max(self.maximum_active_fetches, self.active_fetches)
             await asyncio.sleep(0.001)

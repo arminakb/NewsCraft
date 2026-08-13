@@ -180,12 +180,26 @@ class IngestionWorkflow:
             sources = [source for source in sources if str(source.id) in wanted]
         return PreparedIngestionRun(run_id=run.id, sources=tuple(_snapshot_source(source) for source in sources))
 
-    async def fetch_source(self, source: PreparedSource) -> FetchedSourceBatch:
+    async def fetch_source(
+        self,
+        source: PreparedSource,
+        *,
+        client: httpx.AsyncClient | None = None,
+    ) -> FetchedSourceBatch:
+        """Fetch one source, preferring a caller-supplied (run-scoped) client.
+
+        `run()` owns a single client for the whole run so connections and TLS
+        sessions are reused across sources; a client is only built (and closed)
+        here when neither the run nor the constructor provided one.
+        """
+
         request_url = _source_request_url(source)  # type: ignore[arg-type]
-        owns_client = self.http_client is None
-        client = self.http_client or _build_http_client()
+        active = client or self.http_client
+        owns_client = active is None
+        if active is None:
+            active = _build_http_client()
         try:
-            response = await client.get(
+            response = await active.get(
                 request_url,
                 headers=_request_headers(source),  # type: ignore[arg-type]
                 follow_redirects=True,
@@ -220,7 +234,7 @@ class IngestionWorkflow:
             )
         finally:
             if owns_client:
-                await client.aclose()
+                await active.aclose()
 
     async def persist_source(
         self,
@@ -419,9 +433,10 @@ class IngestionWorkflow:
     async def _fetch_one(
         self,
         source: PreparedSource,
+        client: httpx.AsyncClient | None = None,
     ) -> tuple[PreparedSource, FetchedSourceBatch | None, Exception | None]:
         try:
-            batch = await self.fetch_source(source)
+            batch = await self.fetch_source(source, client=client)
             await self._after_fetch(source, batch)
             return source, batch, None
         except asyncio.CancelledError:
@@ -512,14 +527,19 @@ class IngestionWorkflow:
         source_iterator = iter(prepared.sources)
         pending: set[asyncio.Task[tuple[PreparedSource, FetchedSourceBatch | None, Exception | None]]] = set()
         concurrency = min(max(1, settings.ingestion_source_concurrency), max(1, len(prepared.sources)))
-        for _ in range(concurrency):
-            try:
-                source = next(source_iterator)
-            except StopIteration:
-                break
-            pending.add(asyncio.create_task(self._fetch_one(source), name=f"ingest-fetch:{source.id}"))
+        run_client = self.http_client or (_build_http_client() if prepared.sources else None)
+        owns_run_client = run_client is not None and self.http_client is None
 
         try:
+            for _ in range(concurrency):
+                try:
+                    source = next(source_iterator)
+                except StopIteration:
+                    break
+                pending.add(
+                    asyncio.create_task(self._fetch_one(source, run_client), name=f"ingest-fetch:{source.id}")
+                )
+
             while pending:
                 completed, pending = await asyncio.wait(pending, return_when=asyncio.FIRST_COMPLETED)
                 for task in completed:
@@ -590,7 +610,7 @@ class IngestionWorkflow:
                     if next_source is not None:
                         pending.add(
                             asyncio.create_task(
-                                self._fetch_one(next_source),
+                                self._fetch_one(next_source, run_client),
                                 name=f"ingest-fetch:{next_source.id}",
                             )
                         )
@@ -602,6 +622,8 @@ class IngestionWorkflow:
                 for task in pending:
                     task.cancel()
                 await asyncio.gather(*pending, return_exceptions=True)
+            if owns_run_client and run_client is not None:
+                await run_client.aclose()
 
         try:
             async with _transaction(session, "finish"):
