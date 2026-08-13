@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Literal
+from typing import Any, Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -11,6 +11,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.capabilities import CapabilityStatusDependency
 from app.api.content_pack_mappers import (
     _pack_out,
+    _packs_out,
+    _prefetch_revision_graph,
     _request_out,
     _research_request_out,
     _revision_out,
@@ -168,7 +170,7 @@ LIST_CEILING = 200
 @router.get("/content-packs")
 async def list_content_packs(session: AsyncSession = SessionDependency):
     rows = list(await session.scalars(select(ContentPack).order_by(ContentPack.created_at.desc()).limit(LIST_CEILING)))
-    return [await _pack_out(session, row) for row in rows]
+    return await _packs_out(session, rows)
 
 
 @router.get("/content-pack-requests")
@@ -241,7 +243,9 @@ async def list_variant_revisions(variant_id: UUID, session: AsyncSession = Sessi
             .order_by(PlatformVariantRevision.revision_number.desc())
         )
     )
-    return [await _revision_out(session, row) for row in rows]
+    await _prefetch_revision_graph(session, rows)
+    media_cache: dict[UUID, list[dict[str, Any]]] = {}
+    return [await _revision_out(session, row, media_cache) for row in rows]
 
 
 @router.get("/platform-variant-revisions/{revision_id}")
