@@ -158,7 +158,7 @@ describe("Feed page", () => {
     })
     renderArticles()
 
-    fireEvent.click(await screen.findByRole("button", { name: "Clear Feed" }))
+    fireEvent.click(await findEnabledClearFeedButton())
     const dialog = await screen.findByRole("dialog", { name: "Clear Feed?" })
     expect(dialog).toHaveTextContent("This will remove 2 collected articles from the Feed.")
     expect(dialog).toHaveTextContent("Your Sources, Source Collections, and ingestion settings will remain unchanged.")
@@ -180,7 +180,7 @@ describe("Feed page", () => {
       .mockResolvedValueOnce({ clearedCount: 1 })
     renderArticles()
 
-    fireEvent.click(await screen.findByRole("button", { name: "Clear Feed" }))
+    fireEvent.click(await findEnabledClearFeedButton())
     const dialog = await screen.findByRole("dialog", { name: "Clear Feed?" })
     fireEvent.click(within(dialog).getByRole("button", { name: "Clear Feed" }))
     expect(await within(dialog).findByRole("alert")).toHaveTextContent("Feed could not be cleared right now. Try again.")
@@ -1141,6 +1141,13 @@ function renderArticles() {
       <ArticlesPage />
     </QueryClientProvider>,
   )
+}
+
+async function findEnabledClearFeedButton() {
+  // The trigger stays disabled until the Feed count query settles, as the desktop e2e run asserts.
+  const button = await screen.findByRole("button", { name: "Clear Feed" })
+  await waitFor(() => expect(button).toBeEnabled())
+  return button
 }
 
 function article(overrides: Partial<ArticleSummary> = {}): ArticleSummary {
