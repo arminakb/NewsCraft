@@ -299,7 +299,14 @@ class IngestionRepository:
         result = await self.session.execute(stmt)
         return result.scalar_one(), False
 
-    async def find_content_item_by_identities(self, identities: list[dict[str, Any]]) -> ContentItem | None:
+    async def find_content_items_by_identities(self, identities: list[dict[str, Any]]) -> list[ContentItem]:
+        """Return every content item a strong identity points at, best match first.
+
+        The order is total (best identity confidence, then oldest sighting, then
+        id), so the same input always binds to the same content item no matter
+        which plan PostgreSQL picks. Any further entries are duplicates that the
+        caller merges into the winner.
+        """
         clauses = []
         for identity in identities:
             if not identity["is_strong"]:
@@ -314,10 +321,31 @@ class IngestionRepository:
             clauses.append(clause)
 
         if not clauses:
-            return None
+            return []
 
-        stmt = select(ContentItem).join(ItemIdentity).where(or_(*clauses)).limit(1)
-        return await self.session.scalar(stmt)
+        ranked = (
+            select(
+                ItemIdentity.content_item_id.label("content_item_id"),
+                func.max(ItemIdentity.confidence).label("best_confidence"),
+            )
+            .where(ItemIdentity.content_item_id.is_not(None), or_(*clauses))
+            .group_by(ItemIdentity.content_item_id)
+            .subquery()
+        )
+        stmt = (
+            select(ContentItem)
+            .join(ranked, ranked.c.content_item_id == ContentItem.id)
+            .order_by(
+                ranked.c.best_confidence.desc(),
+                ContentItem.first_seen_at.asc(),
+                ContentItem.id.asc(),
+            )
+        )
+        return list(await self.session.scalars(stmt))
+
+    async def find_content_item_by_identities(self, identities: list[dict[str, Any]]) -> ContentItem | None:
+        matches = await self.find_content_items_by_identities(identities)
+        return matches[0] if matches else None
 
     async def upsert_content_item(
         self,
@@ -327,9 +355,11 @@ class IngestionRepository:
         identities: list[dict[str, Any]],
     ) -> ContentItem:
         await self._lock_strong_identities(identities)
-        existing = await self.find_content_item_by_identities(identities)
+        matches = await self.find_content_items_by_identities(identities)
+        existing = matches[0] if matches else None
         values = _content_item_values(source, parsed_item)
         if existing:
+            await self._merge_duplicate_content_items(existing, matches[1:])
             values = _preserve_more_complete_content(existing, values)
             for key, value in values.items():
                 if key in {"first_seen_at", "created_at"}:
@@ -348,6 +378,29 @@ class IngestionRepository:
         await self.upsert_rewrite_candidate(content_item)
         await self.session.flush()
         return content_item
+
+    async def _merge_duplicate_content_items(self, winner: ContentItem, losers: list[ContentItem]) -> None:
+        """Record the merge before `attach_identities` reparents identity rows.
+
+        When one parsed item matches several existing content items, the losing
+        rows keep their own history but must point at the surviving row —
+        otherwise their identities silently move to the winner and the leftover
+        content item stays in the feed as an untracked duplicate.
+        """
+        loser_ids = [loser.id for loser in losers if loser.id != winner.id]
+        if not loser_ids:
+            return
+        if winner.duplicate_of_id in set(loser_ids):
+            winner.duplicate_of_id = None
+        await self.session.execute(
+            update(ContentItem)
+            .where(
+                ContentItem.id != winner.id,
+                or_(ContentItem.id.in_(loser_ids), ContentItem.duplicate_of_id.in_(loser_ids)),
+            )
+            .values(duplicate_of_id=winner.id)
+        )
+        await self.session.flush()
 
     async def _lock_strong_identities(self, identities: list[dict[str, Any]]) -> None:
         """Serialize creation for any shared durable identity until transaction end."""

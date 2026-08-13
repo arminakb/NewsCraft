@@ -7,24 +7,30 @@ import pytest
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from app.db.models import ItemIdentity, MediaAsset, Source
+from app.db.models import ContentItem, ItemIdentity, MediaAsset, Source
 from app.ingestion.repository import IngestionRepository, build_item_identities
 from app.sources.base import MediaCandidate, ParsedSourceItem
 
 BODY = "This is a sufficiently detailed report body with several independently useful facts. " * 2
 
 
-def _parsed_item(*, external_id: str = "guid-1", media: bool = False) -> ParsedSourceItem:
+def _parsed_item(
+    *,
+    external_id: str = "guid-1",
+    media: bool = False,
+    url: str = "https://news.example.test/reports/shared",
+    body: str = BODY,
+) -> ParsedSourceItem:
     return ParsedSourceItem(
         external_id_raw=external_id,
         external_id_norm=external_id,
-        source_url="https://news.example.test/reports/shared",
-        source_url_norm="https://news.example.test/reports/shared",
-        canonical_url_candidate="https://news.example.test/reports/shared",
+        source_url=url,
+        source_url_norm=url,
+        canonical_url_candidate=url,
         title="Shared report",
-        summary=BODY,
+        summary=body,
         content_html=None,
-        content_text=BODY,
+        content_text=body,
         author=None,
         categories=[],
         published_raw="2026-08-13T08:00:00+00:00",
@@ -60,6 +66,65 @@ async def _create_source(session_factory: async_sessionmaker[AsyncSession], name
         session.add(source)
         await session.commit()
     return source
+
+
+async def _ingest(
+    session_factory: async_sessionmaker[AsyncSession],
+    source: Source,
+    parsed: ParsedSourceItem,
+) -> ContentItem:
+    async with session_factory() as session, session.begin():
+        persisted_source = await session.get(Source, source.id)
+        assert persisted_source is not None
+        repository = IngestionRepository(session)
+        source_item = await repository.upsert_source_item(
+            run_id=None,
+            source_id=persisted_source.id,
+            raw_payload_id=None,
+            parsed_item=parsed,
+        )
+        identities = build_item_identities(persisted_source, parsed)
+        content_item = await repository.upsert_content_item(persisted_source, source_item, parsed, identities)
+        await repository.attach_identities(content_item.id, source_item.id, persisted_source.id, identities)
+        return content_item
+
+
+@pytest.mark.asyncio
+async def test_multi_match_binds_the_strongest_item_and_records_the_duplicate(
+    session_factory: async_sessionmaker[AsyncSession],
+):
+    """A parsed item matching two content items must bind deterministically and merge."""
+    url_source = await _create_source(session_factory, "urlowner")
+    body_source = await _create_source(session_factory, "bodyowner")
+    other_body = "A completely separate narrative with its own independently verifiable details. " * 2
+
+    url_item = await _ingest(
+        session_factory,
+        url_source,
+        _parsed_item(external_id="url-1", url="https://news.example.test/reports/one"),
+    )
+    body_item = await _ingest(
+        session_factory,
+        body_source,
+        _parsed_item(external_id="body-1", url="https://news.example.test/reports/two", body=other_body),
+    )
+    assert url_item.id != body_item.id
+
+    # Matches url_item by canonical/normalized URL (confidence 1.0) and
+    # body_item by content hash (confidence 0.92).
+    merged = await _ingest(
+        session_factory,
+        url_source,
+        _parsed_item(external_id="url-2", url="https://news.example.test/reports/one", body=other_body),
+    )
+
+    assert merged.id == url_item.id
+    async with session_factory() as session:
+        loser = await session.get(ContentItem, body_item.id)
+        winner = await session.get(ContentItem, url_item.id)
+        assert loser is not None and winner is not None
+        assert loser.duplicate_of_id == url_item.id
+        assert winner.duplicate_of_id is None
 
 
 @pytest.mark.asyncio
