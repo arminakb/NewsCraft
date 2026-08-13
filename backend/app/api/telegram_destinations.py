@@ -29,6 +29,7 @@ from app.jobs.models import WorkflowJob
 from app.jobs.repository import JobRepository
 from app.jobs.schemas import JobAcceptedOut
 from app.jobs.types import JobOrigin
+from app.publishing.models import Destination
 from app.publishing.telegram.lifecycle import (
     TelegramDependencyConflict,
     TelegramLifecycleService,
@@ -88,6 +89,27 @@ async def _proxy_or_404(service: TelegramLifecycleService, profile_id: UUID, *, 
     return profile
 
 
+def _mark_destination_checking(destination: Destination, *, reset_outcome: bool = False) -> None:
+    """Move a destination's health fields into the in-flight ``checking`` state.
+
+    Every route that enqueues ``telegram.destination.check`` marks the same
+    fields, so the spelling lives here once. ``proxy_health_status`` is always
+    rewritten — a destination with no proxy is ``direct``, matching the check
+    handler's own projection — so a stale proxy verdict cannot survive a check
+    that will never look at a proxy. ``reset_outcome`` additionally clears the
+    aggregate verdict, which only the explicit recheck route wants.
+    """
+
+    if reset_outcome:
+        destination.health_status = "unknown"
+        destination.failure_code = None
+    destination.telegram_health_status = "checking"
+    destination.bot_health_status = "checking"
+    destination.target_health_status = "checking"
+    destination.administrator_status = "checking"
+    destination.proxy_health_status = "direct" if destination.proxy_profile_id is None else "checking"
+
+
 async def _enqueue_check(
     session: AsyncSession,
     *,
@@ -126,12 +148,7 @@ async def create_telegram_destination(
     service = _service(request, session, needs_key=True)
     try:
         destination = await service.create_destination(body)
-        destination.telegram_health_status = "checking"
-        destination.bot_health_status = "checking"
-        destination.target_health_status = "checking"
-        destination.administrator_status = "checking"
-        if destination.proxy_profile_id is not None:
-            destination.proxy_health_status = "checking"
+        _mark_destination_checking(destination)
         job = await _enqueue_check(
             session,
             job_type="telegram.destination.check",
@@ -170,12 +187,7 @@ async def patch_telegram_destination(
     destination = await _destination_or_404(service, destination_id, for_update=True)
     try:
         await service.patch_destination(destination, body)
-        destination.telegram_health_status = "checking"
-        destination.bot_health_status = "checking"
-        destination.target_health_status = "checking"
-        destination.administrator_status = "checking"
-        if destination.proxy_profile_id is not None:
-            destination.proxy_health_status = "checking"
+        _mark_destination_checking(destination)
         job = await _enqueue_check(
             session,
             job_type="telegram.destination.check",
@@ -204,12 +216,7 @@ async def rotate_telegram_destination_token(
     destination = await _destination_or_404(service, destination_id, for_update=True)
     try:
         await service.rotate_destination_token(destination, body.secret.get_secret_value())
-        destination.telegram_health_status = "checking"
-        destination.bot_health_status = "checking"
-        destination.target_health_status = "checking"
-        destination.administrator_status = "checking"
-        if destination.proxy_profile_id is not None:
-            destination.proxy_health_status = "checking"
+        _mark_destination_checking(destination)
         job = await _enqueue_check(
             session,
             job_type="telegram.destination.check",
@@ -232,13 +239,7 @@ async def recheck_telegram_destination(
 ):
     service = _service(request, session, needs_key=False)
     destination = await _destination_or_404(service, destination_id, for_update=True)
-    destination.health_status = "unknown"
-    destination.failure_code = None
-    destination.telegram_health_status = "checking"
-    destination.bot_health_status = "checking"
-    destination.target_health_status = "checking"
-    destination.administrator_status = "checking"
-    destination.proxy_health_status = "direct" if destination.proxy_profile_id is None else "checking"
+    _mark_destination_checking(destination, reset_outcome=True)
     job = await _enqueue_check(
         session,
         job_type="telegram.destination.check",
