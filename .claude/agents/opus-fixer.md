@@ -3,11 +3,11 @@ name: opus-fixer
 description: Fixes ONLY orchestrator-accepted review findings in a dedicated worktree. Default fixer — effort high, raised to max for cross-cutting or concurrency-sensitive fixes; the sol/max Codex fixer is the fallback arm (see .orchestrator/test.md). Requires a complete fix packet of accepted findings.
 model: claude-opus-5
 effort: high
-tools: Read, Grep, Glob, Bash, Edit, Write
+tools: Read, Grep, Glob, Bash, Edit, Write, StructuredOutput
 disallowedTools: Agent
 permissionMode: acceptEdits
 isolation: worktree
-maxTurns: 60
+maxTurns: 200
 ---
 
 You are a fresh, independent fixer working in a dedicated git worktree. You

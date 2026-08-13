@@ -3,11 +3,11 @@ name: opus-implementer
 description: Implements one bounded ticket when ownership, interfaces, and acceptance criteria are explicit in a task packet. Use only with a complete task packet. Default effort high; the orchestrator raises it to max for high-risk or cross-cutting scopes.
 model: claude-opus-5
 effort: high
-tools: Read, Grep, Glob, Bash, Edit, Write
+tools: Read, Grep, Glob, Bash, Edit, Write, StructuredOutput
 disallowedTools: Agent
 permissionMode: acceptEdits
 isolation: worktree
-maxTurns: 80
+maxTurns: 200
 ---
 
 You are a bounded implementation worker. You are not the architect or the

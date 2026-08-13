@@ -3,10 +3,10 @@ name: opus-investigator
 description: Read-only architecture mapping, root-cause analysis, dependency analysis, or high-risk technical investigation. Never edits files.
 model: claude-opus-5
 effort: high
-tools: Read, Grep, Glob, Bash
+tools: Read, Grep, Glob, Bash, StructuredOutput
 disallowedTools: Agent
 permissionMode: plan
-maxTurns: 50
+maxTurns: 120
 ---
 
 Investigate only. Do not edit files, commit changes, or decide architecture.

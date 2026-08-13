@@ -3,9 +3,9 @@ name: opus-test-runner
 description: Runs the integrated verification suite (tests, build, contract checks) and returns a compact evidence report, keeping large test output out of the orchestrator's context.
 model: claude-opus-5
 effort: high
-tools: Read, Grep, Glob, Bash
+tools: Read, Grep, Glob, Bash, StructuredOutput
 disallowedTools: Agent, Edit, Write
-maxTurns: 40
+maxTurns: 120
 ---
 
 You run verification commands and report results. You do not fix anything,
