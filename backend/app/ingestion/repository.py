@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import UTC, datetime
 from decimal import Decimal
 from hashlib import sha256
@@ -27,6 +28,7 @@ from app.db.models import (
     Source,
     SourceItem,
 )
+from app.ingestion.runs import new_ingest_run
 from app.normalization.fingerprints import content_hash, title_date_fingerprint
 from app.normalization.text import fingerprint_text, infer_direction
 from app.normalization.titles import normalize_title
@@ -35,6 +37,8 @@ from app.sources.base import MediaCandidate, ParsedSourceItem
 
 GLOBAL_STRONG_IDENTITY_INDEX_WHERE = text("scope = 'global' AND is_strong")
 SOURCE_STRONG_IDENTITY_INDEX_WHERE = text("scope = 'source' AND is_strong")
+SOURCE_WEAK_IDENTITY_INDEX_WHERE = text("scope = 'source' AND NOT is_strong")
+LIVE_MEDIA_ASSET_INDEX_WHERE = text("fetch_status <> 'expired'")
 DISCOVERY_SOURCE_DEFINITIONS = {
     "gdelt": {
         "name": "GDELT",
@@ -108,13 +112,38 @@ def build_item_identities(source: Source, parsed_item: ParsedSourceItem) -> list
     return list(deduped.values())
 
 
+def dedupe_media_candidates(candidates: list[MediaCandidate]) -> list[MediaCandidate]:
+    """Collapse candidates that point at one URL, keeping the strongest claim.
+
+    Parsers may surface the same image through several fields (a `<media:content>`
+    lead image that also appears as an inline `<img>`). Keyed only by URL, a plain
+    dict comprehension kept whichever entry came last — the weakest one — which
+    then overwrote the strong candidate's dimensions and quality on the shared
+    asset row and emitted a second `item_media` row for the same asset.
+    """
+
+    strongest: dict[str, MediaCandidate] = {}
+    order: list[str] = []
+    for candidate in candidates:
+        existing = strongest.get(candidate.normalized_url)
+        if existing is None:
+            strongest[candidate.normalized_url] = candidate
+            order.append(candidate.normalized_url)
+        elif candidate.confidence > existing.confidence:
+            strongest[candidate.normalized_url] = candidate
+    return [strongest[url] for url in order]
+
+
 def plan_item_media_rows(
     content_item_id: UUID,
     media_assets: list[MediaAsset],
     parsed_item: ParsedSourceItem,
 ) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
-    candidates_by_url = {candidate.normalized_url: candidate for candidate in parsed_item.media_candidates}
+    candidates_by_url = {
+        candidate.normalized_url: candidate
+        for candidate in dedupe_media_candidates(parsed_item.media_candidates)
+    }
     primary_image_assigned = False
 
     for sort_order, media_asset in enumerate(media_assets):
@@ -122,7 +151,6 @@ def plan_item_media_rows(
         role = _media_role(media_asset, candidate, primary_image_assigned)
         if role == "primary_image":
             primary_image_assigned = True
-        media_asset.is_primary = role == "primary_image"
         rows.append(
             {
                 "content_item_id": content_item_id,
@@ -141,7 +169,7 @@ class IngestionRepository:
         self.session = session
 
     async def create_run(self, trigger: str, parser_version: str) -> IngestRun:
-        run = IngestRun(trigger=trigger, parser_version=parser_version, status="running")
+        run = new_ingest_run(trigger=trigger, parser_version=parser_version, status="running")
         self.session.add(run)
         await self.session.flush()
         return run
@@ -297,7 +325,14 @@ class IngestionRepository:
         result = await self.session.execute(stmt)
         return result.scalar_one(), False
 
-    async def find_content_item_by_identities(self, identities: list[dict[str, Any]]) -> ContentItem | None:
+    async def find_content_items_by_identities(self, identities: list[dict[str, Any]]) -> list[ContentItem]:
+        """Return every content item a strong identity points at, best match first.
+
+        The order is total (best identity confidence, then oldest sighting, then
+        id), so the same input always binds to the same content item no matter
+        which plan PostgreSQL picks. Any further entries are duplicates that the
+        caller merges into the winner.
+        """
         clauses = []
         for identity in identities:
             if not identity["is_strong"]:
@@ -312,10 +347,31 @@ class IngestionRepository:
             clauses.append(clause)
 
         if not clauses:
-            return None
+            return []
 
-        stmt = select(ContentItem).join(ItemIdentity).where(or_(*clauses)).limit(1)
-        return await self.session.scalar(stmt)
+        ranked = (
+            select(
+                ItemIdentity.content_item_id.label("content_item_id"),
+                func.max(ItemIdentity.confidence).label("best_confidence"),
+            )
+            .where(ItemIdentity.content_item_id.is_not(None), or_(*clauses))
+            .group_by(ItemIdentity.content_item_id)
+            .subquery()
+        )
+        stmt = (
+            select(ContentItem)
+            .join(ranked, ranked.c.content_item_id == ContentItem.id)
+            .order_by(
+                ranked.c.best_confidence.desc(),
+                ContentItem.first_seen_at.asc(),
+                ContentItem.id.asc(),
+            )
+        )
+        return list(await self.session.scalars(stmt))
+
+    async def find_content_item_by_identities(self, identities: list[dict[str, Any]]) -> ContentItem | None:
+        matches = await self.find_content_items_by_identities(identities)
+        return matches[0] if matches else None
 
     async def upsert_content_item(
         self,
@@ -325,10 +381,12 @@ class IngestionRepository:
         identities: list[dict[str, Any]],
     ) -> ContentItem:
         await self._lock_strong_identities(identities)
-        existing = await self.find_content_item_by_identities(identities)
+        matches = await self.find_content_items_by_identities(identities)
+        existing = matches[0] if matches else None
         values = _content_item_values(source, parsed_item)
         if existing:
-            values = _preserve_more_complete_content(existing, values)
+            await self._merge_duplicate_content_items(existing, matches[1:])
+            values = _preserve_more_complete_content(source, existing, parsed_item, values)
             for key, value in values.items():
                 if key in {"first_seen_at", "created_at"}:
                     continue
@@ -346,6 +404,29 @@ class IngestionRepository:
         await self.upsert_rewrite_candidate(content_item)
         await self.session.flush()
         return content_item
+
+    async def _merge_duplicate_content_items(self, winner: ContentItem, losers: list[ContentItem]) -> None:
+        """Record the merge before `attach_identities` reparents identity rows.
+
+        When one parsed item matches several existing content items, the losing
+        rows keep their own history but must point at the surviving row —
+        otherwise their identities silently move to the winner and the leftover
+        content item stays in the feed as an untracked duplicate.
+        """
+        loser_ids = [loser.id for loser in losers if loser.id != winner.id]
+        if not loser_ids:
+            return
+        if winner.duplicate_of_id in set(loser_ids):
+            winner.duplicate_of_id = None
+        await self.session.execute(
+            update(ContentItem)
+            .where(
+                ContentItem.id != winner.id,
+                or_(ContentItem.id.in_(loser_ids), ContentItem.duplicate_of_id.in_(loser_ids)),
+            )
+            .values(duplicate_of_id=winner.id)
+        )
+        await self.session.flush()
 
     async def _lock_strong_identities(self, identities: list[dict[str, Any]]) -> None:
         """Serialize creation for any shared durable identity until transaction end."""
@@ -389,11 +470,7 @@ class IngestionRepository:
                 "source_item_id": source_item_id,
                 "source_id": identity["source_id"] or source_id,
             }
-            stmt = _identity_insert_statement(values)
-            if stmt is not None:
-                await self.session.execute(stmt)
-            else:
-                self.session.add(ItemIdentity(**values))
+            await self.session.execute(_identity_insert_statement(values))
         await self.session.flush()
 
     async def upsert_media_assets(self, parsed_item: ParsedSourceItem) -> list[MediaAsset]:
@@ -402,8 +479,22 @@ class IngestionRepository:
         # can hold a row while waiting for the other's table lock.
         await self.session.execute(text("LOCK TABLE content_items, item_media, media_assets IN ROW EXCLUSIVE MODE"))
         assets: list[MediaAsset] = []
-        for candidate in parsed_item.media_candidates:
-            url_hash = hash_value(candidate.normalized_url)
+        for candidate in dedupe_media_candidates(parsed_item.media_candidates):
+            assets.append(await self._upsert_media_asset(candidate))
+        await self.session.flush()
+        return assets
+
+    async def _upsert_media_asset(self, candidate: MediaCandidate) -> MediaAsset:
+        """Bind one candidate to exactly one live media asset row.
+
+        A bare select-then-insert let two concurrent ingest sessions create the
+        same asset twice (the table lock is self-compatible and the row lock
+        matches nothing when the select misses). The insert now carries the
+        live-url_hash conflict target, so at most one writer wins and the loser
+        re-reads the winner's row.
+        """
+        url_hash = hash_value(candidate.normalized_url)
+        for _attempt in range(3):
             existing = await self.session.scalar(
                 select(MediaAsset)
                 .where(
@@ -415,15 +506,24 @@ class IngestionRepository:
                 .with_for_update()
                 .execution_options(populate_existing=True)
             )
-            if existing:
+            if existing is not None:
                 _apply_media_candidate(existing, candidate, url_hash)
-                assets.append(existing)
-                continue
-            asset = MediaAsset(**_media_asset_values(candidate, url_hash))
-            self.session.add(asset)
-            assets.append(asset)
-        await self.session.flush()
-        return assets
+                return existing
+
+            inserted = (
+                await self.session.execute(
+                    insert(MediaAsset)
+                    .values(**_media_asset_values(candidate, url_hash))
+                    .on_conflict_do_nothing(
+                        index_elements=[MediaAsset.url_hash],
+                        index_where=LIVE_MEDIA_ASSET_INDEX_WHERE,
+                    )
+                    .returning(MediaAsset)
+                )
+            ).scalar_one_or_none()
+            if inserted is not None:
+                return inserted
+        raise RuntimeError(f"Unable to resolve a media asset for url hash {url_hash}")
 
     async def attach_item_media(
         self,
@@ -466,9 +566,27 @@ class IngestionRepository:
                 )
             )
             await self.session.execute(stmt)
-        await self.session.execute(
-            update(ContentItem).where(ContentItem.id == content_item_id).values(primary_image_id=primary_image_id)
-        )
+        # Re-ingestion sees only what the current parse produced. Writing the
+        # planned value unconditionally cleared a previously-resolved primary
+        # image whenever a later parse shipped no media (or only media that
+        # `_can_be_primary` rejects). Publish a new primary when we have one,
+        # and otherwise clear the stored one only when this parse actually
+        # re-planned that same asset into a non-primary role.
+        if primary_image_id is not None:
+            await self.session.execute(
+                update(ContentItem).where(ContentItem.id == content_item_id).values(primary_image_id=primary_image_id)
+            )
+        else:
+            demoted_asset_ids = {row["media_asset_id"] for row in rows}
+            if demoted_asset_ids:
+                await self.session.execute(
+                    update(ContentItem)
+                    .where(
+                        ContentItem.id == content_item_id,
+                        ContentItem.primary_image_id.in_(demoted_asset_ids),
+                    )
+                    .values(primary_image_id=None)
+                )
         await self.session.flush()
 
 
@@ -521,27 +639,43 @@ def _source_item_values(
 
 
 def _identity_insert_statement(values: dict[str, Any]):
-    if not values["is_strong"]:
-        return None
+    """Build the conflict-aware INSERT for one identity row.
 
+    Every identity NewsCraft writes must land on a partial unique index, so a
+    repeated ingest cycle updates the existing row instead of appending a new
+    one. Any scope/strength combination without a matching index is rejected
+    loudly rather than degrading to an unbounded plain INSERT.
+    """
     stmt = insert(ItemIdentity).values(**values)
     update_values = {
         "content_item_id": values["content_item_id"],
         "source_item_id": values["source_item_id"],
     }
-    if values["scope"] == "global":
-        return stmt.on_conflict_do_update(
-            index_elements=[ItemIdentity.identity_type, ItemIdentity.identity_hash],
-            index_where=GLOBAL_STRONG_IDENTITY_INDEX_WHERE,
-            set_=update_values,
-        )
-    if values["scope"] == "source":
+    scope = values["scope"]
+    if values["is_strong"]:
+        if scope == "global":
+            return stmt.on_conflict_do_update(
+                index_elements=[ItemIdentity.identity_type, ItemIdentity.identity_hash],
+                index_where=GLOBAL_STRONG_IDENTITY_INDEX_WHERE,
+                set_=update_values,
+            )
+        if scope == "source":
+            return stmt.on_conflict_do_update(
+                index_elements=[ItemIdentity.source_id, ItemIdentity.identity_type, ItemIdentity.identity_hash],
+                index_where=SOURCE_STRONG_IDENTITY_INDEX_WHERE,
+                set_=update_values,
+            )
+    elif scope == "source":
         return stmt.on_conflict_do_update(
             index_elements=[ItemIdentity.source_id, ItemIdentity.identity_type, ItemIdentity.identity_hash],
-            index_where=SOURCE_STRONG_IDENTITY_INDEX_WHERE,
-            set_=update_values,
+            index_where=SOURCE_WEAK_IDENTITY_INDEX_WHERE,
+            set_={
+                **update_values,
+                "identity_value": values["identity_value"],
+                "confidence": values["confidence"],
+            },
         )
-    return None
+    raise ValueError(f"Unsupported identity scope/strength combination: {scope}/{values['is_strong']}")
 
 
 def plan_rewrite_candidate(content_item: ContentItem) -> dict[str, Any]:
@@ -659,15 +793,31 @@ def _content_item_values(source: Source, parsed_item: ParsedSourceItem) -> dict[
     return values
 
 
-def _preserve_more_complete_content(existing: ContentItem, values: dict[str, Any]) -> dict[str, Any]:
+def _preserve_more_complete_content(
+    source: Source,
+    existing: ContentItem,
+    parsed_item: ParsedSourceItem,
+    values: dict[str, Any],
+) -> dict[str, Any]:
+    """Keep the fuller stored body — and everything derived from it.
+
+    A summary-only re-parse of an item first seen with full text must not
+    downgrade classification, scoring, quality or rewrite readiness, so the
+    derived values are recomputed from the preserved body instead of being
+    patched on top of excerpt-derived ones.
+    """
+
     stored_text = existing.content_text or ""
     incoming_text = str(values.get("content_text") or "")
     if _normalized_content_length(incoming_text) >= _normalized_content_length(stored_text):
         return values
 
-    preserved = dict(values)
-    preserved["content_text"] = existing.content_text
-    preserved["content_html_sanitized"] = existing.content_html_sanitized
+    preserved_item = replace(
+        parsed_item,
+        content_text=stored_text,
+        content_html=existing.content_html_sanitized,
+    )
+    preserved = _content_item_values(source, preserved_item)
 
     incoming_metrics = dict(preserved.get("metrics") or {})
     stored_metrics = existing.metrics if isinstance(existing.metrics, dict) else {}
@@ -753,7 +903,14 @@ def _apply_media_candidate(asset: MediaAsset, candidate: MediaCandidate, url_has
             if key == "media_source_type":
                 asset.media_source_type = "stored"
             continue
-        if key in {"storage_path", "checksum_sha256", "byte_length"} and value is None:
+        # A feed that simply omits `type`/`width`/`height` says nothing about the
+        # asset; it must not erase what a download already established.
+        if key in {"storage_path", "checksum_sha256", "byte_length", "mime_type", "width", "height"} and value is None:
+            continue
+        # For bytes we hold, the magic-byte-verified content type beats the feed's
+        # claim — unless this candidate brings storage of its own (a capture that
+        # re-supplies both the file and its type).
+        if key == "mime_type" and stored_asset and candidate.storage_path is None:
             continue
         if key in {"fetch_status", "raw_metadata"} and getattr(asset, key) not in (None, {}, "remote_only"):
             continue

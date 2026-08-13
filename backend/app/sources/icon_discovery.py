@@ -1,11 +1,8 @@
 from __future__ import annotations
 
 import hashlib
-import ipaddress
 import logging
-import os
 import re
-import tempfile
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
@@ -28,6 +25,8 @@ from app.jobs.errors import PermanentJobError
 from app.jobs.registry import JobContext
 from app.jobs.repository import JobRepository
 from app.jobs.types import JobExecution, JobOrigin
+from app.media.atomic_files import atomic_write
+from app.normalization.url_safety import UnsafeUrlError, validate_public_http_url
 
 ICON_JOB_TYPE = "source.icon.discover"
 ICON_PLATFORMS = ("rss", "atom")
@@ -59,14 +58,6 @@ _ALLOWED_RESPONSE_MIME_TYPES = frozenset(
 )
 _MAX_ICON_DIMENSION = 4096
 _MAX_CANDIDATES = 12
-_BLOCKED_HOSTS = {
-    "instance-data",
-    "localhost",
-    "metadata",
-    "metadata.google.internal",
-    "host.docker.internal",
-}
-_BLOCKED_HOST_SUFFIXES = (".internal", ".localhost", ".local", ".home.arpa", ".intranet")
 _SVG_EXTERNAL_REFERENCE = re.compile(
     r"(?:xlink:)?(?:href|src)\s*=\s*['\"]\s*(?:https?:|//|data:|javascript:|vbscript:)",
     re.I,
@@ -278,21 +269,10 @@ def extract_website_icon_candidates(html: str | bytes, base_url: str) -> tuple[I
 def validate_icon_url(value: str) -> str:
     """Reject local, private, metadata, credentialed, and unsupported icon URLs."""
 
-    parsed = urlsplit(value)
-    if parsed.scheme not in {"http", "https"} or not parsed.hostname:
-        raise IconCandidateError("unsafe_url", retryable=False)
-    if parsed.username is not None or parsed.password is not None:
-        raise IconCandidateError("unsafe_url", retryable=False)
-    hostname = parsed.hostname.rstrip(".").casefold()
     try:
-        address = ipaddress.ip_address(hostname)
-    except ValueError:
-        if hostname in _BLOCKED_HOSTS or hostname.endswith(_BLOCKED_HOST_SUFFIXES):
-            raise IconCandidateError("unsafe_url", retryable=False) from None
-    else:
-        if not address.is_global:
-            raise IconCandidateError("unsafe_url", retryable=False)
-    return value
+        return validate_public_http_url(value)
+    except UnsafeUrlError:
+        raise IconCandidateError("unsafe_url", retryable=False) from None
 
 
 def _content_type(response: httpx.Response) -> str | None:
@@ -394,7 +374,9 @@ def _svg_dimensions(body: bytes) -> tuple[int, int] | None:
 
 
 def _validate_icon_bytes(body: bytes, claimed_type: str | None, max_bytes: int) -> _ValidatedIcon:
-    if not body or len(body) > max_bytes:
+    if not body:
+        raise IconCandidateError("icon_empty", retryable=False)
+    if len(body) > max_bytes:
         raise IconCandidateError("icon_too_large", retryable=False)
 
     signatures: list[tuple[str, Callable[[bytes], tuple[int, int] | None]]] = [
@@ -487,13 +469,13 @@ async def _get_response(
         _content_type(response),
         len(response.content),
     )
-    if len(response.content) > max_bytes:
-        raise IconCandidateError("response_too_large", retryable=False)
     if response.status_code < 200 or response.status_code >= 300:
         raise IconCandidateError(
             f"http_{response.status_code}",
             retryable=response.status_code >= 500,
         )
+    if len(response.content) > max_bytes:
+        raise IconCandidateError("response_too_large", retryable=False)
     return response
 
 
@@ -589,9 +571,9 @@ class SourceIconDiscoveryService:
                         max_bytes=self.config.source_icon_discovery_max_bytes,
                         source_id=target.id,
                     )
+                    website_base = str(website_response.url)
                     content_type = _content_type(website_response)
                     if content_type in {None, "text/html", "application/xhtml+xml"}:
-                        website_base = str(website_response.url)
                         website_candidates = extract_website_icon_candidates(
                             website_response.content,
                             website_base,
@@ -693,14 +675,10 @@ def persist_icon_bytes(media_root: Path | str, body: bytes, mime_type: str) -> s
     digest = hashlib.sha256(body).hexdigest()
     suffix = _ALLOWED_MIME_TYPES.get(mime_type, ".bin")
     root = Path(media_root) / "source-icons" / digest[:2]
-    root.mkdir(parents=True, exist_ok=True)
     target = root / f"{digest}{suffix}"
     if target.exists():
         return str(target)
-    with tempfile.NamedTemporaryFile(prefix=f".{digest}-", dir=root, delete=False) as temporary:
-        temporary.write(body)
-        temporary_path = Path(temporary.name)
-    os.replace(temporary_path, target)
+    atomic_write(target, body)
     return str(target)
 
 

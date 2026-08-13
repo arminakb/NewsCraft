@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Awaitable, Callable, Mapping
-from contextlib import asynccontextmanager
+from contextlib import suppress
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from types import MappingProxyType
@@ -19,8 +19,11 @@ from app.core.outbound_proxy import build_outbound_http_client
 from app.core.redaction import redact_secrets, redact_string
 from app.db.models import IngestRun, Source
 from app.ingestion.repository import IngestionRepository, build_item_identities
+from app.ingestion.runs import initial_ingest_stats
+from app.normalization.titles import normalize_title
 from app.source_collections.models import IngestRunSourceSnapshot
-from app.sources.registry import parser_for_source
+from app.sources.base import SourceFetchTarget
+from app.sources.fetch_target import parse_source_payload, source_request_url
 
 DEFAULT_HEADERS = {"User-Agent": "NewsCraftBot/1.0"}
 
@@ -79,6 +82,15 @@ class SourceProcessingFailure:
 
 @dataclass(frozen=True, slots=True)
 class SourcePersistResult:
+    """One source's contribution to a run's stats.
+
+    ``fetched``/``skipped``/``failed`` partition the sources a run checked, so
+    a single source must contribute exactly one of them across every result
+    merged for it. A result carrying ``processing_failure`` therefore leaves
+    all three at zero: the caller records the classified failure separately and
+    that follow-up result is the one contributing ``failed=1``.
+    """
+
     fetched: int = 0
     skipped: int = 0
     failed: int = 0
@@ -114,17 +126,6 @@ def _snapshot_source_record(source: IngestRunSourceSnapshot) -> PreparedSource:
         etag=source.etag,
         last_modified=source.last_modified,
     )
-
-
-@asynccontextmanager
-async def _transaction(session: AsyncSession, label: str):
-    begin: Any = session.begin
-    try:
-        context = begin(label)
-    except TypeError:
-        context = begin()
-    async with context:
-        yield
 
 
 def _has_transaction(session: AsyncSession) -> bool:
@@ -179,14 +180,28 @@ class IngestionWorkflow:
             sources = [source for source in sources if str(source.id) in wanted]
         return PreparedIngestionRun(run_id=run.id, sources=tuple(_snapshot_source(source) for source in sources))
 
-    async def fetch_source(self, source: PreparedSource) -> FetchedSourceBatch:
-        request_url = _source_request_url(source)  # type: ignore[arg-type]
-        owns_client = self.http_client is None
-        client = self.http_client or _build_http_client()
+    async def fetch_source(
+        self,
+        source: PreparedSource,
+        *,
+        client: httpx.AsyncClient | None = None,
+    ) -> FetchedSourceBatch:
+        """Fetch one source, preferring a caller-supplied (run-scoped) client.
+
+        `run()` owns a single client for the whole run so connections and TLS
+        sessions are reused across sources; a client is only built (and closed)
+        here when neither the run nor the constructor provided one.
+        """
+
+        request_url = source_request_url(source)
+        active = client or self.http_client
+        owns_client = active is None
+        if active is None:
+            active = _build_http_client()
         try:
-            response = await client.get(
+            response = await active.get(
                 request_url,
-                headers=_request_headers(source),  # type: ignore[arg-type]
+                headers=_request_headers(source),
                 follow_redirects=True,
             )
             warnings: tuple[str, ...] = ()
@@ -194,7 +209,7 @@ class IngestionWorkflow:
             processing_failure = None
             if response.status_code < 400 and response.status_code != 304:
                 try:
-                    parsed = _parse_source_payload(source, response.text, request_url)  # type: ignore[arg-type]
+                    parsed = parse_source_payload(source, response.text, request_url)
                 except asyncio.CancelledError:
                     raise
                 except Exception as exc:  # noqa: BLE001 - retain fetched evidence for classified failure
@@ -219,7 +234,7 @@ class IngestionWorkflow:
             )
         finally:
             if owns_client:
-                await client.aclose()
+                await active.aclose()
 
     async def persist_source(
         self,
@@ -244,16 +259,13 @@ class IngestionWorkflow:
             raw_text=batch.raw_text,
             parser_warnings=list(batch.parser_warnings),
         )
-        source.etag = batch.headers.get("etag") or source.etag
-        source.last_modified = batch.headers.get("last-modified") or source.last_modified
         source.last_fetch_at = datetime.now(UTC)
         source.last_http_status = batch.http_status
 
-        response = _PersistedResponse(batch)
-        if batch.http_status == 304:
-            _record_source_not_modified(source, response)  # type: ignore[arg-type]
-            return SourcePersistResult(skipped=1)
         if batch.http_status >= 400:
+            # Error responses (CDN error pages in particular) routinely carry their
+            # own validators; adopting them would make the next conditional request
+            # return 304 for the error page and an ongoing outage read as healthy.
             error = RuntimeError(f"HTTP {batch.http_status} for {batch.request_url}")
             _record_source_failure(
                 source,
@@ -270,16 +282,20 @@ class IngestionWorkflow:
                     },
                 ),
             )
+        source.etag = batch.headers.get("etag") or source.etag
+        source.last_modified = batch.headers.get("last-modified") or source.last_modified
+        if batch.http_status == 304:
+            _record_source_not_modified(source, batch.http_status)
+            return SourcePersistResult(skipped=1)
         if batch.processing_failure is not None:
-            return SourcePersistResult(fetched=1, processing_failure=batch.processing_failure)
+            return SourcePersistResult(processing_failure=batch.processing_failure)
 
         item_count = 0
         media_count = 0
         try:
             async with session.begin_nested():
                 for parsed_item in batch.parsed_items:
-                    source_item, created = await _upsert_source_item_with_created(
-                        repository,
+                    source_item, created = await repository.upsert_source_item_with_created(
                         run_id=run_id,
                         source_id=source.id,
                         raw_payload_id=payload.id,
@@ -320,7 +336,6 @@ class IngestionWorkflow:
             raise
         except Exception as exc:  # noqa: BLE001 - raw response remains durable outside the savepoint
             return SourcePersistResult(
-                fetched=1,
                 processing_failure=SourceProcessingFailure(
                     error_type=redact_string(exc.__class__.__name__),
                     message=redact_string(str(exc)),
@@ -331,7 +346,7 @@ class IngestionWorkflow:
         suitable_count = sum(1 for item in batch.parsed_items if _is_suitable_item(item))
         _record_source_success(
             source,
-            response,  # type: ignore[arg-type]
+            batch.http_status,
             parse_count=parse_count,
             suitable_count=suitable_count,
             media_count=media_count,
@@ -371,18 +386,89 @@ class IngestionWorkflow:
         status = "partial" if stats["failed"] else "succeeded"
         await IngestionRepository(session).finish_run(run_id, status=status, stats=stats)
 
+    async def abort_run(
+        self,
+        session: AsyncSession,
+        *,
+        run_id: UUID,
+        stats: dict[str, Any],
+        error: str,
+    ) -> None:
+        """Write the terminal `failed` state for a run that could not complete."""
+        await IngestionRepository(session).finish_run(run_id, status="failed", stats=stats, error=error)
+
+    async def _abort_run_quietly(
+        self,
+        session: AsyncSession,
+        *,
+        run_id: UUID,
+        stats: dict[str, Any],
+        error: Exception,
+    ) -> None:
+        """Best-effort terminal write for a run whose loop raised.
+
+        Without it the row stays `running` forever: the partial unique index
+        `uq_ingest_runs_active_source_collection` then rejects every later
+        snapshot for the same collection, so a single escaping exception wedges
+        the collection permanently. The original exception must still surface,
+        so every failure of this write is swallowed.
+        """
+        try:
+            if _has_transaction(session):
+                await session.rollback()
+            async with session.begin():
+                await self.abort_run(
+                    session,
+                    run_id=run_id,
+                    stats=_sanitized_stats(stats),
+                    error=str(error),
+                )
+        except Exception:  # noqa: BLE001 - the original failure must surface unchanged
+            with suppress(Exception):
+                await session.rollback()
+
     async def _fetch_one(
         self,
         source: PreparedSource,
+        client: httpx.AsyncClient | None = None,
     ) -> tuple[PreparedSource, FetchedSourceBatch | None, Exception | None]:
         try:
-            batch = await self.fetch_source(source)
+            batch = await self.fetch_source(source, client=client)
             await self._after_fetch(source, batch)
             return source, batch, None
         except asyncio.CancelledError:
             raise
         except Exception as exc:  # noqa: BLE001 - source failures remain source-scoped
             return source, None, exc
+
+    async def _mark_source_running(
+        self,
+        session: AsyncSession,
+        *,
+        prepared: PreparedIngestionRun,
+        source: PreparedSource,
+        started_at: dict[UUID, datetime],
+    ) -> None:
+        """Publish a source as in-flight before its fetch is dispatched.
+
+        Without this write the per-source snapshot jumps straight from `queued`
+        to a terminal status, so the collection progress view can never show
+        which source a run is currently working on, and the recorded start
+        timestamp is fabricated at completion time.
+        """
+        if not prepared.collection_snapshot:
+            return
+        now = datetime.now(UTC)
+        started_at[source.id] = now
+        async with session.begin():
+            await session.execute(
+                update(IngestRunSourceSnapshot)
+                .where(
+                    IngestRunSourceSnapshot.ingest_run_id == prepared.run_id,
+                    IngestRunSourceSnapshot.source_id == source.id,
+                )
+                .values(status="running", started_at=now, completed_at=None, error=None)
+            )
 
     async def _record_collection_progress(
         self,
@@ -394,6 +480,7 @@ class IngestionWorkflow:
         failed: bool,
         skipped: bool,
         error: str | None,
+        started_at: datetime | None,
         on_progress: Callable[[dict[str, Any]], Awaitable[None]] | None,
     ) -> None:
         if not prepared.collection_snapshot:
@@ -407,7 +494,7 @@ class IngestionWorkflow:
             )
             .values(
                 status="failed" if failed else ("skipped" if skipped else "succeeded"),
-                started_at=now,
+                started_at=started_at or now,
                 completed_at=now,
                 error=redact_string(error) if error else None,
             )
@@ -452,29 +539,30 @@ class IngestionWorkflow:
         }
         if ingest_run_id is not None:
             prepare_kwargs["ingest_run_id"] = ingest_run_id
-        async with _transaction(session, "prepare"):
+        async with session.begin():
             prepared = await self.prepare_run(session, **prepare_kwargs)
 
-        stats: dict[str, Any] = {
-            "checked": 0,
-            "fetched": 0,
-            "skipped": 0,
-            "failed": 0,
-            "items": 0,
-            "media_candidates": 0,
-            "errors": [],
-        }
+        stats: dict[str, Any] = initial_ingest_stats()
+        source_started_at: dict[UUID, datetime] = {}
         source_iterator = iter(prepared.sources)
         pending: set[asyncio.Task[tuple[PreparedSource, FetchedSourceBatch | None, Exception | None]]] = set()
         concurrency = min(max(1, settings.ingestion_source_concurrency), max(1, len(prepared.sources)))
-        for _ in range(concurrency):
-            try:
-                source = next(source_iterator)
-            except StopIteration:
-                break
-            pending.add(asyncio.create_task(self._fetch_one(source), name=f"ingest-fetch:{source.id}"))
+        run_client = self.http_client or (_build_http_client() if prepared.sources else None)
+        owns_run_client = run_client is not None and self.http_client is None
 
         try:
+            for _ in range(concurrency):
+                try:
+                    source = next(source_iterator)
+                except StopIteration:
+                    break
+                await self._mark_source_running(
+                    session, prepared=prepared, source=source, started_at=source_started_at
+                )
+                pending.add(
+                    asyncio.create_task(self._fetch_one(source, run_client), name=f"ingest-fetch:{source.id}")
+                )
+
             while pending:
                 completed, pending = await asyncio.wait(pending, return_when=asyncio.FIRST_COMPLETED)
                 for task in completed:
@@ -486,7 +574,7 @@ class IngestionWorkflow:
                     progress_error: str | None = None
                     if fetch_error is not None:
                         progress_error = str(fetch_error)
-                        async with _transaction(session, f"failure:{source.name}"):
+                        async with session.begin():
                             persisted = await self.record_source_failure(
                                 session,
                                 run_id=prepared.run_id,
@@ -496,13 +584,13 @@ class IngestionWorkflow:
                     else:
                         assert batch is not None
                         try:
-                            async with _transaction(session, f"persist:{source.name}"):
+                            async with session.begin():
                                 persisted = await self.persist_source(session, run_id=prepared.run_id, batch=batch)
                         except asyncio.CancelledError:
                             raise
                         except Exception as exc:  # noqa: BLE001 - persist failures remain source-scoped
                             progress_error = str(exc)
-                            async with _transaction(session, f"failure:{source.name}"):
+                            async with session.begin():
                                 persisted = await self.record_source_failure(
                                     session,
                                     run_id=prepared.run_id,
@@ -515,7 +603,7 @@ class IngestionWorkflow:
                     if persisted.processing_failure is not None:
                         failure = persisted.processing_failure
                         progress_error = failure.message
-                        async with _transaction(session, f"failure:{source.name}"):
+                        async with session.begin():
                             classified = await self.record_source_failure(
                                 session,
                                 run_id=prepared.run_id,
@@ -526,7 +614,7 @@ class IngestionWorkflow:
 
                     source_failed = bool(fetch_error or persisted.failed or persisted.processing_failure)
                     if prepared.collection_snapshot:
-                        async with _transaction(session, f"progress:{source.name}"):
+                        async with session.begin():
                             await self._record_collection_progress(
                                 session,
                                 prepared=prepared,
@@ -535,6 +623,7 @@ class IngestionWorkflow:
                                 failed=source_failed,
                                 skipped=bool(persisted.skipped),
                                 error=progress_error,
+                                started_at=source_started_at.pop(source.id, None),
                                 on_progress=on_progress,
                             )
 
@@ -543,25 +632,37 @@ class IngestionWorkflow:
                     except StopIteration:
                         next_source = None
                     if next_source is not None:
+                        await self._mark_source_running(
+                            session, prepared=prepared, source=next_source, started_at=source_started_at
+                        )
                         pending.add(
                             asyncio.create_task(
-                                self._fetch_one(next_source),
+                                self._fetch_one(next_source, run_client),
                                 name=f"ingest-fetch:{next_source.id}",
                             )
                         )
+        except Exception as exc:  # noqa: BLE001 - the run row must never stay `running`
+            await self._abort_run_quietly(session, run_id=prepared.run_id, stats=stats, error=exc)
+            raise
         finally:
             if pending:
                 for task in pending:
                     task.cancel()
                 await asyncio.gather(*pending, return_exceptions=True)
+            if owns_run_client and run_client is not None:
+                await run_client.aclose()
 
-        async with _transaction(session, "finish"):
-            safe_stats = _sanitized_stats(stats)
-            await self.finish_run(
-                session,
-                run_id=prepared.run_id,
-                stats=safe_stats,
-            )
+        try:
+            async with session.begin():
+                safe_stats = _sanitized_stats(stats)
+                await self.finish_run(
+                    session,
+                    run_id=prepared.run_id,
+                    stats=safe_stats,
+                )
+        except Exception as exc:  # noqa: BLE001 - the run row must never stay `running`
+            await self._abort_run_quietly(session, run_id=prepared.run_id, stats=stats, error=exc)
+            raise
         return safe_stats
 
     async def _after_fetch(self, source: PreparedSource, batch: FetchedSourceBatch) -> None:
@@ -578,38 +679,11 @@ class IngestionWorkflow:
         stats["errors"].extend(result.errors)
 
 
-class _PersistedResponse:
-    def __init__(self, batch: FetchedSourceBatch) -> None:
-        self.status_code = batch.http_status
-        self.headers = batch.headers
-
-
 def _build_http_client() -> httpx.AsyncClient:
     return build_outbound_http_client(timeout=20.0)
 
 
-async def _upsert_source_item_with_created(
-    repository: IngestionRepository,
-    **kwargs: Any,
-) -> tuple[Any, bool]:
-    method = getattr(repository, "upsert_source_item_with_created", None)
-    if callable(method):
-        return await method(**kwargs)
-    # Small repository doubles used by ingestion unit tests predate the
-    # insert/update signal. They still exercise persistence, but cannot emit
-    # a source-item event without the real repository boundary.
-    return await repository.upsert_source_item(**kwargs), False
-
-
-def _source_request_url(source: Source) -> str:
-    if source.platform in {"rss", "atom"} and source.feed_url:
-        return source.feed_url
-    if source.platform == "telegram_public" and source.telegram_username:
-        return f"https://t.me/s/{source.telegram_username}"
-    raise ValueError(f"Source {source.name} is missing fetch URL data")
-
-
-def _request_headers(source: Source) -> dict[str, str]:
+def _request_headers(source: SourceFetchTarget) -> dict[str, str]:
     headers = dict(DEFAULT_HEADERS)
     if source.etag:
         headers["If-None-Match"] = source.etag
@@ -618,7 +692,7 @@ def _request_headers(source: Source) -> dict[str, str]:
     return headers
 
 
-def _payload_kind(source: Source) -> str:
+def _payload_kind(source: SourceFetchTarget) -> str:
     if source.platform in {"rss", "atom"}:
         return "feed_xml"
     if source.platform == "telegram_public":
@@ -626,23 +700,9 @@ def _payload_kind(source: Source) -> str:
     return "raw"
 
 
-def _parse_source_payload(source: Source, raw_text: str, request_url: str):
-    parser = parser_for_source(source)
-    if source.platform in {"rss", "atom"}:
-        return parser(
-            raw_text,
-            source_name=source.name,
-            source_url=source.feed_url or request_url,
-            default_timezone=source.default_timezone or "UTC",
-        )
-    if source.platform == "telegram_public":
-        return parser(raw_text, channel=source.telegram_username)
-    raise ValueError(f"Unsupported source platform: {source.platform}")
-
-
 def _record_source_success(
     source: Source,
-    response: httpx.Response,
+    http_status: int,
     *,
     parse_count: int,
     suitable_count: int,
@@ -651,7 +711,7 @@ def _record_source_success(
 ) -> None:
     now = datetime.now(UTC)
     source.last_fetch_at = now
-    source.last_http_status = response.status_code
+    source.last_http_status = http_status
     source.last_success_at = now
     source.last_parse_count = parse_count
     source.last_suitable_count = suitable_count
@@ -662,9 +722,15 @@ def _record_source_success(
         source.health_status = "disabled"
         return
     if error_type:
+        # The fetch itself succeeded, so the transport-failure state stays
+        # untouched: `failure_count`/`last_failure_at` count consecutive
+        # transport failures (operators reset the counter by hand and it is
+        # published on the source), and a feed that reliably answers 200 with
+        # nothing usable must not inflate them forever. `health_status`
+        # separates this 'degraded' parse-quality state from a 'broken' source,
+        # which is what disambiguates the diagnostic `last_error_*` pair.
         source.health_status = "degraded"
-        source.last_failure_at = now
-        source.failure_count = int(source.failure_count or 0) + 1
+        source.failure_count = 0
         source.last_error_type = redact_string(error_type)
         source.last_error_message = redact_string(error_message) if error_message is not None else None
         return
@@ -675,10 +741,10 @@ def _record_source_success(
     source.last_error_message = None
 
 
-def _record_source_not_modified(source: Source, response: httpx.Response) -> None:
+def _record_source_not_modified(source: Source, http_status: int) -> None:
     now = datetime.now(UTC)
     source.last_fetch_at = now
-    source.last_http_status = response.status_code
+    source.last_http_status = http_status
     source.last_success_at = now
     if _source_is_disabled(source):
         source.health_status = "disabled"
@@ -717,7 +783,18 @@ def _source_quality_issue(
 
 
 def _is_suitable_item(item) -> bool:
-    return bool((item.content_text or "").strip() and (item.title or "").strip())
+    """Judge an item the way persistence will store it, not the way the feed shipped it.
+
+    Platforms such as Telegram carry no title field, so the parser emits an
+    empty one and `_content_item_values` synthesises the stored title from the
+    body via `normalize_title`. Requiring a parser-supplied title here reported
+    every title-less platform as permanently degraded.
+    """
+
+    body = item.content_text or ""
+    if not body.strip():
+        return False
+    return bool(normalize_title(item.title or "", body).title.strip())
 
 
 def _source_is_disabled(source: Source) -> bool:

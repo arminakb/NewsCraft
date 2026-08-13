@@ -2,7 +2,13 @@ from types import SimpleNamespace
 from uuid import uuid4
 
 from app.db.models import Source
-from app.ingestion.workflow import _record_source_failure, _record_source_not_modified, _record_source_success
+from app.ingestion.workflow import (
+    _is_suitable_item,
+    _record_source_failure,
+    _record_source_not_modified,
+    _record_source_success,
+)
+from app.sources.telegram_public import parse_public_telegram_page
 
 
 def test_successful_source_is_healthy() -> None:
@@ -55,7 +61,30 @@ def test_malformed_feed_marks_source_degraded() -> None:
 
     assert source.health_status == "degraded"
     assert source.last_error_type == "malformed_feed"
-    assert source.failure_count == 1
+    # A parse-quality issue is not a transport failure: the counter operators
+    # watch (and reset) must not grow while the feed keeps answering 200.
+    assert source.failure_count == 0
+    assert source.last_failure_at is None
+
+
+def test_repeated_quality_issues_do_not_inflate_the_transport_failure_counter() -> None:
+    source = _source()
+    source.failure_count = 3
+
+    for _ in range(3):
+        _record_source_success(
+            source,
+            SimpleNamespace(status_code=200),
+            parse_count=4,
+            suitable_count=0,
+            media_count=0,
+            parser_warnings=[],
+        )
+
+    assert source.health_status == "degraded"
+    assert source.last_error_type == "zero_suitable_items"
+    assert source.failure_count == 0
+    assert source.last_failure_at is None
 
 
 def test_not_modified_preserves_existing_health_counts() -> None:
@@ -86,3 +115,41 @@ def _source() -> Source:
         failure_count=0,
         health_status="healthy",
     )
+
+
+def test_titleless_platform_item_with_a_body_counts_as_suitable() -> None:
+    item = SimpleNamespace(
+        title="",
+        content_text="این یک پیام کامل تلگرامی است.",
+    )
+
+    assert _is_suitable_item(item) is True
+
+
+def test_titleless_item_without_a_usable_body_stays_unsuitable() -> None:
+    assert _is_suitable_item(SimpleNamespace(title="", content_text="   ")) is False
+    assert _is_suitable_item(SimpleNamespace(title="", content_text="..!")) is False
+
+
+def test_telegram_batch_does_not_report_a_healthy_source_as_degraded() -> None:
+    html = """
+    <div class="tgme_widget_message" data-post="channel/12">
+      <div class="js-message_text">A complete telegram post body with plenty of words.</div>
+      <time datetime="2026-08-13T10:00:00+00:00"></time>
+    </div>
+    """
+    payload = parse_public_telegram_page(html, "channel")
+    assert payload.items, "fixture must yield at least one parsed item"
+
+    source = _source()
+    _record_source_success(
+        source,
+        SimpleNamespace(status_code=200),
+        parse_count=len(payload.items),
+        suitable_count=sum(1 for item in payload.items if _is_suitable_item(item)),
+        media_count=0,
+        parser_warnings=list(payload.warnings),
+    )
+
+    assert source.health_status == "healthy"
+    assert source.failure_count == 0

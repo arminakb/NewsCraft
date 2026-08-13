@@ -40,7 +40,7 @@ class _Session:
     def __init__(self):
         self.active = False
 
-    def begin(self, _label=None):
+    def begin(self):
         return _Transaction(self)
 
     def in_transaction(self):
@@ -116,7 +116,7 @@ async def test_ingestion_fetch_window_is_bounded_by_source_concurrency(monkeypat
         async def prepare_run(self, session, *, platforms, source_ids, trigger):
             return PreparedIngestionRun(run_id=uuid4(), sources=self.sources)
 
-        async def fetch_source(self, source):
+        async def fetch_source(self, source, *, client=None):
             self.active_fetches += 1
             self.maximum_active_fetches = max(self.maximum_active_fetches, self.active_fetches)
             await asyncio.sleep(0.001)
@@ -151,3 +151,69 @@ async def test_ingestion_fetch_window_is_bounded_by_source_concurrency(monkeypat
     assert result["checked"] == 7
     assert result["failed"] == 0
     assert workflow.maximum_active_fetches <= 2
+
+
+class _RecordingSession(_Session):
+    """Session that captures the values written by each snapshot UPDATE."""
+
+    def __init__(self):
+        super().__init__()
+        self.snapshot_updates: list[dict] = []
+
+    async def execute(self, statement):
+        table = getattr(statement, "table", None)
+        if table is not None and table.name == "ingest_run_source_snapshots":
+            self.snapshot_updates.append(dict(statement.compile().params))
+        return None
+
+
+@pytest.mark.asyncio
+async def test_collection_snapshot_reports_a_source_as_running_before_it_completes(monkeypatch):
+    class CollectionWorkflow(IngestionWorkflow):
+        def __init__(self):
+            super().__init__()
+            self.sources = tuple(_source(index) for index in range(2))
+
+        async def prepare_run(self, session, *, platforms, source_ids, trigger):
+            return PreparedIngestionRun(
+                run_id=uuid4(),
+                sources=self.sources,
+                collection_snapshot=True,
+            )
+
+        async def fetch_source(self, source, *, client=None):
+            await asyncio.sleep(0.01)
+            return FetchedSourceBatch(
+                source=source,
+                request_url=source.feed_url or "",
+                final_url=source.feed_url or "",
+                http_status=200,
+                headers={},
+                content_type="application/rss+xml",
+                raw_text="<rss />",
+                parser_warnings=(),
+                parsed_items=(),
+            )
+
+        async def persist_source(self, session, *, run_id, batch):
+            return SourcePersistResult(fetched=1)
+
+        async def finish_run(self, session, *, run_id, stats):
+            return None
+
+    monkeypatch.setattr("app.ingestion.workflow.settings.ingestion_source_concurrency", 1)
+    session = _RecordingSession()
+    await CollectionWorkflow().run(
+        session=session,
+        platforms=None,
+        source_ids=None,
+        trigger="test",
+    )
+
+    statuses = [update["status"] for update in session.snapshot_updates]
+    assert statuses == ["running", "succeeded", "running", "succeeded"]
+
+    running, terminal = session.snapshot_updates[0], session.snapshot_updates[1]
+    assert running["completed_at"] is None
+    assert terminal["started_at"] == running["started_at"]
+    assert terminal["completed_at"] > terminal["started_at"]

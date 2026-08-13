@@ -1,6 +1,6 @@
 from datetime import datetime
 from decimal import Decimal
-from typing import Any, Literal
+from typing import Any, Literal, Self
 from urllib.parse import urlsplit
 from uuid import UUID
 
@@ -141,6 +141,15 @@ class ContentItemOut(BaseModel):
     published_at: datetime | None = None
     primary_source_id: UUID | None = None
     classification_metadata: dict[str, Any] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def derive_primary_media_flag(self) -> Self:
+        # `MediaAsset.is_primary` is an asset-global column and a single asset row is
+        # shared by every content item citing the same URL, so it cannot carry a
+        # per-item decision. Derive the flag from the item being serialized instead.
+        if self.primary_media is not None:
+            self.primary_media.is_primary = True
+        return self
 
 
 class IngestRunRequest(BaseModel):

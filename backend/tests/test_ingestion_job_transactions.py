@@ -19,18 +19,19 @@ from app.sources.base import MediaCandidate, ParsedSourceItem, ParsedSourcePaylo
 
 
 class TrackedTransaction(AbstractAsyncContextManager):
-    def __init__(self, session, label):
+    """Records transaction boundaries; the work done inside names each phase."""
+
+    def __init__(self, session):
         self.session = session
-        self.label = label
 
     async def __aenter__(self):
         assert self.session.active is False
         self.session.active = True
-        self.session.events.append(f"begin:{self.label}")
+        self.session.events.append("begin")
 
     async def __aexit__(self, exc_type, exc, tb):
         self.session.active = False
-        self.session.events.append(f"rollback:{self.label}" if exc else f"commit:{self.label}")
+        self.session.events.append("rollback" if exc else "commit")
 
 
 class TransactionTrackingSession:
@@ -38,8 +39,8 @@ class TransactionTrackingSession:
         self.active = False
         self.events = []
 
-    def begin(self, label=None):
-        return TrackedTransaction(self, label or "unknown")
+    def begin(self):
+        return TrackedTransaction(self)
 
     def in_transaction(self):
         return self.active
@@ -69,10 +70,14 @@ class BoundaryWorkflow(IngestionWorkflow):
         self.failure_calls = []
         self.finished = []
 
+    def _record(self, event):
+        self._active_session.events.append(event)
+
     async def prepare_run(self, session, *, platforms, source_ids, trigger):
+        self._record("prepare")
         return PreparedIngestionRun(run_id=uuid4(), sources=(self.source,))
 
-    async def fetch_source(self, source):
+    async def fetch_source(self, source, *, client=None):
         assert self._active_session.in_transaction() is False
         self.fetch_calls.append(source.name)
         if self.cancel:
@@ -92,14 +97,17 @@ class BoundaryWorkflow(IngestionWorkflow):
         )
 
     async def persist_source(self, session, *, run_id, batch):
+        self._record(f"persist:{batch.source.name}")
         self.persist_calls.append(batch.source.name)
         return SourcePersistResult(fetched=1)
 
     async def record_source_failure(self, session, *, run_id, source, error):
+        self._record(f"failure:{source.name}")
         self.failure_calls.append((source.name, str(error)))
         return SourcePersistResult(failed=1, errors=({"source": source.name, "error": str(error)},))
 
     async def finish_run(self, session, *, run_id, stats):
+        self._record("finish")
         self.finished.append((run_id, stats.copy()))
 
     async def run(self, *, session, **kwargs):
@@ -117,12 +125,15 @@ async def test_ingestion_handler_has_no_database_transaction_during_source_netwo
     assert result["failed"] == 0
     assert workflow.fetch_calls == ["source-1"]
     assert session.events == [
-        "begin:prepare",
-        "commit:prepare",
-        "begin:persist:source-1",
-        "commit:persist:source-1",
-        "begin:finish",
-        "commit:finish",
+        "begin",
+        "prepare",
+        "commit",
+        "begin",
+        "persist:source-1",
+        "commit",
+        "begin",
+        "finish",
+        "commit",
     ]
 
 
@@ -136,19 +147,22 @@ async def test_fetch_failure_happens_outside_transaction_then_records_short_fail
     assert result["failed"] == 1
     assert workflow.failure_calls == [("source-1", "network down")]
     assert session.events == [
-        "begin:prepare",
-        "commit:prepare",
-        "begin:failure:source-1",
-        "commit:failure:source-1",
-        "begin:finish",
-        "commit:finish",
+        "begin",
+        "prepare",
+        "commit",
+        "begin",
+        "failure:source-1",
+        "commit",
+        "begin",
+        "finish",
+        "commit",
     ]
 
 
 @pytest.mark.asyncio
 async def test_workflow_failure_stats_are_sanitized_before_finish_and_return():
     class SecretBoundaryWorkflow(BoundaryWorkflow):
-        async def fetch_source(self, source):
+        async def fetch_source(self, source, *, client=None):
             raise RuntimeError('fetch {"authorization":"Bearer workflow-message-canary"}')
 
     session = TransactionTrackingSession()
@@ -234,10 +248,82 @@ async def test_cancellation_between_fetch_and_persistence_leaves_recoverable_run
     assert workflow.persist_calls == []
     assert workflow.failure_calls == []
     assert workflow.finished == []
-    assert session.events == ["begin:prepare", "commit:prepare"]
+    assert session.events == ["begin", "prepare", "commit"]
+
+
+@pytest.mark.asyncio
+async def test_exception_escaping_the_source_loop_marks_the_run_failed_before_propagating():
+    """A stranded `running` row blocks every later ingest for the collection."""
+
+    class ExplodingBookkeepingWorkflow(BoundaryWorkflow):
+        def __init__(self):
+            super().__init__(fail=True)
+            self.aborted = []
+
+        async def record_source_failure(self, session, *, run_id, source, error):
+            self._record(f"failure:{source.name}")
+            raise RuntimeError("failure bookkeeping exploded")
+
+        async def abort_run(self, session, *, run_id, stats, error):
+            self._record("abort")
+            self.aborted.append((run_id, stats, error))
+
+    session = TransactionTrackingSession()
+    workflow = ExplodingBookkeepingWorkflow()
+
+    with pytest.raises(RuntimeError, match="failure bookkeeping exploded"):
+        await workflow.run(session=session, platforms=None, source_ids=None, trigger="workflow_job")
+
+    assert workflow.finished == []
+    assert len(workflow.aborted) == 1
+    _, aborted_stats, aborted_error = workflow.aborted[0]
+    assert aborted_error == "failure bookkeeping exploded"
+    assert aborted_stats["checked"] == 1
+    assert session.events == [
+        "begin",
+        "prepare",
+        "commit",
+        "begin",
+        "failure:source-1",
+        "rollback",
+        "begin",
+        "abort",
+        "commit",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_finish_run_failure_still_marks_the_run_failed():
+    class ExplodingFinishWorkflow(BoundaryWorkflow):
+        def __init__(self):
+            super().__init__()
+            self.aborted = []
+
+        async def finish_run(self, session, *, run_id, stats):
+            raise RuntimeError("finish exploded")
+
+        async def abort_run(self, session, *, run_id, stats, error):
+            self._record("abort")
+            self.aborted.append((run_id, stats, error))
+
+    session = TransactionTrackingSession()
+    workflow = ExplodingFinishWorkflow()
+
+    with pytest.raises(RuntimeError, match="finish exploded"):
+        await workflow.run(session=session, platforms=None, source_ids=None, trigger="workflow_job")
+
+    assert len(workflow.aborted) == 1
+    assert workflow.aborted[0][2] == "finish exploded"
+    assert session.events[-3:] == ["begin", "abort", "commit"]
 
 
 class StagedTransaction(AbstractAsyncContextManager):
+    """Records boundaries plus the writes each transaction actually carried.
+
+    The staged kinds identify the phase far more directly than a label the
+    workflow hands the session would.
+    """
+
     def __init__(self, session, label, *, nested=False):
         self.session = session
         self.label = label
@@ -251,14 +337,15 @@ class StagedTransaction(AbstractAsyncContextManager):
 
     async def __aexit__(self, exc_type, exc, tb):
         staged = self.session.pending.pop()
+        wrote = "+".join(kind for kind, _ in staged) or "nothing"
         if exc:
-            self.session.events.append(f"rollback:{self.label}")
+            self.session.events.append(f"rollback:{self.label}:{wrote}")
             return None
         if self.session.pending:
             self.session.pending[-1].extend(staged)
         else:
             self.session.committed.extend(staged)
-        self.session.events.append(f"commit:{self.label}")
+        self.session.events.append(f"commit:{self.label}:{wrote}")
         return None
 
 
@@ -269,8 +356,8 @@ class ProductionWorkflowSession:
         self.pending = []
         self.committed = []
 
-    def begin(self, label=None):
-        return StagedTransaction(self, label or "unknown")
+    def begin(self):
+        return StagedTransaction(self, "top")
 
     def begin_nested(self):
         return StagedTransaction(self, "savepoint", nested=True)
@@ -305,10 +392,12 @@ class ProductionWorkflowRepository:
         self.session.stage("raw", kwargs.copy())
         return payload
 
-    async def upsert_source_item(self, **kwargs):
+    async def upsert_source_item_with_created(self, **kwargs):
         value = SimpleNamespace(id=uuid4(), content_item_id=None)
         self.session.stage("source_item", kwargs.copy())
-        return value
+        # `False` keeps this double off the source-item event path, which needs
+        # the real automations tables rather than this staged session.
+        return value, False
 
     async def upsert_content_item(self, **kwargs):
         value = SimpleNamespace(id=uuid4())
@@ -396,7 +485,7 @@ async def test_real_workflow_parser_failure_preserves_fetched_raw_evidence_and_r
         assert session.in_transaction() is False
         raise RuntimeError("parser exploded")
 
-    monkeypatch.setattr("app.ingestion.workflow._parse_source_payload", fail_parser)
+    monkeypatch.setattr("app.ingestion.workflow.parse_source_payload", fail_parser)
     async with _successful_client(session) as client:
         result = await IngestionWorkflow(http_client=client).run(
             session=session,
@@ -406,20 +495,23 @@ async def test_real_workflow_parser_failure_preserves_fetched_raw_evidence_and_r
         )
 
     raw = next(value for kind, value in session.committed if kind == "raw")
-    assert result["fetched"] == 1
+    # The source is counted once, as failed: fetched/skipped/failed partition
+    # the checked sources, so a parse failure must not also count as fetched.
     assert result["failed"] == 1
+    assert result["fetched"] == 0
+    assert result["fetched"] + result["skipped"] + result["failed"] == result["checked"] == 1
     assert raw["http_status"] == 200
     assert raw["headers"]["etag"] == "fresh-etag"
     assert raw["raw_text"] == "<rss />"
     assert _top_level_events(session) == [
-        "begin:prepare",
-        "commit:prepare",
-        "begin:persist:source-1",
-        "commit:persist:source-1",
-        "begin:failure:source-1",
-        "commit:failure:source-1",
-        "begin:finish",
-        "commit:finish",
+        "begin:top",
+        "commit:top:run",
+        "begin:top",
+        "commit:top:raw",
+        "begin:top",
+        "commit:top:nothing",
+        "begin:top",
+        "commit:top:finish",
     ]
 
 
@@ -431,7 +523,7 @@ async def test_real_workflow_media_failure_preserves_raw_evidence_and_rolls_back
     ProductionWorkflowRepository.fail_media = True
     monkeypatch.setattr("app.ingestion.workflow.IngestionRepository", ProductionWorkflowRepository)
     monkeypatch.setattr(
-        "app.ingestion.workflow._parse_source_payload",
+        "app.ingestion.workflow.parse_source_payload",
         lambda *args, **kwargs: _parsed_payload_with_media(),
     )
     try:
@@ -446,18 +538,19 @@ async def test_real_workflow_media_failure_preserves_raw_evidence_and_rolls_back
         ProductionWorkflowRepository.fail_media = False
 
     committed_kinds = [kind for kind, _ in session.committed]
-    assert result["fetched"] == 1
     assert result["failed"] == 1
+    assert result["fetched"] == 0
+    assert result["fetched"] + result["skipped"] + result["failed"] == result["checked"] == 1
     assert "raw" in committed_kinds
     assert "source_item" not in committed_kinds
     assert "content_item" not in committed_kinds
     assert _top_level_events(session) == [
-        "begin:prepare",
-        "commit:prepare",
-        "begin:persist:source-1",
-        "commit:persist:source-1",
-        "begin:failure:source-1",
-        "commit:failure:source-1",
-        "begin:finish",
-        "commit:finish",
+        "begin:top",
+        "commit:top:run",
+        "begin:top",
+        "commit:top:raw",
+        "begin:top",
+        "commit:top:nothing",
+        "begin:top",
+        "commit:top:finish",
     ]
