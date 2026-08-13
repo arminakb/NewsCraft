@@ -441,6 +441,35 @@ class IngestionWorkflow:
         except Exception as exc:  # noqa: BLE001 - source failures remain source-scoped
             return source, None, exc
 
+    async def _mark_source_running(
+        self,
+        session: AsyncSession,
+        *,
+        prepared: PreparedIngestionRun,
+        source: PreparedSource,
+        started_at: dict[UUID, datetime],
+    ) -> None:
+        """Publish a source as in-flight before its fetch is dispatched.
+
+        Without this write the per-source snapshot jumps straight from `queued`
+        to a terminal status, so the collection progress view can never show
+        which source a run is currently working on, and the recorded start
+        timestamp is fabricated at completion time.
+        """
+        if not prepared.collection_snapshot:
+            return
+        now = datetime.now(UTC)
+        started_at[source.id] = now
+        async with session.begin():
+            await session.execute(
+                update(IngestRunSourceSnapshot)
+                .where(
+                    IngestRunSourceSnapshot.ingest_run_id == prepared.run_id,
+                    IngestRunSourceSnapshot.source_id == source.id,
+                )
+                .values(status="running", started_at=now, completed_at=None, error=None)
+            )
+
     async def _record_collection_progress(
         self,
         session: AsyncSession,
@@ -451,6 +480,7 @@ class IngestionWorkflow:
         failed: bool,
         skipped: bool,
         error: str | None,
+        started_at: datetime | None,
         on_progress: Callable[[dict[str, Any]], Awaitable[None]] | None,
     ) -> None:
         if not prepared.collection_snapshot:
@@ -464,7 +494,7 @@ class IngestionWorkflow:
             )
             .values(
                 status="failed" if failed else ("skipped" if skipped else "succeeded"),
-                started_at=now,
+                started_at=started_at or now,
                 completed_at=now,
                 error=redact_string(error) if error else None,
             )
@@ -513,6 +543,7 @@ class IngestionWorkflow:
             prepared = await self.prepare_run(session, **prepare_kwargs)
 
         stats: dict[str, Any] = initial_ingest_stats()
+        source_started_at: dict[UUID, datetime] = {}
         source_iterator = iter(prepared.sources)
         pending: set[asyncio.Task[tuple[PreparedSource, FetchedSourceBatch | None, Exception | None]]] = set()
         concurrency = min(max(1, settings.ingestion_source_concurrency), max(1, len(prepared.sources)))
@@ -525,6 +556,9 @@ class IngestionWorkflow:
                     source = next(source_iterator)
                 except StopIteration:
                     break
+                await self._mark_source_running(
+                    session, prepared=prepared, source=source, started_at=source_started_at
+                )
                 pending.add(
                     asyncio.create_task(self._fetch_one(source, run_client), name=f"ingest-fetch:{source.id}")
                 )
@@ -589,6 +623,7 @@ class IngestionWorkflow:
                                 failed=source_failed,
                                 skipped=bool(persisted.skipped),
                                 error=progress_error,
+                                started_at=source_started_at.pop(source.id, None),
                                 on_progress=on_progress,
                             )
 
@@ -597,6 +632,9 @@ class IngestionWorkflow:
                     except StopIteration:
                         next_source = None
                     if next_source is not None:
+                        await self._mark_source_running(
+                            session, prepared=prepared, source=next_source, started_at=source_started_at
+                        )
                         pending.add(
                             asyncio.create_task(
                                 self._fetch_one(next_source, run_client),
