@@ -245,16 +245,7 @@ General conditions, fallback branching, delays, run-until-node, isolated-node re
 
 Use `@xyflow/react` as a **client-only, controlled desktop/tablet presentation adapter**, subject to a short compatibility spike in Phase 4. Its official API supports controlled nodes/edges, custom nodes and typed handles, viewport/zoom/snap controls, focusable nodes/edges, keyboard selection/movement, ARIA customization, and visible-node rendering. The package and lockfile must be pinned together.
 
-Constraints on its use:
-
-- dynamically load the heavy canvas in the Next.js App Router;
-- define node/edge types outside render and memoize custom nodes;
-- keep canonical graph state in a NewsCraft reducer/store, not in library internals;
-- validate every connection against the server registry before adding it locally;
-- never execute nodes in the browser;
-- do not use paid workflow templates or import a generic automation UI kit;
-- measure the bundle and interaction latency before release;
-- provide a complete ordered-card editor for mobile and an accessible “Add next step / choose input and output / move up or down” workflow on every viewport because accessible edge creation cannot depend on drag-and-drop.
+Constraints on its use are recorded, in a form written after the spike and superseding the planning list, in [`automation-workflow-builder-xyflow-decision.md`](docs/implementation-notes/automation-workflow-builder-xyflow-decision.md) — "Intended adapter boundary", "Phase 4 spike gates", and "Rejected uses". That document governs on any disagreement with this plan.
 
 If the spike fails React 19/Next 16 compatibility, keyboard/assistive-technology acceptance, light/dark theming, or 30-node performance, implement the same adapter interface with a custom constrained ordered canvas. The backend graph and all APIs remain unchanged.
 
