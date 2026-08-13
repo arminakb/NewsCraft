@@ -197,6 +197,7 @@ Port values are nominal references to persisted server artifacts; graph edges ne
 | --- | --- | --- | --- | --- |
 | `manual` | — | `story: story.revision_ref` | exact `story_revision_id` | Run-start wrapper over current manual content-pack flow; extension. |
 | `collection_article_added` | — | `article: article.collection_added` | exact `collection_id` | Durable collection event payload containing article, collection, and trigger context; downstream generation reuses the canonical story/content-pack flow. |
+| `new_source_item` | — | `item: source_item.ref \| content_item.ref` | optional allowlist of up to 50 `source_ids` (`NewSourceItemConfig`) | Durable source-ingestion event for a genuinely new RSS, Atom, or public Telegram item; runtime owner `source`, job type `automation.run.start`. |
 | `schedule` | — | `tick: run.signal` | daily/interval schedule, timezone, bounded catch-up policy | `WorkflowSchedule` → `automation.run.start`; extension. |
 | `select_content` | `tick?: run.signal` | `stories: story.revision_set_ref` | allowlisted article filters, deterministic sort, `max_count` 1–200 | Extract current `ArticleQuery`; extension. Required for a schedule that needs newsroom content. |
 | `filter_content` | `story: story.revision_ref` or `article: article.collection_added` | `accepted: story.revision_ref` or `article.collection_added` | include/exclude terms, `min_text_characters`, `require_media` | Existing deterministic predicate. False is terminal `skipped`, not a branch. |
@@ -209,6 +210,8 @@ Port values are nominal references to persisted server artifacts; graph edges ne
 | `telegram_publish` | `draft: draft.approved_telegram_revision_ref` | `publication: publication.telegram_ref` | destination ID plus existing quiet-hours/retry policy | Existing durable publish intent and publishing worker. |
 
 Registry advertisement is capability-aware. An extension node remains hidden or non-activatable until its validator, compiler mapping, and focused tests exist. `human_review` is mandatory before `telegram_publish` unless the current server auto-approval policy independently proves all gates and records explicit operator confirmation; a client cannot remove that boundary.
+
+Registry changelog since the initial table was frozen: migration `0030_new_source_item_trigger` added the `new_source_item` trigger (accepted by `ck_automation_runs_trigger_kind`), and migration `0031_retire_obsolete_workflow_nodes` retired the `telegram_new_item` and `generate_telegram` node types. [`backend/app/automations/definitions/registry.py`](../../backend/app/automations/definitions/registry.py) remains canonical for the advertised set.
 
 Persisted versions that reference a retired node type remain readable for audit and editor recovery. The server returns `node_type_unsupported`; the client shows the saved type and requires an explicit removal decision. No replacement node or edge is inferred automatically.
 
