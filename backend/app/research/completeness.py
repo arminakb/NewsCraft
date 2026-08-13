@@ -13,6 +13,12 @@ from app.research.schemas import CompletenessReason, CompletenessReport
 
 _TLD_EXTRACT = tldextract.TLDExtract(suffix_list_urls=(), include_psl_private_domains=True)
 
+# The canonical completeness thresholds. Every other surface that decides whether a
+# story is complete — including the SQL coverage rule in app.api.articles — must read
+# them from here so the two implementations cannot drift apart.
+MIN_INDEPENDENT_SOURCES = 2
+MIN_BODY_CHARACTERS = 800
+
 
 class EvidenceRecordCompatible(Protocol):
     evidence_key: str
@@ -118,10 +124,10 @@ def evaluate_completeness(
 
     reasons: list[CompletenessReason] = []
     score = 100
-    if source_count < 2:
+    if source_count < MIN_INDEPENDENT_SOURCES:
         reasons.append("fewer_than_two_independent_sources")
         score -= 30
-    if body_character_count < 800:
+    if body_character_count < MIN_BODY_CHARACTERS:
         reasons.append("insufficient_body_text")
         score -= 25
     if not has_primary:

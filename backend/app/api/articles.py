@@ -49,6 +49,7 @@ from app.content.article_metadata import (
 from app.db.models import ArticleCollection, ArticleCollectionItem, ContentItem, ItemMedia, MediaAsset, Source
 from app.db.session import get_session
 from app.feed.service import active_feed_condition
+from app.research.completeness import MIN_BODY_CHARACTERS, MIN_INDEPENDENT_SOURCES
 from app.stories.models import Story, StoryEvidenceSnapshot
 
 router = APIRouter(tags=["articles"])
@@ -152,6 +153,24 @@ def _story_completeness_subquery():
     )
 
 
+def _active_story_criteria(story) -> tuple:
+    """The single definition of "this story still represents the coverage"."""
+    return (story.superseded_by_id.is_(None),)
+
+
+def _completeness_criteria(completeness) -> tuple:
+    """The SQL form of app.research.completeness.evaluate_completeness.
+
+    The row-level coverage state and the coverage facet counts read the same
+    thresholds from here, so a page's badges cannot disagree with its totals.
+    """
+    return (
+        completeness.c.source_count >= MIN_INDEPENDENT_SOURCES,
+        completeness.c.body_character_count >= MIN_BODY_CHARACTERS,
+        completeness.c.has_primary.is_(True),
+    )
+
+
 def _active_story_exists():
     link = aliased(StoryEvidenceSnapshot)
     story = aliased(Story)
@@ -161,7 +180,7 @@ def _active_story_exists():
         .join(story, story.id == link.story_id)
         .where(
             link.content_item_id == ContentItem.id,
-            story.superseded_by_id.is_(None),
+            *_active_story_criteria(story),
         )
     ).correlate(ContentItem)
 
@@ -177,10 +196,8 @@ def _complete_story_exists():
         .join(completeness, completeness.c.story_id == story.id)
         .where(
             link.content_item_id == ContentItem.id,
-            story.superseded_by_id.is_(None),
-            completeness.c.source_count >= 2,
-            completeness.c.body_character_count >= 800,
-            completeness.c.has_primary.is_(True),
+            *_active_story_criteria(story),
+            *_completeness_criteria(completeness),
         )
     ).correlate(ContentItem)
 
@@ -199,7 +216,7 @@ def _coverage_facet_statement() -> Select:
     active_items = (
         select(active_link.content_item_id.label("content_item_id"))
         .join(active_story, active_story.id == active_link.story_id)
-        .where(active_story.superseded_by_id.is_(None))
+        .where(*_active_story_criteria(active_story))
         .group_by(active_link.content_item_id)
         .subquery("active_story_items")
     )
@@ -211,10 +228,8 @@ def _coverage_facet_statement() -> Select:
         .join(complete_story, complete_story.id == complete_link.story_id)
         .join(completeness, completeness.c.story_id == complete_story.id)
         .where(
-            complete_story.superseded_by_id.is_(None),
-            completeness.c.source_count >= 2,
-            completeness.c.body_character_count >= 800,
-            completeness.c.has_primary.is_(True),
+            *_active_story_criteria(complete_story),
+            *_completeness_criteria(completeness),
         )
         .group_by(complete_link.content_item_id)
         .subquery("complete_story_items")
