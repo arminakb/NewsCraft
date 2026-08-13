@@ -102,6 +102,63 @@ async def probe_storage_directory(
     )
 
 
+def _database_dependency(*, connected: bool, observed_at: datetime, latency_ms: int) -> DependencyHealth:
+    """The single "database" dependency entry every readiness surface reports."""
+    if connected:
+        return DependencyHealth(
+            state=HealthState.HEALTHY,
+            code="database_connected",
+            observed_at=observed_at,
+            latency_ms=latency_ms,
+            message="Database connectivity is available",
+            runbook_url=f"{RUNBOOK_ROOT}#database-unavailable",
+        )
+    return DependencyHealth(
+        state=HealthState.UNAVAILABLE,
+        code="database_unavailable",
+        observed_at=observed_at,
+        latency_ms=latency_ms,
+        message="Database connectivity is unavailable",
+        runbook_url=f"{RUNBOOK_ROOT}#database-unavailable",
+    )
+
+
+def _database_dependencies(
+    *,
+    observed_at: datetime,
+    latency_ms: int,
+    schema_revision: object,
+) -> dict[str, DependencyHealth]:
+    """The ("database", "schema") pair for a database that answered its probes."""
+    current = schema_revision == SCHEMA_HEAD
+    return {
+        "database": _database_dependency(connected=True, observed_at=observed_at, latency_ms=latency_ms),
+        "schema": DependencyHealth(
+            state=HealthState.HEALTHY if current else HealthState.UNAVAILABLE,
+            code="schema_current" if current else "schema_mismatch",
+            observed_at=observed_at,
+            latency_ms=latency_ms,
+            message="Database schema is current" if current else "Database schema is not current",
+            runbook_url=f"{RUNBOOK_ROOT}#schema-mismatch",
+        ),
+    }
+
+
+def _unreachable_database_dependencies(*, observed_at: datetime, latency_ms: int) -> dict[str, DependencyHealth]:
+    """The ("database", "schema") pair for a database that failed its probes."""
+    return {
+        "database": _database_dependency(connected=False, observed_at=observed_at, latency_ms=latency_ms),
+        "schema": DependencyHealth(
+            state=HealthState.UNKNOWN,
+            code="schema_unknown",
+            observed_at=observed_at,
+            latency_ms=latency_ms,
+            message="Database schema state could not be verified",
+            runbook_url=f"{RUNBOOK_ROOT}#schema-mismatch",
+        ),
+    }
+
+
 class ReadinessService:
     def __init__(
         self,
@@ -161,22 +218,7 @@ class ReadinessService:
                 observed_at = await database_time(self.session)
         except Exception, TimeoutError:  # noqa: BLE001 - readiness returns a safe constant code
             latency_ms = max(0, int((time.monotonic() - started) * 1_000))
-            checks["database"] = DependencyHealth(
-                state=HealthState.UNAVAILABLE,
-                code="database_unavailable",
-                observed_at=fallback_time,
-                latency_ms=latency_ms,
-                message="Database connectivity is unavailable",
-                runbook_url=f"{RUNBOOK_ROOT}#database-unavailable",
-            )
-            checks["schema"] = DependencyHealth(
-                state=HealthState.UNKNOWN,
-                code="schema_unknown",
-                observed_at=fallback_time,
-                latency_ms=latency_ms,
-                message="Database schema state could not be verified",
-                runbook_url=f"{RUNBOOK_ROOT}#schema-mismatch",
-            )
+            checks.update(_unreachable_database_dependencies(observed_at=fallback_time, latency_ms=latency_ms))
             for capability in required_capabilities:
                 checks[f"capability:{capability}"] = _capability_dependency(
                     capability,
@@ -187,23 +229,12 @@ class ReadinessService:
             return _readiness_snapshot(fallback_time, checks, required_capabilities)
 
         latency_ms = max(0, int((time.monotonic() - started) * 1_000))
-        checks["database"] = DependencyHealth(
-            state=HealthState.HEALTHY,
-            code="database_connected",
-            observed_at=observed_at,
-            latency_ms=latency_ms,
-            message="Database connectivity is available",
-            runbook_url=f"{RUNBOOK_ROOT}#database-unavailable",
-        )
-        checks["schema"] = DependencyHealth(
-            state=HealthState.HEALTHY if schema_revision == SCHEMA_HEAD else HealthState.UNAVAILABLE,
-            code="schema_current" if schema_revision == SCHEMA_HEAD else "schema_mismatch",
-            observed_at=observed_at,
-            latency_ms=latency_ms,
-            message=(
-                "Database schema is current" if schema_revision == SCHEMA_HEAD else "Database schema is not current"
-            ),
-            runbook_url=f"{RUNBOOK_ROOT}#schema-mismatch",
+        checks.update(
+            _database_dependencies(
+                observed_at=observed_at,
+                latency_ms=latency_ms,
+                schema_revision=schema_revision,
+            )
         )
 
         generated_at = snapshot_high_water(
@@ -285,13 +316,8 @@ class SecretReadinessService:
                 observed_at = await database_time(self.session)
         except Exception:  # noqa: BLE001 - readiness exposes safe constants only
             latency_ms = max(0, int((time.monotonic() - started) * 1_000))
-            checks["database"] = DependencyHealth(
-                state=HealthState.UNAVAILABLE,
-                code="database_unavailable",
-                observed_at=fallback_time,
-                latency_ms=latency_ms,
-                message="Database connectivity is unavailable",
-                runbook_url=f"{RUNBOOK_ROOT}#database-unavailable",
+            checks["database"] = _database_dependency(
+                connected=False, observed_at=fallback_time, latency_ms=latency_ms
             )
             checks["secret_schema"] = DependencyHealth(
                 state=HealthState.UNKNOWN,
@@ -304,14 +330,7 @@ class SecretReadinessService:
             return _readiness_snapshot(fallback_time, checks, ())
 
         latency_ms = max(0, int((time.monotonic() - started) * 1_000))
-        checks["database"] = DependencyHealth(
-            state=HealthState.HEALTHY,
-            code="database_connected",
-            observed_at=observed_at,
-            latency_ms=latency_ms,
-            message="Database connectivity is available",
-            runbook_url=f"{RUNBOOK_ROOT}#database-unavailable",
-        )
+        checks["database"] = _database_dependency(connected=True, observed_at=observed_at, latency_ms=latency_ms)
         schema_available = relation is not None
         checks["secret_schema"] = DependencyHealth(
             state=HealthState.HEALTHY if schema_available else HealthState.UNAVAILABLE,
@@ -377,22 +396,7 @@ class OperationalHealthService:
                 database_observed_at = await database_time(self.session)
                 database_latency_ms = max(0, int((time.monotonic() - started) * 1_000))
         except Exception, TimeoutError:  # noqa: BLE001 - operational output is fail-closed and sanitized
-            dependencies["database"] = DependencyHealth(
-                state=HealthState.UNAVAILABLE,
-                code="database_unavailable",
-                observed_at=fallback_time,
-                latency_ms=0,
-                message="Database connectivity is unavailable",
-                runbook_url=f"{RUNBOOK_ROOT}#database-unavailable",
-            )
-            dependencies["schema"] = DependencyHealth(
-                state=HealthState.UNKNOWN,
-                code="schema_unknown",
-                observed_at=fallback_time,
-                latency_ms=0,
-                message="Database schema state could not be verified",
-                runbook_url=f"{RUNBOOK_ROOT}#schema-mismatch",
-            )
+            dependencies.update(_unreachable_database_dependencies(observed_at=fallback_time, latency_ms=0))
             components, _coverage = build_component_health(
                 [],
                 reference_time=fallback_time,
@@ -407,23 +411,12 @@ class OperationalHealthService:
             database_observed_at,
             *(row.observed_at for row in heartbeats),
         )
-        dependencies["database"] = DependencyHealth(
-            state=HealthState.HEALTHY,
-            code="database_connected",
-            observed_at=database_observed_at,
-            latency_ms=database_latency_ms,
-            message="Database connectivity is available",
-            runbook_url=f"{RUNBOOK_ROOT}#database-unavailable",
-        )
-        dependencies["schema"] = DependencyHealth(
-            state=HealthState.HEALTHY if schema_revision == SCHEMA_HEAD else HealthState.UNAVAILABLE,
-            code="schema_current" if schema_revision == SCHEMA_HEAD else "schema_mismatch",
-            observed_at=database_observed_at,
-            latency_ms=database_latency_ms,
-            message=(
-                "Database schema is current" if schema_revision == SCHEMA_HEAD else "Database schema is not current"
-            ),
-            runbook_url=f"{RUNBOOK_ROOT}#schema-mismatch",
+        dependencies.update(
+            _database_dependencies(
+                observed_at=database_observed_at,
+                latency_ms=database_latency_ms,
+                schema_revision=schema_revision,
+            )
         )
         components, coverage = build_component_health(
             heartbeats,
