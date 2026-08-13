@@ -215,7 +215,7 @@ class ReadinessService:
                 # reference and be misread as clock skew. See the ordering rule in
                 # app/operations/diagnostics.py and OperationalHealthService.snapshot.
                 observed_at = await database_time(self.session)
-        except Exception, TimeoutError:  # noqa: BLE001 - readiness returns a safe constant code
+        except Exception:  # noqa: BLE001 - readiness returns a safe constant code
             latency_ms = max(0, int((time.monotonic() - started) * 1_000))
             checks.update(_unreachable_database_dependencies(observed_at=fallback_time, latency_ms=latency_ms))
             for capability in required_capabilities:
@@ -394,7 +394,7 @@ class OperationalHealthService:
                 recovery_rows = await self._recovery_rows(query_time)
                 database_observed_at = await database_time(self.session)
                 database_latency_ms = max(0, int((time.monotonic() - started) * 1_000))
-        except Exception, TimeoutError:  # noqa: BLE001 - operational output is fail-closed and sanitized
+        except Exception:  # noqa: BLE001 - operational output is fail-closed and sanitized
             dependencies.update(_unreachable_database_dependencies(observed_at=fallback_time, latency_ms=0))
             components, _coverage = build_component_health(
                 [],
