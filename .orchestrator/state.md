@@ -10,7 +10,7 @@ LAST_UPDATED_BY: wingman-host (local session)
 OBJECTIVE: Full-codebase refactor — fix all bugs, remove redundancy and
   dead code, decompose oversized modules, make every gate green. Owner:
   "every stone turned", "give me a clean repo".
-PHASE: wave2 round3 continuation — 7 chains (wf_c0148e94-bb4)
+PHASE: PAUSED by owner (2026-08-13 night) — wave2 chains integrated, gates green
 INTEGRATION_BRANCH: agent/finish-refactor-plan
 BASE_SHA: 8d5129a (merge of origin/main 46b4489 + orchestrator kit)
 CURRENT_HEAD_SHA: 397671c (gate fixes integrated: 3155f34 frontend test fix, 397671c backend gate fix)
@@ -52,13 +52,27 @@ BASELINE_AT_8d5129a (pre-fix evidence):
   statements 36>25, TS unused 23>0, mypy 19>0, 2 backend + 2 frontend
   modules ≥1000 lines.
 
-ACTIVE_WORKERS:
-- workflow wf_c0148e94-bb4: 7 parallel chains of ≤6-item batches (default
-  subagents, opus/high, worktree-isolated): ingest(8 batches from d60b5b8),
-  ops(6 from fdc2ace), publish(7 from cd9650e), frontend(11 from 9e1d16e),
-  core(3 from a651d3e), editorial(6 from 641f0d7), docs-sync(4 from
-  641f0d7). Chain branches worktree-wf_b8457128-6f8-* hold the 52
-  salvaged commits pending integration.
+ACTIVE_WORKERS: none (owner paused; wf_c0148e94-bb4 stopped cleanly,
+  all 7 chain tips merged: 254 files, +12892/-4569 since 647f137).
+GATES_AT_PAUSE: backend pytest 1993P/250S rc=0, mypy rc=0, ruff rc=0,
+  frontend vitest 603/603 rc=0, tsc rc=0 (next-env.d.ts dev-drift restored).
+RESUME_NEXT_SESSION (in order):
+1. Relaunch remaining round3 batches: workflow script
+   workflows/scripts/wave2-round3-wf_1c1eb787-b9d.js with ALL STARTS set
+   to current branch HEAD (everything is integrated; sweeps are
+   idempotent — agents NO_CHANGE_NEEDED already-done items). Chains/batch
+   counts unchanged. Remaining: roughly latter batches of ingest/ops/
+   publish/frontend/editorial; core+intent likely near-complete.
+2. Then deferred items: verify/wave2b-*-deferred.json + wave2c-deferred.json
+   (~59 items) — single sweep, any ownership (no concurrent siblings).
+3. Wave 3: module decomposition (health.py 1089, api/articles.py 1034,
+   articles-page.tsx ~1111, +1), complexity 73>53 / statements 36>25
+   budgets, HTTP-stack consolidation, contracts-config + tests-ci
+   confirmed items.
+4. Full gate battery incl. scripts/test_postgres.sh, test_acceptance.sh,
+   quality_baseline.py --check, npm run build + test:e2e.
+5. codex-review.sh cold review vs BASE_SHA 8d5129a; triage; fix cycle.
+NO merge of any PR without owner approval.
 VERIFY_COMPLETE: all 20 slices verified. 372 CONFIRMED total
   (54 P1 / 160 P2 / 161 P3 incl. orchestrator-observed flake), 136
   REJECTED. confirmed-all.json is the master list. Deferred-for-conflict
