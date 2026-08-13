@@ -374,7 +374,9 @@ def _svg_dimensions(body: bytes) -> tuple[int, int] | None:
 
 
 def _validate_icon_bytes(body: bytes, claimed_type: str | None, max_bytes: int) -> _ValidatedIcon:
-    if not body or len(body) > max_bytes:
+    if not body:
+        raise IconCandidateError("icon_empty", retryable=False)
+    if len(body) > max_bytes:
         raise IconCandidateError("icon_too_large", retryable=False)
 
     signatures: list[tuple[str, Callable[[bytes], tuple[int, int] | None]]] = [
