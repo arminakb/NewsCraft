@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Annotated
+from typing import Annotated, NoReturn
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, Response
@@ -59,7 +59,15 @@ def _settings_principal(request: Request, *, required_scope: str) -> SecurityPri
     return authorize_request(request, required_scope=required_scope, mutation=False)
 
 
-async def _commit_gateway_error(session: AsyncSession, exc: GatewayError) -> None:
+async def _commit_gateway_error(session: AsyncSession, exc: GatewayError) -> NoReturn:
+    """Persist the gateway's partial work, then fail the request.
+
+    Every call site binds its result inside the ``try`` and reads it after the
+    ``except``; that is only sound because this helper never returns. The
+    ``NoReturn`` annotation makes that contract checkable, so adding a return
+    path here becomes a type error instead of a latent ``UnboundLocalError``.
+    """
+
     await session.commit()
     headers = {"Retry-After": str(exc.retry_after_seconds)} if exc.retry_after_seconds is not None else None
     raise HTTPException(
