@@ -842,13 +842,10 @@ Release only after the real PostgreSQL and browser journeys pass. If Docker, bro
 
 ### 5.3 UX invariants
 
+Keyboard/focus/`aria-live` behavior, pointer-target and viewport limits, token/typography/icon reuse, non-color status signalling, and no-silent-fallback resource handling are enumerated canonically in “Required UI behavior” of [`automation-workflow-builder-contract.md`](docs/implementation-notes/automation-workflow-builder-contract.md). The remaining UX invariants owned by this plan are:
+
 - The Workflows library is the default entry, not an empty canvas.
 - One clear primary action per view.
-- The builder is usable without mouse, drag-and-drop, or hover.
-- Mobile uses an ordered vertical editor, not a squeezed desktop canvas.
-- Resource breakage is explicit and actionable; no silent fallback selection.
-- Status is conveyed through text/icon/shape as well as semantic color.
-- Existing NewsCraft tokens and components take precedence over reference-image pixels or third-party default themes.
 
 ### 5.4 Scope explicitly deferred from v1
 
