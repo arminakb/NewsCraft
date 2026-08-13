@@ -4,7 +4,7 @@ import asyncio
 import os
 import shutil
 import stat
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Sequence
 from datetime import datetime
 from pathlib import Path, PurePosixPath
 from uuid import UUID
@@ -123,6 +123,35 @@ def _claimed_media_identities(media_root: Path, stored_paths: list[str]) -> tupl
         except _UnsafeStoragePath:
             unclassifiable = True
     return identities, unclassifiable
+
+
+def _classified_media_claims(
+    media_root: Path,
+    stored_rows: Sequence[tuple[UUID, str]],
+) -> tuple[dict[UUID, str], set[UUID], bool]:
+    """Classify stored media rows into claim identities and deletion authority.
+
+    Purely synchronous (many blocking path syscalls per row), so callers on an
+    event loop must hand the whole batch to a worker thread instead of walking
+    row by row.
+    """
+    canonical_paths: dict[UUID, str] = {}
+    deletion_authorized: set[UUID] = set()
+    unclassifiable = False
+    for media_id, stored_path in stored_rows:
+        try:
+            claim_identity = _media_claim_identity(media_root, stored_path)
+        except _UnsafeStoragePath:
+            unclassifiable = True
+            continue
+        canonical_paths[media_id] = claim_identity
+        try:
+            strict_identity = _media_relative_path(media_root, stored_path)
+        except _UnsafeStoragePath:
+            continue
+        if strict_identity == claim_identity:
+            deletion_authorized.add(media_id)
+    return canonical_paths, deletion_authorized, unclassifiable
 
 
 def _delete_relative_owned(root_value: Path, relative_path: str, *, directory: bool) -> None:

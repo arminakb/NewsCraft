@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import hashlib
 from collections.abc import Mapping
 from datetime import datetime, timedelta
@@ -35,9 +36,7 @@ from app.retention.contracts import (
     _uuid_values,
 )
 from app.retention.filesystem import (
-    _media_claim_identity,
-    _media_relative_path,
-    _UnsafeStoragePath,
+    _classified_media_claims,
 )
 from app.retention.models import RetentionRun
 from app.stories.models import StoryEvidenceSnapshot
@@ -595,27 +594,18 @@ class RetentionPlanner:
             and row.id not in referenced_media_ids
         }
         owned_media_root = media_root or self.media_root
-        canonical_media_paths: dict[UUID, str] = {}
-        deletion_authorized_ids: set[UUID] = set()
-        unclassifiable_media_claim = False
-        for stored_media in all_stored_media:
-            try:
-                canonical_media_paths[stored_media.id] = _media_claim_identity(
-                    owned_media_root,
-                    str(stored_media.storage_path),
-                )
-            except _UnsafeStoragePath:
-                unclassifiable_media_claim = True
-                continue
-            try:
-                strict_identity = _media_relative_path(
-                    owned_media_root,
-                    str(stored_media.storage_path),
-                )
-            except _UnsafeStoragePath:
-                continue
-            if strict_identity == canonical_media_paths[stored_media.id]:
-                deletion_authorized_ids.add(stored_media.id)
+        # Classifying one media row costs O(path depth) blocking syscalls; the
+        # whole batch goes to a worker thread so an interactive preview request
+        # never stalls the event loop for the API process.
+        (
+            canonical_media_paths,
+            deletion_authorized_ids,
+            unclassifiable_media_claim,
+        ) = await asyncio.to_thread(
+            _classified_media_claims,
+            owned_media_root,
+            [(row.id, str(row.storage_path)) for row in all_stored_media],
+        )
         if unclassifiable_media_claim:
             deletion_authorized_ids.clear()
         blocked_shared_paths = {
