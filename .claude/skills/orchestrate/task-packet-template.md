@@ -15,6 +15,17 @@ BASE_SHA: <committed sha the worker must branch from>
 OBJECTIVE:
 <one paragraph: what to build and the user-visible outcome>
 
+WORKING_DISCIPLINE (mandatory in every packet — 2026-08-13 incident:
+two fixers exhausted context without committing or reporting, one on a
+silently wrong base):
+- FIRST ACTION: verify HEAD == BASE_SHA; if not, git reset --hard to it.
+- Commit after EACH logical fix; never leave fixes uncommitted.
+- At ~25% context remaining: stop new items, verify, commit, report
+  PARTIAL with unattempted items SKIPPED("context-budget").
+- The structured report is mandatory even on failure.
+Keep work lists small enough to finish: split by severity (P1/P2 now,
+P3 in a follow-up batch) rather than handing one worker 40+ items.
+
 OWNED_PATHS:
 - <glob or path the worker may modify — be GENEROUS: the broadest scope
   that does not overlap a concurrent sibling; a solo worker can own a
