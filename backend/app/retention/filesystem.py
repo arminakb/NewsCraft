@@ -16,8 +16,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.faults import FaultInjector, NoopFaultInjector
 from app.db.models import MediaAsset
 from app.retention.contracts import (
-    RETENTION_CATEGORIES,
     RetentionConflict,
+    RetentionCountSnapshot,
     RetentionNotFound,
     _snapshot_intents,
 )
@@ -236,7 +236,7 @@ async def finish_filesystem_phase(
     export_root: Path,
     media_root: Path,
     now: Callable[[], datetime],
-    execution_counts: Callable[[RetentionRun], dict[str, object]],
+    execution_counts: Callable[[RetentionRun], RetentionCountSnapshot],
     referenced_media_ids: Callable[[], Awaitable[set[UUID]]],
     fault_injector: FaultInjector | None = None,
 ) -> RetentionRun:
@@ -250,24 +250,13 @@ async def finish_filesystem_phase(
         raise RetentionConflict(f"retention filesystem cleanup cannot run from status {run.status!r}")
     counts = execution_counts(run)
     errors = [error for error in run.error_snapshot if error.get("phase") != "filesystem"]
-    execution = counts["execution"]
-    if not isinstance(execution, dict):
-        raise RetentionConflict("retention execution count snapshot is invalid")
-    deleted_counts = execution["filesystem_deleted"]
-    if not isinstance(deleted_counts, dict):
-        raise RetentionConflict("retention filesystem count snapshot is invalid")
-    for category in RETENTION_CATEGORIES:
-        deleted_counts[category] = 0
-    database_skipped = execution.get("database_skipped", execution["skipped"])
-    if not isinstance(database_skipped, dict):
-        raise RetentionConflict("retention database skip snapshot is invalid")
-    filesystem_skipped = execution.get("filesystem_skipped")
-    if not isinstance(filesystem_skipped, dict):
-        filesystem_skipped = {category: 0 for category in RETENTION_CATEGORIES}
-        execution["filesystem_skipped"] = filesystem_skipped
-    execution["skipped"] = dict(database_skipped)
-    for category in RETENTION_CATEGORIES:
-        filesystem_skipped[category] = 0
+    execution = counts.execution
+    # This phase is replayable: its own tallies start from zero on every run,
+    # while the database phase's verdict (`database_skipped`) is what `skipped`
+    # is rebuilt from, so a replay never double-counts nor forgets.
+    execution.reset("filesystem_deleted")
+    execution.reset("filesystem_skipped")
+    execution.skipped = dict(execution.database_skipped)
     intents = _snapshot_intents(run)
     reclaimed_media_paths: set[str] = set()
     reclaimed_media_ids: set[UUID] = set()
@@ -307,10 +296,8 @@ async def finish_filesystem_phase(
             or not media_record_ids_by_path[intent.relative_path].isdisjoint(reclaimed_media_ids)
             or intent.relative_path in reclaimed_media_paths
         ):
-            filesystem_skipped[intent.category] = int(filesystem_skipped.get(intent.category, 0)) + 1
-            skipped = execution["skipped"]
-            if isinstance(skipped, dict):
-                skipped[intent.category] = int(skipped.get(intent.category, 0)) + 1
+            execution.increment("filesystem_skipped", intent.category)
+            execution.increment("skipped", intent.category)
             continue
         try:
             await asyncio.to_thread(
@@ -319,7 +306,7 @@ async def finish_filesystem_phase(
                 intent.relative_path,
                 directory=intent.operation == "delete_tree",
             )
-            deleted_counts[intent.category] = int(deleted_counts.get(intent.category, 0)) + 1
+            execution.increment("filesystem_deleted", intent.category)
         except OSError, _UnsafeStoragePath:
             errors.append(
                 {
@@ -344,7 +331,7 @@ async def finish_filesystem_phase(
     run = await session.scalar(select(RetentionRun).where(RetentionRun.id == run_id).with_for_update())
     if run is None:  # pragma: no cover - the run row is protected by its own FKs
         raise RetentionNotFound(f"retention run {run_id} was not found")
-    run.count_snapshot = counts
+    run.count_snapshot = counts.to_snapshot()
     run.error_snapshot = errors
     # Only filesystem-phase findings can be retried by re-running this phase.
     # Database-phase findings stay visible in the snapshot but must not pin the

@@ -20,6 +20,7 @@ from app.retention.contracts import (
     RetentionCategory,
     RetentionConfirmationError,
     RetentionConflict,
+    RetentionCountSnapshot,
     RetentionEnqueueResult,
     RetentionExecutionPlan,
     RetentionNotFound,
@@ -380,7 +381,7 @@ class RetentionService:
         return await self.database._reset_all_skipped_database_run(run)
 
     @staticmethod
-    def _execution_counts(run: RetentionRun) -> dict[str, object]:
+    def _execution_counts(run: RetentionRun) -> RetentionCountSnapshot:
         return RetentionDatabaseExecutor._execution_counts(run)
 
     async def execute_db_phase(

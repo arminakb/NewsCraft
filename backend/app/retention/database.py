@@ -1,8 +1,7 @@
 from __future__ import annotations
 
 import asyncio
-import json
-from collections.abc import Awaitable, Callable, Mapping
+from collections.abc import Awaitable, Callable
 from datetime import datetime
 from pathlib import Path
 from uuid import UUID
@@ -20,9 +19,9 @@ from app.retention.contracts import (
     RAW_PAYLOAD_SCRUBBED_URL,
     RETENTION_CATEGORIES,
     RetentionCandidate,
-    RetentionCategory,
     RetentionCleanupIntent,
     RetentionConflict,
+    RetentionCountSnapshot,
     RetentionExecutionPlan,
     RetentionNotFound,
     RetentionPolicyInput,
@@ -59,27 +58,14 @@ class RetentionDatabaseExecutor:
         candidates = _snapshot_candidates(run)
         if not candidates:
             return False
-        execution = run.count_snapshot.get("execution")
-        if not isinstance(execution, Mapping):
-            return False
-        scrubbed = execution.get("scrubbed")
-        expired = execution.get("expired")
-        database_skipped = execution.get("database_skipped")
-        filesystem_deleted = execution.get("filesystem_deleted")
-        if (
-            not isinstance(scrubbed, Mapping)
-            or not isinstance(expired, Mapping)
-            or not isinstance(database_skipped, Mapping)
-            or not isinstance(filesystem_deleted, Mapping)
-        ):
-            return False
+        execution = self._execution_counts(run).execution
         if any(
-            int(values.get(category, 0)) > 0
-            for values in (scrubbed, expired, filesystem_deleted)
+            values[category] > 0
+            for values in (execution.scrubbed, execution.expired, execution.filesystem_deleted)
             for category in RETENTION_CATEGORIES
         ):
             return False
-        if sum(int(database_skipped.get(category, 0)) for category in RETENTION_CATEGORIES) != len(candidates):
+        if sum(execution.database_skipped[category] for category in RETENTION_CATEGORIES) != len(candidates):
             return False
         identities = {(candidate.category, candidate.record_type, candidate.record_id) for candidate in candidates}
         current_candidates = await self.collect_candidates(
@@ -98,34 +84,13 @@ class RetentionDatabaseExecutor:
         )
 
     @staticmethod
-    def _execution_counts(run: RetentionRun) -> dict[str, object]:
-        counts = json.loads(json.dumps(run.count_snapshot))
-        counts.setdefault(
-            "execution",
-            {
-                "scrubbed": {category: 0 for category in RETENTION_CATEGORIES},
-                "expired": {category: 0 for category in RETENTION_CATEGORIES},
-                "skipped": {category: 0 for category in RETENTION_CATEGORIES},
-                "database_skipped": {category: 0 for category in RETENTION_CATEGORIES},
-                "filesystem_skipped": {category: 0 for category in RETENTION_CATEGORIES},
-                "filesystem_deleted": {category: 0 for category in RETENTION_CATEGORIES},
-            },
-        )
-        return counts
+    def _execution_counts(run: RetentionRun) -> RetentionCountSnapshot:
+        """Parse the persisted snapshot into a detached, mutable model.
 
-    @staticmethod
-    def _increment(
-        counts: dict[str, object],
-        phase: str,
-        category: RetentionCategory,
-    ) -> None:
-        execution = counts["execution"]
-        if not isinstance(execution, dict):  # pragma: no cover - persisted by this service
-            raise RetentionConflict("retention execution count snapshot is invalid")
-        values = execution[phase]
-        if not isinstance(values, dict):  # pragma: no cover - persisted by this service
-            raise RetentionConflict("retention execution phase count is invalid")
-        values[category] = int(values.get(category, 0)) + 1
+        Validation copies every nested container, so incrementing the result
+        never mutates `run.count_snapshot` in place.
+        """
+        return RetentionCountSnapshot.from_snapshot(run.count_snapshot)
 
     @staticmethod
     def _execution_plan(run: RetentionRun) -> RetentionExecutionPlan:
@@ -374,17 +339,17 @@ class RetentionDatabaseExecutor:
                                     "message": ("Media storage identity is outside the owned root or unsafe"),
                                 }
                             )
-                self._increment(counts, "skipped", candidate.category)
+                counts.execution.increment("skipped", candidate.category)
                 continue
             if candidate.record_type == "generation_attempt":
                 generation_attempt = generation_attempt_rows[candidate.record_id]
                 if generation_attempt is None or generation_attempt.generation_run_id in invalid_generation_run_ids:
-                    self._increment(counts, "skipped", candidate.category)
+                    counts.execution.increment("skipped", candidate.category)
                     continue
             if candidate.record_type == "media_asset":
                 media = media_rows[candidate.record_id]
                 if media is None or media.storage_path is None:
-                    self._increment(counts, "skipped", candidate.category)
+                    counts.execution.increment("skipped", candidate.category)
                     continue
                 canonical_path = canonical_media_paths.get(media.id)
                 if canonical_path is None:
@@ -398,10 +363,10 @@ class RetentionDatabaseExecutor:
                             "message": "Media storage identity is outside the owned root or unsafe",
                         }
                     )
-                    self._increment(counts, "skipped", candidate.category)
+                    counts.execution.increment("skipped", candidate.category)
                     continue
                 if canonical_path in invalid_canonical_paths:
-                    self._increment(counts, "skipped", candidate.category)
+                    counts.execution.increment("skipped", candidate.category)
                     continue
                 media.storage_path = None
                 media.fetch_status = "expired"
@@ -414,12 +379,12 @@ class RetentionDatabaseExecutor:
                         relative_path=canonical_path,
                     )
                 )
-                self._increment(counts, "expired", candidate.category)
+                counts.execution.increment("expired", candidate.category)
                 continue
             if candidate.category == "export_artifact":
                 export = await self.session.get(WorkflowJob, candidate.record_id)
                 if export is None:
-                    self._increment(counts, "skipped", candidate.category)
+                    counts.execution.increment("skipped", candidate.category)
                     continue
                 try:
                     relative_path = _export_relative_path(export_root, export.id)
@@ -434,7 +399,7 @@ class RetentionDatabaseExecutor:
                             "message": "Export storage identity is outside the owned root or unsafe",
                         }
                     )
-                    self._increment(counts, "skipped", candidate.category)
+                    counts.execution.increment("skipped", candidate.category)
                     continue
                 artifact = ExportArtifact.model_validate(export.result)
                 export.result = {
@@ -451,7 +416,7 @@ class RetentionDatabaseExecutor:
                         relative_path=relative_path,
                     )
                 )
-                self._increment(counts, "expired", candidate.category)
+                counts.execution.increment("expired", candidate.category)
                 continue
             if candidate.category == "raw_payload":
                 await self._scrub_raw_payload(candidate.record_id)
@@ -461,15 +426,15 @@ class RetentionDatabaseExecutor:
                 await self._scrub_attempt(candidate)
             else:  # pragma: no cover - strict category/record_type validation above
                 raise RetentionConflict(f"unsupported retention category {candidate.category!r}")
-            self._increment(counts, "scrubbed", candidate.category)
+            counts.execution.increment("scrubbed", candidate.category)
 
         run.status = "running"
         run.started_at = run.started_at or observed_at
         run.cleanup_intent_snapshot = [intent.model_dump(mode="json") for intent in intents]
-        execution_counts = counts["execution"]
-        if isinstance(execution_counts, dict):
-            execution_counts["database_skipped"] = dict(execution_counts["skipped"])
-        run.count_snapshot = counts
+        # The database phase owns `database_skipped`; the filesystem phase reads it
+        # to rebuild `skipped` without losing what this phase declined to touch.
+        counts.execution.database_skipped = dict(counts.execution.skipped)
+        run.count_snapshot = counts.to_snapshot()
         run.error_snapshot = errors
         await self.session.flush()
         await self.session.commit()

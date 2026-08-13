@@ -13,5 +13,5 @@ def test_router_confirmation_literal_comes_from_the_retention_constant() -> None
     rejects the new phrase with a 422 before the service is ever reached.
     """
     annotation = RetentionRunCreateIn.model_fields["confirmation"].annotation
-    assert annotation is RetentionConfirmationPhrase
-    assert get_args(RetentionConfirmationPhrase.__value__) == (RETENTION_CONFIRMATION,)
+    assert annotation == RetentionConfirmationPhrase
+    assert get_args(RetentionConfirmationPhrase) == (RETENTION_CONFIRMATION,)
