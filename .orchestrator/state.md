@@ -10,10 +10,10 @@ LAST_UPDATED_BY: wingman-host (local session)
 OBJECTIVE: Full-codebase refactor — fix all bugs, remove redundancy and
   dead code, decompose oversized modules, make every gate green. Owner:
   "every stone turned", "give me a clean repo".
-PHASE: verify+gate-repair (parallel)
+PHASE: wave2 fix dispatch (verify-r2 running in parallel)
 INTEGRATION_BRANCH: agent/finish-refactor-plan
 BASE_SHA: 8d5129a (merge of origin/main 46b4489 + orchestrator kit)
-CURRENT_HEAD_SHA: see git log (rules commit on top of 8d5129a)
+CURRENT_HEAD_SHA: 397671c (gate fixes integrated: 3155f34 frontend test fix, 397671c backend gate fix)
 PR: none
 MERGE_POLICY: never merge without explicit user approval for the exact PR.
 
@@ -53,16 +53,30 @@ BASELINE_AT_8d5129a (pre-fix evidence):
   modules ≥1000 lines.
 
 ACTIVE_WORKERS:
-- workflow wf_5ca07c69-78f "verify-newscraft-findings": 20 Opus verifiers
-  over map digest slices in scratchpad/map/ (read-only, main checkout).
-- workflow wf_79bd1f08-e7d "gate-repair": 2 Opus fixers, worktree-isolated:
-  fix:backend-gates owns backend/**, fix:frontend-gates owns frontend/**.
+- workflow wf_6404763c-11d "verify-newscraft-findings-r2": 13 Opus
+  verifiers re-verifying slices lost to the /tmp wipe (read-only).
+- Wave-2a fixers about to dispatch: ingest vertical + ops vertical
+  (packets .orchestrator/tasks/wave2a-{ingest,ops}.md).
 
-INTEGRATION_QUEUE: (gate-repair worktree branches, pending diff inspection)
+INTEGRATION_QUEUE: empty (gate-repair integrated: 3155f34 + 397671c; worktrees removed)
 
 PER_PR_STATE: none
 
-VERIFICATION_EVIDENCE: baseline logs in session scratchpad gate-*.log
+VERIFICATION_EVIDENCE: gates re-run by orchestrator at 397671c:
+  backend pytest 1854 passed/238 skipped rc=0; mypy rc=0 (280 files);
+  ruff rc=0; frontend vitest 577/578 (1 pre-existing flake in
+  manual-publishing-checklist, passes in isolation, recorded as P2
+  finding); TS-unused 0 findings rc=0.
+INCIDENT (2026-08-13): host /tmp wipe destroyed the session scratchpad
+  (map corpus + verify inputs). All artifacts recovered from workflow
+  journals on home disk. Durable artifacts now live in
+  .orchestrator/runs/refactor-2026-08-13/ (map/, verify/) — NEVER stage
+  cross-agent handoff files in /tmp again.
+RECOVERED_VERDICTS: 7 of 20 slices (both backend-ingest + backend-ops
+  slices complete, backend-core-cleanup, backend-editorial-cleanup,
+  frontend-core-bugs): 143 CONFIRMED (21 P1 / 60 P2 / 65 P3 incl.
+  orchestrator-observed flake) in
+  .orchestrator/runs/refactor-2026-08-13/verify/confirmed-recovered.json.
 
 REVIEW_CYCLE: 0 of 2
 TRIAGE_ARTIFACT: scratchpad/map-digest.json (361 candidates: 141 bug /

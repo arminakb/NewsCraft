@@ -30,3 +30,15 @@ subagents ever; generous OWNED_PATHS.
 EVIDENCE: scratchpad gate-*.log; map-digest.json; workflows
 wf_5ca07c69-78f (verify, 20 Opus) + wf_79bd1f08-e7d (gate-repair, 2 Opus
 worktree fixers) launched.
+
+## 2026-08-13 ~11:56 — frontend gate verification on integrated branch (3155f34)
+- Integrated articles-page test fix verified in full suite: both clear-feed tests green.
+- TS unused-code check: 0 findings (gate-tsunused.log, rc=0) — confirms baseline's "23" were environmental tsc errors, since fixed via npm ci + .next purge.
+- Full vitest: 577/578; single failure tests/manual-publishing-checklist.test.tsx ("persists canonical checklist progress…") — flaky under parallel load (1609ms vs ~300ms isolated; passes repeatedly in isolation, rc=0). NOT a regression from 3155f34 (untouched file, was green at baseline run). Recorded as CONFIRMED P2 test-flakiness finding in scratchpad map/orchestrator-observed.json for the Wave-2 fix packets.
+- Note to self: one flakiness re-check used `tail | …; $status` after a pipe — invalid evidence per guardrails; superseded by exit-code-gated rerun (gate-manualpub.log, rc=0).
+
+## 2026-08-13 ~12:20 — backend gate fix verified + integrated; /tmp-wipe recovery; Wave-2a prep
+- Cherry-picked backend fixer commit as 397671c after full-diff inspection. Key production fix: SafeHttpClient no longer falls back to ambient proxy env (restores documented direct_pinned_ssrf pinning; independently confirmed research/safe_fetch.py relies on the pinned default and worker/icon-discovery inject explicit policies). Re-ran gates myself at 397671c: pytest 1854P/238S rc=0, mypy rc=0, ruff rc=0.
+- Both gate-repair worktrees + branches removed after integration.
+- INCIDENT: /tmp wipe (session restart) destroyed scratchpad map corpus; verify wave wf_5ca07c69-78f returned INPUT MISSING for 13 slices — verifiers correctly refused to fabricate. Recovered all 10 subsystem maps + 7 real verdict sets (item counts match slices exactly) from workflow journals (~/.claude/.../subagents/workflows/*/journal.jsonl). Durable copies now in .orchestrator/runs/refactor-2026-08-13/{map,verify}/. Relaunched verification for the 13 lost slices as wf_6404763c-11d (13 Opus verifiers, durable input paths).
+- Recovered verdicts: 143 CONFIRMED (21 P1/60 P2/65 P3). backend-ingest and backend-ops verticals fully verified (bugs+cleanup) → dispatching Wave-2a: 2 worktree-isolated Opus fixers at max effort (concurrency/locking in scope), packets wave2a-ingest (48 items) and wave2a-ops (34 items), zero path overlap (checked programmatically).
