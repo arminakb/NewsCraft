@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import hashlib
 import inspect
 import shutil
 from collections.abc import Awaitable, Callable
@@ -28,9 +27,13 @@ from app.research.continuations import (
     normalize_continuation,
 )
 from app.research.models import ResearchAttempt, ResearchRun, ResearchSource
-from app.research.schemas import DiscoveredSourcePayload, ResearchBudget
+from app.research.schemas import (
+    DiscoveredSourcePayload,
+    ResearchBudget,
+    describe_source_integrity_violation,
+)
 from app.research.service import ResearchRequestError, ResearchService, evidence_set_hash
-from app.stories.evidence import EvidenceRecord, build_evidence_key
+from app.stories.evidence import EvidenceRecord
 from app.stories.models import Story, StoryEvidenceLink, StoryEvidenceSnapshot, StoryRevision
 from app.workflows.states import ResearchRunState, require_research_run_transition
 
@@ -585,9 +588,20 @@ def build_research_story_handler(
 
 
 def _validate_source(source: DiscoveredSourcePayload) -> None:
-    digest = hashlib.sha256(source.content_text.encode()).hexdigest()
-    expected = build_evidence_key(content_item_id=None, source_url=str(source.url), content_sha256=digest)
-    if digest != source.content_sha256 or expected != source.evidence_key:
+    """Re-assert discovered-source integrity at the persistence boundary.
+
+    The payload model already enforces this on construction; this keeps the
+    guarantee for instances that bypass validation (``model_construct``) and
+    translates it into the job-side citation error.
+    """
+
+    violation = describe_source_integrity_violation(
+        url=str(source.url),
+        content_text=source.content_text,
+        content_sha256=source.content_sha256,
+        evidence_key=source.evidence_key,
+    )
+    if violation is not None:
         raise CitationIntegrityError("research source integrity check failed")
 
 
