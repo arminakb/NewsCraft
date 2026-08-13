@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState, type ReactNode } from "react"
+import { useEffect, useRef, useState, type ReactNode } from "react"
 import { useQuery } from "@tanstack/react-query"
 import Link from "next/link"
 import {
@@ -21,6 +21,7 @@ import {
   type LucideIcon,
 } from "lucide-react"
 
+import { useEditorialModal } from "@/components/editorial/use-editorial-modal"
 import { useDateTime } from "@/components/providers/date-time-provider"
 import { Badge } from "@/components/ui/badge"
 import { Button, buttonVariants } from "@/components/ui/button"
@@ -49,6 +50,7 @@ import type {
 } from "@/features/operations/ingestion-api"
 import type { OperationsSnapshot } from "@/features/operations/types"
 import { getApiErrorMessage } from "@/lib/http"
+import { safeHttpUrl } from "@/lib/url"
 import { formatInTimeZone } from "@/lib/date-time"
 import { formatNumber, titleCase } from "@/lib/format"
 import { operationsQueryKeys, queryKeys } from "@/lib/query-keys"
@@ -78,12 +80,12 @@ export function TodayPage() {
   const { timezone } = useDateTime()
   const [selectedArticle, setSelectedArticle] = useState<ArticleSummary | null>(null)
   const articlesQuery = useQuery({
-    queryKey: ["today", "articles", TODAY_ARTICLE_LIMIT],
+    queryKey: queryKeys.articlesToday(TODAY_ARTICLE_LIMIT),
     queryFn: ({ signal }) => getArticles({ sort: "newest", limit: TODAY_ARTICLE_LIMIT }, signal),
     staleTime: 30_000,
   })
   const sourcesQuery = useQuery({
-    queryKey: ["today", "sources"],
+    queryKey: queryKeys.sourcesToday,
     queryFn: ({ signal }) => getSourcePage({ limit: 1 }, signal),
     staleTime: 30_000,
   })
@@ -108,7 +110,7 @@ export function TodayPage() {
     staleTime: 30_000,
   })
   const ingestRunsQuery = useQuery({
-    queryKey: ["today", "ingest-runs", TODAY_INGEST_RUN_LIMIT],
+    queryKey: queryKeys.ingestRunsToday(TODAY_INGEST_RUN_LIMIT),
     queryFn: ({ signal }) => getIngestRuns(TODAY_INGEST_RUN_LIMIT, signal),
     staleTime: 15_000,
   })
@@ -780,16 +782,20 @@ function ArticleDialog({
   timezone: string
   onClose: () => void
 }) {
+  const dialogRef = useRef<HTMLElement | null>(null)
+  const closeRef = useRef<HTMLButtonElement | null>(null)
   const title = article.title?.trim() || "Untitled article"
-  const sourceUrl = safeOriginalArticleUrl(article.canonicalUrl)
+  const sourceUrl = safeHttpUrl(article.canonicalUrl)
   const summary = article.summary?.trim() || article.excerpt?.trim() || "Full article text is not available in the Today summary."
   const time = getArticleCardTime(article.displayAt, article.dateBasis, Date.now(), timezone)
 
+  useEditorialModal({ open: true, containerRef: dialogRef, initialFocusRef: closeRef, onClose })
+
   return (
     <>
-      <button className="fixed inset-0 z-50 cursor-pointer border-0 bg-foreground/45 backdrop-blur-sm" aria-label="Close story" onClick={onClose} type="button" />
-      <section className="fixed left-1/2 top-1/2 z-50 w-[min(680px,calc(100vw-2rem))] -translate-x-1/2 -translate-y-1/2 rounded-xl border border-border bg-card text-card-foreground shadow-2xl" role="dialog" aria-modal="true" aria-labelledby="today-article-dialog-title">
-        <Button className="absolute right-3 top-3" variant="ghost" size="icon" aria-label="Close story" onClick={onClose} type="button">
+      <div className="fixed inset-0 z-50 cursor-pointer bg-foreground/45 backdrop-blur-sm" aria-hidden="true" onPointerDown={onClose} />
+      <section className="fixed left-1/2 top-1/2 z-50 w-[min(680px,calc(100vw-2rem))] -translate-x-1/2 -translate-y-1/2 rounded-xl border border-border bg-card text-card-foreground shadow-2xl" ref={dialogRef} role="dialog" aria-modal="true" aria-labelledby="today-article-dialog-title" tabIndex={-1}>
+        <Button className="absolute right-3 top-3" variant="ghost" size="icon" aria-label="Close story" onClick={onClose} ref={closeRef} type="button">
           <X aria-hidden="true" />
         </Button>
         <div className="space-y-4 p-6 sm:p-8">
@@ -859,12 +865,3 @@ function internalHref(value: string | null | undefined) {
   return value?.startsWith("/") ? value : null
 }
 
-function safeOriginalArticleUrl(value: string | null) {
-  if (!value) return null
-  try {
-    const url = new URL(value)
-    return url.protocol === "http:" || url.protocol === "https:" ? url.href : null
-  } catch {
-    return null
-  }
-}

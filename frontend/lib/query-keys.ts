@@ -10,7 +10,10 @@ import type {
 export const queryKeys = {
   sources: ["sources"] as const,
   sourcesPage: (scope: string, offset = 0) => ["sources", "page", scope, offset] as const,
+  sourcesCount: ["sources", "count"] as const,
+  sourcesToday: ["sources", "today"] as const,
   source: (id: string) => ["sources", id] as const,
+  sourceDetailIdle: ["sources", "detail"] as const,
   sourceCollections: ["source-collections"] as const,
   sourceCollection: (id: string) => ["source-collections", id] as const,
   sourceCollectionSources: (id: string, offset = 0, search = "") => [
@@ -21,6 +24,15 @@ export const queryKeys = {
     search,
   ] as const,
   unassignedSources: (offset = 0, search = "") => ["source-collections", "unassigned", offset, search] as const,
+  unassignedSourcesCount: ["source-collections", "unassigned", "count"] as const,
+  sourceCollectionAvailableSources: (collectionId: string, offset = 0, search = "") => [
+    "source-collections",
+    collectionId,
+    "available",
+    offset,
+    search,
+  ] as const,
+  sourceCollectionAllRuns: (collectionId: string) => ["source-collections", collectionId, "runs"] as const,
   sourceCollectionRun: (collectionId: string, runId: string) => [
     "source-collections",
     collectionId,
@@ -44,6 +56,7 @@ export const queryKeys = {
     offset,
   ] as const,
   diagnostics: ["diagnostics"] as const,
+  ingestRunsToday: (limit: number) => ["ingest-runs", "today", limit] as const,
   jobs: (filters: JobFilters = {}) => ["jobs", filters] as const,
   job: (id: string) => ["jobs", id] as const,
   jobSummary: ["jobs", "summary"] as const,
@@ -51,6 +64,7 @@ export const queryKeys = {
   dateTimeSettings: ["settings", "date-time"] as const,
   notifications: ["notifications"] as const,
   article: (id: string) => ["articles", "detail", id] as const,
+  articlesToday: (limit: number) => ["articles", "today", limit] as const,
   articlePage: (params: {
     identity: string
     sort: ArticleSort
@@ -60,6 +74,7 @@ export const queryKeys = {
     page: number
     cursor: string | null
   }) => ["articles", "feed-page", params] as const,
+  articlePages: ["articles", "feed-page"] as const,
   articleCollections: ["articles", "collections"] as const,
   articleFacets: ["articles", "facets"] as const,
   feedSummary: ["feed", "summary"] as const,

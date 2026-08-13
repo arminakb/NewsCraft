@@ -70,14 +70,12 @@ export const UNASSIGNED_SOURCES_SCOPE = "unassigned"
 
 type SourceCollectionsPanelProps = {
   children: (actions: { onStartIngestion: () => void }) => React.ReactNode
-  enableQueries: boolean
   selectedScope: string
   onSelectScope: (scope: string) => void
 }
 
 export function SourceCollectionsPanel({
   children,
-  enableQueries,
   selectedScope,
   onSelectScope,
 }: SourceCollectionsPanelProps) {
@@ -101,7 +99,6 @@ export function SourceCollectionsPanel({
   const collectionsQuery = useQuery({
     queryKey: queryKeys.sourceCollections,
     queryFn: ({ signal }) => getSourceCollections(signal),
-    enabled: enableQueries,
     staleTime: 5_000,
     refetchInterval: (query) => query.state.data?.some((collection) =>
       ["starting", "running", "stopping"].includes(collection.continuousStatus ?? ""),
@@ -110,15 +107,13 @@ export function SourceCollectionsPanel({
   const collections = collectionsQuery.data ?? []
   const selectedCollection = collections.find((collection) => collection.id === selectedScope) ?? null
   const allSourcesCountQuery = useQuery({
-    queryKey: ["sources", "count"],
+    queryKey: queryKeys.sourcesCount,
     queryFn: ({ signal }) => getSourcePage({ limit: 1, offset: 0 }, signal),
-    enabled: enableQueries,
     staleTime: 10_000,
   })
   const unassignedCountQuery = useQuery({
-    queryKey: ["source-collections", "unassigned", "count"],
+    queryKey: queryKeys.unassignedSourcesCount,
     queryFn: ({ signal }) => getUnassignedSources({ limit: 1, offset: 0 }, signal),
-    enabled: enableQueries,
     staleTime: 10_000,
   })
 
@@ -204,7 +199,7 @@ export function SourceCollectionsPanel({
       ? queryKeys.sourceCollectionRun(selectedCollection.id, activeRunId)
       : ["source-collections", "run", "idle"],
     queryFn: ({ signal }) => getSourceCollectionRun(selectedCollection!.id, activeRunId!, signal),
-    enabled: enableQueries && Boolean(selectedCollection && activeRunId),
+    enabled: Boolean(selectedCollection && activeRunId),
     refetchInterval: (query) => {
       const status = query.state.data?.status
       return status && !["queued", "running"].includes(status) ? false : 5_000
@@ -219,7 +214,7 @@ export function SourceCollectionsPanel({
       { limit: 3, offset: 0 },
       signal,
     ),
-    enabled: enableQueries && Boolean(selectedCollection),
+    enabled: Boolean(selectedCollection),
     staleTime: 5_000,
   })
 
@@ -229,7 +224,7 @@ export function SourceCollectionsPanel({
     setStartedRun((current) => current?.runId === run.id ? null : current)
     if (run.sourceCollectionId) {
       void queryClient.invalidateQueries({
-        queryKey: ["source-collections", run.sourceCollectionId, "runs"],
+        queryKey: queryKeys.sourceCollectionAllRuns(run.sourceCollectionId),
       })
     }
     refreshCollections()
@@ -294,7 +289,7 @@ export function SourceCollectionsPanel({
             </div>
 
             <div className="min-[900px]:mt-2">
-              {collectionsQuery.isPending && enableQueries ? (
+              {collectionsQuery.isLoading ? (
                 <div aria-label="Loading Source Collections" className="flex items-center gap-2 px-2 py-1 min-[900px]:block min-[900px]:space-y-2" role="status">
                   <span className="sr-only">Loading Source Collections</span>
                   {[0, 1, 2].map((item) => (
@@ -305,7 +300,7 @@ export function SourceCollectionsPanel({
                   ))}
                 </div>
               ) : null}
-              {collectionsQuery.isError && enableQueries ? (
+              {collectionsQuery.isError ? (
                 <div className="flex items-center gap-2 rounded-lg border bg-background p-2 min-[900px]:block min-[900px]:space-y-2 min-[900px]:p-3">
                   <p className="text-xs text-destructive" role="alert">{getApiErrorMessage(collectionsQuery.error, "Collections are unavailable.")}</p>
                   <Button className="min-h-9 w-full" onClick={() => void collectionsQuery.refetch()} size="sm" variant="outline">Retry</Button>
@@ -884,7 +879,7 @@ function CollectionManagerDialog({
     enabled: open,
   })
   const availableQuery = useQuery({
-    queryKey: ["source-collections", collection.id, "available", availableOffset, settledSearch],
+    queryKey: queryKeys.sourceCollectionAvailableSources(collection.id, availableOffset, settledSearch),
     queryFn: ({ signal }) => getSourcePage({
       excludeCollectionId: collection.id,
       search: settledSearch,

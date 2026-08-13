@@ -16,6 +16,7 @@ import {
 } from "@/features/articles/api"
 import { ArticlesPage } from "@/features/articles/articles-page"
 import type { ArticleCollection, ArticleDetail, ArticlePage, ArticleSummary } from "@/features/articles/types"
+import { DEFAULT_TIME_ZONE } from "@/lib/date-time"
 import { ApiError } from "@/lib/http"
 
 const navigation = vi.hoisted(() => ({ search: "", listeners: new Set<() => void>(), push: vi.fn() }))
@@ -60,13 +61,6 @@ describe("Feed page", () => {
   beforeEach(() => {
     vi.resetAllMocks()
     setSearch("")
-    const pushState = window.history.pushState.bind(window.history)
-    vi.spyOn(window.history, "pushState").mockImplementation((state, unused, url) => {
-      pushState(state, unused, url)
-      const value = String(url ?? "")
-      navigation.search = value.includes("?") ? value.slice(value.indexOf("?") + 1) : ""
-      navigation.listeners.forEach((listener) => listener())
-    })
     vi.mocked(getArticleCollections).mockResolvedValue([])
     vi.mocked(getArticleFacets).mockResolvedValue(facets())
     vi.mocked(getFeedSummary).mockResolvedValue({ articleCount: 0 })
@@ -290,9 +284,9 @@ describe("Feed page", () => {
     expect(input.parentElement).not.toHaveClass("focus-within:ring-2", "focus-within:ring-ring")
     fireEvent.change(input, { target: { value: "  Climate  " } })
     expect(navigation.push).not.toHaveBeenCalled()
-    await waitFor(() => expect(window.history.pushState).toHaveBeenLastCalledWith(null, "", "/feed?language=en&q=Climate"))
+    await waitFor(() => expect(navigation.push).toHaveBeenLastCalledWith("/feed?language=en&q=Climate"))
     expect(getArticles).toHaveBeenLastCalledWith({
-      sort: "newest", query: "Climate", filters: { ...emptyFilters(), languages: ["en"] }, cursor: null, limit: 50,
+      sort: "newest", query: "Climate", filters: { ...emptyFilters(), languages: ["en"] }, cursor: null, limit: 50, timezone: DEFAULT_TIME_ZONE,
     }, expect.any(AbortSignal))
 
     fireEvent.click(screen.getByRole("button", { name: "Go to page 2" }))
@@ -306,9 +300,9 @@ describe("Feed page", () => {
     expect(vi.mocked(getArticles).mock.calls).toHaveLength(callsBeforeEquivalentInput)
 
     fireEvent.click(screen.getByRole("button", { name: "Clear search input" }))
-    await waitFor(() => expect(window.history.pushState).toHaveBeenLastCalledWith(null, "", "/feed?language=en"))
+    await waitFor(() => expect(navigation.push).toHaveBeenLastCalledWith("/feed?language=en"))
     expect(getArticles).toHaveBeenLastCalledWith({
-      sort: "newest", filters: { ...emptyFilters(), languages: ["en"] }, cursor: null, limit: 50,
+      sort: "newest", filters: { ...emptyFilters(), languages: ["en"] }, cursor: null, limit: 50, timezone: DEFAULT_TIME_ZONE,
     }, expect.any(AbortSignal))
   })
 
@@ -320,10 +314,10 @@ describe("Feed page", () => {
     expect(await screen.findByText("No articles match “گزارش”")).toBeInTheDocument()
     expect(screen.getByRole("searchbox", { name: "Search articles" })).toHaveValue("گزارش")
     expect(getArticles).toHaveBeenLastCalledWith({
-      sort: "newest", query: "گزارش", filters: { ...emptyFilters(), topics: ["Tech"] }, cursor: null, limit: 50,
+      sort: "newest", query: "گزارش", filters: { ...emptyFilters(), topics: ["Tech"] }, cursor: null, limit: 50, timezone: DEFAULT_TIME_ZONE,
     }, expect.any(AbortSignal))
     fireEvent.click(screen.getByRole("button", { name: "Clear article search" }))
-    await waitFor(() => expect(window.history.pushState).toHaveBeenLastCalledWith(null, "", "/feed?topic=Tech"))
+    await waitFor(() => expect(navigation.push).toHaveBeenLastCalledWith("/feed?topic=Tech"))
   })
 
   it("replaces page dataset and unmounts previous article cards", async () => {
@@ -360,7 +354,7 @@ describe("Feed page", () => {
     expect(await screen.findByText("Newest item")).toBeInTheDocument()
     fireEvent.change(screen.getByRole("combobox", { name: "Sort articles" }), { target: { value: "score" } })
     expect(await screen.findByText("Highest score")).toBeInTheDocument()
-    expect(getArticles).toHaveBeenLastCalledWith({ sort: "score", filters: emptyFilters(), cursor: null, limit: 50 }, expect.any(AbortSignal))
+    expect(getArticles).toHaveBeenLastCalledWith({ sort: "score", filters: emptyFilters(), cursor: null, limit: 50, timezone: DEFAULT_TIME_ZONE }, expect.any(AbortSignal))
     expect(screen.queryByText("Newest item")).not.toBeInTheDocument()
   })
 
@@ -421,7 +415,7 @@ describe("Feed page", () => {
       sort: "newest",
       filters: { ...emptyFilters(), languages: ["en"], topics: ["AI", "Tech"] },
       cursor: null,
-      limit: 50,
+      limit: 50, timezone: DEFAULT_TIME_ZONE,
     }, expect.any(AbortSignal)))
     expect(navigation.push).toHaveBeenLastCalledWith("/feed?language=en&topic=AI&topic=Tech")
     expect(screen.getByRole("button", { name: "Filter articles, 3 active" })).toBeInTheDocument()
@@ -459,7 +453,7 @@ describe("Feed page", () => {
         scoreMin: 20, scoreMax: 80, dateFrom: "2026-07-01", dateTo: "2026-07-21",
       },
       cursor: null,
-      limit: 50,
+      limit: 50, timezone: DEFAULT_TIME_ZONE,
     }, expect.any(AbortSignal)))
     expect(navigation.search).toContain(`source_id=${sourceA}`)
     expect(navigation.search).toContain(`source_id=${sourceB}`)
@@ -472,13 +466,13 @@ describe("Feed page", () => {
     renderArticles()
 
     await waitFor(() => expect(getArticles).toHaveBeenLastCalledWith({
-      sort: "newest", filters: { ...emptyFilters(), languages: ["en"] }, cursor: null, limit: 50,
+      sort: "newest", filters: { ...emptyFilters(), languages: ["en"] }, cursor: null, limit: 50, timezone: DEFAULT_TIME_ZONE,
     }, expect.any(AbortSignal)))
     setSearch("sort=score&topic=AI&topic=Tech")
     await waitFor(() => expect(screen.getByRole("combobox", { name: "Sort articles" })).toHaveValue("score"))
     expect(screen.getByRole("button", { name: "Filter articles, 2 active" })).toBeInTheDocument()
     expect(getArticles).toHaveBeenLastCalledWith({
-      sort: "score", filters: { ...emptyFilters(), topics: ["AI", "Tech"] }, cursor: null, limit: 50,
+      sort: "score", filters: { ...emptyFilters(), topics: ["AI", "Tech"] }, cursor: null, limit: 50, timezone: DEFAULT_TIME_ZONE,
     }, expect.any(AbortSignal))
   })
 
@@ -493,7 +487,7 @@ describe("Feed page", () => {
     setSearch("language=en&topic=Tech")
     await screen.findByText("Tech")
     expect(getArticles).toHaveBeenLastCalledWith({
-      sort: "newest", filters: { ...emptyFilters(), languages: ["en"], topics: ["Tech"] }, cursor: null, limit: 50,
+      sort: "newest", filters: { ...emptyFilters(), languages: ["en"], topics: ["Tech"] }, cursor: null, limit: 50, timezone: DEFAULT_TIME_ZONE,
     }, expect.any(AbortSignal))
     expect(screen.queryByText("Second")).not.toBeInTheDocument()
   })
@@ -539,7 +533,7 @@ describe("Feed page", () => {
       filters: { ...emptyFilters(), languages: ["en"] },
       collectionId,
       cursor: null,
-      limit: 50,
+      limit: 50, timezone: DEFAULT_TIME_ZONE,
     }, expect.any(AbortSignal)))
     expect(navigation.push).toHaveBeenLastCalledWith(`/feed?language=en&collection_id=${collectionId}`)
     expect(collectionButton).toHaveAttribute("aria-current", "page")
@@ -550,7 +544,7 @@ describe("Feed page", () => {
       sort: "newest",
       filters: { ...emptyFilters(), languages: ["en"] },
       cursor: null,
-      limit: 50,
+      limit: 50, timezone: DEFAULT_TIME_ZONE,
     }, expect.any(AbortSignal))
   })
 

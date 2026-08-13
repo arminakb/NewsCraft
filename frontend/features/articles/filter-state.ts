@@ -1,3 +1,4 @@
+import { ARTICLE_FILTER_PARAM_KEYS, appendArticleFilterParams } from "./filter-params"
 import type { ArticleFilters, ArticleSort } from "./types"
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
@@ -62,20 +63,11 @@ export function writeArticleSearch(current: URLSearchParams, query: string) {
 
 export function writeArticleState(current: URLSearchParams, sort: ArticleSort, filters: ArticleFilters) {
   const params = new URLSearchParams(current)
-  for (const key of ["sort", "language", "topic", "content_type", "source_id", "coverage", "has_image", "score_min", "score_max", "date_from", "date_to", "page", "cursor"]) {
+  for (const key of ["sort", ...ARTICLE_FILTER_PARAM_KEYS, "page", "cursor"]) {
     params.delete(key)
   }
   if (sort !== "newest") params.set("sort", sort)
-  for (const value of filters.languages) params.append("language", value)
-  for (const value of filters.topics) params.append("topic", value)
-  for (const value of filters.contentTypes) params.append("content_type", value)
-  for (const value of filters.sourceIds) params.append("source_id", value)
-  for (const value of filters.coverage) params.append("coverage", value)
-  if (filters.hasImage !== null) params.set("has_image", String(filters.hasImage))
-  if (filters.scoreMin !== null) params.set("score_min", String(filters.scoreMin))
-  if (filters.scoreMax !== null) params.set("score_max", String(filters.scoreMax))
-  if (filters.dateFrom) params.set("date_from", filters.dateFrom)
-  if (filters.dateTo) params.set("date_to", filters.dateTo)
+  appendArticleFilterParams(params, filters, { mode: "url" })
   return params
 }
 

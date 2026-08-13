@@ -27,6 +27,7 @@ import { formatInTimeZone } from "@/lib/date-time"
 import { titleCase } from "@/lib/format"
 import { getApiErrorMessage } from "@/lib/http"
 import { queryKeys } from "@/lib/query-keys"
+import { safeHttpUrl } from "@/lib/url"
 import { cn } from "@/lib/utils"
 
 type ArticleDetailDialogProps = {
@@ -59,7 +60,7 @@ export function ArticleDetailDialog({
   })
   const detail = detailQuery.data
   const visibleArticle = detail ?? article
-  const originalUrl = safeArticleUrl(visibleArticle?.canonicalUrl)
+  const originalUrl = safeHttpUrl(visibleArticle?.canonicalUrl)
 
   return (
     <Dialog onOpenChange={onOpenChange} open={open}>
@@ -302,16 +303,6 @@ export function selectEditorialContent(detail: ArticleDetail): EditorialContent 
   const summary = cleanText(detail.summary)
   if (summary) return { kind: "summary", label: "Source summary", text: summary }
   return { kind: "unavailable", label: "Content unavailable", text: null }
-}
-
-export function safeArticleUrl(value: string | null | undefined): string | null {
-  if (!value) return null
-  try {
-    const url = new URL(value)
-    return url.protocol === "http:" || url.protocol === "https:" ? url.href : null
-  } catch {
-    return null
-  }
 }
 
 function cleanText(value: string | null | undefined): string | null {

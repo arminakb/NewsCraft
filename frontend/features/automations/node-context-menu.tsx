@@ -3,6 +3,8 @@
 import { Copy, Settings2, Trash2 } from "lucide-react"
 import { useEffect, useRef } from "react"
 
+import { useDismissOnOutside, useMenuRovingFocus } from "@/components/ui/context-menu-behavior"
+
 export type NodeContextMenuState = {
   nodeId: string
   nodeLabel: string
@@ -33,43 +35,26 @@ export function NodeContextMenu({
   const duplicateReasonId = `${menu.nodeId}-duplicate-disabled-reason`
   const deleteReasonId = `${menu.nodeId}-delete-disabled-reason`
 
+  const moveMenuFocus = useMenuRovingFocus(menuRef, { skipDisabled: true })
+  useDismissOnOutside(true, [menuRef], onClose)
+
   useEffect(() => {
     itemRef.current?.focus()
-    const closeOnPointerDown = (event: PointerEvent) => {
-      if (!menuRef.current?.contains(event.target as globalThis.Node)) onClose()
-    }
     const closeOnKeyDown = (event: KeyboardEvent) => {
       if (event.key !== "Escape") return
       event.preventDefault()
       onClose()
       menu.returnFocus?.focus()
     }
-    document.addEventListener("pointerdown", closeOnPointerDown)
     document.addEventListener("keydown", closeOnKeyDown)
-    return () => {
-      document.removeEventListener("pointerdown", closeOnPointerDown)
-      document.removeEventListener("keydown", closeOnKeyDown)
-    }
+    return () => document.removeEventListener("keydown", closeOnKeyDown)
   }, [menu.returnFocus, onClose])
 
   return (
     <div
       aria-label={`${menu.nodeLabel} actions`}
       className="fixed z-20 w-48 rounded-lg border border-border/70 bg-popover p-1 text-popover-foreground shadow-md"
-      onKeyDown={(event) => {
-        if (!["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) return
-        event.preventDefault()
-        const items = [...menuRef.current!.querySelectorAll<HTMLButtonElement>('[role="menuitem"]:not(:disabled)')]
-        const current = items.indexOf(document.activeElement as HTMLButtonElement)
-        const next = event.key === "Home"
-          ? 0
-          : event.key === "End"
-            ? items.length - 1
-            : event.key === "ArrowDown"
-              ? (current + 1) % items.length
-              : (current - 1 + items.length) % items.length
-        items[next]?.focus()
-      }}
+      onKeyDown={moveMenuFocus}
       ref={menuRef}
       role="menu"
       style={{ left: menu.x, top: menu.y }}

@@ -1,7 +1,9 @@
 import type { components } from "@/lib/api/generated"
 import { camelize } from "@/lib/camelize"
+import { DEFAULT_TIME_ZONE } from "@/lib/date-time"
 import { apiRequest, apiRequestVoid } from "@/lib/http"
 
+import { appendArticleFilterParams } from "./filter-params"
 import type {
   ArticleCollection,
   ArticleFacets,
@@ -22,6 +24,7 @@ export async function getArticles(input: {
   collectionId?: string | null
   cursor?: string | null
   limit?: number
+  timezone?: string
 }, signal?: AbortSignal): Promise<ArticlePage> {
   const params = new URLSearchParams({
     sort: input.sort,
@@ -30,7 +33,10 @@ export async function getArticles(input: {
   if (input.query) params.set("q", input.query)
   if (input.collectionId) params.set("collection_id", input.collectionId)
   if (input.cursor) params.set("cursor", input.cursor)
-  appendFilters(params, input.filters)
+  appendArticleFilterParams(params, input.filters, {
+    mode: "request",
+    timezone: input.timezone ?? DEFAULT_TIME_ZONE,
+  })
   const requestInit = signal ? { signal } : undefined
   return camelize(await apiRequest<Schemas["ArticleListOut"]>(`/articles?${params.toString()}`, requestInit))
 }
@@ -83,22 +89,3 @@ export async function clearFeed(): Promise<FeedClearResult> {
   return camelize(await apiRequest<Schemas["FeedClearOut"]>("/feed/clear", { method: "POST" }))
 }
 
-function appendFilters(params: URLSearchParams, filters?: ArticleFilters) {
-  if (!filters) return
-  for (const value of filters.languages) params.append("language", value)
-  for (const value of filters.topics) params.append("topic", value)
-  for (const value of filters.contentTypes) params.append("content_type", value)
-  for (const value of filters.sourceIds) params.append("source_id", value)
-  for (const value of filters.coverage) params.append("coverage", value)
-  if (filters.hasImage !== null) params.set("has_image", String(filters.hasImage))
-  if (filters.scoreMin !== null) params.set("score_min", String(filters.scoreMin))
-  if (filters.scoreMax !== null) params.set("score_max", String(filters.scoreMax))
-  if (filters.dateFrom) params.set("date_from", `${filters.dateFrom}T00:00:00Z`)
-  if (filters.dateTo) params.set("date_to", `${nextUtcDate(filters.dateTo)}T00:00:00Z`)
-}
-
-function nextUtcDate(value: string) {
-  const date = new Date(`${value}T00:00:00Z`)
-  date.setUTCDate(date.getUTCDate() + 1)
-  return date.toISOString().slice(0, 10)
-}

@@ -94,6 +94,21 @@ describe("TodayPage", () => {
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument())
   })
 
+  it("traps focus in the story dialog and restores it to the opener on Escape", async () => {
+    renderToday()
+
+    const card = await screen.findByRole("button", { name: "Open story: English editorial report 1" })
+    card.focus()
+    fireEvent.click(card)
+
+    const dialog = await screen.findByRole("dialog", { name: "English editorial report 1" })
+    await waitFor(() => expect(within(dialog).getByRole("button", { name: "Close story" })).toHaveFocus())
+
+    fireEvent.keyDown(document, { key: "Escape" })
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument())
+    await waitFor(() => expect(card).toHaveFocus())
+  })
+
   it("shows a real empty state without demo stories", async () => {
     vi.mocked(getArticles).mockResolvedValue({ items: [], nextCursor: null, resultCount: 0 })
     renderToday()

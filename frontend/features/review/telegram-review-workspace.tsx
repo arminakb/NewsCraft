@@ -9,7 +9,6 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { StatusBadge, type StatusTone } from "@/components/ui/status-badge"
 import {
-  getTelegramDestinations,
   getTelegramDispatches,
   getTelegramPublicationContext,
   getTelegramPublishJob,
@@ -17,6 +16,7 @@ import {
   publishTelegramDraft,
 } from "@/features/automations/telegram-api"
 import { getAutomationControl } from "@/features/control/api"
+import { getTelegramDestinations } from "@/features/settings/content-settings-api"
 import type { TelegramRevision } from "@/features/packages/types"
 import { getApiErrorMessage } from "@/lib/http"
 import { queryKeys } from "@/lib/query-keys"
@@ -94,7 +94,7 @@ export function TelegramReviewWorkspace({ revision }: { revision: TelegramRevisi
     if (routeQuery.data?.pausedAt) values.push("Route paused")
     if (routeQuery.data && !routeQuery.data.enabled) values.push("Route disabled")
     if (destination && !destination.configured) values.push("Destination unavailable")
-    if (destination && (!destination.enabled || destination.healthStatus !== "healthy")) {
+    if (destination && (!destination.enabled || destination.health_status !== "healthy")) {
       values.push("Destination unhealthy")
     }
     if (revision.payload.dryRun) values.push("Draft dry run blocks publishing")
