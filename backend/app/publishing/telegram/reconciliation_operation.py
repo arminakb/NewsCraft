@@ -1,13 +1,11 @@
 from __future__ import annotations
 
-# ruff: noqa: F401
-from collections.abc import Iterable
 from datetime import UTC, datetime
 from typing import Annotated, Any, Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Response
-from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, HttpUrl, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, HttpUrl, field_validator, model_validator
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -16,11 +14,10 @@ from app.automations.telegram.handlers import (
     sha256_canonical,
 )
 from app.db.session import get_session
-from app.generation.models import PlatformVariant, PlatformVariantRevision
+from app.generation.models import PlatformVariantRevision
 from app.jobs.events import redact_event_data
 from app.jobs.models import WorkflowEvent, WorkflowJob
 from app.jobs.repository import JobRepository
-from app.jobs.schemas import JobAcceptedOut
 from app.jobs.types import JobOrigin
 from app.publishing.models import (
     Destination,
@@ -29,21 +26,12 @@ from app.publishing.models import (
     PublishOperationReceipt,
 )
 from app.publishing.telegram.draft_publication import (
-    ReviewedTelegramDraftError,
-    publish_reviewed_draft,
-)
-from app.publishing.telegram.draft_publication import (
     revision_dispatch as _revision_dispatch,
 )
 from app.publishing.telegram.service import (
     PublishValidationError,
-    ReconciliationCase,
-    ReviewedTelegramScheduleError,
     derive_telegram_permalink,
-    get_reconciliation_case,
-    list_reconciliation_cases,
     ordered_receipt_remote_ids,
-    schedule_reviewed_telegram,
     validate_reconciliation,
 )
 
