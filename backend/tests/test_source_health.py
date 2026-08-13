@@ -97,7 +97,7 @@ def _source() -> Source:
 def test_titleless_platform_item_with_a_body_counts_as_suitable() -> None:
     item = SimpleNamespace(
         title="",
-        content_text="\u0627\u06cc\u0646 \u06cc\u06a9 \u067e\u06cc\u0627\u0645 \u06a9\u0627\u0645\u0644 \u062a\u0644\u06af\u0631\u0627\u0645\u06cc \u0627\u0633\u062a.",
+        content_text="این یک پیام کامل تلگرامی است.",
     )
 
     assert _is_suitable_item(item) is True
