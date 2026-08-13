@@ -1,5 +1,13 @@
 # Frontend workflow map
 
+> **Superseded 2026-08-13 — historical record only.** This walkthrough
+> follows the pre-newsroom routes (`/inbox`, `/drafts`, `/library`,
+> `/content`, `/runs`, `/media`), none of which exist today; `/jobs`,
+> `/diagnostics`, `/calendar`, and `/settings/content` are redirect stubs.
+> The live navigation is Today, Sources, Feed, Automations, Operations
+> Center, and Settings
+> ([`newsroom-sidebar.tsx`](../../frontend/components/newsroom/newsroom-sidebar.tsx)).
+
 ## What the operator sees first
 
 The root route is Today. It currently presents, in order:

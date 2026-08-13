@@ -5,7 +5,7 @@
 - **Strict status:** IMPLEMENTATION COMPLETE — BROWSER EXECUTION OMITTED BY USER DIRECTION
 - **Starting revision:** `308ff92` on `phase-10-contract-drift`
 - **Model:** GPT-5 Codex
-- **Authoritative source:** `solutions.md`, Phase 10
+- **Authoritative source:** `docs/archive/solutions.md`, Phase 10
 - **Prerequisites:** Phase 8 frozen dependency graph and Phase 7 blocking `contracts`/`browser-mocked` jobs are present.
 
 The defect was confirmed directly. `frontend/e2e/accessibility.spec.ts` mocked obsolete `GET /diagnostics`, omitted `GET /telegram/reconciliation`, and returned 501 for the real requests. Backend/frontend wire types and route fixtures were handwritten with no canonical generated artifact or drift gate.
@@ -36,7 +36,7 @@ No database migration was required.
 - `frontend/e2e/support/mock-backend.ts`
 - `frontend/e2e/accessibility.spec.ts`
 - `frontend/e2e/dashboard.spec.ts`
-- `frontend/e2e/editorial-studio.spec.ts`
+- `frontend/e2e/editorial-studio.spec.ts` (artifact not retained; deleted in `1d0ba3f`, last present in `ae5efd1`)
 - `frontend/tests/openapi-contract.test.ts`
 - `frontend/tests/operations-api.test.ts`
 - `frontend/package.json`, `frontend/package-lock.json`

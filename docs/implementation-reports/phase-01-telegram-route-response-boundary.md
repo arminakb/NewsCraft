@@ -1,7 +1,7 @@
 # Phase 1 Implementation Report — Telegram Route Response Boundary
 
 Date: 2026-07-17  
-Plan source: `solutions.md`, Phase 1  
+Plan source: `docs/archive/solutions.md`, Phase 1  
 Baseline source revision: `7826ebaf04565b0401baacac8f5234ed88764029`
 
 ## Status
@@ -10,7 +10,7 @@ Baseline source revision: `7826ebaf04565b0401baacac8f5234ed88764029`
 
 ## Sequence and scope
 
-`progress.md` describes the already-completed content-intelligence upgrade and has no unfinished phase. The production-hardening order comes from `solutions.md`. The existing dirty tree already contained the Phase 2 worker execution-boundary implementation and `docs/implementation-reports/phase-02-worker-execution-boundary.md`; that report explicitly named Phase 1 as the next blocker. All existing Phase 2 changes were preserved.
+`progress.md` describes the already-completed content-intelligence upgrade and has no unfinished phase. The production-hardening order comes from `docs/archive/solutions.md`. The existing dirty tree already contained the Phase 2 worker execution-boundary implementation and `docs/implementation-reports/phase-02-worker-execution-boundary.md`; that report explicitly named Phase 1 as the next blocker. All existing Phase 2 changes were preserved.
 
 Phase 1 changes only:
 

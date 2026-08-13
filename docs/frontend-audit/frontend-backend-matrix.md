@@ -1,5 +1,14 @@
 # Frontend/backend dependency matrix
 
+> **Superseded 2026-08-13 — historical record only.** The surfaces column
+> lists the pre-newsroom routes (`/inbox`, `/drafts`, `/library`,
+> `/content`, `/runs`, `/media`), which no longer exist; `/jobs`,
+> `/diagnostics`, `/calendar`, and `/settings/content` are redirect stubs.
+> For a current view, read [`contracts/openapi.json`](../../contracts/openapi.json)
+> together with the live navigation in
+> [`newsroom-sidebar.tsx`](../../frontend/components/newsroom/newsroom-sidebar.tsx)
+> (Today, Sources, Feed, Automations, Operations Center, Settings).
+
 All browser API calls normally pass through the same-origin Next.js proxy at `/api/backend/*`. This matrix groups closely related endpoints; it is not an OpenAPI replacement.
 
 | Frontend surface | Reads | Mutations | Capability / protection notes |

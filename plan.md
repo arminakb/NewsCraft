@@ -9,14 +9,36 @@
 - **Implementation shape:** Six ordered phases with independently verifiable exit gates.
 - **Primary product principle:** A domain-specific **Guided Visual Workflow Builder**, not a general-purpose no-code platform.
 - **Architecture principle:** The canvas is an editor for a backend-owned definition. It never becomes a browser-side workflow runtime.
-- **Reference image:** `ref/26cbe0a6-85f9-44d6-bd4d-3f085e9080dd.png` (1536×1024). It is inspiration for hierarchy, panel composition, node legibility, and responsive adaptation only.
+- **Reference image:** `ref/26cbe0a6-85f9-44d6-bd4d-3f085e9080dd.png` (1536×1024) — **artifact not retained.** The `ref/` directory was never tracked and is absent from the tree and from Git history, so this input cannot be re-read. It was inspiration for hierarchy, panel composition, node legibility, and responsive adaptation only; the shipped editor is the reference for those now.
 - **Completion rule:** The work is not complete if the frontend is still mocked, a dry run can publish, a graph bypasses durable jobs, or PostgreSQL/browser acceptance has not exercised the real path.
 
 This plan is based on the current checkout, including its existing uncommitted work. Every implementation phase must preserve unrelated changes and must not rewrite applied migrations.
 
+### Phase status
+
+Update this table at each phase exit gate. It is the only status record in
+this plan; the evidence column owns the detail.
+
+| Phase | Status | Evidence |
+| --- | --- | --- |
+| 1 — Architecture audit and contract freeze | Complete | [`automation-workflow-builder-contract.md`](docs/implementation-notes/automation-workflow-builder-contract.md) — "Accepted and implemented through Phase 6" (2026-08-01) |
+| 2 — Canonical workflow domain, versioning, templates, APIs | Complete | same contract; Phase 6 Dependencies below record Phases 1–5 as complete with no mocked runtime seams |
+| 3 — Compiler, durable execution, dry run, activation, worker integration | Complete | same contract; Phase 6 Dependencies below |
+| 4 — Workflow library, templates, guided visual builder, responsive accessibility | Complete | same contract; Phase 6 Dependencies below |
+| 5 — Test Studio, Runs, version history, Operations links, Draft seam | Complete | [`automation-workflow-builder-phase-5.md`](docs/implementation-notes/automation-workflow-builder-phase-5.md) — "Implemented on 2026-08-01" |
+| 6 — Security, prompt safety, performance, compatibility, release acceptance | Exit gate passed; quality-baseline debt open | [`automation-workflow-builder-phase-6.md`](docs/implementation-notes/automation-workflow-builder-phase-6.md) — "Phase 6 release exit gate passed on 2026-08-01. The repository-wide quality-baseline gate remains blocked by inherited Phase 1–5 complexity and file-size debt" |
+
 ---
 
 ## 2. Existing architecture findings
+
+> **Pre-implementation snapshot (recorded before Phase 1; annotated
+> 2026-08-13).** Everything in section 2 describes the checkout *as it was
+> when the plan was written* and is no longer an accurate description of
+> the code. It is retained as the record of what the six phases started
+> from. The binding parts of this plan are sections 3, 4, 5 and 6 — read
+> those, not this one, for current obligations. Individual statements that
+> are now demonstrably false are corrected in place below.
 
 ### 2.1 Backend and persistence already in place
 
@@ -89,15 +111,17 @@ Dry runs enter through a durable `telegram.route.dry_run` job, carry `force_revi
 ### 2.4 Frontend already in place
 
 - Next.js 16 App Router, React 19, TypeScript 5.9, TanStack Query 5, Tailwind CSS 4, Base UI/shadcn primitives, and Lucide icons are already established.
-- The current pages are `/automations`, `/automations/new`, `/automations/[routeId]`, and `/automations/[routeId]/history`.
+- The current pages are `/automations`, `/automations/new`, `/automations/[routeId]`, and `/automations/[routeId]/history`. *(Snapshot only. The shipped tree also has `/automations/runs`, `/automations/templates`, and the `/automations/telegram/**` compatibility subtree.)*
 - Current Automation UI consists of a Telegram route card list, a long form that creates a source and route, a route detail page, dry run/backfill actions, dispatch history, and a history timeline.
 - The Automation API client and query keys are Telegram-route-specific. They already use the same-origin `/api/backend/...` path through `apiRequest`.
 - Reusable primitives already exist for Button, Card, Dialog, Tooltip, Table, Badge/StatusBadge, Alert, inputs, Select, progress, skeleton/loading/error/empty states, page headers, dirty-navigation handling, and notices.
 - `ProviderBrandIcon` and the Content Settings Telegram destination cards can be reused for safe resource presentation.
-- There is no current repository UI primitive for Tabs, Sheet/Drawer, Menu, or a schema-generated Form, and there is no diagram dependency in `frontend/package.json`.
+- There is no current repository UI primitive for Tabs, Sheet/Drawer, Menu, or a schema-generated Form, and there is no diagram dependency in `frontend/package.json`. *(Snapshot only. `frontend/package.json` now pins `"@xyflow/react": "12.11.2"`, added by the builder canvas work; see [`automation-workflow-builder-xyflow-decision.md`](docs/implementation-notes/automation-workflow-builder-xyflow-decision.md).)*
 - Existing Automation tests cover safe options, conservative review defaults, dry-run durability messaging, pause/resume, prompt pinning, destination readiness, and browser flows. The current Playwright mock backend already models Telegram Automation routes and can be extended rather than replaced.
 
 ### 2.5 Gaps that the implementation must close
+
+*(Snapshot only. These gaps were closed by Phases 1–6 — `backend/app/automations/definitions/` now holds the node registry, compiler, execution, and versioned workflow models, and the frontend has the library, Templates and Runs views. Kept as the record of what the phases were commissioned to fix; per the Phase status table above, the remaining open item is quality-baseline debt, not these gaps.)*
 
 1. The current `AutomationRoute` cannot represent a versioned node graph.
 2. Current route mutation means active and historical executions are not pinned to an immutable Automation version.
@@ -215,22 +239,13 @@ The server node registry determines what is visible. The Phase 1 capability matr
 | Review | Human Review | Exact immutable revision approval state |
 | Output | Save to Drafts; Telegram publish after approval; manual Instagram/X/blog package | Existing content pack/revision, Telegram publish boundary, and manual export/checklist flow |
 
-General conditions, fallback branching, delays, run-until-node, isolated-node retries, and comparison are included only if Phase 1 proves a safe existing execution mapping. Arbitrary webhooks, HTTP requests, SQL, shell, code, filesystem, credential lookup, dynamic tools, loops, recursive workflows, marketplace nodes, and direct Instagram/X publication remain excluded.
+General conditions, fallback branching, delays, run-until-node, isolated-node retries, and comparison are included only if Phase 1 proves a safe existing execution mapping. The canonical, exhaustive list of what the API must reject is “Explicit deferrals and prohibited nodes” in [`automation-workflow-builder-contract.md`](docs/implementation-notes/automation-workflow-builder-contract.md#explicit-deferrals-and-prohibited-nodes); it governs on any disagreement with this plan.
 
 ### 3.5 Diagram-library decision
 
 Use `@xyflow/react` as a **client-only, controlled desktop/tablet presentation adapter**, subject to a short compatibility spike in Phase 4. Its official API supports controlled nodes/edges, custom nodes and typed handles, viewport/zoom/snap controls, focusable nodes/edges, keyboard selection/movement, ARIA customization, and visible-node rendering. The package and lockfile must be pinned together.
 
-Constraints on its use:
-
-- dynamically load the heavy canvas in the Next.js App Router;
-- define node/edge types outside render and memoize custom nodes;
-- keep canonical graph state in a NewsCraft reducer/store, not in library internals;
-- validate every connection against the server registry before adding it locally;
-- never execute nodes in the browser;
-- do not use paid workflow templates or import a generic automation UI kit;
-- measure the bundle and interaction latency before release;
-- provide a complete ordered-card editor for mobile and an accessible “Add next step / choose input and output / move up or down” workflow on every viewport because accessible edge creation cannot depend on drag-and-drop.
+Constraints on its use are recorded, in a form written after the spike and superseding the planning list, in [`automation-workflow-builder-xyflow-decision.md`](docs/implementation-notes/automation-workflow-builder-xyflow-decision.md) — "Intended adapter boundary", "Phase 4 spike gates", and "Rejected uses". That document governs on any disagreement with this plan.
 
 If the spike fails React 19/Next 16 compatibility, keyboard/assistive-technology acceptance, light/dark theming, or 30-node performance, implement the same adapter interface with a custom constrained ordered canvas. The backend graph and all APIs remain unchanged.
 
@@ -785,55 +800,7 @@ Harden the complete production slice, prove migration and restart safety, update
 
 ### Verification criteria
 
-Run the repository-pinned environments and record exact results.
-
-Backend/static/contract:
-
-```bash
-cd backend
-.venv/bin/python -m pytest tests/test_automation_workflow_schema.py tests/test_automation_compiler.py tests/api/test_automations.py tests/api/test_automation_runs.py -v
-.venv/bin/python -m pytest tests/test_job_worker.py tests/test_scheduler.py tests/test_telegram_route_handlers.py tests/test_telegram_process_handler.py tests/test_telegram_publish_service.py -v
-.venv/bin/python -m mypy app
-.venv/bin/ruff check . ../scripts
-.venv/bin/alembic upgrade head
-.venv/bin/alembic current
-.venv/bin/alembic check
-cd ..
-backend/.venv/bin/python scripts/quality_baseline.py --check
-```
-
-PostgreSQL/integration/recovery:
-
-```bash
-scripts/test_postgres.sh \
-  tests/postgres/test_automation_definitions.py \
-  tests/postgres/test_automation_execution.py \
-  tests/postgres/test_automation_run_projection.py \
-  tests/postgres/test_scheduler_worker_integration.py \
-  tests/postgres/test_telegram_process_handler.py \
-  tests/postgres/test_telegram_publish_service.py \
-  tests/integration/test_publish_crash_recovery.py
-scripts/test_acceptance.sh
-```
-
-Frontend/browser:
-
-```bash
-cd frontend
-env -u NODE_ENV npm run test
-npm run typecheck
-npm run build
-npm run test:e2e
-```
-
-Repository hygiene and deployment contracts:
-
-```bash
-cd ..
-git diff --check
-cd backend
-.venv/bin/python -m pytest tests/test_openapi_contract.py tests/test_docker_config.py tests/test_ci_workflows.py -v
-```
+Run the repository-pinned environments and record exact results. The gate itself is not restated here: the registered gate lives in [`CLAUDE.md`](CLAUDE.md) (“Gates”), and the exact focused command sequence used for this work — including the `DATABASE_URL`-qualified `alembic current`/`alembic check` invocations and the isolated acceptance ports — is recorded verbatim under “Exact commands” in [`automation-workflow-builder-phase-6.md`](docs/implementation-notes/automation-workflow-builder-phase-6.md#exact-commands). Never run a bare `alembic upgrade head`: the test scripts own disposable databases, and an unqualified upgrade migrates whatever the default settings resolve to.
 
 Release assertions:
 
@@ -875,23 +842,16 @@ Release only after the real PostgreSQL and browser journeys pass. If Docker, bro
 
 ### 5.3 UX invariants
 
+Keyboard/focus/`aria-live` behavior, pointer-target and viewport limits, token/typography/icon reuse, non-color status signalling, and no-silent-fallback resource handling are enumerated canonically in “Required UI behavior” of [`automation-workflow-builder-contract.md`](docs/implementation-notes/automation-workflow-builder-contract.md). The remaining UX invariants owned by this plan are:
+
 - The Workflows library is the default entry, not an empty canvas.
 - One clear primary action per view.
-- The builder is usable without mouse, drag-and-drop, or hover.
-- Mobile uses an ordered vertical editor, not a squeezed desktop canvas.
-- Resource breakage is explicit and actionable; no silent fallback selection.
-- Status is conveyed through text/icon/shape as well as semantic color.
-- Existing NewsCraft tokens and components take precedence over reference-image pixels or third-party default themes.
 
 ### 5.4 Scope explicitly deferred from v1
 
-- arbitrary webhook and HTTP request nodes;
-- SQL, shell, code, filesystem, environment, or credential nodes;
-- unrestricted expressions, loops, recursion, or dynamic tool/permission grants;
-- generic branching beyond compiler-proven allowlisted cases;
-- direct Instagram/X/blog publication;
-- real-time collaborative editing;
-- reusable subflows and marketplace integrations;
+Node types and execution semantics deferred or prohibited in v1 — webhooks and arbitrary HTTP, SQL/shell/code/filesystem/environment/credential nodes, loops, recursion, subflows, generic branching, dynamic tools, marketplace integrations, real-time collaboration, and direct Instagram/X/blog publication — are enumerated canonically in “Explicit deferrals and prohibited nodes” of [`automation-workflow-builder-contract.md`](docs/implementation-notes/automation-workflow-builder-contract.md#explicit-deferrals-and-prohibited-nodes). The remaining product-scope deferrals owned by this plan are:
+
+- unrestricted expressions beyond the allowlisted safe-config fields;
 - hundreds of node types or graphs larger than the measured 30-node target;
 - empty Variables/Connections tabs;
 - a full unrelated Drafts redesign;

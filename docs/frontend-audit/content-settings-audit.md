@@ -1,5 +1,19 @@
 # Content Settings audit
 
+> **Superseded 2026-08-13 — historical record only.** `/settings/content`
+> still resolves, but it no longer renders the page audited below:
+> [`frontend/app/settings/content/page.tsx`](../../frontend/app/settings/content/page.tsx)
+> now renders `LegacySettingsRoute`, which `router.replace()`s into the
+> unified `/settings`
+> ([`frontend/features/settings/settings-route.tsx`](../../frontend/features/settings/settings-route.tsx)).
+> There is no "Advanced > System" navigation any more — Settings is a
+> single sidebar entry
+> ([`newsroom-sidebar.tsx`](../../frontend/components/newsroom/newsroom-sidebar.tsx)).
+> The 21-control inventory and the workflow walkthrough therefore describe
+> a page that is no longer rendered; individual findings may still apply to
+> the corresponding sections of unified Settings but must be re-verified
+> there before being acted on.
+
 Audit date: 2026-07-22
 Scope: Session 6A, `/settings/content` only
 Code changes: none

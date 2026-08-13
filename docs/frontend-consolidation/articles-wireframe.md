@@ -1,10 +1,15 @@
 # Articles and Collections wireframe
 
-Status: Phase 1 UX contract; implementation awaits later phases
+Status: Historical (2026-08-13) — superseded by the shipped article surface. The
+Phase 1 UX contract no longer awaits implementation: the surface shipped as
+`/feed` (`frontend/app/feed/page.tsx` renders `ArticlesPage` from
+`@/features/articles/articles-page`), and the Collections model this wireframe
+deferred to is implemented (`backend/app/api/article_collections.py`, registered
+in `backend/app/api/routes.py`; see [`mark-decision.md`](mark-decision.md)).
 
 > Session 4A supersession: named Collections replace ArticleMark and the standalone
-> Marked concept. This historical wireframe must be translated to collection save,
-> remove, and collection-filter interactions before frontend implementation.
+> Marked concept. This historical wireframe describes Marked interactions that were
+> translated into collection save, remove, and collection-filter interactions.
 
 ## UX principles
 

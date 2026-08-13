@@ -1,5 +1,14 @@
 # UX findings
 
+> **Superseded 2026-08-13 — historical record only.** These findings were
+> recorded against the pre-newsroom shell: the 15-destination navigation
+> and the `/inbox`, `/drafts`, `/library`, `/content`, `/runs`, `/media`
+> routes they cite no longer exist. The shipped navigation is Today,
+> Sources, Feed, Automations, Operations Center, and Settings
+> ([`newsroom-sidebar.tsx`](../../frontend/components/newsroom/newsroom-sidebar.tsx)).
+> Individual findings may still be open, but every route and screen
+> reference below must be re-checked against the current shell first.
+
 ## Summary
 
 The frontend is functionally broad and unusually careful about durable truth, exact revisions, failure states, RTL content, and guarded publication. Its primary usability problem is hierarchy: daily editorial actions, implementation-level diagnostics, automation administration, and destructive settings are presented with similar weight.

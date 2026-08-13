@@ -5,7 +5,7 @@
 - **Strict status:** IMPLEMENTATION COMPLETE — HOST-DEPENDENT REGRESSION VERIFICATION OMITTED BY USER DIRECTION
 - **Starting branch/revision:** `phase-08-dependency-locking` at `35ad958`
 - **Model:** GPT-5 Codex
-- **Authoritative source:** `solutions.md`, Phase 8
+- **Authoritative source:** `docs/archive/solutions.md`, Phase 8
 - **Prerequisites:** completed Phase 1–6 and Phase 9 reports/commits were present. Phase 8 intentionally precedes Phase 7 and supplies its frozen-install boundary.
 - **Scope confirmation:** only Phase 8 dependency, toolchain, image, update-policy, inventory, documentation, and regression-test files changed. The Dependabot policy and inventory hook are Phase 8 requirements, not an implementation of Phase 7.
 

@@ -2,7 +2,7 @@
 
 ## Outcome
 
-The repository implementation for all 15 phases in `solutions.md` is present.
+The repository implementation for all 15 phases in `docs/archive/solutions.md` is present.
 Phases 1–6 and 9 have complete verification reports. Phases 7, 8, and 10–15
 have self-contained implementation commits and reports, but their reports retain
 the external or healthy-hardware verification gates that could not truthfully be
@@ -153,5 +153,5 @@ historical command evidence in the Phase 8 report.
 - No generated caches, virtual environments, browser artifacts, screenshots,
   videos, or plaintext secrets were added.
 
-There is no additional implementation phase in `solutions.md`; the next work is
+There is no additional implementation phase in `docs/archive/solutions.md`; the next work is
 verification of the gates above on appropriate infrastructure, not a Phase 16.

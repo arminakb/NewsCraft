@@ -2,6 +2,12 @@
 
 Captured on 2026-07-26 for Phase 0 of `REFACTOR_PLAN.md`.
 
+> **Note (2026-08-13):** `REFACTOR_PLAN.md` is no longer in the tree. It
+> was deleted in commit `272d2dc`; the last revision that still contains it
+> is `eccda15` (2026-07-27), readable with
+> `git show eccda15:REFACTOR_PLAN.md`. The measurements below stand on
+> their own — the reproduce steps and numbers do not depend on that plan.
+
 ## Reproduce
 
 From the repository root:
