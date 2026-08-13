@@ -2,8 +2,9 @@ from __future__ import annotations
 
 import logging
 import re
+import time
 from dataclasses import dataclass
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from fastapi import Request
 from fastapi.responses import JSONResponse
@@ -13,7 +14,7 @@ from starlette.responses import Response
 from app.core.config import Settings, settings
 from app.db.session import async_session
 from app.security.application_principal import ApplicationPrincipalResolver
-from app.security.audit import record_security_event
+from app.security.audit import CORRELATION_KEY, reconcile_stale_attempts, record_security_event
 from app.security.auth import (
     AuthenticationFailure,
     SecurityPrincipal,
@@ -191,9 +192,13 @@ async def _persist_event(
     outcome: str,
     reason_code: str | None,
     request_id: str | None,
+    correlation_id: str,
     status_code: int | None = None,
     session_factory=async_session,
 ) -> None:
+    metadata: dict[str, object] = {CORRELATION_KEY: correlation_id}
+    if status_code is not None:
+        metadata["status_code"] = status_code
     async with session_factory() as session:
         record_security_event(
             session,
@@ -205,9 +210,15 @@ async def _persist_event(
             outcome=outcome,
             reason_code=reason_code,
             request_id=request_id,
-            metadata={"status_code": status_code} if status_code is not None else {},
+            metadata=metadata,
         )
         await session.commit()
+
+
+#: Shortest gap between two reconciliation sweeps. The sweep runs after a
+#: mutation's response has been produced, so this only bounds how much work the
+#: audit trail does per request, not how quickly a request is served.
+RECONCILE_INTERVAL_SECONDS = 300.0
 
 
 class SecurityAuthorizationMiddleware(BaseHTTPMiddleware):
@@ -216,6 +227,10 @@ class SecurityAuthorizationMiddleware(BaseHTTPMiddleware):
         self.config = config
         self.principal_resolver = ApplicationPrincipalResolver(config)
         self.session_factory = session_factory or async_session
+        self._last_reconcile: float | None = None
+
+    def _auditing(self) -> bool:
+        return bool(self.config.security_audit_enabled) and self.config.app_env != "test"
 
     async def _audit_or_fail(
         self,
@@ -225,9 +240,10 @@ class SecurityAuthorizationMiddleware(BaseHTTPMiddleware):
         outcome: str,
         reason_code: str | None,
         request_id: str | None,
+        correlation_id: str,
         status_code: int | None = None,
     ) -> JSONResponse | None:
-        if not self.config.security_audit_enabled or self.config.app_env == "test":
+        if not self._auditing():
             return None
         try:
             await _persist_event(
@@ -236,6 +252,7 @@ class SecurityAuthorizationMiddleware(BaseHTTPMiddleware):
                 outcome=outcome,
                 reason_code=reason_code,
                 request_id=request_id,
+                correlation_id=correlation_id,
                 status_code=status_code,
                 session_factory=self.session_factory,
             )
@@ -244,11 +261,48 @@ class SecurityAuthorizationMiddleware(BaseHTTPMiddleware):
             return JSONResponse(status_code=503, content={"detail": {"code": "security_audit_unavailable"}})
         return None
 
+    async def _reconcile_stale_attempts(self) -> None:
+        """Close mutations whose outcome row never landed.
+
+        A crash between the two audit writes, or a failure of the second one,
+        leaves an ``attempted`` row that nothing else ever closes. Sweeping here
+        keeps that gap out of the trail without a scheduler: every mutation is
+        already paying for an audit round trip, and the interval keeps the extra
+        query rare. Failures are swallowed — the mutation is already committed
+        and its own outcome row is already written, so a sweep that cannot run
+        must not turn a served request into an error.
+        """
+
+        if not self._auditing():
+            return
+        now = time.monotonic()
+        if self._last_reconcile is not None and now - self._last_reconcile < RECONCILE_INTERVAL_SECONDS:
+            return
+        self._last_reconcile = now
+        closed = 0
+        try:
+            async with self.session_factory() as session:
+                reconciled = await reconcile_stale_attempts(session)
+                closed = len(reconciled)
+                if closed:
+                    await session.commit()
+        except Exception:  # noqa: BLE001 - reconciliation is best effort, never request-fatal
+            logger.exception("security audit reconciliation failed")
+            return
+        if closed:
+            logger.error(
+                "security mutations closed without a recorded outcome",
+                extra={"count": closed},
+            )
+
     async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
         rule = mutation_rule(request.method, request.url.path)
         if rule is None:
             return await call_next(request)
         request_id = _request_id(request)
+        # Ties this request's pre-mutation row to its terminal row so a missing
+        # outcome is detectable; see ``reconcile_stale_attempts``.
+        correlation_id = str(uuid4())
         try:
             resolved = self.principal_resolver.resolve(request, mutation=True)
             principal = resolved.principal
@@ -259,6 +313,7 @@ class SecurityAuthorizationMiddleware(BaseHTTPMiddleware):
                 outcome="rejected",
                 reason_code=exc.code,
                 request_id=request_id,
+                correlation_id=correlation_id,
                 status_code=exc.status_code,
             )
             return audit_failure or JSONResponse(
@@ -277,6 +332,7 @@ class SecurityAuthorizationMiddleware(BaseHTTPMiddleware):
                 outcome="rejected",
                 reason_code=denial_code,
                 request_id=request_id,
+                correlation_id=correlation_id,
                 status_code=403,
             )
             return audit_failure or JSONResponse(status_code=403, content={"detail": {"code": denial_code}})
@@ -286,6 +342,7 @@ class SecurityAuthorizationMiddleware(BaseHTTPMiddleware):
             outcome="attempted",
             reason_code=None,
             request_id=request_id,
+            correlation_id=correlation_id,
         )
         if audit_failure is not None:
             return audit_failure
@@ -299,10 +356,16 @@ class SecurityAuthorizationMiddleware(BaseHTTPMiddleware):
             outcome=outcome,
             reason_code=reason,
             request_id=request_id,
+            correlation_id=correlation_id,
             status_code=response.status_code,
         )
         if post_failure is not None:
+            # The mutation is already committed, so this cannot fail closed. The
+            # dangling ``attempted`` row it leaves behind is the durable signal:
+            # the reconciliation sweep turns it into a terminal ``failed`` row
+            # that operators reading the audit trail can see.
             logger.critical("security mutation completed but outcome audit failed", extra={"action": rule.action})
+        await self._reconcile_stale_attempts()
         return response
 
 
