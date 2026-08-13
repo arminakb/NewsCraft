@@ -1,60 +1,26 @@
 from __future__ import annotations
 
-# ruff: noqa: F401
 import hashlib
-import inspect
-from collections.abc import Callable, Iterable, Sequence
-from dataclasses import dataclass
-from datetime import UTC, datetime, timedelta
-from typing import Any, Literal, Protocol
+from collections.abc import Iterable, Sequence
+from typing import Any, Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict
-from sqlalchemy import exists, func, select
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy import exists, select
 
-from app.automations.models import AutomationDispatch, AutomationRoute
-from app.automations.telegram.decisions import (
-    classify_publication_failure,
-    reconciliation_required,
-)
-from app.core.faults import FaultInjector, NoopFaultInjector
-from app.core.redaction import redact_secrets, redact_string
-from app.db.models import ItemMedia, MediaAsset, SourceItem
-from app.generation.models import ContentPack, PlatformVariant, PlatformVariantRevision
-from app.generation.revision_validation import RevisionValidationError, validate_approvable_revision
 from app.generation.telegram_schema import (
     TelegramEvidenceCitation,
-    TelegramVariantContent,
 )
-from app.jobs.errors import NeedsReviewJobError, PermanentJobError, RetryableJobError
-from app.jobs.events import redact_event_data
-from app.jobs.models import AutomationControl, WorkflowEvent, WorkflowJob
-from app.jobs.repository import JobRepository
-from app.jobs.types import JobOrigin, JobStatus
 from app.publishing.models import (
     Destination,
-    Publication,
-    PublishAttempt,
     PublishJob,
     PublishOperationReceipt,
 )
-from app.publishing.telegram.client import (
-    TelegramClientError,
-    TelegramRateLimited,
-    TelegramRetryableBeforeDispatch,
-)
-from app.publishing.telegram.renderer import TelegramPublishNeedsReview, build_publish_plan
 from app.publishing.telegram.service_contracts import (
     PublishValidationError,
     ReconciliationCase,
     ReconciliationDestination,
     ReconciliationOperationSummary,
-    ReviewedTelegramScheduleError,
-    ReviewedTelegramScheduleRequest,
-    ReviewedTelegramScheduleResult,
 )
-from app.stories.models import StoryEvidenceSnapshot, StoryRevision
 
 _RECONCILIATION_AMBIGUITY_REASON = "Telegram send outcome is ambiguous and requires operator verification"
 

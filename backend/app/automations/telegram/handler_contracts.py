@@ -1,74 +1,27 @@
 from __future__ import annotations
 
-# ruff: noqa: F401
 import hashlib
-import json
 import logging
-from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import UTC, datetime, timedelta
+from datetime import datetime
 from typing import Any
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
-from sqlalchemy import func, select
-from sqlalchemy.exc import IntegrityError
 
 from app.automations.canonical_json import sha256_canonical
-from app.automations.models import AutomationDispatch, AutomationRoute, TelegramSourceConfig
+from app.automations.models import AutomationRoute, TelegramSourceConfig
 from app.automations.telegram.contracts import (
     TelegramEnvelope,
-    TelegramFetchRequest,
-    telegram_envelope_fingerprint,
 )
-from app.automations.telegram.decisions import (
-    classify_activation_page,
-    evaluate_backfill_eligibility,
-    evaluate_media_policy,
-    evaluate_review_policy,
-)
-from app.automations.telegram.policy import evaluate_auto_publish
-from app.automations.telegram.registry import TelegramSourceRegistry
-from app.automations.telegram.route_policy import evaluate_content_filter, next_allowed_at, retry_at
-from app.core.faults import FaultInjector, NoopFaultInjector
-from app.core.redaction import redact_secrets, redact_string
-from app.db.models import ContentItem, ItemMedia, MediaAsset, Source, SourceItem
-from app.generation.models import (
-    AIProviderProfile,
-    BrandProfile,
-    ContentPack,
-    GenerationAttempt,
-    GenerationRun,
-    PlatformVariant,
-    PlatformVariantRevision,
-    PromptTemplate,
-    PromptTemplateVersion,
-)
-from app.generation.providers.base import GenerationProviderRequest, ProviderMessage
-from app.generation.providers.openrouter import (
-    OpenRouterNeedsReviewError,
-    OpenRouterPermanentError,
-    OpenRouterRetryableError,
-)
-from app.generation.providers.profiles import ProviderProfileConfigurationError
-from app.generation.revision_fence import RegenerationFenceConflict, require_revision_write_allowed
-from app.generation.revision_validation import RevisionValidationError, validate_approvable_revision
+from app.core.redaction import redact_secrets
+from app.db.models import Source
 from app.generation.telegram_schema import (
     TelegramEvidenceCitation,
-    TelegramRewriteInput,
-    TelegramRewriteOutput,
-    TelegramVariantContent,
 )
-from app.jobs.errors import NeedsReviewJobError, PermanentJobError, RetryableJobError
-from app.jobs.events import redact_event_data
-from app.jobs.models import AutomationControl, WorkflowEvent, WorkflowJob
-from app.jobs.registry import JobContext, JobHandler
-from app.jobs.repository import JobRepository
-from app.jobs.types import JobExecution, JobOrigin, job_payload_copy
-from app.media.reference_fence import fence_platform_revision_media_write
-from app.publishing.models import Destination, PublishJob
-from app.stories.models import StoryEvidenceLink, StoryEvidenceSnapshot, StoryRevision
-from app.workflows.states import require_generation_run_transition
+from app.jobs.errors import PermanentJobError
+from app.jobs.models import AutomationControl
+from app.jobs.registry import JobHandler
 
 logger = logging.getLogger(__name__)
 
