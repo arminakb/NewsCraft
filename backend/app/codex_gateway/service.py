@@ -6,7 +6,7 @@ from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from uuid import UUID, uuid4
 
-from sqlalchemy import Select, case, or_, select
+from sqlalchemy import Select, case, delete, or_, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -127,6 +127,12 @@ class CodexGatewayService:
             CodexRateLimitBucket.window_started_at,
         )
         request_count, window_started_at = (await self.session.execute(statement)).one()
+        await self.session.execute(
+            delete(CodexRateLimitBucket).where(
+                CodexRateLimitBucket.key_hash != key_hash,
+                CodexRateLimitBucket.updated_at <= reset_before,
+            )
+        )
         if request_count > limit:
             elapsed = (now - window_started_at).total_seconds()
             retry_after = max(1, int(window_seconds - elapsed))
@@ -324,7 +330,9 @@ class CodexGatewayService:
         except GatewayError as exc:
             await self.consume_rate_limit(
                 category=endpoint_class,
-                subject=authorization or "missing",
+                # Never key a bucket on the raw header: an attacker varying it
+                # would mint a fresh counter per request and never hit the limit.
+                subject="missing" if authorization is None else "malformed",
                 limit=rate_limit,
                 window_seconds=self.config.codex_gateway_rate_window_seconds,
             )
