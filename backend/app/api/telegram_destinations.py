@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.dependencies import request_principal
 from app.api.telegram_schemas import (
     TelegramCheckOut,
     TelegramDestinationAcceptedOut,
@@ -35,7 +36,6 @@ from app.publishing.telegram.lifecycle import (
     proxy_out,
 )
 from app.publishing.telegram.routing import TelegramConfigurationError
-from app.security.auth import TEST_ADMIN, SecurityPrincipal
 from app.security.schemas import SecretWriteIn
 from app.security.secret_store import MasterKeyRing, SecretStoreError
 
@@ -47,17 +47,6 @@ def get_job_repository(session: AsyncSession = SessionDependency) -> JobReposito
     return JobRepository(session)
 
 
-def _principal(request: Request) -> SecurityPrincipal:
-    principal = getattr(request.state, "security_principal", None)
-    if isinstance(principal, SecurityPrincipal):
-        return principal
-    if settings.app_env == "test":
-        return TEST_ADMIN
-    if request.method == "GET":
-        return SecurityPrincipal("internal_service", "unauthenticated-read", frozenset())
-    raise HTTPException(401, detail={"code": "authentication_required"})
-
-
 def _service(request: Request, session: AsyncSession, *, needs_key: bool) -> TelegramLifecycleService:
     key_ring = None
     if needs_key:
@@ -65,7 +54,7 @@ def _service(request: Request, session: AsyncSession, *, needs_key: bool) -> Tel
             key_ring = MasterKeyRing.from_settings(settings)
         except SecretStoreError:
             raise HTTPException(503, detail={"code": "secret_store_unavailable"}) from None
-    return TelegramLifecycleService(session, principal=_principal(request), key_ring=key_ring)
+    return TelegramLifecycleService(session, principal=request_principal(request), key_ring=key_ring)
 
 
 def _http_error(exc: Exception) -> HTTPException:
