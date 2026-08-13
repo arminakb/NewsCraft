@@ -785,7 +785,7 @@ async def test_retry_accepts_only_attention_states(
     retried = await job_repository.retry_job(job_id=queued.job.id, now=NOW)
 
     assert retried.status == JobStatus.QUEUED
-    assert retried.origin == JobOrigin.RETRY
+    assert retried.origin == JobOrigin.AUTOMATION
     assert retried.scheduled_for == NOW
     assert retried.finished_at is None
     assert retried.error_class is None
@@ -910,9 +910,39 @@ async def test_expired_running_lease_at_attempt_limit_becomes_truthful_terminal_
         now=observed_at + timedelta(seconds=1),
     )
 
-    assert retried.origin == JobOrigin.RETRY
+    assert retried.origin == JobOrigin.AUTOMATION
     assert manually_claimed is not None and manually_claimed.id == exhausted.id
     assert manually_claimed.attempt_count == 2
+
+
+async def test_retry_preserves_origin_so_pause_exempt_work_stays_claimable(
+    job_repository: JobRepository,
+    db_session: AsyncSession,
+):
+    exempt = await job_repository.enqueue_job(
+        job_type="manual",
+        payload={},
+        idempotency_key="pause-exempt-retry",
+        origin=JobOrigin.MANUAL,
+        pause_sensitive=False,
+        max_attempts=1,
+        scheduled_for=NOW,
+    )
+    exempt.job.status = JobStatus.FAILED
+    exempt.job.finished_at = NOW
+    exempt.job.error_class = JobErrorClass.PERMANENT
+    exempt.job.error_code = "boom"
+    await db_session.flush()
+    await db_session.execute(
+        update(AutomationControl).where(AutomationControl.id == "global").values(global_pause=True)
+    )
+
+    retried = await job_repository.retry_job(job_id=exempt.job.id, now=NOW)
+
+    assert retried.origin == JobOrigin.MANUAL
+    assert retried.pause_sensitive is False
+    claimed = await job_repository.claim_next_job(worker_id="worker-1", lease_seconds=120, now=NOW)
+    assert claimed is not None and claimed.id == exempt.job.id
 
 
 async def test_list_jobs_attention_filter_returns_only_attention_newest_first(

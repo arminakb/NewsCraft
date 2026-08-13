@@ -708,7 +708,9 @@ class JobRepository:
         previous_status = str(job.status)
         observed_at = _now(now)
         job.status = JobStatus.QUEUED
-        job.origin = JobOrigin.RETRY
+        # The origin is provenance, not a retry marker: rewriting it to RETRY made a
+        # pause-exempt job (origin MANUAL, pause_sensitive False) permanently
+        # unclaimable under a global pause. The job.retried event below records the retry.
         job.scheduled_for = observed_at
         job.finished_at = None
         job.started_at = None
