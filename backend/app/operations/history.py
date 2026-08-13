@@ -373,26 +373,40 @@ def _domain_job_event_for(job_types: tuple[str, ...]):
     )
 
 
+# The one ordered taxonomy. The SQL CASE that filters a history page and the
+# Python lookup that labels each returned row are both generated from it: when
+# the two drifted, history_statement kept rows that _entry then dropped, and the
+# page-size/next-cursor arithmetic (computed before that filtering) handed the
+# client a short page with a non-null cursor.
+_EVENT_CATEGORY_RULES: tuple[tuple[tuple[str, ...], HistoryCategory], ...] = (
+    (_RECONCILE_EVENT_TYPES, "reconcile"),
+    (_RETRY_EVENT_TYPES, "retry"),
+    (_CANCEL_EVENT_TYPES, "cancel"),
+    (_PAUSE_EVENT_TYPES, "pause"),
+    (_SCHEDULE_EVENT_TYPES, "schedule"),
+    (_RESEARCH_EVENT_TYPES, "research"),
+    (_GENERATION_EVENT_TYPES, "generation"),
+    (_APPROVAL_EVENT_TYPES, "approval"),
+    (_EDIT_EVENT_TYPES, "edit"),
+    (_PUBLISH_EVENT_TYPES, "publish"),
+    (_COLLECTION_EVENT_TYPES, "collection"),
+)
+_AUTOMATION_EVENT_PREFIX = "automation."
+_JOB_CATEGORY_RULES: tuple[tuple[tuple[str, ...], HistoryCategory], ...] = (
+    (_COLLECTION_JOB_TYPES, "collection"),
+    (_RESEARCH_JOB_TYPES, "research"),
+    (_GENERATION_JOB_TYPES, "generation"),
+    (_PUBLISH_JOB_TYPES, "publish"),
+    (_AUTOMATION_JOB_TYPES, "automation"),
+)
+
+
 def _category_expression():
     event_type = WorkflowEvent.event_type
     return case(
-        (event_type.in_(_RECONCILE_EVENT_TYPES), "reconcile"),
-        (event_type.in_(_RETRY_EVENT_TYPES), "retry"),
-        (event_type.in_(_CANCEL_EVENT_TYPES), "cancel"),
-        (event_type.in_(_PAUSE_EVENT_TYPES), "pause"),
-        (event_type.in_(_SCHEDULE_EVENT_TYPES), "schedule"),
-        (event_type.in_(_RESEARCH_EVENT_TYPES), "research"),
-        (event_type.in_(_GENERATION_EVENT_TYPES), "generation"),
-        (event_type.in_(_APPROVAL_EVENT_TYPES), "approval"),
-        (event_type.in_(_EDIT_EVENT_TYPES), "edit"),
-        (event_type.in_(_PUBLISH_EVENT_TYPES), "publish"),
-        (event_type.in_(_COLLECTION_EVENT_TYPES), "collection"),
-        (event_type.like("automation.%"), "automation"),
-        (_domain_job_event_for(_COLLECTION_JOB_TYPES), "collection"),
-        (_domain_job_event_for(_RESEARCH_JOB_TYPES), "research"),
-        (_domain_job_event_for(_GENERATION_JOB_TYPES), "generation"),
-        (_domain_job_event_for(_PUBLISH_JOB_TYPES), "publish"),
-        (_domain_job_event_for(_AUTOMATION_JOB_TYPES), "automation"),
+        *((event_type.in_(event_types), category) for event_types, category in _EVENT_CATEGORY_RULES),
+        (event_type.like(f"{_AUTOMATION_EVENT_PREFIX}%"), "automation"),
+        *((_domain_job_event_for(job_types), category) for job_types, category in _JOB_CATEGORY_RULES),
         else_="unknown",
     )
 
@@ -442,41 +456,16 @@ def history_statement(
 
 
 def _category_for(event_type: str, job_type: str | None) -> HistoryCategory | None:
-    if event_type in _RECONCILE_EVENT_TYPES:
-        return "reconcile"
-    if event_type in _RETRY_EVENT_TYPES:
-        return "retry"
-    if event_type in _CANCEL_EVENT_TYPES:
-        return "cancel"
-    if event_type in _PAUSE_EVENT_TYPES:
-        return "pause"
-    if event_type in _SCHEDULE_EVENT_TYPES:
-        return "schedule"
-    if event_type in _RESEARCH_EVENT_TYPES:
-        return "research"
-    if event_type in _GENERATION_EVENT_TYPES:
-        return "generation"
-    if event_type in _APPROVAL_EVENT_TYPES:
-        return "approval"
-    if event_type in _EDIT_EVENT_TYPES:
-        return "edit"
-    if event_type in _PUBLISH_EVENT_TYPES:
-        return "publish"
-    if event_type in _COLLECTION_EVENT_TYPES:
-        return "collection"
-    if event_type.startswith("automation."):
+    """The Python half of the taxonomy, generated from the same ordered rules."""
+    for event_types, category in _EVENT_CATEGORY_RULES:
+        if event_type in event_types:
+            return category
+    if event_type.startswith(_AUTOMATION_EVENT_PREFIX):
         return "automation"
     if event_type in _DOMAIN_JOB_EVENT_TYPES and job_type is not None:
-        if job_type in _COLLECTION_JOB_TYPES:
-            return "collection"
-        if job_type in _RESEARCH_JOB_TYPES:
-            return "research"
-        if job_type in _GENERATION_JOB_TYPES:
-            return "generation"
-        if job_type in _PUBLISH_JOB_TYPES:
-            return "publish"
-        if job_type in _AUTOMATION_JOB_TYPES:
-            return "automation"
+        for job_types, category in _JOB_CATEGORY_RULES:
+            if job_type in job_types:
+                return category
     return None
 
 
