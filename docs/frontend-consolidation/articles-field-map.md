@@ -1,6 +1,11 @@
 # Articles field map
 
-Status: Phase 1 contract
+Status: Historical (2026-08-13) — Phase 1 contract, retained for its
+persistence-mapping column, which the shipped API contract does not carry. The
+`/articles` surface shipped (`backend/app/api/articles.py`, browser route
+`/feed`); for the authoritative request/response shape read
+`contracts/openapi.json`, which is drift-gated by
+`backend/tests/test_openapi_contract.py`.
 Canonical identity: `ContentItem.id`
 
 ## List fields

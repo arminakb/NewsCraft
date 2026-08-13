@@ -1,6 +1,11 @@
 # Articles data and UX contract
 
-Status: Phase 1 architectural proposal
+Status: Historical (2026-08-13) — Phase 1 architectural proposal, kept as a decision
+record. The surface shipped: `backend/app/api/articles.py`, registered in
+`backend/app/api/routes.py`, served in the browser at `/feed`.
+Live readers: the authoritative request/response shape is `contracts/openapi.json`
+(drift-gated by `backend/tests/test_openapi_contract.py`), and the per-field
+persistence mapping is [`articles-field-map.md`](articles-field-map.md).
 Date: 2026-07-21
 Scope: documentation only; no application, API, schema, or navigation changes
 
@@ -119,15 +124,8 @@ Rules:
 - Identity is `ContentItem.id`.
 - List rows exclude full body and sanitized HTML.
 - Source fields come from joined `Source`; classification metadata is fallback only for legacy/null-source records.
-- `display_at` is `published_at` when present, otherwise `sort_at`; `date_basis` states `published` or `collected`.
+- Derived and normalized field rules (`display_at`, `date_basis`, `has_image`, topic, domain, and the `ungrouped`/`incomplete`/`complete` coverage states) are defined once in [`articles-field-map.md`](articles-field-map.md); this document does not restate them.
 - Date filters use the same `display_at` expression, inclusive start and exclusive end, with timezone-aware ISO-8601 input.
-- `has_image=true` means a non-expired primary media row whose kind is `image`; `remote_only` is usable.
-- Topic is normalized taxonomy category currently stored at `metrics.classification.category`.
-- Domain is source domain currently stored at `classification_metadata.source_domain`.
-- Coverage is explicit, not overloaded:
-  - `ungrouped`: no active linked Story.
-  - `incomplete`: at least one active linked Story and none complete.
-  - `complete`: at least one active linked Story is complete.
 - Return every active Story link. Never select an arbitrary single Story when schema permits several.
 - `sort=relevance` is valid only with non-empty `q`.
 - Cursor encodes every sort key plus `ContentItem.id`; filter changes invalidate cursor.
