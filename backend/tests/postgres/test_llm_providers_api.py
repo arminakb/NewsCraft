@@ -15,6 +15,7 @@ from app.core.config import Settings
 from app.core.secrets import EnvironmentSecretResolver
 from app.db.session import get_session
 from app.generation.models import AIProviderProfile
+from app.generation.provider_identity import is_qualified_generation_profile
 from app.generation.providers.profiles import ProviderProfileResolver
 from app.generation.providers.registry import build_default_provider_registry
 from app.jobs.models import WorkflowJob
@@ -127,6 +128,13 @@ async def test_lifecycle_worker_resolution_rotation_and_dependency_protection(db
     assert resolved.provider_type == "openai_compatible"
     assert resolved.model == "model-one"
     assert resolved.provider.api_key == "first-secret-canary"
+    assert is_qualified_generation_profile(shadow, application_settings=config) is True
+    assert resolved.max_output_tokens == provider.settings["max_output_tokens"]
+    assert resolved.max_attempts is not None
+    assert resolved.max_pack_cost_usd is not None
+    assert resolved.max_elapsed_seconds is not None
+    assert resolved.pricing_input_usd_per_million is not None
+    assert resolved.pricing_output_usd_per_million is not None
     await resolved.provider.http_client.aclose()
 
     first_ciphertext = (await db_session.get(EncryptedSecret, provider.secret_id)).ciphertext

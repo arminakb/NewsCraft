@@ -26,6 +26,7 @@ from app.llm_providers.schemas import (
     LLMProviderPatch,
     LLMProviderSettings,
     effective_llm_provider_settings,
+    generation_policy_for_provider,
 )
 from app.research.models import ResearchRun
 from app.security.auth import SecurityPrincipal
@@ -69,6 +70,7 @@ def _legacy_settings(provider: LLMProvider) -> dict[str, Any]:
         "app_title": attribution.app_title,
         "pricing": configured.pricing.model_dump(mode="json"),
         "research_budgets": configured.research_budgets.model_dump(mode="json"),
+        "generation_policy": generation_policy_for_provider(configured).model_dump(mode="json"),
     }
 
 

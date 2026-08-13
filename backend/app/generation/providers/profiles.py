@@ -27,7 +27,7 @@ from app.generation.providers.openai_compatible import OpenAICompatibleProvider
 from app.generation.providers.openrouter import OpenRouterProvider
 from app.generation.providers.registry import ProviderRegistry
 from app.llm_providers.models import LLMProvider
-from app.llm_providers.schemas import effective_llm_provider_settings
+from app.llm_providers.schemas import effective_llm_provider_settings, generation_policy_for_provider
 from app.security.auth import SecurityPrincipal
 from app.security.models import EncryptedSecret
 from app.security.scopes import parse_scopes
@@ -333,10 +333,17 @@ class ProviderProfileResolver:
             "app_title": attribution.app_title,
         }
         client = self.http_client_factory(**http_kwargs)
+        policy = generation_policy_for_provider(configured)
         return ResolvedProviderProfile(
             profile_id=generic.id,
             provider_type="openai_compatible",
             model=model_override or generic.default_model,
+            max_output_tokens=policy.max_output_tokens,
+            max_attempts=policy.max_attempts,
+            max_pack_cost_usd=policy.max_pack_cost_usd,
+            max_elapsed_seconds=policy.max_elapsed_seconds,
+            pricing_input_usd_per_million=configured.pricing.input_usd_per_million,
+            pricing_output_usd_per_million=configured.pricing.output_usd_per_million,
             provider=OpenAICompatibleProvider(http_client=client, api_key=api_key, **http_kwargs),
         )
 

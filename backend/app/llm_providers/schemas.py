@@ -10,6 +10,7 @@ from pydantic import BaseModel, ConfigDict, Field, HttpUrl, SecretStr, field_val
 
 from app.generation.provider_settings import (
     ProviderPricingSettings,
+    QualifiedGenerationPolicy,
     ResearchBudgetsSettings,
     default_research_budgets,
 )
@@ -50,6 +51,23 @@ def effective_llm_provider_settings(value: Mapping[str, object]) -> LLMProviderS
     if normalized.get("pricing") is None:
         normalized["pricing"] = defaults.pricing.model_dump(mode="json")
     return LLMProviderSettings.model_validate(normalized)
+
+
+def generation_policy_for_provider(value: LLMProviderSettings) -> QualifiedGenerationPolicy:
+    """Derive the per-call generation policy for an operator-managed provider.
+
+    Operator-managed providers qualify through the connection test
+    (``generation_capability == "ready"``) rather than through hand-written
+    policy JSON, so the policy is derived from the provider's own settings and
+    the immutable defaults for attempts, cost, and elapsed budgets. Without it
+    every operator-created provider is both rejected as unqualified and, once
+    resolved, executed with no per-call budget at all.
+    """
+
+    return QualifiedGenerationPolicy(
+        qualification_status="qualified",
+        max_output_tokens=value.max_output_tokens,
+    )
 
 
 class LLMProviderCreate(BaseModel):
@@ -143,4 +161,5 @@ __all__ = [
     "LLMProviderPatch",
     "LLMProviderSettings",
     "effective_llm_provider_settings",
+    "generation_policy_for_provider",
 ]
