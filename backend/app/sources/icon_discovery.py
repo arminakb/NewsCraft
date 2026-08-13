@@ -569,9 +569,9 @@ class SourceIconDiscoveryService:
                         max_bytes=self.config.source_icon_discovery_max_bytes,
                         source_id=target.id,
                     )
+                    website_base = str(website_response.url)
                     content_type = _content_type(website_response)
                     if content_type in {None, "text/html", "application/xhtml+xml"}:
-                        website_base = str(website_response.url)
                         website_candidates = extract_website_icon_candidates(
                             website_response.content,
                             website_base,

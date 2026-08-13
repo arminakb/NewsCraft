@@ -130,6 +130,31 @@ async def test_discovery_accepts_jpg_alias_for_jpeg_bytes():
 
 
 @pytest.mark.asyncio
+async def test_conventional_favicon_follows_website_redirect_for_non_html():
+    feed = b"""<rss version="2.0"><channel><link>https://publisher.test/</link></channel></rss>"""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.host == "feed.test":
+            return httpx.Response(200, content=feed, headers={"content-type": "application/rss+xml"})
+        if request.url.host == "publisher.test":
+            return httpx.Response(301, headers={"location": "https://www.publisher.test/"})
+        if request.url.host == "www.publisher.test":
+            if request.url.path == "/":
+                return httpx.Response(200, content=b"landing", headers={"content-type": "text/plain"})
+            if request.url.path == "/favicon.ico":
+                return httpx.Response(200, content=PNG_1X1, headers={"content-type": "image/x-icon"})
+        return httpx.Response(404, content=b"missing")
+
+    result = await _service(handler).discover(
+        SourceIconTarget(uuid4(), "rss", "https://feed.test/feed", None)
+    )
+
+    assert result.status == "resolved"
+    assert result.icon_source == "conventional_favicon"
+    assert result.original_url == "https://www.publisher.test/favicon.ico"
+
+
+@pytest.mark.asyncio
 async def test_oversized_server_error_page_stays_retryable():
     oversized_error_page = b"x" * 20_000
 
