@@ -785,55 +785,7 @@ Harden the complete production slice, prove migration and restart safety, update
 
 ### Verification criteria
 
-Run the repository-pinned environments and record exact results.
-
-Backend/static/contract:
-
-```bash
-cd backend
-.venv/bin/python -m pytest tests/test_automation_workflow_schema.py tests/test_automation_compiler.py tests/api/test_automations.py tests/api/test_automation_runs.py -v
-.venv/bin/python -m pytest tests/test_job_worker.py tests/test_scheduler.py tests/test_telegram_route_handlers.py tests/test_telegram_process_handler.py tests/test_telegram_publish_service.py -v
-.venv/bin/python -m mypy app
-.venv/bin/ruff check . ../scripts
-.venv/bin/alembic upgrade head
-.venv/bin/alembic current
-.venv/bin/alembic check
-cd ..
-backend/.venv/bin/python scripts/quality_baseline.py --check
-```
-
-PostgreSQL/integration/recovery:
-
-```bash
-scripts/test_postgres.sh \
-  tests/postgres/test_automation_definitions.py \
-  tests/postgres/test_automation_execution.py \
-  tests/postgres/test_automation_run_projection.py \
-  tests/postgres/test_scheduler_worker_integration.py \
-  tests/postgres/test_telegram_process_handler.py \
-  tests/postgres/test_telegram_publish_service.py \
-  tests/integration/test_publish_crash_recovery.py
-scripts/test_acceptance.sh
-```
-
-Frontend/browser:
-
-```bash
-cd frontend
-env -u NODE_ENV npm run test
-npm run typecheck
-npm run build
-npm run test:e2e
-```
-
-Repository hygiene and deployment contracts:
-
-```bash
-cd ..
-git diff --check
-cd backend
-.venv/bin/python -m pytest tests/test_openapi_contract.py tests/test_docker_config.py tests/test_ci_workflows.py -v
-```
+Run the repository-pinned environments and record exact results. The gate itself is not restated here: the registered gate lives in [`CLAUDE.md`](CLAUDE.md) (“Gates”), and the exact focused command sequence used for this work — including the `DATABASE_URL`-qualified `alembic current`/`alembic check` invocations and the isolated acceptance ports — is recorded verbatim under “Exact commands” in [`automation-workflow-builder-phase-6.md`](docs/implementation-notes/automation-workflow-builder-phase-6.md#exact-commands). Never run a bare `alembic upgrade head`: the test scripts own disposable databases, and an unqualified upgrade migrates whatever the default settings resolve to.
 
 Release assertions:
 
