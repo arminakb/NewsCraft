@@ -40,7 +40,7 @@ class _Session:
     def __init__(self):
         self.active = False
 
-    def begin(self, _label=None):
+    def begin(self):
         return _Transaction(self)
 
     def in_transaction(self):

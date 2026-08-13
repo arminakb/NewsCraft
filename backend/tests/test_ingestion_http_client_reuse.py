@@ -21,7 +21,7 @@ class _Transaction(AbstractAsyncContextManager):
 
 
 class _Session:
-    def begin(self, label=None):
+    def begin(self):
         return _Transaction()
 
     def in_transaction(self):

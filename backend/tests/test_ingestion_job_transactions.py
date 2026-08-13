@@ -19,18 +19,19 @@ from app.sources.base import MediaCandidate, ParsedSourceItem, ParsedSourcePaylo
 
 
 class TrackedTransaction(AbstractAsyncContextManager):
-    def __init__(self, session, label):
+    """Records transaction boundaries; the work done inside names each phase."""
+
+    def __init__(self, session):
         self.session = session
-        self.label = label
 
     async def __aenter__(self):
         assert self.session.active is False
         self.session.active = True
-        self.session.events.append(f"begin:{self.label}")
+        self.session.events.append("begin")
 
     async def __aexit__(self, exc_type, exc, tb):
         self.session.active = False
-        self.session.events.append(f"rollback:{self.label}" if exc else f"commit:{self.label}")
+        self.session.events.append("rollback" if exc else "commit")
 
 
 class TransactionTrackingSession:
@@ -38,8 +39,8 @@ class TransactionTrackingSession:
         self.active = False
         self.events = []
 
-    def begin(self, label=None):
-        return TrackedTransaction(self, label or "unknown")
+    def begin(self):
+        return TrackedTransaction(self)
 
     def in_transaction(self):
         return self.active
@@ -69,7 +70,11 @@ class BoundaryWorkflow(IngestionWorkflow):
         self.failure_calls = []
         self.finished = []
 
+    def _record(self, event):
+        self._active_session.events.append(event)
+
     async def prepare_run(self, session, *, platforms, source_ids, trigger):
+        self._record("prepare")
         return PreparedIngestionRun(run_id=uuid4(), sources=(self.source,))
 
     async def fetch_source(self, source, *, client=None):
@@ -92,14 +97,17 @@ class BoundaryWorkflow(IngestionWorkflow):
         )
 
     async def persist_source(self, session, *, run_id, batch):
+        self._record(f"persist:{batch.source.name}")
         self.persist_calls.append(batch.source.name)
         return SourcePersistResult(fetched=1)
 
     async def record_source_failure(self, session, *, run_id, source, error):
+        self._record(f"failure:{source.name}")
         self.failure_calls.append((source.name, str(error)))
         return SourcePersistResult(failed=1, errors=({"source": source.name, "error": str(error)},))
 
     async def finish_run(self, session, *, run_id, stats):
+        self._record("finish")
         self.finished.append((run_id, stats.copy()))
 
     async def run(self, *, session, **kwargs):
@@ -117,12 +125,15 @@ async def test_ingestion_handler_has_no_database_transaction_during_source_netwo
     assert result["failed"] == 0
     assert workflow.fetch_calls == ["source-1"]
     assert session.events == [
-        "begin:prepare",
-        "commit:prepare",
-        "begin:persist:source-1",
-        "commit:persist:source-1",
-        "begin:finish",
-        "commit:finish",
+        "begin",
+        "prepare",
+        "commit",
+        "begin",
+        "persist:source-1",
+        "commit",
+        "begin",
+        "finish",
+        "commit",
     ]
 
 
@@ -136,12 +147,15 @@ async def test_fetch_failure_happens_outside_transaction_then_records_short_fail
     assert result["failed"] == 1
     assert workflow.failure_calls == [("source-1", "network down")]
     assert session.events == [
-        "begin:prepare",
-        "commit:prepare",
-        "begin:failure:source-1",
-        "commit:failure:source-1",
-        "begin:finish",
-        "commit:finish",
+        "begin",
+        "prepare",
+        "commit",
+        "begin",
+        "failure:source-1",
+        "commit",
+        "begin",
+        "finish",
+        "commit",
     ]
 
 
@@ -234,7 +248,7 @@ async def test_cancellation_between_fetch_and_persistence_leaves_recoverable_run
     assert workflow.persist_calls == []
     assert workflow.failure_calls == []
     assert workflow.finished == []
-    assert session.events == ["begin:prepare", "commit:prepare"]
+    assert session.events == ["begin", "prepare", "commit"]
 
 
 @pytest.mark.asyncio
@@ -247,9 +261,11 @@ async def test_exception_escaping_the_source_loop_marks_the_run_failed_before_pr
             self.aborted = []
 
         async def record_source_failure(self, session, *, run_id, source, error):
+            self._record(f"failure:{source.name}")
             raise RuntimeError("failure bookkeeping exploded")
 
         async def abort_run(self, session, *, run_id, stats, error):
+            self._record("abort")
             self.aborted.append((run_id, stats, error))
 
     session = TransactionTrackingSession()
@@ -264,12 +280,15 @@ async def test_exception_escaping_the_source_loop_marks_the_run_failed_before_pr
     assert aborted_error == "failure bookkeeping exploded"
     assert aborted_stats["checked"] == 1
     assert session.events == [
-        "begin:prepare",
-        "commit:prepare",
-        "begin:failure:source-1",
-        "rollback:failure:source-1",
-        "begin:abort",
-        "commit:abort",
+        "begin",
+        "prepare",
+        "commit",
+        "begin",
+        "failure:source-1",
+        "rollback",
+        "begin",
+        "abort",
+        "commit",
     ]
 
 
@@ -284,6 +303,7 @@ async def test_finish_run_failure_still_marks_the_run_failed():
             raise RuntimeError("finish exploded")
 
         async def abort_run(self, session, *, run_id, stats, error):
+            self._record("abort")
             self.aborted.append((run_id, stats, error))
 
     session = TransactionTrackingSession()
@@ -294,10 +314,16 @@ async def test_finish_run_failure_still_marks_the_run_failed():
 
     assert len(workflow.aborted) == 1
     assert workflow.aborted[0][2] == "finish exploded"
-    assert session.events[-2:] == ["begin:abort", "commit:abort"]
+    assert session.events[-3:] == ["begin", "abort", "commit"]
 
 
 class StagedTransaction(AbstractAsyncContextManager):
+    """Records boundaries plus the writes each transaction actually carried.
+
+    The staged kinds identify the phase far more directly than a label the
+    workflow hands the session would.
+    """
+
     def __init__(self, session, label, *, nested=False):
         self.session = session
         self.label = label
@@ -311,14 +337,15 @@ class StagedTransaction(AbstractAsyncContextManager):
 
     async def __aexit__(self, exc_type, exc, tb):
         staged = self.session.pending.pop()
+        wrote = "+".join(kind for kind, _ in staged) or "nothing"
         if exc:
-            self.session.events.append(f"rollback:{self.label}")
+            self.session.events.append(f"rollback:{self.label}:{wrote}")
             return None
         if self.session.pending:
             self.session.pending[-1].extend(staged)
         else:
             self.session.committed.extend(staged)
-        self.session.events.append(f"commit:{self.label}")
+        self.session.events.append(f"commit:{self.label}:{wrote}")
         return None
 
 
@@ -329,8 +356,8 @@ class ProductionWorkflowSession:
         self.pending = []
         self.committed = []
 
-    def begin(self, label=None):
-        return StagedTransaction(self, label or "unknown")
+    def begin(self):
+        return StagedTransaction(self, "top")
 
     def begin_nested(self):
         return StagedTransaction(self, "savepoint", nested=True)
@@ -472,14 +499,14 @@ async def test_real_workflow_parser_failure_preserves_fetched_raw_evidence_and_r
     assert raw["headers"]["etag"] == "fresh-etag"
     assert raw["raw_text"] == "<rss />"
     assert _top_level_events(session) == [
-        "begin:prepare",
-        "commit:prepare",
-        "begin:persist:source-1",
-        "commit:persist:source-1",
-        "begin:failure:source-1",
-        "commit:failure:source-1",
-        "begin:finish",
-        "commit:finish",
+        "begin:top",
+        "commit:top:run",
+        "begin:top",
+        "commit:top:raw",
+        "begin:top",
+        "commit:top:nothing",
+        "begin:top",
+        "commit:top:finish",
     ]
 
 
@@ -512,12 +539,12 @@ async def test_real_workflow_media_failure_preserves_raw_evidence_and_rolls_back
     assert "source_item" not in committed_kinds
     assert "content_item" not in committed_kinds
     assert _top_level_events(session) == [
-        "begin:prepare",
-        "commit:prepare",
-        "begin:persist:source-1",
-        "commit:persist:source-1",
-        "begin:failure:source-1",
-        "commit:failure:source-1",
-        "begin:finish",
-        "commit:finish",
+        "begin:top",
+        "commit:top:run",
+        "begin:top",
+        "commit:top:raw",
+        "begin:top",
+        "commit:top:nothing",
+        "begin:top",
+        "commit:top:finish",
     ]

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Awaitable, Callable, Mapping
-from contextlib import asynccontextmanager, suppress
+from contextlib import suppress
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from types import MappingProxyType
@@ -115,17 +115,6 @@ def _snapshot_source_record(source: IngestRunSourceSnapshot) -> PreparedSource:
         etag=source.etag,
         last_modified=source.last_modified,
     )
-
-
-@asynccontextmanager
-async def _transaction(session: AsyncSession, label: str):
-    begin: Any = session.begin
-    try:
-        context = begin(label)
-    except TypeError:
-        context = begin()
-    async with context:
-        yield
 
 
 def _has_transaction(session: AsyncSession) -> bool:
@@ -419,7 +408,7 @@ class IngestionWorkflow:
         try:
             if _has_transaction(session):
                 await session.rollback()
-            async with _transaction(session, "abort"):
+            async with session.begin():
                 await self.abort_run(
                     session,
                     run_id=run_id,
@@ -512,7 +501,7 @@ class IngestionWorkflow:
         }
         if ingest_run_id is not None:
             prepare_kwargs["ingest_run_id"] = ingest_run_id
-        async with _transaction(session, "prepare"):
+        async with session.begin():
             prepared = await self.prepare_run(session, **prepare_kwargs)
 
         stats: dict[str, Any] = {
@@ -551,7 +540,7 @@ class IngestionWorkflow:
                     progress_error: str | None = None
                     if fetch_error is not None:
                         progress_error = str(fetch_error)
-                        async with _transaction(session, f"failure:{source.name}"):
+                        async with session.begin():
                             persisted = await self.record_source_failure(
                                 session,
                                 run_id=prepared.run_id,
@@ -561,13 +550,13 @@ class IngestionWorkflow:
                     else:
                         assert batch is not None
                         try:
-                            async with _transaction(session, f"persist:{source.name}"):
+                            async with session.begin():
                                 persisted = await self.persist_source(session, run_id=prepared.run_id, batch=batch)
                         except asyncio.CancelledError:
                             raise
                         except Exception as exc:  # noqa: BLE001 - persist failures remain source-scoped
                             progress_error = str(exc)
-                            async with _transaction(session, f"failure:{source.name}"):
+                            async with session.begin():
                                 persisted = await self.record_source_failure(
                                     session,
                                     run_id=prepared.run_id,
@@ -580,7 +569,7 @@ class IngestionWorkflow:
                     if persisted.processing_failure is not None:
                         failure = persisted.processing_failure
                         progress_error = failure.message
-                        async with _transaction(session, f"failure:{source.name}"):
+                        async with session.begin():
                             classified = await self.record_source_failure(
                                 session,
                                 run_id=prepared.run_id,
@@ -591,7 +580,7 @@ class IngestionWorkflow:
 
                     source_failed = bool(fetch_error or persisted.failed or persisted.processing_failure)
                     if prepared.collection_snapshot:
-                        async with _transaction(session, f"progress:{source.name}"):
+                        async with session.begin():
                             await self._record_collection_progress(
                                 session,
                                 prepared=prepared,
@@ -626,7 +615,7 @@ class IngestionWorkflow:
                 await run_client.aclose()
 
         try:
-            async with _transaction(session, "finish"):
+            async with session.begin():
                 safe_stats = _sanitized_stats(stats)
                 await self.finish_run(
                     session,
