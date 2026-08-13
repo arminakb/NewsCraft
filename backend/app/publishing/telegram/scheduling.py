@@ -13,6 +13,7 @@ from pydantic import BaseModel, ConfigDict
 from sqlalchemy import exists, func, select
 from sqlalchemy.exc import IntegrityError
 
+from app.automations.canonical_json import sha256_canonical
 from app.automations.models import AutomationDispatch, AutomationRoute
 from app.automations.telegram.decisions import (
     classify_publication_failure,
@@ -61,15 +62,7 @@ from app.stories.models import StoryEvidenceSnapshot, StoryRevision
 
 
 def _canonical_hash(value: Any) -> str:
-    import json
-
-    encoded = json.dumps(
-        value,
-        ensure_ascii=False,
-        sort_keys=True,
-        separators=(",", ":"),
-    ).encode("utf-8")
-    return hashlib.sha256(encoded).hexdigest()
+    return sha256_canonical(value)
 
 
 def _schedule_utc(value: datetime, *, field: str) -> datetime:

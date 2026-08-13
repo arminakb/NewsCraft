@@ -117,7 +117,9 @@ async def test_retry_failed_job_returns_updated_job_and_commits():
 
     assert response.status_code == 200
     assert response.json()["status"] == "queued"
-    assert response.json()["origin"] == "retry"
+    # Retry keeps the job's provenance: rewriting a pause-exempt manual job to
+    # origin "retry" made it unclaimable under a global pause.
+    assert response.json()["origin"] == "manual"
     assert session.committed is True
     assert session.trace == ["flush", "refresh", "commit"]
 

@@ -14,6 +14,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_valida
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 
+from app.automations.canonical_json import sha256_canonical
 from app.automations.models import AutomationDispatch, AutomationRoute, TelegramSourceConfig
 from app.automations.telegram.contracts import (
     TelegramEnvelope,
@@ -80,16 +81,6 @@ def _redacted_dict(value: object) -> dict[str, Any]:
 def _redacted_list(value: object) -> list[Any]:
     redacted = redact_secrets(value)
     return redacted if isinstance(redacted, list) else []
-
-
-def sha256_canonical(value: Any) -> str:
-    encoded = json.dumps(
-        value,
-        ensure_ascii=False,
-        sort_keys=True,
-        separators=(",", ":"),
-    ).encode("utf-8")
-    return hashlib.sha256(encoded).hexdigest()
 
 
 def generation_input_hash(request_payload: dict[str, Any]) -> str | None:
