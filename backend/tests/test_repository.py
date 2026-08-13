@@ -2,6 +2,7 @@ from datetime import UTC, datetime
 from decimal import Decimal
 from uuid import uuid4
 
+import pytest
 from sqlalchemy.dialects import postgresql
 
 from app.db.models import MediaAsset, Source
@@ -158,6 +159,42 @@ def test_identity_upserts_match_partial_unique_indexes():
 
     assert "ON CONFLICT (identity_type, identity_hash) WHERE scope = 'global' AND is_strong" in global_sql
     assert "ON CONFLICT (source_id, identity_type, identity_hash) WHERE scope = 'source' AND is_strong" in source_sql
+
+
+def test_weak_source_identity_upsert_targets_the_weak_unique_index():
+    values = {
+        "content_item_id": uuid4(),
+        "source_item_id": uuid4(),
+        "identity_type": "title_date_fingerprint",
+        "identity_value": "headline|2026-08-13",
+        "identity_hash": "hash",
+        "scope": "source",
+        "source_id": uuid4(),
+        "confidence": Decimal("0.55"),
+        "is_strong": False,
+    }
+
+    weak_sql = str(_identity_insert_statement(values).compile(dialect=postgresql.dialect()))
+
+    assert "ON CONFLICT (source_id, identity_type, identity_hash) WHERE scope = 'source' AND NOT is_strong" in weak_sql
+    assert "DO UPDATE" in weak_sql
+
+
+def test_identity_upsert_rejects_scopes_without_a_unique_index():
+    values = {
+        "content_item_id": uuid4(),
+        "source_item_id": uuid4(),
+        "identity_type": "title_date_fingerprint",
+        "identity_value": "headline|2026-08-13",
+        "identity_hash": "hash",
+        "scope": "global",
+        "source_id": None,
+        "confidence": Decimal("0.55"),
+        "is_strong": False,
+    }
+
+    with pytest.raises(ValueError, match="Unsupported identity scope"):
+        _identity_insert_statement(values)
 
 
 def test_repository_exposes_plan_methods():

@@ -35,6 +35,8 @@ from app.sources.base import MediaCandidate, ParsedSourceItem
 
 GLOBAL_STRONG_IDENTITY_INDEX_WHERE = text("scope = 'global' AND is_strong")
 SOURCE_STRONG_IDENTITY_INDEX_WHERE = text("scope = 'source' AND is_strong")
+SOURCE_WEAK_IDENTITY_INDEX_WHERE = text("scope = 'source' AND NOT is_strong")
+LIVE_MEDIA_ASSET_INDEX_WHERE = text("fetch_status <> 'expired'")
 DISCOVERY_SOURCE_DEFINITIONS = {
     "gdelt": {
         "name": "GDELT",
@@ -389,11 +391,7 @@ class IngestionRepository:
                 "source_item_id": source_item_id,
                 "source_id": identity["source_id"] or source_id,
             }
-            stmt = _identity_insert_statement(values)
-            if stmt is not None:
-                await self.session.execute(stmt)
-            else:
-                self.session.add(ItemIdentity(**values))
+            await self.session.execute(_identity_insert_statement(values))
         await self.session.flush()
 
     async def upsert_media_assets(self, parsed_item: ParsedSourceItem) -> list[MediaAsset]:
@@ -403,7 +401,21 @@ class IngestionRepository:
         await self.session.execute(text("LOCK TABLE content_items, item_media, media_assets IN ROW EXCLUSIVE MODE"))
         assets: list[MediaAsset] = []
         for candidate in parsed_item.media_candidates:
-            url_hash = hash_value(candidate.normalized_url)
+            assets.append(await self._upsert_media_asset(candidate))
+        await self.session.flush()
+        return assets
+
+    async def _upsert_media_asset(self, candidate: MediaCandidate) -> MediaAsset:
+        """Bind one candidate to exactly one live media asset row.
+
+        A bare select-then-insert let two concurrent ingest sessions create the
+        same asset twice (the table lock is self-compatible and the row lock
+        matches nothing when the select misses). The insert now carries the
+        live-url_hash conflict target, so at most one writer wins and the loser
+        re-reads the winner's row.
+        """
+        url_hash = hash_value(candidate.normalized_url)
+        for _attempt in range(3):
             existing = await self.session.scalar(
                 select(MediaAsset)
                 .where(
@@ -415,15 +427,24 @@ class IngestionRepository:
                 .with_for_update()
                 .execution_options(populate_existing=True)
             )
-            if existing:
+            if existing is not None:
                 _apply_media_candidate(existing, candidate, url_hash)
-                assets.append(existing)
-                continue
-            asset = MediaAsset(**_media_asset_values(candidate, url_hash))
-            self.session.add(asset)
-            assets.append(asset)
-        await self.session.flush()
-        return assets
+                return existing
+
+            inserted = (
+                await self.session.execute(
+                    insert(MediaAsset)
+                    .values(**_media_asset_values(candidate, url_hash))
+                    .on_conflict_do_nothing(
+                        index_elements=[MediaAsset.url_hash],
+                        index_where=LIVE_MEDIA_ASSET_INDEX_WHERE,
+                    )
+                    .returning(MediaAsset)
+                )
+            ).scalar_one_or_none()
+            if inserted is not None:
+                return inserted
+        raise RuntimeError(f"Unable to resolve a media asset for url hash {url_hash}")
 
     async def attach_item_media(
         self,
@@ -521,27 +542,43 @@ def _source_item_values(
 
 
 def _identity_insert_statement(values: dict[str, Any]):
-    if not values["is_strong"]:
-        return None
+    """Build the conflict-aware INSERT for one identity row.
 
+    Every identity NewsCraft writes must land on a partial unique index, so a
+    repeated ingest cycle updates the existing row instead of appending a new
+    one. Any scope/strength combination without a matching index is rejected
+    loudly rather than degrading to an unbounded plain INSERT.
+    """
     stmt = insert(ItemIdentity).values(**values)
     update_values = {
         "content_item_id": values["content_item_id"],
         "source_item_id": values["source_item_id"],
     }
-    if values["scope"] == "global":
-        return stmt.on_conflict_do_update(
-            index_elements=[ItemIdentity.identity_type, ItemIdentity.identity_hash],
-            index_where=GLOBAL_STRONG_IDENTITY_INDEX_WHERE,
-            set_=update_values,
-        )
-    if values["scope"] == "source":
+    scope = values["scope"]
+    if values["is_strong"]:
+        if scope == "global":
+            return stmt.on_conflict_do_update(
+                index_elements=[ItemIdentity.identity_type, ItemIdentity.identity_hash],
+                index_where=GLOBAL_STRONG_IDENTITY_INDEX_WHERE,
+                set_=update_values,
+            )
+        if scope == "source":
+            return stmt.on_conflict_do_update(
+                index_elements=[ItemIdentity.source_id, ItemIdentity.identity_type, ItemIdentity.identity_hash],
+                index_where=SOURCE_STRONG_IDENTITY_INDEX_WHERE,
+                set_=update_values,
+            )
+    elif scope == "source":
         return stmt.on_conflict_do_update(
             index_elements=[ItemIdentity.source_id, ItemIdentity.identity_type, ItemIdentity.identity_hash],
-            index_where=SOURCE_STRONG_IDENTITY_INDEX_WHERE,
-            set_=update_values,
+            index_where=SOURCE_WEAK_IDENTITY_INDEX_WHERE,
+            set_={
+                **update_values,
+                "identity_value": values["identity_value"],
+                "confidence": values["confidence"],
+            },
         )
-    return None
+    raise ValueError(f"Unsupported identity scope/strength combination: {scope}/{values['is_strong']}")
 
 
 def plan_rewrite_candidate(content_item: ContentItem) -> dict[str, Any]:
