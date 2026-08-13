@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import re
 from datetime import UTC, datetime, time, timedelta
-from typing import cast
+from typing import SupportsInt, cast
 from uuid import UUID, uuid4
 from zoneinfo import ZoneInfo
 
@@ -11,7 +11,16 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.automations.canonical_json import sha256_canonical
 from app.automations.definitions.artifacts import make_artifact, normalize_artifact, summary_with_artifact
-from app.automations.definitions.compiler import CompiledWorkflowPlan, verify_compiled_plan
+from app.automations.definitions.compiler import (
+    CompiledWorkflowPlan,
+    verify_compiled_plan,
+)
+from app.automations.definitions.compiler import (
+    node_map as _node_map,
+)
+from app.automations.definitions.compiler import (
+    stage as _stage,
+)
 from app.automations.definitions.errors import AutomationDefinitionError
 from app.automations.definitions.models import (
     Automation,
@@ -46,17 +55,6 @@ def _uuid(value: object, field: str) -> UUID:
         return UUID(str(value))
     except (ValueError, TypeError):
         raise _error("automation_activation_invalid", 409, f"Compiled {field} reference is invalid.") from None
-
-
-def _stage(plan: CompiledWorkflowPlan, node_type: str):
-    return next((item for item in plan.stages if item.node_type == node_type), None)
-
-
-def _node_map(plan: CompiledWorkflowPlan) -> dict[str, list[str]]:
-    result: dict[str, list[str]] = {}
-    for stage in plan.stages:
-        result.setdefault(stage.node_type, []).append(stage.node_id)
-    return result
 
 
 _PRIVATE_PROJECTION_KEY = re.compile(
@@ -126,6 +124,19 @@ def _next_schedule_run(config: dict[str, object], now: datetime) -> datetime:
     if candidate <= local_now:
         candidate += timedelta(days=1)
     return candidate.astimezone(UTC)
+
+
+def requested_platforms(config: dict[str, object]) -> list[PlatformName]:
+    """Read a generation node's requested platforms, defaulting to Telegram.
+
+    Mirrors the historical ``list(config.get("platforms") or ["telegram"])``
+    the run starters used, but keeps the value typed.
+    """
+
+    raw_platforms = config.get("platforms")
+    if isinstance(raw_platforms, list) and raw_platforms:
+        return [cast(PlatformName, str(item)) for item in raw_platforms]
+    return ["telegram"]
 
 
 async def require_exact_generation_prompts(
@@ -210,7 +221,9 @@ async def materialize_runtime_projection(
         schedule.timezone = str(config.get("timezone") or "Asia/Tehran")
         schedule.local_time = str(config["local_time"]) if config.get("local_time") is not None else None
         schedule.interval_minutes = (
-            int(config["interval_minutes"]) if config.get("interval_minutes") is not None else None
+            int(cast("SupportsInt | str", config["interval_minutes"]))
+            if config.get("interval_minutes") is not None
+            else None
         )
         schedule.next_run_at = _next_schedule_run(config, now)
         schedule.enabled = True
@@ -336,7 +349,7 @@ class AutomationExecutionService:
             raise _error("automation_resource_unavailable", 409, "Story revision is unavailable.")
         provider_id = _uuid(generate.config.get("provider_profile_id"), "provider")
         brand_id = _uuid(generate.config.get("editorial_profile_id"), "editorial profile")
-        platforms = list(generate.config.get("platforms") or ["telegram"])
+        platforms = requested_platforms(generate.config)
         await require_exact_generation_prompts(self.session, generate_config=generate.config)
         research = _stage(plan, "research")
         now = datetime.now(UTC)

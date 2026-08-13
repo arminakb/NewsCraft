@@ -13,7 +13,13 @@ from app.automations.definitions.collection_events import (
     COLLECTION_ARTICLE_ADDED_EVENT,
     COLLECTION_ARTICLE_ADDED_TRIGGER,
 )
-from app.automations.definitions.compiler import CompilationError, verify_compiled_plan
+from app.automations.definitions.compiler import (
+    CompilationError,
+    verify_compiled_plan,
+)
+from app.automations.definitions.compiler import (
+    stage as _stage,
+)
 from app.automations.definitions.errors import AutomationDefinitionError
 from app.automations.definitions.execution import require_exact_generation_prompts
 from app.automations.definitions.models import Automation, AutomationNodeRun, AutomationRun, AutomationVersion
@@ -148,10 +154,6 @@ async def _finish_run(
         error_message=error_message,
         output=output,
     )
-
-
-def _stage(plan: Any, node_type: str) -> Any | None:
-    return next((item for item in plan.stages if item.node_type == node_type), None)
 
 
 def _config_uuid(config: dict[str, object], field: str) -> UUID:

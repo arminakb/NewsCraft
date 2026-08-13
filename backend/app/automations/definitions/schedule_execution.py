@@ -13,8 +13,16 @@ from app.automations.definitions.collection_execution import (
     COLLECTION_ARTICLE_ADDED_TRIGGER,
     handle_collection_article_added,
 )
-from app.automations.definitions.compiler import verify_compiled_plan
-from app.automations.definitions.execution import require_exact_generation_prompts
+from app.automations.definitions.compiler import (
+    node_map as _node_map,
+)
+from app.automations.definitions.compiler import (
+    stage as _stage,
+)
+from app.automations.definitions.compiler import (
+    verify_compiled_plan,
+)
+from app.automations.definitions.execution import requested_platforms, require_exact_generation_prompts
 from app.automations.definitions.models import Automation, AutomationNodeRun, AutomationRun, AutomationVersion
 from app.automations.definitions.schemas import WorkflowGraphV1
 from app.automations.definitions.source_events import SOURCE_ITEM_CREATED_TRIGGER
@@ -35,17 +43,6 @@ class ScheduledAutomationPayload(BaseModel):
 
     automation_id: UUID
     automation_version_id: UUID
-
-
-def _stage(plan: Any, node_type: str) -> Any | None:
-    return next((item for item in plan.stages if item.node_type == node_type), None)
-
-
-def _node_map(plan: Any) -> dict[str, list[str]]:
-    output: dict[str, list[str]] = {}
-    for stage in plan.stages:
-        output.setdefault(stage.node_type, []).append(stage.node_id)
-    return output
 
 
 async def _select_revisions(context: JobContext, config: dict[str, object]) -> list[StoryRevision]:
@@ -252,7 +249,7 @@ def build_scheduled_automation_handler(profile_resolver: Any) -> JobHandler:
             await context.session.flush()
             request = GeneratePackRequest(
                 brand_profile_id=UUID(str(generation.config["editorial_profile_id"])),
-                platforms=list(generation.config.get("platforms") or ["telegram"]),  # type: ignore[arg-type]
+                platforms=requested_platforms(generation.config),
                 generation_provider_profile_id=UUID(str(generation.config["provider_profile_id"])),
                 research_mode=(str(research.config.get("mode")) if research is not None else "off"),  # type: ignore[arg-type]
                 research_provider_profile_id=(

@@ -173,6 +173,21 @@ def compile_graph(graph: WorkflowGraphV1) -> CompiledWorkflowPlan:
     )
 
 
+def stage(plan: CompiledWorkflowPlan, node_type: str) -> CompiledStage | None:
+    """Return the first compiled stage of ``node_type``, or ``None``."""
+
+    return next((item for item in plan.stages if item.node_type == node_type), None)
+
+
+def node_map(plan: CompiledWorkflowPlan) -> dict[str, list[str]]:
+    """Group the plan's node ids by node type, preserving stage order."""
+
+    grouped: dict[str, list[str]] = {}
+    for item in plan.stages:
+        grouped.setdefault(item.node_type, []).append(item.node_id)
+    return grouped
+
+
 def compiled_plan_data(graph: WorkflowGraphV1) -> dict[str, object]:
     return compile_graph(graph).model_dump(mode="json")
 
@@ -197,5 +212,7 @@ __all__ = [
     "CompiledWorkflowPlan",
     "compile_graph",
     "compiled_plan_data",
+    "node_map",
+    "stage",
     "verify_compiled_plan",
 ]
