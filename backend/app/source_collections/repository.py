@@ -12,6 +12,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import IngestRun, Source
+from app.ingestion.runs import new_ingest_run
 from app.source_collections.models import (
     SOURCE_COLLECTION_MAX_SIZE,
     IngestRunSourceSnapshot,
@@ -466,27 +467,15 @@ async def create_collection_ingest_snapshot(
         raise ValueError("source collection must contain at least one source")
 
     now = datetime.now(UTC)
-    run = IngestRun(
-        id=uuid4(),
+    run = new_ingest_run(
+        run_id=uuid4(),
         started_at=now,
         trigger=trigger,
         parser_version=parser_version,
         status="queued",
-        stats={
-            "checked": 0,
-            "fetched": 0,
-            "skipped": 0,
-            "failed": 0,
-            "items": 0,
-            "media_candidates": 0,
-            "errors": [],
-        },
         source_collection_id=collection.id,
         source_collection_name_at_start=collection.name,
         source_count=len(members),
-        processed_count=0,
-        success_count=0,
-        failure_count=0,
     )
     session.add(run)
     await session.flush()

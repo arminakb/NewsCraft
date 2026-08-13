@@ -28,6 +28,7 @@ from app.db.models import (
     Source,
     SourceItem,
 )
+from app.ingestion.runs import new_ingest_run
 from app.normalization.fingerprints import content_hash, title_date_fingerprint
 from app.normalization.text import fingerprint_text, infer_direction
 from app.normalization.titles import normalize_title
@@ -168,7 +169,7 @@ class IngestionRepository:
         self.session = session
 
     async def create_run(self, trigger: str, parser_version: str) -> IngestRun:
-        run = IngestRun(trigger=trigger, parser_version=parser_version, status="running")
+        run = new_ingest_run(trigger=trigger, parser_version=parser_version, status="running")
         self.session.add(run)
         await self.session.flush()
         return run

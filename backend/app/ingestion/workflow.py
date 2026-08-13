@@ -19,6 +19,7 @@ from app.core.outbound_proxy import build_outbound_http_client
 from app.core.redaction import redact_secrets, redact_string
 from app.db.models import IngestRun, Source
 from app.ingestion.repository import IngestionRepository, build_item_identities
+from app.ingestion.runs import initial_ingest_stats
 from app.normalization.titles import normalize_title
 from app.source_collections.models import IngestRunSourceSnapshot
 from app.sources.base import SourceFetchTarget
@@ -503,15 +504,7 @@ class IngestionWorkflow:
         async with session.begin():
             prepared = await self.prepare_run(session, **prepare_kwargs)
 
-        stats: dict[str, Any] = {
-            "checked": 0,
-            "fetched": 0,
-            "skipped": 0,
-            "failed": 0,
-            "items": 0,
-            "media_candidates": 0,
-            "errors": [],
-        }
+        stats: dict[str, Any] = initial_ingest_stats()
         source_iterator = iter(prepared.sources)
         pending: set[asyncio.Task[tuple[PreparedSource, FetchedSourceBatch | None, Exception | None]]] = set()
         concurrency = min(max(1, settings.ingestion_source_concurrency), max(1, len(prepared.sources)))
