@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.generation.providers.registry import ProviderRegistry
 from app.jobs.errors import DuplicateJobHandlerError, UnknownJobTypeError
-from app.jobs.types import JobExecution
+from app.jobs.types import JobExecution, JobType
 
 
 @dataclass(frozen=True, slots=True)
@@ -34,16 +34,18 @@ class JobHandlerRegistry:
     def __init__(self) -> None:
         self._handlers: dict[str, JobHandler] = {}
 
-    def register(self, job_type: str, handler: JobHandler) -> None:
-        if job_type in self._handlers:
-            raise DuplicateJobHandlerError(job_type)
-        self._handlers[job_type] = handler
+    def register(self, job_type: JobType | str, handler: JobHandler) -> None:
+        key = str(job_type)
+        if key in self._handlers:
+            raise DuplicateJobHandlerError(key)
+        self._handlers[key] = handler
 
-    def get(self, job_type: str) -> JobHandler:
+    def get(self, job_type: JobType | str) -> JobHandler:
+        key = str(job_type)
         try:
-            return self._handlers[job_type]
+            return self._handlers[key]
         except KeyError:
-            raise UnknownJobTypeError(job_type) from None
+            raise UnknownJobTypeError(key) from None
 
     def job_types(self) -> tuple[str, ...]:
         return tuple(sorted(self._handlers))
@@ -96,20 +98,20 @@ def build_default_registry(
         from app.jobs.canary import SOURCE_GENERATION_CANARY, handle_worker_canary
 
         registry.register(SOURCE_GENERATION_CANARY, handle_worker_canary)
-        registry.register("ingest.collect", handle_ingest_collect)
-        registry.register("ingest.collection.continuous_cycle", handle_source_collection_continuous_cycle)
-        registry.register("manual_intake", handle_manual_intake)
-        registry.register("story.group_pending", group_pending_content)
+        registry.register(JobType.INGEST_COLLECT, handle_ingest_collect)
+        registry.register(JobType.INGEST_COLLECTION_CONTINUOUS_CYCLE, handle_source_collection_continuous_cycle)
+        registry.register(JobType.MANUAL_INTAKE, handle_manual_intake)
+        registry.register(JobType.STORY_GROUP_PENDING, group_pending_content)
     if "source" in selected:
         from app.automations.telegram.handlers import build_telegram_route_handlers
 
         assert source_registry is not None
         assert media_stager is not None
         route_handlers = build_telegram_route_handlers(source_registry, media_stager)
-        registry.register("telegram.route.backfill", route_handlers.backfill)
-        registry.register("telegram.route.dry_run", with_automation_projection(route_handlers.dry_run))
-        registry.register("telegram.route.initialize", route_handlers.initialize)
-        registry.register("telegram.route.poll", route_handlers.poll)
+        registry.register(JobType.TELEGRAM_ROUTE_BACKFILL, route_handlers.backfill)
+        registry.register(JobType.TELEGRAM_ROUTE_DRY_RUN, with_automation_projection(route_handlers.dry_run))
+        registry.register(JobType.TELEGRAM_ROUTE_INITIALIZE, route_handlers.initialize)
+        registry.register(JobType.TELEGRAM_ROUTE_POLL, route_handlers.poll)
         if icon_discovery_service is not None:
             from app.sources.icon_discovery import ICON_JOB_TYPE, build_source_icon_discovery_handler
 
@@ -127,30 +129,30 @@ def build_default_registry(
         from app.retention.handlers import build_retention_handler
 
         registry.register(
-            "telegram.route.process",
+            JobType.TELEGRAM_ROUTE_PROCESS,
             with_automation_projection(build_telegram_process_handler(profile_resolver)),
         )
         registry.register(
-            "content_pack.generate",
+            JobType.CONTENT_PACK_GENERATE,
             with_automation_projection(build_canonical_generation_handler(profile_resolver)),
         )
         registry.register(
-            "content_pack.generate_telegram",
+            JobType.CONTENT_PACK_GENERATE_TELEGRAM,
             with_automation_projection(build_pack_generation_handler(profile_resolver)),
         )
-        registry.register("content_pack.regenerate", build_regenerate_handler(profile_resolver))
+        registry.register(JobType.CONTENT_PACK_REGENERATE, build_regenerate_handler(profile_resolver))
         registry.register(
-            "automation.run.start",
+            JobType.AUTOMATION_RUN_START,
             with_automation_projection(build_scheduled_automation_handler(profile_resolver)),
         )
         registry.register(
-            "build_export",
+            JobType.BUILD_EXPORT,
             with_automation_projection(
                 build_export_handler(export_root=Path(export_root), media_root=Path(media_root)),
             ),
         )
         registry.register(
-            "execute_retention",
+            JobType.EXECUTE_RETENTION,
             build_retention_handler(
                 export_root=Path(export_root),
                 media_root=Path(media_root),
@@ -160,7 +162,7 @@ def build_default_registry(
         from app.research.handlers import build_research_story_handler
 
         registry.register(
-            "research_story",
+            JobType.RESEARCH_STORY,
             with_automation_projection(build_research_story_handler(research_backend_resolver)),
         )
     if "publishing" in selected:
@@ -175,7 +177,7 @@ def build_default_registry(
             route_resolver=telegram_route_resolver,
         )
         registry.register(PUBLISHING_CANARY, handle_worker_canary)
-        registry.register("telegram.destination.check", publish_handlers.destination_check)
-        registry.register("telegram.proxy.check", publish_handlers.proxy_check)
-        registry.register("telegram.publish", with_automation_projection(publish_handlers.publish))
+        registry.register(JobType.TELEGRAM_DESTINATION_CHECK, publish_handlers.destination_check)
+        registry.register(JobType.TELEGRAM_PROXY_CHECK, publish_handlers.proxy_check)
+        registry.register(JobType.TELEGRAM_PUBLISH, with_automation_projection(publish_handlers.publish))
     return registry

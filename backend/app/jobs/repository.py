@@ -15,7 +15,7 @@ from app.jobs.errors import InvalidJobTransition
 from app.jobs.events import redact_event_data
 from app.jobs.models import AutomationControl, WorkflowEvent, WorkflowJob
 from app.jobs.secret_policy import restore_exempt_secrets
-from app.jobs.types import JobErrorClass, JobOrigin, JobStatus
+from app.jobs.types import JobErrorClass, JobOrigin, JobStatus, JobType
 from app.retention.models import RetentionRun
 
 
@@ -379,7 +379,7 @@ class JobRepository:
     async def enqueue_job(
         self,
         *,
-        job_type: str,
+        job_type: JobType | str,
         payload: dict[str, Any],
         idempotency_key: str,
         origin: JobOrigin,
@@ -390,6 +390,7 @@ class JobRepository:
         automation_run_id: UUID | None = None,
         automation_node_run_id: UUID | None = None,
     ) -> EnqueueJobResult:
+        job_type = str(job_type)
         effective_scheduled_for = _now(scheduled_for)
         safe_payload = _redact_job_payload(job_type, payload)
         if api_capability_gate_enabled(self.session):
