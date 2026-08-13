@@ -238,16 +238,13 @@ async def destination_check(
             get_me = getattr(routed_client, "get_me", None)
             get_member = getattr(routed_client, "get_chat_member", None)
             if get_me is None or get_member is None:
-                chat = await routed_client.get_chat(destination.target_ref, token)
-                bot = {"id": None, "username": None}
-                member = {"administrator": True}
-            else:
-                bot = await get_me(token)
-                stages["telegram_health_status"] = "healthy"
-                stages["bot_health_status"] = "healthy"
-                chat = await routed_client.get_chat(destination.target_ref, token)
-                stages["target_health_status"] = "healthy"
-                member = await get_member(destination.target_ref, bot["id"], token)
+                raise TelegramConfigurationError("telegram_destination_check_unsupported_client")
+            bot = await get_me(token)
+            stages["telegram_health_status"] = "healthy"
+            stages["bot_health_status"] = "healthy"
+            chat = await routed_client.get_chat(destination.target_ref, token)
+            stages["target_health_status"] = "healthy"
+            member = await get_member(destination.target_ref, bot["id"], token)
             stages["telegram_health_status"] = "healthy"
             stages["bot_health_status"] = "healthy"
             stages["target_health_status"] = "healthy"
