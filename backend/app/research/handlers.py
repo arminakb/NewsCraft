@@ -21,7 +21,7 @@ from app.jobs.events import redact_event_data
 from app.jobs.models import WorkflowEvent, WorkflowJob
 from app.jobs.registry import JobContext, JobHandler
 from app.jobs.types import JobExecution, job_payload_copy
-from app.research.base import ResearchBackend, ResearchBudgetExceeded, ResearchRequest
+from app.research.base import ResearchBackend, ResearchBudgetExceeded, ResearchRequest, budget_exceeded
 from app.research.citations import CitationIntegrityError, resolve_candidate_brief
 from app.research.continuations import (
     enqueue_bound_continuation,
@@ -165,17 +165,7 @@ def _validate_result_contract(
     if result.requested_model != requested_model:
         raise CitationIntegrityError("research result requested model mismatch")
     usage = result.usage
-    over_budget = (
-        usage.model_calls > budget.max_model_calls
-        or usage.input_tokens > budget.max_input_tokens
-        or usage.output_tokens > budget.max_output_tokens
-        or usage.estimated_cost_usd > budget.max_cost_usd
-        or usage.queries > budget.max_queries
-        or usage.pages > budget.max_pages
-        or usage.fetched_characters > budget.max_total_chars
-        or result.elapsed_ms > budget.max_elapsed_seconds * 1_000
-    )
-    if over_budget:
+    if budget_exceeded(budget, usage, result.elapsed_ms):
         raise CitationIntegrityError("research result usage exceeds budget")
     source_characters = sum(len(source.content_text) for source in result.output.sources)
     if usage.pages < len(result.output.sources) or usage.fetched_characters != source_characters:

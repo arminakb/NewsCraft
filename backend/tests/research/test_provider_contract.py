@@ -19,6 +19,7 @@ from app.research.base import (
     ResearchBudgetExceeded,
     ResearchRequest,
     ResearchUsage,
+    budget_exceeded,
 )
 from app.research.fake import FakeResearchBackend
 from app.research.prompts import build_research_prompt
@@ -410,3 +411,40 @@ async def test_fake_rejects_every_computed_usage_dimension_over_budget(
 
     with pytest.raises(ResearchBudgetExceeded, match="^Research budget exceeded$"):
         await backend.research(request)
+
+
+def test_shared_budget_predicate_is_the_only_post_hoc_enforcement_rule() -> None:
+    """The trust boundary and the in-process assertion must judge identically."""
+
+    budget = ResearchBudget(
+        max_model_calls=1,
+        max_input_tokens=1_000,
+        max_output_tokens=500,
+        max_cost_usd=Decimal("0"),
+        max_queries=1,
+        max_pages=1,
+        max_elapsed_seconds=10,
+        max_total_chars=10_000,
+    )
+    at_limit = ResearchUsage(
+        model_calls=1,
+        input_tokens=1_000,
+        output_tokens=500,
+        estimated_cost_usd=Decimal("0"),
+        queries=1,
+        pages=1,
+        fetched_characters=10_000,
+    )
+
+    assert budget_exceeded(budget, at_limit, 10_000) is False
+    assert budget_exceeded(budget, at_limit, 10_001) is True
+    for change in (
+        {"model_calls": 2},
+        {"input_tokens": 1_001},
+        {"output_tokens": 501},
+        {"estimated_cost_usd": Decimal("0.01")},
+        {"queries": 2},
+        {"pages": 2},
+        {"fetched_characters": 10_001},
+    ):
+        assert budget_exceeded(budget, at_limit.model_copy(update=change), 0) is True, change
