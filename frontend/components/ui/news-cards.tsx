@@ -44,8 +44,7 @@ export interface NewsCardsProps {
 
 /**
  * Reference implementation adapted from ref/Component.tsx.
- * The card grid keeps its local CSS motion surface; the reference FlipClock
- * is reused directly in flip-clock.tsx with Framer Motion.
+ * The card grid keeps its local CSS motion surface.
  */
 export function NewsCards({
   title = "News Today",
