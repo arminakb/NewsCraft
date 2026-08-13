@@ -45,6 +45,15 @@ from app.retention.models import (
 )
 from app.retention.planning import RetentionPlanner
 
+_TERMINAL_JOB_STATUSES = frozenset(
+    {
+        JobStatus.SUCCEEDED,
+        JobStatus.FAILED,
+        JobStatus.CANCELLED,
+        JobStatus.NEEDS_REVIEW,
+    }
+)
+
 __all__ = [
     "RETENTION_CONFIRMATION",
     "RetentionCandidate",
@@ -337,6 +346,15 @@ class RetentionService:
                     },
                 ]
                 await self.session.flush()
+                return RetentionEnqueueResult(run=run, job=job, created=False)
+            if str(job.status) in _TERMINAL_JOB_STATUSES and run.status != "succeeded":
+                # No branch above could requeue anything and the linked job will
+                # never run again: answering 202 + deduplicated here would promise
+                # work that nothing is going to perform.
+                raise RetentionConflict(
+                    f"retention run cannot be re-enqueued from status {run.status!r} "
+                    f"with a terminal workflow job in status {str(job.status)!r}"
+                )
             return RetentionEnqueueResult(run=run, job=job, created=False)
         observed_at = self._now()
         if run.status != "previewed":

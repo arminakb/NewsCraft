@@ -7,9 +7,13 @@ from uuid import UUID
 import pytest
 from pydantic import ValidationError
 
+from app.jobs.models import WorkflowJob
+from app.jobs.types import JobStatus
 from app.retention.models import RETENTION_SCHEMA_REVISION, RetentionRun
 from app.retention.service import (
+    RETENTION_CONFIRMATION,
     RetentionCandidate,
+    RetentionConflict,
     RetentionPolicyInput,
     RetentionService,
     build_preview_token,
@@ -199,3 +203,60 @@ async def test_all_skipped_reset_requires_current_candidates_and_zero_prior_muta
     run.count_snapshot["execution"]["expired"]["export_artifact"] = 0
     run.cleanup_intent_snapshot = [{"operation": "delete_tree"}]
     assert await service._reset_all_skipped_database_run(run) is False
+
+
+class _StubSession:
+    """Minimal AsyncSession stand-in: this enqueue path only reads the run and its job."""
+
+    def __init__(self, *results: object) -> None:
+        self._results = list(results)
+        self.flushes = 0
+        self.added: list[object] = []
+
+    async def scalar(self, _statement: object) -> object:
+        return self._results.pop(0)
+
+    async def flush(self) -> None:
+        self.flushes += 1
+
+    def add(self, instance: object) -> None:
+        self.added.append(instance)
+
+
+@pytest.mark.asyncio
+async def test_enqueue_refuses_a_terminal_job_it_cannot_requeue_instead_of_reporting_deduplicated():
+    policy = RetentionPolicyInput()
+    candidates = [_candidate("raw_payload", 11)]
+    token = build_preview_token(policy, candidates, schema_revision=RETENTION_SCHEMA_REVISION)
+    job = WorkflowJob(
+        id=UUID(int=4242),
+        job_type="execute_retention",
+        payload={},
+        status=JobStatus.FAILED,
+    )
+    run = RetentionRun(
+        workflow_job_id=job.id,
+        status="partial",
+        preview_token=token,
+        schema_revision=RETENTION_SCHEMA_REVISION,
+        policy_snapshot=policy.model_dump(mode="json"),
+        candidate_snapshot=[candidate.model_dump(mode="json") for candidate in candidates],
+        cleanup_intent_snapshot=[],
+        count_snapshot={},
+        error_snapshot=[],
+        previewed_at=NOW - timedelta(minutes=5),
+        preview_expires_at=NOW + timedelta(minutes=25),
+        queued_at=NOW - timedelta(minutes=4),
+        started_at=NOW - timedelta(minutes=3),
+    )
+    session = _StubSession(run, job)
+    service = RetentionService(session, clock=lambda: NOW, media_root=Path("/tmp/media"))
+
+    with pytest.raises(RetentionConflict) as conflict:
+        await service.enqueue(preview_token=token, confirmation=RETENTION_CONFIRMATION)
+
+    assert "partial" in str(conflict.value)
+    assert run.status == "partial"
+    assert run.error_snapshot == []
+    assert job.status == JobStatus.FAILED
+    assert session.flushes == 0
