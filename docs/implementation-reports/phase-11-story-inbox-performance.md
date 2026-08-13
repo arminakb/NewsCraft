@@ -1,5 +1,13 @@
 # Phase 11 — Story Inbox Large-List Performance
 
+> Historical (noted 2026-08-13): the surface this report audits no longer exists.
+> `frontend/tests/story-inbox.test.tsx` was removed in `1d0ba3f` and
+> `frontend/components/editorial/story-inbox.tsx` in `d1c9550`; CI now asserts
+> both stay gone (`backend/tests/test_ci_workflows.py`, the
+> `story-inbox.test.tsx`/`story-inbox-performance.spec.ts` `not in text`
+> assertions). The article surface is `/feed`. This report is retained as dated
+> audit history, not as a description of current code.
+
 ## Status and scope
 
 - **Strict status:** IMPLEMENTATION COMPLETE — HEALTHY-HARDWARE BROWSER BUDGET EXECUTION PENDING
