@@ -495,8 +495,11 @@ async def test_real_workflow_parser_failure_preserves_fetched_raw_evidence_and_r
         )
 
     raw = next(value for kind, value in session.committed if kind == "raw")
-    assert result["fetched"] == 1
+    # The source is counted once, as failed: fetched/skipped/failed partition
+    # the checked sources, so a parse failure must not also count as fetched.
     assert result["failed"] == 1
+    assert result["fetched"] == 0
+    assert result["fetched"] + result["skipped"] + result["failed"] == result["checked"] == 1
     assert raw["http_status"] == 200
     assert raw["headers"]["etag"] == "fresh-etag"
     assert raw["raw_text"] == "<rss />"
@@ -535,8 +538,9 @@ async def test_real_workflow_media_failure_preserves_raw_evidence_and_rolls_back
         ProductionWorkflowRepository.fail_media = False
 
     committed_kinds = [kind for kind, _ in session.committed]
-    assert result["fetched"] == 1
     assert result["failed"] == 1
+    assert result["fetched"] == 0
+    assert result["fetched"] + result["skipped"] + result["failed"] == result["checked"] == 1
     assert "raw" in committed_kinds
     assert "source_item" not in committed_kinds
     assert "content_item" not in committed_kinds

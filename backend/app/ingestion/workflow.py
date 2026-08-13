@@ -82,6 +82,15 @@ class SourceProcessingFailure:
 
 @dataclass(frozen=True, slots=True)
 class SourcePersistResult:
+    """One source's contribution to a run's stats.
+
+    ``fetched``/``skipped``/``failed`` partition the sources a run checked, so
+    a single source must contribute exactly one of them across every result
+    merged for it. A result carrying ``processing_failure`` therefore leaves
+    all three at zero: the caller records the classified failure separately and
+    that follow-up result is the one contributing ``failed=1``.
+    """
+
     fetched: int = 0
     skipped: int = 0
     failed: int = 0
@@ -279,7 +288,7 @@ class IngestionWorkflow:
             _record_source_not_modified(source, batch.http_status)
             return SourcePersistResult(skipped=1)
         if batch.processing_failure is not None:
-            return SourcePersistResult(fetched=1, processing_failure=batch.processing_failure)
+            return SourcePersistResult(processing_failure=batch.processing_failure)
 
         item_count = 0
         media_count = 0
@@ -327,7 +336,6 @@ class IngestionWorkflow:
             raise
         except Exception as exc:  # noqa: BLE001 - raw response remains durable outside the savepoint
             return SourcePersistResult(
-                fetched=1,
                 processing_failure=SourceProcessingFailure(
                     error_type=redact_string(exc.__class__.__name__),
                     message=redact_string(str(exc)),
