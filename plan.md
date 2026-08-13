@@ -14,6 +14,20 @@
 
 This plan is based on the current checkout, including its existing uncommitted work. Every implementation phase must preserve unrelated changes and must not rewrite applied migrations.
 
+### Phase status
+
+Update this table at each phase exit gate. It is the only status record in
+this plan; the evidence column owns the detail.
+
+| Phase | Status | Evidence |
+| --- | --- | --- |
+| 1 — Architecture audit and contract freeze | Complete | [`automation-workflow-builder-contract.md`](docs/implementation-notes/automation-workflow-builder-contract.md) — "Accepted and implemented through Phase 6" (2026-08-01) |
+| 2 — Canonical workflow domain, versioning, templates, APIs | Complete | same contract; Phase 6 Dependencies below record Phases 1–5 as complete with no mocked runtime seams |
+| 3 — Compiler, durable execution, dry run, activation, worker integration | Complete | same contract; Phase 6 Dependencies below |
+| 4 — Workflow library, templates, guided visual builder, responsive accessibility | Complete | same contract; Phase 6 Dependencies below |
+| 5 — Test Studio, Runs, version history, Operations links, Draft seam | Complete | [`automation-workflow-builder-phase-5.md`](docs/implementation-notes/automation-workflow-builder-phase-5.md) — "Implemented on 2026-08-01" |
+| 6 — Security, prompt safety, performance, compatibility, release acceptance | Exit gate passed; quality-baseline debt open | [`automation-workflow-builder-phase-6.md`](docs/implementation-notes/automation-workflow-builder-phase-6.md) — "Phase 6 release exit gate passed on 2026-08-01. The repository-wide quality-baseline gate remains blocked by inherited Phase 1–5 complexity and file-size debt" |
+
 ---
 
 ## 2. Existing architecture findings
