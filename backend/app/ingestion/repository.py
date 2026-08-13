@@ -885,7 +885,14 @@ def _apply_media_candidate(asset: MediaAsset, candidate: MediaCandidate, url_has
             if key == "media_source_type":
                 asset.media_source_type = "stored"
             continue
-        if key in {"storage_path", "checksum_sha256", "byte_length"} and value is None:
+        # A feed that simply omits `type`/`width`/`height` says nothing about the
+        # asset; it must not erase what a download already established.
+        if key in {"storage_path", "checksum_sha256", "byte_length", "mime_type", "width", "height"} and value is None:
+            continue
+        # For bytes we hold, the magic-byte-verified content type beats the feed's
+        # claim — unless this candidate brings storage of its own (a capture that
+        # re-supplies both the file and its type).
+        if key == "mime_type" and stored_asset and candidate.storage_path is None:
             continue
         if key in {"fetch_status", "raw_metadata"} and getattr(asset, key) not in (None, {}, "remote_only"):
             continue

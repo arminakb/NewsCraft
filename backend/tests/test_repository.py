@@ -360,3 +360,65 @@ def test_rss_media_extraction_emits_one_candidate_per_url():
 
     assert [candidate.source_field for candidate in candidates] == ["media_content"]
     assert candidates[0].width == 1200
+
+
+def test_reingestion_keeps_download_verified_metadata():
+    downloaded = MediaAsset(
+        id=uuid4(),
+        original_url="https://e.test/lead.jpg",
+        normalized_url="https://e.test/lead.jpg",
+        url_hash="lead",
+        kind="image",
+        source_field="media_content",
+        mime_type="image/webp",
+        width=1200,
+        height=630,
+        storage_path="/media/ab/lead.webp",
+        checksum_sha256="b" * 64,
+        byte_length=4096,
+        fetch_status="downloaded",
+    )
+    bare_feed_claim = MediaCandidate(
+        "https://e.test/lead.jpg",
+        "https://e.test/lead.jpg",
+        "image",
+        "media_content",
+    )
+
+    _apply_media_candidate(downloaded, bare_feed_claim, "lead")
+
+    assert downloaded.mime_type == "image/webp"
+    assert downloaded.width == 1200
+    assert downloaded.height == 630
+    assert downloaded.storage_path == "/media/ab/lead.webp"
+    assert downloaded.byte_length == 4096
+
+
+def test_a_capture_that_supplies_its_own_storage_may_replace_the_mime_type():
+    stored = MediaAsset(
+        id=uuid4(),
+        original_url="telegram-media:one",
+        normalized_url="telegram-media:one",
+        url_hash="one",
+        kind="image",
+        source_field="telegram_capture",
+        mime_type="image/webp",
+        storage_path="/media/ab/old.webp",
+        fetch_status="downloaded",
+    )
+    recapture = MediaCandidate(
+        "telegram-media:one",
+        "telegram-media:one",
+        "image",
+        "telegram_capture",
+        mime_type="image/jpeg",
+        storage_path="/media/cd/new.jpg",
+        checksum_sha256="c" * 64,
+        byte_length=99,
+        fetch_status="downloaded",
+    )
+
+    _apply_media_candidate(stored, recapture, "one")
+
+    assert stored.mime_type == "image/jpeg"
+    assert stored.storage_path == "/media/cd/new.jpg"
