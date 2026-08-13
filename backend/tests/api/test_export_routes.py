@@ -294,6 +294,60 @@ async def test_export_list_uses_stable_tie_cursor_and_keeps_failed_rows_safe():
 
 
 @pytest.mark.asyncio
+async def test_export_list_reports_each_integrity_failure_as_itself(caplog):
+    from app.api.exports import list_exports
+    from app.exports.models import ExportArtifact
+
+    finished_at = datetime(2026, 7, 13, 8, tzinfo=UTC)
+    ids = sorted([uuid4(), uuid4()], reverse=True)
+    tampered = SimpleNamespace(
+        id=ids[0],
+        job_type="build_export",
+        status="succeeded",
+        finished_at=finished_at,
+        result=_artifact(export_id=ids[0], finished_at=finished_at).model_dump(mode="json"),
+        error_code=None,
+        error_message=None,
+    )
+    tampered.created_at = finished_at
+    tampered.payload = _payload_for_artifact(ExportArtifact.model_validate(tampered.result)).model_dump(mode="json")
+    tampered.result["manifest_sha256"] = "d" * 64
+    incomplete = SimpleNamespace(
+        id=ids[1],
+        job_type="build_export",
+        status="succeeded",
+        finished_at=finished_at,
+        result={},
+        payload={},
+        created_at=finished_at,
+        error_code=None,
+        error_message=None,
+    )
+
+    class Rows:
+        def __iter__(self):
+            return iter([tampered, incomplete])
+
+    class Session:
+        async def scalars(self, statement):
+            return Rows()
+
+    with caplog.at_level("WARNING"):
+        output = await list_exports(cursor=None, limit=10, session=Session())
+
+    assert [item.error_code for item in output.items] == [
+        "export_artifact_manifest_checksum_mismatch",
+        "export_artifact_result_incomplete",
+    ]
+    assert [item.artifact for item in output.items] == [None, None]
+    assert [record.error_code for record in caplog.records] == [
+        "export_artifact_manifest_checksum_mismatch",
+        "export_artifact_result_incomplete",
+    ]
+    assert [record.export_id for record in caplog.records] == [str(ids[0]), str(ids[1])]
+
+
+@pytest.mark.asyncio
 async def test_export_detail_authorizes_only_build_export_jobs():
     from app.api.exports import get_export
 
