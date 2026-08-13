@@ -467,13 +467,13 @@ async def _get_response(
         _content_type(response),
         len(response.content),
     )
-    if len(response.content) > max_bytes:
-        raise IconCandidateError("response_too_large", retryable=False)
     if response.status_code < 200 or response.status_code >= 300:
         raise IconCandidateError(
             f"http_{response.status_code}",
             retryable=response.status_code >= 500,
         )
+    if len(response.content) > max_bytes:
+        raise IconCandidateError("response_too_large", retryable=False)
     return response
 
 

@@ -29,7 +29,7 @@ async def _public_resolver(host: str) -> list[str]:
     return ["93.184.216.34"]
 
 
-def _service(handler):
+def _service(handler, config: Settings | None = None):
     def factory():
         return SafeHttpClient(
             transport=httpx.MockTransport(handler),
@@ -37,7 +37,7 @@ def _service(handler):
             max_response_bytes=2_000_000,
         )
 
-    return SourceIconDiscoveryService(config=Settings(), http_client_factory=factory)
+    return SourceIconDiscoveryService(config=config or Settings(), http_client_factory=factory)
 
 
 def test_feed_identity_prioritizes_image_and_uses_publisher_metadata():
@@ -127,6 +127,26 @@ async def test_discovery_accepts_jpg_alias_for_jpeg_bytes():
     assert result.mime_type == "image/jpeg"
     assert result.width == 1
     assert result.height == 1
+
+
+@pytest.mark.asyncio
+async def test_oversized_server_error_page_stays_retryable():
+    oversized_error_page = b"x" * 20_000
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            503,
+            content=oversized_error_page,
+            headers={"content-type": "text/html"},
+        )
+
+    config = Settings(source_icon_discovery_max_bytes=16_384)
+    result = await _service(handler, config).discover(
+        SourceIconTarget(uuid4(), "rss", "https://feed.test/feed", None)
+    )
+
+    assert result.status == "retryable"
+    assert result.error == "http_503"
 
 
 def test_icon_url_policy_rejects_local_private_and_metadata_targets():
