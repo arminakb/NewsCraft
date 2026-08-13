@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import inspect
 from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import UUID
@@ -46,37 +45,11 @@ from app.publishing.telegram.reconciliation import (
 )
 from app.publishing.telegram.renderer import TelegramPublishNeedsReview, build_publish_plan
 from app.publishing.telegram.scheduling import _canonical_hash, _revision_dispatch
+from app.publishing.telegram.secret_resolution import resolve_destination_secret
 from app.publishing.telegram.service_contracts import (
     PublishValidationError,
 )
 from app.stories.models import StoryEvidenceSnapshot, StoryRevision
-
-
-async def _resolve_secret(resolver: Any, secret_ref: str) -> str:
-    target = getattr(resolver, "resolve", None)
-    if target is None and callable(resolver):
-        target = resolver
-    if target is None:
-        raise PermanentJobError(
-            code="telegram_destination_secret_missing",
-            message="Destination secret is unavailable",
-        )
-    try:
-        value = target(secret_ref)
-        if inspect.isawaitable(value):
-            value = await value
-    except Exception:
-        raise PermanentJobError(
-            code="telegram_destination_secret_missing",
-            message="Destination secret is unavailable",
-        ) from None
-    if not isinstance(value, str) or not value:
-        raise PermanentJobError(
-            code="telegram_destination_secret_missing",
-            message="Destination secret is unavailable",
-        )
-    return value
-
 
 _ROUTE_UNSET = object()
 
@@ -794,7 +767,7 @@ async def publish_telegram(
             )
         if token is None:
             try:
-                token = await _resolve_secret(secret_resolver, prepared.destination_secret_ref)
+                token = await resolve_destination_secret(secret_resolver, prepared.destination_secret_ref)
             except Exception as exc:
                 mapped = await _record_failure(
                     session,
