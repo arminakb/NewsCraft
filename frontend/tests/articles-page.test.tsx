@@ -61,13 +61,6 @@ describe("Feed page", () => {
   beforeEach(() => {
     vi.resetAllMocks()
     setSearch("")
-    const pushState = window.history.pushState.bind(window.history)
-    vi.spyOn(window.history, "pushState").mockImplementation((state, unused, url) => {
-      pushState(state, unused, url)
-      const value = String(url ?? "")
-      navigation.search = value.includes("?") ? value.slice(value.indexOf("?") + 1) : ""
-      navigation.listeners.forEach((listener) => listener())
-    })
     vi.mocked(getArticleCollections).mockResolvedValue([])
     vi.mocked(getArticleFacets).mockResolvedValue(facets())
     vi.mocked(getFeedSummary).mockResolvedValue({ articleCount: 0 })
@@ -291,7 +284,7 @@ describe("Feed page", () => {
     expect(input.parentElement).not.toHaveClass("focus-within:ring-2", "focus-within:ring-ring")
     fireEvent.change(input, { target: { value: "  Climate  " } })
     expect(navigation.push).not.toHaveBeenCalled()
-    await waitFor(() => expect(window.history.pushState).toHaveBeenLastCalledWith(null, "", "/feed?language=en&q=Climate"))
+    await waitFor(() => expect(navigation.push).toHaveBeenLastCalledWith("/feed?language=en&q=Climate"))
     expect(getArticles).toHaveBeenLastCalledWith({
       sort: "newest", query: "Climate", filters: { ...emptyFilters(), languages: ["en"] }, cursor: null, limit: 50, timezone: DEFAULT_TIME_ZONE,
     }, expect.any(AbortSignal))
@@ -307,7 +300,7 @@ describe("Feed page", () => {
     expect(vi.mocked(getArticles).mock.calls).toHaveLength(callsBeforeEquivalentInput)
 
     fireEvent.click(screen.getByRole("button", { name: "Clear search input" }))
-    await waitFor(() => expect(window.history.pushState).toHaveBeenLastCalledWith(null, "", "/feed?language=en"))
+    await waitFor(() => expect(navigation.push).toHaveBeenLastCalledWith("/feed?language=en"))
     expect(getArticles).toHaveBeenLastCalledWith({
       sort: "newest", filters: { ...emptyFilters(), languages: ["en"] }, cursor: null, limit: 50, timezone: DEFAULT_TIME_ZONE,
     }, expect.any(AbortSignal))
@@ -324,7 +317,7 @@ describe("Feed page", () => {
       sort: "newest", query: "گزارش", filters: { ...emptyFilters(), topics: ["Tech"] }, cursor: null, limit: 50, timezone: DEFAULT_TIME_ZONE,
     }, expect.any(AbortSignal))
     fireEvent.click(screen.getByRole("button", { name: "Clear article search" }))
-    await waitFor(() => expect(window.history.pushState).toHaveBeenLastCalledWith(null, "", "/feed?topic=Tech"))
+    await waitFor(() => expect(navigation.push).toHaveBeenLastCalledWith("/feed?topic=Tech"))
   })
 
   it("replaces page dataset and unmounts previous article cards", async () => {

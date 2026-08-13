@@ -15,14 +15,13 @@ import {
   EMPTY_ARTICLE_FILTERS,
   activeFilterCount,
   filtersEqual,
-  normalizeArticleSearch,
   readArticleCursor,
   readArticlePage,
   readArticleState,
-  writeArticleSearch,
   writeArticleState,
 } from "./filter-state"
 import { SaveToCollectionDialog } from "./save-to-collection-dialog"
+import { useUrlSearchQuery } from "./use-url-search-query"
 import type { ArticleCollection, ArticleImage, ArticlePage, ArticleSort, ArticleSummary, FeedSummary } from "./types"
 
 import { EditorialDialog } from "@/components/editorial/editorial-dialog"
@@ -136,12 +135,9 @@ export function ArticlesPage() {
   const [pageResolutionPending, setPageResolutionPending] = useState(false)
   const [pageResolutionAttempt, setPageResolutionAttempt] = useState(0)
   const [clearFeedOpen, setClearFeedOpen] = useState(false)
-  const [searchInput, setSearchInput] = useState({ value: titleQuery, committedQuery: titleQuery })
-  const searchDraft = searchInput.committedQuery === titleQuery ? searchInput.value : titleQuery
+  const { value: searchDraft, change: changeSearchDraft } = useUrlSearchQuery({ committedQuery: titleQuery })
   const directRemovalBusyRef = useRef(false)
   const detailTriggerRef = useRef<HTMLButtonElement | null>(null)
-  const searchTimerRef = useRef<number | null>(null)
-  const searchSyncFrameRef = useRef<number | null>(null)
   const pageNavigationRequestRef = useRef(0)
   const collectionsQuery = useQuery({
     queryKey: queryKeys.articleCollections,
@@ -214,51 +210,6 @@ export function ArticlesPage() {
   const totalPages = resultCount === undefined ? 0 : Math.max(1, Math.ceil(resultCount / PAGE_SIZE))
   const collectionDeleted = Boolean(collectionId && query.error instanceof ApiError && query.error.status === 404)
   const unavailableSelection = missingFromList || collectionDeleted
-
-  useEffect(() => setSearchInput({ value: titleQuery, committedQuery: titleQuery }), [titleQuery])
-
-  useEffect(() => {
-    const syncSearchFromLocation = () => {
-      if (searchTimerRef.current !== null) {
-        window.clearTimeout(searchTimerRef.current)
-        searchTimerRef.current = null
-      }
-      if (searchSyncFrameRef.current !== null) window.cancelAnimationFrame(searchSyncFrameRef.current)
-      searchSyncFrameRef.current = window.requestAnimationFrame(() => {
-        const params = new URLSearchParams(window.location.search)
-        const queryFromUrl = normalizeArticleSearch(params.get("q") ?? "")
-        setSearchInput({ value: queryFromUrl, committedQuery: queryFromUrl })
-        searchSyncFrameRef.current = null
-      })
-    }
-    window.addEventListener("popstate", syncSearchFromLocation)
-    window.addEventListener("pageshow", syncSearchFromLocation)
-    return () => {
-      window.removeEventListener("popstate", syncSearchFromLocation)
-      window.removeEventListener("pageshow", syncSearchFromLocation)
-      if (searchSyncFrameRef.current !== null) window.cancelAnimationFrame(searchSyncFrameRef.current)
-    }
-  }, [])
-
-  useEffect(() => {
-    const normalized = normalizeArticleSearch(searchDraft)
-    if (normalized === titleQuery) return
-    const timer = window.setTimeout(() => {
-      searchTimerRef.current = null
-      const liveParams = new URLSearchParams(window.location.search)
-      if (normalizeArticleSearch(liveParams.get("q") ?? "") === normalized) return
-      const params = writeArticleSearch(liveParams, normalized)
-      const queryString = params.toString()
-      window.history.pushState(null, "", `${pathname}${queryString ? `?${queryString}` : ""}`)
-    }, 300)
-    searchTimerRef.current = timer
-    return () => {
-      window.clearTimeout(timer)
-      if (searchTimerRef.current === timer) searchTimerRef.current = null
-    }
-  }, [pathname, search, searchDraft, titleQuery])
-
-  const changeSearchDraft = (value: string) => setSearchInput({ value, committedQuery: titleQuery })
 
   const navigateToPage = useCallback((nextPage: number, nextCursor: string | null) => {
     const params = new URLSearchParams(search)
