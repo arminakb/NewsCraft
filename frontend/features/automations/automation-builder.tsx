@@ -170,7 +170,7 @@ function AutomationBuilderReady({ automation, catalog, initialVersion }: { autom
   const saveMutation = useMutation({
     mutationFn: (graph: WorkflowGraph) => createAutomationVersion(automation.id, { expectedRevision: revision, graph, creationReason: "workflow builder save" }, key("save"), catalog),
     onSuccess: async (version) => {
-      dispatch({ type: "saved", graph: version.graph })
+      dispatch({ type: "saved", graph: normalizeWorkflowGraphForSave(version.graph, catalog) })
       setRevision((value) => value + 1)
       setVersionNumber(version.version)
       setCurrentVersion(version)
