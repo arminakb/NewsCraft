@@ -9,11 +9,15 @@ from fastapi.responses import PlainTextResponse
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.outbound_proxy import ProxyDiagnostics
 from app.core.redaction import redact_secrets
 from app.db.session import get_session
 from app.jobs.schemas import JobAcceptedOut
-from app.operations.diagnostics import OperationsDiagnostics
+from app.operations.diagnostics import (
+    AttentionItem,
+    ComponentHealth,
+    OperationsDiagnostics,
+    OperationsSnapshot,
+)
 from app.operations.health import (
     OperationalHealthService,
     OperationalHealthSnapshot,
@@ -21,6 +25,8 @@ from app.operations.health import (
 )
 from app.operations.history import (
     HistoryCategory,
+    HistoryEntry,
+    HistoryPage,
     HistoryService,
     HistorySubjectType,
     decode_history_cursor,
@@ -38,67 +44,36 @@ from app.retention.service import (
     RetentionService,
 )
 
-
-class ComponentHealthOut(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    status: Literal["healthy", "degraded", "down", "unknown"]
-    observed_at: datetime | None
-    last_success_at: datetime | None
-    message: str
-    action_url: str | None
+# The wire models are the domain models. They used to restate every field of
+# ComponentHealth/AttentionItem/OperationsSnapshot and HistoryEntry/HistoryPage
+# character-for-character, so a field added to a domain model silently failed to
+# reach the API. Inheriting keeps the published component names (and therefore
+# the generated frontend types) while making the domain model the single source;
+# only the nested annotations are narrowed so the *Out schemas stay referenced.
 
 
-class AttentionItemOut(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    id: str
-    severity: Literal["warning", "error"]
-    kind: Literal[
-        "job",
-        "route",
-        "research",
-        "generation",
-        "publication",
-        "destination",
-        "source",
-    ]
-    title: str
-    occurred_at: datetime
-    action_url: str
+class ComponentHealthOut(ComponentHealth):
+    pass
 
 
-class OperationsSnapshotOut(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    generated_at: datetime
-    global_paused: bool
-    dry_run: bool
-    components: dict[str, ComponentHealthOut]
-    queue_counts: dict[str, int]
-    attention: list[AttentionItemOut]
-    outbound_proxy: ProxyDiagnostics
+class AttentionItemOut(AttentionItem):
+    pass
 
 
-class HistoryEntryOut(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    id: str
-    occurred_at: datetime
-    category: HistoryCategory
-    status: str
-    title: str
-    summary: str
-    job_id: UUID | None
-    subject_url: str
-    sanitized_metadata: dict[str, object]
+class OperationsSnapshotOut(OperationsSnapshot):
+    # Narrowing a container field to the wire subclass is exactly what pydantic
+    # needs to keep the nested component names; mypy only objects because dict
+    # and list are invariant.
+    components: dict[str, ComponentHealthOut]  # type: ignore[assignment]
+    attention: list[AttentionItemOut]  # type: ignore[assignment]
 
 
-class HistoryPageOut(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+class HistoryEntryOut(HistoryEntry):
+    pass
 
-    items: list[HistoryEntryOut]
-    next_cursor: str | None
+
+class HistoryPageOut(HistoryPage):
+    items: list[HistoryEntryOut]  # type: ignore[assignment]
 
 
 class RetentionPolicyOut(RetentionPolicyInput):
