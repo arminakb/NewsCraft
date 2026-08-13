@@ -1,18 +1,34 @@
 TASK_ID: wave2a-ingest
-BASE_SHA: e5023b4
+BASE_SHA: 377c805
 
 OBJECTIVE:
 Fix every CONFIRMED finding in the ingestion vertical from the verified
-refactor triage: 48 items (8 P1 / 20 P2 / 20 P3) covering the collection
+refactor triage: 28 items (8 P1 / 20 P2; the 20 P3 items run in a later batch) covering the collection
 pipeline — dedup/identity handling, media asset persistence, feed fetch
 error handling, icon discovery, and redundancy/dead-code inside the
 vertical. Findings file (read first, it is the packet's work list):
-/home/wingman/code/NewsCraft/.orchestrator/runs/refactor-2026-08-13/verify/wave2a-ingest-items.json
+/home/wingman/code/NewsCraft/.orchestrator/runs/refactor-2026-08-13/verify/wave2a-ingest-items-p12.json
 Each item carries verdict, severity, evidence, and a proposed smallest-safe
 repair. The repairs are proposals from a read-only verifier: you are the
 implementer and may choose a better fix, but the defect itself is
 confirmed and must be addressed (or reported SKIPPED with a concrete
 reason).
+
+WORKING_DISCIPLINE (mandatory):
+- FIRST ACTION: `git log --oneline -1`. If HEAD is not BASE_SHA, run
+  `git reset --hard <BASE_SHA>` (the object store is shared; this works)
+  and confirm. Never work from a different base.
+- Work items in severity order (P1 first). Commit after EACH logical fix
+  with its own conventional message — many small commits are expected;
+  never leave fixes uncommitted.
+- Budget your context: when roughly 25% of your context remains, STOP
+  starting new items, run the verification commands, commit, and return
+  your report. Unattempted items get outcome SKIPPED with detail
+  "context-budget". An honest partial report with committed work is
+  success; an unreturned report is failure.
+- Your FINAL message must be the structured report (StructuredOutput
+  tool). Do this even if verification commands fail — report the failure
+  honestly instead of not reporting.
 
 OWNED_PATHS:
 - backend/app/ingestion/**

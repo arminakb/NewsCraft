@@ -10,7 +10,7 @@ LAST_UPDATED_BY: wingman-host (local session)
 OBJECTIVE: Full-codebase refactor — fix all bugs, remove redundancy and
   dead code, decompose oversized modules, make every gate green. Owner:
   "every stone turned", "give me a clean repo".
-PHASE: wave2 fix dispatch (verify-r2 running in parallel)
+PHASE: wave2 fixing (5 workers)
 INTEGRATION_BRANCH: agent/finish-refactor-plan
 BASE_SHA: 8d5129a (merge of origin/main 46b4489 + orchestrator kit)
 CURRENT_HEAD_SHA: 397671c (gate fixes integrated: 3155f34 frontend test fix, 397671c backend gate fix)
@@ -53,10 +53,23 @@ BASELINE_AT_8d5129a (pre-fix evidence):
   modules ≥1000 lines.
 
 ACTIVE_WORKERS:
-- workflow wf_6404763c-11d "verify-newscraft-findings-r2": 13 Opus
-  verifiers re-verifying slices lost to the /tmp wipe (read-only).
-- Wave-2a fixers about to dispatch: ingest vertical + ops vertical
-  (packets .orchestrator/tasks/wave2a-{ingest,ops}.md).
+- workflow wf_6312237a-39c "wave2-fixers": 5 worktree-isolated Opus max
+  fixers — wave2a-ingest (28 P1/P2), wave2a-ops (22 P1/P2),
+  wave2b-publish (39), wave2b-frontend (62), wave2b-core (17, incl.
+  default-allow security P1). Packets in .orchestrator/tasks/, findings
+  in .orchestrator/runs/refactor-2026-08-13/verify/.
+VERIFY_COMPLETE: all 20 slices verified. 372 CONFIRMED total
+  (54 P1 / 160 P2 / 161 P3 incl. orchestrator-observed flake), 136
+  REJECTED. confirmed-all.json is the master list. Deferred-for-conflict
+  items in wave2b-*-deferred.json (45 items) go to Wave 2c with
+  backend-editorial (40 items) after current workers finish.
+INCIDENT 2 (wave2a first attempt, wf_1bd98a85-263): both fixers burned
+  full context without returning reports or committing; one worktree was
+  created on the wrong base (46b4489) and the worker did not check.
+  Partial work discarded. Countermeasures now in every packet:
+  WORKING_DISCIPLINE (base verify/reset, commit-per-fix, stop at 25%
+  context and report PARTIAL, always return structured report) and
+  severity-split batches (P3 batches deferred).
 
 INTEGRATION_QUEUE: empty (gate-repair integrated: 3155f34 + 397671c; worktrees removed)
 
