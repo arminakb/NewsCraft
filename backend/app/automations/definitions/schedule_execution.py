@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import hashlib
-import json
 from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID, uuid4
@@ -9,6 +7,7 @@ from uuid import UUID, uuid4
 from pydantic import BaseModel, ConfigDict, ValidationError
 from sqlalchemy import func, select
 
+from app.automations.canonical_json import sha256_canonical
 from app.automations.definitions.artifacts import make_artifact, summary_with_artifact
 from app.automations.definitions.collection_execution import (
     COLLECTION_ARTICLE_ADDED_TRIGGER,
@@ -47,12 +46,6 @@ def _node_map(plan: Any) -> dict[str, list[str]]:
     for stage in plan.stages:
         output.setdefault(stage.node_type, []).append(stage.node_id)
     return output
-
-
-def _digest(value: object) -> str:
-    return hashlib.sha256(
-        json.dumps(value, sort_keys=True, separators=(",", ":"), default=str).encode()
-    ).hexdigest()
 
 
 async def _select_revisions(context: JobContext, config: dict[str, object]) -> list[StoryRevision]:
@@ -226,7 +219,7 @@ def build_scheduled_automation_handler(profile_resolver: Any) -> JobHandler:
                     "selected_story_revision_id": str(revision.id),
                 },
                 idempotency_key=run_key,
-                request_hash=_digest({"job_id": job.id, "story_revision_id": revision.id}),
+                request_hash=sha256_canonical({"job_id": job.id, "story_revision_id": revision.id}, default=str),
                 started_at=now,
             )
             context.session.add(run)

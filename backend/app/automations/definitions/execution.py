@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import hashlib
-import json
 import re
 from datetime import UTC, datetime, time, timedelta
 from typing import cast
@@ -11,6 +9,7 @@ from zoneinfo import ZoneInfo
 from sqlalchemy import and_, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.automations.canonical_json import sha256_canonical
 from app.automations.definitions.artifacts import make_artifact, normalize_artifact, summary_with_artifact
 from app.automations.definitions.compiler import CompiledWorkflowPlan, verify_compiled_plan
 from app.automations.definitions.errors import AutomationDefinitionError
@@ -40,12 +39,6 @@ from app.stories.models import StoryRevision
 
 def _error(code: str, status: int, message: str) -> AutomationDefinitionError:
     return AutomationDefinitionError(code, status, message)
-
-
-def _hash(value: object) -> str:
-    return hashlib.sha256(
-        json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"), default=str).encode()
-    ).hexdigest()
 
 
 def _uuid(value: object, field: str) -> UUID:
@@ -239,7 +232,7 @@ class AutomationExecutionService:
         capability_status: CapabilityStatusService | None,
         idempotency_key: str,
     ) -> AutomationRunOut:
-        request_hash = _hash(body.model_dump(mode="json", exclude_none=True))
+        request_hash = sha256_canonical(body.model_dump(mode="json", exclude_none=True), default=str)
         existing = await self.session.scalar(
             select(AutomationRun).where(AutomationRun.idempotency_key == idempotency_key)
         )
