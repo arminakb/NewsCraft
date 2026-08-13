@@ -968,12 +968,7 @@ def _queue_thresholds(job_type: str) -> tuple[int, int]:
 
 
 def _configured_capabilities(value: str) -> tuple[str, ...]:
-    """Split the already-normalized settings value.
-
-    `Settings.validate_readiness_required_capabilities` casefolds, sorts and
-    rejects anything outside `READINESS_CAPABILITIES` before the value is
-    stored, so this is a plain split rather than a second allow-list.
-    """
+    """Split the value the settings validator already casefolded, sorted and vetted."""
     return tuple(part for part in value.split(",") if part)
 
 
