@@ -6,6 +6,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.dependencies import authorize_request
 from app.codex_gateway.credentials import GatewayCredentialHasher, GatewayKeyUnavailable
 from app.codex_gateway.schemas import (
     CapabilityOut,
@@ -30,8 +31,7 @@ from app.codex_gateway.service import (
 )
 from app.core.config import settings
 from app.db.session import get_session
-from app.security.application_principal import resolve_application_principal
-from app.security.auth import AuthenticationFailure, SecurityPrincipal
+from app.security.auth import SecurityPrincipal
 
 router = APIRouter(prefix="/codex-gateway", tags=["codex-gateway"])
 SessionDependency = Depends(get_session)
@@ -53,13 +53,10 @@ def _service(session: AsyncSession) -> CodexGatewayService:
 
 
 def _settings_principal(request: Request, *, required_scope: str) -> SecurityPrincipal:
-    try:
-        principal = resolve_application_principal(request, config=settings)
-    except AuthenticationFailure as exc:
-        raise HTTPException(exc.status_code, detail={"code": exc.code}) from None
-    if not principal.permits(required_scope):
-        raise HTTPException(403, detail={"code": "scope_denied"})
-    return principal
+    # Gateway routes classify as reads at this seam: their mutations are already
+    # covered by the middleware rule table, and the pairing/heartbeat endpoints
+    # authenticate gateway credentials rather than an operator origin.
+    return authorize_request(request, required_scope=required_scope, mutation=False)
 
 
 async def _commit_gateway_error(session: AsyncSession, exc: GatewayError) -> None:
