@@ -12,6 +12,7 @@ from app.core.faults import FaultInjector, NoopFaultInjector
 from app.generation import package_inputs
 from app.generation.generation_helpers import (
     _artifact_requires_review,
+    _assemble_telegram_revision,
     _checkpoint_execution,
     _job_payload,
     _pack_budget_state,
@@ -47,20 +48,12 @@ from app.generation.platform_output import (
 from app.generation.platform_output import (
     validate_provider_output as _validate_provider_output,
 )
-from app.generation.platform_schemas import (
-    Platform,
-    TelegramVariantPayload,
-)
-from app.generation.platform_validation import (
-    revision_gates_from_issues,
-    validate_platform_payload,
-)
+from app.generation.platform_schemas import Platform
 from app.generation.provider_execution import _invoke
 from app.generation.revision_fence import (
     RegenerationFenceConflict,
     require_revision_write_allowed,
 )
-from app.generation.telegram_schema import assemble_telegram_variant
 from app.jobs.errors import NeedsReviewJobError, PermanentJobError, RetryableJobError
 from app.jobs.registry import JobContext
 from app.jobs.types import JobExecution
@@ -567,24 +560,12 @@ async def _materialize_revision(
     parent: PlatformVariantRevision | None,
 ) -> tuple[dict[str, Any], list[dict[str, Any]], bool]:
     if generated.platform == "telegram":
-        try:
-            assert generated.default_direction is not None
-            content = assemble_telegram_variant(
-                generated.authored,
-                trusted_parent=parent.content if parent is not None else None,
-                default_direction=generated.default_direction,
-            ).model_dump(mode="json")
-            payload = TelegramVariantPayload.model_validate(content)
-            issues = validate_platform_payload("telegram", payload)
-        except TypeError, ValueError:
-            raise NeedsReviewJobError(
-                code="generation_telegram_parent_invalid",
-                message="Trusted Telegram parent context is invalid",
-            ) from None
-        return (
-            content,
-            revision_gates_from_issues(issues),
-            any(item.severity == "error" for item in issues),
+        return _assemble_telegram_revision(
+            generated.authored,
+            parent=parent,
+            default_direction=generated.default_direction,
+            invalid_code="generation_telegram_parent_invalid",
+            invalid_message="Trusted Telegram parent context is invalid",
         )
     authorized_media, _source_media = await _trusted_story_media(
         context.session,

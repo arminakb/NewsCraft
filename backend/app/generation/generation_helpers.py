@@ -372,12 +372,21 @@ async def _checkpoint_parent(
     return parent
 
 
-def _telegram_checkpoint_expectations(
+def _assemble_telegram_revision(
     authored: Any,
     *,
     parent: PlatformVariantRevision | None,
     default_direction: Literal["ltr", "rtl"] | None,
-) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    invalid_code: str,
+    invalid_message: str,
+) -> tuple[dict[str, Any], list[dict[str, Any]], bool]:
+    """Assemble and validate a Telegram revision body.
+
+    Single source of truth for both the persisting path and the checkpoint
+    replay path: any divergence between the two would turn an idempotent replay
+    into a spurious "checkpoint invalid" review.
+    """
+
     try:
         assert default_direction is not None
         content = assemble_telegram_variant(
@@ -386,12 +395,30 @@ def _telegram_checkpoint_expectations(
             default_direction=default_direction,
         ).model_dump(mode="json")
         payload = TelegramVariantPayload.model_validate(content)
-        return content, revision_gates_from_issues(validate_platform_payload("telegram", payload))
+        issues = validate_platform_payload("telegram", payload)
+        return (
+            content,
+            revision_gates_from_issues(issues),
+            any(item.severity == "error" for item in issues),
+        )
     except TypeError, ValueError:
-        raise NeedsReviewJobError(
-            code="generation_checkpoint_invalid",
-            message="Generation checkpoint Telegram context is invalid",
-        ) from None
+        raise NeedsReviewJobError(code=invalid_code, message=invalid_message) from None
+
+
+def _telegram_checkpoint_expectations(
+    authored: Any,
+    *,
+    parent: PlatformVariantRevision | None,
+    default_direction: Literal["ltr", "rtl"] | None,
+) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    content, gates, _has_errors = _assemble_telegram_revision(
+        authored,
+        parent=parent,
+        default_direction=default_direction,
+        invalid_code="generation_checkpoint_invalid",
+        invalid_message="Generation checkpoint Telegram context is invalid",
+    )
+    return content, gates
 
 
 def _require_checkpoint_linkage(
