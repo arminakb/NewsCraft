@@ -406,4 +406,4 @@ env -u NODE_ENV npm run test -- --run \
 
 The focused commands selected existing tests for activation without network, dry-run/cursor separation, initialization boundary capture, poll ordering, prompt snapshot pinning, fail-closed auto-publication, evidence/reconciliation safety, schedule idempotency, API/query behavior, conservative builder defaults, route detail, Operations Center, shell, and mobile navigation. No credential or external network was used; no diagram dependency was installed; no migration was written or run.
 
-Phase 2 and Phase 4 remain blocked on approval of this contract, node catalog, migration/recovery strategy, deferral list, ADR, and dependency decision.
+Historical note (Phase 1 sign-off, 2026-08-01): at the time this section was written, Phase 2 and Phase 4 were blocked on approval of this contract, node catalog, migration/recovery strategy, deferral list, ADR, and dependency decision. Approval was granted and both phases shipped; the **Status** line at the top of this document is the current authority.
