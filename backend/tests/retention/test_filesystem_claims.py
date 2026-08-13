@@ -20,7 +20,7 @@ def test_batch_claim_classification_matches_the_row_by_row_safety_rules(tmp_path
     escaping_id = UUID(int=3)
     missing_id = UUID(int=4)
 
-    canonical_paths, deletion_authorized, unclassifiable = _classified_media_claims(
+    classification = _classified_media_claims(
         media_root,
         [
             (plain_id, "2026/canonical.jpg"),
@@ -29,6 +29,9 @@ def test_batch_claim_classification_matches_the_row_by_row_safety_rules(tmp_path
             (missing_id, "2026/missing.jpg"),
         ],
     )
+    canonical_paths = classification.canonical_paths
+    deletion_authorized = classification.deletion_authorized
+    unclassifiable = classification.unclassifiable
 
     assert canonical_paths[plain_id] == "2026/canonical.jpg"
     assert plain_id in deletion_authorized
@@ -42,3 +45,13 @@ def test_batch_claim_classification_matches_the_row_by_row_safety_rules(tmp_path
     # A missing file still has a stable identity and stays deletable.
     assert canonical_paths[missing_id] == "2026/missing.jpg"
     assert missing_id in deletion_authorized
+    # The index the database executor consumes is the exact inverse of the map
+    # the planner consumes, so the two phases cannot disagree about sharing.
+    assert classification.ids_by_path == {
+        "2026/canonical.jpg": {plain_id, alias_id},
+        "2026/missing.jpg": {missing_id},
+    }
+    assert classification.ids_by_path == {
+        path: {media_id for media_id, claim in canonical_paths.items() if claim == path}
+        for path in set(canonical_paths.values())
+    }

@@ -5,6 +5,7 @@ import os
 import shutil
 import stat
 from collections.abc import Awaitable, Callable, Sequence
+from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path, PurePosixPath
 from uuid import UUID
@@ -125,17 +126,37 @@ def _claimed_media_identities(media_root: Path, stored_paths: list[str]) -> tupl
     return identities, unclassifiable
 
 
+@dataclass(frozen=True)
+class MediaClaimClassification:
+    """How every stored media row maps onto a canonical path on disk.
+
+    `canonical_paths` is the claim identity per media id, `ids_by_path` its
+    inverse (several rows may claim one file), `deletion_authorized` the rows
+    whose strict identity matches their claim, and `unclassifiable` records
+    that at least one stored path could not be resolved safely — every caller
+    must fail closed on it.
+    """
+
+    canonical_paths: dict[UUID, str]
+    ids_by_path: dict[str, set[UUID]]
+    deletion_authorized: set[UUID]
+    unclassifiable: bool
+
+
 def _classified_media_claims(
     media_root: Path,
     stored_rows: Sequence[tuple[UUID, str]],
-) -> tuple[dict[UUID, str], set[UUID], bool]:
+) -> MediaClaimClassification:
     """Classify stored media rows into claim identities and deletion authority.
 
-    Purely synchronous (many blocking path syscalls per row), so callers on an
-    event loop must hand the whole batch to a worker thread instead of walking
-    row by row.
+    The single classification pass for both retention phases: the planner reads
+    the deletion authority, the database executor the path index. Purely
+    synchronous (many blocking path syscalls per row), so callers on an event
+    loop must hand the whole batch to a worker thread instead of walking row by
+    row.
     """
     canonical_paths: dict[UUID, str] = {}
+    ids_by_path: dict[str, set[UUID]] = {}
     deletion_authorized: set[UUID] = set()
     unclassifiable = False
     for media_id, stored_path in stored_rows:
@@ -145,13 +166,19 @@ def _classified_media_claims(
             unclassifiable = True
             continue
         canonical_paths[media_id] = claim_identity
+        ids_by_path.setdefault(claim_identity, set()).add(media_id)
         try:
             strict_identity = _media_relative_path(media_root, stored_path)
         except _UnsafeStoragePath:
             continue
         if strict_identity == claim_identity:
             deletion_authorized.add(media_id)
-    return canonical_paths, deletion_authorized, unclassifiable
+    return MediaClaimClassification(
+        canonical_paths=canonical_paths,
+        ids_by_path=ids_by_path,
+        deletion_authorized=deletion_authorized,
+        unclassifiable=unclassifiable,
+    )
 
 
 def _delete_relative_owned(root_value: Path, relative_path: str, *, directory: bool) -> None:

@@ -647,16 +647,14 @@ class RetentionPlanner:
         # Classifying one media row costs O(path depth) blocking syscalls; the
         # whole batch goes to a worker thread so an interactive preview request
         # never stalls the event loop for the API process.
-        (
-            canonical_media_paths,
-            deletion_authorized_ids,
-            unclassifiable_media_claim,
-        ) = await asyncio.to_thread(
+        classification = await asyncio.to_thread(
             _classified_media_claims,
             owned_media_root,
             [(row.id, str(row.storage_path)) for row in all_stored_media],
         )
-        if unclassifiable_media_claim:
+        canonical_media_paths = classification.canonical_paths
+        deletion_authorized_ids = set(classification.deletion_authorized)
+        if classification.unclassifiable:
             deletion_authorized_ids.clear()
         blocked_shared_paths = {
             canonical_path

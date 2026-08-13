@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 from collections.abc import Awaitable, Callable, Mapping
 from datetime import datetime
@@ -30,8 +31,8 @@ from app.retention.contracts import (
     build_preview_token,
 )
 from app.retention.filesystem import (
+    _classified_media_claims,
     _export_relative_path,
-    _media_claim_identity,
     _media_relative_path,
     _UnsafeStoragePath,
 )
@@ -306,20 +307,22 @@ class RetentionDatabaseExecutor:
             for candidate in candidates
             if candidate.record_type == "media_asset"
         }
-        canonical_media_paths: dict[UUID, str] = {}
-        rows_by_canonical_path: dict[str, set[UUID]] = {}
-        all_stored_media = list(
-            await self.session.scalars(select(MediaAsset).where(MediaAsset.storage_path.is_not(None)))
+        stored_media_rows = list(
+            await self.session.execute(
+                select(MediaAsset.id, MediaAsset.storage_path).where(MediaAsset.storage_path.is_not(None))
+            )
         )
-        unclassifiable_media_claim = False
-        for row in all_stored_media:
-            try:
-                relative_path = _media_claim_identity(media_root, str(row.storage_path))
-            except _UnsafeStoragePath:
-                unclassifiable_media_claim = True
-                continue
-            canonical_media_paths[row.id] = relative_path
-            rows_by_canonical_path.setdefault(relative_path, set()).add(row.id)
+        # Same classification the planner ran; one implementation so the two
+        # phases can never disagree about which rows claim which file. The
+        # per-row path syscalls go to a worker thread instead of the event loop.
+        classification = await asyncio.to_thread(
+            _classified_media_claims,
+            media_root,
+            [(row.id, str(row.storage_path)) for row in stored_media_rows],
+        )
+        canonical_media_paths = classification.canonical_paths
+        rows_by_canonical_path = classification.ids_by_path
+        unclassifiable_media_claim = classification.unclassifiable
         unchanged_media_ids = {
             candidate.record_id
             for candidate in candidates
