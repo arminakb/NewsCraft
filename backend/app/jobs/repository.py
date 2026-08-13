@@ -393,14 +393,12 @@ class JobRepository:
         effective_scheduled_for = _now(scheduled_for)
         safe_payload = _redact_job_payload(job_type, payload)
         if api_capability_gate_enabled(self.session):
-            existing = await self.session.scalar(
-                select(WorkflowJob).where(WorkflowJob.idempotency_key == idempotency_key)
+            existing = await self._existing_job_result(
+                idempotency_key=idempotency_key,
+                effective_scheduled_for=effective_scheduled_for,
             )
             if existing is not None:
-                if existing.scheduled_for is None:
-                    existing.scheduled_for = effective_scheduled_for
-                    await self.session.flush()
-                return EnqueueJobResult(job=existing, created=False)
+                return existing
             await require_available_job_type(self.session, job_type)
         statement = (
             insert(WorkflowJob)
@@ -434,9 +432,32 @@ class JobRepository:
             await self.session.flush()
             return EnqueueJobResult(job=job, created=True)
 
-        job = await self.session.scalar(select(WorkflowJob).where(WorkflowJob.idempotency_key == idempotency_key))
-        if job is None:  # pragma: no cover - conflict target guarantees a matching row
+        existing = await self._existing_job_result(
+            idempotency_key=idempotency_key,
+            effective_scheduled_for=effective_scheduled_for,
+        )
+        if existing is None:  # pragma: no cover - conflict target guarantees a matching row
             raise RuntimeError("Idempotent workflow job could not be loaded")
+        return existing
+
+    async def _existing_job_result(
+        self,
+        *,
+        idempotency_key: str,
+        effective_scheduled_for: datetime,
+    ) -> EnqueueJobResult | None:
+        """Resolve an idempotent enqueue hit, backfilling a missing schedule.
+
+        Both enqueue paths — the capability-gate pre-check and the
+        insert-conflict fallback — owe the caller the same contract: the row
+        that already owns the key, never re-created, with ``scheduled_for``
+        filled in if an earlier enqueue left it open. Returns ``None`` when no
+        row holds the key yet.
+        """
+
+        job = await self.session.scalar(select(WorkflowJob).where(WorkflowJob.idempotency_key == idempotency_key))
+        if job is None:
+            return None
         if job.scheduled_for is None:
             job.scheduled_for = effective_scheduled_for
             await self.session.flush()
