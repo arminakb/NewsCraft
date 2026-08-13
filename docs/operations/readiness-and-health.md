@@ -4,6 +4,7 @@ NewsCraft exposes three different health boundaries. They are intentionally not 
 
 - `GET /health/live` proves only that the API process and event loop can answer. It performs no database or storage IO.
 - `GET /health/ready` proves database connectivity, the exact Alembic schema head, readable/traversable media and export storage, and any capabilities listed in `READINESS_REQUIRED_CAPABILITIES`. It returns HTTP 503 when a required check is not healthy.
+- `GET /health/ready/secrets` independently proves database connectivity, `encrypted_secrets` schema availability, encryption configuration validity, and process-level Secret Store initialization. Its HTTP 503 does not gate unrelated read-only API routes.
 - `GET /operations/health` returns sanitized dependency, component, queue, recent lease-recovery, alert, and metric state. `GET /operations/metrics` exposes the same bounded measures in Prometheus text format.
 - `GET /operations/diagnostics` is the operator/UI diagnostics contract.
 
@@ -37,6 +38,16 @@ Keep `/health/live` available for process diagnosis. Check PostgreSQL service he
 ## Schema mismatch
 
 Run the normal one-shot deployment migration command and verify `alembic current` equals the application schema head. Do not bypass this readiness failure by changing the expected revision.
+
+## Secret Store unavailable
+
+For Compose, verify the ignored `secrets/SECRET_MASTER_KEY` file exists, is readable only by its
+operator, contains URL-safe base64 for exactly 32 bytes, and is mounted at
+`/run/secrets/SECRET_MASTER_KEY` in API and both credential-owning workers. Local `.venv` runs use
+the `SECRET_MASTER_KEY` environment variable. All replicas must use the same key and
+`SECRET_KEY_VERSION`. Never replace a missing key automatically. If existing ciphertext cannot be
+decrypted, restore the old key through `SECRET_PREVIOUS_KEYS` or replace each affected credential
+through Settings; ciphertext cannot be recovered without its matching key.
 
 ## Storage unavailable
 

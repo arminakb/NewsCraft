@@ -25,5 +25,8 @@ export type ArticleFilters = {
 
 export type ArticleImage = Camelized<Schemas["ArticleImageOut"]>
 export type ArticleSummary = Camelized<Schemas["ArticleSummaryOut"]>
+export type ArticleDetail = Camelized<Schemas["ArticleDetailOut"]>
 export type ArticlePage = Camelized<Schemas["ArticleListOut"]>
 export type ArticleCollection = Camelized<Schemas["ArticleCollectionOut"]>
+export type FeedSummary = Camelized<Schemas["FeedSummaryOut"]>
+export type FeedClearResult = Camelized<Schemas["FeedClearOut"]>

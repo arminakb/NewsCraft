@@ -5,8 +5,8 @@ import { fireEvent, render, screen, waitFor, within } from "@testing-library/rea
 
 import RootLayout from "@/app/layout"
 import { MobileNewsroomNav } from "@/components/newsroom/mobile-newsroom-nav"
-import { NewsroomHeader } from "@/components/newsroom/newsroom-header"
 import { NewsroomSidebar } from "@/components/newsroom/newsroom-sidebar"
+import { ThemeProvider } from "@/components/providers/theme-provider"
 
 let pathname = "/"
 
@@ -21,193 +21,142 @@ describe("mobile newsroom navigation", () => {
     Object.defineProperty(window, "innerWidth", { configurable: true, value: 390 })
   })
 
-  it("is an aria-modal drawer with initial focus and current-page state", async () => {
-    pathname = "/inbox"
-    render(<MobileNewsroomNav />)
+  it("uses a four-target bottom bar and a compact two-column navigation panel", async () => {
+    pathname = "/feed"
+    renderWithTheme(<MobileNewsroomNav />)
 
-    fireEvent.click(screen.getByRole("button", { name: "Open navigation" }))
+    const navigation = screen.getByRole("navigation", { name: "Mobile newsroom navigation" })
+    expect(within(navigation).getAllByRole("link").map((link) => link.textContent)).toEqual([
+      "Today",
+      "Sources",
+      "Feed",
+    ])
+    expect(within(navigation).getByRole("button", { name: "Open navigation" })).toBeInTheDocument()
+    expect(within(navigation).getByRole("link", { name: "Feed" })).toHaveAttribute("aria-current", "page")
 
+    fireEvent.click(within(navigation).getByRole("button", { name: "Open navigation" }))
     const dialog = screen.getByRole("dialog", { name: "Newsroom navigation" })
-    expect(dialog).toHaveAttribute("aria-modal", "true")
-    expect(within(dialog).getByText("Workflow")).toBeInTheDocument()
-    expect(within(dialog).getByText("Advanced")).toBeInTheDocument()
-    expect(within(dialog).getByText("Automation")).toBeInTheDocument()
-    expect(within(dialog).getByText("Collection")).toBeInTheDocument()
-    expect(within(dialog).getByText("System")).toBeInTheDocument()
-    expect(within(dialog).getByRole("link", { name: "Inbox" })).toHaveAttribute("aria-current", "page")
-    expect(within(dialog).queryByRole("link", { name: "Feed monitor" })).not.toBeInTheDocument()
-    expect(within(dialog).queryByRole("link", { name: /^Content$/ })).not.toBeInTheDocument()
-    expect(within(dialog).getByRole("link", { name: "Library" })).not.toHaveAttribute("aria-current")
-    expect(within(dialog).queryByRole("link", { name: "Media" })).not.toBeInTheDocument()
+    expect(within(dialog).getByRole("navigation", { name: "Mobile navigation panel" })).toHaveClass(
+      "grid-cols-2",
+    )
+    expect(within(dialog).getAllByRole("link").map((link) => link.textContent).filter(Boolean)).toEqual([
+      "Today",
+      "Sources",
+      "Feed",
+      "Automations",
+      "Operations Center",
+      "Settings",
+    ])
     await waitFor(() => expect(within(dialog).getByRole("link", { name: "Today" })).toHaveFocus())
   })
 
-  it("wraps Tab and Shift-Tab inside the open drawer", async () => {
-    render(<MobileNewsroomNav />)
-    fireEvent.click(screen.getByRole("button", { name: "Open navigation" }))
-
-    const dialog = screen.getByRole("dialog", { name: "Newsroom navigation" })
-    const closeButton = within(dialog).getByRole("button", { name: "Close navigation" })
-    const lastLink = within(dialog).getByRole("link", { name: "Retention" })
-    await waitFor(() => expect(within(dialog).getByRole("link", { name: "Today" })).toHaveFocus())
-
-    lastLink.focus()
-    fireEvent.keyDown(document, { key: "Tab" })
-    expect(closeButton).toHaveFocus()
-
-    closeButton.focus()
-    fireEvent.keyDown(document, { key: "Tab", shiftKey: true })
-    expect(lastLink).toHaveFocus()
-  })
-
-  it("closes on Escape and restores focus to the menu trigger", async () => {
-    render(<MobileNewsroomNav />)
+  it("traps focus, closes on Escape, and restores the menu trigger", async () => {
+    renderWithTheme(<MobileNewsroomNav />)
     const trigger = screen.getByRole("button", { name: "Open navigation" })
     trigger.focus()
     fireEvent.click(trigger)
     const dialog = screen.getByRole("dialog", { name: "Newsroom navigation" })
+    const settings = within(dialog).getByRole("link", { name: "Settings" })
     await waitFor(() => expect(within(dialog).getByRole("link", { name: "Today" })).toHaveFocus())
 
+    settings.focus()
+    fireEvent.keyDown(document, { key: "Tab" })
+    expect(within(dialog).getByRole("button", { name: "Open notifications" })).toHaveFocus()
     fireEvent.keyDown(document, { key: "Escape" })
 
     expect(screen.queryByRole("dialog", { name: "Newsroom navigation" })).not.toBeInTheDocument()
     expect(trigger).toHaveFocus()
-  })
-
-  it("closes from the backdrop and restores focus to the menu trigger", () => {
-    render(<MobileNewsroomNav />)
-    const trigger = screen.getByRole("button", { name: "Open navigation" })
-    fireEvent.click(trigger)
-
-    fireEvent.click(screen.getByTestId("mobile-navigation-backdrop"))
-
-    expect(screen.queryByRole("dialog", { name: "Newsroom navigation" })).not.toBeInTheDocument()
-    expect(trigger).toHaveFocus()
-  })
-
-  it("closes from its close control and restores focus to the menu trigger", () => {
-    render(<MobileNewsroomNav />)
-    const trigger = screen.getByRole("button", { name: "Open navigation" })
-    fireEvent.click(trigger)
-
-    fireEvent.click(screen.getByRole("button", { name: "Close navigation" }))
-
-    expect(screen.queryByRole("dialog", { name: "Newsroom navigation" })).not.toBeInTheDocument()
-    expect(trigger).toHaveFocus()
-  })
-
-  it("closes from a destination link and restores focus while navigation starts", () => {
-    render(<MobileNewsroomNav />)
-    const trigger = screen.getByRole("button", { name: "Open navigation" })
-    fireEvent.click(trigger)
-
-    const dialog = screen.getByRole("dialog", { name: "Newsroom navigation" })
-    window.addEventListener("click", (event) => event.preventDefault(), { capture: true, once: true })
-    fireEvent.click(within(dialog).getByRole("link", { name: "Inbox" }))
-
-    expect(screen.queryByRole("dialog", { name: "Newsroom navigation" })).not.toBeInTheDocument()
-    expect(trigger).toHaveFocus()
-  })
-
-  it("locks page scrolling only while mounted open and restores it during cleanup", () => {
-    document.body.style.overflow = "scroll"
-    const { unmount } = render(<MobileNewsroomNav />)
-    fireEvent.click(screen.getByRole("button", { name: "Open navigation" }))
-
-    expect(document.body.style.overflow).toBe("hidden")
-
-    unmount()
-    expect(document.body.style.overflow).toBe("scroll")
-  })
-
-  it("closes and restores focus when the viewport crosses into desktop navigation", () => {
-    render(<MobileNewsroomNav />)
-    const trigger = screen.getByRole("button", { name: "Open navigation" })
-    fireEvent.click(trigger)
-
-    Object.defineProperty(window, "innerWidth", { configurable: true, value: 900 })
-    fireEvent(window, new Event("resize"))
-
-    expect(screen.queryByRole("dialog", { name: "Newsroom navigation" })).not.toBeInTheDocument()
     expect(document.body.style.overflow).toBe("")
-    expect(trigger).toHaveFocus()
   })
 
-  it("switches navigation and header presentation at exactly 900px", () => {
-    const { container } = render(
+  it("closes from backdrop and route links without leaving page scroll locked", () => {
+    renderWithTheme(<MobileNewsroomNav />)
+    const trigger = screen.getByRole("button", { name: "Open navigation" })
+    fireEvent.click(trigger)
+    expect(document.body.style.overflow).toBe("hidden")
+    fireEvent.click(screen.getByTestId("mobile-navigation-backdrop"))
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument()
+    expect(document.body.style.overflow).toBe("")
+
+    fireEvent.click(trigger)
+    window.addEventListener("click", (event) => event.preventDefault(), { capture: true, once: true })
+    fireEvent.click(screen.getByRole("dialog").querySelector('a[href="/operations"]') as HTMLElement)
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument()
+  })
+
+  it("switches navigation presentation at exactly 900px", () => {
+    const { container } = renderWithTheme(
       <>
         <NewsroomSidebar />
-        <NewsroomHeader controlState="active" />
         <MobileNewsroomNav />
-      </>
+      </>,
     )
 
     const sidebar = container.querySelector("aside")
-    const header = container.querySelector("header")
-    expect(sidebar).toHaveClass("hidden", "min-[900px]:flex")
+    expect(sidebar).toHaveClass("hidden", "min-[900px]:flex", "border-r")
+    expect(sidebar).toHaveClass("min-[900px]:col-start-1", "min-[900px]:w-[72px]")
     expect(screen.getByRole("navigation", { name: "Mobile newsroom navigation" })).toHaveClass(
-      "min-[900px]:hidden"
+      "min-[900px]:hidden",
     )
-    expect(within(header as HTMLElement).getByText("Newsroom Command Center")).toHaveClass("min-[900px]:hidden")
-    expect(within(header as HTMLElement).getByText("NewsCraft")).toHaveClass("min-[900px]:text-lg")
-    expect(within(sidebar as HTMLElement).getByRole("img", { name: "NewsCraft" })).toBeInTheDocument()
-    expect(within(sidebar as HTMLElement).queryByText("Newsroom Command Center")).not.toBeInTheDocument()
+    expect(within(sidebar as HTMLElement).getByRole("button", { name: "Open sidebar" })).toBeInTheDocument()
   })
 
-  it("keeps every primary mobile navigation target at least 44 by 44 pixels", () => {
-    render(<MobileNewsroomNav />)
+  it("keeps each mobile bar target at least 44 by 44 pixels", () => {
+    renderWithTheme(<MobileNewsroomNav />)
 
-    const mobileNavigation = screen.getByRole("navigation", { name: "Mobile newsroom navigation" })
-    for (const target of mobileNavigation.querySelectorAll("a, button")) {
+    const navigation = screen.getByRole("navigation", { name: "Mobile newsroom navigation" })
+    for (const target of navigation.querySelectorAll("a, button")) {
       expect(target).toHaveClass("min-h-11", "min-w-11")
     }
-  })
-
-  it("puts Inbox after Today in mobile workflow navigation", () => {
-    render(<MobileNewsroomNav />)
-
-    const mobileNavigation = screen.getByRole("navigation", { name: "Mobile newsroom navigation" })
-    expect(within(mobileNavigation).getAllByRole("link").map((link) => link.textContent)).toEqual([
-      "Today",
-      "Inbox",
-    ])
-    expect(within(mobileNavigation).getByRole("link", { name: "Inbox" })).toHaveAttribute(
-      "href",
-      "/inbox",
-    )
+    expect(navigation).not.toHaveClass("overflow-x-auto", "overflow-y-auto")
   })
 })
 
 describe("global shell accessibility", () => {
   it("declares a stable left-to-right document and a skip link to routed content", () => {
     const layout = RootLayout({ children: <div>Routed content</div> })
-    const body = layout.props.children
+    const body = Children.toArray(layout.props.children).find(
+      (child) => isValidElement(child) && child.type === "body",
+    )
+    expect(body).toBeDefined()
+    if (!isValidElement<{ children?: React.ReactNode }>(body)) return
     const bodyChildren = Children.toArray(body.props.children)
+    const head = Children.toArray(layout.props.children).find(
+      (child) => isValidElement(child) && child.type === "head",
+    )
+    const themeScript = isValidElement<{ children?: React.ReactNode }>(head)
+      ? Children.toArray(head.props.children).find(
+          (child) =>
+            isValidElement<{ id?: string }>(child) && child.props.id === "newscraft-theme-init",
+        )
+      : undefined
     const skipLink = bodyChildren.find(
       (child) =>
-        isValidElement<{ href?: string }>(child) && child.type === "a" && child.props.href === "#main-content"
+        isValidElement<{ href?: string }>(child) && child.type === "a" && child.props.href === "#main-content",
     )
 
     expect(layout.props.lang).toBe("en")
     expect(layout.props.dir).toBe("ltr")
+    expect(themeScript).toBeDefined()
     expect(skipLink).toBeDefined()
     expect(skipLink).toHaveProperty("props.className", "skip-link")
     expect(skipLink).toHaveProperty("props.children", "Skip to content")
   })
 
-  it("keeps focus, overflow, touch, skip-link, and reduced-motion safeguards global", () => {
+  it("keeps focus, overflow, touch, short-height, and reduced-motion safeguards global", () => {
     const css = readFileSync(resolve(process.cwd(), "app/globals.css"), "utf8")
 
     expect(css).toMatch(/html,\s*body\s*{[^}]*overflow-x:\s*clip;/s)
-    expect(css).toMatch(/:focus-visible\s*{[^}]*outline:\s*2px solid var\(--primary\);/s)
-    expect(css).toMatch(/\.skip-link\s*{/)
+    expect(css).toMatch(/:focus-visible\s*{[^}]*outline:\s*2px solid var\(--ring\);/s)
     expect(css).toMatch(/\.skip-link:focus-visible\s*{[^}]*transform:\s*translateY\(0\);/s)
     expect(css).toMatch(/@media\s*\(max-width:\s*899px\)/)
-    expect(css).toMatch(/@media\s*\(min-width:\s*900px\)\s*{[^}]*\.newsroom-scroll\s*{[^}]*scrollbar-width:\s*none;/s)
-    expect(css).toMatch(/\.newsroom-scroll::\-webkit-scrollbar\s*{[^}]*display:\s*none;/s)
-    expect(css).not.toMatch(/body\s*{[^}]*overflow:\s*hidden;/s)
+    expect(css).toMatch(/@media\s*\(min-width:\s*900px\)\s*and\s*\(max-height:\s*639px\)/)
+    expect(css).toMatch(/\.desktop-newsroom-navigation\s*{[^}]*display:\s*none\s*!important;/s)
     expect(css).toMatch(/@media\s*\(prefers-reduced-motion:\s*reduce\)/)
-    expect(css).toMatch(/animation-duration:\s*0\.01ms\s*!important;/)
     expect(css).toMatch(/transition-duration:\s*0\.01ms\s*!important;/)
   })
 })
+
+function renderWithTheme(children: React.ReactNode) {
+  return render(<ThemeProvider>{children}</ThemeProvider>)
+}

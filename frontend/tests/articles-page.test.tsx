@@ -3,16 +3,19 @@ import { createEvent, fireEvent, render, screen, waitFor, within } from "@testin
 
 import {
   createArticleCollection,
+  clearFeed,
   deleteArticleCollection,
+  getArticle,
   getArticleCollections,
   getArticleFacets,
+  getFeedSummary,
   getArticles,
   removeArticleFromCollection,
   renameArticleCollection,
   saveArticleToCollection,
 } from "@/features/articles/api"
 import { ArticlesPage } from "@/features/articles/articles-page"
-import type { ArticleCollection, ArticlePage, ArticleSummary } from "@/features/articles/types"
+import type { ArticleCollection, ArticleDetail, ArticlePage, ArticleSummary } from "@/features/articles/types"
 import { ApiError } from "@/lib/http"
 
 const navigation = vi.hoisted(() => ({ search: "", listeners: new Set<() => void>(), push: vi.fn() }))
@@ -41,10 +44,13 @@ vi.mock("next/navigation", async () => {
 
 vi.mock("@/features/articles/api", () => ({
   createArticleCollection: vi.fn(),
+  clearFeed: vi.fn(),
   deleteArticleCollection: vi.fn(),
   getArticleCollections: vi.fn(),
+  getArticle: vi.fn(),
   getArticles: vi.fn(),
   getArticleFacets: vi.fn(),
+  getFeedSummary: vi.fn(),
   removeArticleFromCollection: vi.fn(),
   renameArticleCollection: vi.fn(),
   saveArticleToCollection: vi.fn(),
@@ -63,6 +69,8 @@ describe("Feed page", () => {
     })
     vi.mocked(getArticleCollections).mockResolvedValue([])
     vi.mocked(getArticleFacets).mockResolvedValue(facets())
+    vi.mocked(getFeedSummary).mockResolvedValue({ articleCount: 0 })
+    vi.mocked(clearFeed).mockResolvedValue({ clearedCount: 0 })
     vi.mocked(removeArticleFromCollection).mockResolvedValue()
     vi.mocked(deleteArticleCollection).mockResolvedValue()
     vi.mocked(renameArticleCollection).mockImplementation(async (_, name) => collection({ name }))
@@ -101,7 +109,7 @@ describe("Feed page", () => {
     })
     renderArticles()
 
-    expect(screen.getByRole("heading", { name: "Library", level: 1 })).toBeInTheDocument()
+    expect(screen.getByRole("heading", { name: "Feed", level: 1 })).toBeInTheDocument()
     expect(await screen.findByText("2 articles · source monitoring and saved collections")).toBeInTheDocument()
     expect(screen.getByText("English report").closest("[data-testid='direction-boundary']"))
       .toHaveAttribute("dir", "ltr")
@@ -128,7 +136,7 @@ describe("Feed page", () => {
     expect(sourceLink).toHaveTextContent("Source")
     expect(sourceLink).toHaveClass("text-xs")
     expect(screen.getAllByRole("article")).toHaveLength(2)
-    expect(screen.getByLabelText("Library results")).toHaveClass("feed-card-grid")
+    expect(screen.getByLabelText("Feed results")).toHaveClass("feed-card-grid")
     for (const card of screen.getAllByRole("article")) expect(card).toHaveClass("h-full")
     fireEvent.error(screen.getByRole("img", { name: "Editorial image" }))
     expect(screen.getByRole("img", { name: "Image unavailable for English report" })).toBeInTheDocument()
@@ -137,10 +145,142 @@ describe("Feed page", () => {
     expect(removeArticleFromCollection).not.toHaveBeenCalled()
   })
 
+  it("clears the whole Feed while preserving collection navigation", async () => {
+    let cleared = false
+    vi.mocked(getFeedSummary).mockResolvedValue({ articleCount: 2 })
+    vi.mocked(getArticleCollections).mockResolvedValue([collection({ articleCount: 1 })])
+    vi.mocked(getArticles).mockImplementation(async () => cleared
+      ? { items: [], nextCursor: null, resultCount: 0 }
+      : { items: [article()], nextCursor: null, resultCount: 2 })
+    vi.mocked(clearFeed).mockImplementation(async () => {
+      cleared = true
+      return { clearedCount: 2 }
+    })
+    renderArticles()
+
+    fireEvent.click(await screen.findByRole("button", { name: "Clear Feed" }))
+    const dialog = await screen.findByRole("dialog", { name: "Clear Feed?" })
+    expect(dialog).toHaveTextContent("This will remove 2 collected articles from the Feed.")
+    expect(dialog).toHaveTextContent("Your Sources, Source Collections, and ingestion settings will remain unchanged.")
+    fireEvent.click(within(dialog).getByRole("button", { name: "Clear Feed" }))
+
+    await waitFor(() => expect(clearFeed).toHaveBeenCalledTimes(1))
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Clear Feed?" })).not.toBeInTheDocument())
+    expect(await screen.findByText("0 articles · source monitoring and saved collections")).toBeInTheDocument()
+    expect(screen.queryByRole("article")).not.toBeInTheDocument()
+    expect(screen.getByRole("button", { name: /Research.*1 article/ })).toBeInTheDocument()
+    expect(screen.getByText("Feed cleared. 2 articles removed.")).toBeInTheDocument()
+  })
+
+  it("keeps the clear dialog recoverable after a backend failure", async () => {
+    vi.mocked(getFeedSummary).mockResolvedValue({ articleCount: 1 })
+    vi.mocked(getArticles).mockResolvedValue({ items: [article()], nextCursor: null, resultCount: 1 })
+    vi.mocked(clearFeed)
+      .mockRejectedValueOnce(new ApiError("Unavailable", 503, JSON.stringify({ detail: "Feed could not be cleared right now. Try again." })))
+      .mockResolvedValueOnce({ clearedCount: 1 })
+    renderArticles()
+
+    fireEvent.click(await screen.findByRole("button", { name: "Clear Feed" }))
+    const dialog = await screen.findByRole("dialog", { name: "Clear Feed?" })
+    fireEvent.click(within(dialog).getByRole("button", { name: "Clear Feed" }))
+    expect(await within(dialog).findByRole("alert")).toHaveTextContent("Feed could not be cleared right now. Try again.")
+    expect(screen.getByRole("dialog", { name: "Clear Feed?" })).toBeInTheDocument()
+
+    fireEvent.click(within(dialog).getByRole("button", { name: "Retry clear" }))
+    await waitFor(() => expect(clearFeed).toHaveBeenCalledTimes(2))
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Clear Feed?" })).not.toBeInTheDocument())
+  })
+
+  it("loads article details only after opening, renders plain full content, caches, and restores focus", async () => {
+    const request = deferred<ArticleDetail>()
+    vi.mocked(getArticles).mockResolvedValue({ items: [article()], nextCursor: null, resultCount: 1 })
+    vi.mocked(getArticle).mockReturnValue(request.promise)
+    const { container } = renderArticles()
+
+    const trigger = await screen.findByRole("button", { name: "View article details: Article title" })
+    expect(getArticle).not.toHaveBeenCalled()
+    trigger.focus()
+    fireEvent.click(trigger)
+
+    let dialog = screen.getByRole("dialog", { name: "Article title" })
+    expect(within(dialog).getByRole("status", { name: "Loading article details" })).toBeInTheDocument()
+    expect(getArticle).toHaveBeenCalledWith("article")
+    request.resolve(articleDetail({
+      contentText: "Complete first paragraph.\n\n<script>window.__article_attack = true</script>",
+      contentOrigin: "source_provided",
+    }))
+
+    expect(await within(dialog).findByText("Complete first paragraph.")).toBeInTheDocument()
+    expect(within(dialog).getByText("Source-provided content")).toBeInTheDocument()
+    expect(within(dialog).getByText("<script>window.__article_attack = true</script>")).toBeInTheDocument()
+    expect(container.querySelector("script")).not.toBeInTheDocument()
+    expect(within(dialog).getByRole("link", { name: "Open original source" })).toHaveAttribute(
+      "rel",
+      "noopener noreferrer",
+    )
+
+    fireEvent.click(within(dialog).getByRole("button", { name: "Close article details" }))
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Article title" })).not.toBeInTheDocument())
+    await waitFor(() => expect(trigger).toHaveFocus())
+
+    fireEvent.click(trigger)
+    dialog = screen.getByRole("dialog", { name: "Article title" })
+    expect(within(dialog).getByText("Complete first paragraph.")).toBeInTheDocument()
+    expect(getArticle).toHaveBeenCalledTimes(1)
+  })
+
+  it("renders the article source's resolved stored icon in the detail popup", async () => {
+    const source = {
+      id: "source-1",
+      name: "Hacker News",
+      platform: "rss",
+      homepageUrl: "https://news.ycombinator.com",
+      iconUrl: "/sources/source-1/icon.svg",
+      iconStatus: "resolved",
+      iconUpdatedAt: "2026-08-12T10:00:00Z",
+    }
+    vi.mocked(getArticles).mockResolvedValue({
+      items: [article({ source: source as ArticleSummary["source"] })],
+      nextCursor: null,
+      resultCount: 1,
+    })
+    vi.mocked(getArticle).mockResolvedValue(
+      articleDetail({ source: source as ArticleDetail["source"] }),
+    )
+    renderArticles()
+
+    fireEvent.click(await screen.findByRole("button", { name: "View article details: Article title" }))
+    const dialog = await screen.findByRole("dialog", { name: "Article title" })
+    const sourceIcon = await waitFor(() => {
+      const image = dialog.querySelector<HTMLImageElement>("img")
+      expect(image).toBeInTheDocument()
+      return image
+    })
+
+    expect(sourceIcon).toHaveAttribute(
+      "src",
+      "/api/backend/sources/source-1/icon.svg?v=2026-08-12T10%3A00%3A00Z",
+    )
+    expect(sourceIcon).toHaveClass("object-contain")
+    expect(within(dialog).getByText("Hacker News", { selector: "bdi" })).toBeInTheDocument()
+    expect(getArticle).toHaveBeenCalledTimes(1)
+  })
+
+  it("keeps nested card actions independent from article details", async () => {
+    vi.mocked(getArticles).mockResolvedValue({ items: [article()], nextCursor: null, resultCount: 1 })
+    renderArticles()
+
+    fireEvent.click(await screen.findByRole("button", { name: "Save article to collection" }))
+
+    expect(screen.getByRole("dialog", { name: "Save to Collection" })).toBeInTheDocument()
+    expect(screen.queryByRole("dialog", { name: "Article title" })).not.toBeInTheDocument()
+    expect(getArticle).not.toHaveBeenCalled()
+  })
+
   it("debounces normalized title search, preserves URL state, paginates, and clears", async () => {
     setSearch("language=en&cursor=stale")
     vi.mocked(getArticles).mockResolvedValue({
-      items: [article({ title: "Climate report" })], nextCursor: "search-page-2", resultCount: 2,
+      items: [article({ title: "Climate report" })], nextCursor: "search-page-2", resultCount: 100,
     })
     renderArticles()
     await screen.findByText("Climate report")
@@ -153,12 +293,12 @@ describe("Feed page", () => {
     await waitFor(() => expect(window.history.pushState).toHaveBeenLastCalledWith(null, "", "/feed?language=en&q=Climate"))
     expect(getArticles).toHaveBeenLastCalledWith({
       sort: "newest", query: "Climate", filters: { ...emptyFilters(), languages: ["en"] }, cursor: null, limit: 50,
-    })
+    }, expect.any(AbortSignal))
 
-    fireEvent.click(screen.getByRole("button", { name: "Load more" }))
-    await waitFor(() => expect(getArticles).toHaveBeenLastCalledWith({
-      sort: "newest", query: "Climate", filters: { ...emptyFilters(), languages: ["en"] }, cursor: "search-page-2", limit: 50,
-    }))
+    fireEvent.click(screen.getByRole("button", { name: "Go to page 2" }))
+    await waitFor(() => expect(navigation.search).toContain("page=2"))
+    expect(navigation.search).toContain("cursor=search-page-2")
+    expect(screen.getByText("Climate report")).toBeInTheDocument()
 
     const callsBeforeEquivalentInput = vi.mocked(getArticles).mock.calls.length
     fireEvent.change(input, { target: { value: " Climate " } })
@@ -169,7 +309,7 @@ describe("Feed page", () => {
     await waitFor(() => expect(window.history.pushState).toHaveBeenLastCalledWith(null, "", "/feed?language=en"))
     expect(getArticles).toHaveBeenLastCalledWith({
       sort: "newest", filters: { ...emptyFilters(), languages: ["en"] }, cursor: null, limit: 50,
-    })
+    }, expect.any(AbortSignal))
   })
 
   it("restores article search from URL and shows the query empty state", async () => {
@@ -181,32 +321,32 @@ describe("Feed page", () => {
     expect(screen.getByRole("searchbox", { name: "Search articles" })).toHaveValue("گزارش")
     expect(getArticles).toHaveBeenLastCalledWith({
       sort: "newest", query: "گزارش", filters: { ...emptyFilters(), topics: ["Tech"] }, cursor: null, limit: 50,
-    })
+    }, expect.any(AbortSignal))
     fireEvent.click(screen.getByRole("button", { name: "Clear article search" }))
     await waitFor(() => expect(window.history.pushState).toHaveBeenLastCalledWith(null, "", "/feed?topic=Tech"))
   })
 
-  it("appends cursor pages without duplicates and preserves rows while loading", async () => {
+  it("replaces page dataset and unmounts previous article cards", async () => {
     const nextPage = deferred<ArticlePage>()
-    vi.mocked(getArticles)
-      .mockResolvedValueOnce({ items: [article({ id: "first", title: "First" })], nextCursor: "page-2", resultCount: 2 })
-      .mockReturnValueOnce(nextPage.promise)
+    vi.mocked(getArticles).mockImplementation(({ cursor }) => cursor === null
+      ? Promise.resolve({ items: [article({ id: "first", title: "First" })], nextCursor: "page-2", resultCount: 100 })
+      : nextPage.promise)
     renderArticles()
 
     expect(await screen.findByText("First")).toBeInTheDocument()
-    fireEvent.click(screen.getByRole("button", { name: "Load more" }))
-    expect(screen.getByText("First")).toBeInTheDocument()
-    await waitFor(() => expect(screen.getByRole("button", { name: "Loading more…" })).toBeDisabled())
-    expect(getArticles).toHaveBeenLastCalledWith({ sort: "newest", filters: emptyFilters(), cursor: "page-2", limit: 50 })
+    fireEvent.click(screen.getByRole("button", { name: "Go to page 2" }))
+    await waitFor(() => expect(navigation.search).toContain("page=2"))
+    expect(screen.queryByText("First")).not.toBeInTheDocument()
+    expect(screen.getByRole("status", { name: "Loading articles" })).toBeInTheDocument()
 
     nextPage.resolve({
-      items: [article({ id: "first", title: "First duplicate" }), article({ id: "second", title: "Second" })],
+      items: [article({ id: "second", title: "Second" })],
       nextCursor: null,
-      resultCount: 2,
+      resultCount: 100,
     })
     expect(await screen.findByText("Second")).toBeInTheDocument()
-    expect(screen.queryByText("First duplicate")).not.toBeInTheDocument()
-    expect(screen.getAllByRole("article")).toHaveLength(2)
+    expect(screen.queryByText("First")).not.toBeInTheDocument()
+    expect(screen.getAllByRole("article")).toHaveLength(1)
   })
 
   it("resets pagination when sort changes", async () => {
@@ -220,7 +360,7 @@ describe("Feed page", () => {
     expect(await screen.findByText("Newest item")).toBeInTheDocument()
     fireEvent.change(screen.getByRole("combobox", { name: "Sort articles" }), { target: { value: "score" } })
     expect(await screen.findByText("Highest score")).toBeInTheDocument()
-    expect(getArticles).toHaveBeenLastCalledWith({ sort: "score", filters: emptyFilters(), cursor: null, limit: 50 })
+    expect(getArticles).toHaveBeenLastCalledWith({ sort: "score", filters: emptyFilters(), cursor: null, limit: 50 }, expect.any(AbortSignal))
     expect(screen.queryByText("Newest item")).not.toBeInTheDocument()
   })
 
@@ -250,13 +390,17 @@ describe("Feed page", () => {
   })
 
   it("keeps primary controls at least 44px on mobile", async () => {
-    vi.mocked(getArticles).mockResolvedValue({ items: [article()], nextCursor: "next", resultCount: 2 })
+    vi.mocked(getArticles).mockResolvedValue({ items: [article()], nextCursor: "next", resultCount: 100 })
     const { container } = renderArticles()
     await screen.findByRole("article")
 
     expect(screen.getByRole("combobox", { name: "Sort articles" })).toHaveClass("min-h-11")
     expect(screen.getByRole("button", { name: "Filter articles" })).toHaveClass("min-h-11")
-    expect(screen.getByRole("button", { name: "Load more" })).toHaveClass("min-h-11", "min-w-36")
+    expect(screen.getByTestId("feed-pagination")).toBeInTheDocument()
+    expect(screen.getByRole("button", { name: "Next page" })).toHaveClass("min-h-11")
+    expect(screen.queryByRole("button", { name: "Load more" })).not.toBeInTheDocument()
+    expect(screen.getByRole("complementary", { name: "Collections" })).toHaveClass("overflow-x-auto")
+    expect(screen.getByRole("button", { name: "All articles" })).toHaveClass("min-h-11", "min-w-32")
     const row = screen.getByRole("article")
     expect(within(row).getByRole("link", { name: /Open original article/ })).toHaveClass("min-h-11")
     expect(container.querySelector("section")).toHaveClass("w-full")
@@ -278,7 +422,7 @@ describe("Feed page", () => {
       filters: { ...emptyFilters(), languages: ["en"], topics: ["AI", "Tech"] },
       cursor: null,
       limit: 50,
-    }))
+    }, expect.any(AbortSignal)))
     expect(navigation.push).toHaveBeenLastCalledWith("/feed?language=en&topic=AI&topic=Tech")
     expect(screen.getByRole("button", { name: "Filter articles, 3 active" })).toBeInTheDocument()
     expect(screen.getByRole("button", { name: "Remove filter EN" })).toBeInTheDocument()
@@ -316,7 +460,7 @@ describe("Feed page", () => {
       },
       cursor: null,
       limit: 50,
-    }))
+    }, expect.any(AbortSignal)))
     expect(navigation.search).toContain(`source_id=${sourceA}`)
     expect(navigation.search).toContain(`source_id=${sourceB}`)
     expect(screen.getByRole("button", { name: "Filter articles, 8 active" })).toBeInTheDocument()
@@ -329,37 +473,29 @@ describe("Feed page", () => {
 
     await waitFor(() => expect(getArticles).toHaveBeenLastCalledWith({
       sort: "newest", filters: { ...emptyFilters(), languages: ["en"] }, cursor: null, limit: 50,
-    }))
+    }, expect.any(AbortSignal)))
     setSearch("sort=score&topic=AI&topic=Tech")
     await waitFor(() => expect(screen.getByRole("combobox", { name: "Sort articles" })).toHaveValue("score"))
     expect(screen.getByRole("button", { name: "Filter articles, 2 active" })).toBeInTheDocument()
     expect(getArticles).toHaveBeenLastCalledWith({
       sort: "score", filters: { ...emptyFilters(), topics: ["AI", "Tech"] }, cursor: null, limit: 50,
-    })
+    }, expect.any(AbortSignal))
   })
 
-  it("resets pagination after a filter change and preserves filters while loading more", async () => {
-    setSearch("language=en")
-    const nextPage = deferred<ArticlePage>()
-    vi.mocked(getArticles)
-      .mockResolvedValueOnce({ items: [article({ id: "first", title: "First" })], nextCursor: "en-page-2", resultCount: 2 })
-      .mockReturnValueOnce(nextPage.promise)
-      .mockResolvedValue({ items: [article({ id: "tech", title: "Tech" })], nextCursor: null, resultCount: 1 })
+  it("resets page and cursor after a filter change", async () => {
+    setSearch("language=en&page=2&cursor=en-page-2")
+    vi.mocked(getArticles).mockImplementation(async ({ filters }) => filters?.topics.includes("Tech")
+      ? { items: [article({ id: "tech", title: "Tech" })], nextCursor: null, resultCount: 1 }
+      : { items: [article({ id: "second", title: "Second" })], nextCursor: null, resultCount: 100, }
+    )
     renderArticles()
-    expect(await screen.findByText("First")).toBeInTheDocument()
-    fireEvent.click(screen.getByRole("button", { name: "Load more" }))
-    expect(screen.getByText("First")).toBeInTheDocument()
-    expect(getArticles).toHaveBeenLastCalledWith({
-      sort: "newest", filters: { ...emptyFilters(), languages: ["en"] }, cursor: "en-page-2", limit: 50,
-    })
-    nextPage.resolve({ items: [article({ id: "second", title: "Second" })], nextCursor: null, resultCount: 2 })
-    await screen.findByText("Second")
+    expect(await screen.findByText("Second")).toBeInTheDocument()
     setSearch("language=en&topic=Tech")
     await screen.findByText("Tech")
     expect(getArticles).toHaveBeenLastCalledWith({
       sort: "newest", filters: { ...emptyFilters(), languages: ["en"], topics: ["Tech"] }, cursor: null, limit: 50,
-    })
-    expect(screen.queryByText("First")).not.toBeInTheDocument()
+    }, expect.any(AbortSignal))
+    expect(screen.queryByText("Second")).not.toBeInTheDocument()
   })
 
   it("shows filtered empty state and clears all filters", async () => {
@@ -404,7 +540,7 @@ describe("Feed page", () => {
       collectionId,
       cursor: null,
       limit: 50,
-    }))
+    }, expect.any(AbortSignal)))
     expect(navigation.push).toHaveBeenLastCalledWith(`/feed?language=en&collection_id=${collectionId}`)
     expect(collectionButton).toHaveAttribute("aria-current", "page")
 
@@ -415,7 +551,7 @@ describe("Feed page", () => {
       filters: { ...emptyFilters(), languages: ["en"] },
       cursor: null,
       limit: 50,
-    })
+    }, expect.any(AbortSignal))
   })
 
   it("creates, refreshes, selects, and announces a trimmed collection", async () => {
@@ -1031,6 +1167,40 @@ function article(overrides: Partial<ArticleSummary> = {}): ArticleSummary {
     hasImage: false,
     saved: false,
     savedCollectionIds: [],
+    ...overrides,
+  }
+}
+
+function articleDetail(overrides: Partial<ArticleDetail> = {}): ArticleDetail {
+  return {
+    ...article(),
+    articleReadiness: { ready: true, reason: "Ready for rewrite", blockers: [] },
+    contentText: "Complete normalized article body.",
+    contentOrigin: "source_provided",
+    sanitizedHtml: null,
+    authors: ["Reporter"],
+    tags: ["AI"],
+    media: [],
+    storyLinks: [],
+    evidenceReferences: [],
+    advanced: {
+      itemType: "article",
+      status: "new",
+      rewriteBucket: "technical_article",
+      classificationReasons: [],
+      sourceTier: "A",
+      freshnessBucket: "fresh",
+      qualityStatus: "good",
+      titleQuality: "meaningful",
+      titleWasGenerated: false,
+      contentIntent: null,
+      duplicateOfId: null,
+      dateSource: "source",
+      dateParseStatus: "parsed",
+      createdAt: "2026-07-21T08:01:00Z",
+      updatedAt: "2026-07-21T08:01:00Z",
+      rawClassification: { contentType: "news", topic: "AI", language: "en" },
+    },
     ...overrides,
   }
 }

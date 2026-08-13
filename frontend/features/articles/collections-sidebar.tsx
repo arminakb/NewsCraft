@@ -7,8 +7,10 @@ import { createArticleCollection } from "./api"
 import { CollectionManagementControl } from "./collection-management"
 import type { ArticleCollection } from "./types"
 
+import { CollectionNavigationItem } from "@/components/collections/collection-navigation"
 import { useEditorialModal } from "@/components/editorial/use-editorial-modal"
 import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
 import { formatNumber } from "@/lib/format"
 import { getApiErrorMessage } from "@/lib/http"
 import { cn } from "@/lib/utils"
@@ -47,23 +49,25 @@ export function CollectionsSidebar({
   }, [focusAllFeedToken])
 
   return (
+    <>
     <aside
       aria-label="Collections"
-      className="sticky top-14 hidden h-[calc(100vh-3.5rem)] min-w-0 overflow-y-auto border-r bg-slate-50/55 min-[900px]:block"
+      className="sticky top-0 z-20 min-w-0 overflow-x-auto border-b border-border/50 bg-card/95 backdrop-blur min-[900px]:h-screen min-[900px]:overflow-x-hidden min-[900px]:overflow-y-auto min-[900px]:border-b-0 min-[900px]:border-r min-[900px]:bg-card/50 min-[900px]:backdrop-blur-none"
     >
-      <div className="space-y-5 p-3 lg:p-4">
-        <nav aria-label="Library collections">
-          <CollectionButton
+      <div className="min-w-max p-2 min-[900px]:min-w-0 min-[900px]:space-y-5 min-[900px]:p-3 lg:p-4">
+        <nav aria-label="Feed collections" className="flex items-center gap-1 min-[900px]:block">
+          <CollectionNavigationItem
             active={selectedId === null}
             count={null}
+            countLabel={(count) => `${formatNumber(count)} ${count === 1 ? "article" : "articles"}`}
             icon={Inbox}
             label="All articles"
             onClick={() => onSelect(null)}
             buttonRef={allFeedRef}
           />
 
-          <div className="mt-5 flex items-center justify-between gap-2 px-2">
-            <h2 className="text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+          <div className="flex items-center justify-between gap-2 px-1 min-[900px]:mt-5 min-[900px]:px-2">
+            <h2 className="hidden text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground min-[900px]:block">
               Collections
             </h2>
             <span className="group/new-collection relative inline-flex">
@@ -87,12 +91,12 @@ export function CollectionsSidebar({
             </span>
           </div>
 
-          <div className="mt-2">
+          <div className="min-[900px]:mt-2">
             {pending ? (
-              <div aria-label="Loading collections" className="space-y-2 px-2 py-1" role="status">
+              <div aria-label="Loading collections" className="flex items-center gap-2 px-2 py-1 min-[900px]:block min-[900px]:space-y-2" role="status">
                 <span className="sr-only">Loading collections</span>
                 {["w-4/5", "w-3/5", "w-5/6"].map((width) => (
-                  <div aria-hidden="true" className="flex h-10 animate-pulse items-center gap-2" key={width}>
+                  <div aria-hidden="true" className="flex h-10 w-24 animate-pulse items-center gap-2 motion-reduce:animate-none min-[900px]:w-auto" key={width}>
                     <span className="size-4 rounded bg-muted" />
                     <span className={cn("h-3 rounded bg-muted", width)} />
                   </div>
@@ -101,8 +105,8 @@ export function CollectionsSidebar({
             ) : null}
 
             {error ? (
-              <div className="space-y-2 rounded-lg border bg-background p-3">
-                <p className="text-xs text-red-700" dir="auto" role="alert">
+              <div className="flex items-center gap-2 rounded-lg border bg-background p-2 min-[900px]:block min-[900px]:space-y-2 min-[900px]:p-3">
+                <p className="text-xs text-destructive" dir="auto" role="alert">
                   {getApiErrorMessage(error, "Collections could not be loaded")}
                 </p>
                 <Button className="min-h-9 w-full" onClick={onRetry} size="sm" variant="outline">
@@ -112,23 +116,24 @@ export function CollectionsSidebar({
             ) : null}
 
             {!pending && !error && collections?.length === 0 ? (
-              <p className="px-2 py-3 text-xs leading-5 text-muted-foreground">No collections yet.</p>
+              <p className="whitespace-nowrap px-2 py-3 text-xs leading-5 text-muted-foreground">No collections yet.</p>
             ) : null}
 
             {!pending && !error && collections?.length ? (
-              <ul className="space-y-1">
+              <ul className="flex items-center gap-1 min-[900px]:block min-[900px]:space-y-1">
                 {collections.map((collection) => (
-                  <li className="min-w-0" key={collection.id}>
+                  <li className="min-w-0 shrink-0" key={collection.id}>
                     <CollectionManagementControl
                       collection={collection}
                       onDeleted={onDeleted}
                       onRenamed={onRenamed}
                     >
                       {(contextProps) => (
-                        <CollectionButton
+                        <CollectionNavigationItem
                           {...contextProps}
                           active={selectedId === collection.id}
                           count={collection.articleCount}
+                          countLabel={(count) => `${formatNumber(count)} ${count === 1 ? "article" : "articles"}`}
                           icon={selectedId === collection.id ? FolderOpen : Folder}
                           label={collection.name}
                           onClick={() => onSelect(collection.id)}
@@ -143,66 +148,13 @@ export function CollectionsSidebar({
         </nav>
 
       </div>
-
-      <NewCollectionDialog
+    </aside>
+    <NewCollectionDialog
         onClose={() => setDialogOpen(false)}
         onCreated={onCreated}
         open={dialogOpen}
       />
-    </aside>
-  )
-}
-
-function CollectionButton({
-  active,
-  count,
-  icon: Icon,
-  label,
-  onClick,
-  onContextMenu,
-  onKeyDown,
-  buttonRef,
-  ...ariaProps
-}: {
-  active: boolean
-  "aria-controls"?: string
-  "aria-expanded"?: boolean
-  "aria-haspopup"?: "menu"
-  buttonRef?: React.Ref<HTMLButtonElement>
-  count: number | null
-  icon: typeof Folder
-  label: string
-  onClick: () => void
-  onContextMenu?: React.MouseEventHandler<HTMLButtonElement>
-  onKeyDown?: React.KeyboardEventHandler<HTMLButtonElement>
-}) {
-  return (
-    <button
-      aria-current={active ? "page" : undefined}
-      {...ariaProps}
-      className={cn(
-        "flex min-h-11 w-full min-w-0 cursor-pointer items-center gap-2 rounded-lg px-2.5 text-left text-sm transition-colors focus-visible:ring-2 focus-visible:ring-ring",
-        active
-          ? "bg-accent font-medium text-accent-foreground"
-          : "text-foreground hover:bg-muted",
-      )}
-      onClick={onClick}
-      onContextMenu={onContextMenu}
-      onKeyDown={onKeyDown}
-      ref={buttonRef}
-      type="button"
-    >
-      <Icon className="size-4 shrink-0" aria-hidden="true" />
-      <span className="min-w-0 flex-1 truncate" title={label}>{label}</span>
-      {count !== null ? (
-        <span
-          aria-label={`${formatNumber(count)} ${count === 1 ? "article" : "articles"}`}
-          className="shrink-0 text-xs tabular-nums text-muted-foreground"
-        >
-          {formatNumber(count)}
-        </span>
-      ) : null}
-    </button>
+    </>
   )
 }
 
@@ -273,13 +225,13 @@ function NewCollectionDialog({
       aria-describedby="new-collection-description"
       aria-labelledby="new-collection-title"
       aria-modal="true"
-      className="fixed inset-0 z-50 grid place-items-center bg-slate-950/40 p-4"
+      className="nc-dialog-scrim fixed inset-0 z-50 grid place-items-center p-4"
       onMouseDown={(event) => { if (event.target === event.currentTarget) close() }}
       ref={dialogRef}
       role="dialog"
       tabIndex={-1}
     >
-      <form className="w-full max-w-md space-y-5 rounded-xl border bg-background p-5 shadow-xl" onSubmit={submit}>
+      <form className="nc-dialog w-full max-w-md space-y-5 p-5" onSubmit={submit}>
         <div>
           <h2 className="text-lg font-semibold" id="new-collection-title">New Collection</h2>
           <p className="mt-1 text-sm text-muted-foreground" id="new-collection-description">
@@ -289,12 +241,11 @@ function NewCollectionDialog({
 
         <label className="grid gap-1.5 text-sm font-medium" htmlFor="collection-name">
           Collection name
-          <input
+          <Input
             aria-label="Collection name"
             aria-describedby={`collection-name-help${showValidation ? " collection-name-error" : ""}`}
             aria-invalid={showValidation ? true : undefined}
             autoComplete="off"
-            className="min-h-11 w-full rounded-lg border bg-background px-3 text-base"
             disabled={pending}
             id="collection-name"
             maxLength={80}
@@ -315,9 +266,9 @@ function NewCollectionDialog({
         </label>
 
         {showValidation ? (
-          <p className="text-sm text-red-700" id="collection-name-error" role="alert">{validationError}</p>
+          <p className="text-sm text-destructive" id="collection-name-error" role="alert">{validationError}</p>
         ) : null}
-        {serverError ? <p className="text-sm text-red-700" dir="auto" role="alert">{serverError}</p> : null}
+        {serverError ? <p className="text-sm text-destructive" dir="auto" role="alert">{serverError}</p> : null}
 
         <div className="flex justify-end gap-2">
           <Button disabled={pending} onClick={close} ref={cancelRef} type="button" variant="outline">Cancel</Button>

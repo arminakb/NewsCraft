@@ -147,6 +147,7 @@ async def _capture(
                     process_max_attempts=int((locked.retry_policy or {}).get("max_attempts", 3)),
                     force_review=force_review,
                     filter_reason=filter_reason,
+                    automation_run_id=job.automation_run_id,
                 )
     finally:
         try:

@@ -1,188 +1,870 @@
 "use client"
 
-import type { ReactNode } from "react"
+import { useEffect, useState, type ReactNode } from "react"
 import { useQuery } from "@tanstack/react-query"
-import { ArrowRight, CircleAlert, FilePlus2, SquarePen } from "lucide-react"
 import Link from "next/link"
+import {
+  Activity,
+  AlertTriangle,
+  ArrowUpRight,
+  CheckCircle2,
+  Clock3,
+  Database,
+  FileText,
+  Gauge,
+  Infinity,
+  ListChecks,
+  RefreshCw,
+  ShieldCheck,
+  Workflow,
+  X,
+  type LucideIcon,
+} from "lucide-react"
 
+import { useDateTime } from "@/components/providers/date-time-provider"
+import { Badge } from "@/components/ui/badge"
 import { Button, buttonVariants } from "@/components/ui/button"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { GlobalControls } from "@/features/control/global-controls"
-import { getJobs, getJobSummary } from "@/features/jobs/api"
-import { AttentionQueue } from "@/features/jobs/attention-queue"
-import { JobStatusBadge } from "@/features/jobs/job-status-badge"
+import {
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card"
+import { EmptyState, ErrorState, LoadingState } from "@/components/ui/state-panel"
+import { getArticleCardTime } from "@/features/articles/article-card-metadata"
+import { getArticles } from "@/features/articles/api"
+import type { ArticleSummary } from "@/features/articles/types"
+import { getAutomations } from "@/features/automations/automation-api"
+import type { Automation } from "@/features/automations/automation-types"
+import { getJobSummary } from "@/features/jobs/api"
+import { fetchOperationsDiagnostics } from "@/features/operations/api"
+import {
+  getIngestRuns,
+  getSourceCollections,
+  getSourcePage,
+} from "@/features/operations/ingestion-api"
+import type {
+  IngestRunSummary,
+  SourceCollectionSummary,
+} from "@/features/operations/ingestion-api"
+import type { OperationsSnapshot } from "@/features/operations/types"
 import { getApiErrorMessage } from "@/lib/http"
-import { queryKeys } from "@/lib/query-keys"
+import { formatInTimeZone } from "@/lib/date-time"
+import { formatNumber, titleCase } from "@/lib/format"
+import { operationsQueryKeys, queryKeys } from "@/lib/query-keys"
+import { cn } from "@/lib/utils"
 
-export function TodayPage({ outcomes }: { outcomes?: ReactNode }) {
-  const summaryQuery = useQuery({ queryKey: queryKeys.jobSummary, queryFn: getJobSummary, refetchInterval: 5_000 })
-  const runningQuery = useQuery({
-    queryKey: queryKeys.jobs({ statuses: ["running"], limit: 25 }),
-    queryFn: () => getJobs({ statuses: ["running"], limit: 25 }),
-    refetchInterval: 5_000,
-  })
-  const attentionQuery = useQuery({
-    queryKey: queryKeys.jobs({ statuses: ["failed", "needs_review"], limit: 25 }),
-    queryFn: () => getJobs({ statuses: ["failed", "needs_review"], limit: 25 }),
-    refetchInterval: 5_000,
-  })
-  const successesQuery = useQuery({
-    queryKey: queryKeys.jobs({ statuses: ["succeeded"], limit: 10 }),
-    queryFn: () => getJobs({ statuses: ["succeeded"], limit: 10 }),
-  })
-  const queries = [summaryQuery, runningQuery, attentionQuery, successesQuery]
-  const firstError = queries.find((query) => query.isError)?.error
-  const loading = queries.some((query) => query.isPending)
-  const summary = summaryQuery.data
-  const isEmpty = summary && Object.values(summary).every((count) => count === 0)
-  const priorityJob = attentionQuery.data?.[0]
+const TODAY_ARTICLE_LIMIT = 9
+const TODAY_AUTOMATION_LIMIT = 6
+const TODAY_INGEST_RUN_LIMIT = 6
 
-  const retryAll = () => {
-    for (const query of queries) void query.refetch()
-  }
+type QueryView<T> = {
+  data: T | undefined
+  isPending: boolean
+  isError: boolean
+  error: unknown
+  retry: () => void
+}
+
+type QueryLike<T> = {
+  data: T | undefined
+  isPending: boolean
+  isError: boolean
+  error: unknown
+  refetch: () => Promise<unknown>
+}
+
+export function TodayPage() {
+  const { timezone } = useDateTime()
+  const [selectedArticle, setSelectedArticle] = useState<ArticleSummary | null>(null)
+  const articlesQuery = useQuery({
+    queryKey: ["today", "articles", TODAY_ARTICLE_LIMIT],
+    queryFn: ({ signal }) => getArticles({ sort: "newest", limit: TODAY_ARTICLE_LIMIT }, signal),
+    staleTime: 30_000,
+  })
+  const sourcesQuery = useQuery({
+    queryKey: ["today", "sources"],
+    queryFn: ({ signal }) => getSourcePage({ limit: 1 }, signal),
+    staleTime: 30_000,
+  })
+  const collectionsQuery = useQuery({
+    queryKey: queryKeys.sourceCollections,
+    queryFn: ({ signal }) => getSourceCollections(signal),
+    staleTime: 30_000,
+  })
+  const jobsQuery = useQuery({
+    queryKey: queryKeys.jobSummary,
+    queryFn: getJobSummary,
+    staleTime: 15_000,
+  })
+  const diagnosticsQuery = useQuery({
+    queryKey: operationsQueryKeys.diagnostics,
+    queryFn: fetchOperationsDiagnostics,
+    staleTime: 15_000,
+  })
+  const automationsQuery = useQuery({
+    queryKey: queryKeys.automations({ limit: TODAY_AUTOMATION_LIMIT }),
+    queryFn: ({ signal }) => getAutomations({ limit: TODAY_AUTOMATION_LIMIT }, signal),
+    staleTime: 30_000,
+  })
+  const ingestRunsQuery = useQuery({
+    queryKey: ["today", "ingest-runs", TODAY_INGEST_RUN_LIMIT],
+    queryFn: ({ signal }) => getIngestRuns(TODAY_INGEST_RUN_LIMIT, signal),
+    staleTime: 15_000,
+  })
+
+  const articles = articlesQuery.data?.items ?? []
+  const sourceCount = sourcesQuery.data?.total
+  const collectionCount = collectionsQuery.data?.length
+  const continuousCollectionCount = collectionsQuery.data?.filter(
+    (collection) => collection.continuousSubscriptionId !== null,
+  ).length
+  const automationCount = automationsQuery.data?.items.length
 
   return (
-    <section className="min-w-0 space-y-4 p-4 md:p-6" aria-labelledby="today-heading">
-      <div>
-        <h1 id="today-heading" className="text-2xl font-semibold">Today</h1>
-        <p className="text-muted-foreground">Live workflow truth and the work that needs an operator.</p>
-      </div>
-      {loading ? (
-        <div role="status" aria-label="Loading Today" className="grid grid-cols-2 gap-3 md:grid-cols-4">
-          {Array.from({ length: 4 }, (_, index) => (
-            <div key={index} data-testid="today-skeleton" aria-hidden="true" className="h-24 animate-pulse rounded-xl bg-muted" />
-          ))}
-        </div>
-      ) : null}
-      {firstError ? (
-        <Card size="sm">
-          <CardContent className="space-y-3 p-4">
-            <div role="alert" dir="auto" className="text-red-700">{getApiErrorMessage(firstError, "Today data request failed")}</div>
-            <Button variant="outline" onClick={retryAll}>Retry Today</Button>
-          </CardContent>
-        </Card>
-      ) : null}
-      {summary ? (
-        <HealthSummary summary={summary} />
-      ) : null}
-      {!firstError && summary ? (
-        <PriorityDecision job={priorityJob} />
-      ) : null}
-      <GlobalControls />
-      {outcomes}
-      {isEmpty ? <Card size="sm"><CardContent className="p-8 text-center text-muted-foreground">No workflow jobs yet</CardContent></Card> : null}
-      {!firstError && !isEmpty && summary ? (
-        <div className="grid min-w-0 gap-4 xl:grid-cols-2">
-          <AttentionQueue
-            jobs={attentionQuery.data ?? []}
+    <>
+      <section className="nc-page min-h-full gap-5" aria-labelledby="today-heading">
+        <TodayHeader timezone={timezone} />
+        {articlesQuery.isPending ? (
+          <div role="status" aria-label="Loading Today" className="sr-only">
+            Loading Today
+          </div>
+        ) : null}
+
+        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5" aria-label="Newsroom overview metrics">
+          <MetricCard
+            icon={FileText}
+            label="Articles available"
+            value={metricValue(articlesQuery.data?.resultCount)}
+            detail={metricDetail(articlesQuery, "Newest article results")}
           />
-          <Card size="sm" role="region" aria-label="Running jobs">
-            <CardHeader className="border-b"><CardTitle>Running now</CardTitle></CardHeader>
-            <CardContent className="divide-y px-0">
-              {(runningQuery.data ?? []).length ? runningQuery.data?.map((job) => (
-                <div key={job.id} className="space-y-2 px-3 py-3">
-                  <div className="flex justify-between gap-3"><span className="font-medium">{job.job_type}</span><JobStatusBadge status={job.status} /></div>
-                  <div className="h-2 overflow-hidden rounded-full bg-muted" role="progressbar" aria-valuenow={job.progress} aria-valuemin={0} aria-valuemax={100}>
-                    <div className="h-full bg-primary" style={{ width: `${job.progress}%` }} />
-                  </div>
-                  <div className="flex justify-between gap-3 text-sm text-muted-foreground">
-                    <span dir="auto">{job.progress_message ?? "Running"}</span>
-                    <span data-progress-label dir="auto">{job.progress}%</span>
-                  </div>
-                </div>
-              )) : <div className="p-6 text-center text-muted-foreground">No jobs running</div>}
-            </CardContent>
-          </Card>
-          <Card size="sm" role="region" aria-label="Recent successes" className="xl:col-span-2">
-            <CardHeader className="border-b"><CardTitle>Recent successes</CardTitle></CardHeader>
-            <CardContent className="divide-y px-0">
-              {(successesQuery.data ?? []).length ? successesQuery.data?.map((job) => (
-                <div key={job.id} className="flex items-center justify-between gap-3 px-3 py-3">
-                  <span className="font-medium">{job.job_type}</span><JobStatusBadge status={job.status} />
-                </div>
-              )) : <div className="p-6 text-center text-muted-foreground">No successful jobs today</div>}
-            </CardContent>
-          </Card>
+          <MetricCard
+            icon={Database}
+            label="Tracked sources"
+            value={metricValue(sourceCount)}
+            detail={metricDetail(sourcesQuery, "Source registry")}
+          />
+          <MetricCard
+            icon={AlertTriangle}
+            label="Jobs needing attention"
+            value={metricValue(jobsQuery.data?.attention)}
+            detail={metricDetail(jobsQuery, "Live job summary")}
+          />
+          <MetricCard
+            icon={Workflow}
+            label="Automations shown"
+            value={metricValue(automationCount)}
+            detail={
+              automationsQuery.isError
+                ? "Unavailable"
+                : automationsQuery.data?.nextCursor
+                  ? "More records available"
+                  : "Live API list"
+            }
+          />
+          <MetricCard
+            icon={Infinity}
+            label="Continuous collections"
+            value={
+              collectionCount === undefined || continuousCollectionCount === undefined
+                ? "—"
+                : `${formatNumber(continuousCollectionCount)}/${formatNumber(collectionCount)}`
+            }
+            detail={metricDetail(collectionsQuery, "Configured collections")}
+          />
         </div>
+
+        <div className="grid min-w-0 gap-4 xl:grid-cols-[minmax(0,1.7fr)_minmax(20rem,0.85fr)]">
+          <div className="grid min-w-0 gap-4">
+            <div className="grid min-w-0 gap-4 lg:grid-cols-[minmax(0,1.25fr)_minmax(0,0.95fr)]">
+              <EditorialCommandCenter
+                articles={articles}
+                articleCount={articlesQuery.data?.resultCount}
+                sourceCount={sourceCount}
+                jobAttention={jobsQuery.data?.attention}
+                collectionCount={collectionCount}
+                timezone={timezone}
+              />
+              <LiveIngestionStatus query={viewOf(collectionsQuery)} timezone={timezone} />
+            </div>
+
+            <div className="grid min-w-0 gap-4 lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1.25fr)_minmax(0,1.05fr)]">
+              <IssuesCard diagnostics={viewOf(diagnosticsQuery)} jobs={viewOf(jobsQuery)} />
+              <RecentFeedCard
+                articles={viewOf(articlesQuery)}
+                timezone={timezone}
+                onSelectArticle={setSelectedArticle}
+              />
+              <AutomationsCard query={viewOf(automationsQuery)} />
+            </div>
+
+            <IngestActivityCard query={viewOf(ingestRunsQuery)} timezone={timezone} />
+          </div>
+
+          <div className="grid min-w-0 content-start gap-4">
+            <SystemHealthCard query={viewOf(diagnosticsQuery)} />
+            <QueueStatusCard query={viewOf(diagnosticsQuery)} />
+          </div>
+        </div>
+      </section>
+
+      {selectedArticle ? (
+        <ArticleDialog
+          article={selectedArticle}
+          timezone={timezone}
+          onClose={() => setSelectedArticle(null)}
+        />
       ) : null}
-    </section>
+    </>
   )
 }
 
-function HealthSummary({
-  summary,
-}: {
-  summary: { queued: number; running: number; attention: number; succeeded_today: number }
-}) {
-  const values = [
-    ["Queued", summary.queued, "queued"],
-    ["Running", summary.running, "running"],
-    ["Attention", summary.attention, "attention"],
-    ["Succeeded", summary.succeeded_today, "succeeded"],
-  ] as const
-  return (
-    <Card size="sm" aria-label="Workflow health" role="region">
-      <CardContent className="grid grid-cols-2 divide-x divide-y p-0 sm:grid-cols-4 sm:divide-y-0">
-        {values.map(([label, value, kind]) => (
-          <div className="flex items-baseline justify-between gap-3 px-4 py-3 sm:block" key={kind}>
-            <span className="text-xs text-muted-foreground">{label}</span>
-            <strong className="text-xl tabular-nums sm:mt-1 sm:block" data-summary={kind}>{value}</strong>
-          </div>
-        ))}
-      </CardContent>
-    </Card>
-  )
-}
+function TodayHeader({ timezone }: { timezone: string }) {
+  const [now, setNow] = useState<number | null>(null)
 
-function PriorityDecision({
-  job,
-}: {
-  job: Awaited<ReturnType<typeof getJobs>>[number] | undefined
-}) {
-  if (job?.status === "failed") {
-    return (
-      <Card size="sm" role="region" aria-label="Highest-priority decision">
-        <CardContent className="flex flex-wrap items-center justify-between gap-4 p-4">
-          <div className="min-w-0">
-            <div className="flex items-center gap-2 font-semibold"><CircleAlert className="size-5 text-red-700" aria-hidden="true" />Resolve failed workflow</div>
-            <p className="mt-1 truncate text-sm text-muted-foreground" dir="auto">{job.job_type}</p>
-          </div>
-          <Link className={buttonVariants()} href={`/jobs?status=attention&job=${job.id}`}>
-            Inspect and retry
-            <ArrowRight aria-hidden="true" />
-          </Link>
-        </CardContent>
-      </Card>
-    )
-  }
-  if (job?.status === "needs_review") {
-    return (
-      <Card size="sm" role="region" aria-label="Highest-priority decision">
-        <CardContent className="flex flex-wrap items-center justify-between gap-4 p-4">
-          <div>
-            <div className="flex items-center gap-2 font-semibold"><SquarePen className="size-5 text-amber-700" aria-hidden="true" />Editorial review is waiting</div>
-            <p className="mt-1 text-sm text-muted-foreground">Continue with the oldest item needing a decision.</p>
-          </div>
-          <Link className={buttonVariants()} href="/drafts?approval_state=pending_review">
-            Continue review
-            <ArrowRight aria-hidden="true" />
-          </Link>
-        </CardContent>
-      </Card>
-    )
-  }
+  useEffect(() => {
+    const update = () => setNow(Date.now())
+    update()
+    const timer = window.setInterval(update, 1_000)
+    return () => window.clearInterval(timer)
+  }, [])
+
+  const dateLabel = now === null
+    ? "Current newsroom date"
+    : formatInTimeZone(now, timezone, {
+        weekday: "long",
+        month: "long",
+        day: "numeric",
+        year: "numeric",
+      })
+  const timeLabel = now === null
+    ? "Current time unavailable"
+    : formatInTimeZone(now, timezone, {
+        hour: "numeric",
+        minute: "2-digit",
+        second: "2-digit",
+      })
+
   return (
-    <Card size="sm" role="region" aria-label="Highest-priority decision">
-      <CardContent className="flex flex-wrap items-center justify-between gap-4 p-4">
-        <div>
-          <div className="flex items-center gap-2 font-semibold"><FilePlus2 className="size-5 text-teal-700" aria-hidden="true" />Start the next story</div>
-          <p className="mt-1 text-sm text-muted-foreground">No failures or reviews are blocking today.</p>
+    <header className="nc-page-header items-start" data-testid="today-header">
+      <div>
+        <h1 id="today-heading" className="nc-page-title text-3xl tracking-tight">Today</h1>
+        <p className="nc-page-description">Your newsroom at a glance. {dateLabel}.</p>
+      </div>
+      <div className="flex flex-wrap items-center justify-end gap-2">
+        <div className="flex min-h-9 items-center gap-2 rounded-lg border border-border/70 bg-card px-3 py-2 text-xs shadow-sm">
+          <Clock3 className="size-4 text-muted-foreground" aria-hidden="true" />
+          <span className="font-medium">{timeLabel}</span>
+          <span className="text-muted-foreground">{timezone}</span>
         </div>
-        <Link className={buttonVariants()} href="/inbox?add=story">
-          Add story
-          <ArrowRight aria-hidden="true" />
+        <Link className={buttonVariants({ variant: "outline", size: "sm" })} href="/feed">
+          Open Feed
+          <ArrowUpRight aria-hidden="true" />
         </Link>
+        <Link className={buttonVariants({ variant: "outline", size: "sm" })} href="/operations">
+          Operations
+          <ArrowUpRight aria-hidden="true" />
+        </Link>
+      </div>
+    </header>
+  )
+}
+
+function MetricCard({
+  icon: Icon,
+  label,
+  value,
+  detail,
+}: {
+  icon: LucideIcon
+  label: string
+  value: string
+  detail: ReactNode
+}) {
+  return (
+    <Card className="min-w-0 flex-row items-center gap-3 p-3" size="sm">
+      <span className="grid size-11 shrink-0 place-items-center rounded-lg bg-primary/10 text-primary">
+        <Icon className="size-5" aria-hidden="true" />
+      </span>
+      <div className="min-w-0">
+        <p className="truncate text-xs text-muted-foreground">{label}</p>
+        <p className="mt-0.5 text-xl font-semibold tracking-tight">{value}</p>
+        <p className="truncate text-[11px] text-muted-foreground">{detail}</p>
+      </div>
+    </Card>
+  )
+}
+
+function EditorialCommandCenter({
+  articles,
+  articleCount,
+  sourceCount,
+  jobAttention,
+  collectionCount,
+  timezone,
+}: {
+  articles: ArticleSummary[]
+  articleCount: number | undefined
+  sourceCount: number | undefined
+  jobAttention: number | undefined
+  collectionCount: number | undefined
+  timezone: string
+}) {
+  const topics = [...new Set(
+    articles
+      .map((article) => article.topic?.trim())
+      .filter((topic): topic is string => Boolean(topic)),
+  )].slice(0, 4)
+  const summary = [
+    articleCount === undefined ? null : `${formatNumber(articleCount)} article results available`,
+    sourceCount === undefined ? null : `across ${formatNumber(sourceCount)} tracked sources`,
+    jobAttention === undefined ? null : `${formatNumber(jobAttention)} jobs need attention`,
+  ].filter(Boolean).join(", ")
+
+  return (
+    <Card className="min-w-0">
+      <CardHeader className="border-b border-border/50">
+        <CardTitle className="flex items-center gap-2">
+          <ShieldCheck className="size-4 text-primary" aria-hidden="true" />
+          Editorial command center
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-4 pt-4">
+        <div className="flex min-w-0 items-start gap-4">
+          <div className="min-w-0 flex-1">
+            <p className="text-sm leading-6 text-muted-foreground">
+              {summary || "Live newsroom metrics are not available yet."}
+            </p>
+            <div className="mt-4 grid grid-cols-2 gap-3 text-xs sm:grid-cols-4">
+              <CommandMetric icon={FileText} value={metricValue(articleCount)} label="Article results" />
+              <CommandMetric icon={Database} value={metricValue(sourceCount)} label="Tracked sources" />
+              <CommandMetric icon={AlertTriangle} value={metricValue(jobAttention)} label="Jobs attention" />
+              <CommandMetric icon={Gauge} value={metricValue(collectionCount)} label="Collections" />
+            </div>
+          </div>
+          <ArticleHero article={articles[0]} />
+        </div>
+        {topics.length ? (
+          <div className="flex flex-wrap items-center gap-2 border-t border-border/50 pt-3">
+            <span className="text-xs font-medium text-muted-foreground">Topics</span>
+            {topics.map((topic) => <Badge key={topic} variant="secondary">{topic}</Badge>)}
+          </div>
+        ) : null}
+        {articles[0] ? (
+          <p className="text-xs text-muted-foreground">
+            Latest result: {getArticleCardTime(articles[0].displayAt, articles[0].dateBasis, Date.now(), timezone).relativeLabel}.
+          </p>
+        ) : null}
       </CardContent>
     </Card>
   )
+}
+
+function CommandMetric({
+  icon: Icon,
+  value,
+  label,
+}: {
+  icon: LucideIcon
+  value: string
+  label: string
+}) {
+  return (
+    <div className="min-w-0">
+      <Icon className="size-3.5 text-muted-foreground" aria-hidden="true" />
+      <strong className="mt-1 block truncate text-sm">{value}</strong>
+      <span className="mt-0.5 block truncate text-[11px] text-muted-foreground">{label}</span>
+    </div>
+  )
+}
+
+function ArticleHero({ article }: { article: ArticleSummary | undefined }) {
+  if (!article?.image?.url) {
+    return (
+      <div className="hidden size-20 shrink-0 place-items-center rounded-lg border border-dashed border-border/70 bg-muted/40 text-muted-foreground sm:grid">
+        <FileText className="size-6" aria-hidden="true" />
+      </div>
+    )
+  }
+
+  return (
+    <img
+      className="hidden size-20 shrink-0 rounded-lg border border-border/60 object-cover sm:block"
+      src={article.image.url}
+      alt={article.image.altText ?? article.title ?? "Article image"}
+    />
+  )
+}
+
+function LiveIngestionStatus({
+  query,
+  timezone,
+}: {
+  query: QueryView<SourceCollectionSummary[]>
+  timezone: string
+}) {
+  const collections = query.data ?? []
+  const activeRuns = collections.filter((collection) => collection.activeIngestRunId !== null).length
+  const continuous = collections.filter((collection) => collection.continuousSubscriptionId !== null).length
+  const nextCycle = collections.find((collection) => collection.continuousNextCycleAt)?.continuousNextCycleAt ?? null
+
+  return (
+    <Card className="min-w-0">
+      <CardHeader className="border-b border-border/50">
+        <div className="flex items-center justify-between gap-3">
+          <CardTitle className="flex items-center gap-2">
+            <RefreshCw className="size-4 text-primary" aria-hidden="true" />
+            Live ingestion status
+          </CardTitle>
+          <Link className="text-xs font-medium text-primary hover:underline" href="/sources">Open Sources</Link>
+        </div>
+      </CardHeader>
+      <CardContent className="space-y-4 pt-4">
+        {query.isPending ? <LoadingState title="Loading ingestion collections…" className="min-h-24" /> : null}
+        {query.isError ? <QueryError query={query} title="Ingestion status unavailable" retryLabel="Retry ingestion" /> : null}
+        {!query.isPending && !query.isError ? (
+          <>
+            <div className="grid grid-cols-2 gap-3 text-xs">
+              <div>
+                <span className="text-muted-foreground">Collections</span>
+                <strong className="mt-1 block text-sm">{formatNumber(collections.length)}</strong>
+              </div>
+              <div>
+                <span className="text-muted-foreground">Active runs</span>
+                <strong className="mt-1 block text-sm">{formatNumber(activeRuns)}</strong>
+              </div>
+              <div>
+                <span className="text-muted-foreground">Continuous</span>
+                <strong className="mt-1 block text-sm">{formatNumber(continuous)}</strong>
+              </div>
+              <div>
+                <span className="text-muted-foreground">Next cycle</span>
+                <strong className="mt-1 block truncate text-sm">
+                  {nextCycle ? formatInTimeZone(nextCycle, timezone, { hour: "numeric", minute: "2-digit" }) : "Not scheduled"}
+                </strong>
+              </div>
+            </div>
+            {collections.length ? (
+              <div className="space-y-3">
+                {collections.slice(0, 4).map((collection) => <CollectionRow key={collection.id} collection={collection} />)}
+              </div>
+            ) : (
+              <EmptyState title="No source collections configured" description="Create a collection in Sources to monitor ingestion here." />
+            )}
+          </>
+        ) : null}
+      </CardContent>
+    </Card>
+  )
+}
+
+function CollectionRow({ collection }: { collection: SourceCollectionSummary }) {
+  const maximum = Math.max(collection.maximumSources, collection.sourceCount, 1)
+  const progress = Math.min(100, Math.round((collection.sourceCount / maximum) * 100))
+  const status = collection.activeIngestStatus ?? collection.continuousStatus ?? (
+    collection.continuousSubscriptionId ? "configured" : "idle"
+  )
+
+  return (
+    <div className="grid min-w-0 gap-1.5">
+      <div className="flex min-w-0 items-center justify-between gap-3 text-xs">
+        <span className="min-w-0 truncate font-medium">{collection.name}</span>
+        <Badge variant={statusTone(status)}>{titleCase(status)}</Badge>
+      </div>
+      <div className="flex items-center gap-2">
+        <div className="h-1.5 min-w-0 flex-1 overflow-hidden rounded-full bg-muted" aria-label={`${collection.sourceCount} of ${collection.maximumSources} sources`}>
+          <span className="block h-full rounded-full bg-primary transition-[width] duration-300 motion-reduce:transition-none" style={{ width: `${progress}%` }} />
+        </div>
+        <span className="shrink-0 text-[11px] text-muted-foreground">
+          {formatNumber(collection.sourceCount)} / {formatNumber(collection.maximumSources)}
+        </span>
+      </div>
+    </div>
+  )
+}
+
+function IssuesCard({
+  diagnostics,
+  jobs,
+}: {
+  diagnostics: QueryView<OperationsSnapshot>
+  jobs: QueryView<{ attention: number; queued: number; running: number; succeeded_today: number }>
+}) {
+  const attention = diagnostics.data?.attention ?? []
+  const jobAttention = jobs.data?.attention ?? 0
+
+  return (
+    <Card className="min-w-0">
+      <CardHeader className="border-b border-border/50">
+        <div className="flex items-center justify-between gap-3">
+          <CardTitle>Issues</CardTitle>
+          <Link className="text-xs font-medium text-primary hover:underline" href="/operations">Open Operations</Link>
+        </div>
+      </CardHeader>
+      <CardContent className="space-y-3 pt-3">
+        {diagnostics.isPending ? <LoadingState title="Loading issues…" className="min-h-24" /> : null}
+        {diagnostics.isError ? <QueryError query={diagnostics} title="Issues unavailable" retryLabel="Retry issues" /> : null}
+        {!diagnostics.isPending && !diagnostics.isError && attention.length ? (
+          <>
+            {attention.slice(0, 4).map((item) => {
+              const actionHref = internalHref(item.action_url)
+              return (
+                <div className="flex min-w-0 items-start gap-2 border-b border-border/50 pb-3 last:border-b-0 last:pb-0" key={item.id}>
+                  <span className={cn(
+                    "mt-0.5 grid size-7 shrink-0 place-items-center rounded-full",
+                    item.severity === "error"
+                      ? "bg-[var(--error-surface)] text-destructive"
+                      : "bg-[var(--warning-surface)] text-warning",
+                  )}>
+                    <AlertTriangle className="size-3.5" aria-hidden="true" />
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-xs font-medium">{item.title}</p>
+                    <p className="mt-0.5 truncate text-[11px] text-muted-foreground">{titleCase(item.kind)}</p>
+                    {actionHref ? <Link className="mt-1 inline-flex text-[11px] font-medium text-primary hover:underline" href={actionHref}>Inspect</Link> : null}
+                  </div>
+                  <Badge variant={item.severity === "error" ? "error" : "warning"}>{titleCase(item.severity)}</Badge>
+                </div>
+              )
+            })}
+            {attention.length > 4 ? <p className="text-xs text-muted-foreground">{formatNumber(attention.length - 4)} more attention items in Operations.</p> : null}
+          </>
+        ) : null}
+        {!diagnostics.isPending && !diagnostics.isError && attention.length === 0 ? (
+          jobAttention > 0 ? (
+            <div className="flex items-start gap-2">
+              <CheckCircle2 className="mt-0.5 size-4 text-success" aria-hidden="true" />
+              <p className="text-xs text-muted-foreground">
+                Operations diagnostics reports no attention items; the job summary currently lists {formatNumber(jobAttention)} jobs needing attention.
+              </p>
+            </div>
+          ) : (
+            <EmptyState title="No active issues" description="Operations diagnostics reports no current attention items." />
+          )
+        ) : null}
+      </CardContent>
+    </Card>
+  )
+}
+
+function RecentFeedCard({
+  articles,
+  timezone,
+  onSelectArticle,
+}: {
+  articles: QueryView<{ items: ArticleSummary[]; nextCursor: string | null; resultCount: number }>
+  timezone: string
+  onSelectArticle: (article: ArticleSummary) => void
+}) {
+  const items = articles.data?.items ?? []
+
+  return (
+    <Card className="min-w-0">
+      <CardHeader className="border-b border-border/50">
+        <div className="flex items-center justify-between gap-3">
+          <CardTitle>Recent feed</CardTitle>
+          <Link className="text-xs font-medium text-primary hover:underline" href="/feed">Open Feed</Link>
+        </div>
+      </CardHeader>
+      <CardContent className="space-y-1 pt-2">
+        {articles.isPending ? <LoadingState title="Loading recent articles…" className="min-h-32" /> : null}
+        {articles.isError ? <QueryError query={articles} title="Today stories unavailable" retryLabel="Retry Today" /> : null}
+        {!articles.isPending && !articles.isError && items.length ? (
+          items.slice(0, 5).map((article) => <ArticleRow key={article.id} article={article} timezone={timezone} onSelect={onSelectArticle} />)
+        ) : null}
+        {!articles.isPending && !articles.isError && items.length === 0 ? (
+          <EmptyState title="No articles collected yet" description="NewsCraft will show source-grounded stories here after ingestion collects them." />
+        ) : null}
+      </CardContent>
+    </Card>
+  )
+}
+
+function ArticleRow({
+  article,
+  timezone,
+  onSelect,
+}: {
+  article: ArticleSummary
+  timezone: string
+  onSelect: (article: ArticleSummary) => void
+}) {
+  const title = article.title?.trim() || "Untitled article"
+  const time = getArticleCardTime(article.displayAt, article.dateBasis, Date.now(), timezone)
+
+  return (
+    <button
+      className="flex w-full min-w-0 items-center gap-2 rounded-lg px-1.5 py-2 text-start transition-colors duration-150 hover:bg-muted/60 focus-visible:ring-2 focus-visible:ring-ring/50 motion-reduce:transition-none"
+      type="button"
+      aria-label={`Open story: ${title}`}
+      onClick={() => onSelect(article)}
+    >
+      {article.image?.url ? (
+        <img className="size-9 shrink-0 rounded-md border border-border/60 object-cover" src={article.image.url} alt="" />
+      ) : (
+        <span className="grid size-9 shrink-0 place-items-center rounded-md bg-muted text-muted-foreground">
+          <FileText className="size-4" aria-hidden="true" />
+        </span>
+      )}
+      <span className="min-w-0 flex-1">
+        <span role="heading" aria-level={3} className="block truncate text-xs font-medium">{title}</span>
+        <span className="mt-0.5 block truncate text-[11px] text-muted-foreground">
+          {article.source.name ?? article.domain ?? "Source unavailable"} · {time.relativeLabel}
+        </span>
+      </span>
+      <ArrowUpRight className="size-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
+    </button>
+  )
+}
+
+function AutomationsCard({ query }: { query: QueryView<{ items: Automation[]; nextCursor: string | null }> }) {
+  const automations = query.data?.items ?? []
+
+  return (
+    <Card className="min-w-0">
+      <CardHeader className="border-b border-border/50">
+        <div className="flex items-center justify-between gap-3">
+          <CardTitle>Automations</CardTitle>
+          <Link className="text-xs font-medium text-primary hover:underline" href="/automations">Open Automations</Link>
+        </div>
+      </CardHeader>
+      <CardContent className="space-y-3 pt-3">
+        {query.isPending ? <LoadingState title="Loading automations…" className="min-h-24" /> : null}
+        {query.isError ? <QueryError query={query} title="Automations unavailable" retryLabel="Retry automations" /> : null}
+        {!query.isPending && !query.isError && automations.length ? automations.slice(0, 5).map((automation) => (
+          <div className="flex min-w-0 items-start gap-2" key={automation.id}>
+            <span className="grid size-7 shrink-0 place-items-center rounded-md bg-muted text-muted-foreground">
+              <Workflow className="size-3.5" aria-hidden="true" />
+            </span>
+            <div className="min-w-0 flex-1">
+              <p className="truncate text-xs font-medium">{automation.name}</p>
+              <p className="mt-0.5 truncate text-[11px] text-muted-foreground">
+                {automation.preview?.lastOutcome ?? automation.description ?? `Lifecycle: ${titleCase(automation.lifecycle)}`}
+              </p>
+            </div>
+            <Badge variant={statusTone(automation.lifecycle)}>{titleCase(automation.lifecycle)}</Badge>
+          </div>
+        )) : null}
+        {!query.isPending && !query.isError && automations.length === 0 ? (
+          <EmptyState title="No automations configured" description="Create an automation to monitor it here." />
+        ) : null}
+      </CardContent>
+    </Card>
+  )
+}
+
+function IngestActivityCard({
+  query,
+  timezone,
+}: {
+  query: QueryView<IngestRunSummary[]>
+  timezone: string
+}) {
+  const runs = query.data ?? []
+
+  return (
+    <Card className="min-w-0">
+      <CardHeader className="border-b border-border/50">
+        <div className="flex items-center justify-between gap-3">
+          <CardTitle className="flex items-center gap-2">
+            <Activity className="size-4 text-primary" aria-hidden="true" />
+            Ingestion activity
+          </CardTitle>
+          <Link className="text-xs font-medium text-primary hover:underline" href="/sources">Open Sources</Link>
+        </div>
+      </CardHeader>
+      <CardContent className="space-y-2 pt-3">
+        {query.isPending ? <LoadingState title="Loading ingest runs…" className="min-h-28" /> : null}
+        {query.isError ? <QueryError query={query} title="Ingestion activity unavailable" retryLabel="Retry ingest runs" /> : null}
+        {!query.isPending && !query.isError && runs.length ? runs.map((run) => (
+          <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-3 rounded-lg border border-border/50 px-3 py-2.5" key={run.id}>
+            <div className="min-w-0">
+              <p className="truncate text-xs font-medium">{run.sourceCollectionNameAtStart ?? "Ingest run"}</p>
+              <p className="mt-0.5 truncate text-[11px] text-muted-foreground">
+                {formatNumber(run.successCount)} succeeded · {formatNumber(run.failureCount)} failed · {titleCase(run.trigger)}
+              </p>
+            </div>
+            <div className="flex items-end gap-2">
+              <div className="text-end">
+                <Badge variant={statusTone(run.status)}>{titleCase(run.status)}</Badge>
+                <time className="mt-1 block text-[10px] text-muted-foreground" dateTime={run.startedAt} title={formatInTimeZone(run.startedAt, timezone)}>
+                  {formatInTimeZone(run.startedAt, timezone, { dateStyle: "medium", timeStyle: "short" })}
+                </time>
+              </div>
+            </div>
+          </div>
+        )) : null}
+        {!query.isPending && !query.isError && runs.length === 0 ? (
+          <EmptyState title="No ingest runs recorded" description="Completed and active collection runs will appear here." />
+        ) : null}
+      </CardContent>
+    </Card>
+  )
+}
+
+function SystemHealthCard({ query }: { query: QueryView<OperationsSnapshot> }) {
+  const components = query.data ? Object.entries(query.data.components) : []
+
+  return (
+    <Card className="min-w-0">
+      <CardHeader className="border-b border-border/50">
+        <div className="flex items-center justify-between gap-3">
+          <CardTitle className="flex items-center gap-2">
+            <Gauge className="size-4 text-primary" aria-hidden="true" />
+            System health
+          </CardTitle>
+          <Link className="text-xs font-medium text-primary hover:underline" href="/operations">View details</Link>
+        </div>
+      </CardHeader>
+      <CardContent className="space-y-3 pt-3">
+        {query.isPending ? <LoadingState title="Loading system health…" className="min-h-24" /> : null}
+        {query.isError ? <QueryError query={query} title="System health unavailable" retryLabel="Retry health" /> : null}
+        {!query.isPending && !query.isError && components.length ? components.slice(0, 6).map(([name, component]) => (
+          <div className="flex min-w-0 items-start gap-2" key={name}>
+            <HealthIcon status={component.status} />
+            <div className="min-w-0 flex-1">
+              <p className="truncate text-xs font-medium">{titleCase(name)}</p>
+              <p className="mt-0.5 truncate text-[11px] text-muted-foreground">{component.message}</p>
+            </div>
+            <Badge variant={statusTone(component.status)}>{titleCase(component.status)}</Badge>
+          </div>
+        )) : null}
+        {!query.isPending && !query.isError && components.length === 0 ? (
+          <EmptyState title="No component health reported" description="Operations has not returned component status yet." />
+        ) : null}
+      </CardContent>
+    </Card>
+  )
+}
+
+function QueueStatusCard({ query }: { query: QueryView<OperationsSnapshot> }) {
+  const queueEntries = query.data ? Object.entries(query.data.queue_counts).filter(([, count]) => typeof count === "number") : []
+
+  return (
+    <Card className="min-w-0">
+      <CardHeader className="border-b border-border/50">
+        <CardTitle className="flex items-center gap-2">
+          <ListChecks className="size-4 text-primary" aria-hidden="true" />
+          Queue status
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-3 pt-3">
+        {query.isPending ? <LoadingState title="Loading queue status…" className="min-h-24" /> : null}
+        {query.isError ? <QueryError query={query} title="Queue status unavailable" retryLabel="Retry queue status" /> : null}
+        {!query.isPending && !query.isError && queueEntries.length ? queueEntries.map(([name, count]) => (
+          <div className="flex items-center justify-between gap-3 text-xs" key={name}>
+            <span className="truncate text-muted-foreground">{titleCase(name)}</span>
+            <strong>{formatNumber(count)}</strong>
+          </div>
+        )) : null}
+        {!query.isPending && !query.isError && queueEntries.length === 0 ? (
+          <EmptyState title="No queue counts reported" description="Operations has not returned queue metrics yet." />
+        ) : null}
+        {query.data ? (
+          <div className="flex items-center gap-2 border-t border-border/50 pt-3 text-xs text-muted-foreground">
+            <span className={cn("size-2 rounded-full", query.data.global_paused ? "bg-warning" : "bg-success")} aria-hidden="true" />
+            {query.data.global_paused ? "Global processing is paused" : "Global processing is active"}
+          </div>
+        ) : null}
+      </CardContent>
+    </Card>
+  )
+}
+
+function ArticleDialog({
+  article,
+  timezone,
+  onClose,
+}: {
+  article: ArticleSummary
+  timezone: string
+  onClose: () => void
+}) {
+  const title = article.title?.trim() || "Untitled article"
+  const sourceUrl = safeOriginalArticleUrl(article.canonicalUrl)
+  const summary = article.summary?.trim() || article.excerpt?.trim() || "Full article text is not available in the Today summary."
+  const time = getArticleCardTime(article.displayAt, article.dateBasis, Date.now(), timezone)
+
+  return (
+    <>
+      <button className="fixed inset-0 z-50 cursor-pointer border-0 bg-foreground/45 backdrop-blur-sm" aria-label="Close story" onClick={onClose} type="button" />
+      <section className="fixed left-1/2 top-1/2 z-50 w-[min(680px,calc(100vw-2rem))] -translate-x-1/2 -translate-y-1/2 rounded-xl border border-border bg-card text-card-foreground shadow-2xl" role="dialog" aria-modal="true" aria-labelledby="today-article-dialog-title">
+        <Button className="absolute right-3 top-3" variant="ghost" size="icon" aria-label="Close story" onClick={onClose} type="button">
+          <X aria-hidden="true" />
+        </Button>
+        <div className="space-y-4 p-6 sm:p-8">
+          <p className="text-xs text-muted-foreground">{article.source.name ?? article.domain ?? "NewsCraft"} · {time.relativeLabel}</p>
+          <h2 id="today-article-dialog-title" className="max-w-[28ch] text-2xl font-semibold leading-tight">{title}</h2>
+          {sourceUrl ? <a className="inline-flex text-sm font-medium text-primary hover:underline" href={sourceUrl} target="_blank" rel="noreferrer noopener">Open original at {article.source.name ?? "source"}</a> : null}
+          <p className="text-sm leading-7 text-muted-foreground">{summary}</p>
+        </div>
+      </section>
+    </>
+  )
+}
+
+function QueryError<T>({
+  query,
+  title,
+  retryLabel,
+}: {
+  query: QueryView<T>
+  title: string
+  retryLabel: string
+}) {
+  return (
+    <ErrorState
+      title={title}
+      description={getApiErrorMessage(query.error, "The live NewsCraft data source could not be reached.")}
+      action={<Button variant="outline" size="sm" onClick={query.retry}>{retryLabel}</Button>}
+    />
+  )
+}
+
+function HealthIcon({ status }: { status: string }) {
+  if (status === "healthy") return <CheckCircle2 className="mt-0.5 size-4 shrink-0 text-success" aria-hidden="true" />
+  if (status === "degraded") return <AlertTriangle className="mt-0.5 size-4 shrink-0 text-warning" aria-hidden="true" />
+  return <AlertTriangle className="mt-0.5 size-4 shrink-0 text-destructive" aria-hidden="true" />
+}
+
+function metricValue(value: number | undefined) {
+  return value === undefined ? "—" : formatNumber(value)
+}
+
+function metricDetail<T>(query: QueryView<T> | QueryLike<T>, label: string) {
+  if (query.isPending) return "Loading…"
+  if (query.isError) return "Unavailable"
+  return label
+}
+
+function viewOf<T>(query: QueryLike<T>): QueryView<T> {
+  return {
+    data: query.data,
+    isPending: query.isPending,
+    isError: query.isError,
+    error: query.error,
+    retry: () => { void query.refetch() },
+  }
+}
+
+function statusTone(status: string): "success" | "warning" | "error" | "neutral" {
+  const normalized = status.toLowerCase()
+  if (["healthy", "active", "running", "succeeded", "success", "completed", "complete", "ready"].includes(normalized)) return "success"
+  if (["degraded", "paused", "queued", "pending", "warning", "configured"].includes(normalized)) return "warning"
+  if (["down", "failed", "error", "cancelled", "canceled"].includes(normalized)) return "error"
+  return "neutral"
+}
+
+function internalHref(value: string | null | undefined) {
+  return value?.startsWith("/") ? value : null
+}
+
+function safeOriginalArticleUrl(value: string | null) {
+  if (!value) return null
+  try {
+    const url = new URL(value)
+    return url.protocol === "http:" || url.protocol === "https:" ? url.href : null
+  } catch {
+    return null
+  }
 }

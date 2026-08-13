@@ -66,7 +66,6 @@ const ids = {
 
 const now = "2026-07-13T08:00:00Z"
 const evidenceUrl = "https://example.com/fa/reports/today"
-const scheduledFor = "2026-07-20T10:30:00Z"
 
 type BackendState = {
   approved: Set<string>
@@ -75,12 +74,8 @@ type BackendState = {
   controlRequests: Array<Record<string, unknown>>
   copyReady: boolean
   dryRunRequests: Array<Record<string, unknown>>
-  editorialRequests: Array<Record<string, unknown>>
-  emptyCalendar: boolean
-  emptyInbox: boolean
   exportPolls: number
   exportRequest: Record<string, unknown> | null
-  intakeRequests: Array<Record<string, unknown>>
   reconciliation: boolean
   reconciliationRequest: Record<string, unknown> | null
   reconciliationResolved: boolean
@@ -99,8 +94,6 @@ type BackendState = {
 
 type BackendOptions = {
   allApproved?: boolean
-  emptyCalendar?: boolean
-  emptyInbox?: boolean
   reconciliation?: boolean
 }
 
@@ -121,16 +114,11 @@ for (const viewport of viewports) {
     await expect(page.getByRole("status").filter({ hasText: "Revision approved" }).first()).toBeVisible()
     expect(backend.approved).toContain(ids.revisions.telegram)
 
-    await page.goto("/calendar")
-    await expect(page.getByRole("heading", { name: "Publication calendar", exact: true })).toBeVisible()
-    await page.getByRole("button", { name: "Chronological list view" }).click()
-    await expect(page.getByText("گزارش امروز", { exact: true }).first()).toHaveAttribute("dir", "auto")
-
-    await page.goto("/diagnostics")
-    await expect(page.getByRole("heading", { name: "Diagnostics", exact: true })).toBeVisible()
-    await expect(page.getByText(/Source\/generation worker last observed/)).toBeVisible()
-    await expect(page.getByText(/Publishing worker last observed/)).toBeVisible()
-    await expect(page.getByText(/Scheduler last observed/)).toBeVisible()
+    await page.goto("/operations?view=diagnostics")
+    await expect(page.getByRole("heading", { name: "Operations Center", exact: true })).toBeVisible()
+    await expect(page.getByRole("heading", { name: "Worker Source Generation" })).toBeVisible()
+    await expect(page.getByRole("heading", { name: "Worker Publishing" })).toBeVisible()
+    await expect(page.getByRole("heading", { name: "Scheduler", exact: true })).toBeVisible()
     await expectNoHorizontalOverflow(page)
     expect(backend.unhandled).toEqual([])
   })
@@ -139,14 +127,14 @@ for (const viewport of viewports) {
 test("review-first route preserves manual research, dry-run review, and durable history", async ({ page }) => {
   const backend = await installAcceptanceBackend(page)
   await page.setViewportSize(viewports[0])
-  await page.goto("/automations/new")
+  await page.goto("/automations/telegram/new")
 
   await fillRouteIdentity(page, "مسیر بررسی خبر")
   await page.getByLabel("Research mode").selectOption("manual")
   await expect(page.getByLabel("Publishing policy")).toHaveValue("review_required")
   await page.getByRole("button", { name: "Create automation" }).click()
 
-  await expect(page).toHaveURL(new RegExp(`/automations/${ids.route}$`))
+  await expect(page).toHaveURL(new RegExp(`/automations/telegram/${ids.route}$`))
   await expect(page.getByRole("heading", { name: "مسیر بررسی خبر" })).toBeVisible()
   expect(backend.routeRequest).toMatchObject({
     research_mode: "manual",
@@ -165,7 +153,9 @@ test("review-first route preserves manual research, dry-run review, and durable 
   await expect(page.getByRole("status", { name: "Latest route action" })).toContainText("Dry run queued")
   expect(backend.dryRunRequests).toEqual([{ source_message_id: 91 }])
 
-  await page.getByRole("link", { name: "Open durable route history" }).click()
+  const historyLink = page.getByRole("link", { name: "Open durable route history" })
+  await expect(historyLink).toHaveAttribute("href", `/automations/telegram/${ids.route}/history`)
+  await page.goto(`/automations/telegram/${ids.route}/history`)
   await expect(page.getByRole("heading", { name: "Automation history" })).toBeVisible()
   await expect(page.getByText("مسیر بررسی خبر فعال شد", { exact: true })).toHaveAttribute("dir", "auto")
   await expectNoHorizontalOverflow(page)
@@ -175,7 +165,7 @@ test("review-first route preserves manual research, dry-run review, and durable 
 test("automatic route requires explicit confirmation and exposes auto research outcome", async ({ page }) => {
   const backend = await installAcceptanceBackend(page)
   await page.setViewportSize(viewports[0])
-  await page.goto("/automations/new")
+  await page.goto("/automations/telegram/new")
 
   await fillRouteIdentity(page, "مسیر خودکار خبر")
   await page.getByLabel("Research mode").selectOption("auto_if_incomplete")
@@ -186,7 +176,7 @@ test("automatic route requires explicit confirmation and exposes auto research o
   await expect(create).toBeEnabled()
   await create.click()
 
-  await expect(page).toHaveURL(new RegExp(`/automations/${ids.route}$`))
+  await expect(page).toHaveURL(new RegExp(`/automations/telegram/${ids.route}$`))
   expect(backend.routeRequest).toMatchObject({
     research_mode: "auto_if_incomplete",
     publishing_policy: "auto_publish",
@@ -218,10 +208,11 @@ test("global pause overrides work and a retryable failure returns to the durable
     { global_pause: false },
   ])
 
-  await page.goto("/jobs")
-  await page.getByRole("button", { name: new RegExp(`View research\\.execute job ${ids.failedJob}`) }).click()
+  await page.goto("/operations?view=jobs")
+  await page.getByRole("button", { name: "View Research Execute job details" }).click()
   const detail = page.getByRole("dialog", { name: "Job details" })
   await expect(detail).toContainText("Source request timed out")
+  page.once("dialog", (dialog) => dialog.accept())
   await detail.getByRole("button", { name: "Retry job" }).click()
   await expect(page.getByText("Retry requested", { exact: true }).first()).toBeVisible()
   expect(backend.retryRequested).toBe(true)
@@ -261,7 +252,7 @@ test("all exact copy actions and export formats stay bound to the four approved 
   const backend = await installAcceptanceBackend(page, { allApproved: true })
   await installClipboardCapture(page)
   await page.setViewportSize(viewports[0])
-  await page.goto(`/drafts/${ids.contentPack}`)
+  await page.goto(`/review/${ids.revisions.telegram}`)
 
   const actionsByPlatform = [
     { tab: "Telegram", actions: ["Copy Telegram formatted message"] },
@@ -295,41 +286,48 @@ test("all exact copy actions and export formats stay bound to the four approved 
   expect(backend.unhandled).toEqual([])
 })
 
-test("mobile navigation omits legacy surfaces and reaches surviving routes without horizontal overflow", async ({ page }) => {
+test("mobile navigation directly reaches surviving routes without page overflow", async ({ page }) => {
   const backend = await installAcceptanceBackend(page)
   await page.setViewportSize(viewports[1])
   await page.goto("/")
 
-  await page.getByRole("button", { name: "Open navigation" }).click()
-  const navigation = page.getByRole("dialog", { name: "Newsroom navigation" })
+  const navigation = page.getByRole("navigation", { name: "Mobile newsroom navigation" })
   await expect(navigation).toBeVisible()
-  await expect(navigation.getByRole("link", { name: "Inbox", exact: true })).toHaveAttribute("href", "/inbox")
-  await expect(navigation.getByRole("link", { name: "Content", exact: true })).toHaveCount(0)
-  await expect(navigation.getByRole("link", { name: "Library", exact: true })).toHaveAttribute("href", "/feed")
-  await expect(navigation.getByRole("link", { name: "Media", exact: true })).toHaveCount(0)
-  await navigation.getByRole("link", { name: "Inbox", exact: true }).click()
-  await expect(page.getByRole("heading", { name: "Inbox", exact: true })).toBeVisible()
-  await page.getByRole("button", { name: "Shortlist", exact: true }).click()
-  await expect.poll(() => backend.editorialRequests).toEqual([{ state: "shortlisted" }])
+  await expect(navigation.getByRole("link", { name: "Feed", exact: true })).toHaveAttribute("href", "/feed")
+  await expect(navigation.getByRole("link", { name: "Calendar", exact: true })).toHaveCount(0)
   await expectNoHorizontalOverflow(page)
 
-  await page.getByRole("button", { name: "Open navigation" }).click()
-  await page.getByRole("dialog", { name: "Newsroom navigation" }).getByRole("link", { name: "Drafts", exact: true }).click()
-  await expect(page).toHaveURL(/\/drafts$/)
-  await expect(page.getByRole("heading", { name: "Drafts", exact: true })).toBeVisible()
-  await expectNoHorizontalOverflow(page)
-
-  await page.getByRole("button", { name: "Open navigation" }).click()
-  await page.getByRole("dialog", { name: "Newsroom navigation" }).getByRole("link", { name: "Diagnostics", exact: true }).click()
-  await expect(page.getByRole("heading", { name: "Diagnostics" })).toBeVisible()
+  const openNavigation = navigation.getByRole("button", { name: "Open navigation" })
+  const panel = page.getByRole("dialog", { name: "Newsroom navigation" })
+  await expect(async () => {
+    if (!(await panel.isVisible())) await openNavigation.click()
+    await expect(panel).toBeVisible({ timeout: 1_000 })
+  }).toPass({ timeout: 5_000 })
+  await expect(panel.getByRole("link", { name: "Inbox", exact: true })).toHaveCount(0)
+  await expect(panel.getByRole("link", { name: "Ingestion Runs", exact: true })).toHaveCount(0)
+  await expect(panel.getByRole("link", { name: "Content", exact: true })).toHaveCount(0)
+  await expect(panel.getByRole("link", { name: "Drafts", exact: true })).toHaveCount(0)
+  await expect(panel.getByRole("link", { name: "Media", exact: true })).toHaveCount(0)
+  await panel.getByRole("link", { name: "Operations Center", exact: true }).click()
+  await expect(page.getByRole("heading", { name: "Operations Center" })).toBeVisible()
   await expectNoHorizontalOverflow(page)
   expect(backend.unhandled).toEqual([])
+})
+
+test("removed frontend routes redirect to surviving workflows", async ({ request }) => {
+  const inbox = await request.get("/inbox?add=story", { maxRedirects: 0 })
+  const runs = await request.get("/runs", { maxRedirects: 0 })
+
+  expect(inbox.status()).toBe(307)
+  expect(inbox.headers().location).toBe("/?add=story")
+  expect(runs.status()).toBe(307)
+  expect(runs.headers().location).toBe("/sources")
 })
 
 test("keyboard-only editor creates and approves an immutable Persian revision", async ({ page }) => {
   const backend = await installAcceptanceBackend(page)
   await page.setViewportSize(viewports[0])
-  await page.goto(`/drafts/${ids.contentPack}`)
+  await page.goto(`/review/${ids.revisions.telegram}`)
   await expect(page.getByRole("heading", { name: "Editorial review" })).toBeVisible()
 
   const message = page.getByLabel("Telegram message")
@@ -367,11 +365,22 @@ test("keyboard-only editor creates and approves an immutable Persian revision", 
 
 for (const viewport of viewports) {
   test(`${viewport.name} critical paths have no serious or critical axe violations`, async ({ page }) => {
+    test.slow()
     const backend = await installAcceptanceBackend(page, { allApproved: true })
     await page.setViewportSize(viewport)
-    for (const route of ["/", "/automations", "/drafts", `/drafts/${ids.contentPack}`, "/calendar", "/diagnostics", "/settings/retention"]) {
+    for (const route of [
+      "/",
+      "/operations?view=jobs",
+      "/automations/telegram",
+      "/automations/telegram/new",
+      `/automations/telegram/${ids.route}`,
+      `/automations/telegram/${ids.route}/history`,
+      `/review/${ids.revisions.telegram}`,
+      "/operations?view=diagnostics",
+    ]) {
       await page.goto(route)
       await expect(page.getByRole("main")).toBeVisible()
+      await expectNoHorizontalOverflow(page)
       const results = await new AxeBuilder({ page }).analyze()
       const violations = results.violations
         .filter((violation) => violation.impact === "serious" || violation.impact === "critical")
@@ -428,12 +437,8 @@ async function installAcceptanceBackend(page: Page, options: BackendOptions = {}
     controlRequests: [],
     copyReady: false,
     dryRunRequests: [],
-    editorialRequests: [],
-    emptyCalendar: Boolean(options.emptyCalendar),
-    emptyInbox: Boolean(options.emptyInbox),
     exportPolls: 0,
     exportRequest: null,
-    intakeRequests: [],
     reconciliation: Boolean(options.reconciliation),
     reconciliationRequest: null,
     reconciliationResolved: false,
@@ -459,6 +464,9 @@ async function installAcceptanceBackend(page: Page, options: BackendOptions = {}
       ? request.postDataJSON() as Record<string, unknown>
       : null
 
+    if (path === "/operator-settings/date-time") {
+      return json(route, { timezone: "Asia/Tehran", updated_at: now })
+    }
     if (path === "/automation-control") {
       if (method === "PATCH" && body) {
         state.controlRequests.push(body)
@@ -481,17 +489,8 @@ async function installAcceptanceBackend(page: Page, options: BackendOptions = {}
       return json(route, { items: [...(includeFailed ? [failedJobWire(state)] : []), ...(includeRetried ? [failedJobWire(state)] : [])] })
     }
 
-    if (path === "/stories" && method === "GET") return json(route, { items: state.emptyInbox ? [] : [storySummaryWire()], next_cursor: null })
-    if (path === `/stories/${ids.story}/editorial-state` && method === "PATCH" && body) {
-      state.editorialRequests.push(body)
-      return json(route, { ...storySummaryWire(), status: body.state })
-    }
     if (path === `/stories/${ids.story}` && method === "GET") return json(route, storySummaryWire())
     if (path === `/stories/${ids.story}/evidence` && method === "GET") return json(route, [evidenceWire()])
-    if (path === "/stories/manual" && method === "POST" && body) {
-      state.intakeRequests.push(body)
-      return json(route, accepted(ids.intakeJob), 202)
-    }
     if (path === `/stories/${ids.story}/research-runs` && method === "POST" && body) {
       state.researchRequests.push(body)
       return json(route, {
@@ -624,11 +623,8 @@ async function installAcceptanceBackend(page: Page, options: BackendOptions = {}
       return json(route, publicationWire())
     }
 
-    if (path === "/calendar" && method === "GET") {
-      const calendar = calendarWire(url.searchParams.get("timezone") ?? "Asia/Tehran")
-      return json(route, state.emptyCalendar ? { ...calendar, items: [] } : calendar)
-    }
     if (path === "/operations/diagnostics" && method === "GET") return json(route, diagnosticsWire(state))
+    if (path === "/operations/health" && method === "GET") return json(route, operationalHealthWire(state))
     if (path === "/operations/history" && method === "GET") return json(route, historyWire(state))
     if (path === "/operations/retention-policy" && method === "GET") return json(route, retentionPolicyWire())
     if (path.startsWith(`/platform-variant-revisions/${ids.revisions.instagram}/manual-publication-plan`) && method === "GET") {
@@ -1084,22 +1080,6 @@ function publicationWire() {
   }
 }
 
-function calendarWire(timezone: string) {
-  return {
-    items: [{
-      id: `manual:${ids.manualPlan}`,
-      kind: "manual_publication",
-      platform: "instagram",
-      revision_id: ids.revisions.instagram,
-      title: "گزارش امروز",
-      starts_at: scheduledFor,
-      status: "ready",
-      action_url: `/review/${ids.revisions.instagram}`,
-    }],
-    timezone,
-  }
-}
-
 function diagnosticsWire(state: BackendState) {
   return {
     generated_at: "2026-07-13T08:06:00Z",
@@ -1119,6 +1099,48 @@ function diagnosticsWire(state: BackendState) {
       configuration_error_code: null,
     },
     attention: [{ id: ids.failedJob, severity: "warning", kind: "job", title: "پژوهش نیازمند بررسی است", occurred_at: "2026-07-13T08:02:00Z", action_url: "/jobs" }],
+  }
+}
+
+function operationalHealthWire(_state: BackendState) {
+  const component = (componentId: string, componentType: "worker" | "scheduler") => ({
+    component_id: componentId,
+    component_type: componentType,
+    state: "healthy",
+    code: "heartbeat_fresh",
+    observed_at: "2026-07-13T08:05:30Z",
+    last_success_at: "2026-07-13T08:05:00Z",
+    heartbeat_age_seconds: 30,
+    last_success_age_seconds: 60,
+    capabilities: [],
+    activity: "idle",
+    active_work_type: null,
+    active_work_age_seconds: null,
+    process_started_at: "2026-07-13T07:00:00Z",
+    restart_state: "stable",
+    restart_count_window: 0,
+    restart_window_seconds: 3600,
+    last_restart_at: null,
+    message: `${componentId} heartbeat is fresh`,
+    runbook_url: "/docs/operations/readiness-and-health",
+  })
+  return {
+    generated_at: "2026-07-13T08:06:00Z",
+    state: "healthy",
+    state_definitions: {},
+    dependencies: {
+      database: { state: "healthy", code: "database_connected", observed_at: "2026-07-13T08:06:00Z", latency_ms: 8, message: "Database connectivity is available", runbook_url: "/docs/operations/readiness-and-health" },
+    },
+    components: {
+      "worker-source-generation": component("worker-source-generation", "worker"),
+      "worker-publishing": component("worker-publishing", "worker"),
+      scheduler: component("scheduler", "scheduler"),
+    },
+    queues: [],
+    recoveries: [],
+    alerts: [],
+    metrics: {},
+    outbound_proxy: diagnosticsWire(_state).outbound_proxy,
   }
 }
 

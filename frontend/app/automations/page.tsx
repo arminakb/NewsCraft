@@ -1,3 +1,3 @@
-import { RouteList } from "@/features/automations/route-list"
+import { WorkflowLibrary } from "@/features/automations/workflow-library"
 
-export default function Page() { return <RouteList /> }
+export default function Page() { return <WorkflowLibrary /> }

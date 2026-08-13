@@ -59,10 +59,12 @@ def build_default_registry(
     destination_secret_resolver: Any | None = None,
     telegram_route_resolver: Any | None = None,
     research_backend_resolver: Any | None = None,
+    icon_discovery_service: Any | None = None,
     export_root: str | Path = "/data/exports",
     media_root: str | Path = "/data/media",
 ) -> JobHandlerRegistry:
-    from app.jobs.handlers import handle_ingest_collect
+    from app.automations.definitions.handler_wrapper import with_automation_projection
+    from app.jobs.handlers import handle_ingest_collect, handle_source_collection_continuous_cycle
     from app.stories.handlers import group_pending_content, handle_manual_intake
 
     if capabilities is None:
@@ -95,6 +97,7 @@ def build_default_registry(
 
         registry.register(SOURCE_GENERATION_CANARY, handle_worker_canary)
         registry.register("ingest.collect", handle_ingest_collect)
+        registry.register("ingest.collection.continuous_cycle", handle_source_collection_continuous_cycle)
         registry.register("manual_intake", handle_manual_intake)
         registry.register("story.group_pending", group_pending_content)
     if "source" in selected:
@@ -104,10 +107,18 @@ def build_default_registry(
         assert media_stager is not None
         route_handlers = build_telegram_route_handlers(source_registry, media_stager)
         registry.register("telegram.route.backfill", route_handlers.backfill)
-        registry.register("telegram.route.dry_run", route_handlers.dry_run)
+        registry.register("telegram.route.dry_run", with_automation_projection(route_handlers.dry_run))
         registry.register("telegram.route.initialize", route_handlers.initialize)
         registry.register("telegram.route.poll", route_handlers.poll)
+        if icon_discovery_service is not None:
+            from app.sources.icon_discovery import ICON_JOB_TYPE, build_source_icon_discovery_handler
+
+            registry.register(
+                ICON_JOB_TYPE,
+                build_source_icon_discovery_handler(icon_discovery_service),
+            )
     if "generation" in selected:
+        from app.automations.definitions.schedule_execution import build_scheduled_automation_handler
         from app.automations.telegram.handlers import build_telegram_process_handler
         from app.exports.handlers import build_export_handler
         from app.generation.canonical_generation import build_canonical_generation_handler
@@ -117,14 +128,26 @@ def build_default_registry(
 
         registry.register(
             "telegram.route.process",
-            build_telegram_process_handler(profile_resolver),
+            with_automation_projection(build_telegram_process_handler(profile_resolver)),
         )
-        registry.register("content_pack.generate", build_canonical_generation_handler(profile_resolver))
-        registry.register("content_pack.generate_telegram", build_pack_generation_handler(profile_resolver))
+        registry.register(
+            "content_pack.generate",
+            with_automation_projection(build_canonical_generation_handler(profile_resolver)),
+        )
+        registry.register(
+            "content_pack.generate_telegram",
+            with_automation_projection(build_pack_generation_handler(profile_resolver)),
+        )
         registry.register("content_pack.regenerate", build_regenerate_handler(profile_resolver))
         registry.register(
+            "automation.run.start",
+            with_automation_projection(build_scheduled_automation_handler(profile_resolver)),
+        )
+        registry.register(
             "build_export",
-            build_export_handler(export_root=Path(export_root), media_root=Path(media_root)),
+            with_automation_projection(
+                build_export_handler(export_root=Path(export_root), media_root=Path(media_root)),
+            ),
         )
         registry.register(
             "execute_retention",
@@ -138,7 +161,7 @@ def build_default_registry(
 
         registry.register(
             "research_story",
-            build_research_story_handler(research_backend_resolver),
+            with_automation_projection(build_research_story_handler(research_backend_resolver)),
         )
     if "publishing" in selected:
         from app.jobs.canary import PUBLISHING_CANARY, handle_worker_canary
@@ -154,5 +177,5 @@ def build_default_registry(
         registry.register(PUBLISHING_CANARY, handle_worker_canary)
         registry.register("telegram.destination.check", publish_handlers.destination_check)
         registry.register("telegram.proxy.check", publish_handlers.proxy_check)
-        registry.register("telegram.publish", publish_handlers.publish)
+        registry.register("telegram.publish", with_automation_projection(publish_handlers.publish))
     return registry

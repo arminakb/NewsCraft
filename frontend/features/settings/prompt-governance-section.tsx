@@ -7,6 +7,7 @@ import { useState } from "react"
 import { DirectionBoundary } from "@/components/newsroom/direction-boundary"
 import { useDirtyNavigation } from "@/components/editorial/use-dirty-navigation"
 import { useNotices } from "@/components/providers/notice-provider"
+import { useDateTime } from "@/components/providers/date-time-provider"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
@@ -98,7 +99,7 @@ function PromptPurpose({
   })
   const active = versions.data?.find((version) => version.is_active)
   return (
-    <article className="rounded-xl border bg-background p-4">
+    <article className="rounded-lg border border-border/50 bg-background p-4">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
@@ -147,6 +148,7 @@ function PromptAdvancedManager({
   label: string
   onChanged: () => Promise<void>
 }) {
+  const { timezone } = useDateTime()
   const { pushNotice } = useNotices()
   const active = versions.find((version) => version.is_active)
   const [systemTemplate, setSystemTemplate] = useState(active?.system_template ?? "")
@@ -180,7 +182,7 @@ function PromptAdvancedManager({
     },
     onError: (cause) => pushNotice({ tone: "error", title: "Prompt activation failed", message: getApiErrorMessage(cause) }),
   })
-  const dirty = changedFromActive
+  const dirty = changedFromActive || Boolean(activationReason) || confirmed
   useDirtyNavigation(dirty, "Discard unsaved prompt changes?")
   const resetDraft = () => {
     setSystemTemplate(active?.system_template ?? "")
@@ -199,7 +201,7 @@ function PromptAdvancedManager({
             <Button variant="outline" disabled={!dirty || create.isPending} onClick={resetDraft}>Reset</Button>
           </div>
           {target && !target.is_active ? (
-            <div className="space-y-3 rounded-lg border border-amber-300 bg-amber-50 p-3 text-amber-950 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-100">
+            <div className="space-y-3 rounded-lg border border-warning/30 bg-[var(--warning-surface)] p-3 text-foreground">
               <div><strong>Activate version {target.version}?</strong><p className="text-sm">Follow-active routes and new editorial jobs will resolve this version. Pinned routes and existing revisions remain unchanged.</p></div>
               {active ? <PromptDiff before={active} systemTemplate={target.system_template} userTemplate={target.user_template} /> : null}
               <Field label="Activation reason" required error={activationReason.length > 0 && activationReason.trim().length < 3 ? "Enter at least 3 characters." : null}>
@@ -224,7 +226,7 @@ function PromptAdvancedManager({
                     <div className="break-all text-xs text-muted-foreground">{version.checksum_sha256} · {version.is_active ? "Active" : "Inactive"}</div>
                     {version.activation_reason ? (
                       <div className="mt-1 text-xs text-muted-foreground">
-                        Activated {formatDate(version.activated_at)} by {version.activated_by_type} {version.activated_by_id} · {version.activation_reason}
+                        Activated {formatDate(version.activated_at, "Unknown", timezone)} by {version.activated_by_type} {version.activated_by_id} · {version.activation_reason}
                       </div>
                     ) : null}
                   </div>
@@ -243,8 +245,8 @@ function PromptAdvancedManager({
 function PromptDiff({ before, systemTemplate, userTemplate }: { before: PromptVersion; systemTemplate: string; userTemplate: string }) {
   return (
     <div className="grid gap-2 rounded-lg border bg-background p-3 text-xs md:grid-cols-2" aria-label={`Diff from version ${before.version}`}>
-      <div><strong>Current version {before.version}</strong><pre className="mt-2 max-h-40 overflow-auto whitespace-pre-wrap break-words rounded bg-red-50 p-2 text-red-950 dark:bg-red-950/30 dark:text-red-100">{before.system_template}{"\n\n"}{before.user_template}</pre></div>
-      <div><strong>Proposed version</strong><pre className="mt-2 max-h-40 overflow-auto whitespace-pre-wrap break-words rounded bg-emerald-50 p-2 text-emerald-950 dark:bg-emerald-950/30 dark:text-emerald-100">{systemTemplate}{"\n\n"}{userTemplate}</pre></div>
+      <div><strong>Current version {before.version}</strong><pre className="mt-2 max-h-40 overflow-auto whitespace-pre-wrap break-words rounded bg-[var(--error-surface)] p-2 text-foreground">{before.system_template}{"\n\n"}{before.user_template}</pre></div>
+      <div><strong>Proposed version</strong><pre className="mt-2 max-h-40 overflow-auto whitespace-pre-wrap break-words rounded bg-[var(--success-surface)] p-2 text-foreground">{systemTemplate}{"\n\n"}{userTemplate}</pre></div>
     </div>
   )
 }

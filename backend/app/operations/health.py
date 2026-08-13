@@ -37,6 +37,7 @@ from app.operations.health_schemas import (
     normalize_utc,
     snapshot_high_water,
 )
+from app.security.secret_store import SecretStoreRuntime
 
 RUNBOOK_ROOT = "/docs/operations/readiness-and-health"
 SAFE_CAPABILITIES = frozenset({"generation", "ingestion", "publishing", "scheduling", "source"})
@@ -218,6 +219,104 @@ class ReadinessService:
             *(row.observed_at for row in heartbeats),
         )
         return _readiness_snapshot(generated_at, checks, required_capabilities)
+
+
+class SecretReadinessService:
+    """Readiness for encrypted-secret mutations without gating unrelated API reads."""
+
+    def __init__(
+        self,
+        session: AsyncSession,
+        *,
+        runtime: SecretStoreRuntime | None,
+        config: Settings = settings,
+        clock: Clock | None = None,
+    ) -> None:
+        self.session = session
+        self.runtime = runtime
+        self.config = config
+        self.clock = clock or (lambda: datetime.now(UTC))
+
+    async def snapshot(self) -> ReadinessSnapshot:
+        fallback_time = normalize_utc(self.clock(), field="secret readiness clock")
+        checks: dict[str, DependencyHealth] = {}
+        configuration_valid = self.runtime is not None and self.runtime.configuration_valid
+        initialized = self.runtime is not None and self.runtime.initialized
+        checks["encryption_configuration"] = DependencyHealth(
+            state=HealthState.HEALTHY if configuration_valid else HealthState.UNAVAILABLE,
+            code=(
+                "secret_store_configuration_valid"
+                if configuration_valid
+                else "secret_store_configuration_invalid"
+            ),
+            observed_at=fallback_time,
+            latency_ms=0,
+            message=(
+                "Encrypted secret configuration is valid"
+                if configuration_valid
+                else "Encrypted secret configuration is invalid"
+            ),
+            runbook_url=f"{RUNBOOK_ROOT}#secret-store-unavailable",
+        )
+        checks["secret_store"] = DependencyHealth(
+            state=HealthState.HEALTHY if initialized else HealthState.UNAVAILABLE,
+            code="secret_store_initialized" if initialized else "secret_store_unavailable",
+            observed_at=fallback_time,
+            latency_ms=0,
+            message="Secret Store is initialized" if initialized else "Secret Store is unavailable",
+            runbook_url=f"{RUNBOOK_ROOT}#secret-store-unavailable",
+        )
+
+        started = time.monotonic()
+        try:
+            async with asyncio.timeout(self.config.readiness_timeout_seconds):
+                if await self.session.scalar(text("SELECT 1")) != 1:
+                    raise RuntimeError("database connectivity probe failed")
+                relation = await self.session.scalar(text("SELECT to_regclass('public.encrypted_secrets')"))
+                observed_at = await database_time(self.session)
+        except Exception:  # noqa: BLE001 - readiness exposes safe constants only
+            latency_ms = max(0, int((time.monotonic() - started) * 1_000))
+            checks["database"] = DependencyHealth(
+                state=HealthState.UNAVAILABLE,
+                code="database_unavailable",
+                observed_at=fallback_time,
+                latency_ms=latency_ms,
+                message="Database connectivity is unavailable",
+                runbook_url=f"{RUNBOOK_ROOT}#database-unavailable",
+            )
+            checks["secret_schema"] = DependencyHealth(
+                state=HealthState.UNKNOWN,
+                code="secret_schema_unknown",
+                observed_at=fallback_time,
+                latency_ms=latency_ms,
+                message="Encrypted secret schema state could not be verified",
+                runbook_url=f"{RUNBOOK_ROOT}#schema-mismatch",
+            )
+            return _readiness_snapshot(fallback_time, checks, ())
+
+        latency_ms = max(0, int((time.monotonic() - started) * 1_000))
+        checks["database"] = DependencyHealth(
+            state=HealthState.HEALTHY,
+            code="database_connected",
+            observed_at=observed_at,
+            latency_ms=latency_ms,
+            message="Database connectivity is available",
+            runbook_url=f"{RUNBOOK_ROOT}#database-unavailable",
+        )
+        schema_available = relation is not None
+        checks["secret_schema"] = DependencyHealth(
+            state=HealthState.HEALTHY if schema_available else HealthState.UNAVAILABLE,
+            code="secret_schema_available" if schema_available else "secret_schema_unavailable",
+            observed_at=observed_at,
+            latency_ms=latency_ms,
+            message=(
+                "Encrypted secret schema is available"
+                if schema_available
+                else "Encrypted secret schema is unavailable"
+            ),
+            runbook_url=f"{RUNBOOK_ROOT}#schema-mismatch",
+        )
+        return _readiness_snapshot(observed_at, checks, ())
 
 
 class OperationalHealthService:

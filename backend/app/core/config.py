@@ -1,6 +1,7 @@
 from datetime import datetime
+from ipaddress import ip_address
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 from urllib.parse import urlsplit
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
@@ -35,6 +36,15 @@ class Settings(BaseSettings):
     worker_poll_seconds: float = Field(default=1.0, gt=0)
     worker_lease_seconds: int = Field(default=120, ge=30)
     worker_heartbeat_seconds: int = Field(default=30, ge=5)
+    ingestion_source_concurrency: int = Field(default=8, ge=1, le=32)
+    source_icon_discovery_batch_size: int = Field(default=25, ge=1, le=100)
+    source_icon_discovery_ttl_days: int = Field(default=30, ge=1, le=365)
+    source_icon_discovery_retry_base_seconds: int = Field(default=3_600, ge=60, le=86_400)
+    source_icon_discovery_retry_max_seconds: int = Field(default=604_800, ge=3_600, le=2_592_000)
+    source_icon_discovery_timeout_seconds: float = Field(default=10.0, gt=0, le=60)
+    source_icon_discovery_max_bytes: int = Field(default=2_000_000, ge=16_384, le=10_000_000)
+    source_icon_discovery_max_redirects: int = Field(default=5, ge=0, le=10)
+    continuous_ingestion_interval_minutes: int = Field(default=15, ge=1, le=1440)
     expected_runtime_component_ids: str = "worker-source-generation,worker-publishing,scheduler"
     readiness_required_capabilities: str = ""
     readiness_timeout_seconds: float = Field(default=0.9, gt=0, le=5)
@@ -69,7 +79,7 @@ class Settings(BaseSettings):
     telegram_api_read_timeout_seconds: float = Field(default=30.0, gt=0, le=120)
     telegram_acceptance_fixture_path: str | None = None
     worker_secret_root: str = "/run/secrets"
-    security_admin_token: SecretStr | None = None
+    application_auth_mode: Literal["local_owner", "profile"] = "local_owner"
     security_codex_token: SecretStr | None = None
     security_codex_scopes: str = (
         "settings:read,providers:read,destinations:read,prompts:read,automations:read,jobs:read"
@@ -153,6 +163,10 @@ class Settings(BaseSettings):
             and gateway_url.hostname not in {"localhost", "127.0.0.1", "::1"}
         ):
             raise ValueError("production Codex Gateway public URL must use HTTPS")
+        if self.application_auth_mode == "local_owner":
+            configured_origins = [value.strip() for value in self.cors_origins.split(",") if value.strip()]
+            if not configured_origins or not all(_is_loopback_http_origin(value) for value in configured_origins):
+                raise ValueError("local_owner mode requires loopback-only CORS origins")
         return self
 
     @field_validator("security_codex_scopes", "security_internal_scopes")
@@ -171,6 +185,31 @@ class Settings(BaseSettings):
         if not value or len(value) > 32 or not value.replace("-", "").replace("_", "").isalnum():
             raise ValueError("secret_key_version must be a short identifier")
         return value
+
+
+def _is_loopback_http_origin(value: str) -> bool:
+    parsed = urlsplit(value)
+    if (
+        parsed.scheme not in {"http", "https"}
+        or not parsed.hostname
+        or parsed.username is not None
+        or parsed.password is not None
+        or parsed.path not in {"", "/"}
+        or parsed.query
+        or parsed.fragment
+    ):
+        return False
+    try:
+        parsed_port = parsed.port
+    except ValueError:
+        return False
+    del parsed_port
+    if parsed.hostname.casefold().rstrip(".") == "localhost":
+        return True
+    try:
+        return ip_address(parsed.hostname).is_loopback
+    except ValueError:
+        return False
 
 
 settings = Settings()

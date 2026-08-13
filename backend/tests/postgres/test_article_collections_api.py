@@ -6,8 +6,13 @@ from pathlib import Path
 from uuid import UUID, uuid4
 
 from httpx import ASGITransport, AsyncClient
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.automations.definitions.models import AutomationNodeRun, AutomationRun
+from app.automations.definitions.schedule_execution import build_scheduled_automation_handler
+from app.automations.definitions.schemas import AutomationCreate
+from app.automations.definitions.service import AutomationDefinitionService
 from app.db.models import (
     ArticleCollection,
     ArticleCollectionItem,
@@ -15,8 +20,14 @@ from app.db.models import (
     MediaAsset,
 )
 from app.db.session import get_session
+from app.generation.providers.registry import build_default_provider_registry
+from app.jobs.models import WorkflowEvent, WorkflowJob
+from app.jobs.registry import JobContext
+from app.jobs.repository import JobRepository
+from app.jobs.types import JobExecution
 from app.main import app
 from app.retention.service import RetentionPolicyInput, RetentionService
+from app.security.auth import TEST_ADMIN
 
 NOW = datetime(2026, 7, 21, 8, tzinfo=UTC)
 
@@ -131,6 +142,121 @@ async def test_membership_is_idempotent_supports_multiple_collections_and_never_
     assert surviving_article.status_code == 200
     assert surviving_article.json()["saved"] is False
     assert surviving_article.json()["saved_collection_ids"] == []
+
+
+async def test_collection_article_trigger_starts_one_durable_run_and_preserves_article_output(
+    db_session: AsyncSession,
+):
+    article = _article(title="Trigger article")
+    collection = ArticleCollection(name="Trigger queue", normalized_name="trigger queue")
+    db_session.add_all([article, collection])
+    await db_session.flush()
+    graph = {
+        "schema_version": 1,
+        "entry_node_id": "collection-trigger-1",
+        "nodes": [
+            {
+                "id": "collection-trigger-1",
+                "type": "collection_article_added",
+                "config": {"collection_id": str(collection.id)},
+            }
+        ],
+        "edges": [],
+        "output_node_ids": ["collection-trigger-1"],
+        "metadata": {"layout": {}},
+    }
+    created = await AutomationDefinitionService(db_session).create_automation(
+        AutomationCreate(name="Collection trigger", graph=graph),
+        principal=TEST_ADMIN,
+        idempotency_key="collection-trigger-create",
+    )
+    activated = await AutomationDefinitionService(db_session).activate(
+        created.id,
+        expected_revision=1,
+        principal=TEST_ADMIN,
+        capability_status=None,
+        idempotency_key="collection-trigger-activate",
+    )
+    await db_session.commit()
+
+    first = await _request(
+        db_session,
+        "PUT",
+        f"/article-collections/{collection.id}/articles/{article.id}",
+    )
+    second = await _request(
+        db_session,
+        "PUT",
+        f"/article-collections/{collection.id}/articles/{article.id}",
+    )
+    assert first.status_code == second.status_code == 204
+    jobs = list(
+        await db_session.scalars(
+            select(WorkflowJob).where(WorkflowJob.job_type == "automation.run.start")
+        )
+    )
+    assert len(jobs) == 1
+    assert jobs[0].payload["collection_id"] == str(collection.id)
+    assert jobs[0].payload["article_id"] == str(article.id)
+    assert jobs[0].payload["automation_version_id"] == str(activated.active_version_id)
+    events = list(
+        await db_session.scalars(
+            select(WorkflowEvent).where(WorkflowEvent.event_type == "collection.article_added")
+        )
+    )
+    assert len(events) == 1
+    assert events[0].event_data["article_id"] == str(article.id)
+    assert events[0].event_data["collection_id"] == str(collection.id)
+    assert events[0].event_data["added_at"]
+    assert events[0].event_data["actor_id"] == "operator"
+
+    job = await JobRepository(db_session).claim_next_job(
+        worker_id="collection-trigger-test",
+        lease_seconds=300,
+        allowed_job_types=("automation.run.start",),
+    )
+    assert job is not None
+    execution = JobExecution.from_job(job)
+    await db_session.commit()
+    result = await build_scheduled_automation_handler(None)(
+        execution,
+        JobContext(session=db_session, providers=build_default_provider_registry()),
+    )
+    await JobRepository(db_session).finish_job(
+        job_id=execution.id,
+        worker_id="collection-trigger-test",
+        result=result,
+    )
+    await db_session.commit()
+
+    run = await db_session.scalar(select(AutomationRun).where(AutomationRun.automation_id == created.id))
+    assert run is not None
+    node = await db_session.scalar(
+        select(AutomationNodeRun).where(AutomationNodeRun.automation_run_id == run.id)
+    )
+    assert run.status == "succeeded"
+    assert run.trigger_metadata["article_id"] == str(article.id)
+    assert run.trigger_metadata["collection_id"] == str(collection.id)
+    assert run.trigger_metadata["workflow_version"] == 1
+    assert run.trigger_metadata["trigger_node_id"] == "collection-trigger-1"
+    assert node is not None and node.status == "succeeded"
+    assert result["output"] == {
+        "article": {
+            "id": str(article.id),
+            "title": "Trigger article",
+            "content": "Body",
+            "url": "https://example.com/trigger-article",
+            "source_id": None,
+            "published_at": None,
+            "primary_media": None,
+        },
+        "trigger": {
+            "type": "collection_article_added",
+            "collection_id": str(collection.id),
+            "article_id": str(article.id),
+            "occurred_at": result["output"]["trigger"]["occurred_at"],
+        },
+    }
 
 
 async def test_articles_collection_filter_preserves_pagination_and_rejects_unknown_ids(

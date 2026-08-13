@@ -4,8 +4,14 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import Link from "next/link"
 import { useState } from "react"
 
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Button, buttonVariants } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { Checkbox } from "@/components/ui/checkbox"
+import { Input } from "@/components/ui/input"
+import { PageHeader } from "@/components/ui/page-header"
+import { Select } from "@/components/ui/select"
+import { LoadingState } from "@/components/ui/state-panel"
 import {
   createTelegramRoute,
   createTelegramSource,
@@ -57,7 +63,6 @@ const initialForm: FormState = {
   confirmAutoPublish: false,
 }
 
-const fieldClass = "h-10 w-full min-w-0 rounded-lg border border-input bg-background px-3 text-sm"
 const secretPattern = "[A-Z][A-Z0-9_]{2,127}"
 
 export function RouteBuilder({ onCreated }: { onCreated?: (routeId: string) => void }) {
@@ -131,33 +136,41 @@ export function RouteBuilder({ onCreated }: { onCreated?: (routeId: string) => v
   const promptPolicyMissing = !form.promptPolicy || (form.promptPolicy === "follow_active" && !activePrompt)
 
   return (
-    <section className="mx-auto w-full max-w-4xl space-y-4 p-4 md:p-6" aria-labelledby="route-builder-heading">
-      <div>
-        <h1 id="route-builder-heading" className="text-2xl font-semibold">New Telegram automation</h1>
-        <p className="text-muted-foreground">Connect a source and destination with conservative, review-first defaults.</p>
-      </div>
+    <section className="nc-page mx-auto w-full max-w-4xl" aria-labelledby="route-builder-heading">
+      <PageHeader
+        title="New Telegram automation"
+        titleId="route-builder-heading"
+        description="Connect a source and destination with conservative, review-first defaults."
+      />
       <ol aria-label="Automation setup steps" className="grid gap-2 text-sm sm:grid-cols-3">
-        <li className="rounded-lg border bg-card p-3"><strong>1. Source</strong><br /><span className="text-muted-foreground">Name the route and Telegram channel.</span></li>
-        <li className="rounded-lg border bg-card p-3"><strong>2. Destination</strong><br /><span className="text-muted-foreground">Choose a verified newsroom destination.</span></li>
-        <li className="rounded-lg border bg-card p-3"><strong>3. Review policy</strong><br /><span className="text-muted-foreground">Confirm how drafts reach editors.</span></li>
+        <li className="nc-panel p-3"><strong className="text-[13px]">1. Source</strong><br /><span className="text-xs text-muted-foreground">Name the route and Telegram channel.</span></li>
+        <li className="nc-panel p-3"><strong className="text-[13px]">2. Destination</strong><br /><span className="text-xs text-muted-foreground">Choose a verified newsroom destination.</span></li>
+        <li className="nc-panel p-3"><strong className="text-[13px]">3. Review policy</strong><br /><span className="text-xs text-muted-foreground">Confirm how drafts reach editors.</span></li>
       </ol>
-      {optionsQuery.isPending ? <div role="status">Loading safe configuration options</div> : null}
-      {optionsQuery.isError ? <div role="alert" dir="auto">{getApiErrorMessage(optionsQuery.error)}</div> : null}
+      {optionsQuery.isPending ? <LoadingState title="Loading safe configuration options…" /> : null}
+      {optionsQuery.isError ? (
+        <Alert tone="error" role="alert" dir="auto">
+          <div>
+            <AlertTitle>Configuration options unavailable</AlertTitle>
+            <AlertDescription>{getApiErrorMessage(optionsQuery.error)}</AlertDescription>
+          </div>
+        </Alert>
+      ) : null}
       {options ? (
         <form className="space-y-4" onSubmit={(event) => { event.preventDefault(); setOutcome(""); mutation.mutate() }}>
           <Card>
             <CardHeader><CardTitle>Steps 1–2 · Source and destination</CardTitle></CardHeader>
             <CardContent className="grid gap-4 md:grid-cols-2">
-              <Field label="Automation name"><input required className={fieldClass} value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} /></Field>
-              <Field label="Source name"><input required className={fieldClass} value={form.sourceName} onChange={(e) => setForm({ ...form, sourceName: e.target.value })} /></Field>
-              <Field label="Source channel"><input required className={fieldClass} value={form.channelRef} onChange={(e) => setForm({ ...form, channelRef: e.target.value })} /></Field>
+              <Field label="Automation name" required><Input required value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} /></Field>
+              <Field label="Source name" required><Input required value={form.sourceName} onChange={(e) => setForm({ ...form, sourceName: e.target.value })} /></Field>
+              <Field label="Source channel" required><Input required value={form.channelRef} onChange={(e) => setForm({ ...form, channelRef: e.target.value })} /></Field>
               <details className="rounded-lg border p-3 md:col-span-2">
                 <summary className="cursor-pointer font-medium">Advanced source access</summary>
                 <div className="mt-4 grid gap-4 md:grid-cols-2">
                   <Field label="Access mode">
-                    <select className={fieldClass} value={form.accessMode} onChange={(e) => setForm({ ...form, accessMode: e.target.value as FormState["accessMode"] })}>
+                    <Select value={form.accessMode} onChange={(e) => setForm({ ...form, accessMode: e.target.value as FormState["accessMode"] })}>
                       <option value="public_html">Public HTML</option><option value="mtproto_user">MTProto user session</option>
-                    </select>
+                    </Select>
                   </Field>
                   {form.accessMode === "mtproto_user" ? (
                     <div className="grid gap-4 md:col-span-2 md:grid-cols-3">
@@ -170,9 +183,8 @@ export function RouteBuilder({ onCreated }: { onCreated?: (routeId: string) => v
               </details>
               <div className="grid gap-2 md:col-span-2">
                 <Field label="Telegram destination">
-                  <select
+                  <Select
                     required
-                    className={fieldClass}
                     value={choose(form.destinationId, options.destinations[0]?.id)}
                     onChange={(event) => setForm({ ...form, destinationId: event.target.value })}
                   >
@@ -180,7 +192,7 @@ export function RouteBuilder({ onCreated }: { onCreated?: (routeId: string) => v
                     {options.destinations.map((item) => (
                       <option key={item.id} value={item.id}>{item.name}</option>
                     ))}
-                  </select>
+                  </Select>
                 </Field>
                 <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border bg-muted/40 p-3 text-sm text-muted-foreground">
                   <span>
@@ -190,7 +202,7 @@ export function RouteBuilder({ onCreated }: { onCreated?: (routeId: string) => v
                   </span>
                   <Link
                     className={buttonVariants({ variant: "outline", size: "sm" })}
-                    href="/settings/content#telegram-destinations"
+                    href="/settings?section=telegram"
                   >
                     Manage destinations
                   </Link>
@@ -202,23 +214,22 @@ export function RouteBuilder({ onCreated }: { onCreated?: (routeId: string) => v
           <Card>
             <CardHeader><CardTitle>Step 3 · Review policy</CardTitle></CardHeader>
             <CardContent className="grid gap-4 md:grid-cols-2">
-              <Field label="Brand"><select className={fieldClass} value={choose(form.brandProfileId, options.brandProfiles[0]?.id)} onChange={(e) => setForm({ ...form, brandProfileId: e.target.value })}>{options.brandProfiles.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></Field>
+              <Field label="Brand"><Select value={choose(form.brandProfileId, options.brandProfiles[0]?.id)} onChange={(e) => setForm({ ...form, brandProfileId: e.target.value })}>{options.brandProfiles.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</Select></Field>
               <Field label="Prompt update policy">
-                <select required className={fieldClass} value={form.promptPolicy} onChange={(e) => setForm({ ...form, promptPolicy: e.target.value as FormState["promptPolicy"], promptTemplateVersionId: "" })}>
+                <Select required value={form.promptPolicy} onChange={(e) => setForm({ ...form, promptPolicy: e.target.value as FormState["promptPolicy"], promptTemplateVersionId: "" })}>
                   <option value="">Choose a policy</option>
                   <option value="follow_active">Follow active prompt</option>
                   <option value="pinned">Pin one immutable version</option>
-                </select>
+                </Select>
               </Field>
               <Field label="Prompt version">
-                <select
-                  className={fieldClass}
+                <Select
                   disabled={form.promptPolicy !== "pinned"}
                   value={form.promptPolicy === "follow_active" ? (activePrompt?.id ?? "") : choose(form.promptTemplateVersionId, options.promptTemplateVersions[0]?.id)}
                   onChange={(e) => setForm({ ...form, promptTemplateVersionId: e.target.value })}
                 >
                   {options.promptTemplateVersions.map((item) => <option key={item.id} value={item.id}>Prompt version {item.version}{item.isActive ? " · active" : ""}</option>)}
-                </select>
+                </Select>
                 <span className="text-xs font-normal text-muted-foreground">
                   {form.promptPolicy === "follow_active"
                     ? "Each new job resolves the active version once and stores its exact checksum."
@@ -227,24 +238,24 @@ export function RouteBuilder({ onCreated }: { onCreated?: (routeId: string) => v
                       : "Choose whether future jobs follow activations or remain pinned."}
                 </span>
               </Field>
-              <Field label="AI provider"><select className={fieldClass} value={choose(form.aiProviderProfileId, generationProfiles[0]?.id)} onChange={(e) => setForm({ ...form, aiProviderProfileId: e.target.value })}>{generationProfiles.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></Field>
-              <Field label="Research mode"><select className={fieldClass} value={form.researchMode} onChange={(e) => setForm({ ...form, researchMode: e.target.value as FormState["researchMode"], researchProviderProfileId: e.target.value === "off" ? "" : form.researchProviderProfileId })}><option value="off">Off</option><option value="manual">Manual</option><option value="auto_if_incomplete">Automatic if incomplete</option></select></Field>
-              {form.researchMode !== "off" ? <Field label="Research provider"><select className={fieldClass} value={choose(form.researchProviderProfileId, researchProfiles[0]?.id)} onChange={(e) => setForm({ ...form, researchProviderProfileId: e.target.value })}><option value="">Select an available research profile</option>{researchProfiles.map((item) => <option key={item.id} value={item.id}>{item.name} · {item.defaultModel ?? "default model"}</option>)}</select></Field> : null}
-              <Field label="Media policy"><select className={fieldClass} value={form.mediaPolicy} onChange={(e) => setForm({ ...form, mediaPolicy: e.target.value as FormState["mediaPolicy"] })}><option value="preserve">Preserve</option><option value="omit">Omit</option><option value="replace_manually">Replace manually</option></select></Field>
-              <Field label="Publishing policy"><select className={fieldClass} value={form.publishingPolicy} onChange={(e) => setForm({ ...form, publishingPolicy: e.target.value as FormState["publishingPolicy"], confirmAutoPublish: false })}><option value="review_required">Review required</option><option value="auto_publish">Automatic publish</option></select></Field>
+              <Field label="AI provider"><Select value={choose(form.aiProviderProfileId, generationProfiles[0]?.id)} onChange={(e) => setForm({ ...form, aiProviderProfileId: e.target.value })}>{generationProfiles.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</Select></Field>
+              <Field label="Research mode"><Select value={form.researchMode} onChange={(e) => setForm({ ...form, researchMode: e.target.value as FormState["researchMode"], researchProviderProfileId: e.target.value === "off" ? "" : form.researchProviderProfileId })}><option value="off">Off</option><option value="manual">Manual</option><option value="auto_if_incomplete">Automatic if incomplete</option></Select></Field>
+              {form.researchMode !== "off" ? <Field label="Research provider"><Select value={choose(form.researchProviderProfileId, researchProfiles[0]?.id)} onChange={(e) => setForm({ ...form, researchProviderProfileId: e.target.value })}><option value="">Select an available research profile</option>{researchProfiles.map((item) => <option key={item.id} value={item.id}>{item.name} · {item.defaultModel ?? "default model"}</option>)}</Select></Field> : null}
+              <Field label="Media policy"><Select value={form.mediaPolicy} onChange={(e) => setForm({ ...form, mediaPolicy: e.target.value as FormState["mediaPolicy"] })}><option value="preserve">Preserve</option><option value="omit">Omit</option><option value="replace_manually">Replace manually</option></Select></Field>
+              <Field label="Publishing policy"><Select value={form.publishingPolicy} onChange={(e) => setForm({ ...form, publishingPolicy: e.target.value as FormState["publishingPolicy"], confirmAutoPublish: false })}><option value="review_required">Review required</option><option value="auto_publish">Automatic publish</option></Select></Field>
               <details className="rounded-lg border p-3 md:col-span-2">
                 <summary className="cursor-pointer font-medium">Advanced timing</summary>
                 <div className="mt-4 max-w-sm">
-                  <Field label="Poll interval in seconds"><input required min={60} max={86400} type="number" className={fieldClass} value={form.pollIntervalSeconds} onChange={(e) => setForm({ ...form, pollIntervalSeconds: Number(e.target.value) })} /></Field>
+                  <Field label="Poll interval in seconds" required><Input required min={60} max={86400} type="number" value={form.pollIntervalSeconds} onChange={(e) => setForm({ ...form, pollIntervalSeconds: Number(e.target.value) })} /></Field>
                 </div>
               </details>
               {form.publishingPolicy === "auto_publish" ? (
-                <label className="flex items-start gap-2 md:col-span-2"><input type="checkbox" className="mt-1" checked={form.confirmAutoPublish} onChange={(e) => setForm({ ...form, confirmAutoPublish: e.target.checked })} /><span><strong>Confirm automatic publishing</strong><br /><span className="text-muted-foreground">Approved content can be sent without another operator action.</span></span></label>
+                <label className="flex min-h-11 items-start gap-2 rounded-lg border border-warning/30 bg-[var(--warning-surface)] p-3 md:col-span-2"><Checkbox className="mt-0.5" checked={form.confirmAutoPublish} onChange={(e) => setForm({ ...form, confirmAutoPublish: e.target.checked })} /><span><strong>Confirm automatic publishing</strong><br /><span className="text-sm text-muted-foreground">Approved content can be sent without another operator action.</span></span></label>
               ) : null}
             </CardContent>
           </Card>
-          {mutation.isError ? <div role="alert" dir="auto" className="text-red-700">{getApiErrorMessage(mutation.error)}</div> : null}
-          {outcome ? <div role="status" aria-label="Automation creation outcome" className="text-green-700">{outcome}</div> : null}
+          {mutation.isError ? <Alert tone="error" role="alert" dir="auto"><AlertDescription>{getApiErrorMessage(mutation.error)}</AlertDescription></Alert> : null}
+          {outcome ? <Alert tone="success" role="status" aria-label="Automation creation outcome"><AlertDescription>{outcome}</AlertDescription></Alert> : null}
           <Button size="lg" type="submit" disabled={mutation.isPending || autoUnconfirmed || mtprotoIncomplete || optionsIncomplete || researchProfileMissing || promptPolicyMissing}>{mutation.isPending ? "Creating" : "Create automation"}</Button>
         </form>
       ) : null}
@@ -252,10 +263,10 @@ export function RouteBuilder({ onCreated }: { onCreated?: (routeId: string) => v
   )
 }
 
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
-  return <label className="grid min-w-0 gap-1.5 text-sm font-medium"><span>{label}</span>{children}</label>
+function Field({ label, required = false, children }: { label: string; required?: boolean; children: React.ReactNode }) {
+  return <label className="grid min-w-0 gap-1.5 text-sm font-medium"><span className={required ? "after:ms-1 after:text-destructive after:content-['*']" : undefined}>{label}</span>{children}</label>
 }
 
 function EnvironmentField({ label, value, onChange }: { label: string; value: string; onChange: (value: string) => void }) {
-  return <Field label={label}><span className="text-xs font-normal text-muted-foreground">Environment variable name</span><input aria-label={label} required className={fieldClass} pattern={secretPattern} autoComplete="off" value={value} onChange={(e) => onChange(e.target.value)} /></Field>
+  return <Field label={label} required><span className="text-xs font-normal text-muted-foreground">Environment variable name</span><Input aria-label={label} required pattern={secretPattern} autoComplete="off" value={value} onChange={(e) => onChange(e.target.value)} /></Field>
 }

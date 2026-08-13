@@ -11,9 +11,10 @@ REST is the canonical interface. Workers and the later MCP adapter call the same
 
 ## Identity and authorization
 
-Every protected request resolves one principal:
+Every protected request resolves one application principal at the centralized `ApplicationPrincipalResolver` boundary:
 
-- `human_admin`: interactive operator session; full settings access after authentication.
+- `local_owner`: server-created principal for the loopback-only single-owner deployment; full initial Settings access.
+- future profile principal: authenticated profile session with server-assigned scopes.
 - `codex_service`: paired service credential; only explicitly granted scopes.
 - `internal_service`: worker or scheduler identity; only service-specific scopes.
 
@@ -26,7 +27,11 @@ Initial scopes:
 - `automations:read`, `automations:write`
 - `jobs:read`, `jobs:write`
 
-Authorization is deny-by-default. Human administrators receive the complete initial scope set. Codex and internal services receive only configured or persisted grants. Phase 1 protects existing settings mutations; read enforcement and paired Codex credentials use the same policy in Phase 4.
+Authorization is deny-by-default. The current local owner receives the complete initial scope set from server policy. Future profile principals may receive narrower grants. Codex and internal services receive only configured or persisted grants. Client-provided role and scope headers are ignored; bootstrap bearer identity is derived by matching a configured server credential.
+
+Browser Settings has no separate Operator Secret or session. In `local_owner` mode, every mutation requires an explicit allowed `Origin`; missing, malformed, and cross-origin values fail closed. Local-owner startup accepts only loopback CORS origins, and official Compose publishes API and frontend ports on `127.0.0.1`. Forwarded client headers never establish locality or authority. Bearer-authenticated service requests retain their server-assigned identity and remain outside the browser origin check.
+
+`APPLICATION_AUTH_MODE=profile` is the future integration seam. It currently rejects browser requests until profile-session resolution is implemented at the same boundary; individual Settings routes must not add temporary authentication mechanisms. Migration `0026_remove_operator_sessions` removes the obsolete session table without rewriting migration history.
 
 ## Generic LLM provider contract
 

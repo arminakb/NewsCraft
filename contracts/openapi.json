@@ -409,6 +409,18 @@
             ],
             "title": "Canonical Url"
           },
+          "content_origin": {
+            "enum": [
+              "source_provided",
+              "extracted",
+              "source_excerpt",
+              "generated_summary",
+              "unavailable",
+              "unknown"
+            ],
+            "title": "Content Origin",
+            "type": "string"
+          },
           "content_text": {
             "anyOf": [
               {
@@ -640,6 +652,7 @@
           "saved_collection_ids",
           "article_readiness",
           "content_text",
+          "content_origin",
           "sanitized_html",
           "authors",
           "tags",
@@ -1148,6 +1161,40 @@
             ],
             "title": "Homepage Url"
           },
+          "icon_status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Icon Status"
+          },
+          "icon_updated_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Icon Updated At"
+          },
+          "icon_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Icon Url"
+          },
           "id": {
             "anyOf": [
               {
@@ -1516,6 +1563,141 @@
         "title": "ArticleSummaryOut",
         "type": "object"
       },
+      "ArtifactInputContract": {
+        "additionalProperties": false,
+        "properties": {
+          "accepted_kinds": {
+            "items": {
+              "enum": [
+                "article",
+                "research",
+                "draft",
+                "schedule_event",
+                "publication"
+              ],
+              "type": "string"
+            },
+            "title": "Accepted Kinds",
+            "type": "array"
+          },
+          "all_of": {
+            "items": {
+              "enum": [
+                "textual",
+                "structured",
+                "article",
+                "research",
+                "draft",
+                "reviewable",
+                "generatable",
+                "approved",
+                "publishable",
+                "collection-context",
+                "source-context",
+                "schedule-context"
+              ],
+              "type": "string"
+            },
+            "title": "All Of",
+            "type": "array"
+          },
+          "any_of": {
+            "items": {
+              "enum": [
+                "textual",
+                "structured",
+                "article",
+                "research",
+                "draft",
+                "reviewable",
+                "generatable",
+                "approved",
+                "publishable",
+                "collection-context",
+                "source-context",
+                "schedule-context"
+              ],
+              "type": "string"
+            },
+            "title": "Any Of",
+            "type": "array"
+          }
+        },
+        "title": "ArtifactInputContract",
+        "type": "object"
+      },
+      "ArtifactOutputContract": {
+        "additionalProperties": false,
+        "properties": {
+          "adds_capabilities": {
+            "items": {
+              "enum": [
+                "textual",
+                "structured",
+                "article",
+                "research",
+                "draft",
+                "reviewable",
+                "generatable",
+                "approved",
+                "publishable",
+                "collection-context",
+                "source-context",
+                "schedule-context"
+              ],
+              "type": "string"
+            },
+            "title": "Adds Capabilities",
+            "type": "array"
+          },
+          "capabilities": {
+            "items": {
+              "enum": [
+                "textual",
+                "structured",
+                "article",
+                "research",
+                "draft",
+                "reviewable",
+                "generatable",
+                "approved",
+                "publishable",
+                "collection-context",
+                "source-context",
+                "schedule-context"
+              ],
+              "type": "string"
+            },
+            "title": "Capabilities",
+            "type": "array"
+          },
+          "kind": {
+            "anyOf": [
+              {
+                "enum": [
+                  "article",
+                  "research",
+                  "draft",
+                  "schedule_event",
+                  "publication"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Kind"
+          },
+          "preserves_input_artifact": {
+            "default": false,
+            "title": "Preserves Input Artifact",
+            "type": "boolean"
+          }
+        },
+        "title": "ArtifactOutputContract",
+        "type": "object"
+      },
       "AttentionItemOut": {
         "additionalProperties": false,
         "properties": {
@@ -1686,6 +1868,1206 @@
         "title": "AutomationControlPatch",
         "type": "object"
       },
+      "AutomationCreate": {
+        "additionalProperties": false,
+        "properties": {
+          "creation_reason": {
+            "default": "automation created",
+            "maxLength": 240,
+            "minLength": 1,
+            "title": "Creation Reason",
+            "type": "string"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "maxLength": 500,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "graph": {
+            "$ref": "#/components/schemas/WorkflowGraphV1"
+          },
+          "name": {
+            "maxLength": 120,
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "graph"
+        ],
+        "title": "AutomationCreate",
+        "type": "object"
+      },
+      "AutomationDetailOut": {
+        "additionalProperties": false,
+        "properties": {
+          "active_version": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AutomationVersionOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "active_version_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Active Version Id"
+          },
+          "archived_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Archived At"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "draft_version": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AutomationVersionOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "draft_version_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Draft Version Id"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "legacy_route_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Legacy Route Id"
+          },
+          "lifecycle": {
+            "enum": [
+              "inactive",
+              "active",
+              "paused",
+              "archived"
+            ],
+            "title": "Lifecycle",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "owner_type": {
+            "title": "Owner Type",
+            "type": "string"
+          },
+          "preview": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AutomationPreviewOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "revision": {
+            "title": "Revision",
+            "type": "integer"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "description",
+          "lifecycle",
+          "owner_type",
+          "revision",
+          "active_version_id",
+          "draft_version_id",
+          "archived_at",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "AutomationDetailOut",
+        "type": "object"
+      },
+      "AutomationLifecycleInput": {
+        "additionalProperties": false,
+        "properties": {
+          "expected_revision": {
+            "minimum": 1.0,
+            "title": "Expected Revision",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "expected_revision"
+        ],
+        "title": "AutomationLifecycleInput",
+        "type": "object"
+      },
+      "AutomationNodeCatalogOut": {
+        "additionalProperties": false,
+        "properties": {
+          "artifact_capabilities": {
+            "items": {
+              "enum": [
+                "textual",
+                "structured",
+                "article",
+                "research",
+                "draft",
+                "reviewable",
+                "generatable",
+                "approved",
+                "publishable",
+                "collection-context",
+                "source-context",
+                "schedule-context"
+              ],
+              "type": "string"
+            },
+            "title": "Artifact Capabilities",
+            "type": "array"
+          },
+          "artifact_kinds": {
+            "items": {
+              "enum": [
+                "article",
+                "research",
+                "draft",
+                "schedule_event",
+                "publication"
+              ],
+              "type": "string"
+            },
+            "title": "Artifact Kinds",
+            "type": "array"
+          },
+          "artifact_schema_version": {
+            "const": 1,
+            "title": "Artifact Schema Version",
+            "type": "integer"
+          },
+          "capability_vocabulary_version": {
+            "const": 1,
+            "title": "Capability Vocabulary Version",
+            "type": "integer"
+          },
+          "max_edges": {
+            "default": 60,
+            "title": "Max Edges",
+            "type": "integer"
+          },
+          "max_nodes": {
+            "default": 30,
+            "title": "Max Nodes",
+            "type": "integer"
+          },
+          "nodes": {
+            "items": {
+              "$ref": "#/components/schemas/NodeCatalogItemOut"
+            },
+            "title": "Nodes",
+            "type": "array"
+          },
+          "schema_version": {
+            "const": 1,
+            "default": 1,
+            "title": "Schema Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "nodes"
+        ],
+        "title": "AutomationNodeCatalogOut",
+        "type": "object"
+      },
+      "AutomationNodeRunOut": {
+        "additionalProperties": false,
+        "properties": {
+          "artifact": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/WorkflowArtifact_object_"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "attempt": {
+            "title": "Attempt",
+            "type": "integer"
+          },
+          "automation_dispatch_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Automation Dispatch Id"
+          },
+          "automation_run_id": {
+            "format": "uuid",
+            "title": "Automation Run Id",
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "finished_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Finished At"
+          },
+          "generation_run_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Generation Run Id"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "input_summary": {
+            "additionalProperties": true,
+            "title": "Input Summary",
+            "type": "object"
+          },
+          "node_id": {
+            "title": "Node Id",
+            "type": "string"
+          },
+          "output_summary": {
+            "additionalProperties": true,
+            "title": "Output Summary",
+            "type": "object"
+          },
+          "platform_variant_revision_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Platform Variant Revision Id"
+          },
+          "publication_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Publication Id"
+          },
+          "publish_job_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Publish Job Id"
+          },
+          "research_run_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Research Run Id"
+          },
+          "retry_metadata": {
+            "additionalProperties": true,
+            "title": "Retry Metadata",
+            "type": "object"
+          },
+          "safe_error_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Safe Error Code"
+          },
+          "safe_error_message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Safe Error Message"
+          },
+          "started_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Started At"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "usage": {
+            "additionalProperties": true,
+            "title": "Usage",
+            "type": "object"
+          },
+          "workflow_job_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Workflow Job Id"
+          }
+        },
+        "required": [
+          "id",
+          "automation_run_id",
+          "node_id",
+          "attempt",
+          "status",
+          "workflow_job_id",
+          "automation_dispatch_id",
+          "research_run_id",
+          "generation_run_id",
+          "platform_variant_revision_id",
+          "publish_job_id",
+          "publication_id",
+          "input_summary",
+          "output_summary",
+          "usage",
+          "retry_metadata",
+          "safe_error_code",
+          "safe_error_message",
+          "started_at",
+          "finished_at",
+          "created_at"
+        ],
+        "title": "AutomationNodeRunOut",
+        "type": "object"
+      },
+      "AutomationOut": {
+        "additionalProperties": false,
+        "properties": {
+          "active_version_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Active Version Id"
+          },
+          "archived_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Archived At"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "draft_version_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Draft Version Id"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "lifecycle": {
+            "enum": [
+              "inactive",
+              "active",
+              "paused",
+              "archived"
+            ],
+            "title": "Lifecycle",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "owner_type": {
+            "title": "Owner Type",
+            "type": "string"
+          },
+          "preview": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AutomationPreviewOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "revision": {
+            "title": "Revision",
+            "type": "integer"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "description",
+          "lifecycle",
+          "owner_type",
+          "revision",
+          "active_version_id",
+          "draft_version_id",
+          "archived_at",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "AutomationOut",
+        "type": "object"
+      },
+      "AutomationPageOut": {
+        "additionalProperties": false,
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/AutomationOut"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Cursor"
+          }
+        },
+        "required": [
+          "items",
+          "next_cursor"
+        ],
+        "title": "AutomationPageOut",
+        "type": "object"
+      },
+      "AutomationPatch": {
+        "additionalProperties": false,
+        "properties": {
+          "description": {
+            "anyOf": [
+              {
+                "maxLength": 500,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "expected_revision": {
+            "minimum": 1.0,
+            "title": "Expected Revision",
+            "type": "integer"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "maxLength": 120,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          }
+        },
+        "required": [
+          "expected_revision"
+        ],
+        "title": "AutomationPatch",
+        "type": "object"
+      },
+      "AutomationPreviewOut": {
+        "additionalProperties": false,
+        "properties": {
+          "last_outcome": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Outcome"
+          },
+          "last_run_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Run At"
+          },
+          "output_platforms": {
+            "items": {
+              "enum": [
+                "telegram",
+                "instagram",
+                "x",
+                "blog",
+                "draft",
+                "multi",
+                "unknown"
+              ],
+              "type": "string"
+            },
+            "maxItems": 4,
+            "minItems": 1,
+            "title": "Output Platforms",
+            "type": "array"
+          },
+          "run_count": {
+            "minimum": 0.0,
+            "title": "Run Count",
+            "type": "integer"
+          },
+          "stages": {
+            "items": {
+              "$ref": "#/components/schemas/AutomationPreviewStageOut"
+            },
+            "maxItems": 30,
+            "title": "Stages",
+            "type": "array"
+          },
+          "success_rate": {
+            "anyOf": [
+              {
+                "maximum": 100.0,
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Success Rate"
+          },
+          "valid": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Valid"
+          },
+          "version": {
+            "minimum": 1.0,
+            "title": "Version",
+            "type": "integer"
+          },
+          "version_state": {
+            "enum": [
+              "active",
+              "draft"
+            ],
+            "title": "Version State",
+            "type": "string"
+          }
+        },
+        "required": [
+          "version",
+          "version_state",
+          "stages",
+          "output_platforms",
+          "valid",
+          "run_count",
+          "success_rate",
+          "last_run_at",
+          "last_outcome"
+        ],
+        "title": "AutomationPreviewOut",
+        "type": "object"
+      },
+      "AutomationPreviewStageOut": {
+        "additionalProperties": false,
+        "properties": {
+          "category": {
+            "enum": [
+              "trigger",
+              "content",
+              "ai",
+              "validation",
+              "review",
+              "draft",
+              "publish",
+              "unknown"
+            ],
+            "title": "Category",
+            "type": "string"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "needs_attention": {
+            "title": "Needs Attention",
+            "type": "boolean"
+          },
+          "node_id": {
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$",
+            "title": "Node Id",
+            "type": "string"
+          },
+          "node_type": {
+            "title": "Node Type",
+            "type": "string"
+          },
+          "platforms": {
+            "items": {
+              "enum": [
+                "telegram",
+                "instagram",
+                "x",
+                "blog",
+                "draft",
+                "multi",
+                "unknown"
+              ],
+              "type": "string"
+            },
+            "maxItems": 4,
+            "title": "Platforms",
+            "type": "array"
+          }
+        },
+        "required": [
+          "node_id",
+          "node_type",
+          "label",
+          "category",
+          "platforms",
+          "needs_attention"
+        ],
+        "title": "AutomationPreviewStageOut",
+        "type": "object"
+      },
+      "AutomationResourceCatalogIn": {
+        "additionalProperties": false,
+        "properties": {
+          "automation_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Automation Id"
+          },
+          "resources": {
+            "items": {
+              "$ref": "#/components/schemas/ResourceRequest"
+            },
+            "maxItems": 100,
+            "title": "Resources",
+            "type": "array"
+          }
+        },
+        "title": "AutomationResourceCatalogIn",
+        "type": "object"
+      },
+      "AutomationResourceCatalogOut": {
+        "additionalProperties": false,
+        "properties": {
+          "resources": {
+            "items": {
+              "$ref": "#/components/schemas/AutomationResourceOut"
+            },
+            "title": "Resources",
+            "type": "array"
+          }
+        },
+        "required": [
+          "resources"
+        ],
+        "title": "AutomationResourceCatalogOut",
+        "type": "object"
+      },
+      "AutomationResourceOut": {
+        "additionalProperties": false,
+        "properties": {
+          "capabilities": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Capabilities",
+            "type": "array"
+          },
+          "display_name": {
+            "title": "Display Name",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "source",
+              "provider",
+              "prompt_version",
+              "editorial_profile",
+              "destination",
+              "collection"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "manage_href": {
+            "title": "Manage Href",
+            "type": "string"
+          },
+          "reason_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason Code"
+          },
+          "referenced_by_active_version": {
+            "title": "Referenced By Active Version",
+            "type": "boolean"
+          },
+          "state": {
+            "enum": [
+              "ready",
+              "disabled",
+              "stale",
+              "unavailable",
+              "not_configured"
+            ],
+            "title": "State",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "kind",
+          "display_name",
+          "state",
+          "reason_code",
+          "capabilities",
+          "referenced_by_active_version",
+          "manage_href"
+        ],
+        "title": "AutomationResourceOut",
+        "type": "object"
+      },
+      "AutomationRunOut": {
+        "additionalProperties": false,
+        "properties": {
+          "automation_id": {
+            "format": "uuid",
+            "title": "Automation Id",
+            "type": "string"
+          },
+          "automation_version_id": {
+            "format": "uuid",
+            "title": "Automation Version Id",
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "current_node_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Current Node Id"
+          },
+          "dry_run": {
+            "title": "Dry Run",
+            "type": "boolean"
+          },
+          "finished_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Finished At"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "nodes": {
+            "items": {
+              "$ref": "#/components/schemas/AutomationNodeRunOut"
+            },
+            "title": "Nodes",
+            "type": "array"
+          },
+          "resource_snapshot": {
+            "additionalProperties": true,
+            "title": "Resource Snapshot",
+            "type": "object"
+          },
+          "root_workflow_job_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Root Workflow Job Id"
+          },
+          "safe_error_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Safe Error Code"
+          },
+          "safe_error_message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Safe Error Message"
+          },
+          "started_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Started At"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "trigger_kind": {
+            "title": "Trigger Kind",
+            "type": "string"
+          },
+          "trigger_metadata": {
+            "additionalProperties": true,
+            "title": "Trigger Metadata",
+            "type": "object"
+          }
+        },
+        "required": [
+          "id",
+          "automation_id",
+          "automation_version_id",
+          "root_workflow_job_id",
+          "trigger_kind",
+          "trigger_metadata",
+          "dry_run",
+          "status",
+          "current_node_id",
+          "resource_snapshot",
+          "safe_error_code",
+          "safe_error_message",
+          "started_at",
+          "finished_at",
+          "created_at"
+        ],
+        "title": "AutomationRunOut",
+        "type": "object"
+      },
+      "AutomationRunPageOut": {
+        "additionalProperties": false,
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/AutomationRunOut"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Cursor"
+          }
+        },
+        "required": [
+          "items",
+          "next_cursor"
+        ],
+        "title": "AutomationRunPageOut",
+        "type": "object"
+      },
+      "AutomationRunStart": {
+        "additionalProperties": false,
+        "properties": {
+          "dry_run": {
+            "default": true,
+            "title": "Dry Run",
+            "type": "boolean"
+          },
+          "source_message_id": {
+            "anyOf": [
+              {
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Message Id"
+          },
+          "story_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Story Id"
+          },
+          "story_revision_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Story Revision Id"
+          },
+          "version_number": {
+            "anyOf": [
+              {
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Version Number"
+          }
+        },
+        "title": "AutomationRunStart",
+        "type": "object"
+      },
       "AutomationSummaryOut": {
         "additionalProperties": false,
         "properties": {
@@ -1782,6 +3164,237 @@
           "updated_at"
         ],
         "title": "AutomationSummaryOut",
+        "type": "object"
+      },
+      "AutomationTemplateOut": {
+        "additionalProperties": false,
+        "properties": {
+          "capability_requirements": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Capability Requirements",
+            "type": "array"
+          },
+          "complexity": {
+            "title": "Complexity",
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "description": {
+            "title": "Description",
+            "type": "string"
+          },
+          "graph_seed": {
+            "$ref": "#/components/schemas/WorkflowGraphV1"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "ownership": {
+            "title": "Ownership",
+            "type": "string"
+          },
+          "seed_key": {
+            "title": "Seed Key",
+            "type": "string"
+          },
+          "seed_version": {
+            "title": "Seed Version",
+            "type": "integer"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "seed_key",
+          "seed_version",
+          "ownership",
+          "name",
+          "description",
+          "complexity",
+          "graph_seed",
+          "capability_requirements",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "AutomationTemplateOut",
+        "type": "object"
+      },
+      "AutomationVersionCreate": {
+        "additionalProperties": false,
+        "properties": {
+          "creation_reason": {
+            "default": "draft saved",
+            "maxLength": 240,
+            "minLength": 1,
+            "title": "Creation Reason",
+            "type": "string"
+          },
+          "expected_revision": {
+            "minimum": 1.0,
+            "title": "Expected Revision",
+            "type": "integer"
+          },
+          "graph": {
+            "$ref": "#/components/schemas/WorkflowGraphV1"
+          }
+        },
+        "required": [
+          "expected_revision",
+          "graph"
+        ],
+        "title": "AutomationVersionCreate",
+        "type": "object"
+      },
+      "AutomationVersionOut": {
+        "additionalProperties": false,
+        "properties": {
+          "automation_id": {
+            "format": "uuid",
+            "title": "Automation Id",
+            "type": "string"
+          },
+          "compiled_plan": {
+            "additionalProperties": true,
+            "title": "Compiled Plan",
+            "type": "object"
+          },
+          "compiler_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Compiler Version"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "creation_actor_id": {
+            "title": "Creation Actor Id",
+            "type": "string"
+          },
+          "creation_actor_type": {
+            "title": "Creation Actor Type",
+            "type": "string"
+          },
+          "creation_reason": {
+            "title": "Creation Reason",
+            "type": "string"
+          },
+          "graph": {
+            "$ref": "#/components/schemas/WorkflowGraphV1"
+          },
+          "graph_hash": {
+            "title": "Graph Hash",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "schema_version": {
+            "title": "Schema Version",
+            "type": "integer"
+          },
+          "validation_summary": {
+            "additionalProperties": true,
+            "title": "Validation Summary",
+            "type": "object"
+          },
+          "version": {
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "automation_id",
+          "version",
+          "schema_version",
+          "graph",
+          "graph_hash",
+          "compiler_version",
+          "compiled_plan",
+          "validation_summary",
+          "creation_actor_type",
+          "creation_actor_id",
+          "creation_reason",
+          "created_at"
+        ],
+        "title": "AutomationVersionOut",
+        "type": "object"
+      },
+      "AutomationVersionPageOut": {
+        "additionalProperties": false,
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/AutomationVersionOut"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Cursor"
+          }
+        },
+        "required": [
+          "items",
+          "next_cursor"
+        ],
+        "title": "AutomationVersionPageOut",
+        "type": "object"
+      },
+      "AutomationVersionRestore": {
+        "additionalProperties": false,
+        "properties": {
+          "creation_reason": {
+            "default": "version restored as draft",
+            "maxLength": 240,
+            "minLength": 1,
+            "title": "Creation Reason",
+            "type": "string"
+          },
+          "expected_revision": {
+            "minimum": 1.0,
+            "title": "Expected Revision",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "expected_revision"
+        ],
+        "title": "AutomationVersionRestore",
         "type": "object"
       },
       "AutomationsSummaryOut": {
@@ -2506,6 +4119,191 @@
         "title": "CodexConnectionOut",
         "type": "object"
       },
+      "CodexConnectionSummaryOut": {
+        "properties": {
+          "connection_state": {
+            "enum": [
+              "active",
+              "revoked"
+            ],
+            "title": "Connection State",
+            "type": "string"
+          },
+          "device_name": {
+            "title": "Device Name",
+            "type": "string"
+          },
+          "expires_at": {
+            "format": "date-time",
+            "title": "Expires At",
+            "type": "string"
+          },
+          "failure_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Failure Code"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "last_heartbeat_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Heartbeat At"
+          },
+          "scopes": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Scopes",
+            "type": "array"
+          },
+          "status": {
+            "enum": [
+              "green",
+              "yellow",
+              "gray",
+              "red"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "device_name",
+          "scopes",
+          "status",
+          "connection_state",
+          "failure_code",
+          "expires_at",
+          "last_heartbeat_at"
+        ],
+        "title": "CodexConnectionSummaryOut",
+        "type": "object"
+      },
+      "CollectionIngestAcceptedOut": {
+        "additionalProperties": false,
+        "properties": {
+          "deduplicated": {
+            "title": "Deduplicated",
+            "type": "boolean"
+          },
+          "interval_minutes": {
+            "anyOf": [
+              {
+                "maximum": 1440.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Interval Minutes"
+          },
+          "job_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Job Id"
+          },
+          "mode": {
+            "default": "once",
+            "enum": [
+              "once",
+              "continuous"
+            ],
+            "title": "Mode",
+            "type": "string"
+          },
+          "next_cycle_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Cycle At"
+          },
+          "run_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Run Id"
+          },
+          "source_collection_id": {
+            "format": "uuid",
+            "title": "Source Collection Id",
+            "type": "string"
+          },
+          "source_collection_name": {
+            "title": "Source Collection Name",
+            "type": "string"
+          },
+          "source_count": {
+            "maximum": 100.0,
+            "minimum": 0.0,
+            "title": "Source Count",
+            "type": "integer"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "subscription_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Subscription Id"
+          }
+        },
+        "required": [
+          "source_collection_id",
+          "source_collection_name",
+          "source_count",
+          "status",
+          "deduplicated"
+        ],
+        "title": "CollectionIngestAcceptedOut",
+        "type": "object"
+      },
       "CompletenessReport": {
         "additionalProperties": false,
         "properties": {
@@ -3146,6 +4944,48 @@
         "title": "CredentialIssuedOut",
         "type": "object"
       },
+      "DateTimeSettingsInput": {
+        "properties": {
+          "timezone": {
+            "maxLength": 255,
+            "minLength": 1,
+            "title": "Timezone",
+            "type": "string"
+          }
+        },
+        "required": [
+          "timezone"
+        ],
+        "title": "DateTimeSettingsInput",
+        "type": "object"
+      },
+      "DateTimeSettingsOut": {
+        "properties": {
+          "timezone": {
+            "maxLength": 255,
+            "minLength": 1,
+            "title": "Timezone",
+            "type": "string"
+          },
+          "updated_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Updated At"
+          }
+        },
+        "required": [
+          "timezone"
+        ],
+        "title": "DateTimeSettingsOut",
+        "type": "object"
+      },
       "DependencyHealth": {
         "additionalProperties": false,
         "properties": {
@@ -3675,22 +5515,39 @@
         "title": "ExportVariantIdentity",
         "type": "object"
       },
-      "GatewayActivityOut": {
+      "FeedClearOut": {
+        "additionalProperties": false,
+        "properties": {
+          "cleared_count": {
+            "title": "Cleared Count",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "cleared_count"
+        ],
+        "title": "FeedClearOut",
+        "type": "object"
+      },
+      "FeedSummaryOut": {
+        "additionalProperties": false,
+        "properties": {
+          "article_count": {
+            "title": "Article Count",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "article_count"
+        ],
+        "title": "FeedSummaryOut",
+        "type": "object"
+      },
+      "GatewayActivitySummaryOut": {
         "properties": {
           "action": {
             "title": "Action",
             "type": "string"
-          },
-          "connection_id": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Connection Id"
           },
           "created_at": {
             "format": "date-time",
@@ -3703,30 +5560,23 @@
             "type": "string"
           },
           "outcome": {
+            "enum": [
+              "attempted",
+              "succeeded",
+              "rejected",
+              "failed"
+            ],
             "title": "Outcome",
             "type": "string"
-          },
-          "reason_code": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Reason Code"
           }
         },
         "required": [
           "id",
-          "connection_id",
           "action",
           "outcome",
-          "reason_code",
           "created_at"
         ],
-        "title": "GatewayActivityOut",
+        "title": "GatewayActivitySummaryOut",
         "type": "object"
       },
       "GeneratePackRequest": {
@@ -3797,6 +5647,33 @@
           "generation_provider_profile_id"
         ],
         "title": "GeneratePackRequest",
+        "type": "object"
+      },
+      "GraphValidationResult": {
+        "additionalProperties": false,
+        "properties": {
+          "findings": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationFinding"
+            },
+            "title": "Findings",
+            "type": "array"
+          },
+          "graph_hash": {
+            "title": "Graph Hash",
+            "type": "string"
+          },
+          "valid": {
+            "title": "Valid",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "valid",
+          "graph_hash",
+          "findings"
+        ],
+        "title": "GraphValidationResult",
         "type": "object"
       },
       "GroupPendingInput": {
@@ -3893,6 +5770,7 @@
       },
       "HistoryCategory": {
         "enum": [
+          "automation",
           "collection",
           "research",
           "generation",
@@ -4001,6 +5879,10 @@
       },
       "HistorySubjectType": {
         "enum": [
+          "automation",
+          "automation_version",
+          "automation_run",
+          "automation_node_run",
           "automation_route",
           "story",
           "job"
@@ -4049,8 +5931,94 @@
         "title": "IngestRunRequest",
         "type": "object"
       },
+      "IngestRunSnapshotSourceOut": {
+        "properties": {
+          "completed_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Completed At"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "platform": {
+            "title": "Platform",
+            "type": "string"
+          },
+          "position": {
+            "title": "Position",
+            "type": "integer"
+          },
+          "source_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Id"
+          },
+          "source_name": {
+            "title": "Source Name",
+            "type": "string"
+          },
+          "started_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Started At"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "position",
+          "source_name",
+          "platform",
+          "status"
+        ],
+        "title": "IngestRunSnapshotSourceOut",
+        "type": "object"
+      },
       "IngestRunSummaryOut": {
         "properties": {
+          "failure_count": {
+            "default": 0,
+            "title": "Failure Count",
+            "type": "integer"
+          },
           "finished_at": {
             "anyOf": [
               {
@@ -4068,6 +6036,39 @@
             "title": "Id",
             "type": "string"
           },
+          "processed_count": {
+            "default": 0,
+            "title": "Processed Count",
+            "type": "integer"
+          },
+          "source_collection_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Collection Id"
+          },
+          "source_collection_name_at_start": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Collection Name At Start"
+          },
+          "source_count": {
+            "default": 0,
+            "title": "Source Count",
+            "type": "integer"
+          },
           "started_at": {
             "format": "date-time",
             "title": "Started At",
@@ -4081,6 +6082,11 @@
           "status": {
             "title": "Status",
             "type": "string"
+          },
+          "success_count": {
+            "default": 0,
+            "title": "Success Count",
+            "type": "integer"
           },
           "trigger": {
             "title": "Trigger",
@@ -6325,6 +8331,135 @@
         "title": "MediaAssignment",
         "type": "object"
       },
+      "NodeCatalogItemOut": {
+        "additionalProperties": false,
+        "properties": {
+          "config_schema": {
+            "additionalProperties": true,
+            "title": "Config Schema",
+            "type": "object"
+          },
+          "description": {
+            "title": "Description",
+            "type": "string"
+          },
+          "display_name": {
+            "title": "Display Name",
+            "type": "string"
+          },
+          "entry": {
+            "title": "Entry",
+            "type": "boolean"
+          },
+          "family": {
+            "title": "Family",
+            "type": "string"
+          },
+          "input_contract": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ArtifactInputContract"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "inputs": {
+            "items": {
+              "$ref": "#/components/schemas/PortCatalogOut"
+            },
+            "title": "Inputs",
+            "type": "array"
+          },
+          "output_contract": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ArtifactOutputContract"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "outputs": {
+            "items": {
+              "$ref": "#/components/schemas/PortCatalogOut"
+            },
+            "title": "Outputs",
+            "type": "array"
+          },
+          "preserves_input_artifact": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Preserves Input Artifact"
+          },
+          "runtime_job_types": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Runtime Job Types",
+            "type": "array"
+          },
+          "runtime_owner": {
+            "enum": [
+              "api",
+              "scheduler",
+              "source",
+              "generation",
+              "publishing",
+              "compiler"
+            ],
+            "title": "Runtime Owner",
+            "type": "string"
+          },
+          "runtime_status": {
+            "enum": [
+              "existing",
+              "extension",
+              "unavailable"
+            ],
+            "title": "Runtime Status",
+            "type": "string"
+          },
+          "terminal": {
+            "title": "Terminal",
+            "type": "boolean"
+          },
+          "type": {
+            "title": "Type",
+            "type": "string"
+          },
+          "ui_hints": {
+            "additionalProperties": true,
+            "title": "Ui Hints",
+            "type": "object"
+          }
+        },
+        "required": [
+          "type",
+          "family",
+          "display_name",
+          "description",
+          "entry",
+          "terminal",
+          "runtime_status",
+          "runtime_owner",
+          "runtime_job_types",
+          "inputs",
+          "outputs",
+          "config_schema",
+          "ui_hints"
+        ],
+        "title": "NodeCatalogItemOut",
+        "type": "object"
+      },
       "OperationalAlert": {
         "additionalProperties": false,
         "properties": {
@@ -6660,6 +8795,64 @@
           "blog"
         ],
         "type": "string"
+      },
+      "PortCatalogOut": {
+        "additionalProperties": false,
+        "properties": {
+          "artifact_types": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Artifact Types",
+            "type": "array"
+          },
+          "input_contract": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ArtifactInputContract"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "max_connections": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Connections"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "output_contract": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ArtifactOutputContract"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "required": {
+            "default": true,
+            "title": "Required",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "name",
+          "artifact_types"
+        ],
+        "title": "PortCatalogOut",
+        "type": "object"
       },
       "ProjectedCapabilityState": {
         "enum": [
@@ -7734,6 +9927,34 @@
         "title": "ResearchRunCreate",
         "type": "object"
       },
+      "ResourceRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "source",
+              "provider",
+              "prompt_version",
+              "editorial_profile",
+              "destination",
+              "collection"
+            ],
+            "title": "Kind",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "id"
+        ],
+        "title": "ResourceRequest",
+        "type": "object"
+      },
       "RestartState": {
         "enum": [
           "unknown",
@@ -8253,6 +10474,906 @@
         "title": "SecretWriteIn",
         "type": "object"
       },
+      "SourceCollectionContinuousStartIn": {
+        "additionalProperties": false,
+        "properties": {
+          "request_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Request Id"
+          }
+        },
+        "title": "SourceCollectionContinuousStartIn",
+        "type": "object"
+      },
+      "SourceCollectionCreateIn": {
+        "additionalProperties": false,
+        "properties": {
+          "description": {
+            "anyOf": [
+              {
+                "maxLength": 500,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "title": "SourceCollectionCreateIn",
+        "type": "object"
+      },
+      "SourceCollectionIngestIn": {
+        "additionalProperties": false,
+        "properties": {
+          "mode": {
+            "default": "once",
+            "enum": [
+              "once",
+              "continuous"
+            ],
+            "title": "Mode",
+            "type": "string"
+          },
+          "request_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Request Id"
+          }
+        },
+        "title": "SourceCollectionIngestIn",
+        "type": "object"
+      },
+      "SourceCollectionMembershipBulkIn": {
+        "additionalProperties": false,
+        "properties": {
+          "source_ids": {
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "maxItems": 100,
+            "minItems": 1,
+            "title": "Source Ids",
+            "type": "array"
+          }
+        },
+        "required": [
+          "source_ids"
+        ],
+        "title": "SourceCollectionMembershipBulkIn",
+        "type": "object"
+      },
+      "SourceCollectionMembershipChangeOut": {
+        "additionalProperties": false,
+        "properties": {
+          "added_source_ids": {
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "title": "Added Source Ids",
+            "type": "array"
+          },
+          "already_member_source_ids": {
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "title": "Already Member Source Ids",
+            "type": "array"
+          },
+          "collection_id": {
+            "format": "uuid",
+            "title": "Collection Id",
+            "type": "string"
+          },
+          "maximum_sources": {
+            "default": 100,
+            "title": "Maximum Sources",
+            "type": "integer"
+          },
+          "missing_source_ids": {
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "title": "Missing Source Ids",
+            "type": "array"
+          },
+          "removed_source_ids": {
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "title": "Removed Source Ids",
+            "type": "array"
+          },
+          "source_count": {
+            "maximum": 100.0,
+            "minimum": 0.0,
+            "title": "Source Count",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "collection_id",
+          "source_count"
+        ],
+        "title": "SourceCollectionMembershipChangeOut",
+        "type": "object"
+      },
+      "SourceCollectionOut": {
+        "additionalProperties": false,
+        "properties": {
+          "active_ingest_failure_count": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Active Ingest Failure Count"
+          },
+          "active_ingest_processed_count": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Active Ingest Processed Count"
+          },
+          "active_ingest_run_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Active Ingest Run Id"
+          },
+          "active_ingest_source_count": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Active Ingest Source Count"
+          },
+          "active_ingest_status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Active Ingest Status"
+          },
+          "active_ingest_success_count": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Active Ingest Success Count"
+          },
+          "continuous_current_cycle_job_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Continuous Current Cycle Job Id"
+          },
+          "continuous_current_cycle_run_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Continuous Current Cycle Run Id"
+          },
+          "continuous_cycle_count": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Continuous Cycle Count"
+          },
+          "continuous_interval_minutes": {
+            "anyOf": [
+              {
+                "maximum": 1440.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Continuous Interval Minutes"
+          },
+          "continuous_last_cycle_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Continuous Last Cycle At"
+          },
+          "continuous_last_cycle_status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Continuous Last Cycle Status"
+          },
+          "continuous_last_error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Continuous Last Error"
+          },
+          "continuous_last_success_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Continuous Last Success At"
+          },
+          "continuous_mode": {
+            "anyOf": [
+              {
+                "const": "continuous",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Continuous Mode"
+          },
+          "continuous_next_cycle_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Continuous Next Cycle At"
+          },
+          "continuous_started_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Continuous Started At"
+          },
+          "continuous_status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Continuous Status"
+          },
+          "continuous_stopped_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Continuous Stopped At"
+          },
+          "continuous_subscription_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Continuous Subscription Id"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "maximum_sources": {
+            "default": 100,
+            "title": "Maximum Sources",
+            "type": "integer"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "source_count": {
+            "maximum": 100.0,
+            "minimum": 0.0,
+            "title": "Source Count",
+            "type": "integer"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "source_count",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "SourceCollectionOut",
+        "type": "object"
+      },
+      "SourceCollectionRunOut": {
+        "additionalProperties": false,
+        "properties": {
+          "completed_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Completed At"
+          },
+          "continuous_cycle_number": {
+            "anyOf": [
+              {
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Continuous Cycle Number"
+          },
+          "continuous_subscription_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Continuous Subscription Id"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          },
+          "failure_count": {
+            "maximum": 100.0,
+            "minimum": 0.0,
+            "title": "Failure Count",
+            "type": "integer"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "mode": {
+            "default": "once",
+            "enum": [
+              "once",
+              "continuous"
+            ],
+            "title": "Mode",
+            "type": "string"
+          },
+          "processed_count": {
+            "maximum": 100.0,
+            "minimum": 0.0,
+            "title": "Processed Count",
+            "type": "integer"
+          },
+          "skipped_count": {
+            "default": 0,
+            "maximum": 100.0,
+            "minimum": 0.0,
+            "title": "Skipped Count",
+            "type": "integer"
+          },
+          "source_collection_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Collection Id"
+          },
+          "source_collection_name_at_start": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Collection Name At Start"
+          },
+          "source_count": {
+            "maximum": 100.0,
+            "minimum": 0.0,
+            "title": "Source Count",
+            "type": "integer"
+          },
+          "sources": {
+            "items": {
+              "$ref": "#/components/schemas/IngestRunSnapshotSourceOut"
+            },
+            "title": "Sources",
+            "type": "array"
+          },
+          "started_at": {
+            "format": "date-time",
+            "title": "Started At",
+            "type": "string"
+          },
+          "stats": {
+            "additionalProperties": true,
+            "title": "Stats",
+            "type": "object"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "success_count": {
+            "maximum": 100.0,
+            "minimum": 0.0,
+            "title": "Success Count",
+            "type": "integer"
+          },
+          "trigger": {
+            "title": "Trigger",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "source_count",
+          "processed_count",
+          "success_count",
+          "failure_count",
+          "started_at",
+          "status",
+          "trigger"
+        ],
+        "title": "SourceCollectionRunOut",
+        "type": "object"
+      },
+      "SourceCollectionRunPageOut": {
+        "additionalProperties": false,
+        "properties": {
+          "has_more": {
+            "title": "Has More",
+            "type": "boolean"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/SourceCollectionRunOut"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "limit": {
+            "maximum": 100.0,
+            "minimum": 1.0,
+            "title": "Limit",
+            "type": "integer"
+          },
+          "offset": {
+            "minimum": 0.0,
+            "title": "Offset",
+            "type": "integer"
+          },
+          "total": {
+            "minimum": 0.0,
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "items",
+          "total",
+          "limit",
+          "offset",
+          "has_more"
+        ],
+        "title": "SourceCollectionRunPageOut",
+        "type": "object"
+      },
+      "SourceCollectionSubscriptionOut": {
+        "additionalProperties": false,
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "created_by": {
+            "title": "Created By",
+            "type": "string"
+          },
+          "current_cycle_job_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Current Cycle Job Id"
+          },
+          "current_cycle_run_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Current Cycle Run Id"
+          },
+          "cycle_count": {
+            "minimum": 0.0,
+            "title": "Cycle Count",
+            "type": "integer"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "interval_minutes": {
+            "maximum": 1440.0,
+            "minimum": 1.0,
+            "title": "Interval Minutes",
+            "type": "integer"
+          },
+          "last_cycle_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Cycle At"
+          },
+          "last_cycle_status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Cycle Status"
+          },
+          "last_error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Error"
+          },
+          "last_success_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Success At"
+          },
+          "mode": {
+            "const": "continuous",
+            "title": "Mode",
+            "type": "string"
+          },
+          "next_cycle_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Cycle At"
+          },
+          "source_collection_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Collection Id"
+          },
+          "source_collection_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Collection Name"
+          },
+          "started_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Started At"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "stopped_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Stopped At"
+          }
+        },
+        "required": [
+          "id",
+          "mode",
+          "status",
+          "created_at",
+          "cycle_count",
+          "interval_minutes",
+          "created_by"
+        ],
+        "title": "SourceCollectionSubscriptionOut",
+        "type": "object"
+      },
+      "SourceCollectionUpdateIn": {
+        "additionalProperties": false,
+        "properties": {
+          "description": {
+            "anyOf": [
+              {
+                "maxLength": 500,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          }
+        },
+        "title": "SourceCollectionUpdateIn",
+        "type": "object"
+      },
+      "SourceCreateIn": {
+        "properties": {
+          "fetch_interval_minutes": {
+            "default": 30,
+            "maximum": 10080.0,
+            "minimum": 5.0,
+            "title": "Fetch Interval Minutes",
+            "type": "integer"
+          },
+          "language_hint": {
+            "default": "en",
+            "maxLength": 16,
+            "minLength": 2,
+            "title": "Language Hint",
+            "type": "string"
+          },
+          "name": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          },
+          "platform": {
+            "enum": [
+              "rss",
+              "atom",
+              "telegram_public"
+            ],
+            "title": "Platform",
+            "type": "string"
+          },
+          "source_group": {
+            "default": "general",
+            "maxLength": 100,
+            "minLength": 1,
+            "title": "Source Group",
+            "type": "string"
+          },
+          "url": {
+            "maxLength": 2048,
+            "minLength": 1,
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": [
+          "platform",
+          "name",
+          "url"
+        ],
+        "title": "SourceCreateIn",
+        "type": "object"
+      },
       "SourceDetailOut": {
         "properties": {
           "active": {
@@ -8328,6 +11449,52 @@
             ],
             "title": "Homepage Url"
           },
+          "icon_source": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Icon Source"
+          },
+          "icon_status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": "pending",
+            "title": "Icon Status"
+          },
+          "icon_updated_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Icon Updated At"
+          },
+          "icon_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Icon Url"
+          },
           "id": {
             "format": "uuid",
             "title": "Id",
@@ -8343,6 +11510,17 @@
               }
             ],
             "title": "Language Hint"
+          },
+          "last_error_message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Error Message"
           },
           "last_failure_at": {
             "anyOf": [
@@ -8367,6 +11545,17 @@
               }
             ],
             "title": "Last Fetch At"
+          },
+          "last_http_status": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Http Status"
           },
           "last_media_count": {
             "anyOf": [
@@ -8450,6 +11639,47 @@
         "title": "SourceDetailOut",
         "type": "object"
       },
+      "SourceHealthOut": {
+        "properties": {
+          "failure_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Failure Reason"
+          },
+          "health_status": {
+            "title": "Health Status",
+            "type": "string"
+          },
+          "is_checking": {
+            "default": false,
+            "title": "Is Checking",
+            "type": "boolean"
+          },
+          "last_checked_at": {
+            "format": "date-time",
+            "title": "Last Checked At",
+            "type": "string"
+          },
+          "source_id": {
+            "format": "uuid",
+            "title": "Source Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "source_id",
+          "health_status",
+          "last_checked_at"
+        ],
+        "title": "SourceHealthOut",
+        "type": "object"
+      },
       "SourceOut": {
         "properties": {
           "active": {
@@ -8525,6 +11755,52 @@
             ],
             "title": "Homepage Url"
           },
+          "icon_source": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Icon Source"
+          },
+          "icon_status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": "pending",
+            "title": "Icon Status"
+          },
+          "icon_updated_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Icon Updated At"
+          },
+          "icon_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Icon Url"
+          },
           "id": {
             "format": "uuid",
             "title": "Id",
@@ -8540,6 +11816,17 @@
               }
             ],
             "title": "Language Hint"
+          },
+          "last_error_message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Error Message"
           },
           "last_failure_at": {
             "anyOf": [
@@ -8564,6 +11851,17 @@
               }
             ],
             "title": "Last Fetch At"
+          },
+          "last_http_status": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Http Status"
           },
           "last_media_count": {
             "anyOf": [
@@ -8645,6 +11943,47 @@
           "active"
         ],
         "title": "SourceOut",
+        "type": "object"
+      },
+      "SourcePageOut": {
+        "additionalProperties": false,
+        "properties": {
+          "has_more": {
+            "title": "Has More",
+            "type": "boolean"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/SourceOut"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "limit": {
+            "maximum": 100.0,
+            "minimum": 1.0,
+            "title": "Limit",
+            "type": "integer"
+          },
+          "offset": {
+            "minimum": 0.0,
+            "title": "Offset",
+            "type": "integer"
+          },
+          "total": {
+            "minimum": 0.0,
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "items",
+          "total",
+          "limit",
+          "offset",
+          "has_more"
+        ],
+        "title": "SourcePageOut",
         "type": "object"
       },
       "StoryBulkEditorialStateInput": {
@@ -10530,6 +13869,38 @@
         "title": "TelegramSourceOut",
         "type": "object"
       },
+      "TemplateCreateAutomationIn": {
+        "additionalProperties": false,
+        "properties": {
+          "description": {
+            "anyOf": [
+              {
+                "maxLength": 500,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "maxLength": 120,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          }
+        },
+        "title": "TemplateCreateAutomationIn",
+        "type": "object"
+      },
       "ValidationError": {
         "properties": {
           "ctx": {
@@ -10568,6 +13939,384 @@
           "type"
         ],
         "title": "ValidationError",
+        "type": "object"
+      },
+      "ValidationFinding": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "title": "Code",
+            "type": "string"
+          },
+          "edge_index": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Edge Index"
+          },
+          "field_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Field Path"
+          },
+          "message": {
+            "title": "Message",
+            "type": "string"
+          },
+          "node_id": {
+            "anyOf": [
+              {
+                "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Node Id"
+          },
+          "recovery_action": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Recovery Action"
+          },
+          "severity": {
+            "enum": [
+              "error",
+              "warning"
+            ],
+            "title": "Severity",
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "severity",
+          "message"
+        ],
+        "title": "ValidationFinding",
+        "type": "object"
+      },
+      "WorkflowArtifactContext": {
+        "additionalProperties": false,
+        "properties": {
+          "run_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Run Id"
+          },
+          "source_node_id": {
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$",
+            "title": "Source Node Id",
+            "type": "string"
+          },
+          "trigger": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/WorkflowArtifactTrigger"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "workflow_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Workflow Id"
+          },
+          "workflow_version_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Workflow Version Id"
+          }
+        },
+        "required": [
+          "source_node_id"
+        ],
+        "title": "WorkflowArtifactContext",
+        "type": "object"
+      },
+      "WorkflowArtifactTrigger": {
+        "additionalProperties": false,
+        "properties": {
+          "occurred_at": {
+            "format": "date-time",
+            "title": "Occurred At",
+            "type": "string"
+          },
+          "type": {
+            "maxLength": 80,
+            "minLength": 1,
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "occurred_at"
+        ],
+        "title": "WorkflowArtifactTrigger",
+        "type": "object"
+      },
+      "WorkflowArtifact_object_": {
+        "additionalProperties": false,
+        "properties": {
+          "capabilities": {
+            "items": {
+              "enum": [
+                "textual",
+                "structured",
+                "article",
+                "research",
+                "draft",
+                "reviewable",
+                "generatable",
+                "approved",
+                "publishable",
+                "collection-context",
+                "source-context",
+                "schedule-context"
+              ],
+              "type": "string"
+            },
+            "minItems": 1,
+            "title": "Capabilities",
+            "type": "array"
+          },
+          "context": {
+            "$ref": "#/components/schemas/WorkflowArtifactContext"
+          },
+          "kind": {
+            "enum": [
+              "article",
+              "research",
+              "draft",
+              "schedule_event",
+              "publication"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "metadata": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Metadata"
+          },
+          "payload": {
+            "title": "Payload"
+          },
+          "schema_version": {
+            "const": 1,
+            "default": 1,
+            "title": "Schema Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "kind",
+          "capabilities",
+          "payload",
+          "context"
+        ],
+        "title": "WorkflowArtifact[object]",
+        "type": "object"
+      },
+      "WorkflowEdge": {
+        "additionalProperties": false,
+        "properties": {
+          "source_node_id": {
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$",
+            "title": "Source Node Id",
+            "type": "string"
+          },
+          "source_port": {
+            "maxLength": 80,
+            "minLength": 1,
+            "pattern": "^[a-z][a-z0-9_]*$",
+            "title": "Source Port",
+            "type": "string"
+          },
+          "target_node_id": {
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$",
+            "title": "Target Node Id",
+            "type": "string"
+          },
+          "target_port": {
+            "maxLength": 80,
+            "minLength": 1,
+            "pattern": "^[a-z][a-z0-9_]*$",
+            "title": "Target Port",
+            "type": "string"
+          }
+        },
+        "required": [
+          "source_node_id",
+          "source_port",
+          "target_node_id",
+          "target_port"
+        ],
+        "title": "WorkflowEdge",
+        "type": "object"
+      },
+      "WorkflowGraphV1": {
+        "additionalProperties": false,
+        "properties": {
+          "edges": {
+            "items": {
+              "$ref": "#/components/schemas/WorkflowEdge"
+            },
+            "maxItems": 60,
+            "title": "Edges",
+            "type": "array"
+          },
+          "entry_node_id": {
+            "pattern": "^(?:[A-Za-z0-9][A-Za-z0-9_-]{0,127})?$",
+            "title": "Entry Node Id",
+            "type": "string"
+          },
+          "metadata": {
+            "$ref": "#/components/schemas/WorkflowMetadata"
+          },
+          "nodes": {
+            "items": {
+              "$ref": "#/components/schemas/WorkflowNode"
+            },
+            "maxItems": 30,
+            "title": "Nodes",
+            "type": "array"
+          },
+          "output_node_ids": {
+            "items": {
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$",
+              "type": "string"
+            },
+            "maxItems": 30,
+            "title": "Output Node Ids",
+            "type": "array"
+          },
+          "schema_version": {
+            "const": 1,
+            "default": 1,
+            "title": "Schema Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "entry_node_id",
+          "nodes",
+          "output_node_ids"
+        ],
+        "title": "WorkflowGraphV1",
+        "type": "object"
+      },
+      "WorkflowLayoutPoint": {
+        "additionalProperties": false,
+        "properties": {
+          "x": {
+            "maximum": 100000.0,
+            "minimum": -100000.0,
+            "title": "X",
+            "type": "number"
+          },
+          "y": {
+            "maximum": 100000.0,
+            "minimum": -100000.0,
+            "title": "Y",
+            "type": "number"
+          }
+        },
+        "required": [
+          "x",
+          "y"
+        ],
+        "title": "WorkflowLayoutPoint",
+        "type": "object"
+      },
+      "WorkflowMetadata": {
+        "additionalProperties": false,
+        "properties": {
+          "layout": {
+            "patternProperties": {
+              "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$": {
+                "$ref": "#/components/schemas/WorkflowLayoutPoint"
+              }
+            },
+            "title": "Layout",
+            "type": "object"
+          }
+        },
+        "title": "WorkflowMetadata",
+        "type": "object"
+      },
+      "WorkflowNode": {
+        "additionalProperties": false,
+        "properties": {
+          "config": {
+            "additionalProperties": true,
+            "title": "Config",
+            "type": "object"
+          },
+          "id": {
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$",
+            "title": "Id",
+            "type": "string"
+          },
+          "type": {
+            "maxLength": 80,
+            "minLength": 1,
+            "pattern": "^[a-z][a-z0-9_]*$",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "type"
+        ],
+        "title": "WorkflowNode",
         "type": "object"
       },
       "XEditPayload": {
@@ -11363,6 +15112,1278 @@
         "summary": "Patch Automation Control"
       }
     },
+    "/automation-node-catalog": {
+      "get": {
+        "operationId": "get_automation_node_catalog_automation_node_catalog_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AutomationNodeCatalogOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Get Automation Node Catalog",
+        "tags": [
+          "automations"
+        ]
+      }
+    },
+    "/automation-resource-catalog": {
+      "post": {
+        "operationId": "get_automation_resource_catalog_automation_resource_catalog_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AutomationResourceCatalogIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AutomationResourceCatalogOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Automation Resource Catalog",
+        "tags": [
+          "automations"
+        ]
+      }
+    },
+    "/automation-runs/{run_id}": {
+      "get": {
+        "operationId": "get_automation_run_automation_runs__run_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Run Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AutomationRunOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Automation Run",
+        "tags": [
+          "automations"
+        ]
+      }
+    },
+    "/automation-runs/{run_id}/review/approve": {
+      "post": {
+        "operationId": "approve_automation_artifact_review_automation_runs__run_id__review_approve_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Run Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AutomationRunOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Approve Automation Artifact Review",
+        "tags": [
+          "automations"
+        ]
+      }
+    },
+    "/automation-templates": {
+      "get": {
+        "operationId": "list_automation_templates_automation_templates_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/AutomationTemplateOut"
+                  },
+                  "title": "Response List Automation Templates Automation Templates Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "List Automation Templates",
+        "tags": [
+          "automations"
+        ]
+      }
+    },
+    "/automation-templates/{template_key}/create": {
+      "post": {
+        "operationId": "create_automation_from_template_automation_templates__template_key__create_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "template_key",
+            "required": true,
+            "schema": {
+              "title": "Template Key",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "maxLength": 200,
+              "minLength": 1,
+              "title": "Idempotency-Key",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TemplateCreateAutomationIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AutomationDetailOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Create Automation From Template",
+        "tags": [
+          "automations"
+        ]
+      }
+    },
+    "/automations": {
+      "get": {
+        "operationId": "list_automations_automations_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cursor"
+            }
+          },
+          {
+            "in": "query",
+            "name": "include_archived",
+            "required": false,
+            "schema": {
+              "default": false,
+              "title": "Include Archived",
+              "type": "boolean"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AutomationPageOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Automations",
+        "tags": [
+          "automations"
+        ]
+      },
+      "post": {
+        "operationId": "create_automation_automations_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "maxLength": 200,
+              "minLength": 1,
+              "title": "Idempotency-Key",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AutomationCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AutomationDetailOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Create Automation",
+        "tags": [
+          "automations"
+        ]
+      }
+    },
+    "/automations/{automation_id}": {
+      "get": {
+        "operationId": "get_automation_automations__automation_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "automation_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Automation Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AutomationDetailOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Automation",
+        "tags": [
+          "automations"
+        ]
+      },
+      "patch": {
+        "operationId": "patch_automation_automations__automation_id__patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "automation_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Automation Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AutomationPatch"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AutomationOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Patch Automation",
+        "tags": [
+          "automations"
+        ]
+      }
+    },
+    "/automations/{automation_id}/activate": {
+      "post": {
+        "operationId": "activate_automation_automations__automation_id__activate_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "automation_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Automation Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "maxLength": 200,
+              "minLength": 1,
+              "title": "Idempotency-Key",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AutomationLifecycleInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AutomationOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Activate Automation",
+        "tags": [
+          "automations"
+        ]
+      }
+    },
+    "/automations/{automation_id}/archive": {
+      "post": {
+        "operationId": "archive_automation_automations__automation_id__archive_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "automation_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Automation Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AutomationLifecycleInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AutomationOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Archive Automation",
+        "tags": [
+          "automations"
+        ]
+      }
+    },
+    "/automations/{automation_id}/duplicate": {
+      "post": {
+        "operationId": "duplicate_automation_automations__automation_id__duplicate_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "automation_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Automation Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "maxLength": 200,
+              "minLength": 1,
+              "title": "Idempotency-Key",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TemplateCreateAutomationIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AutomationDetailOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Duplicate Automation",
+        "tags": [
+          "automations"
+        ]
+      }
+    },
+    "/automations/{automation_id}/pause": {
+      "post": {
+        "operationId": "pause_automation_automations__automation_id__pause_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "automation_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Automation Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AutomationLifecycleInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AutomationOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Pause Automation",
+        "tags": [
+          "automations"
+        ]
+      }
+    },
+    "/automations/{automation_id}/resume": {
+      "post": {
+        "operationId": "resume_automation_automations__automation_id__resume_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "automation_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Automation Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AutomationLifecycleInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AutomationOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Resume Automation",
+        "tags": [
+          "automations"
+        ]
+      }
+    },
+    "/automations/{automation_id}/runs": {
+      "get": {
+        "operationId": "list_automation_runs_automations__automation_id__runs_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "automation_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Automation Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cursor"
+            }
+          },
+          {
+            "in": "query",
+            "name": "status",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "pending",
+                    "queued",
+                    "running",
+                    "waiting_for_review",
+                    "succeeded",
+                    "warning",
+                    "failed",
+                    "cancelled"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Status"
+            }
+          },
+          {
+            "in": "query",
+            "name": "dry_run",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Dry Run"
+            }
+          },
+          {
+            "in": "query",
+            "name": "date_from",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Date From"
+            }
+          },
+          {
+            "in": "query",
+            "name": "date_to",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Date To"
+            }
+          },
+          {
+            "in": "query",
+            "name": "failed_only",
+            "required": false,
+            "schema": {
+              "default": false,
+              "title": "Failed Only",
+              "type": "boolean"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AutomationRunPageOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Automation Runs",
+        "tags": [
+          "automations"
+        ]
+      },
+      "post": {
+        "operationId": "start_automation_run_automations__automation_id__runs_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "automation_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Automation Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "maxLength": 200,
+              "minLength": 1,
+              "title": "Idempotency-Key",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AutomationRunStart"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AutomationRunOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Start Automation Run",
+        "tags": [
+          "automations"
+        ]
+      }
+    },
+    "/automations/{automation_id}/versions": {
+      "get": {
+        "operationId": "list_automation_versions_automations__automation_id__versions_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "automation_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Automation Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cursor"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AutomationVersionPageOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Automation Versions",
+        "tags": [
+          "automations"
+        ]
+      },
+      "post": {
+        "operationId": "create_automation_version_automations__automation_id__versions_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "automation_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Automation Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "maxLength": 200,
+              "minLength": 1,
+              "title": "Idempotency-Key",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AutomationVersionCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AutomationVersionOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Create Automation Version",
+        "tags": [
+          "automations"
+        ]
+      }
+    },
+    "/automations/{automation_id}/versions/{version_number}": {
+      "get": {
+        "operationId": "get_automation_version_automations__automation_id__versions__version_number__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "automation_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Automation Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "version_number",
+            "required": true,
+            "schema": {
+              "title": "Version Number",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AutomationVersionOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Automation Version",
+        "tags": [
+          "automations"
+        ]
+      }
+    },
+    "/automations/{automation_id}/versions/{version_number}/restore-as-draft": {
+      "post": {
+        "operationId": "restore_automation_version_automations__automation_id__versions__version_number__restore_as_draft_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "automation_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Automation Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "version_number",
+            "required": true,
+            "schema": {
+              "title": "Version Number",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "maxLength": 200,
+              "minLength": 1,
+              "title": "Idempotency-Key",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AutomationVersionRestore"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AutomationVersionOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Restore Automation Version",
+        "tags": [
+          "automations"
+        ]
+      }
+    },
+    "/automations/{automation_id}/versions/{version_number}/validate": {
+      "post": {
+        "operationId": "validate_automation_version_automations__automation_id__versions__version_number__validate_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "automation_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Automation Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "version_number",
+            "required": true,
+            "schema": {
+              "title": "Version Number",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GraphValidationResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Validate Automation Version",
+        "tags": [
+          "automations"
+        ]
+      }
+    },
     "/brand-profiles": {
       "get": {
         "operationId": "list_brand_profiles_brand_profiles_get",
@@ -11585,7 +16606,7 @@
               "application/json": {
                 "schema": {
                   "items": {
-                    "$ref": "#/components/schemas/GatewayActivityOut"
+                    "$ref": "#/components/schemas/GatewayActivitySummaryOut"
                   },
                   "title": "Response Get Activity Codex Gateway Activity Get",
                   "type": "array"
@@ -11645,7 +16666,7 @@
               "application/json": {
                 "schema": {
                   "items": {
-                    "$ref": "#/components/schemas/CodexConnectionOut"
+                    "$ref": "#/components/schemas/CodexConnectionSummaryOut"
                   },
                   "title": "Response List Connections Codex Gateway Connections Get",
                   "type": "array"
@@ -12818,6 +17839,48 @@
         "summary": "Download Export"
       }
     },
+    "/feed/clear": {
+      "post": {
+        "operationId": "clear_feed_feed_clear_post",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FeedClearOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Clear Feed",
+        "tags": [
+          "feed"
+        ]
+      }
+    },
+    "/feed/summary": {
+      "get": {
+        "operationId": "get_feed_summary_feed_summary_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FeedSummaryOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Get Feed Summary",
+        "tags": [
+          "feed"
+        ]
+      }
+    },
     "/health/live": {
       "get": {
         "description": "Process/event-loop liveness only; intentionally performs no dependency IO.",
@@ -12860,6 +17923,27 @@
           }
         },
         "summary": "Readiness",
+        "tags": [
+          "health"
+        ]
+      }
+    },
+    "/health/ready/secrets": {
+      "get": {
+        "operationId": "secret_readiness_health_ready_secrets_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReadinessSnapshot"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Secret Readiness",
         "tags": [
           "health"
         ]
@@ -14573,6 +19657,66 @@
         ]
       }
     },
+    "/operator-settings/date-time": {
+      "get": {
+        "operationId": "get_date_time_settings_operator_settings_date_time_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DateTimeSettingsOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Get Date Time Settings",
+        "tags": [
+          "operator-settings"
+        ]
+      },
+      "put": {
+        "operationId": "update_date_time_settings_operator_settings_date_time_put",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DateTimeSettingsInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DateTimeSettingsOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Update Date Time Settings",
+        "tags": [
+          "operator-settings"
+        ]
+      }
+    },
     "/platform-variant-revisions/{revision_id}": {
       "get": {
         "operationId": "get_variant_revision_platform_variant_revisions__revision_id__get",
@@ -15283,6 +20427,984 @@
         "summary": "Get Research Run"
       }
     },
+    "/source-collections": {
+      "get": {
+        "operationId": "list_source_collections_source_collections_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/SourceCollectionOut"
+                  },
+                  "title": "Response List Source Collections Source Collections Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "List Source Collections",
+        "tags": [
+          "source-collections"
+        ]
+      },
+      "post": {
+        "operationId": "create_source_collection_source_collections_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SourceCollectionCreateIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SourceCollectionOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Create Source Collection",
+        "tags": [
+          "source-collections"
+        ]
+      }
+    },
+    "/source-collections/continuous-subscriptions/{subscription_id}": {
+      "get": {
+        "operationId": "get_source_collection_subscription_source_collections_continuous_subscriptions__subscription_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "subscription_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Subscription Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SourceCollectionSubscriptionOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Source Collection Subscription",
+        "tags": [
+          "source-collections"
+        ]
+      }
+    },
+    "/source-collections/continuous-subscriptions/{subscription_id}/stop": {
+      "post": {
+        "operationId": "stop_source_collection_subscription_source_collections_continuous_subscriptions__subscription_id__stop_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "subscription_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Subscription Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SourceCollectionSubscriptionOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Stop Source Collection Subscription",
+        "tags": [
+          "source-collections"
+        ]
+      }
+    },
+    "/source-collections/unassigned/sources": {
+      "get": {
+        "operationId": "list_unassigned_sources_source_collections_unassigned_sources_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "search",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 200,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Search"
+            }
+          },
+          {
+            "in": "query",
+            "name": "platform",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 64,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Platform"
+            }
+          },
+          {
+            "in": "query",
+            "name": "source_group",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 100,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Source Group"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SourcePageOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Unassigned Sources",
+        "tags": [
+          "source-collections"
+        ]
+      }
+    },
+    "/source-collections/{collection_id}": {
+      "delete": {
+        "operationId": "delete_source_collection_source_collections__collection_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "collection_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Collection Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Delete Source Collection",
+        "tags": [
+          "source-collections"
+        ]
+      },
+      "get": {
+        "operationId": "get_source_collection_source_collections__collection_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "collection_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Collection Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SourceCollectionOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Source Collection",
+        "tags": [
+          "source-collections"
+        ]
+      },
+      "patch": {
+        "operationId": "update_source_collection_source_collections__collection_id__patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "collection_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Collection Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SourceCollectionUpdateIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SourceCollectionOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Update Source Collection",
+        "tags": [
+          "source-collections"
+        ]
+      }
+    },
+    "/source-collections/{collection_id}/continuous": {
+      "get": {
+        "operationId": "get_source_collection_continuous_source_collections__collection_id__continuous_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "collection_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Collection Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SourceCollectionSubscriptionOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Source Collection Continuous",
+        "tags": [
+          "source-collections"
+        ]
+      },
+      "post": {
+        "operationId": "start_source_collection_continuous_source_collections__collection_id__continuous_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "collection_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Collection Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 200,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Idempotency-Key"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/SourceCollectionContinuousStartIn"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Body"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SourceCollectionSubscriptionOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Start Source Collection Continuous",
+        "tags": [
+          "source-collections"
+        ]
+      }
+    },
+    "/source-collections/{collection_id}/continuous/stop": {
+      "post": {
+        "operationId": "stop_source_collection_continuous_source_collections__collection_id__continuous_stop_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "collection_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Collection Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SourceCollectionSubscriptionOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Stop Source Collection Continuous",
+        "tags": [
+          "source-collections"
+        ]
+      }
+    },
+    "/source-collections/{collection_id}/ingest": {
+      "post": {
+        "operationId": "start_source_collection_ingest_source_collections__collection_id__ingest_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "collection_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Collection Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "request_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Request Id"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 200,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Idempotency-Key"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/SourceCollectionIngestIn"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Body"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CollectionIngestAcceptedOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Start Source Collection Ingest",
+        "tags": [
+          "source-collections"
+        ]
+      }
+    },
+    "/source-collections/{collection_id}/runs": {
+      "get": {
+        "operationId": "list_source_collection_runs_source_collections__collection_id__runs_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "collection_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Collection Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 25,
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SourceCollectionRunPageOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Source Collection Runs",
+        "tags": [
+          "source-collections"
+        ]
+      }
+    },
+    "/source-collections/{collection_id}/runs/{run_id}": {
+      "get": {
+        "operationId": "get_source_collection_run_source_collections__collection_id__runs__run_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "collection_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Collection Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Run Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SourceCollectionRunOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Source Collection Run",
+        "tags": [
+          "source-collections"
+        ]
+      }
+    },
+    "/source-collections/{collection_id}/sources": {
+      "delete": {
+        "operationId": "remove_collection_sources_source_collections__collection_id__sources_delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "collection_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Collection Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SourceCollectionMembershipBulkIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SourceCollectionMembershipChangeOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Remove Collection Sources",
+        "tags": [
+          "source-collections"
+        ]
+      },
+      "get": {
+        "operationId": "list_collection_sources_source_collections__collection_id__sources_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "collection_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Collection Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "search",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 200,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Search"
+            }
+          },
+          {
+            "in": "query",
+            "name": "platform",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 64,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Platform"
+            }
+          },
+          {
+            "in": "query",
+            "name": "source_group",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 100,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Source Group"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SourcePageOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Collection Sources",
+        "tags": [
+          "source-collections"
+        ]
+      },
+      "post": {
+        "operationId": "add_collection_sources_source_collections__collection_id__sources_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "collection_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Collection Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SourceCollectionMembershipBulkIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SourceCollectionMembershipChangeOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Add Collection Sources",
+        "tags": [
+          "source-collections"
+        ]
+      }
+    },
     "/sources": {
       "get": {
         "operationId": "list_sources_sources_get",
@@ -15303,6 +21425,190 @@
           }
         },
         "summary": "List Sources"
+      },
+      "post": {
+        "operationId": "create_source_sources_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SourceCreateIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SourceOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Create Source"
+      }
+    },
+    "/sources/search": {
+      "get": {
+        "operationId": "search_sources_sources_search_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "search",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 200,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Search"
+            }
+          },
+          {
+            "in": "query",
+            "name": "platform",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 64,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Platform"
+            }
+          },
+          {
+            "in": "query",
+            "name": "source_group",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 100,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Source Group"
+            }
+          },
+          {
+            "in": "query",
+            "name": "collection_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Collection Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "unassigned",
+            "required": false,
+            "schema": {
+              "default": false,
+              "title": "Unassigned",
+              "type": "boolean"
+            }
+          },
+          {
+            "in": "query",
+            "name": "exclude_collection_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Exclude Collection Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SourcePageOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Search Sources"
       }
     },
     "/sources/seed": {
@@ -15322,6 +21628,37 @@
       }
     },
     "/sources/{source_id}": {
+      "delete": {
+        "operationId": "delete_source_sources__source_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "source_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Source Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Delete Source"
+      },
       "get": {
         "operationId": "get_source_sources__source_id__get",
         "parameters": [
@@ -15359,6 +21696,46 @@
           }
         },
         "summary": "Get Source"
+      }
+    },
+    "/sources/{source_id}/health-check": {
+      "post": {
+        "operationId": "run_source_health_check_sources__source_id__health_check_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "source_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Source Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SourceHealthOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Run Source Health Check"
       }
     },
     "/stories": {

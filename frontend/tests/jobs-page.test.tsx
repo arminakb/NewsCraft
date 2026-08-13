@@ -44,7 +44,7 @@ describe("JobsPage", () => {
 
   it("maps every queue filter to the exact API statuses", async () => {
     renderJobs()
-    await screen.findByRole("button", { name: /view ingest.collect job/i })
+    await viewButton()
 
     const cases: Array<[string, JobFilters]> = [
       ["All", { limit: 100 }],
@@ -74,26 +74,26 @@ describe("JobsPage", () => {
     expect(await screen.findByText("No jobs match this filter")).toBeInTheDocument()
   })
 
-  it("opens sanitized detail, traps focus, closes on Escape, and restores the selected row", async () => {
+  it("opens sanitized detail in the shared modal, closes on Escape, and restores the selected row", async () => {
     renderJobs()
-    const rowButton = await screen.findByRole("button", { name: /view ingest.collect job/i })
+    const rowButton = await viewButton()
     ;(detail as WorkflowJobDetail & { lease_owner?: string }).lease_owner = "internal-worker"
     fireEvent.click(rowButton)
 
     const dialog = await screen.findByRole("dialog", { name: "Job details" })
     const close = within(dialog).getByRole("button", { name: "Close job details" })
     await waitFor(() => expect(close).toHaveFocus())
-    expect(dialog).toHaveTextContent("source-1")
-    expect(dialog).toHaveTextContent("[REDACTED]")
-    expect(dialog).toHaveTextContent("job.failed")
+    expect(dialog).not.toHaveTextContent("source-1")
+    expect(dialog).not.toHaveTextContent("[REDACTED]")
+    expect(dialog).toHaveTextContent("Job Failed")
+    expect(dialog).toHaveTextContent("Payloads and worker internals stay hidden")
     expect(dialog).not.toHaveTextContent("internal-worker")
     expect(within(dialog).getByRole("button", { name: "Retry job" })).toBeInTheDocument()
     expect(within(dialog).queryByRole("button", { name: "Cancel job" })).not.toBeInTheDocument()
 
-    fireEvent.keyDown(document, { key: "Tab", shiftKey: true })
-    expect(within(dialog).getByRole("button", { name: "Retry job" })).toHaveFocus()
-    fireEvent.keyDown(document, { key: "Tab" })
-    expect(close).toHaveFocus()
+    expect(dialog).toHaveAttribute("aria-modal", "true")
+    expect(dialog).toHaveAttribute("data-slot", "dialog-content")
+    expect(document.body).toHaveStyle({ overflow: "hidden" })
 
     fireEvent.keyDown(document, { key: "Escape" })
     expect(screen.queryByRole("dialog", { name: "Job details" })).not.toBeInTheDocument()
@@ -106,20 +106,20 @@ describe("JobsPage", () => {
     vi.mocked(cancelJob).mockImplementation(() => new Promise(() => undefined))
     renderJobs()
 
-    fireEvent.click(await screen.findByRole("button", { name: /view ingest.collect job/i }))
+    fireEvent.click(await viewButton())
     const cancel = await screen.findByRole("button", { name: "Cancel job" })
     expect(screen.queryByRole("button", { name: "Retry job" })).not.toBeInTheDocument()
     fireEvent.click(cancel)
     await waitFor(() => expect(cancel).toBeDisabled())
   })
 
-  it("keeps focus inside the aria-modal dialog when a pending action becomes disabled", async () => {
+  it("keeps the shared aria-modal dialog operable when a pending action becomes disabled", async () => {
     vi.mocked(getJobs).mockResolvedValue([queued])
     vi.mocked(getJob).mockResolvedValue({ ...detail, ...queued, payload: {}, result: {}, events: [] })
     vi.mocked(cancelJob).mockImplementation(() => new Promise(() => undefined))
     renderJobs()
 
-    fireEvent.click(await screen.findByRole("button", { name: /view ingest.collect job/i }))
+    fireEvent.click(await viewButton())
     const dialog = await screen.findByRole("dialog", { name: "Job details" })
     expect(dialog).toHaveAttribute("aria-modal", "true")
     const cancel = await within(dialog).findByRole("button", { name: "Cancel job" })
@@ -128,22 +128,15 @@ describe("JobsPage", () => {
     fireEvent.click(cancel)
     await waitFor(() => expect(cancel).toBeDisabled())
 
-    cancel.blur()
-    expect(document.activeElement).toBe(document.body)
-    fireEvent.keyDown(document, { key: "Tab" })
-    expect(close).toHaveFocus()
-    document.body.tabIndex = -1
-    document.body.focus()
-    expect(document.activeElement).toBe(document.body)
-    fireEvent.keyDown(document, { key: "Tab", shiftKey: true })
-    expect(close).toHaveFocus()
-    document.body.removeAttribute("tabindex")
+    expect(close).toBeEnabled()
+    expect(dialog).toBeInTheDocument()
+    expect(document.body).toHaveStyle({ overflow: "hidden" })
   })
 
   it("retries an attention job and invalidates all job truth", async () => {
     const { queryClient } = renderJobs()
     const invalidateSpy = vi.spyOn(queryClient, "invalidateQueries")
-    fireEvent.click(await screen.findByRole("button", { name: /view ingest.collect job/i }))
+    fireEvent.click(await viewButton())
     fireEvent.click(await screen.findByRole("button", { name: "Retry job" }))
 
     await waitFor(() => expect(retryJob).toHaveBeenCalledWith(failed.id))
@@ -156,7 +149,7 @@ describe("JobsPage", () => {
     renderJobs({ initialStatus: "attention", initialJobId: failed.id })
 
     expect(await screen.findByRole("dialog", { name: "Job details" })).toBeInTheDocument()
-    expect(screen.getByRole("button", { name: "Attention" })).toHaveAttribute("aria-pressed", "true")
+    expect(screen.getByRole("button", { name: "Attention", hidden: true })).toHaveAttribute("aria-pressed", "true")
     expect(await screen.findByRole("button", { name: "Retry job" })).toBeInTheDocument()
   })
 })
@@ -197,4 +190,8 @@ function renderJobs(props: { initialStatus?: string; initialJobId?: string } = {
       </QueryClientProvider>
     ),
   }
+}
+
+async function viewButton() {
+  return (await screen.findAllByRole("button", { name: /view ingest.collect job/i }))[0]
 }

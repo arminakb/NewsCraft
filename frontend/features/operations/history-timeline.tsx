@@ -5,17 +5,20 @@ import { ArrowUpRight } from "lucide-react"
 import Link from "next/link"
 
 import { DirectionBoundary } from "@/components/newsroom/direction-boundary"
+import { useDateTime } from "@/components/providers/date-time-provider"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { EmptyState, ErrorState, LoadingState } from "@/components/ui/state-panel"
 import { getApiErrorMessage } from "@/lib/http"
 import { operationsQueryKeys } from "@/lib/query-keys"
 
 import { fetchOperationsHistory } from "./api"
-import { formatTehranTimestamp } from "./diagnostics-dashboard"
+import { formatOperatorTimestamp } from "./diagnostics-dashboard"
 import type { HistoryEntry, HistoryFilters } from "./types"
 
 export function HistoryTimeline({ routeId }: { routeId: string }) {
+  const { timezone } = useDateTime()
   const filters: HistoryFilters = {
     subjectType: "automation_route",
     subjectId: routeId,
@@ -40,27 +43,24 @@ export function HistoryTimeline({ routeId }: { routeId: string }) {
       </CardHeader>
       <CardContent className="p-0">
         {historyQuery.isPending ? (
-          <p aria-label="Loading route history" className="p-6 text-center text-sm text-muted-foreground" role="status">
-            Loading route history…
-          </p>
+          <LoadingState aria-label="Loading route history" className="m-3" title="Loading route history…" />
         ) : null}
         {historyQuery.isError ? (
-          <div className="space-y-3 p-4" dir="auto" role="alert">
-            <p>{getApiErrorMessage(historyQuery.error, "Route history could not be loaded")}</p>
-            <Button onClick={() => historyQuery.refetch()} size="sm" variant="outline">
-              Retry history
-            </Button>
-          </div>
+          <ErrorState
+            className="m-3"
+            dir="auto"
+            title="Route history unavailable"
+            description={getApiErrorMessage(historyQuery.error, "Route history could not be loaded")}
+            action={<Button onClick={() => historyQuery.refetch()} size="sm" variant="outline">Retry history</Button>}
+          />
         ) : null}
         {historyQuery.isSuccess && entries.length === 0 ? (
-          <p className="p-6 text-center text-sm text-muted-foreground">
-            No durable history has been recorded for this route.
-          </p>
+          <EmptyState className="m-3" title="No durable route history" description="No durable history has been recorded for this route." />
         ) : null}
         {entries.length ? (
           <ol className="divide-y">
             {entries.map((entry) => (
-              <HistoryTimelineItem entry={entry} key={entry.id} />
+              <HistoryTimelineItem entry={entry} key={entry.id} timezone={timezone} />
             ))}
           </ol>
         ) : null}
@@ -80,14 +80,14 @@ export function HistoryTimeline({ routeId }: { routeId: string }) {
   )
 }
 
-function HistoryTimelineItem({ entry }: { entry: HistoryEntry }) {
+function HistoryTimelineItem({ entry, timezone }: { entry: HistoryEntry; timezone: string }) {
   const metadata = Object.entries(entry.sanitized_metadata)
 
   return (
     <li className="relative grid gap-3 px-4 py-4 md:grid-cols-[150px_minmax(0,1fr)_auto]">
       <div className="space-y-1">
         <time className="text-sm font-medium tabular-nums" dateTime={entry.occurred_at}>
-          {formatTehranTimestamp(entry.occurred_at)}
+          {formatOperatorTimestamp(entry.occurred_at, timezone)}
         </time>
         <div className="flex flex-wrap gap-1.5">
           <Badge variant="outline">{humanize(entry.category)}</Badge>
@@ -104,7 +104,7 @@ function HistoryTimelineItem({ entry }: { entry: HistoryEntry }) {
         </DirectionBoundary>
         {entry.job_id ? <p className="text-xs text-muted-foreground">Workflow job {entry.job_id}</p> : null}
         {metadata.length ? (
-          <dl className="grid gap-2 rounded-md border bg-slate-50 p-3 text-xs sm:grid-cols-2">
+          <dl className="grid gap-2 rounded-md border border-border/50 bg-muted/35 p-3 text-xs sm:grid-cols-2">
             {metadata.map(([key, value]) => (
               <div className="min-w-0" key={key}>
                 <dt className="font-medium text-muted-foreground">{key}</dt>

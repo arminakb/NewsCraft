@@ -4,33 +4,39 @@ import { fireEvent, render, screen, waitFor, within } from "@testing-library/rea
 import { NoticeProvider } from "@/components/providers/notice-provider"
 import {
   activatePromptVersion,
-  getBrandProfiles,
   getPromptTemplates,
   getPromptVersions,
-  updateBrandProfile,
 } from "@/features/automations/telegram-api"
 import {
   createCodexPairingSession,
   createLLMProvider,
+  deleteTelegramDestination,
+  deleteLLMProvider,
   createTelegramDestination,
   getCodexActivity,
   getCodexConnections,
+  getLLMProviderDependencies,
   getLLMProviders,
+  getTelegramDestinationDependencies,
   getTelegramDestinations,
   getTelegramProxies,
+  recheckTelegramDestination,
+  rotateLLMProviderKey,
+  setLLMProviderEnabled,
+  setTelegramDestinationEnabled,
+  testLLMProvider,
+  updateTelegramDestination,
 } from "@/features/settings/content-settings-api"
 import { ContentSettingsPage } from "@/features/settings/content-settings-page"
+import { getDateTimeSettings } from "@/features/settings/date-time-api"
+import { fetchRetentionPolicy } from "@/features/operations/api"
 import { ApiError } from "@/lib/http"
-import { queryKeys } from "@/lib/query-keys"
 
 vi.mock("@/features/automations/telegram-api", () => ({
   activatePromptVersion: vi.fn(),
-  createBrandProfile: vi.fn(),
   createPromptVersion: vi.fn(),
-  getBrandProfiles: vi.fn(),
   getPromptTemplates: vi.fn(),
   getPromptVersions: vi.fn(),
-  updateBrandProfile: vi.fn(),
 }))
 
 vi.mock("@/features/settings/content-settings-api", () => ({
@@ -64,17 +70,17 @@ vi.mock("@/features/settings/content-settings-api", () => ({
   updateTelegramProxy: vi.fn(),
 }))
 
-const profile = {
-  id: "11111111-1111-4111-8111-111111111111",
-  name: "News desk",
-  output_language: "fa",
-  tone: "neutral",
-  editorial_rules: ["Use verified evidence"],
-  attribution_rules: {},
-  default_hashtags: ["#news"],
-  platform_preferences: {},
-  is_default: true,
-}
+vi.mock("@/features/operations/api", () => ({
+  createRetentionPreview: vi.fn(),
+  enqueueRetentionRun: vi.fn(),
+  fetchRetentionPolicy: vi.fn(),
+  updateRetentionPolicy: vi.fn(),
+}))
+
+vi.mock("@/features/settings/date-time-api", () => ({
+  getDateTimeSettings: vi.fn(),
+  updateDateTimeSettings: vi.fn(),
+}))
 
 const template = {
   id: "22222222-2222-4222-8222-222222222222",
@@ -186,50 +192,84 @@ const connection = {
   revoked_at: null,
 }
 
+const retentionPolicy = {
+  id: "global" as const,
+  raw_payload_days: 30,
+  completed_job_days: 90,
+  attempt_metadata_days: 90,
+  export_artifact_days: 14,
+  unreferenced_media_days: 30,
+  created_at: "2026-07-24T08:00:00Z",
+  updated_at: "2026-07-24T08:00:00Z",
+}
+
 describe("ContentSettingsPage", () => {
   beforeEach(() => {
     vi.resetAllMocks()
-    vi.mocked(getBrandProfiles).mockResolvedValue([profile])
     vi.mocked(getPromptTemplates).mockResolvedValue([template])
     vi.mocked(getPromptVersions).mockResolvedValue([promptVersion])
     vi.mocked(getLLMProviders).mockResolvedValue([provider])
+    vi.mocked(getLLMProviderDependencies).mockResolvedValue({
+      active_jobs: 0,
+      automations: 1,
+      blocked: false,
+      generation_runs: 2,
+      research_runs: 3,
+    })
+    vi.mocked(setLLMProviderEnabled).mockResolvedValue({ ...provider, enabled: false })
+    vi.mocked(testLLMProvider).mockResolvedValue(provider)
     vi.mocked(getTelegramProxies).mockResolvedValue([proxy])
     vi.mocked(getTelegramDestinations).mockResolvedValue([destination])
+    vi.mocked(getTelegramDestinationDependencies).mockResolvedValue({
+      activeJobs: 0,
+      automations: 0,
+      blocked: false,
+      publications: 0,
+      publishJobs: 0,
+    })
+    vi.mocked(recheckTelegramDestination).mockResolvedValue({
+      destination,
+      jobId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+    })
+    vi.mocked(setTelegramDestinationEnabled).mockResolvedValue({ ...destination, enabled: false })
     vi.mocked(getCodexConnections).mockResolvedValue([connection])
+    vi.mocked(fetchRetentionPolicy).mockResolvedValue(retentionPolicy)
+    vi.mocked(getDateTimeSettings).mockResolvedValue({
+      timezone: "Asia/Tehran",
+      updatedAt: "2026-07-28T11:00:00Z",
+    })
     vi.mocked(getCodexActivity).mockResolvedValue([
       {
         id: "88888888-8888-4888-8888-888888888888",
-        connection_id: connection.id,
-        action: "heartbeat",
-        outcome: "success",
-        reason_code: null,
+        action: "codex_gateway.heartbeat",
+        outcome: "succeeded",
         created_at: "2026-07-24T08:00:00Z",
       },
     ])
   })
 
-  it("renders five coherent management sections and safe readiness summaries", async () => {
+  it("renders only the selected category and keeps credential values private", async () => {
     renderSettings()
 
-    expect(await screen.findByRole("heading", { name: "Content settings" })).toBeInTheDocument()
-    expect(screen.getByRole("heading", { name: "Setup checklist" })).toBeInTheDocument()
-    for (const heading of [
-      "Editorial profiles",
-      "LLM providers",
-      "Codex connection",
-      "Telegram destinations",
-      "Prompt governance",
-    ]) expect(screen.getByRole("heading", { name: heading })).toBeInTheDocument()
-
-    expect(screen.getByText("1 enabled")).toBeInTheDocument()
-    expect(screen.getByText("1/1 healthy")).toBeInTheDocument()
-    expect(screen.getByText("1 connected")).toBeInTheDocument()
-    expect(screen.getByText("Generation: ready")).toBeInTheDocument()
-    expect(screen.getByText("Research: unavailable")).toBeInTheDocument()
-    expect(screen.getByText("research budget missing")).toBeInTheDocument()
-    expect(screen.getByText(/@newscraft_bot/)).toBeInTheDocument()
+    expect(await screen.findByRole("heading", { name: "LLM providers" })).toBeInTheDocument()
+    expect(getLLMProviders).toHaveBeenCalledTimes(1)
+    expect(getTelegramDestinations).not.toHaveBeenCalled()
     expect(screen.queryByText(/bot token/i)).not.toBeInTheDocument()
-    expect(screen.queryByText(/api key/i)).not.toHaveTextContent("sk-")
+    expect(screen.queryByDisplayValue(/api[_-]?key/i)).not.toBeInTheDocument()
+  })
+
+  it.each([
+    ["llm-providers", "LLM providers"],
+    ["codex", "Codex connection"],
+    ["telegram", "Telegram destinations"],
+    ["date-time", "Date & Time"],
+    ["retention", "Retention"],
+    ["prompts", "Prompt governance"],
+  ] as const)("mounts %s without rendering a long Settings page", async (section, heading) => {
+    renderSettings({ section })
+
+    expect(await screen.findByRole("heading", { name: heading })).toBeInTheDocument()
+    expect(screen.getAllByRole("region")).toHaveLength(1)
   })
 
   it("keeps non-Codex settings available when Codex requires authentication", async () => {
@@ -241,18 +281,34 @@ describe("ContentSettingsPage", () => {
     vi.mocked(getCodexConnections).mockRejectedValue(authenticationRequired)
     vi.mocked(getCodexActivity).mockRejectedValue(authenticationRequired)
 
-    renderSettings()
+    renderSettings({ section: "codex" })
 
-    expect(await screen.findByRole("heading", { name: "Content settings" })).toBeInTheDocument()
-    expect(screen.queryByRole("heading", { name: "Content settings unavailable" })).not.toBeInTheDocument()
-    expect(screen.getByRole("heading", { name: "LLM providers" })).toBeInTheDocument()
-    expect(screen.getByRole("heading", { name: "Telegram destinations" })).toBeInTheDocument()
-    expect(screen.getByRole("alert")).toHaveTextContent("authentication required")
+    expect(await screen.findByRole("heading", { name: "Codex connection" })).toBeInTheDocument()
+    expect(await screen.findByRole("alert")).toHaveTextContent("authentication required")
+  })
+
+  it("shows Codex loading feedback while both safe reads are pending", () => {
+    vi.mocked(getCodexConnections).mockReturnValue(new Promise(() => undefined))
+    vi.mocked(getCodexActivity).mockReturnValue(new Promise(() => undefined))
+
+    renderSettings({ section: "codex" })
+
+    expect(screen.getByText("Checking Codex access").closest('[role="status"]')).toBeInTheDocument()
+  })
+
+  it("shows safe empty states when Codex has no connections or activity", async () => {
+    vi.mocked(getCodexConnections).mockResolvedValue([])
+    vi.mocked(getCodexActivity).mockResolvedValue([])
+
+    renderSettings({ section: "codex" })
+
+    expect(await screen.findByRole("heading", { name: "No Codex connection" })).toBeInTheDocument()
+    expect(screen.getByText("No recent gateway activity.")).toBeInTheDocument()
   })
 
   it("creates a generic provider through one write-only form and resets dirty values", async () => {
     vi.mocked(createLLMProvider).mockResolvedValue({ ...provider, id: "99999999-9999-4999-8999-999999999999" })
-    renderSettings()
+    renderSettings({ section: "llm-providers" })
 
     fireEvent.click(await screen.findByRole("button", { name: "Add provider" }))
     const dialog = screen.getByRole("dialog", { name: "Add LLM provider" })
@@ -278,12 +334,189 @@ describe("ContentSettingsPage", () => {
     expect(screen.queryByDisplayValue("write-only-value")).not.toBeInTheDocument()
   })
 
+  it("keeps primary provider actions visible and groups secondary actions in an overflow menu", async () => {
+    renderSettings()
+
+    const card = await screen.findByTestId("llm-provider-card")
+    expect(within(card).getByRole("heading", { name: provider.name })).toBeInTheDocument()
+    expect(within(card).getByText(provider.default_model)).toBeInTheDocument()
+    expect(within(card).getByText("Generation")).toBeInTheDocument()
+    expect(within(card).getByText("Research")).toBeInTheDocument()
+    expect(within(card).getByText("API key")).toBeInTheDocument()
+    expect(within(card).getByText("Last checked")).toBeInTheDocument()
+
+    const primaryActions = within(card).getByRole("group", {
+      name: `Primary actions for ${provider.name}`,
+    })
+    expect(within(primaryActions).getAllByRole("button").map((button) => button.textContent)).toEqual([
+      "Test",
+      "Edit",
+      "Disable",
+    ])
+    expect(within(card).queryByText("Rotate key")).not.toBeInTheDocument()
+
+    fireEvent.click(within(card).getByRole("button", {
+      name: `More actions for ${provider.name}`,
+    }))
+    expect(screen.getByRole("menuitem", { name: "Rotate key" })).toBeInTheDocument()
+    expect(screen.getByRole("menuitem", { name: "Dependencies" })).toBeInTheDocument()
+    expect(screen.getByRole("menuitem", { name: "Delete provider" })).toHaveClass(
+      "text-destructive",
+    )
+  })
+
+  it("preserves provider test, toggle, dependencies, and key rotation behavior", async () => {
+    renderSettings()
+
+    const card = await screen.findByTestId("llm-provider-card")
+    fireEvent.click(within(card).getByRole("button", { name: "Test" }))
+    await waitFor(() => expect(testLLMProvider).toHaveBeenCalledWith(provider.id))
+
+    fireEvent.click(within(card).getByRole("button", { name: "Disable" }))
+    await waitFor(() => expect(setLLMProviderEnabled).toHaveBeenCalledWith(provider.id, false))
+
+    fireEvent.click(within(card).getByRole("button", {
+      name: `More actions for ${provider.name}`,
+    }))
+    fireEvent.click(screen.getByRole("menuitem", { name: "Dependencies" }))
+    await waitFor(() => expect(getLLMProviderDependencies).toHaveBeenCalledWith(provider.id))
+
+    fireEvent.click(within(card).getByRole("button", {
+      name: `More actions for ${provider.name}`,
+    }))
+    fireEvent.click(screen.getByRole("menuitem", { name: "Rotate key" }))
+    expect(screen.getByRole("dialog", { name: `Rotate key for ${provider.name}` }))
+      .toBeInTheDocument()
+  })
+
+  it("shows genuine application authentication and scope failures without a Settings login flow", async () => {
+    vi.spyOn(window, "confirm").mockReturnValue(true)
+    vi.mocked(deleteLLMProvider).mockRejectedValueOnce(new ApiError(
+      "Unauthorized",
+      401,
+      JSON.stringify({ detail: { code: "authentication_required" } }),
+    ))
+    renderSettings()
+
+    const card = await screen.findByTestId("llm-provider-card")
+    fireEvent.click(within(card).getByRole("button", { name: `More actions for ${provider.name}` }))
+    fireEvent.click(screen.getByRole("menuitem", { name: "Delete provider" }))
+
+    expect(await screen.findByText("Application sign-in required", { selector: "[data-notice-title]" }))
+      .toBeInTheDocument()
+    expect(screen.getByText(/sign in to NewsCraft, then retry/i)).toBeInTheDocument()
+    expect(screen.queryByRole("dialog", { name: /authenticate local operator/i }))
+      .not.toBeInTheDocument()
+
+    vi.mocked(deleteLLMProvider).mockRejectedValueOnce(new ApiError(
+      "Forbidden",
+      403,
+      JSON.stringify({ detail: { code: "scope_denied" } }),
+    ))
+    fireEvent.click(within(card).getByRole("button", { name: `More actions for ${provider.name}` }))
+    fireEvent.click(screen.getByRole("menuitem", { name: "Delete provider" }))
+
+    expect(await screen.findByText("Insufficient permission", { selector: "[data-notice-title]" }))
+      .toBeInTheDocument()
+    expect(screen.queryByRole("dialog", { name: /authenticate local operator/i }))
+      .not.toBeInTheDocument()
+  })
+
+  it("never renders Settings-specific operator authentication controls", async () => {
+    renderSettings()
+
+    await screen.findByRole("heading", { name: "LLM providers" })
+    expect(screen.queryByRole("button", { name: /operator sign in/i })).not.toBeInTheDocument()
+    expect(screen.queryByLabelText(/operator secret/i)).not.toBeInTheDocument()
+    expect(screen.queryByRole("button", { name: /^sign out$/i })).not.toBeInTheDocument()
+  })
+
+  it("keeps encrypted secret-store failures distinct and visible", async () => {
+    vi.mocked(createLLMProvider).mockRejectedValue(new ApiError(
+      "Service Unavailable",
+      503,
+      JSON.stringify({ detail: { code: "secret_store_unavailable" } }),
+    ))
+    renderSettings()
+
+    fireEvent.click(await screen.findByRole("button", { name: "Add provider" }))
+    const dialog = screen.getByRole("dialog", { name: "Add LLM provider" })
+    fireEvent.change(within(dialog).getByLabelText(/Connection name/), { target: { value: "Secure model" } })
+    fireEvent.change(within(dialog).getByLabelText(/Model name/), { target: { value: "vendor/model" } })
+    fireEvent.change(within(dialog).getByLabelText(/Base URL/), { target: { value: "https://safe.example/v1" } })
+    fireEvent.change(within(dialog).getByLabelText(/API key/), { target: { value: "write-only-value" } })
+    fireEvent.click(within(dialog).getByRole("button", { name: "Add provider" }))
+
+    expect(await screen.findByText("Secret storage unavailable", { selector: "[data-notice-title]" }))
+      .toBeInTheDocument()
+    expect(screen.getByText("Secure secret storage is unavailable.")).toBeInTheDocument()
+    expect(screen.queryByRole("dialog", { name: /authenticate local operator/i })).not.toBeInTheDocument()
+  })
+
+  it.each([
+    ["secret_store_unavailable", "Secure secret storage is unavailable."],
+    ["secret_store_configuration_invalid", "Secure secret storage is not configured."],
+    ["secret_database_unavailable", "Secure secret storage database is unavailable."],
+    ["secret_schema_unavailable", "Secure secret storage database schema is unavailable."],
+    ["secret_encryption_failed", "The credential could not be encrypted."],
+    ["secret_decryption_failed", "The stored credential cannot be decrypted with the current encryption configuration."],
+    ["secret_rotation_failed", "The credential could not be rotated. Existing credential remains unchanged."],
+  ])("shows actionable provider rotation message for %s", async (code, message) => {
+    vi.mocked(rotateLLMProviderKey).mockRejectedValueOnce(new ApiError(
+      "Service Unavailable",
+      503,
+      JSON.stringify({ detail: { code } }),
+    ))
+    const { queryClient } = renderSettings()
+    const invalidate = vi.spyOn(queryClient, "invalidateQueries")
+
+    const card = await screen.findByTestId("llm-provider-card")
+    fireEvent.click(within(card).getByRole("button", { name: `More actions for ${provider.name}` }))
+    fireEvent.click(screen.getByRole("menuitem", { name: "Rotate key" }))
+    const dialog = screen.getByRole("dialog", { name: `Rotate key for ${provider.name}` })
+    fireEvent.change(within(dialog).getByLabelText(/New API key/), {
+      target: { value: "TEST_PROVIDER_API_KEY_MUST_NOT_LEAK" },
+    })
+    fireEvent.click(within(dialog).getByRole("button", { name: "Rotate secret" }))
+
+    expect(await screen.findByText(message)).toBeInTheDocument()
+    expect(dialog).toBeInTheDocument()
+    expect(within(dialog).getByLabelText(/New API key/)).toHaveValue("TEST_PROVIDER_API_KEY_MUST_NOT_LEAK")
+    expect(document.body.textContent).not.toContain("TEST_PROVIDER_API_KEY_MUST_NOT_LEAK")
+    expect(invalidate).not.toHaveBeenCalled()
+  })
+
+  it("clears and closes the API-key form, then refreshes only after rotation succeeds", async () => {
+    vi.mocked(rotateLLMProviderKey).mockResolvedValueOnce(provider)
+    const { queryClient } = renderSettings()
+    const invalidate = vi.spyOn(queryClient, "invalidateQueries")
+
+    const card = await screen.findByTestId("llm-provider-card")
+    fireEvent.click(within(card).getByRole("button", { name: `More actions for ${provider.name}` }))
+    fireEvent.click(screen.getByRole("menuitem", { name: "Rotate key" }))
+    const dialog = screen.getByRole("dialog", { name: `Rotate key for ${provider.name}` })
+    fireEvent.change(within(dialog).getByLabelText(/New API key/), {
+      target: { value: "TEST_PROVIDER_API_KEY_MUST_NOT_LEAK" },
+    })
+    fireEvent.click(within(dialog).getByRole("button", { name: "Rotate secret" }))
+
+    await waitFor(() => expect(rotateLLMProviderKey).toHaveBeenCalledWith(
+      provider.id,
+      "TEST_PROVIDER_API_KEY_MUST_NOT_LEAK",
+    ))
+    await waitFor(() => expect(dialog).not.toBeInTheDocument())
+    expect(screen.queryByDisplayValue("TEST_PROVIDER_API_KEY_MUST_NOT_LEAK")).not.toBeInTheDocument()
+    expect(await screen.findByText("API key rotated", { selector: "[data-notice-title]" }))
+      .toBeInTheDocument()
+    expect(invalidate).toHaveBeenCalledTimes(2)
+  })
+
   it("creates a Telegram destination with a reusable route and no auto-publish permission", async () => {
     vi.mocked(createTelegramDestination).mockResolvedValue({
       destination: { ...destination, id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", name: "Backup" },
       jobId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
     })
-    renderSettings()
+    renderSettings({ section: "telegram" })
 
     fireEvent.click(await screen.findByRole("button", { name: "Add destination" }))
     const dialog = screen.getByRole("dialog", { name: "Add Telegram destination" })
@@ -303,6 +536,111 @@ describe("ContentSettingsPage", () => {
     expect(screen.queryByDisplayValue("telegram-write-only")).not.toBeInTheDocument()
   })
 
+  it("renders a compact Telegram card with one status grid and stable action hierarchy", async () => {
+    renderSettings({ section: "telegram" })
+
+    const card = await screen.findByTestId("telegram-destination-card")
+    expect(within(card).getByRole("heading", { name: destination.name })).toBeInTheDocument()
+    expect(within(card).getByText(destination.canonical_target)).toHaveAttribute(
+      "title",
+      destination.canonical_target,
+    )
+    expect(within(card).getByText("Target type")).toBeInTheDocument()
+    expect(within(card).getByText("Username")).toBeInTheDocument()
+    expect(within(card).getByText("Proxy: Publishing proxy")).toBeInTheDocument()
+    expect(within(card).getAllByText("Telegram API")).toHaveLength(1)
+    expect(within(card).getAllByText("Administrator")).toHaveLength(1)
+    expect(within(card).queryByText(/bot token/i)).not.toBeInTheDocument()
+
+    const actions = within(card).getByRole("group", {
+      name: `Primary actions for ${destination.name}`,
+    })
+    expect(within(actions).getAllByRole("button").map((button) => button.textContent)).toEqual([
+      "Check",
+      "Edit",
+      "Disable",
+    ])
+    expect(within(card).queryByText("Rotate bot token")).not.toBeInTheDocument()
+
+    fireEvent.click(within(card).getByRole("button", {
+      name: `More actions for ${destination.name}`,
+    }))
+    expect(screen.getByRole("menuitem", { name: "Rotate bot token" })).toBeInTheDocument()
+    expect(screen.getByRole("menuitem", { name: "View dependencies" })).toBeInTheDocument()
+    expect(screen.getByRole("menuitem", { name: "Delete destination" })).toHaveClass(
+      "text-destructive",
+    )
+  })
+
+  it("shows a direct route without duplicating destination status", async () => {
+    vi.mocked(getTelegramDestinations).mockResolvedValue([{
+      ...destination,
+      connection_route: "direct",
+      proxy_health_status: "direct",
+      proxy_profile_id: null,
+    }])
+    vi.mocked(getTelegramProxies).mockResolvedValue([])
+    renderSettings({ section: "telegram" })
+
+    const card = await screen.findByTestId("telegram-destination-card")
+    expect(within(card).getByText("Direct")).toBeInTheDocument()
+    expect(within(card).getAllByText("Proxy")).toHaveLength(1)
+  })
+
+  it("preserves Telegram check, toggle, dependencies, and delete confirmation behavior", async () => {
+    vi.spyOn(window, "confirm").mockReturnValue(true)
+    vi.mocked(deleteTelegramDestination).mockResolvedValue(undefined)
+    renderSettings({ section: "telegram" })
+
+    const card = await screen.findByTestId("telegram-destination-card")
+    fireEvent.click(within(card).getByRole("button", { name: "Check" }))
+    await waitFor(() => expect(recheckTelegramDestination).toHaveBeenCalledWith(destination.id))
+
+    fireEvent.click(within(card).getByRole("button", { name: "Disable" }))
+    await waitFor(() => expect(setTelegramDestinationEnabled).toHaveBeenCalledWith(destination.id, false))
+
+    fireEvent.click(within(card).getByRole("button", { name: `More actions for ${destination.name}` }))
+    fireEvent.click(screen.getByRole("menuitem", { name: "View dependencies" }))
+    await waitFor(() => expect(getTelegramDestinationDependencies).toHaveBeenCalledWith(destination.id))
+
+    fireEvent.click(within(card).getByRole("button", { name: `More actions for ${destination.name}` }))
+    fireEvent.click(screen.getByRole("menuitem", { name: "Delete destination" }))
+    await waitFor(() => expect(deleteTelegramDestination).toHaveBeenCalledWith(destination.id))
+    expect(window.confirm).toHaveBeenCalledWith(`Delete ${destination.name}? This cannot be undone.`)
+  })
+
+  it("keeps edited Telegram values after a failed save and closes only after success", async () => {
+    vi.mocked(updateTelegramDestination).mockRejectedValueOnce(new ApiError(
+      "Unprocessable Entity",
+      422,
+      JSON.stringify({ detail: { code: "telegram_target_invalid", raw: "SECRET_RAW_ERROR" } }),
+    ))
+    renderSettings({ section: "telegram" })
+
+    const card = await screen.findByTestId("telegram-destination-card")
+    fireEvent.click(within(card).getByRole("button", { name: "Edit" }))
+    const dialog = screen.getByRole("dialog", { name: `Edit ${destination.name}` })
+    const name = within(dialog).getByLabelText(/Destination name/)
+    const target = within(dialog).getByLabelText(/Channel or group identifier/)
+    fireEvent.change(name, { target: { value: "Updated destination" } })
+    fireEvent.change(target, { target: { value: "not valid" } })
+    fireEvent.click(within(dialog).getByRole("button", { name: "Save destination" }))
+
+    expect(await screen.findByText("Invalid Telegram target", { selector: "[data-notice-title]" }))
+      .toBeInTheDocument()
+    expect(dialog).toBeInTheDocument()
+    expect(name).toHaveValue("Updated destination")
+    expect(target).toHaveValue("not valid")
+    expect(document.body.textContent).not.toContain("SECRET_RAW_ERROR")
+
+    vi.mocked(updateTelegramDestination).mockResolvedValueOnce({
+      destination: { ...destination, name: "Updated destination" },
+      jobId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+    })
+    fireEvent.click(within(dialog).getByRole("button", { name: "Save destination" }))
+    await waitFor(() => expect(dialog).not.toBeInTheDocument())
+  })
+
   it("pairs Codex with explicit read scopes and shows one-time output", async () => {
     vi.mocked(createCodexPairingSession).mockResolvedValue({
       id: "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
@@ -314,7 +652,7 @@ describe("ContentSettingsPage", () => {
       local_command: "newscraft pair one-time-code",
       created_at: "2026-07-24T08:00:00Z",
     })
-    renderSettings()
+    renderSettings({ section: "codex" })
 
     fireEvent.click(await screen.findByRole("button", { name: "Pair Codex" }))
     const dialog = screen.getByRole("dialog", { name: "Pair Codex" })
@@ -332,7 +670,7 @@ describe("ContentSettingsPage", () => {
 
   it("keeps raw prompt text directional and activation guarded", async () => {
     vi.mocked(activatePromptVersion).mockResolvedValue({ ...promptVersion, is_active: true })
-    renderSettings()
+    renderSettings({ section: "prompts" })
 
     const purpose = await screen.findByRole("heading", { name: "Telegram Automation Rewrite" })
     const article = purpose.closest("article")
@@ -345,79 +683,20 @@ describe("ContentSettingsPage", () => {
     expect(within(article!).getByRole("button", { name: "Review activation" })).toBeDisabled()
   })
 
-  it("edits complete editorial policy, validates JSON, and refreshes every profile selector", async () => {
-    vi.mocked(updateBrandProfile).mockResolvedValue({
-      ...profile,
-      tone: "analytical",
-      attribution_rules: { preserveSources: true },
-      platform_preferences: { telegram: { direction: "rtl" } },
-    })
-    const { queryClient } = renderSettings()
-    queryClient.setQueryData(queryKeys.editorialBrandOptions, [{ id: profile.id, name: profile.name }])
-
-    const profileHeading = await screen.findByRole("heading", { name: profile.name })
-    fireEvent.click(within(profileHeading.closest("article")!).getByRole("button", { name: "Edit" }))
-    const dialog = screen.getByRole("dialog", { name: `Edit ${profile.name}` })
-    fireEvent.change(within(dialog).getByLabelText(/Editorial tone/), { target: { value: "analytical" } })
-    const attribution = within(dialog).getByLabelText(/Attribution policy/)
-    fireEvent.change(attribution, { target: { value: "[" } })
-    fireEvent.blur(attribution)
-    expect(within(dialog).getByRole("alert")).toHaveTextContent("valid JSON")
-    expect(within(dialog).getByRole("button", { name: "Save profile" })).toBeDisabled()
-
-    fireEvent.change(attribution, { target: { value: '{"preserveSources":true}' } })
-    fireEvent.change(within(dialog).getByLabelText(/Per-platform preferences/), {
-      target: { value: '{"telegram":{"direction":"rtl"}}' },
-    })
-    fireEvent.click(within(dialog).getByRole("button", { name: "Save profile" }))
-
-    await waitFor(() => expect(updateBrandProfile).toHaveBeenCalledWith(
-      profile.id,
-      expect.objectContaining({
-        tone: "analytical",
-        attribution_rules: { preserveSources: true },
-        platform_preferences: { telegram: { direction: "rtl" } },
-        is_default: true,
-      }),
-    ))
-    expect(queryClient.getQueryState(queryKeys.editorialBrandOptions)?.isInvalidated).toBe(true)
-    expect(screen.getByText(/existing revisions remain unchanged/i)).toBeInTheDocument()
-  })
-
-  it("protects, resets, and cancels unsaved editorial profile changes", async () => {
-    const confirm = vi.spyOn(window, "confirm").mockReturnValue(false)
-    renderSettings()
-
-    const profileHeading = await screen.findByRole("heading", { name: profile.name })
-    fireEvent.click(within(profileHeading.closest("article")!).getByRole("button", { name: "Edit" }))
-    const dialog = screen.getByRole("dialog", { name: `Edit ${profile.name}` })
-    const tone = within(dialog).getByLabelText(/Editorial tone/)
-    fireEvent.change(tone, { target: { value: "direct" } })
-    expect(within(dialog).getByText("Unsaved changes")).toBeInTheDocument()
-
-    fireEvent.click(within(dialog).getByRole("button", { name: "Cancel" }))
-    expect(confirm).toHaveBeenCalledWith("Discard unsaved settings changes?")
-    expect(dialog).toBeInTheDocument()
-
-    fireEvent.click(within(dialog).getByRole("button", { name: "Reset" }))
-    expect(tone).toHaveValue("neutral")
-    expect(within(dialog).getByText("No unsaved changes")).toBeInTheDocument()
-
-    fireEvent.change(tone, { target: { value: "analytical" } })
-    confirm.mockReturnValue(true)
-    fireEvent.click(within(dialog).getByRole("button", { name: "Cancel" }))
-    expect(screen.queryByRole("dialog", { name: `Edit ${profile.name}` })).not.toBeInTheDocument()
-  })
 })
 
-function renderSettings() {
+function renderSettings({
+  section = "llm-providers",
+}: {
+  section?: Parameters<typeof ContentSettingsPage>[0]["section"]
+} = {}) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   return {
     queryClient,
     ...render(
       <QueryClientProvider client={queryClient}>
         <NoticeProvider>
-          <ContentSettingsPage />
+          <ContentSettingsPage section={section} />
         </NoticeProvider>
       </QueryClientProvider>
     ),

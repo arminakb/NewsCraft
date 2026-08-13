@@ -6,8 +6,11 @@ import type {
   EvidenceDetail,
 } from "@/features/editorial/types"
 import { DirectionBoundary } from "@/components/newsroom/direction-boundary"
+import { useDateTime } from "@/components/providers/date-time-provider"
+import { formatInTimeZone } from "@/lib/date-time"
 
 export function EvidencePanel({ evidence, activeCitation, onSelectCitation }: { evidence: EvidenceDetail[]; activeCitation: EvidenceCitation | null; onSelectCitation?: (citation: EvidenceCitation) => void }) {
+  const { timezone } = useDateTime()
   const selected = activeCitation ? evidence.find((item) => item.id === activeCitation.evidenceSnapshotId && item.evidenceKey === activeCitation.evidenceKey) : evidence[0]
   const match = activeCitation?.locator.match(/^chars:(\d+)-(\d+)$/)
   const start = match ? Number(match[1]) : -1
@@ -34,7 +37,7 @@ export function EvidencePanel({ evidence, activeCitation, onSelectCitation }: { 
           {!selected.sourceUrl ? <div className="text-sm text-muted-foreground">Operator-provided text</div> : null}
           {integrity === "checking" ? <div role="status">Verifying citation integrity…</div> : null}
           {integrity === "verified" && excerpt !== null ? <DirectionBoundary language={null}><blockquote data-testid="evidence-excerpt" tabIndex={-1} className="border-s-4 ps-3 font-medium">{excerpt}</blockquote></DirectionBoundary> : null}
-          {integrity === "failed" ? <div role="alert" className="text-red-700">Citation integrity verification failed. Approval-safe excerpt and source link are hidden.</div> : null}
+          {integrity === "failed" ? <div role="alert" className="text-destructive">Citation integrity verification failed. Approval-safe excerpt and source link are hidden.</div> : null}
           <DirectionBoundary as="p" language={null} className="max-h-72 overflow-auto whitespace-pre-wrap break-words text-sm">{selected.contentText}</DirectionBoundary>
           <dl className="grid gap-1 break-all text-xs text-muted-foreground">
             {activeCitation ? <>
@@ -42,7 +45,7 @@ export function EvidencePanel({ evidence, activeCitation, onSelectCitation }: { 
               <dt>Excerpt hash</dt><dd>{activeCitation.excerptSha256}</dd>
             </> : null}
             <dt>Snapshot hash</dt><dd>{selected.contentSha256}</dd>
-            <dt>Captured</dt><dd>{new Date(selected.capturedAt).toLocaleString()}</dd>
+            <dt>Captured</dt><dd>{formatInTimeZone(selected.capturedAt, timezone)}</dd>
           </dl>
           {selected.sourceUrl && (!activeCitation || integrity === "verified") ? <a href={selected.sourceUrl} target="_blank" rel="noreferrer" className="inline-flex text-primary underline">Open original source</a> : null}
         </article>

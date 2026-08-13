@@ -6,15 +6,14 @@ import {
   CircleAlert,
   CircleDashed,
   LoaderCircle,
-  X,
 } from "lucide-react"
-import { cloneElement, isValidElement, useId, useRef, useState } from "react"
+import { cloneElement, createContext, isValidElement, useContext, useId, useState } from "react"
 import type React from "react"
 
 import { DirectionBoundary } from "@/components/newsroom/direction-boundary"
 import { useNotices } from "@/components/providers/notice-provider"
 import { Badge } from "@/components/ui/badge"
-import { Button } from "@/components/ui/button"
+import { Button, buttonVariants } from "@/components/ui/button"
 import {
   Card,
   CardAction,
@@ -23,13 +22,31 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card"
+import {
+  Dialog,
+  DialogClose,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
+import { controlClassName } from "@/components/ui/input"
+import { Skeleton } from "@/components/ui/skeleton"
+import { EmptyState as SharedEmptyState } from "@/components/ui/state-panel"
+import { StatusBadge as SharedStatusBadge, type StatusTone } from "@/components/ui/status-badge"
 import { useDirtyNavigation } from "@/components/editorial/use-dirty-navigation"
-import { useEditorialModal } from "@/components/editorial/use-editorial-modal"
 import type { CodexConnection } from "./content-settings-api"
+import { DEFAULT_TIME_ZONE, formatInTimeZone } from "@/lib/date-time"
 import { getApiErrorMessage } from "@/lib/http"
+import { cn } from "@/lib/utils"
 
-export const fieldClass =
-  "min-h-11 w-full rounded-lg border bg-background px-3 py-2 text-base outline-none transition-colors focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/30 disabled:bg-muted disabled:text-muted-foreground"
+export const fieldClass = controlClassName
+const SettingsPanelContext = createContext(false)
+
+export function SettingsPanel({ children }: { children: React.ReactNode }) {
+  return <SettingsPanelContext.Provider value>{children}</SettingsPanelContext.Provider>
+}
 
 export function SettingsSection({
   id,
@@ -46,16 +63,37 @@ export function SettingsSection({
   action?: React.ReactNode
   children: React.ReactNode
 }) {
+  const headingId = `${id}-heading`
+  const embedded = useContext(SettingsPanelContext)
+
   return (
-    <Card id={id} className="scroll-mt-20">
-      <CardHeader className="border-b">
-        <div className="flex items-start gap-3">
-          <span className="grid size-10 shrink-0 place-items-center rounded-lg bg-accent text-accent-foreground"><Icon className="size-5" aria-hidden="true" /></span>
-          <div><CardTitle className="text-lg"><h2 className="text-lg font-semibold">{title}</h2></CardTitle><CardDescription className="mt-1">{description}</CardDescription></div>
-        </div>
-        {action ? <CardAction>{action}</CardAction> : null}
-      </CardHeader>
-      <CardContent className="space-y-4">{children}</CardContent>
+    <Card
+      id={id}
+      aria-labelledby={headingId}
+      className={cn(
+        "focus-visible:ring-2 focus-visible:ring-ring",
+        embedded && "rounded-none border-0 bg-transparent shadow-none",
+      )}
+      role="region"
+      tabIndex={-1}
+    >
+      {embedded ? (
+        <>
+          <h2 className="sr-only" id={headingId}>{title}</h2>
+          {action ? <div className="flex justify-end border-b px-4 py-3 min-[700px]:px-7">{action}</div> : null}
+        </>
+      ) : (
+        <CardHeader className="border-b">
+          <div className="flex items-start gap-3">
+            <span className="grid size-10 shrink-0 place-items-center rounded-lg bg-accent text-accent-foreground"><Icon className="size-5" aria-hidden="true" /></span>
+            <div><CardTitle className="text-lg"><h2 id={headingId} className="text-lg font-semibold">{title}</h2></CardTitle><CardDescription className="mt-1">{description}</CardDescription></div>
+          </div>
+          {action ? <CardAction>{action}</CardAction> : null}
+        </CardHeader>
+      )}
+      <CardContent className={cn("space-y-4", embedded && "p-4 min-[700px]:p-7")}>
+        {children}
+      </CardContent>
     </Card>
   )
 }
@@ -83,10 +121,6 @@ export function SettingsDialog({
   onSubmit: () => void
   children: React.ReactNode
 }) {
-  const titleId = useId()
-  const descriptionId = useId()
-  const dialogRef = useRef<HTMLDivElement>(null)
-  const initialRef = useRef<HTMLElement>(null)
   const releaseDirty = useDirtyNavigation(dirty, "Discard unsaved settings changes?")
   const close = () => {
     if (pending) return
@@ -95,29 +129,52 @@ export function SettingsDialog({
       onClose()
     }
   }
-  useEditorialModal({ open: true, containerRef: dialogRef, initialFocusRef: initialRef, onClose: close, canClose: !pending })
   return (
-    <div ref={dialogRef} role="dialog" aria-modal="true" aria-labelledby={titleId} aria-describedby={descriptionId} tabIndex={-1} className="fixed inset-0 z-50 grid place-items-center overflow-y-auto bg-slate-950/50 p-4" onMouseDown={(event) => { if (event.target === event.currentTarget) close() }}>
-      <form className="my-auto w-full max-w-2xl space-y-5 rounded-xl border bg-background p-5 shadow-2xl" onSubmit={(event) => { event.preventDefault(); onSubmit() }}>
-        <div className="flex items-start justify-between gap-4">
-          <div><h2 id={titleId} className="text-xl font-semibold">{title}</h2><p id={descriptionId} className="mt-1 text-sm leading-6 text-muted-foreground">{description}</p></div>
-          <Button type="button" size="icon" variant="ghost" aria-label="Close dialog" disabled={pending} onClick={close}><X aria-hidden="true" /></Button>
-        </div>
+    <Dialog
+      open
+      disablePointerDismissal={pending}
+      onOpenChange={(open) => {
+        if (!open) close()
+      }}
+    >
+      <DialogContent
+        className="max-w-2xl p-0"
+        overlayClassName="z-[100] bg-black/55"
+        viewportClassName="z-[110]"
+      >
+        <form className="space-y-5 p-5" onSubmit={(event) => { event.preventDefault(); onSubmit() }}>
+          <DialogHeader>
+            <DialogTitle>{title}</DialogTitle>
+            <DialogDescription>{description}</DialogDescription>
+          </DialogHeader>
         {children}
-        <div className="flex flex-wrap items-center justify-between gap-3 border-t pt-4">
+          <DialogFooter className="justify-between">
           <span className="text-xs text-muted-foreground">{dirty ? "Unsaved changes" : "No unsaved changes"}</span>
           <div className="flex gap-2">
             <Button type="button" variant="ghost" disabled={!dirty || pending} onClick={onReset}>Reset</Button>
-            <Button type="button" variant="outline" disabled={pending} onClick={close}>Cancel</Button>
+              <DialogClose className={buttonVariants({ variant: "outline" })} disabled={pending}>Cancel</DialogClose>
             <Button type="submit" disabled={!dirty || pending || submitDisabled}>{pending ? <LoaderCircle className="animate-spin" aria-hidden="true" /> : null}{pending ? "Saving…" : submitLabel}</Button>
           </div>
-        </div>
-      </form>
-    </div>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
   )
 }
 
-export function SecretDialog({ title, label, onClose, onSave }: { title: string; label: string; onClose: () => void; onSave: (secret: string) => Promise<void> }) {
+export function SecretDialog({
+  title,
+  label,
+  onClose,
+  onSave,
+  onError,
+}: {
+  title: string
+  label: string
+  onClose: () => void
+  onSave: (secret: string) => Promise<void>
+  onError?: (cause: unknown) => void
+}) {
   const { pushNotice } = useNotices()
   const [secret, setSecret] = useState("")
   const [pending, setPending] = useState(false)
@@ -132,7 +189,13 @@ export function SecretDialog({ title, label, onClose, onSave }: { title: string;
       onSubmit={() => {
         if (!secret) return
         setPending(true)
-        void onSave(secret).then(() => { setSecret(""); onClose() }).catch((cause) => pushNotice({ tone: "error", title: "Secret rotation failed", message: getApiErrorMessage(cause) })).finally(() => setPending(false))
+        void onSave(secret)
+          .then(() => { setSecret(""); onClose() })
+          .catch((cause) => {
+            if (onError) onError(cause)
+            else pushNotice({ tone: "error", title: "Secret rotation failed", message: getApiErrorMessage(cause) })
+          })
+          .finally(() => setPending(false))
       }}
       submitLabel="Rotate secret"
     >
@@ -142,19 +205,19 @@ export function SecretDialog({ title, label, onClose, onSave }: { title: string;
 }
 
 export function OneTimeSecretDialog({ title, secret, command, onClose }: { title: string; secret: string; command?: string; onClose: () => void }) {
-  const titleId = useId()
-  const dialogRef = useRef<HTMLDivElement>(null)
-  const closeRef = useRef<HTMLButtonElement>(null)
-  useEditorialModal({ open: true, containerRef: dialogRef, initialFocusRef: closeRef, onClose })
   return (
-    <div ref={dialogRef} role="dialog" aria-modal="true" aria-labelledby={titleId} tabIndex={-1} className="fixed inset-0 z-50 grid place-items-center bg-slate-950/50 p-4">
-      <div className="w-full max-w-2xl space-y-4 rounded-xl border bg-background p-5 shadow-2xl">
-        <div><h2 id={titleId} className="text-xl font-semibold">{title}</h2><p className="mt-1 text-sm text-amber-800 dark:text-amber-300">Shown once. Store it safely; never paste it into chat, logs, or Git.</p></div>
+    <Dialog open onOpenChange={(open) => { if (!open) onClose() }}>
+      <DialogContent
+        className="max-w-2xl space-y-4"
+        overlayClassName="z-[100] bg-black/55"
+        viewportClassName="z-[110]"
+      >
+        <DialogHeader><DialogTitle>{title}</DialogTitle><DialogDescription className="text-warning">Shown once. Store it safely; never paste it into chat, logs, or Git.</DialogDescription></DialogHeader>
         <Field label="One-time pairing code or credential"><DirectionBoundary as="textarea" language="en" readOnly className={`${fieldClass} font-mono`} rows={3} value={secret} /></Field>
         {command ? <Field label="Local exchange command"><DirectionBoundary as="textarea" language="en" readOnly className={`${fieldClass} font-mono text-sm`} rows={5} value={command} /></Field> : null}
-        <div className="flex justify-end"><Button ref={closeRef} onClick={onClose}>I stored it safely</Button></div>
-      </div>
-    </div>
+        <DialogFooter><DialogClose autoFocus className={buttonVariants()}>I stored it safely</DialogClose></DialogFooter>
+      </DialogContent>
+    </Dialog>
   )
 }
 
@@ -168,9 +231,9 @@ export function Field({ label, hint, error, required, children }: { label: strin
     : children
   return (
     <label className="grid gap-1.5 text-sm font-medium">
-      <span>{label}{required ? <span className="text-red-700 dark:text-red-300" aria-hidden="true"> *</span> : null}</span>
+      <span>{label}{required ? <span className="text-destructive" aria-hidden="true"> *</span> : null}</span>
       {control}
-      {error ? <span id={messageId} className="text-sm font-normal text-red-700 dark:text-red-300" role="alert">{error}</span> : hint ? <span id={messageId} className="text-xs font-normal text-muted-foreground">{hint}</span> : null}
+      {error ? <span id={messageId} className="text-sm font-normal text-destructive" role="alert">{error}</span> : hint ? <span id={messageId} className="text-xs font-normal text-muted-foreground">{hint}</span> : null}
     </label>
   )
 }
@@ -187,7 +250,8 @@ export function StatusBadge({ value }: { value: string }) {
   const normalized = value.toLowerCase()
   const bad = ["unhealthy", "unavailable", "red", "revoked", "disabled", "failed", "not configured"].includes(normalized)
   const good = ["healthy", "ready", "green", "active", "enabled", "reachable", "verified", "administrator"].includes(normalized)
-  return <Badge variant={bad ? "error" : good ? "success" : "neutral"}>{safeCode(value)}</Badge>
+  const tone: StatusTone = bad ? "error" : good ? "success" : "neutral"
+  return <SharedStatusBadge tone={tone}>{safeCode(value)}</SharedStatusBadge>
 }
 
 export function ReadinessLabel({ label, ready, value }: { label: string; ready: boolean; value: string }) {
@@ -196,7 +260,7 @@ export function ReadinessLabel({ label, ready, value }: { label: string; ready: 
 
 export function HealthStage({ label, value }: { label: string; value: string }) {
   const healthy = ["healthy", "reachable", "authenticated", "resolved", "administrator", "ready", "direct"].includes(value)
-  return <div className="rounded-lg bg-muted/60 p-2 text-xs"><div className="font-medium">{label}</div><div className={`mt-1 flex items-center gap-1 ${healthy ? "text-emerald-800 dark:text-emerald-300" : "text-muted-foreground"}`}>{healthy ? <CheckCircle2 className="size-3.5" aria-hidden="true" /> : <CircleDashed className="size-3.5" aria-hidden="true" />}{safeCode(value)}</div></div>
+  return <div className="rounded-lg bg-muted/60 p-2 text-xs"><div className="font-medium">{label}</div><div className={`mt-1 flex items-center gap-1 ${healthy ? "text-success" : "text-muted-foreground"}`}>{healthy ? <CheckCircle2 className="size-3.5" aria-hidden="true" /> : <CircleDashed className="size-3.5" aria-hidden="true" />}{safeCode(value)}</div></div>
 }
 
 export function Metric({ label, value }: { label: string; value: string }) {
@@ -204,28 +268,28 @@ export function Metric({ label, value }: { label: string; value: string }) {
 }
 
 export function EmptyState({ title, detail }: { title: string; detail: string }) {
-  return <div className="rounded-xl border border-dashed p-8 text-center"><h3 className="font-semibold">{title}</h3><p className="mt-1 text-sm text-muted-foreground">{detail}</p></div>
+  return <SharedEmptyState className="border-dashed p-8" title={title} description={detail} />
 }
 
 export function SettingsSkeleton() {
-  return <section className="space-y-5 p-4 md:p-6" role="status" aria-label="Loading content settings"><div className="h-9 w-64 animate-pulse rounded bg-muted" /><div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">{Array.from({ length: 4 }, (_, index) => <div key={index} className="h-20 animate-pulse rounded-xl bg-muted" />)}</div><div className="h-72 animate-pulse rounded-xl bg-muted" /><span className="sr-only">Loading content settings</span></section>
+  return <section className="nc-page gap-5" role="status" aria-label="Loading settings"><Skeleton className="h-9 w-64" /><div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">{Array.from({ length: 4 }, (_, index) => <Skeleton key={index} className="h-20 border border-border/50 bg-card shadow-sm" />)}</div><Skeleton className="h-72 border border-border/50 bg-card shadow-sm" /><span className="sr-only">Loading settings</span></section>
 }
 
 export function safeCode(value: string) {
   return value.replaceAll("_", " ")
 }
 
-export function formatDate(value: string | null, fallback = "Unknown") {
+export function formatDate(value: string | null, fallback = "Unknown", timezone = DEFAULT_TIME_ZONE) {
   if (!value) return fallback
   const parsed = new Date(value)
-  return Number.isNaN(parsed.valueOf()) ? fallback : new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" }).format(parsed)
+  return Number.isNaN(parsed.valueOf()) ? fallback : formatInTimeZone(parsed, timezone)
 }
 
 export function connectionColor(status: CodexConnection["status"]) {
-  if (status === "green") return "bg-emerald-600"
-  if (status === "yellow") return "bg-amber-500"
-  if (status === "red") return "bg-red-600"
-  return "bg-slate-400"
+  if (status === "green") return "bg-success"
+  if (status === "yellow") return "bg-warning"
+  if (status === "red") return "bg-destructive"
+  return "bg-muted-foreground"
 }
 
 export function lines(value: string) {

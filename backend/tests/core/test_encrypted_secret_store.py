@@ -4,6 +4,7 @@ from uuid import uuid4
 
 import pytest
 from pydantic import SecretStr
+from sqlalchemy.exc import IntegrityError
 
 from app.core.config import Settings
 from app.security.auth import TEST_ADMIN
@@ -15,6 +16,9 @@ from app.security.secret_store import (
     SecretAccessDenied,
     SecretDecryptionFailed,
     SecretKeyUnavailable,
+    SecretRotationFailed,
+    SecretStoreRuntime,
+    classify_secret_store_error,
 )
 
 
@@ -182,3 +186,39 @@ def test_key_ring_rejects_malformed_base64_and_copies_key_material_mapping():
     assert ring.active_key() == bytes([2]) * 32
     with pytest.raises(TypeError):
         ring.keys["v1"] = bytes([4]) * 32  # type: ignore[index]
+
+
+def test_secret_store_runtime_initializes_once_and_binds_request_session():
+    runtime = SecretStoreRuntime.from_settings(
+        Settings(_env_file=None, secret_master_key=_encoded(2))
+    )
+    session = MemorySession()
+
+    store = runtime.bind(session)
+
+    assert runtime.initialized is True
+    assert runtime.configuration_valid is True
+    assert isinstance(store, EncryptedSecretStore)
+    assert store.session is session
+
+
+@pytest.mark.parametrize("master_key", [None, "not-a-valid-key"])
+def test_secret_store_runtime_preserves_safe_configuration_failure(master_key):
+    runtime = SecretStoreRuntime.from_settings(
+        Settings(_env_file=None, secret_master_key=master_key)
+    )
+
+    assert runtime.initialized is False
+    assert runtime.configuration_valid is False
+    with pytest.raises(SecretKeyUnavailable) as caught:
+        runtime.bind(MemorySession())
+    assert caught.value.public_code == "secret_store_configuration_invalid"
+
+
+def test_unknown_database_constraint_failure_is_a_rotation_failure():
+    failure = IntegrityError("statement", {}, RuntimeError("constraint details must stay private"))
+
+    classified = classify_secret_store_error(failure)
+
+    assert isinstance(classified, SecretRotationFailed)
+    assert classified.public_code == "secret_rotation_failed"

@@ -34,12 +34,25 @@ export function readArticleState(params: URLSearchParams | Readonly<URLSearchPar
   }
 }
 
+export function readArticlePage(params: URLSearchParams | Readonly<URLSearchParams>) {
+  const raw = params.get("page")
+  if (raw === null || !/^\d+$/.test(raw)) return 1
+  const page = Number(raw)
+  return Number.isSafeInteger(page) && page >= 1 && page <= 1_000_000 ? page : 1
+}
+
+export function readArticleCursor(params: URLSearchParams | Readonly<URLSearchParams>) {
+  const cursor = params.get("cursor")?.trim()
+  return cursor || null
+}
+
 export function normalizeArticleSearch(value: string) {
   return value.trim()
 }
 
 export function writeArticleSearch(current: URLSearchParams, query: string) {
   const params = new URLSearchParams(current)
+  params.delete("page")
   params.delete("cursor")
   const normalized = normalizeArticleSearch(query)
   if (normalized) params.set("q", normalized)
@@ -49,7 +62,7 @@ export function writeArticleSearch(current: URLSearchParams, query: string) {
 
 export function writeArticleState(current: URLSearchParams, sort: ArticleSort, filters: ArticleFilters) {
   const params = new URLSearchParams(current)
-  for (const key of ["sort", "language", "topic", "content_type", "source_id", "coverage", "has_image", "score_min", "score_max", "date_from", "date_to", "cursor"]) {
+  for (const key of ["sort", "language", "topic", "content_type", "source_id", "coverage", "has_image", "score_min", "score_max", "date_from", "date_to", "page", "cursor"]) {
     params.delete(key)
   }
   if (sort !== "newest") params.set("sort", sort)

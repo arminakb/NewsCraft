@@ -3,20 +3,12 @@
 import { ExternalLink, X } from "lucide-react"
 
 import { SourceIcon } from "@/components/dashboard/source-icon"
-import { StatusBadge, statusLabels } from "@/components/dashboard/status-badge"
+import { StatusBadge } from "@/components/dashboard/status-badge"
+import { useDateTime } from "@/components/providers/date-time-provider"
 import { Button } from "@/components/ui/button"
-import { Separator } from "@/components/ui/separator"
 import { formatNumber, formatPlatform } from "@/lib/format"
-import { cn } from "@/lib/utils"
+import { formatInTimeZone } from "@/lib/date-time"
 import type { SourceSummary } from "@/features/operations/ingestion-types"
-
-const statusDotClass: Record<SourceSummary["status"], string> = {
-  healthy: "bg-emerald-600",
-  degraded: "bg-amber-500",
-  broken: "bg-red-600",
-  disabled: "bg-slate-500",
-  unknown: "bg-zinc-500",
-}
 
 export function SourceDetailPanel({
   source,
@@ -27,93 +19,140 @@ export function SourceDetailPanel({
   open: boolean
   onOpenChange: (open: boolean) => void
 }) {
-  const metrics = [
+  const { timezone } = useDateTime()
+  if (!open) return null
+
+  const activity = [
     ["Items (24h)", formatNumber(source.items24h)],
     ["New (24h)", formatNumber(source.new24h)],
     ["Failed (24h)", formatNumber(source.failed24h)],
-    ["Total items", formatNumber(source.totalItems)],
     ["Media (24h)", formatNumber(source.media24h)],
-    ["Last success", source.lastSuccess ?? "-"],
   ]
 
   return (
     <aside
-      role="region"
       aria-label="Source details"
-      data-open={open}
-      className={cn(
-        "fixed inset-y-0 right-0 z-30 w-[min(100vw,440px)] flex-col border-l bg-white shadow-xl transition-transform xl:sticky xl:top-0 xl:flex xl:h-screen xl:translate-x-0 xl:shadow-none",
-        open ? "flex translate-x-0" : "hidden translate-x-full xl:flex xl:translate-x-0"
-      )}
+      className="order-first min-w-0 self-start overflow-hidden rounded-lg border border-border/50 bg-card shadow-sm xl:order-none xl:sticky xl:top-4 xl:max-h-[calc(100vh-2rem)]"
+      role="region"
     >
-      <div className="flex h-14 items-center justify-between border-b px-4">
-        <h2 className="font-semibold">Source details</h2>
-        <Button variant="ghost" size="icon-sm" aria-label="Close source details" onClick={() => onOpenChange(false)}>
+      <header className="flex min-h-14 items-center justify-between gap-3 border-b px-4 py-2">
+        <div>
+          <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Selected source</div>
+          <h2 className="text-base font-semibold">Source details</h2>
+        </div>
+        <Button
+          aria-label="Close source details"
+          className="size-11 min-h-11 min-w-11"
+          onClick={() => onOpenChange(false)}
+          type="button"
+          variant="ghost"
+        >
           <X className="size-5" aria-hidden="true" />
         </Button>
-      </div>
-      <div className="min-h-0 flex-1 overflow-y-auto p-4">
-        <div className="flex items-start gap-3">
-          <SourceIcon platform={source.platform} className="size-12" />
-          <div className="min-w-0 flex-1">
-            <div className="flex items-center gap-2">
-              <h2 className="truncate text-lg font-semibold">{source.name}</h2>
-              <StatusBadge status={source.status} />
-            </div>
-            <div className="mt-1 text-sm text-muted-foreground">
-              {formatPlatform(source.platform)} source - {source.url}
-            </div>
-            <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
-              <span>Category: {source.category}</span>
-              <span>Language: {source.language}</span>
+      </header>
+
+      <div className="p-4 xl:max-h-[calc(100vh-8rem)] xl:overflow-y-auto">
+        <section aria-labelledby="source-identity-heading">
+          <div className="flex items-start gap-3">
+            <SourceIcon
+              className="size-11 shrink-0"
+              iconUrl={source.iconUrl}
+              iconUpdatedAt={source.iconUpdatedAt}
+              name={source.name}
+              platform={source.platform}
+              sourceId={source.id}
+            />
+            <div className="min-w-0 flex-1">
+              <div className="flex flex-wrap items-center gap-2">
+                <h3 className="min-w-0 break-words text-lg font-semibold leading-6" id="source-identity-heading">
+                  {source.name}
+                </h3>
+                <StatusBadge status={source.status} />
+              </div>
+              <p className="mt-1 text-sm leading-6 text-muted-foreground">
+                {formatPlatform(source.platform)} source
+              </p>
+              <div className="mt-2 flex flex-wrap gap-2 text-xs">
+                <span className="rounded-full border bg-muted/40 px-2.5 py-1">{source.category}</span>
+                <span className="rounded-full border bg-muted/40 px-2.5 py-1 uppercase">{source.language}</span>
+              </div>
             </div>
           </div>
-        </div>
-        <Separator className="my-4" />
-        <div className="mt-4 grid grid-cols-3 gap-3">
-          {metrics.map(([label, value]) => (
-            <div key={label} className="rounded-md border bg-white p-3">
-              <div className="text-xs text-muted-foreground">{label}</div>
-              <div className="mt-2 text-2xl tabular-nums">{value}</div>
-            </div>
-          ))}
-        </div>
-        <dl className="mt-6 space-y-4 text-sm">
-          <Row
-            label="Source URL"
-            value={
-              <a href={source.url} className="inline-flex items-center gap-1 text-primary underline-offset-4 hover:underline">
-                {source.url}
-                <ExternalLink className="size-3" aria-hidden="true" />
-              </a>
-            }
-          />
-          <Row label="Added" value={source.addedAt} />
-          <Row label="Fetch interval" value={`Every ${source.fetchIntervalMinutes} minutes`} />
-          <Row
-            label="Status"
-            value={
-              <span className="inline-flex items-center gap-2">
-                <span className={cn("size-2 rounded-full", statusDotClass[source.status])} />
-                {statusLabels[source.status]}
-              </span>
-            }
-          />
-        </dl>
-        <details className="mt-6 rounded-md border p-3 text-sm">
-          <summary className="cursor-pointer font-medium">Advanced source record</summary>
-          <div className="mt-3 break-all text-xs text-muted-foreground">{source.id}</div>
-        </details>
+        </section>
+
+        <section aria-labelledby="source-health-heading" className="mt-4 rounded-lg border border-border/50 bg-muted/25 p-3">
+          <h3 className="text-sm font-semibold" id="source-health-heading">Health</h3>
+          <dl className="mt-3 grid gap-3 text-sm sm:grid-cols-2 xl:grid-cols-1 2xl:grid-cols-2">
+            <Detail label="Current status" value={<StatusBadge status={source.status} />} />
+            <Detail label="Last checked" value={formatCheckedAt(source.lastCheckedAt, timezone)} />
+          </dl>
+          {source.failureReason ? (
+            <p className="mt-3 rounded-md border border-destructive/30 bg-[var(--error-surface)] p-3 text-sm leading-5 text-destructive" role="status">
+              {source.failureReason}
+            </p>
+          ) : null}
+        </section>
+
+        <section aria-labelledby="source-activity-heading" className="mt-5">
+          <div className="flex items-baseline justify-between gap-3">
+            <h3 className="text-sm font-semibold" id="source-activity-heading">Activity</h3>
+            <span className="text-xs text-muted-foreground">
+              <span>{formatNumber(source.totalItems)}</span> total items
+            </span>
+          </div>
+          <dl className="mt-3 grid grid-cols-2 gap-2">
+            {activity.map(([label, value]) => (
+              <div className="rounded-md border border-border/50 bg-background p-3" key={label}>
+                <dt className="text-xs text-muted-foreground">{label}</dt>
+                <dd className="mt-1 text-lg font-semibold tabular-nums">{value}</dd>
+              </div>
+            ))}
+          </dl>
+        </section>
+
+        <section aria-labelledby="source-connection-heading" className="mt-5 border-t border-border/50 pt-4">
+          <h3 className="text-sm font-semibold" id="source-connection-heading">Connection</h3>
+          <dl className="mt-3 space-y-4 text-sm">
+            <Detail
+              label="Source URL"
+              value={
+                <a
+                  className="inline-flex min-w-0 items-start gap-1 break-all text-primary underline-offset-4 hover:underline"
+                  href={source.url}
+                  rel="noreferrer"
+                  target="_blank"
+                >
+                  <span>{source.url}</span>
+                  <ExternalLink className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
+                </a>
+              }
+            />
+            <Detail label="Fetch interval" value={`Every ${source.fetchIntervalMinutes} minutes`} />
+            <Detail label="Last success" value={source.lastSuccess ? formatInTimeZone(source.lastSuccess, timezone) : "No successful fetch yet"} />
+            <Detail label="Added" value={formatInTimeZone(source.addedAt, timezone)} />
+          </dl>
+        </section>
       </div>
     </aside>
   )
 }
 
-function Row({ label, value }: { label: string; value: React.ReactNode }) {
+function Detail({ label, value }: { label: string; value: React.ReactNode }) {
   return (
-    <div className="grid grid-cols-[88px_minmax(0,1fr)] gap-4">
-      <dt className="text-muted-foreground">{label}</dt>
-      <dd className="min-w-0 break-words">{value}</dd>
+    <div className="grid min-w-0 gap-1">
+      <dt className="text-xs font-medium text-muted-foreground">{label}</dt>
+      <dd className="min-w-0 break-words text-foreground">{value}</dd>
     </div>
   )
+}
+
+function formatCheckedAt(value: string | null | undefined, timezone: string) {
+  if (!value) return "Never checked"
+  return formatInTimeZone(value, timezone, {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  })
 }

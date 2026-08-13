@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react"
 import { useQueryClient } from "@tanstack/react-query"
 
+import { useDateTime } from "@/components/providers/date-time-provider"
 import { Button } from "@/components/ui/button"
 import {
   getManualPublicationPlanForRevision,
@@ -10,6 +11,7 @@ import {
   updateManualPublicationChecklist,
 } from "@/features/packages/api"
 import type { ManualPublicationPlan } from "@/features/packages/types"
+import { formatInTimeZone } from "@/lib/date-time"
 import { ApiError, getApiErrorMessage } from "@/lib/http"
 import { packageQueryKeys, queryKeys } from "@/lib/query-keys"
 import { DirectionBoundary } from "@/components/newsroom/direction-boundary"
@@ -36,6 +38,7 @@ export function ManualPublishingChecklist({
   contentPackId,
   onPlanChange,
 }: ManualPublishingChecklistProps) {
+  const { timezone } = useDateTime()
   const queryClient = useQueryClient()
   const [localPlan, setLocalPlan] = useState(plan)
   const [pendingItem, setPendingItem] = useState<string | null>(null)
@@ -76,10 +79,9 @@ export function ManualPublishingChecklist({
         persisted,
       )
       if (persisted) storePersistedPlan(persisted)
-      await Promise.all([
-        queryClient.invalidateQueries({ queryKey: contentPackId ? queryKeys.contentPack(contentPackId) : queryKeys.contentPacks }),
-        queryClient.invalidateQueries({ queryKey: ["calendar"] }),
-      ])
+      await queryClient.invalidateQueries({
+        queryKey: contentPackId ? queryKeys.contentPack(contentPackId) : queryKeys.contentPacks,
+      })
     } catch {
       // Preserve the original mutation error and rollback state when conflict refresh also fails.
     }
@@ -124,7 +126,6 @@ export function ManualPublishingChecklist({
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: packageQueryKeys.manualPlan(saved.id) }),
         queryClient.invalidateQueries({ queryKey: contentPackId ? queryKeys.contentPack(contentPackId) : queryKeys.contentPacks }),
-        queryClient.invalidateQueries({ queryKey: ["calendar"] }),
       ])
       setOutcome("Manual publication recorded")
     } catch (caught) {
@@ -143,7 +144,7 @@ export function ManualPublishingChecklist({
           {platformLabel(localPlan.platform)} plan {localPlan.id} · exact revision {localPlan.platformVariantRevisionId}
         </p>
         <p className="font-medium">Status: {statusLabel(localPlan.status)}</p>
-        <p className="text-sm text-muted-foreground">Scheduled <time dateTime={localPlan.scheduledFor}>{localPlan.scheduledFor}</time> · display timezone {localPlan.displayTimezone}</p>
+        <p className="text-sm text-muted-foreground">Scheduled <time dateTime={localPlan.scheduledFor}>{formatInTimeZone(localPlan.scheduledFor, timezone)}</time> · {timezone}</p>
       </div>
 
       <fieldset className="space-y-2" disabled={busy || terminal}>
@@ -174,7 +175,7 @@ export function ManualPublishingChecklist({
           />
         </label>
         {invalidUrl ? (
-          <p className="text-sm text-red-700">Enter the public HTTP or HTTPS URL.</p>
+          <p className="text-sm text-destructive">Enter the public HTTP or HTTPS URL.</p>
         ) : null}
         <label className="grid gap-1">
           <span>Operator note (optional)</span>
@@ -201,14 +202,14 @@ export function ManualPublishingChecklist({
 
       {localPlan.status === "manual_published" ? <section aria-label="Manual publication completion evidence" className="space-y-2 rounded-lg border p-3">
         <h3 className="font-medium">Completion evidence</h3>
-        <p>Completed at {localPlan.completedAt ? <time dateTime={localPlan.completedAt}>{localPlan.completedAt}</time> : "Stored completion time unavailable"}</p>
+        <p>Completed at {localPlan.completedAt ? <time dateTime={localPlan.completedAt}>{formatInTimeZone(localPlan.completedAt, timezone)}</time> : "Stored completion time unavailable"}</p>
         {localPlan.externalUrl ? <a className="block break-all text-primary underline" href={localPlan.externalUrl} target="_blank" rel="noreferrer">Open recorded publication</a> : <p>No publication URL was recorded.</p>}
         {localPlan.operatorNote ? <DirectionBoundary as="p" language={null}>{localPlan.operatorNote}</DirectionBoundary> : <p>No operator note was recorded.</p>}
       </section> : null}
       {localPlan.status === "cancelled" ? <p>Cancelled plans remain in publication history and cannot be edited.</p> : null}
       {pendingItem ? <div role="status">Saving checklist progress…</div> : null}
-      {outcome ? <div role="status" className="text-green-700">{outcome}</div> : null}
-      {error ? <div role="alert" className="text-sm text-red-700">{error}</div> : null}
+      {outcome ? <div role="status" className="text-success">{outcome}</div> : null}
+      {error ? <div role="alert" className="text-sm text-destructive">{error}</div> : null}
     </section>
   )
 }

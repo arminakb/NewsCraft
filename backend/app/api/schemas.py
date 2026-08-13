@@ -1,9 +1,10 @@
 from datetime import datetime
 from decimal import Decimal
-from typing import Any
+from typing import Any, Literal
+from urllib.parse import urlsplit
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from app.core.redaction import redact_secrets
 
@@ -25,11 +26,55 @@ class SourceOut(BaseModel):
     last_failure_at: datetime | None = None
     failure_count: int | None = 0
     health_status: str | None = None
+    last_http_status: int | None = None
+    last_error_message: str | None = None
     last_parse_count: int | None = 0
     last_suitable_count: int | None = 0
     last_media_count: int | None = 0
     fetch_interval_minutes: int | None = 1440
+    icon_url: str | None = None
+    icon_source: str | None = None
+    icon_updated_at: datetime | None = None
+    icon_status: str | None = "pending"
     created_at: datetime | None = None
+
+
+class SourceCreateIn(BaseModel):
+    platform: Literal["rss", "atom", "telegram_public"]
+    name: str = Field(min_length=1, max_length=200)
+    url: str = Field(min_length=1, max_length=2_048)
+    source_group: str = Field(default="general", min_length=1, max_length=100)
+    language_hint: str = Field(default="en", min_length=2, max_length=16)
+    fetch_interval_minutes: int = Field(default=30, ge=5, le=10_080)
+
+    @field_validator("name", "source_group", "language_hint", "url")
+    @classmethod
+    def trim_source_text(cls, value: str) -> str:
+        return value.strip()
+
+    @model_validator(mode="after")
+    def validate_source_url(self):
+        if self.platform in {"rss", "atom"}:
+            parsed = urlsplit(self.url)
+            if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+                raise ValueError("Feed URL must use http:// or https://")
+            return self
+        if telegram_username_from_url(self.url) is None:
+            raise ValueError("Telegram URL must identify a public channel")
+        return self
+
+
+def telegram_username_from_url(value: str) -> str | None:
+    candidate = value.strip()
+    if candidate.startswith(("http://", "https://")):
+        parsed = urlsplit(candidate)
+        if parsed.hostname not in {"t.me", "www.t.me"}:
+            return None
+        candidate = parsed.path.strip("/").removeprefix("s/")
+    candidate = candidate.removeprefix("@")
+    if 5 <= len(candidate) <= 32 and candidate.replace("_", "").isalnum():
+        return candidate
+    return None
 
 
 class MediaAssetOut(BaseModel):
@@ -103,6 +148,17 @@ class IngestRunSummaryOut(BaseModel):
     trigger: str
     status: str
     stats: dict[str, Any] = Field(default_factory=dict)
+    source_collection_id: UUID | None = None
+    source_collection_name_at_start: str | None = None
+    source_count: int = 0
+    processed_count: int = 0
+    success_count: int = 0
+    failure_count: int = 0
+
+    @field_validator("source_count", "processed_count", "success_count", "failure_count", mode="before")
+    @classmethod
+    def default_progress_counts(cls, value: object) -> int:
+        return 0 if value is None else int(value)
 
     @field_validator("stats", mode="before")
     @classmethod
@@ -117,6 +173,14 @@ class MediaAssetListOut(MediaAssetOut):
 
 class SourceDetailOut(SourceOut):
     pass
+
+
+class SourceHealthOut(BaseModel):
+    source_id: UUID
+    health_status: str
+    is_checking: bool = False
+    last_checked_at: datetime
+    failure_reason: str | None = None
 
 
 class ApproveContentItemIn(BaseModel):

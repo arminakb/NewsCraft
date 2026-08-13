@@ -14,6 +14,7 @@ from app.api.capabilities import CapabilityStatusDependency
 from app.automations.models import AutomationDispatch
 from app.db.session import get_session
 from app.generation.models import PlatformVariant, PlatformVariantRevision
+from app.jobs.models import WorkflowJob
 from app.jobs.schemas import JobAcceptedOut
 from app.publishing.models import (
     Destination,
@@ -285,6 +286,16 @@ async def publish_telegram_draft(
                 content_hash=body.content_hash,
                 capability_status=capability_status,
             )
+            workflow_job = await session.get(WorkflowJob, result.publish_job.workflow_job_id)
+            if workflow_job is not None:
+                from app.automations.definitions.runtime_state import bind_automation_publish_job
+
+                await bind_automation_publish_job(
+                    session,
+                    revision_id=result.revision.id,
+                    workflow_job=workflow_job,
+                    publish_job_id=result.publish_job.id,
+                )
     except ReviewedTelegramDraftError as exc:
         raise HTTPException(exc.status_code, str(exc)) from None
     return TelegramPublishAcceptedOut(

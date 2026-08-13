@@ -37,6 +37,7 @@ from app.api.article_schemas import (
     ArticleStoryLinkOut,
     ArticleStorySummaryOut,
     ArticleSummaryOut,
+    ContentOrigin,
     CoverageState,
 )
 from app.api.stories import _story_summaries
@@ -47,6 +48,7 @@ from app.content.article_metadata import (
 )
 from app.db.models import ArticleCollection, ArticleCollectionItem, ContentItem, ItemMedia, MediaAsset, Source
 from app.db.session import get_session
+from app.feed.service import active_feed_condition
 from app.stories.models import Story, StoryEvidenceSnapshot
 
 router = APIRouter(tags=["articles"])
@@ -241,6 +243,7 @@ def _coverage_facet_statement() -> Select:
         .select_from(ContentItem)
         .outerjoin(active_items, active_items.c.content_item_id == ContentItem.id)
         .outerjoin(complete_items, complete_items.c.content_item_id == ContentItem.id)
+        .where(active_feed_condition())
         .group_by(coverage_state)
         .order_by(coverage_state)
     )
@@ -271,6 +274,9 @@ def _base_article_columns() -> tuple:
         Source.name.label("source_name"),
         Source.platform.label("source_platform"),
         Source.homepage_url.label("source_homepage_url"),
+        Source.icon_url.label("source_icon_url"),
+        Source.icon_status.label("source_icon_status"),
+        Source.icon_updated_at.label("source_icon_updated_at"),
         ContentItem.classification_metadata["source_name"].astext.label("legacy_source_name"),
         ContentItem.classification_metadata["source_platform"].astext.label("legacy_source_platform"),
         MediaAsset.id.label("image_id"),
@@ -300,6 +306,7 @@ class ArticleQuery:
         display_at = _display_at_expression()
         content_type, topic, language = _article_classification_expressions()
         filters = self.filters
+        statement = statement.where(active_feed_condition())
         if filters.search_query is not None:
             if any(character.isalnum() for character in filters.search_query):
                 statement = statement.where(
@@ -398,6 +405,7 @@ def article_detail_statement(content_item_id: UUID) -> Select:
         select(
             *_base_article_columns(),
             ContentItem.content_text,
+            ContentItem.metrics.label("content_metrics"),
             ContentItem.content_html_sanitized,
             ContentItem.authors,
             ContentItem.tags,
@@ -561,6 +569,9 @@ def _source(row: Any) -> ArticleSourceOut:
         name=_label(row.source_name) or _label(row.legacy_source_name),
         platform=_label(row.source_platform) or _label(row.legacy_source_platform),
         homepage_url=row.source_homepage_url,
+        icon_url=row.source_icon_url,
+        icon_status=row.source_icon_status,
+        icon_updated_at=row.source_icon_updated_at,
     )
 
 
@@ -637,6 +648,7 @@ async def _classification_facets(session: AsyncSession) -> dict[str, list[Articl
             topic.label("topic"),
             language.label("language"),
         )
+        .where(active_feed_condition())
         .cte("article_classifications")
         .prefix_with("MATERIALIZED")
     )
@@ -835,6 +847,29 @@ def _safe_html(value: str | None) -> str | None:
     return sanitized or None
 
 
+def _content_origin(row: Any) -> ContentOrigin:
+    content_text = " ".join((row.content_text or "").split())
+    if not content_text:
+        return "unavailable"
+    metrics = row.content_metrics if isinstance(row.content_metrics, dict) else {}
+    explicit = metrics.get("content_origin")
+    if explicit in {
+        "source_provided",
+        "extracted",
+        "source_excerpt",
+        "generated_summary",
+        "unavailable",
+        "unknown",
+    }:
+        return cast(ContentOrigin, explicit)
+    if row.item_type == "telegram_post":
+        return "source_provided"
+    summary = " ".join((row.summary or "").split())
+    if summary and summary == content_text:
+        return "source_excerpt"
+    return "unknown"
+
+
 @router.get("/articles", response_model=ArticleListOut)
 async def list_articles(
     cursor: str | None = Query(default=None, min_length=1, max_length=2_000),
@@ -913,6 +948,7 @@ async def get_article_facets(
                 func.count(ContentItem.id).label("count"),
             )
             .join(ContentItem, ContentItem.primary_source_id == Source.id)
+            .where(active_feed_condition())
             .group_by(Source.id, Source.name, Source.platform)
             .order_by(Source.name, Source.platform, Source.id)
         )
@@ -966,6 +1002,7 @@ async def get_article(
             blockers=list(row.rewrite_blockers or []),
         ),
         content_text=row.content_text,
+        content_origin=_content_origin(row),
         sanitized_html=_safe_html(row.content_html_sanitized),
         authors=list(row.authors or []),
         tags=list(row.tags or []),

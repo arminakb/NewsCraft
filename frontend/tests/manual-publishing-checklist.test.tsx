@@ -189,7 +189,6 @@ it("records publication without an external URL and invalidates durable projecti
   expect(screen.getByText("Checked on the public account")).toHaveAttribute("dir", "auto")
   expect(invalidate).toHaveBeenCalledWith({ queryKey: ["manual-publication-plans", ids.plan] })
   expect(invalidate).toHaveBeenCalledWith({ queryKey: ["content-packs", ids.pack] })
-  expect(invalidate).toHaveBeenCalledWith({ queryKey: ["calendar"] })
 })
 
 it("reconciles a checklist 409 to the exact revision's terminal persisted plan", async () => {
@@ -205,7 +204,6 @@ it("reconciles a checklist 409 to the exact revision's terminal persisted plan",
     .mockResolvedValueOnce(new Response(JSON.stringify({ detail: "Plan became terminal" }), { status: 409, statusText: "Conflict" }))
     .mockResolvedValueOnce(jsonResponse(published))
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
-  const invalidate = vi.spyOn(client, "invalidateQueries")
   renderChecklistWithParentSync(plannedInstagram, client)
 
   fireEvent.click(screen.getByRole("checkbox", { name: "Copy reviewed" }))
@@ -214,7 +212,6 @@ it("reconciles a checklist 409 to the exact revision's terminal persisted plan",
   expect(screen.getByRole("alert")).toHaveTextContent("Plan became terminal")
   expect(client.getQueryData(packageQueryKeys.manualPlan(ids.plan))).toMatchObject({ status: "manual_published" })
   expect(client.getQueryData(packageQueryKeys.manualPlanForRevision(ids.revision))).toMatchObject({ status: "manual_published" })
-  expect(invalidate).toHaveBeenCalledWith({ queryKey: ["calendar"] })
   expect(fetchSpy).toHaveBeenNthCalledWith(
     2,
     `/api/backend/platform-variant-revisions/${ids.revision}/manual-publication-plan`,

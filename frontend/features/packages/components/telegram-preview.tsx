@@ -9,7 +9,7 @@ type TelegramRevision = Extract<PlatformRevision, { platform: "telegram" }>
 
 export function PreviewDisclaimer({ platform }: { platform: string }) {
   return (
-    <p role="note" className="rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-950">
+    <p role="note" className="rounded-md border border-warning/30 bg-[var(--warning-surface)] p-3 text-sm text-warning">
       Approximation only — this {platform} preview is not pixel parity or live platform state.
     </p>
   )
@@ -67,7 +67,7 @@ export function PreviewMediaAssignment({ assignment }: { assignment: MediaAssign
       <dl className="grid min-w-0 gap-1 sm:grid-cols-[max-content_1fr]">
         <dt className="font-medium">Asset</dt>
         <dd className="break-all">
-          {assignment.mediaAssetId ? assignment.mediaAssetId : <strong className="text-amber-800">Manual media required</strong>}
+          {assignment.mediaAssetId ? assignment.mediaAssetId : <strong className="text-warning">Manual media required</strong>}
         </dd>
         <dt className="font-medium">Role</dt>
         <dd>{assignment.role}</dd>
@@ -159,7 +159,7 @@ export function TelegramPreview({ revision }: { revision: TelegramRevision }) {
               {payload.mediaAssetIds.map((assetId) => <li key={assetId} className="break-all">{assetId}</li>)}
             </ol>
           ) : <p className="text-sm text-muted-foreground">No media asset IDs in exact payload.</p>}
-          {payload.mediaPolicy === "replace_manually" ? <p role="status" className="font-medium text-amber-800">Manual media replacement is required.</p> : null}
+          {payload.mediaPolicy === "replace_manually" ? <p role="status" className="font-medium text-warning">Manual media replacement is required.</p> : null}
         </section>
       </section>
 

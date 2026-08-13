@@ -72,7 +72,7 @@ for (const viewport of [
     const backend = await installMultiplatformBackend(page)
     await page.setViewportSize(viewport)
 
-    await page.goto(`/drafts/${ids.contentPack}`)
+    await page.goto(`/review/${ids.revisions.telegram}`)
     await expect(page.getByRole("heading", { name: "Editorial review" })).toBeVisible()
 
     for (const [tabName, previewName] of [
@@ -82,7 +82,7 @@ for (const viewport of [
       ["Blog", "Blog preview"],
     ] as const) {
       await page.getByRole("tab", { name: tabName, exact: true }).click()
-      const preview = page.getByRole("region", { name: previewName })
+      const preview = page.getByRole("region", { name: previewName, exact: true })
       await expect(preview).toBeVisible()
       await expect(preview).toContainText("Approximation only")
       await expectNoHorizontalOverflow(page)
@@ -119,8 +119,7 @@ for (const viewport of [
     await page.getByRole("link", { name: "Preview, schedule, or publish approved revision" }).click()
     await expect(page).toHaveURL(new RegExp(`/review/${ids.revisions.instagram}$`))
     await expect(page.getByRole("region", { name: "Manual publication handoff" })).toBeVisible()
-    await page.getByLabel("Scheduled time (UTC)").fill("2026-07-20T10:30")
-    await page.getByLabel("Display timezone").selectOption("Asia/Tehran")
+    await page.getByLabel("Scheduled time (Asia/Tehran)").fill("2026-07-20T14:00")
     await page.getByRole("button", { name: "Create manual publication plan" }).click()
     await expect(page.getByText("Manual publication plan created")).toBeVisible()
     expect(backend.requests.createPlan).toEqual({
@@ -153,15 +152,6 @@ for (const viewport of [
       note: "Verified against the approved Instagram revision",
     })
 
-    await navigateToCalendar(page, viewport.name === "mobile")
-    await expect(page.getByRole("heading", { name: "Publication calendar" })).toBeVisible()
-    await page.getByRole("button", { name: "Chronological list view" }).click()
-    const event = page.getByRole("article").filter({ hasText: "Instagram: Agent release" })
-    await expect(event).toContainText("manual published")
-    await expect(event.getByRole("link", { name: new RegExp(`Open Instagram event: Agent release.*${ids.manualPlan}`) })).toHaveAttribute(
-      "href",
-      `/review/${ids.revisions.instagram}`,
-    )
     await expectNoHorizontalOverflow(page)
   })
 }
@@ -199,6 +189,9 @@ async function installMultiplatformBackend(page: Page): Promise<BackendState> {
     const method = request.method()
     const body = method === "POST" || method === "PATCH" ? request.postDataJSON() : undefined
 
+    if (path === "/operator-settings/date-time") {
+      return json(route, { timezone: "Asia/Tehran", updated_at: now })
+    }
     if (path === "/automation-control") return json(route, { global_pause: false, dry_run: false, pause_reason: null, paused_at: null, updated_at: now })
     if (path === "/jobs/summary") return json(route, { queued: 0, running: 0, attention: 0, succeeded_today: 1 })
     if (path === `/content-packs/${ids.contentPack}` && method === "GET") return json(route, contentPack())
@@ -288,18 +281,6 @@ async function installMultiplatformBackend(page: Page): Promise<BackendState> {
   })
 
   return state
-}
-
-async function navigateToCalendar(page: Page, mobile: boolean) {
-  if (mobile) {
-    await page.getByRole("button", { name: "Open navigation" }).click()
-    const dialog = page.getByRole("dialog", { name: "Newsroom navigation" })
-    await expect(dialog).toBeVisible()
-    await dialog.getByRole("link", { name: "Calendar", exact: true }).click()
-  } else {
-    await page.getByRole("navigation", { name: "Newsroom navigation" }).getByRole("link", { name: "Calendar", exact: true }).click()
-  }
-  await page.waitForURL((url) => url.pathname === "/calendar")
 }
 
 async function expectNoHorizontalOverflow(page: Page) {

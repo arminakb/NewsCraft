@@ -1,5 +1,6 @@
 import type { ArticleSummary } from "./types"
 
+import { DEFAULT_TIME_ZONE, formatInTimeZone } from "@/lib/date-time"
 import { titleCase } from "@/lib/format"
 
 type ClassificationKind = "content-type" | "topic" | "language"
@@ -45,6 +46,7 @@ export function getArticleCardTime(
   value: string,
   dateBasis: ArticleSummary["dateBasis"],
   now = Date.now(),
+  timezone = DEFAULT_TIME_ZONE,
 ): ArticleCardTime {
   const timestamp = Date.parse(value)
   const basisLabel = dateBasis === "published" ? "Published" : "Collected"
@@ -57,7 +59,7 @@ export function getArticleCardTime(
     }
   }
 
-  const exactLabel = formatExactTime(timestamp)
+  const exactLabel = formatExactTime(timestamp, timezone)
   if (!exactLabel) {
     return {
       relativeLabel: "Time unavailable",
@@ -86,12 +88,9 @@ function normalize(value: string) {
   return value.trim().replace(/\s+/g, " ").toLocaleLowerCase("en-US")
 }
 
-function formatExactTime(timestamp: number) {
+function formatExactTime(timestamp: number, timezone: string) {
   try {
-    return new Intl.DateTimeFormat("en-US", {
-      dateStyle: "medium",
-      timeStyle: "short",
-    }).format(new Date(timestamp))
+    return formatInTimeZone(timestamp, timezone)
   } catch {
     return null
   }

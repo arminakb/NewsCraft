@@ -260,14 +260,14 @@ export async function getTelegramProxyDependencies(proxyId: string) {
 export const deleteTelegramProxy = (proxyId: string) =>
   apiRequestVoid(`/telegram/proxies/${id(proxyId)}`, { method: "DELETE" })
 
-export type CodexConnection = Schemas["CodexConnectionOut"]
-export type CodexActivity = Schemas["GatewayActivityOut"]
+export type CodexConnection = Schemas["CodexConnectionSummaryOut"]
+export type CodexActivity = Schemas["GatewayActivitySummaryOut"]
 export type CodexPairingSession = Schemas["PairingSessionCreatedOut"]
 
 type BackendCodexConnection = Schemas["CodexConnectionOut"]
 
 export async function getCodexConnections() {
-  return apiRequest<BackendCodexConnection[]>("/codex-gateway/connections")
+  return apiRequest<CodexConnection[]>("/codex-gateway/connections")
 }
 
 export async function createCodexPairingSession(deviceName: string, scopes: string[]): Promise<CodexPairingSession> {

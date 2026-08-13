@@ -21,6 +21,9 @@ export default defineConfig({
   },
   webServer: {
     command: `npm run dev -- --port ${playwrightPort}`,
+    env: {
+      NODE_ENV: "development",
+    },
     url: playwrightBaseUrl,
     reuseExistingServer: true,
     timeout: 120_000,

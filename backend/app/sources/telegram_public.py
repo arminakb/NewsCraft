@@ -74,6 +74,7 @@ def _parse_message(block: Tag, channel: str, warnings: list[str]) -> ParsedSourc
         media_candidates=_extract_media_candidates(block),
         parser_meta={
             "channel": channel,
+            "content_origin": "source_provided" if content_text else "unavailable",
             "message_id": message_id,
             "message_ids": message_ids,
             "grouped_id": grouped_id,

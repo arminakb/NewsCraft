@@ -23,22 +23,32 @@ PROXY_ENVIRONMENT_NAMES = {
 
 API_ENVIRONMENT_NAMES = {
     "DATABASE_URL",
+    "CONTINUOUS_INGESTION_INTERVAL_MINUTES",
+    "SOURCE_ICON_DISCOVERY_TTL_DAYS",
     "MEDIA_ROOT",
     "EXPORT_ROOT",
     "READINESS_REQUIRED_CAPABILITIES",
     "CAPABILITY_QUEUE_CEILING",
     "CAPABILITY_RETRY_AFTER_SECONDS",
     "CAPABILITY_OBSERVATION_TTL_SECONDS",
-    "SECURITY_ADMIN_TOKEN",
+    "CORS_ORIGINS",
+    "APPLICATION_AUTH_MODE",
     "CODEX_GATEWAY_HASH_KEY",
     "CODEX_GATEWAY_PUBLIC_URL",
     "SECRET_KEY_VERSION",
-    "SECRET_MASTER_KEY",
     "SECRET_PREVIOUS_KEYS",
 }
 SOURCE_WORKER_ENVIRONMENT_NAMES = {
     "NEWSCRAFT_COMPONENT_ID",
     "DATABASE_URL",
+    "CONTINUOUS_INGESTION_INTERVAL_MINUTES",
+    "SOURCE_ICON_DISCOVERY_BATCH_SIZE",
+    "SOURCE_ICON_DISCOVERY_TTL_DAYS",
+    "SOURCE_ICON_DISCOVERY_RETRY_BASE_SECONDS",
+    "SOURCE_ICON_DISCOVERY_RETRY_MAX_SECONDS",
+    "SOURCE_ICON_DISCOVERY_TIMEOUT_SECONDS",
+    "SOURCE_ICON_DISCOVERY_MAX_BYTES",
+    "SOURCE_ICON_DISCOVERY_MAX_REDIRECTS",
     "HTTP_PROXY",
     "HTTPS_PROXY",
     "ALL_PROXY",
@@ -49,7 +59,6 @@ SOURCE_WORKER_ENVIRONMENT_NAMES = {
     "OPENROUTER_API_KEY",
     "OPENROUTER_BASE_URL",
     "SECRET_KEY_VERSION",
-    "SECRET_MASTER_KEY",
     "SECRET_PREVIOUS_KEYS",
     "SECURITY_INTERNAL_SCOPES",
     "TELEGRAM_SOURCE_EDITOR_API_ID",
@@ -65,7 +74,6 @@ PUBLISHING_WORKER_ENVIRONMENT_NAMES = {
     "NO_PROXY",
     "MEDIA_ROOT",
     "SECRET_KEY_VERSION",
-    "SECRET_MASTER_KEY",
     "SECRET_PREVIOUS_KEYS",
     "SECURITY_INTERNAL_SCOPES",
     "TELEGRAM_PROXY_ALLOWED_PORTS",
@@ -73,7 +81,13 @@ PUBLISHING_WORKER_ENVIRONMENT_NAMES = {
     "TELEGRAM_API_READ_TIMEOUT_SECONDS",
     "TELEGRAM_DESTINATION_NEWS_TOKEN",
 }
-SCHEDULER_ENVIRONMENT_NAMES = {"NEWSCRAFT_COMPONENT_ID", "DATABASE_URL"}
+SCHEDULER_ENVIRONMENT_NAMES = {
+    "NEWSCRAFT_COMPONENT_ID",
+    "DATABASE_URL",
+    "CONTINUOUS_INGESTION_INTERVAL_MINUTES",
+    "SOURCE_ICON_DISCOVERY_BATCH_SIZE",
+    "SOURCE_ICON_DISCOVERY_TTL_DAYS",
+}
 ALL_COMPOSE_SERVICES = {
     "backup",
     "postgres",
@@ -120,6 +134,9 @@ def test_local_service_ports_bind_to_loopback():
     assert compose["services"]["postgres"]["ports"][0]["host_ip"] == "127.0.0.1"
     assert compose["services"]["api"]["ports"][0]["host_ip"] == "127.0.0.1"
     assert compose["services"]["frontend"]["ports"][0]["host_ip"] == "127.0.0.1"
+    assert compose["services"]["api"]["environment"]["APPLICATION_AUTH_MODE"] == "local_owner"
+    configured_origins = compose["services"]["api"]["environment"]["CORS_ORIGINS"].split(",")
+    assert set(configured_origins) == {"http://localhost:3000", "http://127.0.0.1:3000"}
 
 
 def test_dockerfile_runs_backend_api():
@@ -269,6 +286,22 @@ def test_only_owning_workers_receive_external_credential_references():
     assert not reference_names & set(scheduler_environment)
 
 
+def test_encrypted_secret_owners_mount_one_stable_master_key_file():
+    compose = _compose_yaml()
+    services = compose["services"]
+
+    for name in ("api", "worker-source-generation", "worker-publishing"):
+        service = services[name]
+        assert "SECRET_MASTER_KEY" not in service["environment"]
+        mounts = {item["target"]: item["source"] for item in service["secrets"]}
+        assert mounts["SECRET_MASTER_KEY"] == "secret_master_key"
+
+    assert services["scheduler"].get("secrets", []) == []
+    assert compose["secrets"]["secret_master_key"] == {
+        "file": "${SECRET_MASTER_KEY_FILE:-./secrets/SECRET_MASTER_KEY}"
+    }
+
+
 def test_phase_six_base_compose_has_exact_service_environment_boundaries():
     services = _compose_yaml()["services"]
 
@@ -307,7 +340,6 @@ def test_production_secrets_are_role_owned_read_only_files():
     source_targets = {item["target"] for item in services["worker-source-generation"]["secrets"]}
     publishing_targets = {item["target"] for item in services["worker-publishing"]["secrets"]}
     assert api_targets == {
-        "SECURITY_ADMIN_TOKEN",
         "CODEX_GATEWAY_HASH_KEY",
         "SECRET_MASTER_KEY",
         "SECRET_PREVIOUS_KEYS",
@@ -401,9 +433,10 @@ def test_worker_and_scheduler_healthchecks_verify_identity_capability_and_job_co
             "--component-type": "worker",
             "--expected-capabilities": "generation,ingestion,source",
             "--expected-job-types": (
-                "build_export,content_pack.generate,content_pack.generate_telegram,"
-                "content_pack.regenerate,execute_retention,ingest.collect,manual_intake,"
-                "operations.canary.source_generation,research_story,story.group_pending,"
+                "automation.run.start,build_export,content_pack.generate,content_pack.generate_telegram,"
+                "content_pack.regenerate,execute_retention,ingest.collect,ingest.collection.continuous_cycle,"
+                "manual_intake,operations.canary.source_generation,research_story,source.icon.discover,"
+                "story.group_pending,"
                 "telegram.route.backfill,"
                 "telegram.route.dry_run,telegram.route.initialize,telegram.route.poll,"
                 "telegram.route.process"
@@ -565,11 +598,11 @@ def test_all_supported_compose_modes_render_with_valid_dependency_conditions():
         assert services["migrate"]["depends_on"]["postgres"]["condition"] == ("service_healthy")
 
 
-def test_postgres_18_volume_uses_supported_data_parent():
+def test_postgres_volume_keeps_compatible_trixie_collation_provider():
     compose = yaml.safe_load((ROOT / "docker-compose.yml").read_text(encoding="utf-8"))
     postgres = compose["services"]["postgres"]
 
-    assert postgres["image"].startswith("postgres:18.3-bookworm@sha256:")
+    assert postgres["image"].startswith("postgres:18.4-trixie@sha256:")
     assert "postgres_data:/var/lib/postgresql" in postgres["volumes"]
     assert "postgres_data:/var/lib/postgresql/data" not in postgres["volumes"]
 
@@ -578,10 +611,10 @@ def test_compose_has_ephemeral_postgres_test_profile():
     compose = yaml.safe_load((ROOT / "docker-compose.yml").read_text(encoding="utf-8"))
     service = compose["services"]["postgres-test"]
 
-    assert service["image"].startswith("postgres:18.3-bookworm@sha256:")
+    assert service["image"].startswith("postgres:18.4-trixie@sha256:")
     assert service["profiles"] == ["test"]
     assert service["environment"]["POSTGRES_DB"] == "newscraft_test"
-    assert service["ports"] == ["127.0.0.1:55432:5432"]
+    assert service["ports"] == ["127.0.0.1:${NEWSCRAFT_TEST_DATABASE_PORT:-55432}:5432"]
     assert "/var/lib/postgresql" in service["tmpfs"]
 
 

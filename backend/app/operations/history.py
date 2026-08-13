@@ -12,6 +12,7 @@ from sqlalchemy import Select, Text, and_, case, exists, or_, select
 from sqlalchemy import cast as sql_cast
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.automations.definitions.models import AutomationRun, AutomationVersion
 from app.automations.models import AutomationDispatch
 from app.generation.models import ContentPack, PlatformVariant, PlatformVariantRevision
 from app.jobs.events import redact_event_data
@@ -20,6 +21,7 @@ from app.publishing.models import PublishJob
 from app.stories.models import StoryRevision
 
 type HistoryCategory = Literal[
+    "automation",
     "collection",
     "research",
     "generation",
@@ -32,9 +34,18 @@ type HistoryCategory = Literal[
     "cancel",
     "reconcile",
 ]
-type HistorySubjectType = Literal["automation_route", "story", "job"]
+type HistorySubjectType = Literal[
+    "automation",
+    "automation_version",
+    "automation_run",
+    "automation_node_run",
+    "automation_route",
+    "story",
+    "job",
+]
 
 HISTORY_CATEGORIES: tuple[HistoryCategory, ...] = (
+    "automation",
     "collection",
     "research",
     "generation",
@@ -48,6 +59,10 @@ HISTORY_CATEGORIES: tuple[HistoryCategory, ...] = (
     "reconcile",
 )
 HISTORY_SUBJECT_TYPES: tuple[HistorySubjectType, ...] = (
+    "automation",
+    "automation_version",
+    "automation_run",
+    "automation_node_run",
     "automation_route",
     "story",
     "job",
@@ -136,6 +151,7 @@ _GENERATION_JOB_TYPES = (
 )
 # Destination health checks are publishing readiness in the locked history taxonomy.
 _PUBLISH_JOB_TYPES = ("telegram.destination.check", "telegram.proxy.check", "telegram.publish")
+_AUTOMATION_JOB_TYPES = ("automation.run.start",)
 
 
 class HistoryEntry(BaseModel):
@@ -301,6 +317,52 @@ def _subject_criterion(subject_type: HistorySubjectType, subject_id: UUID):
         return WorkflowEvent.workflow_job_id == subject_id
     if subject_type == "story":
         return _story_subject_criterion(subject_id)
+    subject_text = str(subject_id)
+    if subject_type == "automation_run":
+        return or_(
+            WorkflowJob.automation_run_id == subject_id,
+            _event_text("automation_run_id") == subject_text,
+            _job_text("automation_run_id") == subject_text,
+        )
+    if subject_type == "automation_node_run":
+        return or_(
+            WorkflowJob.automation_node_run_id == subject_id,
+            _event_text("automation_node_run_id") == subject_text,
+            _job_text("automation_node_run_id") == subject_text,
+        )
+    if subject_type == "automation_version":
+        run_link = exists(
+            select(1)
+            .select_from(AutomationRun)
+            .where(
+                AutomationRun.id == WorkflowJob.automation_run_id,
+                AutomationRun.automation_version_id == subject_id,
+            )
+        )
+        event_link = exists(
+            select(1)
+            .select_from(AutomationVersion)
+            .where(
+                AutomationVersion.id == subject_id,
+                _event_text("automation_id") == sql_cast(AutomationVersion.automation_id, Text),
+                _event_text("version") == sql_cast(AutomationVersion.version, Text),
+            )
+        )
+        return or_(run_link, event_link)
+    if subject_type == "automation":
+        run_link = exists(
+            select(1)
+            .select_from(AutomationRun)
+            .where(
+                AutomationRun.id == WorkflowJob.automation_run_id,
+                AutomationRun.automation_id == subject_id,
+            )
+        )
+        return or_(
+            _event_text("automation_id") == subject_text,
+            _job_text("automation_id") == subject_text,
+            run_link,
+        )
     return _route_subject_criterion(subject_id)
 
 
@@ -325,10 +387,12 @@ def _category_expression():
         (event_type.in_(_EDIT_EVENT_TYPES), "edit"),
         (event_type.in_(_PUBLISH_EVENT_TYPES), "publish"),
         (event_type.in_(_COLLECTION_EVENT_TYPES), "collection"),
+        (event_type.like("automation.%"), "automation"),
         (_domain_job_event_for(_COLLECTION_JOB_TYPES), "collection"),
         (_domain_job_event_for(_RESEARCH_JOB_TYPES), "research"),
         (_domain_job_event_for(_GENERATION_JOB_TYPES), "generation"),
         (_domain_job_event_for(_PUBLISH_JOB_TYPES), "publish"),
+        (_domain_job_event_for(_AUTOMATION_JOB_TYPES), "automation"),
         else_="unknown",
     )
 
@@ -400,6 +464,8 @@ def _category_for(event_type: str, job_type: str | None) -> HistoryCategory | No
         return "publish"
     if event_type in _COLLECTION_EVENT_TYPES:
         return "collection"
+    if event_type.startswith("automation."):
+        return "automation"
     if event_type in _DOMAIN_JOB_EVENT_TYPES and job_type is not None:
         if job_type in _COLLECTION_JOB_TYPES:
             return "collection"
@@ -409,6 +475,8 @@ def _category_for(event_type: str, job_type: str | None) -> HistoryCategory | No
             return "generation"
         if job_type in _PUBLISH_JOB_TYPES:
             return "publish"
+        if job_type in _AUTOMATION_JOB_TYPES:
+            return "automation"
     return None
 
 
@@ -448,7 +516,12 @@ def _uuid_text(value: object) -> str | None:
         return None
 
 
-def _subject_url(metadata: dict[str, object], job_id: UUID | None, category: HistoryCategory) -> str:
+def _subject_url(
+    metadata: dict[str, object],
+    job_id: UUID | None,
+    category: HistoryCategory,
+    automation_run_id: UUID | None = None,
+) -> str:
     route_id = _uuid_text(metadata.get("route_id"))
     if route_id is not None:
         return f"/automations/{route_id}"
@@ -458,6 +531,15 @@ def _subject_url(metadata: dict[str, object], job_id: UUID | None, category: His
     revision_id = _uuid_text(metadata.get("revision_id") or metadata.get("result_revision_id"))
     if revision_id is not None:
         return f"/review/{revision_id}"
+    run_id = _uuid_text(metadata.get("automation_run_id")) or (
+        str(automation_run_id) if automation_run_id is not None else None
+    )
+    automation_id = _uuid_text(metadata.get("automation_id"))
+    if run_id is not None:
+        suffix = f"&automationId={automation_id}" if automation_id is not None else ""
+        return f"/automations/runs?runId={run_id}{suffix}"
+    if automation_id is not None:
+        return f"/automations/{automation_id}"
     if category == "reconcile":
         return "/"
     if job_id is not None:
@@ -472,6 +554,11 @@ def _entry(event: Any, job: Any | None) -> HistoryEntry | None:
     metadata = cast(dict[str, object], redact_event_data(raw_metadata))
     job_id = event.workflow_job_id if isinstance(event.workflow_job_id, UUID) else None
     job_type = job.job_type if job is not None and isinstance(job.job_type, str) else None
+    automation_run_id = (
+        job.automation_run_id
+        if job is not None and isinstance(getattr(job, "automation_run_id", None), UUID)
+        else None
+    )
     category = _category_for(str(event.event_type), job_type)
     if category is None:
         return None
@@ -484,7 +571,7 @@ def _entry(event: Any, job: Any | None) -> HistoryEntry | None:
         title=title,
         summary=_summary_for(title, event.actor, metadata),
         job_id=job_id,
-        subject_url=_subject_url(metadata, job_id, category),
+        subject_url=_subject_url(metadata, job_id, category, automation_run_id),
         sanitized_metadata=metadata,
     )
 

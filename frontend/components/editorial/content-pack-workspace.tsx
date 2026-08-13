@@ -6,6 +6,8 @@ import { EvidencePanel } from "@/components/editorial/evidence-panel"
 import { RevisionTimeline } from "@/components/editorial/revision-timeline"
 import { VariantEditor } from "@/components/editorial/variant-editor"
 import { Button } from "@/components/ui/button"
+import { PageHeader } from "@/components/ui/page-header"
+import { Textarea } from "@/components/ui/textarea"
 import { CopyExportActions } from "@/features/packages/components/copy-export-actions"
 import { MediaPlan } from "@/features/packages/components/media-plan"
 import { PlatformEditor } from "@/features/packages/components/platform-editor"
@@ -160,14 +162,14 @@ export function ContentPackWorkspace({ packId, initialRevisionId = null }: { pac
     ?? revisionHistory.error
     ?? evidence.error
     ?? (activeVariant?.platform === "telegram" ? providers.error : null)
-  if (queryError) return <section role="alert" dir="auto" className="p-6 text-red-700">{getApiErrorMessage(queryError, "Editorial workspace or captured evidence could not be loaded")}</section>
+  if (queryError) return <section role="alert" dir="auto" className="p-6 text-destructive">{getApiErrorMessage(queryError, "Editorial workspace or captured evidence could not be loaded")}</section>
   const loading = pack.isPending
     || (Boolean(initialRevisionId) && initialRevision.isPending)
     || (Boolean(pack.data?.storyId) && evidence.isPending)
     || (Boolean(activeVariant) && revisionHistory.isPending)
     || (activeVariant?.platform === "telegram" && providers.isPending)
   if (loading) return <section role="status" className="p-6">Loading editorial workspace and captured evidence…</section>
-  if (!pack.data) return <section role="alert" className="p-6 text-red-700">Content package data is unavailable.</section>
+  if (!pack.data) return <section role="alert" className="p-6 text-destructive">Content package data is unavailable.</section>
 
   const chooseVariant = (variant: ContentPackageVariant) => {
     if (workspaceBusy || variant.id === activeVariant?.id || !allowDiscard()) return
@@ -208,10 +210,10 @@ export function ContentPackWorkspace({ packId, initialRevisionId = null }: { pac
 
   const blockers = revision ? revisionBlockers(revision) : []
 
-  return <section className="min-w-0 space-y-4 p-4 md:p-6" aria-labelledby="content-pack-workspace-heading">
-    <header><h1 id="content-pack-workspace-heading" className="text-2xl font-semibold">Editorial review</h1><p className="text-sm text-muted-foreground">{pack.data.status === "ready" ? "Ready for handoff" : "Review each platform and approve the exact revision."}</p></header>
+  return <section className="nc-page" aria-labelledby="content-pack-workspace-heading">
+    <PageHeader title="Editorial review" titleId="content-pack-workspace-heading" description={pack.data.status === "ready" ? "Ready for handoff" : "Review each platform and approve the exact revision."} />
     <div role="tablist" aria-label="Package platforms" className="flex flex-wrap gap-2 border-b pb-3">
-      {variants.map((variant) => <button key={variant.id} type="button" role="tab" disabled={workspaceBusy} aria-selected={variant.id === activeVariant?.id} aria-controls={`platform-panel-${variant.id}`} className={`rounded-lg border px-3 py-2 text-sm ${variant.id === activeVariant?.id ? "bg-primary text-primary-foreground" : "bg-background"}`} onClick={() => chooseVariant(variant)}>{platformLabel(variant.platform)}</button>)}
+      {variants.map((variant) => <button key={variant.id} type="button" role="tab" disabled={workspaceBusy} aria-selected={variant.id === activeVariant?.id} aria-controls={`platform-panel-${variant.id}`} className={`rounded-lg border px-3 py-2 text-sm ${variant.id === activeVariant?.id ? "bg-primary-solid text-primary-solid-foreground" : "bg-background"}`} onClick={() => chooseVariant(variant)}>{platformLabel(variant.platform)}</button>)}
     </div>
     {!activeVariant || !revision ? <section className="rounded-lg border p-4"><h2 className="font-semibold">No platform revision is ready</h2><p className="text-sm text-muted-foreground">Generation is pending for {activeVariant ? platformLabel(activeVariant.platform) : "this content package"}.</p></section> : <div id={`platform-panel-${activeVariant.id}`} role="tabpanel" aria-label={`${platformLabel(activeVariant.platform)} package`} className="space-y-4">
       <PlatformPreview revision={revision} />
@@ -229,7 +231,7 @@ export function ContentPackWorkspace({ packId, initialRevisionId = null }: { pac
                 <div><dt className="text-muted-foreground">Provider</dt><dd>{revision.providerProfile?.name ?? "Operator revision"}</dd></div>
                 <div><dt className="text-muted-foreground">Resolved model</dt><dd>{revision.resolvedModel ?? "Not recorded"}</dd></div>
               </dl>
-              {blockers.map((blocker) => <div key={blocker} className="text-sm text-red-700">{blocker}</div>)}
+              {blockers.map((blocker) => <div key={blocker} className="text-sm text-destructive">{blocker}</div>)}
               <ExactEvidenceMap citations={revision.evidenceCitations} onSelect={(citation) => setActiveCitation(citation)} />
               <RevisionTimeline revisions={revisions} activeRevisionId={revision.id} onSelect={chooseRevision} disabled={workspaceBusy} />
             </div>
@@ -265,7 +267,7 @@ export function ContentPackWorkspace({ packId, initialRevisionId = null }: { pac
             <ManualReviewActions key={revision.id} revision={revision} dirty={editorDirty} pending={workspaceBusy} onApprove={(note) => approve.mutateAsync({ revisionId: revision.id, expectedContentHash: revision.contentHash, note })} onReject={(reason) => reject.mutateAsync({ revisionId: revision.id, expectedContentHash: revision.contentHash, reason })} />
           </>}
           <MediaPlan revision={revision} onReorder={editorDirty || workspaceBusy ? undefined : (payload) => void reorderMedia(payload)} />
-          {mediaError ? <div role="alert" className="text-sm text-red-700">{mediaError}</div> : null}
+          {mediaError ? <div role="alert" className="text-sm text-destructive">{mediaError}</div> : null}
           {revision.approvalState === "approved" && !workspaceBusy ? <a href={`/review/${revision.id}`} className="inline-flex text-primary underline">Preview, schedule, or publish approved revision</a> : <p className="text-sm text-muted-foreground">{workspaceBusy ? "Publishing handoff is unavailable while the revision update is saving." : "Publishing handoff is available only after approving this exact revision."}</p>}
         </div>
       </div>
@@ -275,9 +277,9 @@ export function ContentPackWorkspace({ packId, initialRevisionId = null }: { pac
 
 function RevisionBlockers({ blockers }: { blockers: string[] }) {
   if (!blockers.length) {
-    return <div role="status" className="rounded-lg border border-green-200 bg-green-50 p-3 text-sm text-green-800">No validation blockers on this revision.</div>
+    return <div role="status" className="rounded-lg border border-success/30 bg-[var(--success-surface)] p-3 text-sm text-success">No validation blockers on this revision.</div>
   }
-  return <section aria-labelledby="revision-blockers-heading" className="rounded-lg border border-red-300 bg-red-50 p-3 text-red-900">
+  return <section aria-labelledby="revision-blockers-heading" className="rounded-lg border border-destructive/30 bg-[var(--error-surface)] p-3 text-destructive">
     <h2 id="revision-blockers-heading" className="font-semibold">Resolve before approval</h2>
     <ul className="mt-1 list-disc ps-5 text-sm">{blockers.map((blocker) => <li key={blocker}>{blocker}</li>)}</ul>
   </section>
@@ -309,7 +311,7 @@ function ManualReviewActions({ revision, dirty, pending, onApprove, onReject }: 
     try { await operation(); setOutcome(message) }
     catch (caught) { setError(getApiErrorMessage(caught, "The review decision could not be saved")) }
   }
-  return <section aria-labelledby="manual-review-heading" className="space-y-3 rounded-lg border p-3"><h2 id="manual-review-heading" className="font-semibold">Exact manual revision review</h2><div className="flex flex-wrap gap-2"><Button type="button" disabled={dirty || pending || validationErrors.length > 0 || revision.approvalState !== "pending_review"} onClick={() => void run(() => onApprove(null), "Revision approved")}>Approve revision</Button></div><label className="grid gap-1"><span>Rejection reason</span><textarea aria-label="Rejection reason" disabled={pending} className="rounded-lg border p-2" value={rejectionReason} onChange={(event) => setRejectionReason(event.target.value)} /></label><Button type="button" variant="outline" disabled={dirty || pending || !rejectionReason.trim() || revision.approvalState !== "pending_review"} onClick={() => void run(() => onReject(rejectionReason.trim()), "Revision rejected")}>Reject revision</Button>{validationErrors.map((issue) => <div key={`${issue.code}-${issue.path}`} role="alert" className="text-sm text-red-700">{issue.message}</div>)}{error ? <div role="alert" className="text-sm text-red-700">{error}</div> : null}{outcome ? <div role="status" className="text-sm text-green-700">{outcome}</div> : null}</section>
+  return <section aria-labelledby="manual-review-heading" className="space-y-3 rounded-lg border p-3"><h2 id="manual-review-heading" className="font-semibold">Exact manual revision review</h2><div className="flex flex-wrap gap-2"><Button type="button" disabled={dirty || pending || validationErrors.length > 0 || revision.approvalState !== "pending_review"} onClick={() => void run(() => onApprove(null), "Revision approved")}>Approve revision</Button></div><label className="grid gap-1"><span>Rejection reason</span><Textarea aria-label="Rejection reason" disabled={pending} value={rejectionReason} onChange={(event) => setRejectionReason(event.target.value)} /></label><Button type="button" variant="outline" disabled={dirty || pending || !rejectionReason.trim() || revision.approvalState !== "pending_review"} onClick={() => void run(() => onReject(rejectionReason.trim()), "Revision rejected")}>Reject revision</Button>{validationErrors.map((issue) => <div key={`${issue.code}-${issue.path}`} role="alert" className="text-sm text-destructive">{issue.message}</div>)}{error ? <div role="alert" className="text-sm text-destructive">{error}</div> : null}{outcome ? <div role="status" className="text-sm text-success">{outcome}</div> : null}</section>
 }
 
 function telegramEditorRevision(revision: TelegramRevision): VariantRevision {

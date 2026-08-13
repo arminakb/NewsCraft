@@ -4,7 +4,7 @@ import { DirtyNavigationCoordinator, guardedNavigation, useDirtyNavigation } fro
 function Harness({ handled, dirty = true }: { handled: () => void; dirty?: boolean }) {
   useDirtyNavigation(dirty)
   const click = (event: React.MouseEvent) => { event.preventDefault(); handled() }
-  return <><DirtyNavigationCoordinator /><a href="/inbox" onClick={click}>Actionable</a><a href="/" onClick={click}>No-op</a><a href="#section" onClick={click}>Hash</a><a href="/file" download onClick={click}>Download</a><a href="/outside" target="_blank" onClick={click}>New tab</a></>
+  return <><DirtyNavigationCoordinator /><a href="/sources" onClick={click}>Actionable</a><a href="/" onClick={click}>No-op</a><a href="#section" onClick={click}>Hash</a><a href="/file" download onClick={click}>Download</a><a href="/outside" target="_blank" onClick={click}>New tab</a></>
 }
 
 function Coordinated({ children }: { children: React.ReactNode }) {
@@ -40,12 +40,12 @@ it("blocks unload only until the last dirty source is synchronously released", (
 
 it("indexes clean app entry A before editor B becomes dirty", () => {
   Object.defineProperty(window, "navigation", { configurable: true, value: undefined })
-  window.history.replaceState({ caller: "entry-a" }, "", "/inbox")
+  window.history.replaceState({ caller: "entry-a" }, "", "/sources")
   const confirm = vi.spyOn(window, "confirm").mockReturnValue(true)
   const go = vi.spyOn(window.history, "go").mockImplementation(() => undefined)
   const view = render(<Coordinated><Harness handled={vi.fn()} dirty={false} /></Coordinated>)
   const entryA = window.history.state
-  window.history.pushState({ caller: "editor-b" }, "", "/drafts/pack-1")
+  window.history.pushState({ caller: "editor-b" }, "", "/review/revision-1")
   const editorB = window.history.state
   expect(confirm).not.toHaveBeenCalled()
 

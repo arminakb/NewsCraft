@@ -7,6 +7,11 @@ export const RETENTION_CONFIRMATION = "DELETE PREVIEWED DATA" as const
 
 export type OperationComponentHealth = Schemas["ComponentHealthOut"]
 export type OperationsSnapshot = Schemas["OperationsSnapshotOut"]
+export type OperationalHealthSnapshot = Schemas["OperationalHealthSnapshot"]
+export type OperationalHealthState = Schemas["HealthState"]
+export type OperationalDependency = Schemas["DependencyHealth"]
+export type OperationalComponent = Schemas["ComponentOperationalHealth"]
+export type OperationalQueue = Schemas["QueueOperationalHealth"]
 
 export type HistoryCategory = Schemas["HistoryCategory"]
 export type HistorySubjectType = Schemas["HistorySubjectType"]

@@ -153,7 +153,7 @@ export function SaveToCollectionDialog({
     } catch (cause) {
       setBaseline(confirmed)
       setSelected(new Set(confirmed))
-      setMutationError(getApiErrorMessage(cause, "Changes may have saved, but the Library could not be refreshed. Review and try again."))
+      setMutationError(getApiErrorMessage(cause, "Changes may have saved, but the Feed could not be refreshed. Review and try again."))
     } finally {
       busyRef.current = false
       setPending(false)
@@ -190,7 +190,7 @@ export function SaveToCollectionDialog({
       aria-describedby="save-to-collection-description"
       aria-labelledby="save-to-collection-title"
       aria-modal="true"
-      className="fixed inset-0 z-50 grid place-items-center bg-slate-950/45 p-4"
+      className="nc-dialog-scrim fixed inset-0 z-50 grid place-items-center p-4"
       onMouseDown={(event) => {
         if (event.target === event.currentTarget) close()
       }}
@@ -198,7 +198,7 @@ export function SaveToCollectionDialog({
       role="dialog"
       tabIndex={-1}
     >
-      <div className="flex max-h-[min(760px,calc(100vh-2rem))] w-full max-w-lg flex-col overflow-hidden rounded-xl border bg-background shadow-xl">
+      <div className="nc-dialog flex max-h-[min(760px,calc(100vh-2rem))] w-full max-w-lg flex-col overflow-hidden">
         <header className="border-b px-5 py-4">
           <h2 className="text-lg font-semibold" id="save-to-collection-title">Save to Collection</h2>
           <p className="mt-1 text-sm text-muted-foreground" id="save-to-collection-description">
@@ -224,7 +224,7 @@ export function SaveToCollectionDialog({
 
           {collectionsError ? (
             <div className="space-y-3 rounded-lg border p-4">
-              <p className="text-sm text-red-700" dir="auto" role="alert">
+              <p className="text-sm text-destructive" dir="auto" role="alert">
                 {getApiErrorMessage(collectionsError, "Collections could not be loaded")}
               </p>
               <Button onClick={onRetryCollections} size="sm" variant="outline">Retry</Button>
@@ -238,7 +238,7 @@ export function SaveToCollectionDialog({
                 <label
                   className={cn(
                     "flex min-h-11 cursor-pointer items-center gap-3 rounded-lg border px-3 py-2 transition-colors",
-                    selected.has(collection.id) ? "border-primary/40 bg-primary/5" : "hover:bg-muted/60",
+                    selected.has(collection.id) ? "border-primary/40 bg-accent text-accent-foreground" : "hover:bg-muted/60",
                     busy && "cursor-not-allowed opacity-60",
                   )}
                   key={collection.id}
@@ -268,7 +268,7 @@ export function SaveToCollectionDialog({
           ) : null}
 
           {mutationError ? (
-            <p className="mt-4 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700" role="alert">
+            <p className="mt-4 rounded-lg border border-destructive/30 bg-[var(--error-surface)] p-3 text-sm text-destructive" role="alert">
               {mutationError}
             </p>
           ) : null}
@@ -299,8 +299,8 @@ export function SaveToCollectionDialog({
                   {createPending ? "Creating…" : "Create"}
                 </Button>
               </div>
-              {showNameError ? <p className="mt-1.5 text-sm text-red-700" id={`${nameId}-error`} role="alert">{nameError}</p> : null}
-              {createError ? <p className="mt-1.5 text-sm text-red-700" dir="auto" role="alert">{createError}</p> : null}
+              {showNameError ? <p className="mt-1.5 text-sm text-destructive" id={`${nameId}-error`} role="alert">{nameError}</p> : null}
+              {createError ? <p className="mt-1.5 text-sm text-destructive" dir="auto" role="alert">{createError}</p> : null}
             </form>
           ) : null}
         </div>

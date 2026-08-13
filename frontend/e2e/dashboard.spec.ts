@@ -21,21 +21,14 @@ const succeededJob = backendJob({
 })
 
 test.describe("NewsCraft command center", () => {
-  test("desktop Today and mobile Job Queue use fixed live workflow truth", async ({ page }) => {
+  test("desktop Today and mobile Operations Center use fixed live workflow truth", async ({ page }) => {
     const unhandledRequests = await installApiRoutes(page)
     await page.setViewportSize({ width: 1440, height: 900 })
     await page.goto("/")
 
     await expect(page.getByRole("heading", { name: "Today" })).toBeVisible()
-    await expect(page.getByText("Automation paused")).toBeVisible()
-    await expect(page.getByRole("button", { name: "Resume automations" })).toBeVisible()
-    await expect(page.locator("[data-summary=queued]")).toHaveText("3")
-    await expect(page.locator("[data-summary=running]")).toHaveText("1")
-    await expect(page.locator("[data-summary=attention]")).toHaveText("1")
-    await expect(page.locator("[data-summary=succeeded]")).toHaveText("4")
-    const priority = page.getByRole("region", { name: "Highest-priority decision" })
-    await expect(priority.getByText("Resolve failed workflow", { exact: true })).toBeVisible()
-    await expect(priority.getByRole("link", { name: "Inspect and retry" })).toBeVisible()
+    await expect(page.getByRole("heading", { name: "English editorial report 1" })).toBeVisible()
+    await expect(page.getByText("Latest stories collected by NewsCraft", { exact: true })).toBeVisible()
 
     const hasHorizontalOverflow = await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth)
     expect(hasHorizontalOverflow).toBe(false)
@@ -43,13 +36,15 @@ test.describe("NewsCraft command center", () => {
     await page.setViewportSize({ width: 390, height: 844 })
     await page.goto("/")
 
-    await page.getByRole("button", { name: "Open navigation" }).click()
-    const navigation = page.getByRole("dialog", { name: "Newsroom navigation" })
+    const navigation = page.getByRole("navigation", { name: "Mobile newsroom navigation" })
     await expect(navigation).toBeVisible()
-    await navigation.getByRole("link", { name: "Job Queue" }).click()
-    await expect(page.getByRole("heading", { name: "Job Queue" })).toBeVisible()
+    await navigation.getByRole("button", { name: "Open navigation" }).click()
+    const operationsLink = page.getByRole("dialog", { name: "Newsroom navigation" }).getByRole("link", { name: "Operations Center" })
+    await expect(operationsLink).toHaveAttribute("href", "/operations")
+    await page.goto("/operations")
+    await expect(page.getByRole("heading", { name: "Operations Center" })).toBeVisible()
 
-    await page.getByRole("button", { name: /view ingest\.collect job/i }).first().click()
+    await page.getByRole("button", { name: "View Ingest Collect job details" }).first().click()
     const detail = page.getByRole("dialog", { name: "Job details" })
     await expect(detail).toBeVisible()
     await expect(detail.getByRole("button", { name: "Retry job" })).toBeVisible()
@@ -117,6 +112,50 @@ async function installApiRoutes(page: Page) {
           : [failedJob, runningJob, succeededJob]
     await fulfillJson(route, { items })
   })
+  await page.route("**/api/backend/articles**", async (route) => {
+    const url = new URL(route.request().url())
+    const path = url.pathname.replace("/api/backend", "")
+    if (path !== "/articles") {
+      const requestLabel = `${route.request().method()} ${path}${url.search}`
+      unhandledRequests.push(requestLabel)
+      await route.fulfill({
+        status: 501,
+        contentType: "application/json",
+        body: JSON.stringify({ detail: `Unhandled deterministic test request: ${requestLabel}` }),
+      })
+      return
+    }
+    await fulfillJson(route, {
+      items: [todayArticle()],
+      next_cursor: null,
+      result_count: 1,
+    })
+  })
+  await page.route("**/api/backend/operations/diagnostics", async (route) => {
+    await fulfillJson(route, {
+      generated_at: "2026-07-12T08:03:00Z",
+      global_paused: true,
+      dry_run: false,
+      components: {},
+      queue_counts: { queued: 3, running: 1, failed: 1, needs_review: 0, succeeded: 4, cancelled: 0 },
+      attention: [],
+      outbound_proxy: { mode: "direct", scheme: null, bypass_rule_count: 0, last_connectivity_status: "not_checked", configuration_error_code: null },
+    })
+  })
+  await page.route("**/api/backend/operations/health", async (route) => {
+    await fulfillJson(route, {
+      generated_at: "2026-07-12T08:03:00Z",
+      state: "healthy",
+      state_definitions: {},
+      dependencies: {},
+      components: {},
+      queues: [],
+      recoveries: [],
+      alerts: [],
+      metrics: {},
+      outbound_proxy: { mode: "direct", scheme: null, bypass_rule_count: 0, last_connectivity_status: "not_checked", configuration_error_code: null },
+    })
+  })
   return unhandledRequests
 }
 
@@ -145,5 +184,37 @@ function backendJob(overrides: Record<string, unknown> = {}) {
     created_at: "2026-07-12T08:00:00Z",
     updated_at: "2026-07-12T08:00:00Z",
     ...overrides,
+  }
+}
+
+function todayArticle() {
+  return {
+    id: "55555555-5555-4555-8555-555555555555",
+    title: "English editorial report 1",
+    summary: "A source-grounded summary for Today.",
+    excerpt: null,
+    source: {
+      id: "66666666-6666-4666-8666-666666666666",
+      name: "Example Journal",
+      platform: "rss",
+      homepage_url: "https://example.com",
+    },
+    canonical_url: "https://example.com/articles/1",
+    published_at: "2026-07-12T08:00:00Z",
+    sort_at: "2026-07-12T08:00:00Z",
+    display_at: "2026-07-12T08:00:00Z",
+    date_basis: "published",
+    score: 60,
+    content_type: "news",
+    topic: "AI",
+    domain: "example.com",
+    language: "en",
+    direction: "ltr",
+    coverage: { state: "ungrouped", stories: [] },
+    image: null,
+    has_image: false,
+    saved: false,
+    saved_collection_ids: [],
+    article_readiness: { ready: false },
   }
 }

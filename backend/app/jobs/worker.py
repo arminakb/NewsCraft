@@ -262,6 +262,12 @@ def build_worker_runner(
     dependencies: dict[str, Any] = {}
     if "source" in capabilities:
         dependencies.update(_build_source_dependencies(owner, secrets))
+        from app.sources.icon_discovery import SourceIconDiscoveryService
+
+        dependencies["icon_discovery_service"] = SourceIconDiscoveryService(
+            config=settings,
+            proxy_policy=getattr(owner, "proxy_policy", None),
+        )
     if "generation" in capabilities:
         dependencies.update(_build_generation_dependencies(owner, secrets))
     if "publishing" in capabilities:

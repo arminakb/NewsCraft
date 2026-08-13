@@ -20,6 +20,7 @@ describe("SourceDetailPanel", () => {
     expect(screen.getByRole("link", { name: /https:\/\/techcrunch.com\/feed/i })).toBeInTheDocument()
     expect(screen.queryByRole("button", { name: /edit source/i })).not.toBeInTheDocument()
     expect(screen.queryByRole("button", { name: /disable source/i })).not.toBeInTheDocument()
+    expect(screen.queryByText(/advanced source record/i)).not.toBeInTheDocument()
   })
 
   it("renders degraded source status intentionally", () => {
@@ -37,7 +38,8 @@ describe("SourceDetailPanel", () => {
       />
     )
 
-    expect(screen.getByText(/Unknown source - https:\/\/techcrunch.com\/feed\//)).toBeInTheDocument()
+    expect(screen.getByText("Unknown source")).toBeInTheDocument()
+    expect(screen.getByRole("link", { name: /https:\/\/techcrunch.com\/feed/i })).toBeInTheDocument()
     expect(screen.getByText("Source URL")).toBeInTheDocument()
     expect(screen.queryByText("Feed URL")).not.toBeInTheDocument()
   })

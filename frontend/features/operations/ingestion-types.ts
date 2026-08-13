@@ -25,14 +25,27 @@ export type SourceSummary = {
   totalItems: number
   media24h: number
   addedAt: string
+  lastCheckedAt?: string | null
+  failureReason?: string | null
+  iconUrl?: string | null
+  iconSource?: string | null
+  iconUpdatedAt?: string | null
+  iconStatus?: "pending" | "queued" | "resolved" | "retryable" | "unavailable" | string | null
 }
 
-export type IngestionRunSummary = {
-  id: string
-  label: string
-  scope: string
-  status: "succeeded" | "partial" | "failed"
-  progress: number
-  duration: string
-  items: number
+export type SourceHealthResult = {
+  sourceId: string
+  status: SourceStatus
+  isChecking: boolean
+  lastCheckedAt: string
+  failureReason: string | null
+}
+
+export type CreateSourceInput = {
+  platform: "rss" | "atom" | "telegram_public"
+  name: string
+  url: string
+  category: string
+  language: string
+  fetchIntervalMinutes: number
 }

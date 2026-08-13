@@ -15,14 +15,9 @@ services:
     restart: unless-stopped
     environment:
       APP_ENV: production
-      SECURITY_ADMIN_TOKEN: null
       CODEX_GATEWAY_HASH_KEY: null
-      SECRET_MASTER_KEY: null
       SECRET_PREVIOUS_KEYS: null
     secrets:
-      - source: security_admin_token
-        target: SECURITY_ADMIN_TOKEN
-        mode: 0400
       - source: codex_gateway_hash_key
         target: CODEX_GATEWAY_HASH_KEY
         mode: 0400
@@ -49,7 +44,6 @@ services:
       HTTP_PROXY: ""
       HTTPS_PROXY: ""
       ALL_PROXY: ""
-      SECRET_MASTER_KEY: null
       SECRET_PREVIOUS_KEYS: null
     secrets:
       - source: secret_master_key
@@ -85,7 +79,6 @@ services:
     restart: unless-stopped
     environment:
       APP_ENV: production
-      SECRET_MASTER_KEY: null
       SECRET_PREVIOUS_KEYS: null
       TELEGRAM_DESTINATION_NEWS_TOKEN: ""
       HTTP_PROXY: ""
@@ -116,8 +109,6 @@ services:
     restart: unless-stopped
 
 secrets:
-  security_admin_token:
-    file: ${SECURITY_ADMIN_TOKEN_FILE:-./secrets/SECURITY_ADMIN_TOKEN}
   codex_gateway_hash_key:
     file: ${CODEX_GATEWAY_HASH_KEY_FILE:-./secrets/CODEX_GATEWAY_HASH_KEY}
   secret_master_key:

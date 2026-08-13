@@ -5,14 +5,17 @@ import { Pause, Play, ShieldCheck } from "lucide-react"
 import { useState } from "react"
 
 import { useNotices } from "@/components/providers/notice-provider"
+import { useDateTime } from "@/components/providers/date-time-provider"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { getAutomationControl, updateAutomationControl } from "@/features/control/api"
 import type { AutomationControlPatch } from "@/features/control/types"
 import { getApiErrorMessage } from "@/lib/http"
+import { formatInTimeZone } from "@/lib/date-time"
 import { queryKeys } from "@/lib/query-keys"
 
 export function GlobalControls() {
+  const { timezone } = useDateTime()
   const queryClient = useQueryClient()
   const { pushNotice } = useNotices()
   const [outcome, setOutcome] = useState<string | null>(null)
@@ -34,7 +37,7 @@ export function GlobalControls() {
         : control.dryRun
           ? "Dry run enabled"
           : "Automation controls updated"
-      setOutcome(`${title} at ${formatOutcomeTime(control.updatedAt)}`)
+      setOutcome(`${title} at ${formatOutcomeTime(control.updatedAt, timezone)}`)
       pushNotice({ tone: "success", title, message: "The persisted control state was updated." })
     },
     onError: (error) => {
@@ -61,7 +64,7 @@ export function GlobalControls() {
     return (
       <Card size="sm">
         <CardContent className="space-y-3 p-4">
-          <div role="alert" dir="auto" className="text-red-700 dark:text-red-300">
+          <div role="alert" dir="auto" className="text-destructive">
             {getApiErrorMessage(controlQuery.error, "Automation control request failed")}
           </div>
           <Button variant="outline" onClick={() => void controlQuery.refetch()}>
@@ -108,12 +111,12 @@ export function GlobalControls() {
             />
             Dry run
           </label>
-          <span className={control.globalPause ? "text-amber-700 dark:text-amber-300" : "text-emerald-700 dark:text-emerald-300"}>
+          <span className={control.globalPause ? "text-warning" : "text-success"}>
             {control.globalPause ? control.pauseReason ?? "Paused" : "Active"}
           </span>
         </div>
         {mutation.isError ? (
-          <div role="alert" dir="auto" className="text-sm text-red-700 dark:text-red-300">
+          <div role="alert" dir="auto" className="text-sm text-destructive">
             {getApiErrorMessage(mutation.error, "Automation control update failed")}
           </div>
         ) : null}
@@ -127,7 +130,10 @@ export function GlobalControls() {
   )
 }
 
-function formatOutcomeTime(value: string) {
-  const match = value.match(/T(\d{2}:\d{2}:\d{2})/)
-  return match?.[1] ?? value
+function formatOutcomeTime(value: string, timezone: string) {
+  return formatInTimeZone(value, timezone, {
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+  })
 }

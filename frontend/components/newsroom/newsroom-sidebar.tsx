@@ -2,26 +2,29 @@
 
 import Link from "next/link"
 import { usePathname } from "next/navigation"
-import { useEffect, useRef, useState } from "react"
 import {
-  Activity,
   Bot,
-  CalendarDays,
-  Clock3,
   Database,
-  FileText,
   Files,
-  Inbox,
-  ListTodo,
-  Menu,
+  Gauge,
   Newspaper,
+  PanelLeftClose,
   Settings,
-  Trash2,
-  X,
 } from "lucide-react"
 import type { LucideIcon } from "lucide-react"
+import { useEffect, useId, useRef } from "react"
 
 import type { JobSummary } from "@/features/jobs/types"
+import { ThemeToggle } from "@/components/theme/theme-toggle"
+import {
+  NotificationsTrigger,
+  type NotificationsPopoverHandle,
+} from "@/components/newsroom/notifications-sidebar"
+import {
+  rememberSettingsReturnPath,
+  SETTINGS_RESTORE_FOCUS_KEY,
+  settingsHref,
+} from "@/features/settings/settings-sections"
 import { cn } from "@/lib/utils"
 
 export type NewsroomNavItem = {
@@ -31,200 +34,202 @@ export type NewsroomNavItem = {
   readonly icon: LucideIcon
 }
 
-export const workflowNavItems = [
+export const primaryNavItems = [
   { label: "Today", href: "/", icon: Newspaper },
-  { label: "Inbox", href: "/inbox", icon: Inbox },
-  { label: "Drafts", href: "/drafts", activeHref: "/review", icon: FileText },
-  { label: "Calendar", href: "/calendar", icon: CalendarDays },
-  { label: "Library", href: "/feed", icon: Files },
-] as const satisfies readonly NewsroomNavItem[]
-
-const automationNavItems = [
-  { label: "Job Queue", href: "/jobs", icon: ListTodo },
-  { label: "Automations", href: "/automations", icon: Bot },
-] as const satisfies readonly NewsroomNavItem[]
-
-const collectionNavItems = [
   { label: "Sources", href: "/sources", icon: Database },
-  { label: "Ingestion Runs", href: "/runs", icon: Clock3 },
+  { label: "Feed", href: "/feed", icon: Files },
 ] as const satisfies readonly NewsroomNavItem[]
 
-const systemNavItems = [
-  { label: "Diagnostics", href: "/diagnostics", icon: Activity },
-  { label: "Content Settings", href: "/settings/content", icon: Settings },
-  { label: "Retention", href: "/settings/retention", icon: Trash2 },
+export const operationalNavItems = [
+  { label: "Automations", href: "/automations", icon: Bot },
+  { label: "Operations Center", href: "/operations", icon: Gauge },
 ] as const satisfies readonly NewsroomNavItem[]
 
-export const advancedNavSections = [
-  {
-    label: "Automation",
-    items: automationNavItems,
-  },
-  {
-    label: "Collection",
-    items: collectionNavItems,
-  },
-  {
-    label: "System",
-    items: systemNavItems,
-  },
-] as const satisfies readonly { readonly label: string; readonly items: readonly NewsroomNavItem[] }[]
+export const settingsNavItem = {
+  label: "Settings",
+  href: settingsHref(),
+  activeHref: "/settings",
+  icon: Settings,
+} as const satisfies NewsroomNavItem
 
 export const newsroomNavItems: readonly NewsroomNavItem[] = [
-  ...workflowNavItems,
-  ...automationNavItems,
-  ...collectionNavItems,
-  ...systemNavItems,
+  ...primaryNavItems,
+  ...operationalNavItems,
 ] as const
 
-export function NewsroomSidebar({ summary }: { summary?: JobSummary }) {
+export function NewsroomSidebar({
+  expanded = false,
+  onExpandedChange = () => undefined,
+  onNotificationsOpen = () => undefined,
+  notificationsHandle,
+  notificationsOpen = false,
+  summary,
+}: {
+  expanded?: boolean
+  onExpandedChange?: (expanded: boolean) => void
+  onNotificationsOpen?: (trigger: HTMLButtonElement, placement: "mobile" | "sidebar") => void
+  notificationsHandle?: NotificationsPopoverHandle
+  notificationsOpen?: boolean
+  summary?: JobSummary
+}) {
   const pathname = usePathname()
-  const [advancedOpen, setAdvancedOpen] = useState(false)
-  const advancedTriggerRef = useRef<HTMLButtonElement>(null)
-  const advancedPanelRef = useRef<HTMLDivElement>(null)
-  const advancedActive = advancedNavSections.some((section) =>
-    section.items.some((item) => isCurrentPath(pathname, item.href)),
-  )
+  const logoRef = useRef<HTMLButtonElement>(null)
+  const settingsRef = useRef<HTMLAnchorElement>(null)
+  const openTooltipId = useId()
+  const closeTooltipId = useId()
+
+  const closeSidebar = () => {
+    onExpandedChange(false)
+    window.requestAnimationFrame(() => logoRef.current?.focus())
+  }
 
   useEffect(() => {
-    if (!advancedOpen) return
-    queueMicrotask(() => advancedPanelRef.current?.querySelector<HTMLElement>("[data-advanced-item]")?.focus())
-    const closeOnOutsidePress = (event: PointerEvent) => {
-      const target = event.target as Node
-      if (advancedPanelRef.current?.contains(target) || advancedTriggerRef.current?.contains(target)) return
-      setAdvancedOpen(false)
-    }
-    const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key !== "Escape") return
-      event.preventDefault()
-      setAdvancedOpen(false)
-      queueMicrotask(() => advancedTriggerRef.current?.focus())
-    }
-    document.addEventListener("pointerdown", closeOnOutsidePress)
-    document.addEventListener("keydown", closeOnEscape)
-    return () => {
-      document.removeEventListener("pointerdown", closeOnOutsidePress)
-      document.removeEventListener("keydown", closeOnEscape)
-    }
-  }, [advancedOpen])
-
-  useEffect(() => setAdvancedOpen(false), [pathname])
+    if (pathname === "/settings") return
+    if (window.sessionStorage.getItem(SETTINGS_RESTORE_FOCUS_KEY) !== "true") return
+    window.requestAnimationFrame(() => {
+      if (!settingsRef.current?.getClientRects().length) return
+      settingsRef.current.focus()
+      window.sessionStorage.removeItem(SETTINGS_RESTORE_FOCUS_KEY)
+    })
+  }, [pathname])
 
   return (
-    <aside aria-label="Global navigation" className="relative z-40 hidden h-screen border-r border-slate-800 bg-slate-950 text-slate-100 min-[900px]:sticky min-[900px]:top-0 min-[900px]:flex min-[900px]:w-[72px] min-[900px]:flex-col">
-      <div className="flex h-16 shrink-0 items-center justify-center border-b border-slate-800">
-        <div
-          aria-label="NewsCraft"
-          className="grid size-10 place-items-center rounded-xl bg-teal-700 text-lg font-bold text-white"
-          role="img"
-          title="NewsCraft"
-        >
-          N
-        </div>
-      </div>
-      <nav aria-label="Newsroom navigation" className="flex min-h-0 flex-1 flex-col items-center gap-1 px-2 py-3">
-        {workflowNavItems.map((item) => (
-          <RailLink
-            key={item.href}
-            item={item}
-            active={isNavItemCurrent(pathname, item)}
-          />
-        ))}
-
-        <div className="my-2 h-px w-8 bg-slate-800" aria-hidden="true" />
-        <div className="group/rail relative">
+    <aside
+      aria-label="Global navigation"
+      className={cn(
+        "desktop-newsroom-navigation relative z-40 hidden h-screen border-r border-sidebar-border/70 bg-sidebar text-sidebar-foreground min-[900px]:sticky min-[900px]:top-0 min-[900px]:col-start-1 min-[900px]:row-start-1 min-[900px]:flex min-[900px]:flex-col min-[900px]:transition-[width] min-[900px]:duration-[180ms] min-[900px]:ease-out motion-reduce:min-[900px]:transition-none",
+        expanded ? "min-[900px]:w-[260px]" : "min-[900px]:w-[72px]",
+      )}
+      data-sidebar-state={expanded ? "expanded" : "collapsed"}
+      id="newsroom-desktop-sidebar"
+      onKeyDown={handleRailKeyDown}
+    >
+      <div
+        className={cn(
+          "relative flex h-16 shrink-0 items-center",
+          expanded ? "px-3" : "justify-center px-2",
+        )}
+      >
+        <div className="group/sidebar-tooltip min-w-0 flex-1">
           <button
-            aria-controls={advancedOpen ? "advanced-navigation-panel" : undefined}
-            aria-current={advancedActive ? "page" : undefined}
-            aria-expanded={advancedOpen}
-            aria-haspopup="dialog"
-            aria-label={summary?.attention
-              ? `Advanced navigation, ${summary.attention} need attention`
-              : "Advanced navigation"}
+            aria-controls="newsroom-desktop-sidebar"
+            aria-describedby={!expanded ? openTooltipId : undefined}
+            aria-expanded={expanded}
+            aria-hidden={expanded || undefined}
+            aria-label="Open sidebar"
             className={cn(
-              "relative grid size-11 cursor-pointer place-items-center rounded-lg text-slate-300 transition-colors hover:bg-slate-800 hover:text-white focus-visible:ring-2 focus-visible:ring-teal-400",
-              advancedActive && "bg-teal-800/70 text-white",
+              "flex min-h-11 min-w-11 items-center rounded-[7px] text-left transition-colors duration-[180ms] hover:bg-navigation-hover active:bg-navigation-active focus-visible:ring-2 focus-visible:ring-ring/60 motion-reduce:transition-none",
+              expanded
+                ? "pointer-events-none w-full gap-2.5 px-1 pr-12"
+                : "mx-auto justify-center",
             )}
-            onClick={() => setAdvancedOpen((current) => !current)}
-            ref={advancedTriggerRef}
+            onClick={() => onExpandedChange(true)}
+            ref={logoRef}
+            tabIndex={expanded ? -1 : 0}
             type="button"
           >
-            <Menu className="size-5" aria-hidden="true" />
-            {summary?.attention ? (
-              <span className="absolute -right-0.5 -top-0.5 min-w-4 rounded-full bg-amber-400 px-1 text-center text-[10px] font-semibold leading-4 text-slate-950" aria-hidden="true">
-                {summary.attention}
-              </span>
-            ) : null}
+            <BrandMark />
+            <span
+              className={cn(
+                "min-w-0 overflow-hidden whitespace-nowrap text-[13px] font-semibold leading-4 transition-[max-width,opacity,transform] duration-150 motion-reduce:transition-none",
+                expanded
+                  ? "max-w-40 translate-x-0 opacity-100 delay-75"
+                  : "max-w-0 -translate-x-1 opacity-0",
+              )}
+            >
+              NewsCraft
+            </span>
           </button>
-          {!advancedOpen ? <RailTooltip>Advanced</RailTooltip> : null}
+          {!expanded ? <SidebarTooltip id={openTooltipId}>Open sidebar</SidebarTooltip> : null}
+        </div>
+
+        <div
+          aria-hidden={!expanded}
+          className={cn(
+            "group/sidebar-tooltip absolute right-2 top-2.5 shrink-0 transition-opacity duration-100 motion-reduce:transition-none",
+            expanded
+              ? "visible opacity-100 delay-75"
+              : "invisible pointer-events-none opacity-0",
+          )}
+        >
+          <button
+            aria-controls="newsroom-desktop-sidebar"
+            aria-describedby={closeTooltipId}
+            aria-expanded={expanded}
+            aria-label="Close sidebar"
+            className="grid size-11 place-items-center rounded-[7px] text-muted-foreground transition-colors duration-[180ms] hover:bg-navigation-hover hover:text-foreground active:bg-navigation-active focus-visible:ring-2 focus-visible:ring-ring/60 motion-reduce:transition-none"
+            onClick={closeSidebar}
+            tabIndex={expanded ? 0 : -1}
+            type="button"
+          >
+            <PanelLeftClose className="size-[18px]" aria-hidden="true" strokeWidth={1.5} />
+          </button>
+          <SidebarTooltip align="right" id={closeTooltipId}>
+            Close sidebar
+          </SidebarTooltip>
+        </div>
+      </div>
+
+      <nav
+        aria-label="Newsroom navigation"
+        className={cn(
+          "flex min-h-0 flex-1 flex-col pb-3 pt-1",
+          expanded ? "px-3" : "px-2",
+        )}
+      >
+        <NavGroupLabel expanded={expanded}>Workspace</NavGroupLabel>
+        <div className="space-y-1">
+          {primaryNavItems.map((item) => (
+            <RailLink
+              active={isNavItemCurrent(pathname, item)}
+              expanded={expanded}
+              item={item}
+              key={item.href}
+            />
+          ))}
+        </div>
+
+        <NavGroupLabel className={expanded ? "mt-3" : "mt-2"} expanded={expanded}>
+          Operations
+        </NavGroupLabel>
+        <div className="space-y-1">
+          {operationalNavItems.map((item) => (
+            <RailLink
+              active={isNavItemCurrent(pathname, item)}
+              expanded={expanded}
+              item={item}
+              jobSummary={item.href === "/operations" ? summary : undefined}
+              key={item.href}
+            />
+          ))}
+        </div>
+
+        <div
+          className={cn(
+            "mt-auto flex shrink-0 flex-col gap-1 pt-3",
+            expanded ? "items-stretch" : "items-center",
+          )}
+          data-sidebar-controls
+        >
+          <NotificationsTrigger
+            expanded={expanded}
+            handle={notificationsHandle}
+            onOpen={onNotificationsOpen}
+            open={notificationsOpen}
+          />
+          <ThemeToggle expanded={expanded} placement="sidebar" />
+          <SettingsLink
+            active={isNavItemCurrent(pathname, settingsNavItem)}
+            expanded={expanded}
+            linkRef={settingsRef}
+          />
         </div>
       </nav>
 
-      <div className="shrink-0 border-t border-slate-800 p-2">
-        {summary ? (
-          <div className="grid gap-1 text-[10px]" aria-label="Job summary">
-            <div className="flex min-h-7 items-center justify-center gap-1 text-slate-300" title={`${summary.queued} queued`}>
-              <ListTodo className="size-3.5" aria-hidden="true" />
-              <span className="font-semibold tabular-nums" aria-label={`${summary.queued} queued`}>{summary.queued}</span>
-            </div>
-            <div className={cn("flex min-h-7 items-center justify-center gap-1 text-slate-400", summary.attention > 0 && "text-amber-300")} title={`${summary.attention} need attention`}>
-              <Activity className="size-3.5" aria-hidden="true" />
-              <span className="font-semibold tabular-nums" aria-label={`${summary.attention} need attention`}>{summary.attention}</span>
-            </div>
-          </div>
-        ) : null}
-      </div>
-
-      {advancedOpen ? (
-        <div
-          aria-label="Advanced navigation"
-          className="fixed left-[72px] top-3 z-40 max-h-[calc(100vh-1.5rem)] w-72 overflow-y-auto rounded-r-xl border bg-background p-3 text-foreground shadow-md"
-          id="advanced-navigation-panel"
-          onKeyDown={handleAdvancedKeyDown}
-          ref={advancedPanelRef}
-          role="dialog"
-        >
-          <div className="mb-3 flex items-center justify-between gap-2 px-1">
-            <div>
-              <h2 className="font-semibold">Advanced</h2>
-              {summary ? (
-                <p className="mt-0.5 text-xs text-muted-foreground">
-                  {summary.queued} queued · {summary.attention} need attention
-                </p>
-              ) : null}
-            </div>
-            <button
-              aria-label="Close advanced navigation"
-              className="grid size-9 cursor-pointer place-items-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
-              onClick={() => {
-                setAdvancedOpen(false)
-                queueMicrotask(() => advancedTriggerRef.current?.focus())
-              }}
-              type="button"
-            >
-              <X className="size-4" aria-hidden="true" />
-            </button>
-          </div>
-          <div className="space-y-4">
-            {advancedNavSections.map((section) => (
-              <section aria-labelledby={`advanced-${section.label}`} key={section.label}>
-                <h3 className="px-2 pb-1.5 text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground" id={`advanced-${section.label}`}>
-                  {section.label === "Collection" ? "Collection operations" : section.label}
-                </h3>
-                <div className="space-y-1">
-                  {section.items.map((item) => (
-                    <AdvancedLink
-                      active={isCurrentPath(pathname, item.href)}
-                      item={item}
-                      key={item.href}
-                      onNavigate={() => setAdvancedOpen(false)}
-                      summary={item.href === "/jobs" ? summary : undefined}
-                    />
-                  ))}
-                </div>
-              </section>
-            ))}
-          </div>
+      {summary ? (
+        <div aria-label="Job summary" className="sr-only">
+          <span aria-label={`${summary.queued} queued`}>{summary.queued} queued</span>
+          <span aria-label={`${summary.attention} need attention`}>{summary.attention} need attention</span>
         </div>
       ) : null}
     </aside>
@@ -243,35 +248,164 @@ export function isNavItemCurrent(pathname: string, item: NewsroomNavItem) {
 function RailLink({
   item,
   active,
+  expanded,
+  jobSummary,
 }: {
   item: NewsroomNavItem
   active: boolean
+  expanded: boolean
+  jobSummary?: JobSummary
 }) {
   const Icon = item.icon
+  const tooltipId = `desktop-${item.href === "/" ? "today" : item.href.slice(1).replaceAll("/", "-")}-tooltip`
 
   return (
-    <div className="group/rail relative">
+    <div className="group/sidebar-tooltip relative">
       <Link
-        href={item.href}
         aria-current={active ? "page" : undefined}
+        aria-describedby={!expanded ? tooltipId : undefined}
         aria-label={item.label}
         className={cn(
-          "grid size-11 place-items-center rounded-lg text-slate-300 transition-colors hover:bg-slate-800 hover:text-white focus-visible:ring-2 focus-visible:ring-teal-400",
-          active && "bg-teal-800/70 text-white",
+          "group/rail relative flex min-h-11 min-w-0 items-center rounded-[7px] text-[13px] font-medium leading-5 text-muted-foreground transition-[background-color,color,padding,gap] duration-[180ms] hover:bg-navigation-hover hover:text-foreground active:bg-navigation-active focus-visible:ring-2 focus-visible:ring-ring/60 motion-reduce:transition-none",
+          expanded ? "w-full justify-start gap-2.5 px-2.5" : "mx-auto size-11 justify-center",
+          active && "bg-navigation-active font-semibold text-primary",
         )}
+        data-rail-link
+        href={item.href}
       >
-        <Icon className="size-5" aria-hidden="true" />
+        <span className="relative shrink-0">
+          <Icon
+            className={cn(
+              "size-[18px] text-muted-foreground/80 transition-colors duration-[180ms] group-hover/rail:text-foreground motion-reduce:transition-none",
+              active && "text-primary",
+            )}
+            aria-hidden="true"
+            strokeWidth={1.5}
+          />
+          {expanded && jobSummary?.attention ? (
+            <span
+              aria-hidden="true"
+              className="absolute -right-2.5 -top-2 min-w-4 rounded-full bg-warning px-1 text-center text-[10px] font-bold leading-4 text-background"
+            >
+              {jobSummary.attention}
+            </span>
+          ) : null}
+        </span>
+        <span
+          aria-hidden={!expanded}
+          className={cn(
+            "min-w-0 overflow-hidden whitespace-nowrap transition-[max-width,opacity,transform] duration-150 motion-reduce:transition-none",
+            expanded
+              ? "max-w-40 translate-x-0 opacity-100 delay-75"
+              : "max-w-0 -translate-x-1 opacity-0",
+          )}
+        >
+          {item.label}
+        </span>
       </Link>
-      <RailTooltip>{item.label}</RailTooltip>
+      {!expanded ? <SidebarTooltip id={tooltipId}>{item.label}</SidebarTooltip> : null}
     </div>
   )
 }
 
-function RailTooltip({ children }: { children: React.ReactNode }) {
+function SettingsLink({
+  active,
+  expanded,
+  linkRef,
+}: {
+  active: boolean
+  expanded: boolean
+  linkRef: React.Ref<HTMLAnchorElement>
+}) {
+  const tooltipId = "desktop-settings-tooltip"
+
+  return (
+    <div className="group/sidebar-tooltip relative">
+      <Link
+        aria-current={active ? "page" : undefined}
+        aria-describedby={!expanded ? tooltipId : undefined}
+        aria-label="Settings"
+        className={cn(
+          "flex min-h-11 min-w-11 items-center rounded-[7px] text-[13px] font-medium text-muted-foreground transition-[background-color,color,padding,gap] duration-[180ms] hover:bg-navigation-hover hover:text-foreground active:bg-navigation-active focus-visible:ring-2 focus-visible:ring-ring/60 motion-reduce:transition-none",
+          expanded ? "w-full justify-start gap-2.5 px-2.5" : "justify-center",
+          active && "bg-navigation-active text-primary",
+        )}
+        data-settings-trigger
+        data-rail-link
+        href={settingsNavItem.href}
+        onClick={rememberSettingsReturnPath}
+        ref={linkRef}
+      >
+        <Settings className="size-[18px] shrink-0" aria-hidden="true" strokeWidth={1.5} />
+        <span
+          aria-hidden={!expanded}
+          className={cn(
+            "overflow-hidden whitespace-nowrap transition-[max-width,opacity,transform] duration-150 motion-reduce:transition-none",
+            expanded
+              ? "max-w-40 translate-x-0 opacity-100 delay-75"
+              : "max-w-0 -translate-x-1 opacity-0",
+          )}
+        >
+          Settings
+        </span>
+      </Link>
+      {!expanded ? <SidebarTooltip id={tooltipId}>Settings</SidebarTooltip> : null}
+    </div>
+  )
+}
+
+function NavGroupLabel({
+  children,
+  className,
+  expanded,
+}: {
+  children: React.ReactNode
+  className?: string
+  expanded: boolean
+}) {
+  return (
+    <div
+      aria-hidden={!expanded}
+      className={cn(
+        "overflow-hidden whitespace-nowrap px-2.5 text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground transition-[max-height,margin,opacity,transform] duration-150 motion-reduce:transition-none",
+        expanded
+          ? "mb-1 max-h-5 translate-x-0 opacity-100 delay-75"
+          : "mb-0 max-h-0 -translate-x-1 opacity-0",
+        className,
+      )}
+    >
+      {children}
+    </div>
+  )
+}
+
+function BrandMark() {
   return (
     <span
       aria-hidden="true"
-      className="pointer-events-none invisible absolute left-[calc(100%+0.625rem)] top-1/2 z-50 w-max -translate-y-1/2 rounded-md bg-slate-900 px-2.5 py-1.5 text-xs font-medium text-white opacity-0 shadow-md transition-opacity group-hover/rail:visible group-hover/rail:opacity-100 group-focus-within/rail:visible group-focus-within/rail:opacity-100"
+      className="grid size-8 shrink-0 place-items-center rounded-[6px] bg-primary-solid text-[13px] font-semibold text-primary-solid-foreground shadow-sm"
+    >
+      N
+    </span>
+  )
+}
+
+function SidebarTooltip({
+  align = "center",
+  children,
+  id,
+}: {
+  align?: "center" | "right"
+  children: React.ReactNode
+  id: string
+}) {
+  return (
+    <span
+      className={cn(
+        "pointer-events-none invisible absolute left-[calc(100%+0.5rem)] z-50 w-max rounded-md border border-border/50 bg-popover px-2.5 py-1.5 text-xs font-medium text-popover-foreground opacity-0 shadow-md transition-opacity duration-150 group-hover/sidebar-tooltip:visible group-hover/sidebar-tooltip:opacity-100 group-focus-within/sidebar-tooltip:visible group-focus-within/sidebar-tooltip:opacity-100 motion-reduce:transition-none",
+        align === "right" ? "top-full mt-1" : "top-1/2 -translate-y-1/2",
+      )}
+      id={id}
       role="tooltip"
     >
       {children}
@@ -279,49 +413,19 @@ function RailTooltip({ children }: { children: React.ReactNode }) {
   )
 }
 
-function AdvancedLink({
-  active,
-  item,
-  onNavigate,
-  summary,
-}: {
-  active: boolean
-  item: NewsroomNavItem
-  onNavigate: () => void
-  summary?: JobSummary
-}) {
-  const Icon = item.icon
-  return (
-    <Link
-      aria-current={active ? "page" : undefined}
-      className={cn(
-        "flex min-h-10 items-center gap-3 rounded-lg px-2.5 text-sm font-medium hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring",
-        active && "bg-accent text-accent-foreground",
-      )}
-      data-advanced-item
-      href={item.href}
-      onClick={onNavigate}
-    >
-      <Icon className="size-4 shrink-0" aria-hidden="true" />
-      <span className="min-w-0 flex-1">{item.label}</span>
-      {summary ? (
-        <span className="text-[11px] font-normal tabular-nums text-muted-foreground">
-          {summary.queued} queued · {summary.attention} attention
-        </span>
-      ) : null}
-    </Link>
-  )
-}
-
-function handleAdvancedKeyDown(event: React.KeyboardEvent<HTMLDivElement>) {
+function handleRailKeyDown(event: React.KeyboardEvent<HTMLElement>) {
   if (!["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) return
-  const items = Array.from(event.currentTarget.querySelectorAll<HTMLElement>("[data-advanced-item]"))
-  const index = items.indexOf(document.activeElement as HTMLElement)
+
+  const links = Array.from(event.currentTarget.querySelectorAll<HTMLElement>("[data-rail-link]"))
+  if (!links.length) return
+  const index = links.indexOf(document.activeElement as HTMLElement)
   let nextIndex = index
-  if (event.key === "ArrowDown") nextIndex = index < 0 ? 0 : (index + 1) % items.length
-  if (event.key === "ArrowUp") nextIndex = index < 0 ? items.length - 1 : (index - 1 + items.length) % items.length
+
+  if (event.key === "ArrowDown") nextIndex = index < 0 ? 0 : (index + 1) % links.length
+  if (event.key === "ArrowUp") nextIndex = index < 0 ? links.length - 1 : (index - 1 + links.length) % links.length
   if (event.key === "Home") nextIndex = 0
-  if (event.key === "End") nextIndex = items.length - 1
+  if (event.key === "End") nextIndex = links.length - 1
+
   event.preventDefault()
-  items[nextIndex]?.focus()
+  links[nextIndex]?.focus()
 }

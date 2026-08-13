@@ -138,6 +138,12 @@ class AutomationDispatch(Base):
     publish_job_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("publish_jobs.id"), nullable=True
     )
+    automation_run_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("automation_runs.id", ondelete="SET NULL", use_alter=True), nullable=True
+    )
+    automation_node_run_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("automation_node_runs.id", ondelete="SET NULL", use_alter=True), nullable=True
+    )
     error_code: Mapped[str | None] = mapped_column(Text, nullable=True)
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = timestamp_now()
@@ -153,4 +159,6 @@ class AutomationDispatch(Base):
         ),
         Index("ix_automation_dispatch_route_created", "route_id", created_at.desc()),
         Index("ix_automation_dispatch_route_sequence", "route_id", creation_sequence.desc()),
+        Index("ix_automation_dispatch_run", "automation_run_id"),
+        Index("ix_automation_dispatch_node_run", "automation_node_run_id"),
     )

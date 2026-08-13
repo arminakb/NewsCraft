@@ -1,19 +1,16 @@
-import { JobsPage } from "@/features/jobs/jobs-page"
+import { redirect } from "next/navigation"
 
 export default async function Page({
   searchParams,
 }: {
-  searchParams: Promise<{ status?: string | string[]; job?: string | string[] }>
+  searchParams: Promise<Record<string, string | string[] | undefined>>
 }) {
   const query = await searchParams
-  return (
-    <JobsPage
-      initialStatus={first(query.status)}
-      initialJobId={first(query.job)}
-    />
-  )
-}
-
-function first(value: string | string[] | undefined) {
-  return Array.isArray(value) ? value[0] ?? null : value ?? null
+  const params = new URLSearchParams()
+  params.set("view", "jobs")
+  for (const [key, value] of Object.entries(query)) {
+    if (key === "view") continue
+    for (const item of Array.isArray(value) ? value : value ? [value] : []) params.append(key, item)
+  }
+  return redirect(`/operations?${params.toString()}`)
 }

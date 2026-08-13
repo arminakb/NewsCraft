@@ -49,6 +49,7 @@ describe("generated OpenAPI mock contract", () => {
     const e2eRoot = resolve(process.cwd(), "e2e")
     for (const name of readdirSync(e2eRoot).filter((entry) => entry.endsWith(".spec.ts"))) {
       const source = readFileSync(resolve(e2eRoot, name), "utf8")
+      if (source.includes("@live-backend")) continue
       expect(
         source.includes("installMockBackend") || (source.includes("Unhandled") && source.includes("501")),
         `${name} must reject unmatched backend requests`,

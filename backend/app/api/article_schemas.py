@@ -7,6 +7,14 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field
 
 CoverageState = Literal["ungrouped", "incomplete", "complete"]
+ContentOrigin = Literal[
+    "source_provided",
+    "extracted",
+    "source_excerpt",
+    "generated_summary",
+    "unavailable",
+    "unknown",
+]
 
 
 class ArticleSourceOut(BaseModel):
@@ -16,6 +24,9 @@ class ArticleSourceOut(BaseModel):
     name: str | None
     platform: str | None
     homepage_url: str | None
+    icon_url: str | None = None
+    icon_status: str | None = None
+    icon_updated_at: datetime | None = None
 
 
 class ArticleImageOut(BaseModel):
@@ -214,6 +225,7 @@ class ArticleAdvancedOut(BaseModel):
 class ArticleDetailOut(ArticleCoreOut):
     article_readiness: ArticleReadinessDetailOut
     content_text: str | None
+    content_origin: ContentOrigin
     sanitized_html: str | None
     authors: list[str]
     tags: list[str]

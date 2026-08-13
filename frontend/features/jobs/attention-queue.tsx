@@ -17,15 +17,15 @@ export function AttentionQueue({
           <div key={job.id} className="flex flex-wrap items-center gap-3 px-3 py-3">
             <div className="min-w-0 flex-1">
               <div className="font-medium">{job.job_type}</div>
-              <div dir="auto" className="text-sm text-red-700">{job.error_message ?? job.error_code ?? "Action required"}</div>
+              <div dir="auto" className="text-sm text-destructive">{job.error_message ?? job.error_code ?? "Action required"}</div>
             </div>
             <JobStatusBadge status={job.status} />
             {job.status === "failed" ? (
-              <Link className={buttonVariants({ variant: "outline" })} href={`/jobs?status=attention&job=${job.id}`}>
+              <Link className={buttonVariants({ variant: "outline" })} href={`/operations?view=jobs&status=attention&job=${job.id}`}>
                 Open job
               </Link>
             ) : job.status === "needs_review" ? (
-              <Link className={buttonVariants({ variant: "outline" })} href="/drafts?approval_state=pending_review">
+              <Link className={buttonVariants({ variant: "outline" })} href={`/operations?view=jobs&status=attention&job=${job.id}`}>
                 Continue review
               </Link>
             ) : null}

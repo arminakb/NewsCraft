@@ -2,8 +2,9 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react"
 
 import { NewsroomShell } from "@/components/newsroom/newsroom-shell"
-import { getAutomationControl } from "@/features/control/api"
+import { ThemeProvider } from "@/components/providers/theme-provider"
 import { getJobSummary } from "@/features/jobs/api"
+import { getDateTimeSettings } from "@/features/settings/date-time-api"
 
 let pathname = "/"
 
@@ -11,21 +12,13 @@ vi.mock("next/navigation", () => ({
   usePathname: () => pathname,
 }))
 
-vi.mock("@/features/control/api", () => ({
-  getAutomationControl: vi.fn(),
-}))
-
 vi.mock("@/features/jobs/api", () => ({
   getJobSummary: vi.fn(),
 }))
 
-const activeControl = {
-  globalPause: false,
-  dryRun: false,
-  pauseReason: null,
-  pausedAt: null,
-  updatedAt: "2026-07-12T08:00:00Z",
-}
+vi.mock("@/features/settings/date-time-api", () => ({
+  getDateTimeSettings: vi.fn(),
+}))
 
 const summary = { queued: 3, running: 1, attention: 2, succeeded_today: 5 }
 
@@ -33,76 +26,40 @@ describe("NewsroomShell", () => {
   beforeEach(() => {
     pathname = "/"
     vi.clearAllMocks()
-    vi.mocked(getAutomationControl).mockResolvedValue(activeControl)
     vi.mocked(getJobSummary).mockResolvedValue(summary)
-  })
-
-  it("reports checking controls during the first request without assuming a running state", () => {
-    vi.mocked(getAutomationControl).mockImplementation(() => new Promise(() => undefined))
-
-    renderShell()
-
-    expect(screen.getByText("Checking controls")).toBeInTheDocument()
-    expect(screen.queryByText(/automation(?:s)? running/i)).not.toBeInTheDocument()
-  })
-
-  it("reports an unavailable control request instead of inferring automation state", async () => {
-    vi.mocked(getAutomationControl).mockRejectedValue(new Error("offline"))
-
-    renderShell()
-
-    expect(await screen.findByText("Control state unavailable")).toBeInTheDocument()
-    expect(screen.queryByText("Automation paused")).not.toBeInTheDocument()
-    expect(screen.queryByText(/automation(?:s)? running/i)).not.toBeInTheDocument()
-  })
-
-  it("shows a paused state and live job summary only from successful API data", async () => {
-    vi.mocked(getAutomationControl).mockResolvedValue({
-      ...activeControl,
-      globalPause: true,
-      pauseReason: "Editorial review",
-      pausedAt: "2026-07-12T07:00:00Z",
+    vi.mocked(getDateTimeSettings).mockResolvedValue({
+      timezone: "Asia/Tehran",
+      updatedAt: "2026-07-28T11:00:00Z",
     })
+  })
 
+  it("loads the live job summary without rendering a persistent status bar", async () => {
     renderShell()
 
-    expect(await screen.findByText("Automation paused")).toBeInTheDocument()
     expect(await screen.findByLabelText("3 queued")).toBeInTheDocument()
     expect(screen.getByLabelText("2 need attention")).toBeInTheDocument()
-    expect(getAutomationControl).toHaveBeenCalledTimes(1)
     expect(getJobSummary).toHaveBeenCalledTimes(1)
   })
 
-  it("does not show a paused or running claim when the live control is active", async () => {
+  it("places routed content at the top of the shell without a header wrapper or placeholder", () => {
     renderShell()
 
-    expect(await screen.findByText("Controls available")).toBeInTheDocument()
-    expect(screen.queryByText("Automation paused")).not.toBeInTheDocument()
-    expect(screen.queryByText(/automation(?:s)? running/i)).not.toBeInTheDocument()
+    const content = screen.getByTestId("newsroom-content")
+    expect(content.firstElementChild).toBe(screen.getByRole("main"))
+    expect(content.querySelector("[data-newsroom-header]")).not.toBeInTheDocument()
+    expect(screen.queryByRole("timer")).not.toBeInTheDocument()
+    expect(screen.queryByText(/automation paused/i)).not.toBeInTheDocument()
   })
 
-  it("opens mobile navigation, focuses its first link, and restores the trigger on Escape", async () => {
+  it("exposes primary mobile routes and an accessible compact menu", () => {
     Object.defineProperty(window, "innerWidth", { configurable: true, value: 390 })
     window.dispatchEvent(new Event("resize"))
     renderShell()
-    const trigger = screen.getByRole("button", { name: "Open navigation" })
 
-    expect(screen.getByRole("navigation", { name: "Mobile newsroom navigation" })).toBeInTheDocument()
-    expect(trigger).toHaveAttribute("aria-expanded", "false")
-    trigger.focus()
-    expect(trigger).toHaveFocus()
-    fireEvent.click(trigger)
-
-    expect(trigger).toHaveAttribute("aria-expanded", "true")
-    const panel = screen.getByRole("dialog", { name: "Newsroom navigation" })
-    expect(panel).toBeInTheDocument()
-    await waitFor(() => expect(within(panel).getByRole("link", { name: "Today" })).toHaveFocus())
-
-    fireEvent.keyDown(document, { key: "Escape" })
-
-    expect(screen.queryByRole("dialog", { name: "Newsroom navigation" })).not.toBeInTheDocument()
-    expect(trigger).toHaveAttribute("aria-expanded", "false")
-    expect(trigger).toHaveFocus()
+    const navigation = screen.getByRole("navigation", { name: "Mobile newsroom navigation" })
+    expect(within(navigation).getByRole("link", { name: "Today" })).toBeInTheDocument()
+    expect(within(navigation).getByRole("button", { name: "Open navigation" })).toBeInTheDocument()
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument()
   })
 
   it("owns the single main landmark and keeps routed content shrinkable", async () => {
@@ -117,7 +74,79 @@ describe("NewsroomShell", () => {
     expect(screen.getByTestId("newsroom-content")).toHaveClass("newsroom-scroll", "min-[900px]:overflow-y-auto")
     expect(container.firstElementChild).toHaveClass("min-[900px]:grid")
     expect(container.firstElementChild).toHaveClass("min-[900px]:grid-cols-[72px_minmax(0,1fr)]")
+    expect(container.firstElementChild).toHaveClass("min-[900px]:transition-[grid-template-columns]")
+    expect(container.firstElementChild).toHaveClass("motion-reduce:min-[900px]:transition-none")
+    expect(screen.getByTestId("newsroom-content")).toHaveClass("min-[900px]:col-start-2")
     expect(container.querySelector('[class*="440px"]')).not.toBeInTheDocument()
+  })
+
+  it("starts collapsed and exposes keyboard tooltips for every icon-only destination", () => {
+    renderShell()
+
+    const sidebar = screen.getByRole("complementary", { name: "Global navigation" })
+    const openSidebar = within(sidebar).getByRole("button", { name: "Open sidebar" })
+    const today = within(sidebar).getByRole("link", { name: "Today" })
+
+    expect(sidebar).toHaveAttribute("data-sidebar-state", "collapsed")
+    expect(sidebar).toHaveClass("min-[900px]:w-[72px]")
+    expect(openSidebar).toHaveAttribute("aria-expanded", "false")
+    expect(today).toHaveAttribute("aria-describedby", "desktop-today-tooltip")
+    expect(within(sidebar).getByRole("tooltip", { name: "Today" })).toBeInTheDocument()
+    expect(within(today).getByText("Today")).toHaveAttribute("aria-hidden", "true")
+    expect(within(sidebar).getByRole("button", { name: "Toggle color theme" })).toBeInTheDocument()
+    expect(within(sidebar).getByRole("link", { name: "Settings" })).toBeInTheDocument()
+    expect(sidebar).not.toHaveClass("overflow-x-auto", "overflow-y-auto")
+  })
+
+  it("expands from the logo and collapses from the labelled close control", async () => {
+    const { container } = renderShell()
+    const sidebar = screen.getByRole("complementary", { name: "Global navigation" })
+
+    fireEvent.click(within(sidebar).getByRole("button", { name: "Open sidebar" }))
+
+    expect(sidebar).toHaveAttribute("data-sidebar-state", "expanded")
+    expect(sidebar).toHaveClass("min-[900px]:w-[260px]")
+    expect(container.firstElementChild).toHaveClass("min-[900px]:grid-cols-[260px_minmax(0,1fr)]")
+    expect(within(sidebar).getByText("NewsCraft")).toBeInTheDocument()
+    expect(within(sidebar).getByRole("button", { name: "Close sidebar" })).toHaveAttribute(
+      "aria-expanded",
+      "true",
+    )
+    expect(within(sidebar).getByRole("button", { name: "Close sidebar" })).toBeInTheDocument()
+    expect(within(sidebar).getByRole("tooltip", { name: "Close sidebar" })).toBeInTheDocument()
+    expect(within(sidebar).queryByRole("tooltip", { name: "Today" })).not.toBeInTheDocument()
+    expect(within(within(sidebar).getByRole("link", { name: "Today" })).getByText("Today"))
+      .toHaveAttribute("aria-hidden", "false")
+    expect(within(sidebar).getByText("Theme")).toHaveAttribute("aria-hidden", "false")
+
+    fireEvent.click(within(sidebar).getByRole("button", { name: "Close sidebar" }))
+
+    expect(sidebar).toHaveAttribute("data-sidebar-state", "collapsed")
+    expect(container.firstElementChild).toHaveClass("min-[900px]:grid-cols-[72px_minmax(0,1fr)]")
+    expect(within(sidebar).queryByRole("button", { name: "Close sidebar" })).not.toBeInTheDocument()
+    await waitFor(() => {
+      expect(within(sidebar).getByRole("button", { name: "Open sidebar" })).toHaveFocus()
+    })
+  })
+
+  it("preserves active-route semantics and arrow-key navigation in both states", () => {
+    pathname = "/operations"
+    renderShell()
+
+    const sidebar = screen.getByRole("complementary", { name: "Global navigation" })
+    const automations = within(sidebar).getByRole("link", { name: "Automations" })
+    const operations = within(sidebar).getByRole("link", { name: "Operations Center" })
+
+    expect(operations).toHaveAttribute("aria-current", "page")
+    automations.focus()
+    fireEvent.keyDown(automations, { key: "ArrowDown" })
+    expect(operations).toHaveFocus()
+
+    fireEvent.click(within(sidebar).getByRole("button", { name: "Open sidebar" }))
+    expect(within(sidebar).getByRole("link", { name: "Operations Center" })).toHaveAttribute(
+      "aria-current",
+      "page",
+    )
   })
 })
 
@@ -128,9 +157,11 @@ function renderShell() {
 
   return render(
     <QueryClientProvider client={queryClient}>
-      <NewsroomShell>
-        <section aria-label="Routed content">Page content</section>
-      </NewsroomShell>
+      <ThemeProvider>
+        <NewsroomShell>
+          <section aria-label="Routed content">Page content</section>
+        </NewsroomShell>
+      </ThemeProvider>
     </QueryClientProvider>
   )
 }

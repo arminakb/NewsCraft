@@ -24,8 +24,10 @@ export type MockStory = {
 }
 
 export type MockBackendOptions = {
+  automations?: components["schemas"]["AutomationOut"][]
   stories?: MockStory[]
   operations?: components["schemas"]["OperationsSnapshotOut"]
+  operationalHealth?: components["schemas"]["OperationalHealthSnapshot"]
   operationsDelayMs?: number
   operationsFailure?: boolean
 }
@@ -63,6 +65,47 @@ export const OPERATIONS_FIXTURE = {
     configuration_error_code: null,
   },
 } satisfies components["schemas"]["OperationsSnapshotOut"]
+
+export const OPERATIONAL_HEALTH_FIXTURE = {
+  generated_at: "2026-07-13T08:00:00Z",
+  state: "healthy",
+  state_definitions: {
+    healthy: "Fresh and available.",
+    stale: "Observation is older than warning threshold.",
+    unavailable: "Required path cannot serve work.",
+    unknown: "No trustworthy observation is available.",
+  },
+  dependencies: {
+    database: {
+      state: "healthy",
+      code: "database_connected",
+      observed_at: "2026-07-13T08:00:00Z",
+      latency_ms: 12,
+      message: "Database connectivity is available",
+      runbook_url: "/docs/operations/readiness-and-health#database-unavailable",
+    },
+    schema: {
+      state: "healthy",
+      code: "schema_current",
+      observed_at: "2026-07-13T08:00:00Z",
+      latency_ms: 12,
+      message: "Database schema is current",
+      runbook_url: "/docs/operations/readiness-and-health#schema-mismatch",
+    },
+  },
+  components: {},
+  queues: [],
+  recoveries: [],
+  alerts: [],
+  metrics: {},
+  outbound_proxy: {
+    mode: "direct",
+    scheme: null,
+    bypass_rule_count: 0,
+    last_connectivity_status: "not_checked",
+    configuration_error_code: null,
+  },
+} satisfies components["schemas"]["OperationalHealthSnapshot"]
 
 export const RECONCILIATION_FIXTURE = [] satisfies components["schemas"]["ReconciliationCase"][]
 
@@ -115,6 +158,10 @@ export async function installMockBackend(
   options: MockBackendOptions = {},
 ): Promise<string[]> {
   const unhandledRequests: string[] = []
+  let dateTimeSettings = {
+    timezone: "Asia/Tehran",
+    updated_at: "2026-07-13T08:00:00Z",
+  }
 
   await page.route("**/api/backend/**", async (route) => {
     const request = route.request()
@@ -122,6 +169,19 @@ export async function installMockBackend(
     const path = url.pathname.replace(/^\/api\/backend/, "")
     const method = request.method()
 
+    if (path === "/operator-settings/date-time" && method === "GET") {
+      await fulfillContractJson(route, method, path, dateTimeSettings)
+      return
+    }
+    if (path === "/operator-settings/date-time" && method === "PUT") {
+      const body = request.postDataJSON() as { timezone: string }
+      dateTimeSettings = {
+        timezone: body.timezone,
+        updated_at: "2026-07-13T08:01:00Z",
+      }
+      await fulfillContractJson(route, method, path, dateTimeSettings)
+      return
+    }
     if (method === "GET" && path === "/automation-control") {
       await fulfillContractJson(route, method, path, {
         global_pause: false,
@@ -143,6 +203,22 @@ export async function installMockBackend(
     }
     if (method === "GET" && path === "/jobs") {
       await fulfillContractJson(route, method, path, { items: [] })
+      return
+    }
+    if (method === "GET" && path === "/feed/summary") {
+      await fulfillContractJson(route, method, path, { article_count: 0 })
+      return
+    }
+    if (method === "POST" && path === "/feed/clear") {
+      await fulfillContractJson(route, method, path, { cleared_count: 0 })
+      return
+    }
+    if (method === "GET" && path === "/articles") {
+      await fulfillContractJson(route, method, path, {
+        items: [],
+        next_cursor: null,
+        result_count: 0,
+      })
       return
     }
     if (method === "GET" && path === "/telegram/publication-outcomes") {
@@ -170,6 +246,19 @@ export async function installMockBackend(
       await fulfillContractJson(route, method, path, [])
       return
     }
+    if (method === "GET" && path === "/automations") {
+      await fulfillContractJson(route, method, path, { items: options.automations ?? [], next_cursor: null })
+      return
+    }
+    if (method === "GET" && path === "/automation-node-catalog") {
+      await fulfillContractJson(route, method, path, {
+        schema_version: 1,
+        max_nodes: 30,
+        max_edges: 60,
+        nodes: [],
+      })
+      return
+    }
     if (method === "GET" && path === "/telegram/automations/options") {
       await fulfillContractJson(route, method, path, {
         sources: [],
@@ -178,6 +267,34 @@ export async function installMockBackend(
         prompt_template_versions: [],
         ai_provider_profiles: [],
       })
+      return
+    }
+    if (method === "GET" && path === "/brand-profiles") {
+      await fulfillContractJson(route, method, path, [])
+      return
+    }
+    if (method === "GET" && path === "/prompt-templates") {
+      await fulfillContractJson(route, method, path, [])
+      return
+    }
+    if (method === "GET" && path === "/llm-providers") {
+      await fulfillContractJson(route, method, path, [])
+      return
+    }
+    if (method === "GET" && path === "/telegram/destinations") {
+      await fulfillContractJson(route, method, path, [])
+      return
+    }
+    if (method === "GET" && path === "/telegram/proxies") {
+      await fulfillContractJson(route, method, path, [])
+      return
+    }
+    if (method === "GET" && path === "/codex-gateway/connections") {
+      await fulfillContractJson(route, method, path, [])
+      return
+    }
+    if (method === "GET" && path === "/codex-gateway/activity") {
+      await fulfillContractJson(route, method, path, [])
       return
     }
     if (method === "GET" && path === "/content-pack-requests") {
@@ -200,6 +317,30 @@ export async function installMockBackend(
         return
       }
       await fulfillContractJson(route, method, path, options.operations ?? OPERATIONS_FIXTURE)
+      return
+    }
+    if (method === "GET" && path === "/operations/health") {
+      if (options.operationsDelayMs) {
+        await new Promise((resolve) => setTimeout(resolve, options.operationsDelayMs))
+      }
+      if (options.operationsFailure) {
+        await route.abort("failed")
+        return
+      }
+      await fulfillContractJson(route, method, path, options.operationalHealth ?? OPERATIONAL_HEALTH_FIXTURE)
+      return
+    }
+    if (method === "GET" && path === "/operations/retention-policy") {
+      await fulfillContractJson(route, method, path, {
+        id: "global",
+        raw_payload_days: 30,
+        completed_job_days: 90,
+        attempt_metadata_days: 90,
+        export_artifact_days: 14,
+        unreferenced_media_days: 30,
+        created_at: "2026-07-13T08:00:00Z",
+        updated_at: "2026-07-13T08:00:00Z",
+      })
       return
     }
     if (method === "GET" && path === "/telegram/reconciliation") {

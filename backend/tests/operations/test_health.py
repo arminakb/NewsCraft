@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 import json
 from datetime import UTC, datetime, timedelta, timezone
 from types import SimpleNamespace
@@ -13,6 +14,7 @@ from app.operations.health import (
     HealthState,
     ReadinessService,
     RestartState,
+    SecretReadinessService,
     build_component_health,
     build_queue_health,
     build_recovery_health,
@@ -21,6 +23,7 @@ from app.operations.health import (
     render_prometheus_metrics,
     snapshot_high_water,
 )
+from app.security.secret_store import SecretStoreRuntime
 
 NOW = datetime(2026, 7, 17, 8, 30, 0, 654321, tzinfo=UTC)
 
@@ -34,10 +37,18 @@ class Rows:
 
 
 class ReadinessSession:
-    def __init__(self, *, heartbeats=(), failure: Exception | None = None, schema=SCHEMA_HEAD):
+    def __init__(
+        self,
+        *,
+        heartbeats=(),
+        failure: Exception | None = None,
+        schema=SCHEMA_HEAD,
+        secret_relation="encrypted_secrets",
+    ):
         self.heartbeats = list(heartbeats)
         self.failure = failure
         self.schema = schema
+        self.secret_relation = secret_relation
 
     async def scalar(self, statement):
         if self.failure is not None:
@@ -49,6 +60,8 @@ class ReadinessSession:
             return self.schema
         if "clock_timestamp" in sql:
             return NOW
+        if "to_regclass" in sql:
+            return self.secret_relation
         raise AssertionError(f"unexpected scalar query: {sql}")
 
     async def scalars(self, statement):
@@ -88,6 +101,10 @@ def _config(tmp_path, **changes) -> Settings:
     }
     values.update(changes)
     return Settings(**values)
+
+
+def _master_key(byte: int = 2) -> str:
+    return base64.urlsafe_b64encode(bytes([byte]) * 32).decode("ascii").rstrip("=")
 
 
 def _dependency(name: str, state: HealthState, observed_at: datetime) -> DependencyHealth:
@@ -188,6 +205,49 @@ async def test_readiness_reports_schema_mismatch_as_unavailable(tmp_path):
     assert snapshot.checks["database"].state == HealthState.HEALTHY
     assert snapshot.checks["schema"].state == HealthState.UNAVAILABLE
     assert snapshot.checks["schema"].code == "schema_mismatch"
+
+
+@pytest.mark.asyncio
+async def test_secret_readiness_distinguishes_database_schema_configuration_and_initialization(tmp_path):
+    config = _config(tmp_path, secret_master_key=_master_key())
+    runtime = SecretStoreRuntime.from_settings(config)
+
+    snapshot = await SecretReadinessService(
+        ReadinessSession(),
+        runtime=runtime,
+        config=config,
+        clock=lambda: NOW,
+    ).snapshot()
+
+    assert snapshot.status == "ready"
+    assert set(snapshot.checks) == {
+        "database",
+        "secret_schema",
+        "encryption_configuration",
+        "secret_store",
+    }
+    assert snapshot.checks["database"].code == "database_connected"
+    assert snapshot.checks["secret_schema"].code == "secret_schema_available"
+    assert snapshot.checks["encryption_configuration"].code == "secret_store_configuration_valid"
+    assert snapshot.checks["secret_store"].code == "secret_store_initialized"
+
+
+@pytest.mark.asyncio
+async def test_secret_readiness_reports_missing_key_and_missing_table_separately(tmp_path):
+    config = _config(tmp_path, secret_master_key=None)
+
+    snapshot = await SecretReadinessService(
+        ReadinessSession(secret_relation=None),
+        runtime=SecretStoreRuntime.from_settings(config),
+        config=config,
+        clock=lambda: NOW,
+    ).snapshot()
+
+    assert snapshot.status == "unavailable"
+    assert snapshot.checks["database"].state == HealthState.HEALTHY
+    assert snapshot.checks["secret_schema"].code == "secret_schema_unavailable"
+    assert snapshot.checks["encryption_configuration"].code == "secret_store_configuration_invalid"
+    assert snapshot.checks["secret_store"].code == "secret_store_unavailable"
 
 
 @pytest.mark.asyncio

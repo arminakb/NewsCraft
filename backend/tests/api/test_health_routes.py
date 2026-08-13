@@ -1,7 +1,7 @@
 from datetime import UTC, datetime
 
 from fastapi import FastAPI
-from fastapi.testclient import TestClient
+from httpx import ASGITransport, AsyncClient
 
 import app.api.health as health_api
 from app.db.session import get_session
@@ -41,13 +41,13 @@ def _snapshot(ready: bool) -> ReadinessSnapshot:
     )
 
 
-def test_liveness_is_process_only():
+async def test_liveness_is_process_only():
     api = _api()
-    with TestClient(api) as client:
-        assert client.get("/health/live").json() == {"status": "alive"}
+    async with AsyncClient(transport=ASGITransport(app=api), base_url="http://test") as client:
+        assert (await client.get("/health/live")).json() == {"status": "alive"}
 
 
-def test_readiness_returns_200_or_503_from_dependency_state(monkeypatch):
+async def test_readiness_returns_200_or_503_from_dependency_state(monkeypatch):
     api = FastAPI()
     api.include_router(health_api.router)
 
@@ -66,9 +66,40 @@ def test_readiness_returns_200_or_503_from_dependency_state(monkeypatch):
             return self.result
 
     monkeypatch.setattr(health_api, "ReadinessService", FakeReadiness)
-    with TestClient(api) as client:
-        assert client.get("/health/ready").status_code == 200
+    async with AsyncClient(transport=ASGITransport(app=api), base_url="http://test") as client:
+        assert (await client.get("/health/ready")).status_code == 200
         FakeReadiness.result = _snapshot(False)
-        response = client.get("/health/ready")
+        response = await client.get("/health/ready")
         assert response.status_code == 503
         assert response.json()["status"] == "unavailable"
+
+
+async def test_secret_readiness_uses_initialized_application_runtime(monkeypatch):
+    api = FastAPI()
+    runtime = object()
+    api.state.secret_store_runtime = runtime
+    api.include_router(health_api.router)
+
+    async def session_override():
+        yield object()
+
+    api.dependency_overrides[get_session] = session_override
+
+    class FakeSecretReadiness:
+        result = _snapshot(True)
+        observed_runtime = None
+
+        def __init__(self, _session, *, runtime):
+            self.__class__.observed_runtime = runtime
+
+        async def snapshot(self):
+            return self.result
+
+    monkeypatch.setattr(health_api, "SecretReadinessService", FakeSecretReadiness)
+    async with AsyncClient(transport=ASGITransport(app=api), base_url="http://test") as client:
+        response = await client.get("/health/ready/secrets")
+        assert response.status_code == 200
+        assert FakeSecretReadiness.observed_runtime is runtime
+
+        FakeSecretReadiness.result = _snapshot(False)
+        assert (await client.get("/health/ready/secrets")).status_code == 503

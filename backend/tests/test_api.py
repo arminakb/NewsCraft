@@ -71,6 +71,130 @@ async def test_sources_seed_endpoint_seeds_catalog(monkeypatch):
     assert fake_session.committed is True
 
 
+async def test_source_creation_persists_across_listing_requests():
+    fake_session = PersistentSourceSession([])
+    _override_session(fake_session)
+
+    try:
+        created = await _post(
+            "/sources",
+            json={
+                "platform": "rss",
+                "name": "Example Wire",
+                "url": "https://example.com/feed.xml",
+                "source_group": "technology",
+                "language_hint": "en",
+                "fetch_interval_minutes": 30,
+            },
+        )
+        listed = await _get("/sources")
+    finally:
+        app.dependency_overrides.clear()
+
+    assert created.status_code == 201
+    assert created.json()["name"] == "Example Wire"
+    assert created.json()["feed_url"] == "https://example.com/feed.xml"
+    assert [row["id"] for row in listed.json()] == [created.json()["id"]]
+    assert fake_session.committed is True
+
+
+async def test_source_creation_rejects_invalid_feed_url():
+    fake_session = PersistentSourceSession([])
+    _override_session(fake_session)
+
+    try:
+        response = await _post(
+            "/sources",
+            json={
+                "platform": "rss",
+                "name": "Invalid",
+                "url": "file:///etc/passwd",
+                "source_group": "test",
+                "language_hint": "en",
+                "fetch_interval_minutes": 30,
+            },
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 422
+    assert fake_session.rows == []
+
+
+async def test_source_deletion_persists_across_listing_requests():
+    source = Source(
+        id=uuid4(),
+        platform="rss",
+        name="Delete me",
+        feed_url="https://example.com/delete.xml",
+        source_group="test",
+        language_hint="en",
+        active=True,
+    )
+    fake_session = PersistentSourceSession([source])
+    _override_session(fake_session)
+
+    try:
+        before = await _get("/sources")
+        deleted = await _delete(f"/sources/{source.id}")
+        after = await _get("/sources")
+    finally:
+        app.dependency_overrides.clear()
+
+    assert [row["id"] for row in before.json()] == [str(source.id)]
+    assert deleted.status_code == 204
+    assert after.json() == []
+    assert source.deleted_at is not None
+    assert fake_session.committed is True
+
+
+async def test_individual_source_health_check_persists_result(monkeypatch):
+    import app.api.sources as sources
+
+    checked_at = datetime(2026, 7, 27, 8, 30, tzinfo=UTC)
+    source = Source(
+        id=uuid4(),
+        platform="rss",
+        name="Check me",
+        feed_url="https://example.com/check.xml",
+        source_group="test",
+        language_hint="en",
+        active=True,
+        health_status="unknown",
+        failure_count=2,
+    )
+    fake_session = FakeSession([], item=source)
+
+    async def fake_check_source_health(_source):
+        return sources.SourceHealthCheck(
+            status="healthy",
+            checked_at=checked_at,
+            http_status=200,
+        )
+
+    monkeypatch.setattr(sources, "check_source_health", fake_check_source_health)
+    _override_session(fake_session)
+
+    try:
+        response = await _post(f"/sources/{source.id}/health-check")
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "source_id": str(source.id),
+        "health_status": "healthy",
+        "is_checking": False,
+        "last_checked_at": checked_at.isoformat().replace("+00:00", "Z"),
+        "failure_reason": None,
+    }
+    assert source.health_status == "healthy"
+    assert source.last_fetch_at == checked_at
+    assert source.last_success_at == checked_at
+    assert source.failure_count == 0
+    assert fake_session.committed is True
+
+
 async def test_ingest_run_endpoint_enqueues_one_idempotent_job_without_network(monkeypatch):
     request_id = uuid4()
     fake_session = FakeJobSession()
@@ -425,6 +549,20 @@ class FakeInsertResult:
         return self.value
 
 
+class PersistentSourceSession(FakeSession):
+    def add(self, source):
+        self.rows.append(source)
+
+    async def scalars(self, stmt):
+        return [source for source in self.rows if source.deleted_at is None]
+
+    async def get(self, model, item_id):
+        return next(
+            (source for source in self.rows if model is Source and source.id == item_id),
+            None,
+        )
+
+
 class FakeJobSession(FakeSession):
     def __init__(self):
         super().__init__([])
@@ -487,6 +625,11 @@ async def _get(path: str, **kwargs):
 async def _post(path: str, **kwargs):
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         return await client.post(path, **kwargs)
+
+
+async def _delete(path: str, **kwargs):
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        return await client.delete(path, **kwargs)
 
 
 async def _options(path: str, **kwargs):

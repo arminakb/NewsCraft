@@ -19,6 +19,9 @@ describe("SourceHealthTable", () => {
     expect(screen.getByRole("tab", { name: /telegram 1/i })).toBeInTheDocument()
     expect(screen.getByText("Healthy")).toBeInTheDocument()
     expect(screen.getByText("Degraded")).toBeInTheDocument()
+    expect(screen.getByRole("columnheader", { name: "Type" })).toHaveClass("hidden", "min-[480px]:table-cell")
+    expect(screen.getByRole("columnheader", { name: "Items" })).toBeInTheDocument()
+    expect(screen.queryByRole("columnheader", { name: /news|new/i })).not.toBeInTheDocument()
     expect(screen.queryByRole("columnheader", { name: "Next run" })).not.toBeInTheDocument()
     expect(screen.queryByRole("button", { name: /source table options/i })).not.toBeInTheDocument()
     expect(screen.queryByRole("button", { name: /view all sources/i })).not.toBeInTheDocument()
@@ -71,7 +74,7 @@ describe("SourceHealthTable", () => {
     expect(screen.getByText("Showing 7 of 7")).toBeInTheDocument()
   })
 
-  it("selects a source row", () => {
+  it("selects a source only when its row is double-clicked", () => {
     const onSelectSource = vi.fn()
 
     render(
@@ -82,12 +85,150 @@ describe("SourceHealthTable", () => {
       />
     )
 
-    fireEvent.click(
-      within(screen.getByRole("row", { name: /dw persian/i })).getByRole("button", {
-        name: /open dw persian details/i,
-      })
-    )
+    const row = screen.getByRole("row", { name: /dw persian/i })
+
+    expect(within(row).queryByRole("button", { name: /open dw persian details/i })).not.toBeInTheDocument()
+
+    fireEvent.click(row)
+    expect(onSelectSource).not.toHaveBeenCalled()
+
+    fireEvent.doubleClick(row)
 
     expect(onSelectSource).toHaveBeenCalledWith("telegram_dw_persian")
+  })
+
+  it("ignores double-clicks from nested source actions", () => {
+    const onCheckSource = vi.fn()
+    const onDeleteSource = vi.fn()
+    const onSelectSource = vi.fn()
+
+    render(
+      <SourceHealthTable
+        onCheckSource={onCheckSource}
+        onDeleteSource={onDeleteSource}
+        sources={dashboardMock.sources}
+        selectedSourceId={dashboardMock.sources[0].id}
+        onSelectSource={onSelectSource}
+      />
+    )
+
+    fireEvent.doubleClick(screen.getByRole("button", {
+      name: /check techcrunch health, currently healthy/i,
+    }))
+    fireEvent.doubleClick(screen.getByRole("button", { name: /delete techcrunch/i }))
+
+    expect(onSelectSource).not.toHaveBeenCalled()
+  })
+
+  it("switches between RSS and Telegram sources without a render loop", () => {
+    render(
+      <SourceHealthTable
+        sources={dashboardMock.sources}
+        selectedSourceId={dashboardMock.sources[0].id}
+        onSelectSource={() => undefined}
+      />
+    )
+
+    fireEvent.click(screen.getByRole("tab", { name: /rss 1/i }))
+    expect(screen.getByRole("row", { name: /techcrunch/i })).toBeInTheDocument()
+    expect(screen.queryByRole("row", { name: /dw persian/i })).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole("tab", { name: /telegram 1/i }))
+    expect(screen.getByRole("row", { name: /dw persian/i })).toBeInTheDocument()
+    expect(screen.queryByRole("row", { name: /techcrunch/i })).not.toBeInTheDocument()
+  })
+
+  it("requests confirmation before deleting a source", () => {
+    const onDeleteSource = vi.fn()
+
+    render(
+      <SourceHealthTable
+        sources={dashboardMock.sources}
+        selectedSourceId={dashboardMock.sources[0].id}
+        onDeleteSource={onDeleteSource}
+        onSelectSource={() => undefined}
+      />
+    )
+
+    fireEvent.click(screen.getByRole("button", { name: /delete techcrunch/i }))
+
+    expect(onDeleteSource).toHaveBeenCalledWith(dashboardMock.sources[0])
+  })
+
+  it("checks one source from its interactive status control", () => {
+    const onCheckSource = vi.fn()
+
+    render(
+      <SourceHealthTable
+        onCheckSource={onCheckSource}
+        sources={dashboardMock.sources}
+        selectedSourceId={dashboardMock.sources[0].id}
+        onSelectSource={() => undefined}
+      />
+    )
+
+    fireEvent.click(screen.getByRole("button", { name: /check techcrunch health, currently healthy/i }))
+
+    expect(onCheckSource).toHaveBeenCalledWith(dashboardMock.sources[0].id)
+  })
+
+  it("disables duplicate row checks and exposes check metadata", () => {
+    render(
+      <SourceHealthTable
+        checkingSourceIds={new Set([dashboardMock.sources[0].id])}
+        onCheckSource={() => undefined}
+        sources={[{
+          ...dashboardMock.sources[0],
+          lastCheckedAt: "2026-07-27T08:30:00Z",
+          failureReason: "Source returned HTTP 503.",
+        }]}
+        selectedSourceId={dashboardMock.sources[0].id}
+        onSelectSource={() => undefined}
+      />
+    )
+
+    expect(screen.getByRole("button", { name: /checking techcrunch health/i })).toBeDisabled()
+    expect(screen.getByText(/last checked/i)).toBeInTheDocument()
+    expect(screen.getByText(/source returned http 503/i)).toBeInTheDocument()
+  })
+
+  it("runs a bounded bulk check from the Source health button", () => {
+    const onCheckAll = vi.fn()
+
+    const { rerender } = render(
+      <SourceHealthTable
+        onCheckAll={onCheckAll}
+        sources={dashboardMock.sources}
+        selectedSourceId={dashboardMock.sources[0].id}
+        onSelectSource={() => undefined}
+      />
+    )
+
+    fireEvent.click(screen.getByRole("button", { name: /check all source health/i }))
+    expect(onCheckAll).toHaveBeenCalledOnce()
+
+    rerender(
+      <SourceHealthTable
+        bulkChecking
+        onCheckAll={onCheckAll}
+        sources={dashboardMock.sources}
+        selectedSourceId={dashboardMock.sources[0].id}
+        onSelectSource={() => undefined}
+      />
+    )
+    const checkAll = screen.getByRole("button", { name: /checking all source health/i })
+    expect(checkAll).toBeDisabled()
+  })
+
+  it("does not render the unused select-source chevron action", () => {
+    render(
+      <SourceHealthTable
+        sources={dashboardMock.sources}
+        selectedSourceId={dashboardMock.sources[0].id}
+        onSelectSource={() => undefined}
+      />
+    )
+
+    expect(screen.queryByRole("button", { name: /select techcrunch/i })).not.toBeInTheDocument()
   })
 })

@@ -13,6 +13,7 @@ from app.normalization.text import fingerprint_text
 from app.normalization.titles import normalize_title
 from app.normalization.urls import normalize_url
 from app.sources.base import MediaCandidate, ParsedSourceItem, ParsedSourcePayload
+from app.sources.icon_discovery import extract_feed_identity
 
 
 def parse_rss_feed(
@@ -32,6 +33,7 @@ def parse_rss_feed(
     ]
 
     feed_title = feed.feed.get("title") if getattr(feed, "feed", None) else None
+    identity = extract_feed_identity(xml, source_url)
     return ParsedSourcePayload(
         items=items,
         warnings=warnings,
@@ -40,6 +42,11 @@ def parse_rss_feed(
             "source_url": source_url,
             "feed_title": feed_title,
             "feed_version": feed.get("version"),
+            "publisher_url": identity.publisher_url,
+            "icon_candidates": [
+                {"url": candidate.url, "source": candidate.source}
+                for candidate in identity.candidates
+            ],
         },
     )
 
@@ -54,7 +61,8 @@ def _parse_entry(
     source_url_norm = normalize_url(link, source_url) if link else None
     title = _entry_title(entry)
     summary_html = entry.get("summary") or entry.get("description") or ""
-    content_html = _entry_content_html(entry) or summary_html or None
+    source_content_html = _entry_content_html(entry)
+    content_html = source_content_html or summary_html or None
     summary = _html_to_text(summary_html)
     content_text = _html_to_text(content_html) if content_html else summary or title
     published_raw, published_at, date_parse_status = _entry_date(entry, default_timezone)
@@ -91,7 +99,16 @@ def _parse_entry(
         published_at=published_at,
         date_parse_status=date_parse_status,
         media_candidates=_extract_media_candidates(entry, content_html, source_url),
-        parser_meta={"feedparser_keys": sorted(entry.keys())},
+        parser_meta={
+            "feedparser_keys": sorted(entry.keys()),
+            "content_origin": (
+                "source_provided"
+                if source_content_html
+                else "source_excerpt"
+                if summary
+                else "unavailable"
+            ),
+        },
     )
 
 

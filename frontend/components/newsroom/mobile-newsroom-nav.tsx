@@ -6,20 +6,41 @@ import { Menu, X } from "lucide-react"
 import { useCallback, useEffect, useRef, useState } from "react"
 
 import {
-  advancedNavSections,
-  isCurrentPath,
   isNavItemCurrent,
   newsroomNavItems,
-  workflowNavItems,
+  primaryNavItems,
+  settingsNavItem,
+  type NewsroomNavItem,
 } from "@/components/newsroom/newsroom-sidebar"
+import {
+  NotificationsTrigger,
+  type NotificationsPopoverHandle,
+} from "@/components/newsroom/notifications-sidebar"
+import { ThemeToggle } from "@/components/theme/theme-toggle"
+import {
+  rememberSettingsReturnPath,
+  SETTINGS_RESTORE_FOCUS_KEY,
+} from "@/features/settings/settings-sections"
 import { cn } from "@/lib/utils"
 
-export function MobileNewsroomNav() {
+const mobilePrimaryItems = primaryNavItems
+
+export function MobileNewsroomNav({
+  notificationsHandle,
+  notificationsOpen = false,
+  onNotificationsOpen = () => undefined,
+}: {
+  notificationsHandle?: NotificationsPopoverHandle
+  notificationsOpen?: boolean
+  onNotificationsOpen?: (trigger: HTMLButtonElement, placement: "mobile" | "sidebar") => void
+}) {
   const pathname = usePathname()
   const [open, setOpen] = useState(false)
   const triggerRef = useRef<HTMLButtonElement>(null)
   const firstLinkRef = useRef<HTMLAnchorElement>(null)
   const dialogRef = useRef<HTMLDivElement>(null)
+  const menuActive = [...newsroomNavItems.slice(primaryNavItems.length), settingsNavItem]
+    .some((item) => isNavItemCurrent(pathname, item))
 
   const closeAndRestore = useCallback(() => {
     setOpen(false)
@@ -39,124 +60,102 @@ export function MobileNewsroomNav() {
         closeAndRestore()
         return
       }
-
       if (event.key !== "Tab") return
 
       const focusableElements = Array.from(
         dialogRef.current?.querySelectorAll<HTMLElement>(
-          'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
-        ) ?? []
+          'a[href], button:not([disabled]), [tabindex]:not([tabindex="-1"])',
+        ) ?? [],
       )
-      if (focusableElements.length === 0) return
+      if (!focusableElements.length) return
 
-      const firstFocusable = focusableElements[0]
-      const lastFocusable = focusableElements.at(-1)
-      const activeElement = document.activeElement
-
-      if (event.shiftKey && (activeElement === firstFocusable || !dialogRef.current?.contains(activeElement))) {
+      const first = focusableElements[0]
+      const last = focusableElements.at(-1)
+      if (event.shiftKey && document.activeElement === first) {
         event.preventDefault()
-        lastFocusable?.focus()
-      } else if (!event.shiftKey && activeElement === lastFocusable) {
+        last?.focus()
+      } else if (!event.shiftKey && document.activeElement === last) {
         event.preventDefault()
-        firstFocusable.focus()
+        first.focus()
       }
     }
-    const closeAtDesktopBreakpoint = () => {
-      if (window.innerWidth >= 900) closeAndRestore()
-    }
+
     document.addEventListener("keydown", keepFocusInDialog)
-    window.addEventListener("resize", closeAtDesktopBreakpoint)
     return () => {
       document.removeEventListener("keydown", keepFocusInDialog)
-      window.removeEventListener("resize", closeAtDesktopBreakpoint)
       document.body.style.overflow = previousBodyOverflow
     }
   }, [closeAndRestore, open])
+
+  useEffect(() => {
+    setOpen(false)
+    if (pathname === "/settings") return
+    if (window.sessionStorage.getItem(SETTINGS_RESTORE_FOCUS_KEY) !== "true") return
+    window.requestAnimationFrame(() => {
+      if (!triggerRef.current?.getClientRects().length) return
+      triggerRef.current.focus()
+      window.sessionStorage.removeItem(SETTINGS_RESTORE_FOCUS_KEY)
+    })
+  }, [pathname])
 
   return (
     <>
       {open ? (
         <div className="fixed inset-0 z-50 min-[900px]:hidden">
-          <div
-            aria-hidden="true"
+          <button
+            aria-label="Close navigation"
+            className="absolute inset-0 size-full cursor-default bg-background/45 backdrop-blur-[2px]"
             data-testid="mobile-navigation-backdrop"
-            className="absolute inset-0 min-h-11 min-w-11 bg-slate-950/40"
             onClick={closeAndRestore}
+            type="button"
           />
           <div
-            ref={dialogRef}
-            id="newsroom-mobile-navigation"
-            role="dialog"
             aria-label="Newsroom navigation"
             aria-modal="true"
-            className="absolute inset-x-3 bottom-20 max-h-[calc(100dvh-6rem)] min-w-0 overscroll-contain overflow-y-auto rounded-lg border bg-white p-3 shadow-xl dark:bg-background"
+            className="absolute inset-x-3 bottom-[calc(5rem+env(safe-area-inset-bottom))] flex max-h-[calc(100dvh-6rem-env(safe-area-inset-bottom))] flex-col rounded-xl border border-border/50 bg-card p-3 shadow-md ring-1 ring-foreground/5"
+            id="newsroom-mobile-navigation"
+            ref={dialogRef}
+            role="dialog"
           >
-            <div className="mb-2 flex min-h-11 items-center justify-between gap-3 px-2">
-              <span className="font-semibold">Navigate NewsCraft</span>
-              <button
-                type="button"
-                aria-label="Close navigation"
-                className="inline-flex size-11 items-center justify-center rounded-md hover:bg-muted"
-                onClick={closeAndRestore}
-              >
-                <X className="size-5" aria-hidden="true" />
-              </button>
+            <div className="mb-2 flex min-h-11 shrink-0 items-center justify-between gap-3 px-1">
+              <div>
+                <h2 className="text-sm font-semibold">Navigate NewsCraft</h2>
+                <p className="text-xs text-muted-foreground">Choose a workspace</p>
+              </div>
+              <div className="flex items-center gap-2">
+                <NotificationsTrigger
+                  handle={notificationsHandle}
+                  onOpen={(trigger) => {
+                    setOpen(false)
+                    onNotificationsOpen(triggerRef.current ?? trigger, "mobile")
+                  }}
+                  open={notificationsOpen}
+                  placement="mobile"
+                />
+                <ThemeToggle placement="mobile" />
+                <button
+                  aria-label="Close navigation panel"
+                  className="grid size-11 place-items-center rounded-[7px] text-muted-foreground transition-colors hover:bg-navigation-hover hover:text-foreground active:bg-navigation-active focus-visible:ring-2 focus-visible:ring-ring/60"
+                  onClick={closeAndRestore}
+                  type="button"
+                >
+                  <X className="size-[18px]" aria-hidden="true" strokeWidth={1.5} />
+                </button>
+              </div>
             </div>
-            <nav aria-label="Mobile navigation panel">
-              <MobileGroupLabel>Workflow</MobileGroupLabel>
-              <div className="space-y-1">
-                {workflowNavItems.map((item, index) => {
-                  const Icon = item.icon
-                  const active = isNavItemCurrent(pathname, item)
-                  return (
-                    <Link
-                      key={item.href}
-                      ref={index === 0 ? firstLinkRef : undefined}
-                      href={item.href}
-                      aria-current={active ? "page" : undefined}
-                      className={cn(
-                        "flex min-h-11 min-w-11 items-center gap-3 rounded-md px-3 text-sm font-medium",
-                        active ? "bg-accent text-accent-foreground" : "hover:bg-muted"
-                      )}
-                      onClick={closeAndRestore}
-                    >
-                      <Icon className="size-5" aria-hidden="true" />
-                      {item.label}
-                    </Link>
-                  )
-                })}
-              </div>
-
-              <div className="my-3 border-t" />
-              <MobileGroupLabel>Advanced</MobileGroupLabel>
-              <div className="space-y-4 pt-1">
-                {advancedNavSections.map((section) => (
-                  <div key={section.label}>
-                    <div className="px-3 pb-1 text-xs font-medium text-slate-600 dark:text-slate-300">{section.label}</div>
-                    <div className="space-y-1">
-                      {section.items.map((item) => {
-                        const Icon = item.icon
-                        const active = isCurrentPath(pathname, item.href)
-                        return (
-                          <Link
-                            key={item.href}
-                            href={item.href}
-                            aria-current={active ? "page" : undefined}
-                            className={cn(
-                              "flex min-h-11 min-w-11 items-center gap-3 rounded-md px-3 text-sm font-medium",
-                              active ? "bg-accent text-accent-foreground" : "hover:bg-muted"
-                            )}
-                            onClick={closeAndRestore}
-                          >
-                            <Icon className="size-5" aria-hidden="true" />
-                            {item.label}
-                          </Link>
-                        )
-                      })}
-                    </div>
-                  </div>
-                ))}
-              </div>
+            <nav
+              aria-label="Mobile navigation panel"
+              className="grid min-h-0 grid-cols-2 gap-1 overflow-y-auto overscroll-contain"
+            >
+              {[...newsroomNavItems, settingsNavItem].map((item, index) => (
+                <MobilePanelLink
+                  active={isNavItemCurrent(pathname, item)}
+                  item={item}
+                  key={item.href}
+                  linkRef={index === 0 ? firstLinkRef : undefined}
+                  onNavigate={() => setOpen(false)}
+                />
+              ))}
             </nav>
           </div>
         </div>
@@ -164,37 +163,30 @@ export function MobileNewsroomNav() {
 
       <nav
         aria-label="Mobile newsroom navigation"
-        className="fixed inset-x-0 bottom-0 z-40 grid min-h-16 grid-cols-3 border-t bg-white/95 px-2 py-1 backdrop-blur dark:bg-background/95 min-[900px]:hidden"
+        className="mobile-newsroom-navigation fixed inset-x-0 bottom-0 z-40 grid min-h-16 grid-cols-4 border-t border-sidebar-border/70 bg-sidebar/95 px-2 pb-[max(0.25rem,env(safe-area-inset-bottom))] pt-1 backdrop-blur min-[900px]:hidden"
       >
-        {newsroomNavItems.slice(0, 2).map((item) => {
-          const Icon = item.icon
-          const active = isCurrentPath(pathname, item.href)
-          return (
-            <Link
-              key={item.href}
-              href={item.href}
-              aria-current={active ? "page" : undefined}
-              className={cn(
-                "flex min-h-11 min-w-11 flex-col items-center justify-center gap-0.5 rounded-md px-2 text-xs font-medium",
-                active ? "text-primary" : "text-muted-foreground hover:bg-muted"
-              )}
-            >
-              <Icon className="size-5" aria-hidden="true" />
-              {item.label}
-            </Link>
-          )
-        })}
+        {mobilePrimaryItems.map((item) => (
+          <MobileBarLink
+            active={isNavItemCurrent(pathname, item)}
+            item={item}
+            key={item.href}
+          />
+        ))}
         <button
-          ref={triggerRef}
-          type="button"
-          aria-label="Open navigation"
           aria-controls="newsroom-mobile-navigation"
           aria-expanded={open}
           aria-haspopup="dialog"
-          className="flex min-h-11 min-w-11 flex-col items-center justify-center gap-0.5 rounded-md px-2 text-xs font-medium text-muted-foreground hover:bg-muted"
+          aria-label="Open navigation"
+          className={cn(
+            "relative flex min-h-11 min-w-11 flex-col items-center justify-center gap-0.5 rounded-[7px] px-1 text-[11px] font-medium text-muted-foreground transition-colors hover:bg-navigation-hover hover:text-foreground active:bg-navigation-active focus-visible:ring-2 focus-visible:ring-ring/60",
+            menuActive && "bg-navigation-active font-semibold text-primary",
+          )}
+          data-settings-trigger
           onClick={() => setOpen(true)}
+          ref={triggerRef}
+          type="button"
         >
-          <Menu className="size-5" aria-hidden="true" />
+          <Menu className="size-[18px]" aria-hidden="true" strokeWidth={1.5} />
           Menu
         </button>
       </nav>
@@ -202,10 +194,52 @@ export function MobileNewsroomNav() {
   )
 }
 
-function MobileGroupLabel({ children }: { children: React.ReactNode }) {
+function MobileBarLink({ item, active }: { item: NewsroomNavItem; active: boolean }) {
+  const Icon = item.icon
   return (
-    <div className="px-3 pb-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-600 dark:text-slate-300">
-      {children}
-    </div>
+    <Link
+      aria-current={active ? "page" : undefined}
+      aria-label={item.label}
+      className={cn(
+        "relative flex min-h-11 min-w-11 flex-col items-center justify-center gap-0.5 rounded-[7px] px-1 text-[11px] font-medium text-muted-foreground transition-colors hover:bg-navigation-hover hover:text-foreground active:bg-navigation-active focus-visible:ring-2 focus-visible:ring-ring/60",
+        active && "bg-navigation-active font-semibold text-primary",
+      )}
+      href={item.href}
+    >
+      <Icon className="size-[18px]" aria-hidden="true" strokeWidth={1.5} />
+      {item.label}
+    </Link>
+  )
+}
+
+function MobilePanelLink({
+  active,
+  item,
+  linkRef,
+  onNavigate,
+}: {
+  active: boolean
+  item: NewsroomNavItem
+  linkRef?: React.Ref<HTMLAnchorElement>
+  onNavigate: () => void
+}) {
+  const Icon = item.icon
+  return (
+    <Link
+      aria-current={active ? "page" : undefined}
+      className={cn(
+        "flex min-h-12 items-center gap-2.5 rounded-[7px] px-2.5 text-[13px] font-medium text-muted-foreground transition-colors hover:bg-navigation-hover hover:text-foreground active:bg-navigation-active focus-visible:ring-2 focus-visible:ring-ring/60",
+        active && "bg-navigation-active text-primary",
+      )}
+      href={item.href}
+      onClick={() => {
+        if (item.label === "Settings") rememberSettingsReturnPath()
+        onNavigate()
+      }}
+      ref={linkRef}
+    >
+      <Icon className={cn("size-4 text-muted-foreground/70", active && "text-primary")} aria-hidden="true" strokeWidth={1.5} />
+      {item.label}
+    </Link>
   )
 }

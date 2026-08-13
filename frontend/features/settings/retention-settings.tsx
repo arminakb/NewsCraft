@@ -3,14 +3,18 @@
 import { useEffect, useId, useRef, useState } from "react"
 
 import { DirectionBoundary } from "@/components/newsroom/direction-boundary"
+import { useDirtyNavigation } from "@/components/editorial/use-dirty-navigation"
+import { useDateTime } from "@/components/providers/date-time-provider"
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { Input } from "@/components/ui/input"
 import {
   createRetentionPreview,
   enqueueRetentionRun,
   updateRetentionPolicy,
 } from "@/features/operations/api"
-import { formatTehranTimestamp } from "@/features/operations/diagnostics-dashboard"
+import { formatOperatorTimestamp } from "@/features/operations/diagnostics-dashboard"
 import { RETENTION_CONFIRMATION } from "@/features/operations/types"
 import type {
   RetentionCategory,
@@ -111,6 +115,7 @@ export function RetentionSettings({
   const policyIsSaved = parsedPolicy !== null && policiesEqual(parsedPolicy, savedPolicy)
   const policyCanSave = parsedPolicy !== null && !policyIsSaved
   const busy = activeOperation !== null
+  useDirtyNavigation(!policyIsSaved, "Discard unsaved retention changes?")
 
   useEffect(() => {
     if (previousPolicySignature.current === policySignature) return
@@ -227,10 +232,10 @@ export function RetentionSettings({
               return (
                 <div className="space-y-1" key={field.key}>
                   <label className="block font-medium" htmlFor={inputId}>{field.label}</label>
-                  <input
+                  <Input
                     aria-describedby={`${inputId}-description${invalid ? ` ${inputId}-error` : ""}`}
                     aria-invalid={invalid}
-                    className="min-h-11 w-full rounded-md border bg-background px-3 tabular-nums"
+                    className="tabular-nums"
                     id={inputId}
                     inputMode="numeric"
                     max={field.max}
@@ -245,7 +250,7 @@ export function RetentionSettings({
                     {field.description} Range: {field.min}–{field.max} days.
                   </p>
                   {invalid ? (
-                    <p className="text-xs text-red-700" id={`${inputId}-error`}>
+                    <p className="text-xs text-destructive" id={`${inputId}-error`} role="alert">
                       Enter a whole number from {field.min} to {field.max}.
                     </p>
                   ) : null}
@@ -272,7 +277,9 @@ export function RetentionSettings({
             </Button>
           </div>
           {!policyIsSaved ? (
-            <p className="text-sm text-amber-800">Save valid policy changes before creating a cleanup preview.</p>
+            <Alert tone="warning" role="status">
+              <AlertDescription>Save valid policy changes before creating a cleanup preview.</AlertDescription>
+            </Alert>
           ) : null}
         </CardContent>
       </Card>
@@ -298,11 +305,20 @@ export function RetentionSettings({
         <p aria-label={operationLabel(activeOperation)} role="status">{operationLabel(activeOperation)}…</p>
       ) : null}
       {error ? (
-        <DirectionBoundary as="div" className="rounded-md border border-red-200 bg-red-50 p-3 text-red-700" direction="auto" role="alert">
-          {error}
-        </DirectionBoundary>
+        <Alert tone="error" role="alert" dir="auto">
+          <div>
+            <AlertTitle>Retention action failed</AlertTitle>
+            <AlertDescription>
+              <DirectionBoundary direction="auto">{error}</DirectionBoundary>
+            </AlertDescription>
+          </div>
+        </Alert>
       ) : null}
-      {success ? <p className="rounded-md border border-emerald-200 bg-emerald-50 p-3" role="status">{success}</p> : null}
+      {success ? (
+        <Alert tone="success" role="status">
+          <AlertDescription>{success}</AlertDescription>
+        </Alert>
+      ) : null}
     </div>
   )
 }
@@ -322,6 +338,7 @@ function RetentionPreviewCard({
   onRun: () => void
   preview: RetentionPreview
 }) {
+  const { timezone } = useDateTime()
   const summaries = categoryOrder.flatMap((category) => {
     const summary = preview.counts[category]
     return summary ? [{ category, summary }] : []
@@ -329,14 +346,22 @@ function RetentionPreviewCard({
   const confirmationId = `${instanceId}-cleanup-confirmation`
 
   return (
-    <Card aria-label="Executable cleanup preview" className="rounded-md border-amber-300" role="region" size="sm">
+    <Card aria-label="Executable cleanup preview" className="rounded-md border-warning/40" role="region" size="sm">
       <CardHeader>
         <CardTitle>Cleanup preview</CardTitle>
         <CardDescription>
-          Previewed {formatTehranTimestamp(preview.previewed_at)} · expires {formatTehranTimestamp(preview.preview_expires_at)}
+          Previewed {formatOperatorTimestamp(preview.previewed_at, timezone)} · expires {formatOperatorTimestamp(preview.preview_expires_at, timezone)}
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
+        <Alert tone="warning" role="note">
+          <div>
+            <AlertTitle>Destructive cleanup</AlertTitle>
+            <AlertDescription>
+              Running this preview permanently removes the candidate records summarized below. Review counts and expiry before confirming.
+            </AlertDescription>
+          </div>
+        </Alert>
         {summaries.length ? (
           <ul aria-label="Cleanup candidate aggregates" className="divide-y rounded-md border">
             {summaries.map(({ category, summary }) => (
@@ -353,9 +378,8 @@ function RetentionPreviewCard({
           <label className="block font-medium" htmlFor={confirmationId}>
             Type {RETENTION_CONFIRMATION}
           </label>
-          <input
+          <Input
             autoComplete="off"
-            className="min-h-11 w-full rounded-md border bg-background px-3"
             disabled={disabled}
             id={confirmationId}
             onChange={(event) => onConfirmationChange(event.target.value)}

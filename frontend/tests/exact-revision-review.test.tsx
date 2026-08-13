@@ -84,13 +84,12 @@ it("creates a durable manual plan for the exact approved revision before showing
 
   render(<QueryClientProvider client={client}><ExactRevisionReview revisionId={baseRevision.id} /></QueryClientProvider>)
 
-  fireEvent.change(await screen.findByLabelText("Scheduled time (UTC)"), { target: { value: "2026-07-14T08:00" } })
-  fireEvent.change(screen.getByLabelText("Display timezone"), { target: { value: "Asia/Tehran" } })
+  fireEvent.change(await screen.findByLabelText("Scheduled time (Asia/Tehran)"), { target: { value: "2026-07-14T08:00" } })
   fireEvent.click(screen.getByRole("button", { name: "Create manual publication plan" }))
 
   await waitFor(() => expect(packageApi.createManualPublicationPlan).toHaveBeenCalledWith(
     baseRevision.id,
-    "2026-07-14T08:00:00.000Z",
+    "2026-07-14T04:30:00.000Z",
     "Asia/Tehran",
   ))
   expect(await screen.findByText(/Instagram plan plan-1 · exact revision revision-instagram/)).toBeInTheDocument()
@@ -130,7 +129,7 @@ it("truthfully restores URL-less manual completion evidence after a disconnected
   render(<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}><ExactRevisionReview revisionId={baseRevision.id} /></QueryClientProvider>)
 
   expect(await screen.findByText("Status: Published manually")).toBeInTheDocument()
-  expect(screen.getByRole("region", { name: "Manual publication completion evidence" })).toHaveTextContent("2026-07-13T10:00:00Z")
+  expect(screen.getByRole("region", { name: "Manual publication completion evidence" })).toHaveTextContent("Jul 13, 2026, 1:30 PM")
   expect(screen.getByText("No publication URL was recorded.")).toBeInTheDocument()
   expect(screen.getByText("Verified on the public account")).toBeInTheDocument()
   expect(screen.queryByRole("button", { name: "Mark as published" })).not.toBeInTheDocument()
@@ -159,23 +158,21 @@ it("restores a cancelled record and creates a new exact-revision plan after disc
   first.unmount()
 
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
-  const invalidate = vi.spyOn(client, "invalidateQueries")
   render(<QueryClientProvider client={client}><ExactRevisionReview revisionId={baseRevision.id} /></QueryClientProvider>)
 
   expect(await screen.findByText("Status: Cancelled")).toBeInTheDocument()
   expect(screen.getByText("Cancelled plans remain in publication history and cannot be edited.")).toBeInTheDocument()
-  fireEvent.change(screen.getByLabelText("Scheduled time (UTC)"), { target: { value: "2026-07-15T09:30" } })
+  fireEvent.change(screen.getByLabelText("Scheduled time (Asia/Tehran)"), { target: { value: "2026-07-15T09:30" } })
   fireEvent.click(screen.getByRole("button", { name: "Create new manual publication plan" }))
 
   await waitFor(() => expect(packageApi.createManualPublicationPlan).toHaveBeenCalledWith(
     baseRevision.id,
-    "2026-07-15T09:30:00.000Z",
+    "2026-07-15T06:00:00.000Z",
     "Asia/Tehran",
   ))
   expect(await screen.findByText(/Instagram plan plan-2 · exact revision revision-instagram/)).toBeInTheDocument()
   expect(client.getQueryData(packageQueryKeys.manualPlan("plan-2"))).toEqual(replacementPlan)
   expect(client.getQueryData(packageQueryKeys.manualPlanForRevision(baseRevision.id))).toEqual(replacementPlan)
-  expect(invalidate).toHaveBeenCalledWith({ queryKey: ["calendar"] })
   expect(packageApi.getManualPublicationPlanForRevision).toHaveBeenCalledTimes(2)
 })
 
@@ -200,18 +197,16 @@ it("reconciles a concurrent create conflict from revision-scoped persisted truth
     new ApiError("Conflict", 409, JSON.stringify({ detail: "Another tab created the active plan" })),
   )
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
-  const invalidate = vi.spyOn(client, "invalidateQueries")
   render(<QueryClientProvider client={client}><ExactRevisionReview revisionId={baseRevision.id} /></QueryClientProvider>)
 
   expect(await screen.findByText("Status: Cancelled")).toBeInTheDocument()
-  fireEvent.change(screen.getByLabelText("Scheduled time (UTC)"), { target: { value: "2026-07-15T09:30" } })
+  fireEvent.change(screen.getByLabelText("Scheduled time (Asia/Tehran)"), { target: { value: "2026-07-15T09:30" } })
   fireEvent.click(screen.getByRole("button", { name: "Create new manual publication plan" }))
 
   expect(await screen.findByText(/Instagram plan plan-from-other-tab · exact revision revision-instagram/)).toBeInTheDocument()
   expect(screen.getByRole("alert")).toHaveTextContent("Another tab created the active plan")
   expect(client.getQueryData(packageQueryKeys.manualPlan("plan-from-other-tab"))).toEqual(concurrentPlan)
   expect(client.getQueryData(packageQueryKeys.manualPlanForRevision(baseRevision.id))).toEqual(concurrentPlan)
-  expect(invalidate).toHaveBeenCalledWith({ queryKey: ["calendar"] })
   expect(packageApi.getManualPublicationPlanForRevision).toHaveBeenCalledTimes(2)
 })
 

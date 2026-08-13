@@ -41,7 +41,7 @@ describe("RouteBuilder", () => {
     expect(screen.getByLabelText("Telegram destination")).toHaveValue("destination-1")
     expect(screen.getByRole("link", { name: "Manage destinations" })).toHaveAttribute(
       "href",
-      "/settings/content#telegram-destinations",
+      "/settings?section=telegram",
     )
     expect(screen.getByLabelText("Access mode")).toHaveValue("public_html")
     expect(screen.getByLabelText("Research mode")).toHaveValue("off")
@@ -60,7 +60,7 @@ describe("RouteBuilder", () => {
     expect(screen.getByText("Create and verify a destination before building an automation.")).toBeInTheDocument()
     expect(screen.getByRole("link", { name: "Manage destinations" })).toHaveAttribute(
       "href",
-      "/settings/content#telegram-destinations",
+      "/settings?section=telegram",
     )
     expect(screen.getByRole("button", { name: "Create automation" })).toBeDisabled()
   })

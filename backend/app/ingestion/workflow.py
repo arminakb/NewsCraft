@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Mapping
+from collections.abc import Awaitable, Callable, Mapping
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -10,13 +10,16 @@ from typing import Any
 from uuid import UUID
 
 import httpx
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.automations.definitions.source_events import enqueue_source_item_created
 from app.core.config import settings
 from app.core.outbound_proxy import build_outbound_http_client
 from app.core.redaction import redact_secrets, redact_string
-from app.db.models import Source
+from app.db.models import IngestRun, Source
 from app.ingestion.repository import IngestionRepository, build_item_identities
+from app.source_collections.models import IngestRunSourceSnapshot
 from app.sources.registry import parser_for_source
 
 DEFAULT_HEADERS = {"User-Agent": "NewsCraftBot/1.0"}
@@ -40,6 +43,7 @@ class PreparedSource:
 class PreparedIngestionRun:
     run_id: UUID
     sources: tuple[PreparedSource, ...]
+    collection_snapshot: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -97,6 +101,21 @@ def _snapshot_source(source: Source) -> PreparedSource:
     )
 
 
+def _snapshot_source_record(source: IngestRunSourceSnapshot) -> PreparedSource:
+    if source.source_id is None:
+        raise ValueError(f"Ingest snapshot source {source.id} no longer has a source id")
+    return PreparedSource(
+        id=source.source_id,
+        name=source.source_name,
+        platform=source.platform,
+        feed_url=source.feed_url,
+        telegram_username=source.telegram_username,
+        default_timezone=source.default_timezone or "UTC",
+        etag=source.etag,
+        last_modified=source.last_modified,
+    )
+
+
 @asynccontextmanager
 async def _transaction(session: AsyncSession, label: str):
     begin: Any = session.begin
@@ -124,7 +143,34 @@ class IngestionWorkflow:
         platforms: list[str] | None,
         source_ids: list[str] | None,
         trigger: str,
+        ingest_run_id: str | None = None,
     ) -> PreparedIngestionRun:
+        if ingest_run_id is not None:
+            try:
+                run_id = UUID(str(ingest_run_id))
+            except ValueError:
+                raise ValueError("ingest_run_id must be a UUID") from None
+            run = await session.get(IngestRun, run_id)
+            if run is None or run.source_collection_id is None:
+                raise ValueError("collection ingest run not found")
+            snapshots = list(
+                await session.scalars(
+                    select(IngestRunSourceSnapshot)
+                    .where(IngestRunSourceSnapshot.ingest_run_id == run.id)
+                    .order_by(IngestRunSourceSnapshot.position)
+                )
+            )
+            if not snapshots:
+                raise ValueError("collection ingest run has no source snapshot")
+            run.status = "running"
+            if run.started_at is None:
+                run.started_at = datetime.now(UTC)
+            await session.flush()
+            return PreparedIngestionRun(
+                run_id=run.id,
+                sources=tuple(_snapshot_source_record(snapshot) for snapshot in snapshots),
+                collection_snapshot=True,
+            )
         repository = IngestionRepository(session)
         run = await repository.create_run(trigger=trigger, parser_version=settings.parser_version)
         sources = await repository.get_active_sources(platforms=platforms)
@@ -232,7 +278,8 @@ class IngestionWorkflow:
         try:
             async with session.begin_nested():
                 for parsed_item in batch.parsed_items:
-                    source_item = await repository.upsert_source_item(
+                    source_item, created = await _upsert_source_item_with_created(
+                        repository,
                         run_id=run_id,
                         source_id=source.id,
                         raw_payload_id=payload.id,
@@ -259,6 +306,16 @@ class IngestionWorkflow:
                     )
                     item_count += 1
                     media_count += len(parsed_item.media_candidates)
+                    if created:
+                        await enqueue_source_item_created(
+                            session,
+                            source_item_id=source_item.id,
+                            source_id=source.id,
+                            platform=source.platform,
+                            content_item_id=content_item.id,
+                            ingestion_run_id=run_id,
+                            occurred_at=datetime.now(UTC),
+                        )
         except asyncio.CancelledError:
             raise
         except Exception as exc:  # noqa: BLE001 - raw response remains durable outside the savepoint
@@ -314,6 +371,70 @@ class IngestionWorkflow:
         status = "partial" if stats["failed"] else "succeeded"
         await IngestionRepository(session).finish_run(run_id, status=status, stats=stats)
 
+    async def _fetch_one(
+        self,
+        source: PreparedSource,
+    ) -> tuple[PreparedSource, FetchedSourceBatch | None, Exception | None]:
+        try:
+            batch = await self.fetch_source(source)
+            await self._after_fetch(source, batch)
+            return source, batch, None
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:  # noqa: BLE001 - source failures remain source-scoped
+            return source, None, exc
+
+    async def _record_collection_progress(
+        self,
+        session: AsyncSession,
+        *,
+        prepared: PreparedIngestionRun,
+        source: PreparedSource,
+        stats: dict[str, Any],
+        failed: bool,
+        skipped: bool,
+        error: str | None,
+        on_progress: Callable[[dict[str, Any]], Awaitable[None]] | None,
+    ) -> None:
+        if not prepared.collection_snapshot:
+            return
+        now = datetime.now(UTC)
+        await session.execute(
+            update(IngestRunSourceSnapshot)
+            .where(
+                IngestRunSourceSnapshot.ingest_run_id == prepared.run_id,
+                IngestRunSourceSnapshot.source_id == source.id,
+            )
+            .values(
+                status="failed" if failed else ("skipped" if skipped else "succeeded"),
+                started_at=now,
+                completed_at=now,
+                error=redact_string(error) if error else None,
+            )
+        )
+        await session.execute(
+            update(IngestRun)
+            .where(IngestRun.id == prepared.run_id)
+            .values(
+                processed_count=stats["checked"],
+                success_count=max(0, stats["checked"] - stats["failed"]),
+                failure_count=stats["failed"],
+                stats=_sanitized_stats(stats),
+            )
+        )
+        if on_progress is not None:
+            try:
+                await on_progress(
+                    {
+                        "processed_count": stats["checked"],
+                        "source_count": len(prepared.sources),
+                        "success_count": max(0, stats["checked"] - stats["failed"]),
+                        "failure_count": stats["failed"],
+                    }
+                )
+            except Exception:  # noqa: BLE001 - progress reporting cannot stop ingestion
+                pass
+
     async def run(
         self,
         *,
@@ -321,14 +442,18 @@ class IngestionWorkflow:
         platforms: list[str] | None,
         source_ids: list[str] | None,
         trigger: str,
+        ingest_run_id: str | None = None,
+        on_progress: Callable[[dict[str, Any]], Awaitable[None]] | None = None,
     ) -> dict[str, Any]:
+        prepare_kwargs: dict[str, Any] = {
+            "platforms": platforms,
+            "source_ids": source_ids,
+            "trigger": trigger,
+        }
+        if ingest_run_id is not None:
+            prepare_kwargs["ingest_run_id"] = ingest_run_id
         async with _transaction(session, "prepare"):
-            prepared = await self.prepare_run(
-                session,
-                platforms=platforms,
-                source_ids=source_ids,
-                trigger=trigger,
-            )
+            prepared = await self.prepare_run(session, **prepare_kwargs)
 
         stats: dict[str, Any] = {
             "checked": 0,
@@ -339,48 +464,96 @@ class IngestionWorkflow:
             "media_candidates": 0,
             "errors": [],
         }
-        for source in prepared.sources:
-            stats["checked"] += 1
-            if _has_transaction(session):
-                raise RuntimeError("Database transaction remained active before source fetch")
+        source_iterator = iter(prepared.sources)
+        pending: set[asyncio.Task[tuple[PreparedSource, FetchedSourceBatch | None, Exception | None]]] = set()
+        concurrency = min(max(1, settings.ingestion_source_concurrency), max(1, len(prepared.sources)))
+        for _ in range(concurrency):
             try:
-                batch = await self.fetch_source(source)
-                await self._after_fetch(source, batch)
-            except asyncio.CancelledError:
-                raise
-            except Exception as exc:  # noqa: BLE001 - source failures do not abort the run
-                async with _transaction(session, f"failure:{source.name}"):
-                    persisted = await self.record_source_failure(
-                        session,
-                        run_id=prepared.run_id,
-                        source=source,
-                        error=exc,
-                    )
-            else:
-                try:
-                    async with _transaction(session, f"persist:{source.name}"):
-                        persisted = await self.persist_source(session, run_id=prepared.run_id, batch=batch)
-                except asyncio.CancelledError:
-                    raise
-                except Exception as exc:  # noqa: BLE001 - persist failures remain source-scoped
-                    async with _transaction(session, f"failure:{source.name}"):
-                        persisted = await self.record_source_failure(
-                            session,
-                            run_id=prepared.run_id,
-                            source=source,
-                            error=exc,
+                source = next(source_iterator)
+            except StopIteration:
+                break
+            pending.add(asyncio.create_task(self._fetch_one(source), name=f"ingest-fetch:{source.id}"))
+
+        try:
+            while pending:
+                completed, pending = await asyncio.wait(pending, return_when=asyncio.FIRST_COMPLETED)
+                for task in completed:
+                    source, batch, fetch_error = task.result()
+                    if _has_transaction(session):
+                        raise RuntimeError("Database transaction remained active before source persistence")
+                    stats["checked"] += 1
+                    persisted: SourcePersistResult
+                    progress_error: str | None = None
+                    if fetch_error is not None:
+                        progress_error = str(fetch_error)
+                        async with _transaction(session, f"failure:{source.name}"):
+                            persisted = await self.record_source_failure(
+                                session,
+                                run_id=prepared.run_id,
+                                source=source,
+                                error=fetch_error,
+                            )
+                    else:
+                        assert batch is not None
+                        try:
+                            async with _transaction(session, f"persist:{source.name}"):
+                                persisted = await self.persist_source(session, run_id=prepared.run_id, batch=batch)
+                        except asyncio.CancelledError:
+                            raise
+                        except Exception as exc:  # noqa: BLE001 - persist failures remain source-scoped
+                            progress_error = str(exc)
+                            async with _transaction(session, f"failure:{source.name}"):
+                                persisted = await self.record_source_failure(
+                                    session,
+                                    run_id=prepared.run_id,
+                                    source=source,
+                                    error=exc,
+                                )
+                    self._merge_result(stats, persisted)
+                    if persisted.errors and progress_error is None:
+                        progress_error = str(persisted.errors[0].get("error") or "source failed")
+                    if persisted.processing_failure is not None:
+                        failure = persisted.processing_failure
+                        progress_error = failure.message
+                        async with _transaction(session, f"failure:{source.name}"):
+                            classified = await self.record_source_failure(
+                                session,
+                                run_id=prepared.run_id,
+                                source=source,
+                                error=RuntimeError(failure.message),
+                            )
+                        self._merge_result(stats, classified)
+
+                    source_failed = bool(fetch_error or persisted.failed or persisted.processing_failure)
+                    if prepared.collection_snapshot:
+                        async with _transaction(session, f"progress:{source.name}"):
+                            await self._record_collection_progress(
+                                session,
+                                prepared=prepared,
+                                source=source,
+                                stats=stats,
+                                failed=source_failed,
+                                skipped=bool(persisted.skipped),
+                                error=progress_error,
+                                on_progress=on_progress,
+                            )
+
+                    try:
+                        next_source = next(source_iterator)
+                    except StopIteration:
+                        next_source = None
+                    if next_source is not None:
+                        pending.add(
+                            asyncio.create_task(
+                                self._fetch_one(next_source),
+                                name=f"ingest-fetch:{next_source.id}",
+                            )
                         )
-            self._merge_result(stats, persisted)
-            if persisted.processing_failure is not None:
-                failure = persisted.processing_failure
-                async with _transaction(session, f"failure:{source.name}"):
-                    classified = await self.record_source_failure(
-                        session,
-                        run_id=prepared.run_id,
-                        source=source,
-                        error=RuntimeError(failure.message),
-                    )
-                self._merge_result(stats, classified)
+        finally:
+            if pending:
+                for task in pending:
+                    task.cancel()
+                await asyncio.gather(*pending, return_exceptions=True)
 
         async with _transaction(session, "finish"):
             safe_stats = _sanitized_stats(stats)
@@ -413,6 +586,19 @@ class _PersistedResponse:
 
 def _build_http_client() -> httpx.AsyncClient:
     return build_outbound_http_client(timeout=20.0)
+
+
+async def _upsert_source_item_with_created(
+    repository: IngestionRepository,
+    **kwargs: Any,
+) -> tuple[Any, bool]:
+    method = getattr(repository, "upsert_source_item_with_created", None)
+    if callable(method):
+        return await method(**kwargs)
+    # Small repository doubles used by ingestion unit tests predate the
+    # insert/update signal. They still exercise persistence, but cannot emit
+    # a source-item event without the real repository boundary.
+    return await repository.upsert_source_item(**kwargs), False
 
 
 def _source_request_url(source: Source) -> str:

@@ -11,11 +11,11 @@ from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoin
 from starlette.responses import Response
 
 from app.core.config import Settings, settings
+from app.db.session import async_session
+from app.security.application_principal import ApplicationPrincipalResolver
 from app.security.audit import record_security_event
 from app.security.auth import (
-    TEST_ADMIN,
     AuthenticationFailure,
-    CredentialAuthenticator,
     SecurityPrincipal,
 )
 
@@ -48,8 +48,20 @@ def mutation_rule(method: str, path: str) -> MutationRule | None:
     if not parts:
         return None
     first = parts[0]
+    if first == "automation-resource-catalog":
+        # Batched catalog is a read-only POST because resource IDs are supplied
+        # in a bounded JSON body. Route-level read-scope checks remain authoritative.
+        return None
     if first == "brand-profiles":
         scope, resource = "settings:write", "editorial_profile"
+    elif first == "operator-settings":
+        scope, resource = "settings:write", "operator_setting"
+    elif parts[:2] in (
+        ["operations", "retention-policy"],
+        ["operations", "retention-preview"],
+        ["operations", "retention-runs"],
+    ):
+        scope, resource = "settings:write", "retention_setting"
     elif first in {"prompt-templates", "prompt-template-versions"}:
         scope, resource = "prompts:write", "prompt"
     elif first == "llm-providers":
@@ -58,10 +70,15 @@ def mutation_rule(method: str, path: str) -> MutationRule | None:
         scope, resource = "destinations:write", "telegram_destination"
     elif parts[:2] == ["telegram", "proxies"]:
         scope, resource = "destinations:write", "telegram_proxy_profile"
-    elif first == "automation-control" or parts[:2] == ["telegram", "automations"]:
+    elif (
+        first in {"automation-control", "automations", "automation-templates", "automation-resource-catalog"}
+        or parts[:2] == ["telegram", "automations"]
+    ):
         scope, resource = "automations:write", "automation"
     elif first == "jobs":
         scope, resource = "jobs:write", "job"
+    elif first == "feed":
+        scope, resource = "feed:write", "feed"
     elif first == "codex-gateway":
         if parts[1:] in (["pair"], ["heartbeat"]):
             # These endpoints authenticate one-time or paired Codex credentials
@@ -74,15 +91,20 @@ def mutation_rule(method: str, path: str) -> MutationRule | None:
     terminal = parts[-1].replace("_", "-")
     if terminal in {
         "activate",
+        "archive",
+        "duplicate",
         "enable",
         "disable",
         "pause",
         "resume",
+        "restore-as-draft",
         "retry",
         "cancel",
+        "clear",
         "rotate",
         "rotate-token",
         "rotate-credentials",
+        "validate",
         "recheck",
         "revoke",
     }:
@@ -93,7 +115,12 @@ def mutation_rule(method: str, path: str) -> MutationRule | None:
         action_name = "edit"
     else:
         action_name = "delete"
-    return MutationRule(scope, resource, f"{resource}.{action_name}", _uuid_segment(parts))
+    return MutationRule(
+        scope,
+        resource,
+        f"{resource}.{action_name}",
+        _uuid_segment(parts),
+    )
 
 
 def _request_id(request: Request) -> str | None:
@@ -109,10 +136,9 @@ async def _persist_event(
     reason_code: str | None,
     request_id: str | None,
     status_code: int | None = None,
+    session_factory=async_session,
 ) -> None:
-    from app.db.session import async_session
-
-    async with async_session() as session:
+    async with session_factory() as session:
         record_security_event(
             session,
             principal=principal,
@@ -129,10 +155,11 @@ async def _persist_event(
 
 
 class SecurityAuthorizationMiddleware(BaseHTTPMiddleware):
-    def __init__(self, app, *, config: Settings = settings) -> None:
+    def __init__(self, app, *, config: Settings = settings, session_factory=None) -> None:
         super().__init__(app)
         self.config = config
-        self.authenticator = CredentialAuthenticator(config)
+        self.principal_resolver = ApplicationPrincipalResolver(config)
+        self.session_factory = session_factory or async_session
 
     async def _audit_or_fail(
         self,
@@ -154,6 +181,7 @@ class SecurityAuthorizationMiddleware(BaseHTTPMiddleware):
                 reason_code=reason_code,
                 request_id=request_id,
                 status_code=status_code,
+                session_factory=self.session_factory,
             )
         except Exception:  # noqa: BLE001 - mutation must fail closed before execution
             logger.exception("security audit persistence failed")
@@ -165,38 +193,39 @@ class SecurityAuthorizationMiddleware(BaseHTTPMiddleware):
         if rule is None:
             return await call_next(request)
         request_id = _request_id(request)
-        if self.config.app_env == "test":
-            principal = TEST_ADMIN
-        else:
-            try:
-                principal = self.authenticator.authenticate(
-                    request.headers.get("authorization"),
-                    request.headers.get("x-newscraft-principal-type"),
-                )
-            except AuthenticationFailure as exc:
-                audit_failure = await self._audit_or_fail(
-                    principal=None,
-                    rule=rule,
-                    outcome="rejected",
-                    reason_code=exc.code,
-                    request_id=request_id,
-                    status_code=exc.status_code,
-                )
-                return audit_failure or JSONResponse(
-                    status_code=exc.status_code,
-                    content={"detail": {"code": exc.code}},
-                )
+        try:
+            resolved = self.principal_resolver.resolve(request, mutation=True)
+            principal = resolved.principal
+        except AuthenticationFailure as exc:
+            audit_failure = await self._audit_or_fail(
+                principal=None,
+                rule=rule,
+                outcome="rejected",
+                reason_code=exc.code,
+                request_id=request_id,
+                status_code=exc.status_code,
+            )
+            return audit_failure or JSONResponse(
+                status_code=exc.status_code,
+                content={"detail": {"code": exc.code}},
+            )
+        request.state.authentication_method = resolved.authentication_method
         if not principal.permits(rule.required_scope):
+            first = next((part for part in request.url.path.split("/") if part), "")
+            denial_code = (
+                "insufficient_permission"
+                if first in {"automations", "automation-templates"}
+                else "scope_denied"
+            )
             audit_failure = await self._audit_or_fail(
                 principal=principal,
                 rule=rule,
                 outcome="rejected",
-                reason_code="scope_denied",
+                reason_code=denial_code,
                 request_id=request_id,
                 status_code=403,
             )
-            return audit_failure or JSONResponse(status_code=403, content={"detail": {"code": "scope_denied"}})
-
+            return audit_failure or JSONResponse(status_code=403, content={"detail": {"code": denial_code}})
         audit_failure = await self._audit_or_fail(
             principal=principal,
             rule=rule,

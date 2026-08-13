@@ -1,7 +1,6 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { fireEvent, render, screen, waitFor } from "@testing-library/react"
 
-import RetentionPage from "@/app/settings/retention/page"
 import {
   createRetentionPreview,
   enqueueRetentionRun,
@@ -14,6 +13,7 @@ import type {
   RetentionRunAccepted,
 } from "@/features/operations/types"
 import { RetentionSettings } from "@/features/settings/retention-settings"
+import { RetentionSection } from "@/features/settings/retention-section"
 import { ApiError } from "@/lib/http"
 
 vi.mock("@/features/operations/api", () => ({
@@ -231,7 +231,7 @@ describe("RetentionSettings", () => {
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
     render(
       <QueryClientProvider client={queryClient}>
-        <RetentionPage />
+        <RetentionSection />
       </QueryClientProvider>,
     )
 
@@ -287,15 +287,15 @@ describe("RetentionSettings", () => {
     expect(screen.getByRole("button", { name: "Preview cleanup" })).toBeEnabled()
   })
 
-  it("shows accessible loading and RTL-safe retryable errors on the retention page", async () => {
+  it("shows accessible loading and RTL-safe retryable errors inside Settings", async () => {
     const deferred = createDeferred<RetentionPolicy>()
     vi.mocked(fetchRetentionPolicy).mockReturnValueOnce(deferred.promise)
-    const pending = renderRetentionPage()
+    const pending = renderRetentionSection()
     expect(screen.getByRole("status", { name: "Loading retention settings" })).toBeInTheDocument()
     pending.unmount()
 
     vi.mocked(fetchRetentionPolicy).mockRejectedValueOnce(new Error("سیاست نگهداری در دسترس نیست"))
-    renderRetentionPage()
+    renderRetentionSection()
     const alert = await screen.findByRole("alert")
     expect(alert).toHaveTextContent("سیاست نگهداری در دسترس نیست")
     expect(alert).toHaveAttribute("dir", "auto")
@@ -303,11 +303,11 @@ describe("RetentionSettings", () => {
   })
 })
 
-function renderRetentionPage() {
+function renderRetentionSection() {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   return render(
     <QueryClientProvider client={queryClient}>
-      <RetentionPage />
+      <RetentionSection />
     </QueryClientProvider>,
   )
 }

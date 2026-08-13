@@ -25,7 +25,7 @@ export function MediaPlan({ revision, onReorder }: MediaPlanProps) {
           <ol className="space-y-2">
             {assets.map((asset, index) => <SourceAssetRow key={asset.id} asset={asset} position={index + 1} />)}
           </ol>
-        ) : <p className="text-sm text-amber-800">No source assets are available for this revision.</p>}
+        ) : <p className="text-sm text-warning">No source assets are available for this revision.</p>}
       </section>
       <section aria-labelledby="assignments-heading" className="space-y-2">
         <h3 id="assignments-heading" className="font-medium">Assignments</h3>
@@ -42,7 +42,7 @@ function SourceAssetRow({ asset, position }: { asset: SourceMedia; position: num
       <div>{asset.kind} · {asset.mimeType}</div>
       <div>{dimensions(asset)} · {bytes(asset.byteLength)}</div>
       {asset.durationSeconds !== null ? <div>Duration: {asset.durationSeconds} seconds</div> : null}
-      <div className={asset.available ? "text-green-700" : "text-red-700"}>
+      <div className={asset.available ? "text-success" : "text-destructive"}>
         {asset.available ? "Available" : "Unavailable"} · {asset.fetchStatus}
       </div>
     </li>
@@ -194,7 +194,7 @@ function AssignmentDetails({ platform, assignment, sourceMedia }: { platform: "i
       <div>Manual brief: <DirectionBoundary as="span" language={null}>{assignment.manualBrief ?? "Not provided"}</DirectionBoundary></div>
       <div>Image prompt: <DirectionBoundary as="span" language={null}>{assignment.imagePrompt ?? "Not provided"}</DirectionBoundary></div>
       {requiresManual ? (
-        <div role="alert" className="font-medium text-amber-800">
+        <div role="alert" className="font-medium text-warning">
           Required manual asset{problem ? ` — ${problem}` : ""}
         </div>
       ) : null}
@@ -203,7 +203,7 @@ function AssignmentDetails({ platform, assignment, sourceMedia }: { platform: "i
 }
 
 function RequiredManualAsset({ message }: { message: string }) {
-  return <div role="alert" className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-amber-900"><strong>Required manual asset</strong> — {message}</div>
+  return <div role="alert" className="rounded-lg border border-warning/30 bg-[var(--warning-surface)] p-3 text-warning"><strong>Required manual asset</strong> — {message}</div>
 }
 
 function MoveControls({ label, index, length, onMove }: { label: string; index: number; length: number; onMove: (target: number) => void }) {

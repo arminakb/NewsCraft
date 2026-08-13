@@ -7,7 +7,12 @@ from pydantic import ValidationError
 from sqlalchemy.dialects import postgresql
 
 from app.core.config import Settings
-from app.jobs.scheduler import SchedulerService, build_due_route_statement, build_due_schedule_statement
+from app.jobs.scheduler import (
+    SchedulerService,
+    build_due_continuous_subscription_statement,
+    build_due_route_statement,
+    build_due_schedule_statement,
+)
 
 
 class Transaction:
@@ -117,6 +122,7 @@ def test_scheduler_settings_have_exact_defaults_and_validation():
     assert value.worker_poll_seconds == 1.0
     assert value.worker_lease_seconds == 120
     assert value.worker_heartbeat_seconds == 30
+    assert value.continuous_ingestion_interval_minutes == 15
     with pytest.raises(ValidationError):
         Settings(scheduler_timezone="Mars/Olympus")
     with pytest.raises(ValidationError):
@@ -298,6 +304,17 @@ async def test_non_zero_padded_durable_daily_time_disables_schedule_and_emits_in
 def test_due_schedule_query_locks_with_skip_locked():
     sql = str(build_due_schedule_statement(datetime(2026, 7, 11, tzinfo=UTC)).compile(dialect=postgresql.dialect()))
     assert "FOR UPDATE SKIP LOCKED" in sql
+
+
+def test_due_continuous_subscription_query_locks_with_skip_locked():
+    sql = str(
+        build_due_continuous_subscription_statement(datetime(2026, 7, 11, tzinfo=UTC)).compile(
+            dialect=postgresql.dialect()
+        )
+    )
+    assert "FOR UPDATE SKIP LOCKED" in sql
+    assert "next_cycle_at" in sql
+    assert "status" in sql
 
 
 @pytest.mark.asyncio

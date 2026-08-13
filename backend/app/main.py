@@ -6,6 +6,8 @@ from fastapi.responses import JSONResponse
 
 from app.api.generation_settings import seed_codex_provider_profile
 from app.api.routes import router
+from app.automations.definitions.errors import AutomationDefinitionError
+from app.automations.definitions.templates import seed_automation_templates
 from app.core.config import settings
 from app.core.logging import configure_logging
 from app.db.session import async_session
@@ -17,6 +19,7 @@ from app.generation.default_prompts import (
 from app.jobs.capability_gate import safe_gate_code, safe_gate_job_type
 from app.jobs.errors import JobCapabilityUnavailable
 from app.security.middleware import SecurityAuthorizationMiddleware
+from app.security.secret_store import SecretStoreRuntime
 
 configure_logging()
 
@@ -32,11 +35,31 @@ async def lifespan(_app: FastAPI):
             enabled=settings.codex_enabled,
             model="gpt-5.4",
         )
+        await seed_automation_templates(session)
         await session.commit()
     yield
 
 
 app = FastAPI(title=settings.app_name, lifespan=lifespan)
+app.state.secret_store_runtime = SecretStoreRuntime.from_settings(settings)
+
+
+@app.exception_handler(AutomationDefinitionError)
+async def automation_definition_error(
+    _request: Request,
+    exc: AutomationDefinitionError,
+) -> JSONResponse:
+    detail = {"code": exc.code, "message": exc.safe_message}
+    if exc.node_id is not None:
+        detail["node_id"] = exc.node_id
+    if exc.node_type is not None:
+        detail["node_type"] = exc.node_type
+    if exc.field_path is not None:
+        detail["field_path"] = exc.field_path
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={"detail": detail},
+    )
 
 
 @app.exception_handler(JobCapabilityUnavailable)

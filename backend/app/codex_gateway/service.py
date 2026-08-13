@@ -20,6 +20,7 @@ from app.codex_gateway.models import (
 from app.codex_gateway.schemas import (
     CapabilityOut,
     CodexConnectionOut,
+    CodexConnectionSummaryOut,
     GatewayActivityOut,
     PairingSessionCreatedOut,
     PairingSessionOut,
@@ -670,11 +671,31 @@ def connection_out(
     )
 
 
+def connection_summary_out(
+    connection: CodexConnection,
+    *,
+    now: datetime,
+    config: Settings,
+) -> CodexConnectionSummaryOut:
+    full = connection_out(connection, now=now, config=config)
+    return CodexConnectionSummaryOut(
+        id=full.id,
+        device_name=full.device_name,
+        scopes=full.scopes,
+        status=full.status,
+        connection_state=full.connection_state,
+        failure_code=full.failure_code,
+        expires_at=full.expires_at,
+        last_heartbeat_at=full.last_heartbeat_at,
+    )
+
+
 __all__ = [
     "CAPABILITIES",
     "CodexGatewayService",
     "GatewayError",
     "connection_out",
+    "connection_summary_out",
     "connection_status",
     "pairing_out",
 ]

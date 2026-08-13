@@ -1,11 +1,7 @@
-import type {
-  IngestionRunSummary,
-  SourceSummary,
-} from "@/features/operations/ingestion-types"
+import type { SourceSummary } from "@/features/operations/ingestion-types"
 
 export const dashboardMock: {
   sources: SourceSummary[]
-  runs: IngestionRunSummary[]
 } = {
   sources: [
     {
@@ -41,35 +37,6 @@ export const dashboardMock: {
       totalItems: 3920,
       media24h: 44,
       addedAt: "2025-01-08 08:40",
-    },
-  ],
-  runs: [
-    {
-      id: "run_0932",
-      label: "Today 09:32",
-      scope: "All sources",
-      status: "succeeded",
-      progress: 92,
-      duration: "02:18",
-      items: 1184,
-    },
-    {
-      id: "run_0832",
-      label: "Today 08:32",
-      scope: "All sources",
-      status: "partial",
-      progress: 78,
-      duration: "02:31",
-      items: 942,
-    },
-    {
-      id: "run_0732",
-      label: "Today 07:32",
-      scope: "All sources",
-      status: "failed",
-      progress: 0,
-      duration: "00:00",
-      items: 0,
     },
   ],
 }

@@ -1,9 +1,16 @@
 "use client"
 
+import { Menu } from "@base-ui/react/menu"
 import { useMutation, useQueryClient } from "@tanstack/react-query"
 import {
   BrainCircuit,
+  CheckCircle2,
+  ChevronDown,
+  CircleAlert,
+  Clock3,
+  Ellipsis,
   KeyRound,
+  LoaderCircle,
   Pencil,
   Plus,
   RefreshCw,
@@ -14,9 +21,11 @@ import {
 import { useState } from "react"
 
 import { useNotices } from "@/components/providers/notice-provider"
-import { Button } from "@/components/ui/button"
-import { getApiErrorMessage } from "@/lib/http"
+import { useDateTime } from "@/components/providers/date-time-provider"
+import { Button, buttonVariants } from "@/components/ui/button"
+import { ApiError, getApiErrorMessage } from "@/lib/http"
 import { queryKeys } from "@/lib/query-keys"
+import { cn } from "@/lib/utils"
 import {
   createLLMProvider,
   deleteLLMProvider,
@@ -28,27 +37,64 @@ import {
 } from "./content-settings-api"
 import type { LLMProvider } from "./content-settings-api"
 import {
-  ActionButton,
   EmptyState,
   Field,
   fieldClass,
   formatDate,
   Metric,
   NumberField,
-  ReadinessLabel,
   safeCode,
   SecretDialog,
   SettingsDialog,
   SettingsSection,
   StatusBadge,
 } from "./content-settings-primitives"
+import { ProviderBrandIcon } from "./provider-brand-icon"
 
 export function LLMProvidersSection({ providers }: { providers: LLMProvider[] }) {
+  const { timezone } = useDateTime()
   const queryClient = useQueryClient()
   const { pushNotice } = useNotices()
   const [editing, setEditing] = useState<LLMProvider | "new" | null>(null)
   const [rotating, setRotating] = useState<LLMProvider | null>(null)
   const [busy, setBusy] = useState<string | null>(null)
+  const handleMutationError = (cause: unknown, fallbackTitle = "Provider action failed") => {
+    const errorCode = providerApiErrorCode(cause)
+    if (cause instanceof ApiError && cause.status === 401) {
+      pushNotice({
+        tone: "error",
+        title: "Application sign-in required",
+        message: "Your application session is unavailable. Sign in to NewsCraft, then retry.",
+      })
+      return
+    }
+    if (cause instanceof ApiError && cause.status === 403) {
+      pushNotice({
+        tone: "error",
+        title: "Insufficient permission",
+        message: "Authenticated principal does not have permission for this Settings mutation.",
+      })
+      return
+    }
+    const secretFailure = errorCode ? PROVIDER_SECRET_FAILURES[errorCode] : undefined
+    if (secretFailure) {
+      pushNotice({
+        tone: "error",
+        title: secretFailure.title,
+        message: secretFailure.message,
+      })
+      return
+    }
+    if (errorCode === "llm_provider_has_dependencies") {
+      pushNotice({
+        tone: "error",
+        title: "Provider cannot be deleted",
+        message: "This provider is still referenced. Review dependencies before deleting it.",
+      })
+      return
+    }
+    pushNotice({ tone: "error", title: fallbackTitle, message: getApiErrorMessage(cause) })
+  }
   const refresh = () => Promise.all([
     queryClient.invalidateQueries({ queryKey: queryKeys.llmProviders }),
     queryClient.invalidateQueries({ queryKey: queryKeys.editorialProviderOptions }),
@@ -76,7 +122,7 @@ export function LLMProvidersSection({ providers }: { providers: LLMProvider[] })
       }
       await refresh()
     } catch (cause) {
-      pushNotice({ tone: "error", title: "Provider action failed", message: getApiErrorMessage(cause) })
+      handleMutationError(cause)
     } finally {
       setBusy(null)
     }
@@ -91,35 +137,105 @@ export function LLMProvidersSection({ providers }: { providers: LLMProvider[] })
     >
       {providers.length ? <div className="grid gap-3">
         {providers.filter((provider) => provider.protocol !== "fake").map((provider) => (
-          <article key={provider.id} className="rounded-xl border bg-background p-4">
-            <div className="flex flex-col gap-4 xl:flex-row xl:items-center">
+          <article
+            className="min-w-0 max-w-full overflow-hidden rounded-xl border border-border/60 bg-card p-3 shadow-xs"
+            data-testid="llm-provider-card"
+            key={provider.id}
+          >
+            <div className="flex min-w-0 items-start gap-3">
+              <span className="grid size-9 shrink-0 place-items-center rounded-lg bg-accent text-accent-foreground">
+                <ProviderBrandIcon
+                  baseUrl={provider.base_url}
+                  className="size-[18px]"
+                  name={provider.name}
+                  providerType={provider.protocol}
+                />
+              </span>
               <div className="min-w-0 flex-1">
-                <div className="flex flex-wrap items-center gap-2">
-                  <h3 className="font-semibold">{provider.name}</h3>
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <h3 className="mr-0.5 truncate text-sm font-semibold">{provider.name}</h3>
                   <StatusBadge value={provider.enabled ? "enabled" : "disabled"} />
                   <StatusBadge value={provider.health_status} />
                 </div>
-                <p className="mt-1 truncate text-sm text-muted-foreground">{provider.default_model} · {provider.base_url}</p>
-                <div className="mt-3 flex flex-wrap gap-2 text-xs">
-                  <ReadinessLabel label="Generation" ready={provider.generation_ready} value={provider.generation_capability} />
-                  <ReadinessLabel label="Research" ready={provider.research_ready} value={provider.research_capability} />
-                  <span className="rounded-full bg-muted px-2.5 py-1">{provider.configured ? "API key configured" : "API key missing"}</span>
-                  <span className="rounded-full bg-muted px-2.5 py-1">{formatDate(provider.last_checked_at, "Never checked")}</span>
-                </div>
-                {provider.failure_code ? <p className="mt-2 text-sm text-amber-800 dark:text-amber-300" role="status">{safeCode(provider.failure_code)}</p> : null}
+                <p
+                  className="mt-1 truncate text-xs text-muted-foreground"
+                  title={provider.base_url ?? undefined}
+                >
+                  <span className="font-medium text-foreground">{provider.default_model}</span>
+                  <span aria-hidden="true"> · </span>
+                  {provider.base_url ?? "Base URL unavailable"}
+                </p>
               </div>
-              <div className="flex flex-wrap gap-2">
-                <ActionButton label="Test" busy={busy === `${provider.id}:test`} onClick={() => void run(provider, "test")} icon={RefreshCw} />
-                <ActionButton label="Edit" onClick={() => setEditing(provider)} icon={Pencil} />
-                <ActionButton label="Rotate key" onClick={() => setRotating(provider)} icon={KeyRound} />
-                <ActionButton label={provider.enabled ? "Disable" : "Enable"} busy={busy === `${provider.id}:toggle`} onClick={() => void run(provider, "toggle")} icon={ShieldCheck} />
-                <ActionButton label="Dependencies" busy={busy === `${provider.id}:dependencies`} onClick={() => void run(provider, "dependencies")} icon={Route} />
-                <ActionButton label="Delete" busy={busy === `${provider.id}:delete`} onClick={() => void run(provider, "delete")} icon={Trash2} destructive />
-              </div>
+              <ProviderOverflowMenu
+                busy={busy}
+                onDependencies={() => void run(provider, "dependencies")}
+                onDelete={() => void run(provider, "delete")}
+                onRotate={() => setRotating(provider)}
+                provider={provider}
+              />
             </div>
-            <details className="mt-3 rounded-lg bg-muted/60 p-3 text-sm">
-              <summary className="cursor-pointer font-medium">Advanced diagnostics</summary>
-              <dl className="mt-3 grid gap-2 sm:grid-cols-3">
+
+            <dl className="mt-2 grid grid-cols-2 gap-px overflow-hidden rounded-lg border border-border/60 bg-border/60 sm:grid-cols-4">
+              <ProviderFact
+                label="Generation"
+                ready={provider.generation_ready}
+                value={provider.generation_capability}
+              />
+              <ProviderFact
+                label="Research"
+                ready={provider.research_ready}
+                status={Boolean(provider.failure_code)}
+                value={provider.failure_code
+                  ? `${provider.research_capability} · ${safeCode(provider.failure_code)}`
+                  : provider.research_capability}
+              />
+              <ProviderFact
+                label="API key"
+                ready={provider.configured}
+                value={provider.configured ? "Configured" : "Missing"}
+              />
+              <ProviderFact
+                icon={Clock3}
+                label="Last checked"
+                value={formatDate(provider.last_checked_at, "Never checked", timezone)}
+              />
+            </dl>
+
+            <div
+              aria-label={`Primary actions for ${provider.name}`}
+              className="mt-2 grid grid-cols-3 gap-2 border-t border-border/60 pt-2"
+              role="group"
+            >
+              <ProviderActionButton
+                busy={busy === `${provider.id}:test`}
+                icon={RefreshCw}
+                label="Test"
+                onClick={() => void run(provider, "test")}
+              />
+              <ProviderActionButton
+                icon={Pencil}
+                label="Edit"
+                onClick={() => setEditing(provider)}
+              />
+              <ProviderActionButton
+                busy={busy === `${provider.id}:toggle`}
+                className={provider.enabled ? "text-warning hover:text-warning" : undefined}
+                icon={ShieldCheck}
+                label={provider.enabled ? "Disable" : "Enable"}
+                onClick={() => void run(provider, "toggle")}
+                variant={provider.enabled ? "ghost" : "secondary"}
+              />
+            </div>
+
+            <details className="group mt-1 border-t border-border/60 pt-1 text-sm">
+              <summary className="flex min-h-11 cursor-pointer list-none items-center gap-1.5 rounded-md px-1 text-xs font-medium text-muted-foreground hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring min-[900px]:min-h-0 min-[900px]:py-1.5 [&::-webkit-details-marker]:hidden">
+                <ChevronDown
+                  aria-hidden="true"
+                  className="size-3.5 transition-transform duration-150 group-open:rotate-180 motion-reduce:transition-none"
+                />
+                Advanced diagnostics
+              </summary>
+              <dl className="mt-1 grid gap-2 rounded-lg bg-muted/45 p-2.5 sm:grid-cols-3">
                 <Metric label="Timeout" value={`${provider.settings.timeout_seconds}s`} />
                 <Metric label="Max input" value={provider.settings.max_input_tokens.toLocaleString()} />
                 <Metric label="Max output" value={provider.settings.max_output_tokens.toLocaleString()} />
@@ -128,12 +244,19 @@ export function LLMProvidersSection({ providers }: { providers: LLMProvider[] })
           </article>
         ))}
       </div> : <EmptyState title="No LLM providers" detail="Add an OpenAI-compatible endpoint to begin generation." />}
-      {editing ? <ProviderDialog provider={editing === "new" ? null : editing} onClose={() => setEditing(null)} /> : null}
+      {editing ? (
+        <ProviderDialog
+          onClose={() => setEditing(null)}
+          onError={handleMutationError}
+          provider={editing === "new" ? null : editing}
+        />
+      ) : null}
       {rotating ? (
         <SecretDialog
           title={`Rotate key for ${rotating.name}`}
           label="New API key"
           onClose={() => setRotating(null)}
+          onError={(cause) => handleMutationError(cause, "Secret rotation failed")}
           onSave={async (secret) => {
             await rotateLLMProviderKey(rotating.id, secret)
             await refresh()
@@ -145,7 +268,204 @@ export function LLMProvidersSection({ providers }: { providers: LLMProvider[] })
   )
 }
 
-function ProviderDialog({ provider, onClose }: { provider: LLMProvider | null; onClose: () => void }) {
+const PROVIDER_SECRET_FAILURES: Record<string, { title: string; message: string }> = {
+  secret_store_unavailable: {
+    title: "Secret storage unavailable",
+    message: "Secure secret storage is unavailable.",
+  },
+  secret_store_configuration_invalid: {
+    title: "Secret storage not configured",
+    message: "Secure secret storage is not configured.",
+  },
+  secret_database_unavailable: {
+    title: "Secret database unavailable",
+    message: "Secure secret storage database is unavailable.",
+  },
+  secret_schema_unavailable: {
+    title: "Secret schema unavailable",
+    message: "Secure secret storage database schema is unavailable.",
+  },
+  secret_encryption_failed: {
+    title: "Credential encryption failed",
+    message: "The credential could not be encrypted.",
+  },
+  secret_decryption_failed: {
+    title: "Credential decryption failed",
+    message: "The stored credential cannot be decrypted with the current encryption configuration.",
+  },
+  secret_rotation_failed: {
+    title: "Credential rotation failed",
+    message: "The credential could not be rotated. Existing credential remains unchanged.",
+  },
+}
+
+function providerApiErrorCode(cause: unknown) {
+  if (!(cause instanceof ApiError) || !cause.body) return null
+  try {
+    const payload = JSON.parse(cause.body) as { detail?: { code?: unknown } }
+    return typeof payload.detail?.code === "string" ? payload.detail.code : null
+  } catch {
+    return null
+  }
+}
+
+function ProviderFact({
+  icon: Icon,
+  label,
+  ready,
+  status,
+  value,
+}: {
+  icon?: typeof BrainCircuit
+  label: string
+  ready?: boolean
+  status?: boolean
+  value: string
+}) {
+  const StateIcon = ready === undefined ? Icon : ready ? CheckCircle2 : CircleAlert
+  return (
+    <div className="min-w-0 bg-muted/35 px-2.5 py-2">
+      <dt className="text-[11px] leading-4 text-muted-foreground">{label}</dt>
+      <dd
+        className={cn(
+          "mt-0.5 flex min-w-0 items-center gap-1 text-xs font-medium",
+          ready === true && "text-success",
+          ready === false && "text-warning",
+        )}
+      >
+        {StateIcon ? <StateIcon aria-hidden="true" className="size-3.5 shrink-0" /> : null}
+        <span
+          className="min-w-0 flex-1 truncate"
+          role={status ? "status" : undefined}
+          title={value}
+        >
+          {ready === undefined ? value : safeCode(value)}
+        </span>
+      </dd>
+    </div>
+  )
+}
+
+function ProviderActionButton({
+  busy,
+  className,
+  icon: Icon,
+  label,
+  onClick,
+  variant = "outline",
+}: {
+  busy?: boolean
+  className?: string
+  icon: typeof BrainCircuit
+  label: string
+  onClick: () => void
+  variant?: "ghost" | "outline" | "secondary"
+}) {
+  return (
+    <Button
+      className={cn("min-w-0 px-1.5", className)}
+      disabled={busy}
+      onClick={onClick}
+      size="sm"
+      type="button"
+      variant={variant}
+    >
+      {busy
+        ? <LoaderCircle aria-hidden="true" className="animate-spin" />
+        : <Icon aria-hidden="true" />}
+      {label}
+    </Button>
+  )
+}
+
+function ProviderOverflowMenu({
+  busy,
+  onDelete,
+  onDependencies,
+  onRotate,
+  provider,
+}: {
+  busy: string | null
+  onDelete: () => void
+  onDependencies: () => void
+  onRotate: () => void
+  provider: LLMProvider
+}) {
+  return (
+    <Menu.Root>
+      <Menu.Trigger
+        aria-label={`More actions for ${provider.name}`}
+        className={buttonVariants({ size: "icon-sm", variant: "ghost" })}
+      >
+        <Ellipsis aria-hidden="true" />
+      </Menu.Trigger>
+      <Menu.Portal>
+        <Menu.Positioner align="end" className="z-[100] outline-hidden" sideOffset={6}>
+          <Menu.Popup className="w-52 origin-[var(--transform-origin)] rounded-lg border border-border/70 bg-popover p-1 text-popover-foreground shadow-md outline-hidden transition-[transform,opacity] duration-150 ease-out data-ending-style:scale-95 data-ending-style:opacity-0 data-starting-style:scale-95 data-starting-style:opacity-0 motion-reduce:transition-none">
+            <ProviderMenuItem icon={KeyRound} label="Rotate key" onClick={onRotate} sensitive />
+            <ProviderMenuItem
+              busy={busy === `${provider.id}:dependencies`}
+              icon={Route}
+              label="Dependencies"
+              onClick={onDependencies}
+            />
+            <Menu.Separator className="mx-1 my-1 h-px bg-border/70" />
+            <ProviderMenuItem
+              busy={busy === `${provider.id}:delete`}
+              destructive
+              icon={Trash2}
+              label="Delete provider"
+              onClick={onDelete}
+            />
+          </Menu.Popup>
+        </Menu.Positioner>
+      </Menu.Portal>
+    </Menu.Root>
+  )
+}
+
+function ProviderMenuItem({
+  busy,
+  destructive,
+  icon: Icon,
+  label,
+  onClick,
+  sensitive,
+}: {
+  busy?: boolean
+  destructive?: boolean
+  icon: typeof BrainCircuit
+  label: string
+  onClick: () => void
+  sensitive?: boolean
+}) {
+  return (
+    <Menu.Item
+      className={cn(
+        "flex min-h-11 cursor-default items-center gap-2 rounded-md px-2.5 text-sm outline-none select-none data-disabled:opacity-50 data-highlighted:bg-muted min-[900px]:min-h-9",
+        sensitive && "text-warning data-highlighted:bg-[var(--warning-surface)]",
+        destructive && "text-destructive data-highlighted:bg-[var(--error-surface)]",
+      )}
+      disabled={busy}
+      onClick={onClick}
+    >
+      {busy
+        ? <LoaderCircle aria-hidden="true" className="size-4 animate-spin" />
+        : <Icon aria-hidden="true" className="size-4" />}
+      {label}
+    </Menu.Item>
+  )
+}
+
+function ProviderDialog({
+  provider,
+  onClose,
+  onError,
+}: {
+  provider: LLMProvider | null
+  onClose: () => void
+  onError: (cause: unknown, fallbackTitle?: string) => void
+}) {
   const queryClient = useQueryClient()
   const { pushNotice } = useNotices()
   const initial = {
@@ -186,7 +506,7 @@ function ProviderDialog({ provider, onClose }: { provider: LLMProvider | null; o
       pushNotice({ tone: "success", title: provider ? "Provider updated" : "Provider created", message: "Connection saved. Test it before enabling." })
       onClose()
     },
-    onError: (cause) => pushNotice({ tone: "error", title: "Provider could not be saved", message: getApiErrorMessage(cause) }),
+    onError: (cause) => onError(cause, "Provider could not be saved"),
   })
   return (
     <SettingsDialog

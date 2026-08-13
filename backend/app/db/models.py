@@ -55,15 +55,36 @@ class Source(Base):
     last_media_count: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
     health_status: Mapped[str] = mapped_column(Text, nullable=False, server_default="unknown")
     disabled_reason: Mapped[str | None] = mapped_column(Text)
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), index=True)
+    icon_url: Mapped[str | None] = mapped_column(Text)
+    icon_source: Mapped[str | None] = mapped_column(Text)
+    icon_updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    icon_status: Mapped[str] = mapped_column(Text, nullable=False, server_default="pending")
+    icon_storage_path: Mapped[str | None] = mapped_column(Text)
+    icon_original_url: Mapped[str | None] = mapped_column(Text)
+    icon_mime_type: Mapped[str | None] = mapped_column(Text)
+    icon_width: Mapped[int | None] = mapped_column(Integer)
+    icon_height: Mapped[int | None] = mapped_column(Integer)
+    icon_failure_count: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
+    icon_next_retry_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    icon_last_error: Mapped[str | None] = mapped_column(Text)
+    icon_enqueued_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    icon_attempt: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
     created_at: Mapped[datetime] = timestamp_now()
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now()
     )
 
     __table_args__ = (
+        CheckConstraint(
+            "icon_status IN ('pending', 'queued', 'resolved', 'retryable', 'unavailable')",
+            name="ck_sources_icon_status",
+        ),
         UniqueConstraint("platform", "feed_url", name="uq_sources_platform_feed_url"),
         UniqueConstraint("platform", "telegram_username", name="uq_sources_platform_telegram_username"),
         Index("ix_sources_next_fetch_at", "next_fetch_at"),
+        Index("ix_sources_icon_discovery", "active", "platform", "icon_status", "icon_next_retry_at"),
+        Index("ix_sources_collection_search_order", "source_group", "name", "id"),
     )
 
 
@@ -78,6 +99,35 @@ class IngestRun(Base):
     status: Mapped[str] = mapped_column(Text, nullable=False)
     stats: Mapped[dict] = mapped_column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
     error: Mapped[str | None] = mapped_column(Text)
+    source_collection_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("source_collections.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    source_collection_name_at_start: Mapped[str | None] = mapped_column(Text, nullable=True)
+    continuous_subscription_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("source_collection_ingestion_subscriptions.id", ondelete="SET NULL", use_alter=True),
+        nullable=True,
+    )
+    continuous_cycle_number: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    source_count: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
+    processed_count: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
+    success_count: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
+    failure_count: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
+
+    __table_args__ = (
+        Index(
+            "uq_ingest_runs_active_source_collection",
+            "source_collection_id",
+            unique=True,
+            postgresql_where=text("source_collection_id IS NOT NULL AND status IN ('queued', 'running')"),
+        ),
+        Index("ix_ingest_runs_source_collection_started", "source_collection_id", "started_at"),
+        Index(
+            "ix_ingest_runs_continuous_subscription_cycle",
+            "continuous_subscription_id",
+            "continuous_cycle_number",
+        ),
+    )
 
 
 class RawPayload(Base):
@@ -157,6 +207,7 @@ class ContentItem(Base):
     title_was_generated: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="false")
     content_intent: Mapped[str | None] = mapped_column(Text)
     duplicate_of_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("content_items.id"))
+    feed_cleared_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     first_seen_at: Mapped[datetime] = timestamp_now()
     last_seen_at: Mapped[datetime] = timestamp_now()
     created_at: Mapped[datetime] = timestamp_now()
@@ -167,8 +218,23 @@ class ContentItem(Base):
     __table_args__ = (
         Index(
             "ix_content_items_search",
-            text("to_tsvector('simple'::regconfig, COALESCE(title, '') || ' ' || COALESCE(content_text, ''))"),
+            text(
+                "to_tsvector('simple'::regconfig, "
+                "(COALESCE(title, ''::text) || ' '::text) || COALESCE(content_text, ''::text))"
+            ),
             postgresql_using="gin",
+        ),
+        Index(
+            "ix_content_items_canonical_content_type",
+            text("(canonical_classification ->> 'content_type'::text)"),
+        ),
+        Index(
+            "ix_content_items_canonical_topic",
+            text("(canonical_classification ->> 'topic'::text)"),
+        ),
+        Index(
+            "ix_content_items_canonical_language",
+            text("(canonical_classification ->> 'language'::text)"),
         ),
         Index(
             "ix_content_items_display_at",
@@ -180,6 +246,19 @@ class ContentItem(Base):
             text("score DESC"),
             text("COALESCE(published_at, sort_at) DESC"),
             text("id DESC"),
+        ),
+        Index(
+            "ix_content_items_feed_active_display_at",
+            text("COALESCE(published_at, sort_at) DESC"),
+            text("id DESC"),
+            postgresql_where=text("feed_cleared_at IS NULL"),
+        ),
+        Index(
+            "ix_content_items_feed_active_score_display_at",
+            text("score DESC"),
+            text("COALESCE(published_at, sort_at) DESC"),
+            text("id DESC"),
+            postgresql_where=text("feed_cleared_at IS NULL"),
         ),
     )
 
@@ -258,7 +337,7 @@ class SourceItem(Base):
             unique=True,
             postgresql_where=text("external_id_norm IS NOT NULL"),
         ),
-        Index("ix_source_items_seen", "source_id", last_seen_at.desc()),
+        Index("ix_source_items_seen", "source_id", "last_seen_at"),
     )
 
 

@@ -13,15 +13,17 @@
     "start": "next start --port 3000",
     "api:generate": "openapi-typescript ../contracts/openapi.json -o lib/api/generated.ts --alphabetize",
     "test": "vitest run",
-    "test:e2e": "playwright test",
+    "test:e2e": "playwright test --grep-invert @performance && playwright test e2e/automation-workflow-builder.spec.ts --workers=1 --grep @performance",
     "typecheck": "tsc --noEmit --incremental false"
   },
   "dependencies": {
     "@base-ui/react": "1.6.0",
     "@tanstack/react-query": "5.101.2",
     "@tanstack/react-table": "8.21.3",
+    "@xyflow/react": "12.11.2",
     "class-variance-authority": "0.7.1",
     "clsx": "2.1.1",
+    "framer-motion": "12.43.0",
     "lucide-react": "1.23.0",
     "next": "16.2.11",
     "react": "19.2.7",

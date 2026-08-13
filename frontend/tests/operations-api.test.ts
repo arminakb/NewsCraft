@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 
 import {
   fetchOperationsDiagnostics,
+  fetchOperationalHealth,
   fetchOperationsHistory,
   fetchReconciliationCases,
 } from "@/features/operations/api"
@@ -33,6 +34,31 @@ describe("operations generated wire/domain boundary", () => {
       outbound_proxy: { scheme: null, configuration_error_code: null },
     })
     expect(apiRequest).toHaveBeenCalledWith("/operations/diagnostics")
+  })
+
+  it("uses the bounded operational health contract", async () => {
+    const health = {
+      generated_at: "2026-07-13T08:00:00Z",
+      state: "healthy",
+      state_definitions: {},
+      dependencies: {},
+      components: {},
+      queues: [],
+      recoveries: [],
+      alerts: [],
+      metrics: {},
+      outbound_proxy: {
+        mode: "direct",
+        scheme: null,
+        bypass_rule_count: 0,
+        last_connectivity_status: "not_checked",
+        configuration_error_code: null,
+      },
+    }
+    vi.mocked(apiRequest).mockResolvedValueOnce(health)
+
+    await expect(fetchOperationalHealth()).resolves.toEqual(health)
+    expect(apiRequest).toHaveBeenCalledWith("/operations/health")
   })
 
   it("maps UTC history timestamps, enum categories, metadata, and null cursor", async () => {

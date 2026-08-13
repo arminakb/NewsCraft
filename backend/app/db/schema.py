@@ -1,3 +1,3 @@
 """Application schema identity used by bounded readiness checks."""
 
-SCHEMA_HEAD = "0022_article_canonical_classification"
+SCHEMA_HEAD = "0035_feed_clear"

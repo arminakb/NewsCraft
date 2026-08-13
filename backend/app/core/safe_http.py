@@ -12,6 +12,8 @@ import httpcore
 import httpx
 import idna
 
+from app.core.outbound_proxy import OutboundProxyPolicy, OutboundProxyTransport
+
 MAX_REDIRECTS = 5
 MAX_RESPONSE_BYTES = 5 * 1024 * 1024
 
@@ -142,6 +144,30 @@ class _PinnedAsyncTransport(httpx.AsyncBaseTransport):
         await self._pool.aclose()
 
 
+class _ProxyAwarePinnedTransport(httpx.AsyncBaseTransport):
+    """Use configured proxy routing while keeping direct requests DNS-pinned."""
+
+    def __init__(self, policy: OutboundProxyPolicy, pinned_backend: _PinnedAsyncNetworkBackend) -> None:
+        self._policy = policy
+        self._direct = _PinnedAsyncTransport(pinned_backend)
+        self._proxied = OutboundProxyTransport(policy)
+
+    async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
+        if self._policy.endpoint_for_url(request.url) is None:
+            return await self._direct.handle_async_request(request)
+        return await self._proxied.handle_async_request(request)
+
+    async def aclose(self) -> None:
+        failure: BaseException | None = None
+        for transport in (self._direct, self._proxied):
+            try:
+                await transport.aclose()
+            except BaseException as exc:  # noqa: BLE001 - close every owned transport
+                failure = failure or exc
+        if failure is not None:
+            raise failure
+
+
 class SafeHttpClient:
     network_policy = "direct_pinned_ssrf"
 
@@ -154,6 +180,7 @@ class SafeHttpClient:
         network_backend: httpcore.AsyncNetworkBackend | None = None,
         max_redirects: int = MAX_REDIRECTS,
         max_response_bytes: int = MAX_RESPONSE_BYTES,
+        proxy_policy: OutboundProxyPolicy | None = None,
     ) -> None:
         self._resolver = resolver
         self._max_redirects = max_redirects
@@ -161,7 +188,15 @@ class SafeHttpClient:
         if transport is not None and network_backend is not None:
             raise ValueError("transport and network_backend are mutually exclusive")
         self._pinned_backend = _PinnedAsyncNetworkBackend(network_backend or httpcore.AnyIOBackend())
-        effective_transport = transport or _PinnedAsyncTransport(self._pinned_backend)
+        if transport is None:
+            resolved_policy = proxy_policy or OutboundProxyPolicy.from_environment()
+            effective_transport = (
+                _ProxyAwarePinnedTransport(resolved_policy, self._pinned_backend)
+                if resolved_policy.endpoints
+                else _PinnedAsyncTransport(self._pinned_backend)
+            )
+        else:
+            effective_transport = transport
         self._client = httpx.AsyncClient(
             timeout=timeout,
             follow_redirects=False,

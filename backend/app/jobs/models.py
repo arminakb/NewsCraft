@@ -22,6 +22,12 @@ class WorkflowJob(Base):
     priority: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
     idempotency_key: Mapped[str] = mapped_column(Text, nullable=False)
     origin: Mapped[str] = mapped_column(Text, nullable=False)
+    automation_run_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("automation_runs.id", ondelete="SET NULL", use_alter=True), nullable=True
+    )
+    automation_node_run_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("automation_node_runs.id", ondelete="SET NULL", use_alter=True), nullable=True
+    )
     pause_sensitive: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="true")
     scheduled_for: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     attempt_count: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
@@ -54,6 +60,8 @@ class WorkflowJob(Base):
         Index("ix_workflow_jobs_lease_expiry", "status", "lease_expires_at"),
         Index("ix_workflow_jobs_attention", "status", "error_class", updated_at.desc()),
         Index("ix_workflow_jobs_operational_health", "job_type", "status", "scheduled_for"),
+        Index("ix_workflow_jobs_automation_run", "automation_run_id"),
+        Index("ix_workflow_jobs_automation_node_run", "automation_node_run_id"),
     )
 
 

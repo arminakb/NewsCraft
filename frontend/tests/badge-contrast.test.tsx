@@ -33,12 +33,12 @@ describe("semantic badge contrast", () => {
     })
   }
 
-  it("keeps the legacy destructive variant on the same explicit error palette", () => {
+  it("keeps the legacy destructive variant on the semantic error palette", () => {
     const classes = badgeVariants({ variant: "destructive" })
-    expect(classes).toContain("bg-red-100")
-    expect(classes).toContain("text-red-900")
-    expect(classes).toContain("dark:bg-red-950")
-    expect(classes).toContain("dark:text-red-100")
+    expect(classes).toContain("bg-[var(--error-surface)]")
+    expect(classes).toContain("text-destructive")
+    expect(classes).toContain("border-destructive/30")
+    expect(classes).not.toMatch(/(?:bg|text|border)-red-/)
   })
 })
 

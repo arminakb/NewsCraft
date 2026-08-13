@@ -8,7 +8,7 @@ NewsCraft treats dependency intent, lockfiles, tool versions, and base-image dig
 - uv `0.11.29`, enforced by `backend/pyproject.toml`.
 - Node.js `26.4.0` from `.node-version`.
 - npm `11.17.0`, supplied by the pinned Node image and enforced by `frontend/package.json`.
-- PostgreSQL `18.3-bookworm`, pinned to its multi-platform OCI digest in `docker-compose.yml`.
+- PostgreSQL `18.4-trixie`, pinned to its multi-platform OCI digest in `docker-compose.yml` to preserve the collation provider used by existing volumes.
 - Python, uv, and Node container inputs use readable patch tags plus immutable multi-platform digests.
 
 The committed digest identifies the reviewed multi-platform image index. A release must record the resolved platform manifest digest as well as the index digest.

@@ -87,6 +87,11 @@ class JobRepository:
     async def _locked_job(self, job_id: UUID) -> WorkflowJob | None:
         return await self.session.scalar(select(WorkflowJob).where(WorkflowJob.id == job_id).with_for_update())
 
+    async def get_by_idempotency_key(self, idempotency_key: str) -> WorkflowJob | None:
+        return await self.session.scalar(
+            select(WorkflowJob).where(WorkflowJob.idempotency_key == idempotency_key)
+        )
+
     async def _locked_expired_job(self, job_id: UUID) -> WorkflowJob | None:
         return await self.session.scalar(
             select(WorkflowJob)
@@ -392,6 +397,8 @@ class JobRepository:
         scheduled_for: datetime | None = None,
         max_attempts: int = 3,
         pause_sensitive: bool = True,
+        automation_run_id: UUID | None = None,
+        automation_node_run_id: UUID | None = None,
     ) -> EnqueueJobResult:
         effective_scheduled_for = _now(scheduled_for)
         safe_payload = _redact_job_payload(job_type, payload)
@@ -416,6 +423,8 @@ class JobRepository:
                 scheduled_for=effective_scheduled_for,
                 max_attempts=max_attempts,
                 pause_sensitive=pause_sensitive,
+                automation_run_id=automation_run_id,
+                automation_node_run_id=automation_node_run_id,
             )
             .on_conflict_do_nothing(index_elements=["idempotency_key"])
             .returning(WorkflowJob.id)
@@ -555,6 +564,25 @@ class JobRepository:
                 "progress_message": job.progress_message,
             },
         )
+        await self.session.flush()
+        return True
+
+    async def update_progress(
+        self,
+        *,
+        job_id: UUID,
+        worker_id: str,
+        progress: int,
+        progress_message: str | None = None,
+        now: datetime | None = None,
+    ) -> bool:
+        observed_at = _now(now)
+        job = await self._locked_job(job_id)
+        if job is None or not self._has_active_lease(job, worker_id=worker_id, now=observed_at):
+            return False
+        job.progress = max(0, min(100, int(progress)))
+        if progress_message is not None:
+            job.progress_message = str(redact_secrets(progress_message))
         await self.session.flush()
         return True
 

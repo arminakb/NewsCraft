@@ -1,5 +1,5 @@
-import { PublicationCalendar } from "@/features/calendar/publication-calendar"
+import { redirect } from "next/navigation"
 
 export default function CalendarPage() {
-  return <PublicationCalendar />
+  redirect("/settings?section=date-time")
 }
