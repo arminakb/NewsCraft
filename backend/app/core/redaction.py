@@ -5,6 +5,8 @@ import dataclasses
 import json
 import math
 import re
+import sys
+import threading
 from collections.abc import Collection, Iterable, Mapping
 from datetime import date, datetime, time
 from decimal import Decimal
@@ -48,6 +50,61 @@ _HEX_KEY_ESCAPE_PATTERN = re.compile(r"\\x([0-9a-fA-F]{2})")
 _NUMERIC_TEXT_PATTERN = re.compile(r"^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?$")
 _STRUCTURED_CLOSERS = {"{": "}", "[": "]", "(": ")"}
 
+_DEGRADATION_LABEL_PATTERN = re.compile(r"[^A-Za-z0-9_.]+")
+_DEGRADATION_LOCK = threading.Lock()
+_DEGRADATION_COUNTS: dict[tuple[str, str], int] = {}
+
+
+def record_sanitizer_degradation(scope: str, exc: BaseException) -> str:
+    """Count one fail-closed sanitizer degradation and name each new kind once.
+
+    Redaction is deliberately fail-closed: when inspecting a value raises, the
+    caller substitutes a type-name placeholder rather than risk emitting the
+    value. That is correct, and it is also indistinguishable from a value that
+    was simply unrenderable — so a systematic failure (a redaction bug turning
+    every log line into a placeholder) leaves no trace at all. This counter is
+    that trace.
+
+    Only the scope and the exception's class name are recorded; the value being
+    sanitized never reaches this function, so nothing here can leak. The stderr
+    line fires only on the first occurrence of each (scope, class) pair, so a
+    hot loop degrades quietly after announcing itself once, and it is written
+    directly rather than logged because the log formatters are themselves one
+    of the callers.
+
+    Returns the sanitized class label so callers can embed it in their own
+    diagnostic output.
+    """
+
+    label = _DEGRADATION_LABEL_PATTERN.sub("_", type(exc).__name__)[:64] or "Exception"
+    key = (scope, label)
+    with _DEGRADATION_LOCK:
+        count = _DEGRADATION_COUNTS.get(key, 0) + 1
+        _DEGRADATION_COUNTS[key] = count
+    if count == 1:
+        try:
+            sys.stderr.write(f"[REDACTION_DEGRADED] scope={scope} error={label}\n")
+        except Exception:
+            # A closed or hostile stderr must not turn an already-degraded
+            # sanitizer into a raised exception inside a log formatter. The
+            # count above is kept regardless, so the signal is not lost.
+            pass
+    return label
+
+
+def sanitizer_degradation_counts() -> dict[tuple[str, str], int]:
+    """Snapshot the fail-closed degradation counts by (scope, exception class)."""
+
+    with _DEGRADATION_LOCK:
+        return dict(_DEGRADATION_COUNTS)
+
+
+def reset_sanitizer_degradation_counts() -> None:
+    """Clear the degradation counts. Intended for tests and process bootstrap."""
+
+    with _DEGRADATION_LOCK:
+        _DEGRADATION_COUNTS.clear()
+
 
 def _normalized_key(key: object) -> str:
     return str(key).casefold().replace("-", "_").replace(" ", "_")
@@ -83,7 +140,8 @@ def _safe_numeric_mapping(value: object) -> bool:
                 return False
             if _secret_key(key_name) and normalized not in _SAFE_NUMERIC_KEYS:
                 return False
-    except Exception:
+    except Exception as exc:
+        record_sanitizer_degradation("numeric_mapping_classification", exc)
         return False
     return True
 
@@ -521,12 +579,14 @@ def redact_secrets(
         if isinstance(value, BaseModel):
             try:
                 converted = value.model_dump(mode="json")
-            except Exception:
+            except Exception as exc:
+                record_sanitizer_degradation("pydantic_model_dump", exc)
                 return f"[{type(value).__name__}]"
         elif dataclasses.is_dataclass(value) and not isinstance(value, type):
             try:
                 converted = {field.name: getattr(value, field.name) for field in dataclasses.fields(value)}
-            except Exception:
+            except Exception as exc:
+                record_sanitizer_degradation("dataclass_fields", exc)
                 return f"[{type(value).__name__}]"
 
         if isinstance(converted, Mapping):
@@ -546,7 +606,8 @@ def redact_secrets(
                             depth=depth + 1,
                         )
                     )
-            except Exception:
+            except Exception as exc:
+                record_sanitizer_degradation("mapping_traversal", exc)
                 return f"[{type(value).__name__}]"
             return result
 
@@ -562,7 +623,8 @@ def redact_secrets(
                             depth=depth + 1,
                         )
                     )
-            except Exception:
+            except Exception as exc:
+                record_sanitizer_degradation("sequence_traversal", exc)
                 return f"[{type(value).__name__}]"
             return result_sequence
 

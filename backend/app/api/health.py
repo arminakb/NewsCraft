@@ -1,11 +1,10 @@
-from fastapi import APIRouter, Depends, Request, Response, status
+from fastapi import APIRouter, Request, Response, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.session import get_session
+from app.api.dependencies import SessionDependency
 from app.operations.health import ReadinessService, ReadinessSnapshot, SecretReadinessService
 
 router = APIRouter(tags=["health"])
-SessionDependency = Depends(get_session)
 
 
 @router.get("/health/live")

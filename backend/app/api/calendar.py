@@ -6,12 +6,12 @@ from typing import Literal
 from uuid import UUID
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, ConfigDict, Field, StrictBool, field_validator
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.dependencies import SessionDependency
 from app.core.redaction import redact_secrets
-from app.db.session import get_session
 from app.manual_publication.calendar import (
     CalendarListOut,
     PublicationListOut,
@@ -24,7 +24,6 @@ from app.manual_publication.calendar import (
 from app.manual_publication.service import ManualPublicationError, ManualPublicationService
 
 router = APIRouter(tags=["publication-calendar"])
-SessionDependency = Depends(get_session)
 
 type ManualPlatform = Literal["instagram", "x", "blog"]
 type Platform = Literal["telegram", "instagram", "x", "blog"]

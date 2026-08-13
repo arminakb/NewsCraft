@@ -7,7 +7,12 @@ from typing import Literal
 
 from uvicorn.logging import AccessFormatter
 
-from app.core.redaction import redact_request_target, redact_secrets, redact_string
+from app.core.redaction import (
+    record_sanitizer_degradation,
+    redact_request_target,
+    redact_secrets,
+    redact_string,
+)
 
 _DEFAULT_LOG_FORMAT = "%(asctime)s %(levelname)s %(name)s %(message)s"
 _ACCESS_LOG_FORMAT = '%(levelprefix)s %(client_addr)s - "%(request_line)s" %(status_code)s'
@@ -54,7 +59,11 @@ def _render_safe_exception(record: logging.LogRecord) -> None:
     if record.exc_info is not None:
         try:
             exception_text = logging.Formatter().formatException(record.exc_info)
-        except BaseException:
+        except Exception as exc:
+            # Exception only: a KeyboardInterrupt or SystemExit raised while
+            # rendering a traceback belongs to the calling thread, not to this
+            # formatter's fail-closed substitution.
+            record_sanitizer_degradation("exception_render", exc)
             exception_text = "[Exception]"
         record.exc_text = redact_string(exception_text)
         record.exc_info = None
@@ -123,14 +132,28 @@ def _safe_label(value: object, *, default: str) -> str:
     return sanitized or default
 
 
-def _format_failed(record: logging.LogRecord) -> str:
+def _format_failed(record: logging.LogRecord, exc: BaseException) -> str:
+    """Render the fail-closed substitute for a record that could not be formatted.
+
+    The record's own content is never echoed — only its logger name, level, and
+    the class of the exception that stopped the format. That class name is what
+    separates "one hostile record" from "redaction is broken and every line is
+    a sentinel", which the previous constant string made impossible to tell
+    apart. ``record_sanitizer_degradation`` also counts it, so the second and
+    later occurrences stay quiet.
+    """
+
     try:
         logger_name = _safe_label(record.__dict__.get("name"), default="unknown")
         level_name = _safe_label(record.__dict__.get("levelname"), default="UNKNOWN")
     except BaseException:
         logger_name = "unknown"
         level_name = "UNKNOWN"
-    return f"{_FORMAT_FAILED} logger={logger_name} level={level_name}"
+    try:
+        error = record_sanitizer_degradation("log_format", exc)
+    except BaseException:
+        error = "Exception"
+    return f"{_FORMAT_FAILED} logger={logger_name} level={level_name} error={error}"
 
 
 class RedactingFormatter(logging.Formatter):
@@ -155,8 +178,11 @@ class RedactingFormatter(logging.Formatter):
             if self._delegate is not None:
                 return self._delegate.format(cloned)
             return super().format(cloned)
-        except BaseException:
-            return _format_failed(record)
+        except Exception as exc:
+            # Exception, not BaseException: the sentinel is for records this
+            # formatter cannot safely render, never for a KeyboardInterrupt or
+            # SystemExit that belongs to whichever thread is logging.
+            return _format_failed(record, exc)
 
 
 class RedactingAccessFormatter(AccessFormatter):
@@ -180,8 +206,9 @@ class RedactingAccessFormatter(AccessFormatter):
             if self._delegate is not None:
                 return self._delegate.format(cloned)
             return super().format(cloned)
-        except BaseException:
-            return _format_failed(record)
+        except Exception as exc:
+            # See RedactingFormatter.format: interpreter-level exits propagate.
+            return _format_failed(record, exc)
 
 
 def _configured_loggers() -> list[logging.Logger]:

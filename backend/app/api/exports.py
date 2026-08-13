@@ -4,6 +4,7 @@ import base64
 import binascii
 import hashlib
 import json
+import logging
 import stat
 from datetime import datetime
 from pathlib import Path, PurePosixPath
@@ -17,9 +18,9 @@ from pydantic import ValidationError
 from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.dependencies import SessionDependency
 from app.core.config import settings
 from app.core.redaction import redact_secrets
-from app.db.session import get_session
 from app.exports.models import (
     BuildExportPayload,
     ExpiredExportArtifact,
@@ -34,9 +35,47 @@ from app.jobs.repository import JobRepository
 from app.jobs.schemas import JobAcceptedOut
 from app.jobs.types import JobOrigin, JobStatus
 
+logger = logging.getLogger(__name__)
+
 router = APIRouter()
-SessionDependency = Depends(get_session)
 MAX_EXPORT_REBUILD_GENERATIONS = 32
+
+
+#: Every way a stored export artifact can fail its integrity checks, each with
+#: a stable code. Keeping them enumerated here is what makes a manifest
+#: checksum mismatch — the tamper signal — reportable as itself instead of
+#: collapsing into one opaque "artifact invalid" answer.
+EXPORT_ARTIFACT_FAILURES = {
+    "export_artifact_expired_result_invalid": "Expired export result is invalid",
+    "export_artifact_expired_identity_mismatch": "Expired export identity does not match its job",
+    "export_artifact_result_incomplete": "Export artifact result is incomplete",
+    "export_artifact_identity_mismatch": "Export artifact identity does not match its job",
+    "export_artifact_manifest_checksum_mismatch": "Export manifest checksum does not match its result",
+    "export_artifact_file_matrix_mismatch": "Export artifact file matrix does not match its job",
+    "export_artifact_archive_mismatch": "Export archive does not match its job",
+    "export_artifact_unrequested_media": "Export contains media that was not requested",
+    "export_artifact_file_unbound": "Export file is not bound to its job",
+    "export_artifact_media_identity_invalid": "Export media file identity is invalid",
+    "export_artifact_file_order_nondeterministic": "Export file ordering is not deterministic",
+}
+
+
+class ExportArtifactInvalid(Exception):
+    """A completed export whose stored artifact fails an integrity check.
+
+    Routes answering for a single export map this onto the 409 they have always
+    returned, detail text unchanged; the list route reports the code per item
+    instead of flattening every failure into one string.
+    """
+
+    def __init__(self, code: str) -> None:
+        self.code = code
+        self.message = EXPORT_ARTIFACT_FAILURES[code]
+        super().__init__(self.message)
+
+
+def _artifact_conflict(exc: ExportArtifactInvalid) -> HTTPException:
+    return HTTPException(status_code=409, detail=exc.message)
 
 
 def _export_root() -> Path:
@@ -126,15 +165,15 @@ def _typed_artifact(job: Any) -> ExportArtifact | ExpiredExportArtifact | None:
             expired = ExpiredExportArtifact.model_validate(job.result)
             payload = BuildExportPayload.model_validate(job.payload)
         except ValidationError:
-            raise HTTPException(status_code=409, detail="Expired export result is invalid") from None
+            raise ExportArtifactInvalid("export_artifact_expired_result_invalid") from None
         if expired.export_id != job.id or expired.content_pack_id != payload.content_pack_id:
-            raise HTTPException(status_code=409, detail="Expired export identity does not match its job")
+            raise ExportArtifactInvalid("export_artifact_expired_identity_mismatch")
         return expired
     try:
         artifact = ExportArtifact.model_validate(job.result)
         payload = BuildExportPayload.model_validate(job.payload)
     except AttributeError, ValidationError:
-        raise HTTPException(status_code=409, detail="Export artifact result is incomplete") from None
+        raise ExportArtifactInvalid("export_artifact_result_incomplete") from None
     artifact_identities = [
         (
             item.platform,
@@ -160,10 +199,10 @@ def _typed_artifact(job: Any) -> ExportArtifact | ExpiredExportArtifact | None:
         or artifact.manifest.created_at != getattr(job, "created_at", None)
         or artifact_identities != payload_identities
     ):
-        raise HTTPException(status_code=409, detail="Export artifact identity does not match its job")
+        raise ExportArtifactInvalid("export_artifact_identity_mismatch")
     expected_manifest_sha256 = hashlib.sha256(_canonical_json(artifact.manifest.model_dump(mode="json"))).hexdigest()
     if artifact.manifest_sha256 != expected_manifest_sha256:
-        raise HTTPException(status_code=409, detail="Export manifest checksum does not match its result")
+        raise ExportArtifactInvalid("export_artifact_manifest_checksum_mismatch")
     _validate_public_file_matrix(artifact, payload)
     return artifact
 
@@ -234,7 +273,10 @@ async def _enqueue_export_job(
         ):
             return result
 
-        expired_artifact = _typed_artifact(job)
+        try:
+            expired_artifact = _typed_artifact(job)
+        except ExportArtifactInvalid as exc:
+            raise _artifact_conflict(exc) from None
         if not isinstance(expired_artifact, ExpiredExportArtifact):  # pragma: no cover - guarded above
             return result
         if generation >= MAX_EXPORT_REBUILD_GENERATIONS:
@@ -265,11 +307,11 @@ def _validate_public_file_matrix(artifact: ExportArtifact, payload: BuildExportP
         if item.kind != "media"
     ]
     if actual_nonmedia != expected_nonmedia:
-        raise HTTPException(status_code=409, detail="Export artifact file matrix does not match its job")
+        raise ExportArtifactInvalid("export_artifact_file_matrix_mismatch")
     if (artifact.archive_file is not None) != ("zip" in payload.formats):
-        raise HTTPException(status_code=409, detail="Export archive does not match its job")
+        raise ExportArtifactInvalid("export_artifact_archive_mismatch")
     if not payload.include_media and any(item.kind == "media" for item in artifact.manifest.files):
-        raise HTTPException(status_code=409, detail="Export contains media that was not requested")
+        raise ExportArtifactInvalid("export_artifact_unrequested_media")
     variant_order = {
         (platform, revision_id): index
         for index, (platform, revision_id) in enumerate(zip(payload.platforms, payload.revision_ids, strict=True))
@@ -279,7 +321,7 @@ def _validate_public_file_matrix(artifact: ExportArtifact, payload: BuildExportP
     for item in artifact.manifest.files:
         identity = (item.platform, item.revision_id)
         if identity not in variant_order:
-            raise HTTPException(status_code=409, detail="Export file is not bound to its job")
+            raise ExportArtifactInvalid("export_artifact_file_unbound")
         if item.kind == "media":
             path = PurePosixPath(item.file_name)
             if (
@@ -287,10 +329,10 @@ def _validate_public_file_matrix(artifact: ExportArtifact, payload: BuildExportP
                 or path.parent != PurePosixPath(item.platform, str(item.revision_id))
                 or not path.name.startswith(f"media-{item.media_asset_id}.")
             ):
-                raise HTTPException(status_code=409, detail="Export media file identity is invalid")
+                raise ExportArtifactInvalid("export_artifact_media_identity_invalid")
         order.append((variant_order[identity], kind_order[item.kind]))
     if order != sorted(order):
-        raise HTTPException(status_code=409, detail="Export file ordering is not deterministic")
+        raise ExportArtifactInvalid("export_artifact_file_order_nondeterministic")
 
 
 def _contract_http_error(exc: ExportContractError) -> HTTPException:
@@ -372,7 +414,15 @@ async def list_exports(
         if str(job.status) == JobStatus.SUCCEEDED:
             try:
                 artifact = _typed_artifact(job)
-            except HTTPException:
+            except ExportArtifactInvalid as exc:
+                # One bad artifact must not fail the page, but it must still be
+                # recognisable: the specific code separates a tampered manifest
+                # from a schema drift, and the log line is the only record an
+                # operator gets that the integrity check fired at all.
+                logger.warning(
+                    "export artifact failed integrity validation",
+                    extra={"export_id": str(job.id), "error_code": exc.code},
+                )
                 output.append(
                     ExportArtifactOut(
                         export_id=job.id,
@@ -380,8 +430,8 @@ async def list_exports(
                         finished_at=job.finished_at,
                         artifact=None,
                         downloads=[],
-                        error_code="export_artifact_invalid",
-                        error_message="Completed export artifact is unavailable",
+                        error_code=exc.code,
+                        error_message=exc.message,
                     )
                 )
                 continue
@@ -402,7 +452,11 @@ async def get_export(
     job = await session.get(WorkflowJob, export_id)
     if job is None or job.job_type != "build_export":
         raise HTTPException(status_code=404, detail="Export not found")
-    return export_artifact_out(job, _typed_artifact(job))
+    try:
+        artifact = _typed_artifact(job)
+    except ExportArtifactInvalid as exc:
+        raise _artifact_conflict(exc) from None
+    return export_artifact_out(job, artifact)
 
 
 def _download_identity(artifact: ExportArtifact, file_name: str) -> tuple[str, int | None]:
@@ -468,7 +522,10 @@ async def download_export(
         raise HTTPException(status_code=404, detail="Export not found")
     if str(job.status) != JobStatus.SUCCEEDED:
         raise HTTPException(status_code=409, detail="Export is not complete")
-    artifact = _typed_artifact(job)
+    try:
+        artifact = _typed_artifact(job)
+    except ExportArtifactInvalid as exc:
+        raise _artifact_conflict(exc) from None
     if artifact is None:  # pragma: no cover - succeeded jobs either parse or raise
         raise HTTPException(status_code=409, detail="Export artifact is unavailable")
     if isinstance(artifact, ExpiredExportArtifact):

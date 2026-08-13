@@ -1,18 +1,17 @@
 from typing import Literal
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from app.api.dependencies import SessionDependency
 from app.api.schemas import ApproveContentItemIn, ApproveContentItemOut, ContentItemOut
 from app.db.models import ContentItem
-from app.db.session import get_session
 from app.workflows.approval import ApprovalService
 
 router = APIRouter()
-SessionDependency = Depends(get_session)
 
 
 @router.get("/content-items", response_model=list[ContentItemOut])

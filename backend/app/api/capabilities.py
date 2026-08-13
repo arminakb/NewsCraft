@@ -5,10 +5,8 @@ from typing import Annotated
 from fastapi import Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.session import get_session
+from app.api.dependencies import SessionDependency
 from app.jobs.credential_capabilities import CapabilityStatusService
-
-SessionDependency = Depends(get_session)
 
 
 def get_capability_status_service(

@@ -5,19 +5,18 @@ from datetime import datetime
 from typing import Any
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
+from fastapi import APIRouter, HTTPException, Request, Response, status
 from pydantic import BaseModel, ConfigDict, field_validator
 from sqlalchemy import delete, func, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.dependencies import SessionDependency
 from app.automations.definitions.collection_events import enqueue_collection_article_added
 from app.db.models import ArticleCollection, ArticleCollectionItem, ContentItem
-from app.db.session import get_session
 
 router = APIRouter(prefix="/article-collections", tags=["article-collections"])
-SessionDependency = Depends(get_session)
 
 
 def normalize_collection_name(value: str) -> tuple[str, str]:

@@ -11,6 +11,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.capabilities import CapabilityStatusDependency
+from app.api.dependencies import InjectedSession, SessionDependency
 from app.api.telegram_destinations import (
     get_job_repository,
 )
@@ -27,9 +28,9 @@ from app.api.telegram_schemas import (
 from app.automations.models import AutomationDispatch, AutomationRoute, TelegramSourceConfig
 from app.core.redaction import redact_string
 from app.db.models import Source
-from app.db.session import get_session
 from app.generation.models import AIProviderProfile, BrandProfile, PromptTemplate, PromptTemplateVersion
 from app.jobs.credential_capabilities import CapabilityStatusService, provider_shape_capabilities
+from app.jobs.errors import JobCapabilityUnavailable
 from app.jobs.repository import EnqueueJobResult, JobRepository
 from app.jobs.schemas import JobAcceptedOut
 from app.jobs.types import JobOrigin
@@ -37,8 +38,9 @@ from app.publishing.models import Destination
 from app.stories.models import StoryRevision
 
 router = APIRouter(prefix="/telegram/automations", tags=["telegram"])
-SessionDependency = Depends(get_session)
-InjectedSession = Annotated[AsyncSession, Depends(get_session)]
+#: Dispatch history is append-only and unbounded; the listing answers
+#: newest-first, so this ceiling trims only the tail of an audit log.
+DISPATCH_CEILING = 200
 JobRepositoryDependency = Annotated[JobRepository, Depends(get_job_repository)]
 
 
@@ -159,8 +161,6 @@ async def _require_route_capabilities(
         try:
             research_id = UUID(str(research_profile_id))
         except ValueError:
-            from app.jobs.errors import JobCapabilityUnavailable
-
             raise JobCapabilityUnavailable(
                 code="job_capability_unknown",
                 job_type=job_type,
@@ -580,11 +580,26 @@ async def list_route_dispatches(route_id: UUID, session: AsyncSession = SessionD
             select(AutomationDispatch)
             .where(AutomationDispatch.route_id == route_id)
             .order_by(AutomationDispatch.created_at.desc())
+            .limit(DISPATCH_CEILING)
         )
+    )
+    # One lookup for the whole page: a dispatch history grows without bound, so
+    # resolving each row's story revision on its own turns a listing into as
+    # many round trips as there are dispatches.
+    revision_ids = {row.story_revision_id for row in rows if row.story_revision_id is not None}
+    story_revisions = (
+        {
+            revision.id: revision
+            for revision in await session.scalars(
+                select(StoryRevision).where(StoryRevision.id.in_(revision_ids))
+            )
+        }
+        if revision_ids
+        else {}
     )
     output = []
     for row in rows:
-        story_revision = await session.get(StoryRevision, row.story_revision_id)
+        story_revision = story_revisions.get(row.story_revision_id)
         output.append(
             {
                 "id": row.id,

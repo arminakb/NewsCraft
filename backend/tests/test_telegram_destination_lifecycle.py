@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import json
+from uuid import uuid4
 
 import httpx
 import pytest
 from pydantic import ValidationError
 
+from app.api.telegram_destinations import _mark_destination_checking
 from app.api.telegram_schemas import TelegramDestinationCreate, TelegramProxyCreate
 from app.core.config import Settings
 from app.publishing.models import Destination, TelegramProxyProfile
@@ -229,3 +231,59 @@ async def test_client_for_destination_does_not_swallow_caller_body_errors():
     with pytest.raises(ImportError, match="body import failure"):
         async with resolver.client_for_destination(None, destination):
             raise ImportError("body import failure")
+
+
+def _destination(**overrides) -> Destination:
+    fields = {
+        "platform": "telegram",
+        "name": "Live",
+        "target_ref": "@newscraft_live",
+        "secret_ref": "encrypted:test",
+    }
+    fields.update(overrides)
+    return Destination(**fields)
+
+
+def test_mark_destination_checking_clears_stale_proxy_verdict():
+    """A proxy-less destination reports ``direct``, never a stale proxy verdict.
+
+    Create/patch/rotate used to leave ``proxy_health_status`` untouched when the
+    destination had no proxy, so a destination whose proxy was removed kept its
+    old ``healthy``/``unhealthy`` value while every other stage said
+    ``checking``. The check handler projects ``direct`` for a proxy-less
+    destination, so the API now agrees with it up front.
+    """
+
+    destination = _destination(
+        proxy_profile_id=None,
+        proxy_health_status="healthy",
+        health_status="healthy",
+        failure_code="telegram_bot_unauthorized",
+    )
+
+    _mark_destination_checking(destination)
+
+    assert destination.proxy_health_status == "direct"
+    assert destination.telegram_health_status == "checking"
+    assert destination.bot_health_status == "checking"
+    assert destination.target_health_status == "checking"
+    assert destination.administrator_status == "checking"
+    # Without reset_outcome the aggregate verdict survives: only the explicit
+    # recheck route clears it.
+    assert destination.health_status == "healthy"
+    assert destination.failure_code == "telegram_bot_unauthorized"
+
+
+def test_mark_destination_checking_with_proxy_and_outcome_reset():
+    destination = _destination(
+        proxy_profile_id=uuid4(),
+        proxy_health_status="healthy",
+        health_status="unhealthy",
+        failure_code="telegram_target_not_found",
+    )
+
+    _mark_destination_checking(destination, reset_outcome=True)
+
+    assert destination.proxy_health_status == "checking"
+    assert destination.health_status == "unknown"
+    assert destination.failure_code is None

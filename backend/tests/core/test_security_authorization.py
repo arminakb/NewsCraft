@@ -4,6 +4,7 @@ from httpx import ASGITransport, AsyncClient
 from pydantic import ValidationError
 
 from app.core.config import Settings
+from app.security.audit import CORRELATION_KEY
 from app.security.auth import AuthenticationFailure, CredentialAuthenticator
 from app.security.middleware import SecurityAuthorizationMiddleware, mutation_rule
 
@@ -155,6 +156,63 @@ async def test_profile_mode_fails_closed_while_bearer_service_authentication_rem
     assert browser.json() == {"detail": {"code": "authentication_required"}}
     assert service.status_code == 200
     assert service.json()["principal_type"] == "codex_service"
+
+
+class _EmptyResult:
+    def scalars(self):
+        return self
+
+    def __iter__(self):
+        return iter(())
+
+    def all(self):
+        return []
+
+
+class _RecordingSession:
+    """Stands in for the audit session without touching a database."""
+
+    def __init__(self, events: list) -> None:
+        self.events = events
+
+    async def __aenter__(self) -> _RecordingSession:
+        return self
+
+    async def __aexit__(self, *exc_info) -> bool:
+        return False
+
+    def add(self, event) -> None:
+        self.events.append(event)
+
+    async def commit(self) -> None:
+        return None
+
+    async def execute(self, statement):
+        return _EmptyResult()
+
+
+async def test_audit_rows_of_one_mutation_share_a_correlation_id():
+    events: list = []
+    config = _config(security_audit_enabled=True)
+    api = FastAPI()
+    api.add_middleware(
+        SecurityAuthorizationMiddleware,
+        config=config,
+        session_factory=lambda: _RecordingSession(events),
+    )
+
+    @api.post("/llm-providers")
+    async def mutate_provider(request: Request):
+        return {"ok": True}
+
+    async with AsyncClient(transport=ASGITransport(app=api), base_url="http://test") as client:
+        response = await client.post("/llm-providers", headers={"Origin": "http://localhost:3000"})
+
+    assert response.status_code == 200
+    assert [event.outcome for event in events] == ["attempted", "succeeded"]
+    correlations = {event.event_metadata[CORRELATION_KEY] for event in events}
+    assert len(correlations) == 1
+    assert correlations != {None}
 
 
 def test_local_owner_configuration_rejects_public_or_malformed_origins():

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Literal
+from typing import Any, Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -11,13 +11,16 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.capabilities import CapabilityStatusDependency
 from app.api.content_pack_mappers import (
     _pack_out,
+    _packs_out,
+    _prefetch_revision_graph,
     _request_out,
     _research_request_out,
     _revision_out,
 )
+from app.api.dependencies import SessionDependency
 from app.api.editorial_errors import editorial_http_error
 from app.api.stories import _story_summary
-from app.db.session import get_session
+from app.automations.definitions.runtime_state import continue_automation_review
 from app.exports.service import (
     ExportContractError,
     export_revision_content_hash,
@@ -45,7 +48,6 @@ from app.jobs.models import WorkflowJob
 from app.stories.models import Story, StoryEvidenceSnapshot, StoryRevision
 
 router = APIRouter(tags=["content-packs"])
-SessionDependency = Depends(get_session)
 
 
 class RenderedRevisionHtmlOut(BaseModel):
@@ -157,10 +159,18 @@ async def create_content_pack(
     return result
 
 
+# Every pack in a listing fans out into per-variant projection queries, so an
+# unbounded listing degrades with the archive rather than with the page. Both
+# routes answer newest-first, so the ceiling trims the tail the workspace was
+# already scrolling past. Caller-visible paging would change the published
+# contract and belongs with that decision, not with this bound.
+LIST_CEILING = 200
+
+
 @router.get("/content-packs")
 async def list_content_packs(session: AsyncSession = SessionDependency):
-    rows = list(await session.scalars(select(ContentPack).order_by(ContentPack.created_at.desc())))
-    return [await _pack_out(session, row) for row in rows]
+    rows = list(await session.scalars(select(ContentPack).order_by(ContentPack.created_at.desc()).limit(LIST_CEILING)))
+    return await _packs_out(session, rows)
 
 
 @router.get("/content-pack-requests")
@@ -170,6 +180,7 @@ async def list_content_pack_requests(session: AsyncSession = SessionDependency):
             select(WorkflowJob)
             .where(WorkflowJob.job_type.in_(("content_pack.generate", "research_story")))
             .order_by(WorkflowJob.created_at.desc())
+            .limit(LIST_CEILING)
         )
     )
     output = []
@@ -181,7 +192,7 @@ async def list_content_pack_requests(session: AsyncSession = SessionDependency):
             if row is not None:
                 output.append(row)
     associated_pack_ids = {row["pack"]["id"] for row in output if row["pack"] is not None}
-    packs = list(await session.scalars(select(ContentPack).order_by(ContentPack.created_at.desc())))
+    packs = list(await session.scalars(select(ContentPack).order_by(ContentPack.created_at.desc()).limit(LIST_CEILING)))
     unassociated_packs = [pack for pack in packs if pack.id not in associated_pack_ids]
     if not unassociated_packs:
         return output
@@ -232,7 +243,9 @@ async def list_variant_revisions(variant_id: UUID, session: AsyncSession = Sessi
             .order_by(PlatformVariantRevision.revision_number.desc())
         )
     )
-    return [await _revision_out(session, row) for row in rows]
+    await _prefetch_revision_graph(session, rows)
+    media_cache: dict[UUID, list[dict[str, Any]]] = {}
+    return [await _revision_out(session, row, media_cache) for row in rows]
 
 
 @router.get("/platform-variant-revisions/{revision_id}")
@@ -318,8 +331,6 @@ async def regenerate_variant(
 async def approve_revision(revision_id: UUID, body: ApprovalRequest, session: AsyncSession = SessionDependency):
     try:
         result = await EditorialService(session).approve_revision(revision_id, body)
-        from app.automations.definitions.runtime_state import continue_automation_review
-
         assert result.approved_at is not None
         await continue_automation_review(
             session,

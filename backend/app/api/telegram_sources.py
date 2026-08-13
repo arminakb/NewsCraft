@@ -1,22 +1,17 @@
 from __future__ import annotations
 
-from typing import Annotated
-
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, HTTPException
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.capabilities import CapabilityStatusDependency
+from app.api.dependencies import InjectedSession
 from app.api.telegram_schemas import TelegramSourceCreate, TelegramSourceOut
 from app.automations.models import TelegramSourceConfig
 from app.db.models import Source
-from app.db.session import get_session
 from app.jobs.credential_capabilities import CapabilityStatusService
 
 router = APIRouter(prefix="/telegram/sources", tags=["telegram"])
-SessionDependency = Depends(get_session)
-InjectedSession = Annotated[AsyncSession, Depends(get_session)]
 
 
 async def _source_out(

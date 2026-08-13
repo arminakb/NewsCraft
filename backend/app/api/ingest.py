@@ -1,16 +1,15 @@
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Query
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.dependencies import SessionDependency
 from app.api.schemas import IngestRunRequest, IngestRunSummaryOut
 from app.db.models import IngestRun
-from app.db.session import get_session
 from app.jobs.repository import JobRepository
 from app.jobs.schemas import JobAcceptedOut
 from app.jobs.types import JobOrigin
 
 router = APIRouter()
-SessionDependency = Depends(get_session)
 
 
 @router.get("/ingest/runs", response_model=list[IngestRunSummaryOut])

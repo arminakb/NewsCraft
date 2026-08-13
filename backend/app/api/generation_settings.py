@@ -4,12 +4,13 @@ from datetime import UTC, datetime
 from typing import Annotated, Literal
 from uuid import UUID, uuid4
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.capabilities import CapabilityStatusDependency
+from app.api.dependencies import SessionDependency, principal_dependency
 from app.api.generation_schemas import (
     AIProviderProfileOut,
     BrandProfileCreate,
@@ -20,7 +21,6 @@ from app.api.generation_schemas import (
     PromptTemplateVersionCreate,
     PromptTemplateVersionOut,
 )
-from app.db.session import get_session
 from app.generation.canonical import CanonicalStoryOutput
 from app.generation.default_prompts import (
     manual_generation_provider_schema,
@@ -35,17 +35,9 @@ from app.jobs.credential_capabilities import CapabilityStatus, CapabilityStatusS
 from app.security.auth import SecurityPrincipal
 
 router = APIRouter(tags=["generation-settings"])
-SessionDependency = Depends(get_session)
 
 
-def _security_principal(request: Request) -> SecurityPrincipal:
-    principal = getattr(request.state, "security_principal", None)
-    if not isinstance(principal, SecurityPrincipal):
-        raise HTTPException(401, {"code": "authentication_required"})
-    return principal
-
-
-PrincipalDependency = Annotated[SecurityPrincipal, Depends(_security_principal)]
+PrincipalDependency = Annotated[SecurityPrincipal, Depends(principal_dependency())]
 
 _TELEGRAM_REWRITE_VARIABLES = (
     "source_text",

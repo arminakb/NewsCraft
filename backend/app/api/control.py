@@ -1,16 +1,15 @@
 from datetime import datetime
 from typing import Self
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.dependencies import SessionDependency
 from app.core.redaction import redact_string
-from app.db.session import get_session
 from app.jobs.control import AutomationControlService
 
 router = APIRouter()
-SessionDependency = Depends(get_session)
 
 
 class AutomationControlOut(BaseModel):

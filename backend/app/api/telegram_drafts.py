@@ -2,17 +2,18 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 from datetime import UTC, datetime
-from typing import Annotated, Any
+from typing import Any
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Response
+from fastapi import APIRouter, HTTPException, Response
 from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, field_validator
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.capabilities import CapabilityStatusDependency
+from app.api.dependencies import InjectedSession, SessionDependency
+from app.automations.definitions.runtime_state import bind_automation_publish_job
 from app.automations.models import AutomationDispatch
-from app.db.session import get_session
 from app.generation.models import PlatformVariant, PlatformVariantRevision
 from app.jobs.models import WorkflowJob
 from app.jobs.schemas import JobAcceptedOut
@@ -60,8 +61,9 @@ __all__ = [
 
 router = APIRouter(prefix="/telegram", tags=["telegram"])
 draft_router = APIRouter(prefix="/drafts")
-SessionDependency = Depends(get_session)
-InjectedSession = Annotated[AsyncSession, Depends(get_session)]
+#: Every telegram revision ever written is a candidate here; the listing reads
+#: newest-first, so this ceiling trims only the tail of the outcome history.
+OUTCOME_CEILING = 200
 
 
 class TelegramContentHashIn(BaseModel):
@@ -190,6 +192,7 @@ async def list_telegram_publication_outcomes(
             PlatformVariantRevision.created_at.desc(),
             PlatformVariantRevision.revision_number.desc(),
         )
+        .limit(OUTCOME_CEILING)
     )
     revisions = list(await session.scalars(statement))
     if not revisions:
@@ -288,8 +291,6 @@ async def publish_telegram_draft(
             )
             workflow_job = await session.get(WorkflowJob, result.publish_job.workflow_job_id)
             if workflow_job is not None:
-                from app.automations.definitions.runtime_state import bind_automation_publish_job
-
                 await bind_automation_publish_job(
                     session,
                     revision_id=result.revision.id,

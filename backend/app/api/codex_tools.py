@@ -4,9 +4,10 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, HTTPException, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.dependencies import SessionDependency
 from app.api.telegram_schemas import TelegramDestinationOut
 from app.codex_gateway.credentials import GatewayCredentialHasher, GatewayKeyUnavailable
 from app.codex_gateway.models import CodexConnection
@@ -18,14 +19,12 @@ from app.codex_gateway.tools import (
     ToolResourceNotFound,
 )
 from app.core.config import settings
-from app.db.session import get_session
 from app.jobs.schemas import JobOut
 from app.llm_providers.schemas import LLMProviderOut
 from app.operations.health import ReadinessSnapshot
 from app.security.auth import SecurityPrincipal
 
 router = APIRouter(prefix="/codex-gateway/tools", tags=["codex-gateway-tools"])
-SessionDependency = Depends(get_session)
 
 
 @dataclass(slots=True)
