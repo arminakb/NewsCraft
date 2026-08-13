@@ -174,12 +174,10 @@ async def delete_source(source_id: UUID, session: AsyncSession = SessionDependen
         )
         or 0
     )
-    try:
-        definition_dependencies = await count_automation_definitions_referencing(session, source_id)
-    except TypeError:
-        # Lightweight API doubles used by legacy tests do not accept bound
-        # parameters. Production AsyncSession instances never take this path.
-        definition_dependencies = 0
+    # No exception is absorbed here: this count is the referential-integrity
+    # guard below, so a failing count must surface as a 500 rather than silently
+    # authorize the delete.
+    definition_dependencies = await count_automation_definitions_referencing(session, source_id)
     if legacy_dependencies or definition_dependencies:
         raise HTTPException(
             status_code=409,
@@ -188,11 +186,9 @@ async def delete_source(source_id: UUID, session: AsyncSession = SessionDependen
                 "automations": legacy_dependencies + definition_dependencies,
             },
         )
-    execute = getattr(session, "execute", None)
-    if execute is not None:
-        await execute(
-            delete(SourceCollectionMembership).where(SourceCollectionMembership.source_id == source_id)
-        )
+    await session.execute(
+        delete(SourceCollectionMembership).where(SourceCollectionMembership.source_id == source_id)
+    )
     source.active = False
     source.disabled_reason = "deleted_by_operator"
     source.deleted_at = datetime.now(UTC)
