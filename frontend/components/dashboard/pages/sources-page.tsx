@@ -115,11 +115,6 @@ export function SourcesPage({
         source,
         ...current.filter((item) => item.id !== source.id),
       ])
-      queryClient.setQueryData<SourceSummary[]>(queryKeys.sources, (current) =>
-        current
-          ? [source, ...current.filter((item) => item.id !== source.id)]
-          : [source]
-      )
       void queryClient.invalidateQueries({ queryKey: queryKeys.sources })
       setSelectedSourceId(source.id)
       setDetailOpen(true)
@@ -266,9 +261,6 @@ export function SourcesPage({
         ...current,
         [sourceId]: { ...current[sourceId], ...patch },
       }))
-      queryClient.setQueryData<SourceSummary[]>(queryKeys.sources, (current) =>
-        current?.map((source) => source.id === sourceId ? { ...source, ...patch } : source)
-      )
       queryClient.setQueryData<SourceSummary>(queryKeys.source(sourceId), (current) =>
         current ? { ...current, ...patch } : current
       )
