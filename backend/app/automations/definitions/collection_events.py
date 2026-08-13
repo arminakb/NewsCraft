@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.automations.definitions.compiler import verify_compiled_plan
 from app.automations.definitions.models import Automation, AutomationNodeRun, AutomationRun, AutomationVersion
 from app.automations.definitions.schemas import WorkflowGraphV1
+from app.automations.definitions.trigger_runtime import utc
 from app.automations.definitions.validation import validate_graph
 from app.jobs.models import AutomationControl, WorkflowEvent
 from app.jobs.repository import JobRepository
@@ -19,12 +20,6 @@ from app.jobs.types import JobOrigin
 
 COLLECTION_ARTICLE_ADDED_EVENT = "collection.article_added"
 COLLECTION_ARTICLE_ADDED_TRIGGER = "collection_article_added"
-
-
-def _utc(value: datetime) -> datetime:
-    if value.tzinfo is None or value.utcoffset() is None:
-        return value.replace(tzinfo=UTC)
-    return value.astimezone(UTC)
 
 
 def collection_article_event_id(*, collection_id: UUID, article_id: UUID) -> str:
@@ -89,7 +84,7 @@ async def enqueue_collection_article_added(
                     "source_event_id": source_event_id,
                     "article_id": str(article_id),
                     "collection_id": str(collection_id),
-                    "added_at": _utc(added_at).isoformat(),
+                    "added_at": utc(added_at).isoformat(),
                     "actor_id": normalized_actor,
                 },
             )
@@ -145,7 +140,7 @@ async def enqueue_collection_article_added(
             "source_event_id": source_event_id,
             "article_id": str(article_id),
             "collection_id": str(collection_id),
-            "added_at": _utc(added_at).isoformat(),
+            "added_at": utc(added_at).isoformat(),
             "actor_id": normalized_actor,
             "workflow_version": version.version,
             "trigger_node_id": entry.id,
@@ -209,7 +204,7 @@ async def enqueue_collection_article_added(
                 "collection_id": str(collection_id),
                 "source_event_id": source_event_id,
                 "event_type": COLLECTION_ARTICLE_ADDED_EVENT,
-                "occurred_at": _utc(added_at).isoformat(),
+                "occurred_at": utc(added_at).isoformat(),
                 "actor_id": normalized_actor,
             },
             idempotency_key=f"{run_key}:job",

@@ -13,10 +13,17 @@ from app.automations.definitions.compiler import CompilationError, verify_compil
 from app.automations.definitions.models import Automation, AutomationNodeRun, AutomationRun, AutomationVersion
 from app.automations.definitions.schemas import WorkflowGraphV1
 from app.automations.definitions.source_events import SOURCE_ITEM_CREATED_EVENT, SOURCE_ITEM_CREATED_TRIGGER
+from app.automations.definitions.trigger_runtime import (
+    finish_trigger_run,
+    iso,
+    load_trigger_run,
+    primary_media,
+    utc,
+)
 from app.automations.definitions.validation import validate_graph
 from app.db.models import ContentItem, Source, SourceItem
 from app.jobs.errors import PermanentJobError
-from app.jobs.models import AutomationControl, WorkflowEvent
+from app.jobs.models import AutomationControl
 from app.jobs.registry import JobContext, JobHandler
 from app.jobs.types import JobExecution, job_payload_copy
 
@@ -38,31 +45,6 @@ class NewSourceItemJobPayload(BaseModel):
     occurred_at: datetime
 
 
-def _utc(value: datetime) -> datetime:
-    if value.tzinfo is None or value.utcoffset() is None:
-        return value.replace(tzinfo=UTC)
-    return value.astimezone(UTC)
-
-
-def _iso(value: datetime | None) -> str | None:
-    return _utc(value).isoformat() if value is not None else None
-
-
-def _primary_media(item: ContentItem) -> dict[str, object] | None:
-    media = item.primary_media
-    if media is None:
-        return None
-    return {
-        "id": str(media.id),
-        "url": media.normalized_url,
-        "kind": media.kind,
-        "mime_type": media.mime_type,
-        "width": media.width,
-        "height": media.height,
-        "alt_text": media.alt_text,
-    }
-
-
 def _source_item_output(source: Source, source_item: SourceItem, content_item: ContentItem) -> dict[str, object]:
     authors = content_item.authors if isinstance(content_item.authors, list) else []
     if not authors and source_item.author_raw:
@@ -75,8 +57,8 @@ def _source_item_output(source: Source, source_item: SourceItem, content_item: C
         "content": source_item.content_text_raw or content_item.content_text or "",
         "url": source_item.source_url or source_item.source_url_norm or content_item.canonical_url,
         "authors": authors,
-        "published_at": _iso(content_item.published_at) or source_item.published_raw,
-        "primary_media": _primary_media(content_item),
+        "published_at": iso(content_item.published_at) or source_item.published_raw,
+        "primary_media": primary_media(content_item),
     }
 
 
@@ -95,28 +77,13 @@ async def _load_run(
     job: JobExecution,
     payload: NewSourceItemJobPayload,
 ) -> tuple[AutomationRun, AutomationNodeRun]:
-    if job.automation_run_id is None or job.automation_node_run_id is None:
-        raise PermanentJobError(
-            code="source_item_trigger_link_missing",
-            message="New Source Item job is not linked to an Automation run",
-        )
-    run = await session.scalar(select(AutomationRun).where(AutomationRun.id == job.automation_run_id).with_for_update())
-    node = await session.scalar(
-        select(AutomationNodeRun).where(AutomationNodeRun.id == job.automation_node_run_id).with_for_update()
+    return await load_trigger_run(
+        session,
+        job=job,
+        payload=payload,
+        error_prefix="source_item_trigger",
+        subject="New Source Item job",
     )
-    if (
-        run is None
-        or node is None
-        or node.automation_run_id != run.id
-        or run.automation_id != payload.automation_id
-        or run.automation_version_id != payload.automation_version_id
-        or node.node_id != payload.trigger_node_id
-    ):
-        raise PermanentJobError(
-            code="source_item_trigger_link_invalid",
-            message="New Source Item job references an invalid Automation run",
-        )
-    return run, node
 
 
 async def _finish_run(
@@ -132,43 +99,19 @@ async def _finish_run(
     error_message: str | None = None,
     output: dict[str, object] | None = None,
 ) -> dict[str, object]:
-    node.status = "succeeded" if status == "succeeded" else "failed" if status == "failed" else "skipped"
-    node.started_at = node.started_at or observed_at
-    node.finished_at = observed_at
-    if output is not None:
-        node.output_summary = output
-    if error_code is not None:
-        node.safe_error_code = error_code
-        node.safe_error_message = error_message
-    run.status = status
-    run.current_node_id = None if status == "succeeded" else node.node_id
-    run.safe_error_code = error_code
-    run.safe_error_message = error_message
-    run.finished_at = observed_at
-    event_type = (
-        "automation.run.completed"
-        if status == "succeeded"
-        else "automation.run.cancelled"
-        if status == "cancelled"
-        else "automation.run.failed"
+    return await finish_trigger_run(
+        session,
+        job=job,
+        run=run,
+        node=node,
+        outcome=outcome,
+        status=status,
+        observed_at=observed_at,
+        result_key="source_item_id",
+        error_code=error_code,
+        error_message=error_message,
+        output=output,
     )
-    session.add(
-        WorkflowEvent(
-            workflow_job_id=job.id,
-            event_type=event_type,
-            actor="automation",
-            event_data={
-                "automation_run_id": str(run.id),
-                "outcome": outcome,
-                "error_code": error_code,
-            },
-        )
-    )
-    return {
-        "outcome": outcome,
-        "run_id": str(run.id),
-        "source_item_id": str(run.trigger_metadata.get("source_item_id")),
-    }
 
 
 async def handle_new_source_item(job: JobExecution, context: JobContext) -> dict[str, Any]:
@@ -315,7 +258,7 @@ async def handle_new_source_item(job: JobExecution, context: JobContext) -> dict
         "source_item_id": str(payload.source_item_id),
         "source_id": str(payload.source_id),
         "ingestion_run_id": str(payload.ingestion_run_id),
-        "occurred_at": _utc(payload.occurred_at).isoformat(),
+        "occurred_at": utc(payload.occurred_at).isoformat(),
     }
     output = {
         "source_item": _source_item_output(source, source_item, content_item),

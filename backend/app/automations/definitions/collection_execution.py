@@ -19,6 +19,13 @@ from app.automations.definitions.execution import require_exact_generation_promp
 from app.automations.definitions.models import Automation, AutomationNodeRun, AutomationRun, AutomationVersion
 from app.automations.definitions.registry import COLLECTION_ARTICLE_ARTIFACT
 from app.automations.definitions.schemas import WorkflowGraphV1
+from app.automations.definitions.trigger_runtime import (
+    finish_trigger_run,
+    iso,
+    load_trigger_run,
+    primary_media,
+    utc,
+)
 from app.automations.definitions.validation import validate_graph
 from app.automations.telegram.route_policy import evaluate_content_filter
 from app.db.models import ArticleCollection, ArticleCollectionItem, ContentItem
@@ -26,7 +33,7 @@ from app.generation.commands import GeneratePackRequest
 from app.generation.editorial_service import EditorialService
 from app.generation.errors import InvalidGenerationRequest
 from app.jobs.errors import PermanentJobError
-from app.jobs.models import AutomationControl, WorkflowEvent, WorkflowJob
+from app.jobs.models import AutomationControl, WorkflowJob
 from app.jobs.registry import JobContext, JobHandler
 from app.jobs.types import JobExecution, job_payload_copy
 from app.stories.repository import StoryRepository
@@ -88,31 +95,6 @@ class CollectionArticleAddedOutput(BaseModel):
     trigger: CollectionArticleTriggerOutput
 
 
-def _utc(value: datetime) -> datetime:
-    if value.tzinfo is None or value.utcoffset() is None:
-        return value.replace(tzinfo=UTC)
-    return value.astimezone(UTC)
-
-
-def _iso(value: datetime | None) -> str | None:
-    return _utc(value).isoformat() if value is not None else None
-
-
-def _primary_media(article: ContentItem) -> dict[str, object] | None:
-    media = article.primary_media
-    if media is None:
-        return None
-    return {
-        "id": str(media.id),
-        "url": media.normalized_url,
-        "kind": media.kind,
-        "mime_type": media.mime_type,
-        "width": media.width,
-        "height": media.height,
-        "alt_text": media.alt_text,
-    }
-
-
 def _article_output(article: ContentItem) -> CollectionArticleOutput:
     return CollectionArticleOutput.model_validate({
         "id": str(article.id),
@@ -120,8 +102,8 @@ def _article_output(article: ContentItem) -> CollectionArticleOutput:
         "content": article.content_text,
         "url": article.canonical_url,
         "source_id": str(article.primary_source_id) if article.primary_source_id is not None else None,
-        "published_at": _iso(article.published_at),
-        "primary_media": _primary_media(article),
+        "published_at": iso(article.published_at),
+        "primary_media": primary_media(article),
     })
 
 
@@ -131,30 +113,13 @@ async def _load_run(
     job: JobExecution,
     payload: CollectionArticleAddedJobPayload,
 ) -> tuple[AutomationRun, AutomationNodeRun]:
-    if job.automation_run_id is None or job.automation_node_run_id is None:
-        raise PermanentJobError(
-            code="collection_trigger_link_missing",
-            message="Collection trigger job is not linked to an Automation run",
-        )
-    run = await session.scalar(
-        select(AutomationRun).where(AutomationRun.id == job.automation_run_id).with_for_update()
+    return await load_trigger_run(
+        session,
+        job=job,
+        payload=payload,
+        error_prefix="collection_trigger",
+        subject="Collection trigger job",
     )
-    node = await session.scalar(
-        select(AutomationNodeRun).where(AutomationNodeRun.id == job.automation_node_run_id).with_for_update()
-    )
-    if (
-        run is None
-        or node is None
-        or node.automation_run_id != run.id
-        or run.automation_id != payload.automation_id
-        or run.automation_version_id != payload.automation_version_id
-        or node.node_id != payload.trigger_node_id
-    ):
-        raise PermanentJobError(
-            code="collection_trigger_link_invalid",
-            message="Collection trigger job references an invalid Automation run",
-        )
-    return run, node
 
 
 async def _finish_run(
@@ -170,38 +135,19 @@ async def _finish_run(
     error_message: str | None = None,
     output: dict[str, object] | None = None,
 ) -> dict[str, object]:
-    node.status = "succeeded" if status == "succeeded" else "failed" if status == "failed" else "skipped"
-    node.started_at = node.started_at or observed_at
-    node.finished_at = observed_at
-    if output is not None:
-        node.output_summary = output
-    if error_code is not None:
-        node.safe_error_code = error_code
-        node.safe_error_message = error_message
-    run.status = status
-    run.current_node_id = None if status == "succeeded" else node.node_id
-    run.safe_error_code = error_code
-    run.safe_error_message = error_message
-    run.finished_at = observed_at
-    if status == "succeeded":
-        event_type = "automation.run.completed"
-    elif status == "cancelled":
-        event_type = "automation.run.cancelled"
-    else:
-        event_type = "automation.run.failed"
-    session.add(
-        WorkflowEvent(
-            workflow_job_id=job.id,
-            event_type=event_type,
-            actor="automation",
-            event_data={
-                "automation_run_id": str(run.id),
-                "outcome": outcome,
-                "error_code": error_code,
-            },
-        )
+    return await finish_trigger_run(
+        session,
+        job=job,
+        run=run,
+        node=node,
+        outcome=outcome,
+        status=status,
+        observed_at=observed_at,
+        result_key="article_id",
+        error_code=error_code,
+        error_message=error_message,
+        output=output,
     )
-    return {"outcome": outcome, "run_id": str(run.id), "article_id": str(run.trigger_metadata.get("article_id"))}
 
 
 def _stage(plan: Any, node_type: str) -> Any | None:
@@ -317,7 +263,7 @@ async def _start_collection_downstream(
             continue
         decision = evaluate_content_filter(
             " ".join(part for part in (article.title or "", article.content_text or "") if part),
-            _primary_media(article) is not None,
+            primary_media(article) is not None,
             stage.config,
         )
         filter_output = {
@@ -657,7 +603,7 @@ async def handle_collection_article_added(
                 "collection_id": str(payload.collection_id),
                 "article_id": str(payload.article_id),
                 "source_event_id": payload.source_event_id,
-                "occurred_at": _utc(payload.occurred_at).isoformat(),
+                "occurred_at": utc(payload.occurred_at).isoformat(),
                 "actor_id": payload.actor_id,
             },
         }

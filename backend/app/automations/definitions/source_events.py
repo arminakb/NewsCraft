@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.automations.definitions.compiler import verify_compiled_plan
 from app.automations.definitions.models import Automation, AutomationNodeRun, AutomationRun, AutomationVersion
 from app.automations.definitions.schemas import WorkflowGraphV1
+from app.automations.definitions.trigger_runtime import utc
 from app.automations.definitions.validation import validate_graph
 from app.db.models import Source
 from app.jobs.models import AutomationControl, WorkflowEvent
@@ -20,12 +21,6 @@ from app.jobs.types import JobOrigin
 
 SOURCE_ITEM_CREATED_EVENT = "source_item.created"
 SOURCE_ITEM_CREATED_TRIGGER = "new_source_item"
-
-
-def _utc(value: datetime) -> datetime:
-    if value.tzinfo is None or value.utcoffset() is None:
-        return value.replace(tzinfo=UTC)
-    return value.astimezone(UTC)
 
 
 def source_item_event_id(source_item_id: UUID) -> str:
@@ -80,7 +75,7 @@ async def enqueue_source_item_created(
     if existing_event is not None:
         return []
 
-    occurred = _utc(occurred_at)
+    occurred = utc(occurred_at)
     event_data: dict[str, object] = {
         "event_type": SOURCE_ITEM_CREATED_EVENT,
         "source_event_id": source_event_id,
