@@ -1,5 +1,15 @@
 # Frontend current state
 
+> **Superseded 2026-08-13 — historical record only.** The route inventory
+> below describes the pre-newsroom shell. `/inbox`, `/drafts`, `/library`,
+> `/content`, `/runs`, and `/media` no longer exist; `/jobs`,
+> `/diagnostics`, `/calendar`, and `/settings/content` are redirect stubs.
+> The live navigation is Today (`/`), Sources (`/sources`), Feed (`/feed`),
+> Automations (`/automations`), Operations Center (`/operations`), and
+> Settings, defined in
+> [`frontend/components/newsroom/newsroom-sidebar.tsx`](../../frontend/components/newsroom/newsroom-sidebar.tsx).
+> Do not use this file as a current-route reference.
+
 Audit date: 2026-07-21
 
 ## Scope and protection boundary
