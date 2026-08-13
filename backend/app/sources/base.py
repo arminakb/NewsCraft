@@ -44,4 +44,3 @@ class ParsedSourceItem:
 class ParsedSourcePayload:
     items: list[ParsedSourceItem]
     warnings: list[str] = field(default_factory=list)
-    feed_meta: dict = field(default_factory=dict)

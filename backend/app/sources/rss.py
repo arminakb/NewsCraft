@@ -13,7 +13,6 @@ from app.normalization.text import fingerprint_text
 from app.normalization.titles import normalize_title
 from app.normalization.urls import normalize_url
 from app.sources.base import MediaCandidate, ParsedSourceItem, ParsedSourcePayload
-from app.sources.icon_discovery import extract_feed_identity
 
 
 def parse_rss_feed(
@@ -22,6 +21,14 @@ def parse_rss_feed(
     source_url: str,
     default_timezone: str = "UTC",
 ) -> ParsedSourcePayload:
+    """Parse a feed body into items.
+
+    `source_name` is accepted for call-site symmetry with the other parsers;
+    feed-level identity (publisher URL, icon candidates) is derived by icon
+    discovery from its own fetch, so it is deliberately not re-derived here.
+    """
+
+    del source_name
     feed = feedparser.parse(xml)
     warnings: list[str] = []
     if getattr(feed, "bozo", False):
@@ -32,23 +39,7 @@ def parse_rss_feed(
         for entry in feed.entries
     ]
 
-    feed_title = feed.feed.get("title") if getattr(feed, "feed", None) else None
-    identity = extract_feed_identity(xml, source_url)
-    return ParsedSourcePayload(
-        items=items,
-        warnings=warnings,
-        feed_meta={
-            "source_name": source_name,
-            "source_url": source_url,
-            "feed_title": feed_title,
-            "feed_version": feed.get("version"),
-            "publisher_url": identity.publisher_url,
-            "icon_candidates": [
-                {"url": candidate.url, "source": candidate.source}
-                for candidate in identity.candidates
-            ],
-        },
-    )
+    return ParsedSourcePayload(items=items, warnings=warnings)
 
 
 def _parse_entry(
