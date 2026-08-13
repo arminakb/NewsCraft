@@ -17,7 +17,7 @@ Phase 6 hardens workflow security, prompt/resource boundaries, runtime recovery,
 
 ## Supported and deferred boundary
 
-Supported v1 nodes and recovery policy are documented in [automation-workflows.md](../operations/automation-workflows.md). Arbitrary HTTP/webhooks, SQL, shell/code, filesystem/environment/credential nodes, unrestricted expressions, loops, recursion, generic branching, dynamic tools/permissions, and direct Instagram/X/blog publication remain intentionally deferred.
+Supported v1 nodes and recovery policy are documented in [automation-workflows.md](../operations/automation-workflows.md). The deferred and prohibited set is canonical in “Explicit deferrals and prohibited nodes” of [automation-workflow-builder-contract.md](automation-workflow-builder-contract.md#explicit-deferrals-and-prohibited-nodes).
 
 ## Release evidence
 

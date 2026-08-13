@@ -215,7 +215,7 @@ The server node registry determines what is visible. The Phase 1 capability matr
 | Review | Human Review | Exact immutable revision approval state |
 | Output | Save to Drafts; Telegram publish after approval; manual Instagram/X/blog package | Existing content pack/revision, Telegram publish boundary, and manual export/checklist flow |
 
-General conditions, fallback branching, delays, run-until-node, isolated-node retries, and comparison are included only if Phase 1 proves a safe existing execution mapping. Arbitrary webhooks, HTTP requests, SQL, shell, code, filesystem, credential lookup, dynamic tools, loops, recursive workflows, marketplace nodes, and direct Instagram/X publication remain excluded.
+General conditions, fallback branching, delays, run-until-node, isolated-node retries, and comparison are included only if Phase 1 proves a safe existing execution mapping. The canonical, exhaustive list of what the API must reject is “Explicit deferrals and prohibited nodes” in [`automation-workflow-builder-contract.md`](docs/implementation-notes/automation-workflow-builder-contract.md#explicit-deferrals-and-prohibited-nodes); it governs on any disagreement with this plan.
 
 ### 3.5 Diagram-library decision
 
@@ -885,13 +885,9 @@ Release only after the real PostgreSQL and browser journeys pass. If Docker, bro
 
 ### 5.4 Scope explicitly deferred from v1
 
-- arbitrary webhook and HTTP request nodes;
-- SQL, shell, code, filesystem, environment, or credential nodes;
-- unrestricted expressions, loops, recursion, or dynamic tool/permission grants;
-- generic branching beyond compiler-proven allowlisted cases;
-- direct Instagram/X/blog publication;
-- real-time collaborative editing;
-- reusable subflows and marketplace integrations;
+Node types and execution semantics deferred or prohibited in v1 — webhooks and arbitrary HTTP, SQL/shell/code/filesystem/environment/credential nodes, loops, recursion, subflows, generic branching, dynamic tools, marketplace integrations, real-time collaboration, and direct Instagram/X/blog publication — are enumerated canonically in “Explicit deferrals and prohibited nodes” of [`automation-workflow-builder-contract.md`](docs/implementation-notes/automation-workflow-builder-contract.md#explicit-deferrals-and-prohibited-nodes). The remaining product-scope deferrals owned by this plan are:
+
+- unrestricted expressions beyond the allowlisted safe-config fields;
 - hundreds of node types or graphs larger than the measured 30-node target;
 - empty Variables/Connections tabs;
 - a full unrelated Drafts redesign;
