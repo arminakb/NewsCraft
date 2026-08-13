@@ -1,6 +1,6 @@
 "use client"
 
-import { type QueryClient, type QueryKey, useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { Bookmark, ExternalLink, Gauge, ImageIcon, LoaderCircle, Search, Trash2, X } from "lucide-react"
 import { usePathname, useRouter, useSearchParams } from "next/navigation"
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
@@ -21,6 +21,7 @@ import {
   writeArticleState,
 } from "./filter-state"
 import { SaveToCollectionDialog } from "./save-to-collection-dialog"
+import { useCursorPagination } from "./use-cursor-pagination"
 import { useUrlSearchQuery } from "./use-url-search-query"
 import type { ArticleCollection, ArticleImage, ArticlePage, ArticleSort, ArticleSummary, FeedSummary } from "./types"
 
@@ -40,64 +41,6 @@ import { queryKeys } from "@/lib/query-keys"
 import { safeHttpUrl } from "@/lib/url"
 
 const PAGE_SIZE = 50
-const ARTICLE_PAGE_STALE_TIME = 15_000
-const ARTICLE_PAGE_GC_TIME = 120_000
-
-type ArticleCursorStore = Map<number, string | null>
-type ArticlePageFetcher = (cursor: string | null, signal?: AbortSignal) => Promise<ArticlePage>
-
-async function resolveArticlePageCursor({
-  targetPage,
-  currentPage,
-  cursors,
-  queryClient,
-  queryKeyFor,
-  fetchPage,
-}: {
-  targetPage: number
-  currentPage: number
-  cursors: ArticleCursorStore
-  queryClient: QueryClient
-  queryKeyFor: (page: number, cursor: string | null) => QueryKey
-  fetchPage: ArticlePageFetcher
-}): Promise<{ page: number; cursor: string | null }> {
-  if (targetPage <= 1) return { page: 1, cursor: null }
-  if (cursors.has(targetPage)) return { page: targetPage, cursor: cursors.get(targetPage) ?? null }
-
-  let startPage = 1
-  for (const knownPage of cursors.keys()) {
-    if (knownPage < targetPage && knownPage > startPage) startPage = knownPage
-  }
-
-  let cursor = cursors.get(startPage) ?? null
-  for (let page = startPage; page < targetPage; page += 1) {
-    if (cursors.has(page + 1)) {
-      cursor = cursors.get(page + 1) ?? null
-      continue
-    }
-
-    const pageKey = queryKeyFor(page, cursor)
-    const result = await queryClient.fetchQuery({
-      queryKey: pageKey,
-      queryFn: ({ signal }) => fetchPage(cursor, signal),
-      staleTime: ARTICLE_PAGE_STALE_TIME,
-      gcTime: ARTICLE_PAGE_GC_TIME,
-    })
-    if (!result.nextCursor) {
-      const lastPage = Math.max(1, Math.ceil(result.resultCount / PAGE_SIZE))
-      if (lastPage <= page) return { page: lastPage, cursor: cursors.get(lastPage) ?? cursor }
-      return { page, cursor }
-    }
-
-    cursors.set(page + 1, result.nextCursor)
-    cursor = result.nextCursor
-    if (page !== currentPage) {
-      queryClient.removeQueries({ queryKey: pageKey, exact: true, type: "inactive" })
-    }
-  }
-
-  return { page: targetPage, cursor: cursors.get(targetPage) ?? cursor }
-}
 
 export function ArticlesPage() {
   const router = useRouter()
@@ -130,15 +73,10 @@ export function ArticlesPage() {
   const [directRemovalPendingId, setDirectRemovalPendingId] = useState<string | null>(null)
   const [directRemovalError, setDirectRemovalError] = useState<{ article: ArticleSummary; message: string } | null>(null)
   const [focusAllFeedToken, setFocusAllFeedToken] = useState(0)
-  const [pendingPage, setPendingPage] = useState<number | null>(null)
-  const [pageResolutionError, setPageResolutionError] = useState<unknown>(null)
-  const [pageResolutionPending, setPageResolutionPending] = useState(false)
-  const [pageResolutionAttempt, setPageResolutionAttempt] = useState(0)
   const [clearFeedOpen, setClearFeedOpen] = useState(false)
   const { value: searchDraft, change: changeSearchDraft } = useUrlSearchQuery({ committedQuery: titleQuery })
   const directRemovalBusyRef = useRef(false)
   const detailTriggerRef = useRef<HTMLButtonElement | null>(null)
-  const pageNavigationRequestRef = useRef(0)
   const collectionsQuery = useQuery({
     queryKey: queryKeys.articleCollections,
     queryFn: ({ signal }) => getArticleCollections(signal),
@@ -160,20 +98,6 @@ export function ArticlesPage() {
     collectionId: selectedCollectionId,
     timezone,
   }), [filters, selectedCollectionId, sort, timezone, titleQuery])
-  // One cursor map per query identity. Deriving it here keeps the render
-  // pure: the map is created, never mutated, while rendering, and every
-  // write happens from an effect below.
-  const cursorStore = useMemo<ArticleCursorStore>(
-    () => new Map([[1, null]]),
-    [articleQueryIdentity],
-  )
-  useEffect(() => {
-    if (currentPage > 1 && urlCursor) cursorStore.set(currentPage, urlCursor)
-  }, [currentPage, cursorStore, urlCursor])
-  const currentCursor = currentPage === 1
-    ? null
-    : urlCursor ?? cursorStore.get(currentPage)
-  const pageCursorResolved = currentPage === 1 || currentCursor !== undefined
   const facetsQuery = useQuery({
     queryKey: queryKeys.articleFacets,
     queryFn: getArticleFacets,
@@ -197,19 +121,6 @@ export function ArticlesPage() {
     page,
     cursor,
   }), [articleQueryIdentity, filters, selectedCollectionId, sort, titleQuery])
-  const queryCursor = currentCursor ?? null
-  const query = useQuery({
-    queryKey: queryKeyFor(currentPage, queryCursor),
-    queryFn: ({ signal }) => fetchArticlePage(queryCursor, signal),
-    enabled: queryEnabled && pageCursorResolved,
-    staleTime: ARTICLE_PAGE_STALE_TIME,
-    gcTime: ARTICLE_PAGE_GC_TIME,
-  })
-  const articles = query.data?.items ?? []
-  const resultCount = query.data?.resultCount
-  const totalPages = resultCount === undefined ? 0 : Math.max(1, Math.ceil(resultCount / PAGE_SIZE))
-  const collectionDeleted = Boolean(collectionId && query.error instanceof ApiError && query.error.status === 404)
-  const unavailableSelection = missingFromList || collectionDeleted
 
   const navigateToPage = useCallback((nextPage: number, nextCursor: string | null) => {
     const params = new URLSearchParams(search)
@@ -225,93 +136,35 @@ export function ArticlesPage() {
     router.push(`${pathname}${queryString ? `?${queryString}` : ""}`, { scroll: false })
   }, [pathname, router, search])
 
-  const resolvePage = useCallback((targetPage: number) => resolveArticlePageCursor({
-    targetPage,
+  const isSelectionGone = useCallback(
+    (error: unknown) => Boolean(collectionId && error instanceof ApiError && error.status === 404),
+    [collectionId],
+  )
+  const pagination = useCursorPagination({
+    identity: articleQueryIdentity,
     currentPage,
-    cursors: cursorStore,
-    queryClient,
-    queryKeyFor,
+    urlCursor,
+    pageSize: PAGE_SIZE,
+    enabled: queryEnabled,
+    suspended: missingFromList,
+    isSelectionGone,
     fetchPage: fetchArticlePage,
-  }), [currentPage, cursorStore, fetchArticlePage, queryClient, queryKeyFor])
-
-  useEffect(() => {
-    if (!queryEnabled || unavailableSelection || pageCursorResolved) return
-    let active = true
-    setPageResolutionPending(true)
-    setPageResolutionError(null)
-    void resolvePage(currentPage).then(({ page, cursor }) => {
-      if (!active) return
-      cursorStore.set(page, cursor)
-      setPageResolutionPending(false)
-      if (page !== currentPage) {
-        navigateToPage(page, cursor)
-      }
-    }).catch((cause: unknown) => {
-      if (!active) return
-      setPageResolutionPending(false)
-      setPageResolutionError(cause)
-    })
-    return () => {
-      active = false
-    }
-  }, [currentPage, cursorStore, navigateToPage, pageCursorResolved, queryEnabled, resolvePage, unavailableSelection, pageResolutionAttempt])
-
-  useEffect(() => {
-    setPendingPage(null)
-    setPageResolutionError(null)
-    pageNavigationRequestRef.current += 1
-  }, [articleQueryIdentity, currentPage])
-
-  useEffect(() => {
-    if (query.data === undefined || !pageCursorResolved) return
-    cursorStore.set(currentPage, queryCursor)
-    if (query.data.nextCursor) {
-      cursorStore.set(currentPage + 1, query.data.nextCursor)
-    } else {
-      for (const page of cursorStore.keys()) {
-        if (page > currentPage) cursorStore.delete(page)
-      }
-    }
-  }, [currentPage, cursorStore, pageCursorResolved, query.data, queryCursor])
-
-  useEffect(() => {
-    if (query.data === undefined || resultCount === undefined || !pageCursorResolved) return
-    const prefetches: Promise<unknown>[] = []
-    if (query.data.nextCursor && currentPage < totalPages) {
-      const nextPage = currentPage + 1
-      cursorStore.set(nextPage, query.data.nextCursor)
-      prefetches.push(queryClient.prefetchQuery({
-        queryKey: queryKeyFor(nextPage, query.data.nextCursor),
-        queryFn: ({ signal }) => fetchArticlePage(query.data.nextCursor as string, signal),
-        staleTime: ARTICLE_PAGE_STALE_TIME,
-        gcTime: ARTICLE_PAGE_GC_TIME,
-      }))
-    }
-    const previousCursor = currentPage > 1 ? cursorStore.get(currentPage - 1) : undefined
-    if (currentPage > 1 && previousCursor !== undefined) {
-      prefetches.push(queryClient.prefetchQuery({
-        queryKey: queryKeyFor(currentPage - 1, previousCursor),
-        queryFn: ({ signal }) => fetchArticlePage(previousCursor, signal),
-        staleTime: ARTICLE_PAGE_STALE_TIME,
-        gcTime: ARTICLE_PAGE_GC_TIME,
-      }))
-    }
-    void Promise.allSettled(prefetches)
-  }, [currentPage, cursorStore, fetchArticlePage, pageCursorResolved, query.data, queryClient, queryKeyFor, queryCursor, resultCount, totalPages])
-
-  useEffect(() => {
-    queryClient.removeQueries({
-      queryKey: queryKeys.articlePages,
-      type: "inactive",
-      predicate: (cachedQuery) => {
-        const params = cachedQuery.queryKey[2]
-        if (!params || typeof params !== "object") return false
-        const cached = params as { identity?: unknown; page?: unknown }
-        if (cached.identity !== articleQueryIdentity || typeof cached.page !== "number") return cached.identity !== articleQueryIdentity
-        return Math.abs(cached.page - currentPage) > 1
-      },
-    })
-  }, [articleQueryIdentity, currentPage, queryClient])
+    queryKeyFor,
+    navigateToPage,
+  })
+  const {
+    error: pageResolutionError,
+    pendingPage,
+    query,
+    requestPage,
+    resetCursors,
+    resolving: pageResolutionPending,
+    retry: retryPageResolution,
+    totalPages,
+  } = pagination
+  const articles = query.data?.items ?? []
+  const { resultCount } = pagination
+  const unavailableSelection = missingFromList || pagination.selectionGone
 
   const feedLocationRef = useRef<{ identity: string; page: number } | null>(null)
   useEffect(() => {
@@ -337,29 +190,6 @@ export function ArticlesPage() {
   const changeFilters = (nextFilters: typeof filters) => {
     if (!filtersEqual(filters, nextFilters)) navigate(sort, nextFilters)
   }
-
-  const requestPage = useCallback((targetPage: number) => {
-    if (targetPage < 1 || targetPage === currentPage || pendingPage !== null || targetPage > totalPages) return
-    if (targetPage === 1 || cursorStore.has(targetPage)) {
-      setPageResolutionError(null)
-      navigateToPage(targetPage, targetPage === 1 ? null : cursorStore.get(targetPage) ?? null)
-      return
-    }
-
-    const requestId = pageNavigationRequestRef.current + 1
-    pageNavigationRequestRef.current = requestId
-    setPendingPage(targetPage)
-    setPageResolutionError(null)
-    void resolvePage(targetPage).then(({ page, cursor }) => {
-      if (pageNavigationRequestRef.current !== requestId) return
-      setPendingPage(null)
-      navigateToPage(page, cursor)
-    }).catch((cause: unknown) => {
-      if (pageNavigationRequestRef.current !== requestId) return
-      setPageResolutionError(cause)
-      setPendingPage(null)
-    })
-  }, [currentPage, cursorStore, navigateToPage, pendingPage, resolvePage, totalPages])
 
   const selectCollection = useCallback((nextCollectionId: string | null) => {
     const params = new URLSearchParams(search)
@@ -463,8 +293,7 @@ export function ArticlesPage() {
         current ? { ...current, ...emptyPage } : current
       ))
       queryClient.setQueryData<FeedSummary>(queryKeys.feedSummary, { articleCount: 0 })
-      cursorStore.clear()
-      cursorStore.set(1, null)
+      resetCursors()
       setClearFeedOpen(false)
       clearFeedMutation.reset()
       navigateToPage(1, null)
@@ -479,7 +308,7 @@ export function ArticlesPage() {
     } catch {
       // Keep the dialog open so the operator can retry or cancel.
     }
-  }, [clearFeedMutation, cursorStore, navigateToPage, queryClient])
+  }, [clearFeedMutation, navigateToPage, queryClient, resetCursors])
 
   const changeDetailOpen = useCallback((open: boolean) => {
     if (open) return
@@ -623,8 +452,7 @@ export function ArticlesPage() {
           title="Feed page unavailable"
           description={getApiErrorMessage(pageResolutionError, "The requested Feed page could not be prepared")}
           action={<Button variant="outline" onClick={() => {
-            setPageResolutionError(null)
-            setPageResolutionAttempt((attempt) => attempt + 1)
+            retryPageResolution()
           }}>Retry</Button>}
           dir="auto"
         />
@@ -717,8 +545,7 @@ export function ArticlesPage() {
                 <Button
                   className="shrink-0"
                   onClick={() => {
-                    setPageResolutionError(null)
-                    setPageResolutionAttempt((attempt) => attempt + 1)
+                    retryPageResolution()
                   }}
                   size="sm"
                   variant="outline"
