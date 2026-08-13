@@ -61,6 +61,9 @@ __all__ = [
 router = APIRouter(prefix="/telegram", tags=["telegram"])
 draft_router = APIRouter(prefix="/drafts")
 SessionDependency = Depends(get_session)
+#: Every telegram revision ever written is a candidate here; the listing reads
+#: newest-first, so this ceiling trims only the tail of the outcome history.
+OUTCOME_CEILING = 200
 InjectedSession = Annotated[AsyncSession, Depends(get_session)]
 
 
@@ -190,6 +193,7 @@ async def list_telegram_publication_outcomes(
             PlatformVariantRevision.created_at.desc(),
             PlatformVariantRevision.revision_number.desc(),
         )
+        .limit(OUTCOME_CEILING)
     )
     revisions = list(await session.scalars(statement))
     if not revisions:

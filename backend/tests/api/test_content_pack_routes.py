@@ -843,6 +843,10 @@ async def test_succeeded_telegram_child_with_exact_pack_is_ready():
             return None
 
         async def scalars(self, statement):
+            # The pack projection ranks every variant's current revision in one
+            # query; this pack has none, so only the variant lookup answers.
+            if "platform_variant_revisions" in str(statement):
+                return []
             return [SimpleNamespace(id=uuid4(), platform="telegram")]
 
         async def scalar(self, statement):

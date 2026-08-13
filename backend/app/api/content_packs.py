@@ -157,9 +157,17 @@ async def create_content_pack(
     return result
 
 
+# Every pack in a listing fans out into per-variant projection queries, so an
+# unbounded listing degrades with the archive rather than with the page. Both
+# routes answer newest-first, so the ceiling trims the tail the workspace was
+# already scrolling past. Caller-visible paging would change the published
+# contract and belongs with that decision, not with this bound.
+LIST_CEILING = 200
+
+
 @router.get("/content-packs")
 async def list_content_packs(session: AsyncSession = SessionDependency):
-    rows = list(await session.scalars(select(ContentPack).order_by(ContentPack.created_at.desc())))
+    rows = list(await session.scalars(select(ContentPack).order_by(ContentPack.created_at.desc()).limit(LIST_CEILING)))
     return [await _pack_out(session, row) for row in rows]
 
 
@@ -170,6 +178,7 @@ async def list_content_pack_requests(session: AsyncSession = SessionDependency):
             select(WorkflowJob)
             .where(WorkflowJob.job_type.in_(("content_pack.generate", "research_story")))
             .order_by(WorkflowJob.created_at.desc())
+            .limit(LIST_CEILING)
         )
     )
     output = []
@@ -181,7 +190,7 @@ async def list_content_pack_requests(session: AsyncSession = SessionDependency):
             if row is not None:
                 output.append(row)
     associated_pack_ids = {row["pack"]["id"] for row in output if row["pack"] is not None}
-    packs = list(await session.scalars(select(ContentPack).order_by(ContentPack.created_at.desc())))
+    packs = list(await session.scalars(select(ContentPack).order_by(ContentPack.created_at.desc()).limit(LIST_CEILING)))
     unassociated_packs = [pack for pack in packs if pack.id not in associated_pack_ids]
     if not unassociated_packs:
         return output

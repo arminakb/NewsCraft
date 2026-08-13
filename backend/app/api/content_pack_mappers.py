@@ -3,8 +3,9 @@ from __future__ import annotations
 from typing import Any
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import aliased
 
 from app.core.redaction import redact_secrets, redact_string
 from app.generation.models import (
@@ -222,23 +223,50 @@ async def _revision_out(session: AsyncSession, row: PlatformVariantRevision) -> 
     }
 
 
+async def _current_revisions(
+    session: AsyncSession,
+    variant_ids: list[UUID],
+) -> dict[UUID, PlatformVariantRevision]:
+    """Return each variant's newest revision in one query.
+
+    Ranking in SQL keeps a pack's projection at a single round trip no matter
+    how many platforms it carries, where a per-variant ``ORDER BY … LIMIT 1``
+    multiplied the listing's query count by its variant count.
+    """
+
+    if not variant_ids:
+        return {}
+    ranked = (
+        select(
+            PlatformVariantRevision,
+            func.row_number()
+            .over(
+                partition_by=PlatformVariantRevision.platform_variant_id,
+                order_by=(
+                    PlatformVariantRevision.revision_number.desc(),
+                    PlatformVariantRevision.created_at.desc(),
+                    PlatformVariantRevision.id.desc(),
+                ),
+            )
+            .label("revision_rank"),
+        )
+        .where(PlatformVariantRevision.platform_variant_id.in_(variant_ids))
+        .subquery()
+    )
+    entity = aliased(PlatformVariantRevision, ranked)
+    rows = await session.scalars(select(entity).where(ranked.c.revision_rank == 1))
+    return {row.platform_variant_id: row for row in rows}
+
+
 async def _pack_out(session: AsyncSession, pack: ContentPack) -> dict[str, Any]:
     story_revision = await session.get(StoryRevision, pack.story_revision_id)
     variants = list(await session.scalars(select(PlatformVariant).where(PlatformVariant.content_pack_id == pack.id)))
     order: dict[str, int] = {platform: index for index, platform in enumerate(PLATFORM_ORDER)}
     variants.sort(key=lambda item: (order.get(item.platform, len(order)), str(item.id)))
+    current_by_variant = await _current_revisions(session, [item.id for item in variants])
     projected = []
     for item in variants:
-        current = await session.scalar(
-            select(PlatformVariantRevision)
-            .where(PlatformVariantRevision.platform_variant_id == item.id)
-            .order_by(
-                PlatformVariantRevision.revision_number.desc(),
-                PlatformVariantRevision.created_at.desc(),
-                PlatformVariantRevision.id.desc(),
-            )
-            .limit(1)
-        )
+        current = current_by_variant.get(item.id)
         projected.append(
             {
                 "id": item.id,

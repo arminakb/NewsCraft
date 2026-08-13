@@ -38,6 +38,9 @@ from app.stories.models import StoryRevision
 
 router = APIRouter(prefix="/telegram/automations", tags=["telegram"])
 SessionDependency = Depends(get_session)
+#: Dispatch history is append-only and unbounded; the listing answers
+#: newest-first, so this ceiling trims only the tail of an audit log.
+DISPATCH_CEILING = 200
 InjectedSession = Annotated[AsyncSession, Depends(get_session)]
 JobRepositoryDependency = Annotated[JobRepository, Depends(get_job_repository)]
 
@@ -580,11 +583,26 @@ async def list_route_dispatches(route_id: UUID, session: AsyncSession = SessionD
             select(AutomationDispatch)
             .where(AutomationDispatch.route_id == route_id)
             .order_by(AutomationDispatch.created_at.desc())
+            .limit(DISPATCH_CEILING)
         )
+    )
+    # One lookup for the whole page: a dispatch history grows without bound, so
+    # resolving each row's story revision on its own turns a listing into as
+    # many round trips as there are dispatches.
+    revision_ids = {row.story_revision_id for row in rows if row.story_revision_id is not None}
+    story_revisions = (
+        {
+            revision.id: revision
+            for revision in await session.scalars(
+                select(StoryRevision).where(StoryRevision.id.in_(revision_ids))
+            )
+        }
+        if revision_ids
+        else {}
     )
     output = []
     for row in rows:
-        story_revision = await session.get(StoryRevision, row.story_revision_id)
+        story_revision = story_revisions.get(row.story_revision_id)
         output.append(
             {
                 "id": row.id,
