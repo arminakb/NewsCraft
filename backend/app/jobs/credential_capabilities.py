@@ -236,6 +236,7 @@ class WorkerCredentialCapabilityObserver:
                     credential_code = "available"
                 except SecretKeyUnavailable:
                     credential_available = False
+                    credential_code = "invalid_configuration"
                 except SecretDecryptionFailed:
                     credential_available = False
                     credential_code = "credential_invalid"
