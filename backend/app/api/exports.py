@@ -260,24 +260,8 @@ async def _enqueue_export_job(
             return result
 
         job = result.job
-        if job.job_type != "build_export":
-            raise HTTPException(status_code=409, detail="Export idempotency identity is invalid")
-        try:
-            persisted_payload = BuildExportPayload.model_validate(job.payload)
-        except ValidationError:
-            raise HTTPException(status_code=409, detail="Export idempotency payload is invalid") from None
-        if persisted_payload != payload:
-            raise HTTPException(status_code=409, detail="Export idempotency payload does not match request")
-        if str(job.status) != JobStatus.SUCCEEDED or not (
-            isinstance(job.result, dict) and job.result.get("state") == "expired"
-        ):
-            return result
-
-        try:
-            expired_artifact = _typed_artifact(job)
-        except ExportArtifactInvalid as exc:
-            raise _artifact_conflict(exc) from None
-        if not isinstance(expired_artifact, ExpiredExportArtifact):  # pragma: no cover - guarded above
+        expired_artifact = _expired_rebuild_artifact(job, payload)
+        if expired_artifact is None:
             return result
         if generation >= MAX_EXPORT_REBUILD_GENERATIONS:
             raise HTTPException(status_code=409, detail="Export rebuild history exceeds the supported depth")
@@ -287,13 +271,38 @@ async def _enqueue_export_job(
     raise HTTPException(status_code=409, detail="Export rebuild history is invalid")  # pragma: no cover
 
 
-def _validate_public_file_matrix(artifact: ExportArtifact, payload: BuildExportPayload) -> None:
-    expected_nonmedia: list[tuple[str, str, UUID, str]] = []
+def _expired_rebuild_artifact(
+    job: WorkflowJob,
+    payload: BuildExportPayload,
+) -> ExpiredExportArtifact | None:
+    if job.job_type != "build_export":
+        raise HTTPException(status_code=409, detail="Export idempotency identity is invalid")
+    try:
+        persisted_payload = BuildExportPayload.model_validate(job.payload)
+    except ValidationError:
+        raise HTTPException(status_code=409, detail="Export idempotency payload is invalid") from None
+    if persisted_payload != payload:
+        raise HTTPException(status_code=409, detail="Export idempotency payload does not match request")
+    if str(job.status) != JobStatus.SUCCEEDED or not (
+        isinstance(job.result, dict) and job.result.get("state") == "expired"
+    ):
+        return None
+    try:
+        artifact = _typed_artifact(job)
+    except ExportArtifactInvalid as exc:
+        raise _artifact_conflict(exc) from None
+    if not isinstance(artifact, ExpiredExportArtifact):  # pragma: no cover - guarded above
+        return None
+    return artifact
+
+
+def _expected_nonmedia_files(payload: BuildExportPayload) -> list[tuple[str, str, UUID, str]]:
+    expected: list[tuple[str, str, UUID, str]] = []
     extension_by_format = {"json": "json", "markdown": "md", "html": "html"}
     for platform, revision_id in zip(payload.platforms, payload.revision_ids, strict=True):
         for format_name in ("json", "markdown", "html"):
             if format_name in payload.formats:
-                expected_nonmedia.append(
+                expected.append(
                     (
                         f"{platform}/{revision_id}/content.{extension_by_format[format_name]}",
                         format_name,
@@ -301,17 +310,10 @@ def _validate_public_file_matrix(artifact: ExportArtifact, payload: BuildExportP
                         platform,
                     )
                 )
-    actual_nonmedia = [
-        (item.file_name, item.kind, item.revision_id, item.platform)
-        for item in artifact.manifest.files
-        if item.kind != "media"
-    ]
-    if actual_nonmedia != expected_nonmedia:
-        raise ExportArtifactInvalid("export_artifact_file_matrix_mismatch")
-    if (artifact.archive_file is not None) != ("zip" in payload.formats):
-        raise ExportArtifactInvalid("export_artifact_archive_mismatch")
-    if not payload.include_media and any(item.kind == "media" for item in artifact.manifest.files):
-        raise ExportArtifactInvalid("export_artifact_unrequested_media")
+    return expected
+
+
+def _validate_manifest_file_order(artifact: ExportArtifact, payload: BuildExportPayload) -> None:
     variant_order = {
         (platform, revision_id): index
         for index, (platform, revision_id) in enumerate(zip(payload.platforms, payload.revision_ids, strict=True))
@@ -333,6 +335,21 @@ def _validate_public_file_matrix(artifact: ExportArtifact, payload: BuildExportP
         order.append((variant_order[identity], kind_order[item.kind]))
     if order != sorted(order):
         raise ExportArtifactInvalid("export_artifact_file_order_nondeterministic")
+
+
+def _validate_public_file_matrix(artifact: ExportArtifact, payload: BuildExportPayload) -> None:
+    actual_nonmedia = [
+        (item.file_name, item.kind, item.revision_id, item.platform)
+        for item in artifact.manifest.files
+        if item.kind != "media"
+    ]
+    if actual_nonmedia != _expected_nonmedia_files(payload):
+        raise ExportArtifactInvalid("export_artifact_file_matrix_mismatch")
+    if (artifact.archive_file is not None) != ("zip" in payload.formats):
+        raise ExportArtifactInvalid("export_artifact_archive_mismatch")
+    if not payload.include_media and any(item.kind == "media" for item in artifact.manifest.files):
+        raise ExportArtifactInvalid("export_artifact_unrequested_media")
+    _validate_manifest_file_order(artifact, payload)
 
 
 def _contract_http_error(exc: ExportContractError) -> HTTPException:
@@ -473,15 +490,18 @@ def _download_identity(artifact: ExportArtifact, file_name: str) -> tuple[str, i
     return item.sha256, item.byte_length
 
 
-def resolve_export_download(export_root: Path, artifact: ExportArtifact, file_name: str) -> Path:
+def _download_relative_path(file_name: str) -> PurePosixPath:
     relative = PurePosixPath(file_name)
     if not file_name or relative.is_absolute() or ".." in relative.parts or "." in relative.parts or "\\" in file_name:
         raise HTTPException(status_code=404, detail="Export file not found")
-    expected_sha256, expected_length = _download_identity(artifact, relative.as_posix())
+    return relative
+
+
+def _resolved_download_path(export_root: Path, export_id: UUID, relative: PurePosixPath) -> Path:
     root = Path(export_root).absolute()
     if root.is_symlink():
         raise HTTPException(status_code=409, detail="Export storage root is unsafe")
-    export_dir = root / str(artifact.export_id)
+    export_dir = root / str(export_id)
     candidate = export_dir.joinpath(*relative.parts)
     try:
         candidate.relative_to(root)
@@ -499,14 +519,29 @@ def resolve_export_download(export_root: Path, artifact: ExportArtifact, file_na
         raise HTTPException(status_code=404, detail="Export file not found") from None
     if not resolved.is_relative_to(resolved_root) or not stat.S_ISREG(resolved.stat().st_mode):
         raise HTTPException(status_code=409, detail="Export storage path is unsafe")
-    if expected_length is not None and resolved.stat().st_size != expected_length:
+    return resolved
+
+
+def _validate_download_contents(path: Path, *, expected_sha256: str, expected_length: int | None) -> None:
+    if expected_length is not None and path.stat().st_size != expected_length:
         raise HTTPException(status_code=409, detail="Export file length does not match its manifest")
     digest = hashlib.sha256()
-    with resolved.open("rb") as source:
+    with path.open("rb") as source:
         for chunk in iter(lambda: source.read(1024 * 1024), b""):
             digest.update(chunk)
     if digest.hexdigest() != expected_sha256:
         raise HTTPException(status_code=409, detail="Export file checksum does not match its manifest")
+
+
+def resolve_export_download(export_root: Path, artifact: ExportArtifact, file_name: str) -> Path:
+    relative = _download_relative_path(file_name)
+    expected_sha256, expected_length = _download_identity(artifact, relative.as_posix())
+    resolved = _resolved_download_path(export_root, artifact.export_id, relative)
+    _validate_download_contents(
+        resolved,
+        expected_sha256=expected_sha256,
+        expected_length=expected_length,
+    )
     return resolved
 
 
