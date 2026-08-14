@@ -83,12 +83,8 @@ export function SourcesPage({
   const fetchedSources = pageData
     ? Array.isArray(pageData) ? pageData : pageData.items
     : initialSources
-  const sourceTotal = pageData
-    ? Array.isArray(pageData) ? pageData.total : pageData.total
-    : initialSources.length
-  const sourceHasMore = pageData
-    ? Array.isArray(pageData) ? pageData.hasMore : pageData.hasMore
-    : false
+  const sourceTotal = pageData?.total ?? initialSources.length
+  const sourceHasMore = pageData?.hasMore ?? false
   const baseSources = useMemo(
     () => selectedScope === ALL_SOURCES_SCOPE
       ? [

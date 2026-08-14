@@ -178,7 +178,8 @@ describe("OperationsCenter", () => {
   })
 
   it("shows safe job detail only and retries eligible failures after confirmation", async () => {
-    renderCenter({ view: "jobs", job: failedJob.id })
+    const { queryClient } = renderCenter({ view: "jobs", job: failedJob.id })
+    const invalidate = vi.spyOn(queryClient, "invalidateQueries")
 
     const dialog = await screen.findByRole("dialog", { name: "Job details" })
     await within(dialog).findByText("provider_unavailable")
@@ -192,6 +193,8 @@ describe("OperationsCenter", () => {
 
     fireEvent.click(within(dialog).getByRole("button", { name: "Retry job" }))
     await waitFor(() => expect(retryJob).toHaveBeenCalledWith(failedJob.id))
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: ["jobs"] })
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: ["jobs", failedJob.id] })
   })
 
   it("runs bounded diagnostics together and announces completion", async () => {
@@ -210,13 +213,16 @@ function renderCenter(initialQuery: Parameters<typeof OperationsCenter>[0]["init
   for (const key of [...searchParams.keys()]) searchParams.delete(key)
   for (const [key, value] of Object.entries(initialQuery)) if (value) searchParams.set(key, value)
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
-  return render(
-    <QueryClientProvider client={queryClient}>
-      <NoticeProvider>
-        <OperationsCenter initialQuery={initialQuery} />
-      </NoticeProvider>
-    </QueryClientProvider>,
-  )
+  return {
+    queryClient,
+    ...render(
+      <QueryClientProvider client={queryClient}>
+        <NoticeProvider>
+          <OperationsCenter initialQuery={initialQuery} />
+        </NoticeProvider>
+      </QueryClientProvider>,
+    ),
+  }
 }
 
 function job(overrides: Partial<WorkflowJob> = {}): WorkflowJob {

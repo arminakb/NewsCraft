@@ -406,6 +406,8 @@ describe("Feed page", () => {
     await screen.findByRole("article")
 
     fireEvent.click(screen.getByRole("button", { name: "Filter articles" }))
+    const filterDialog = screen.getByRole("dialog", { name: "Filter articles" })
+    expect(filterDialog).toHaveAttribute("aria-modal", "true")
     fireEvent.click(screen.getByRole("checkbox", { name: /en/i }))
     fireEvent.click(screen.getByRole("checkbox", { name: /AI/ }))
     fireEvent.click(screen.getByRole("checkbox", { name: /Tech/ }))
@@ -429,6 +431,23 @@ describe("Feed page", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Clear all" }))
     expect(navigation.push).toHaveBeenLastCalledWith("/feed")
+  })
+
+  it("keeps modal focus valid when Clear all disables itself", async () => {
+    vi.mocked(getArticles).mockResolvedValue({ items: [article()], nextCursor: null, resultCount: 1 })
+    renderArticles()
+    await screen.findByRole("article")
+
+    fireEvent.click(screen.getByRole("button", { name: "Filter articles" }))
+    const filterDialog = screen.getByRole("dialog", { name: "Filter articles" })
+    fireEvent.click(within(filterDialog).getByRole("checkbox", { name: /en/i }))
+    const closeFilters = within(filterDialog).getByRole("button", { name: "Close filters" })
+    const focus = vi.spyOn(closeFilters, "focus")
+
+    fireEvent.click(within(filterDialog).getByRole("button", { name: "Clear all" }))
+
+    expect(focus).toHaveBeenCalled()
+    expect(within(filterDialog).getByRole("button", { name: "Clear all" })).toBeDisabled()
   })
 
   it("applies sources, coverage, image, score, and date bounds together", async () => {

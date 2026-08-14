@@ -8,13 +8,12 @@
 
 export { isUnsafeWorkflowField } from "./workflow-field-policy"
 export { catalogDefinition, orderedWorkflowNodes } from "./workflow-graph-topology"
-export { type CompatibilityStatus, compatiblePortPairs, connectionCompatibility } from "./workflow-graph-contracts"
+export { type CompatibilityStatus } from "./workflow-graph-contracts"
 export {
   type JsonSchema,
   defaultConfig,
   normalizeWorkflowGraphForSave,
   resolveSchema,
-  serializeWorkflowGraph,
   workflowResourceRequests,
 } from "./workflow-config-schema"
 export {

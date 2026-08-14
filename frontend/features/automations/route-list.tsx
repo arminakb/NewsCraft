@@ -9,11 +9,12 @@ import { Button, buttonVariants } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { PageHeader } from "@/components/ui/page-header"
 import { EmptyState, ErrorState, LoadingState } from "@/components/ui/state-panel"
-import { StatusBadge, type StatusTone } from "@/components/ui/status-badge"
+import { StatusBadge } from "@/components/ui/status-badge"
 import { getTelegramAutomationOptions, getTelegramRoutes } from "@/features/automations/telegram-api"
 import { getApiErrorMessage } from "@/lib/http"
 import { formatInTimeZone } from "@/lib/date-time"
 import { queryKeys } from "@/lib/query-keys"
+import { cursorTone } from "./automation-run-state"
 
 export function RouteList() {
   const { timezone } = useDateTime()
@@ -63,9 +64,9 @@ export function RouteList() {
               </div>
               <dl className="grid gap-3 text-[13px] sm:grid-cols-2">
                 <Metric label="Last message" value={route.cursorState.lastMessageId == null ? "Not available" : String(route.cursorState.lastMessageId)} />
-                <Metric label="Next poll" value={route.nextPollAt ? formatDate(route.nextPollAt, timezone) : "Not scheduled"} />
+                <Metric label="Next poll" value={route.nextPollAt ? formatInTimeZone(route.nextPollAt, timezone) : "Not scheduled"} />
                 <Metric label="Destination health" value={destination ? labelValue(destination.healthStatus) : optionsQuery.isPending ? "Checking" : optionsQuery.isError ? "Health request failed" : "Destination not configured"} />
-                <Metric label="Last poll" value={route.lastPolledAt ? formatDate(route.lastPolledAt, timezone) : "Not polled"} />
+                <Metric label="Last poll" value={route.lastPolledAt ? formatInTimeZone(route.lastPolledAt, timezone) : "Not polled"} />
               </dl>
               <Link className={buttonVariants({ variant: "outline" })} href={`/automations/telegram/${route.id}`}>Open route</Link>
             </CardContent>
@@ -77,15 +78,6 @@ export function RouteList() {
 }
 
 function labelValue(value: string) { return value.split("_").map((part) => part[0]?.toUpperCase() + part.slice(1)).join(" ") }
-function formatDate(value: string, timezone: string) {
-  return formatInTimeZone(value, timezone)
-}
-function cursorTone(value: string): StatusTone {
-  if (value === "ready") return "success"
-  if (["failed", "error"].includes(value)) return "error"
-  if (["initializing", "checking"].includes(value)) return "warning"
-  return "neutral"
-}
 function Metric({ label, value }: { label: string; value: string }) {
   return <div className="min-w-0"><dt className="text-xs text-muted-foreground">{label}</dt><dd className="break-words font-medium tabular-nums">{value}</dd></div>
 }

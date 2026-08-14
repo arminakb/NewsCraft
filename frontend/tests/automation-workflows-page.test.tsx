@@ -1,7 +1,6 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { fireEvent, render, screen, waitFor } from "@testing-library/react"
 
-import { AutomationTemplatesPage } from "@/features/automations/automation-templates-page"
 import * as api from "@/features/automations/automation-api"
 import { NewWorkflowPage } from "@/features/automations/new-workflow-page"
 import { WorkflowLibrary } from "@/features/automations/workflow-library"
@@ -22,14 +21,12 @@ vi.mock("@/features/automations/automation-api", () => ({
   activateAutomation: vi.fn(),
   archiveAutomation: vi.fn(),
   createAutomation: vi.fn(),
-  createAutomationFromTemplate: vi.fn(),
   duplicateAutomation: vi.fn(),
   getAutomation: vi.fn(),
   getAutomationNodeCatalog: vi.fn(),
   getAutomationResourceCatalog: vi.fn(),
   getAutomationRuns: vi.fn(),
   getAutomations: vi.fn(),
-  getAutomationTemplates: vi.fn(),
   pauseAutomation: vi.fn(),
   resumeAutomation: vi.fn(),
 }))
@@ -386,16 +383,6 @@ describe("workflow gallery", () => {
     expect(api.getAutomationResourceCatalog).not.toHaveBeenCalled()
   })
 
-  it("creates an inactive editable copy from server template data", async () => {
-    vi.mocked(api.getAutomationTemplates).mockResolvedValue([template] as never)
-    vi.mocked(api.createAutomationFromTemplate).mockResolvedValue(detail as never)
-    renderPage(<AutomationTemplatesPage creationMode />)
-
-    fireEvent.click(await screen.findByRole("button", { name: "Use this template" }))
-    await waitFor(() => expect(api.createAutomationFromTemplate).toHaveBeenCalledWith("blank-workflow", {}, expect.stringContaining("template-blank-workflow-")))
-    expect(push).toHaveBeenCalledWith("/automations/automation-1")
-  })
-
   it("creates blank workflow and opens its editor directly", async () => {
     vi.mocked(api.createAutomation).mockResolvedValue(detail as never)
     renderPage(<NewWorkflowPage />)
@@ -495,4 +482,3 @@ const graph = {
 const templateAutomation = automation()
 const version = { id: "version-1", automationId: "automation-1", version: 1, schemaVersion: 1, graph, graphHash: "hash", compilerVersion: "1", compiledPlan: {}, validationSummary: { valid: true, graphHash: "hash", findings: [] }, creationActorType: "human", creationActorId: "owner", creationReason: "created", createdAt: "2026-08-01T08:00:00Z" }
 const detail = { ...templateAutomation, draftVersion: version, activeVersion: null, legacyRouteId: null }
-const template = { id: "template-1", seedKey: "blank-workflow", seedVersion: 1, ownership: "system_managed", name: "Blank workflow", description: "Start safely", complexity: "starter", graphSeed: graph, capabilityRequirements: ["manual", "drafts"], createdAt: "2026-08-01T08:00:00Z", updatedAt: "2026-08-01T08:00:00Z" }

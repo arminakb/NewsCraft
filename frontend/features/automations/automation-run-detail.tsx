@@ -1,20 +1,32 @@
 "use client"
 
+import { useMutation, useQueryClient } from "@tanstack/react-query"
 import { ExternalLink, FileText, Wrench } from "lucide-react"
 import Link from "next/link"
 
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
-import { buttonVariants } from "@/components/ui/button"
+import { Button, buttonVariants } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { StatusBadge, type StatusTone } from "@/components/ui/status-badge"
+import { StatusBadge } from "@/components/ui/status-badge"
+import { getApiErrorMessage } from "@/lib/http"
+import { queryKeys } from "@/lib/query-keys"
 
+import { approveAutomationArtifactReview } from "./automation-api"
+import { runTone } from "./automation-run-state"
 import type { AutomationRun } from "./automation-types"
 
 const privateKey = /api.?key|authorization|credential|password|secret|access.?token|refresh.?token|raw.?(prompt|response)|prompt.?(body|text)|system.?prompt|stack.?trace|traceback|request.?headers|response.?headers|messages/i
 
 export function AutomationRunDetail({ run }: { run: AutomationRun }) {
+  const queryClient = useQueryClient()
   const version = scalar(run.resourceSnapshot.automationVersion) ?? short(run.automationVersionId)
   const recovery = recoveryFor(run.safeErrorCode)
+  const approval = useMutation({
+    mutationFn: () => approveAutomationArtifactReview(run.id),
+    onSuccess: (approvedRun) => {
+      queryClient.setQueryData(queryKeys.automationRun(run.id), approvedRun)
+    },
+  })
 
   return (
     <div className="flex flex-col gap-4" aria-label={`Run ${short(run.id)} details`}>
@@ -36,6 +48,17 @@ export function AutomationRunDetail({ run }: { run: AutomationRun }) {
           </div>
         </Alert>
       ) : null}
+
+      {run.status === "waiting_for_review" ? (
+        <div className="flex flex-col items-start gap-2 rounded-xl border border-warning/30 bg-warning/5 p-3">
+          <p className="text-sm">This run is paused at its persisted artifact review boundary.</p>
+          <Button disabled={approval.isPending} onClick={() => approval.mutate()}>
+            {approval.isPending ? "Approving review…" : "Approve artifact review"}
+          </Button>
+          {approval.isError ? <p className="text-sm text-destructive" role="alert">{getApiErrorMessage(approval.error, "Artifact review approval failed")}</p> : null}
+        </div>
+      ) : null}
+      {approval.isSuccess ? <p className="text-sm text-success" role="status">Artifact review approved.</p> : null}
 
       <dl className="grid gap-3 rounded-xl border border-border/60 bg-muted/20 p-3 text-sm sm:grid-cols-3">
         <Metric label="Started" value={dateTime(run.startedAt ?? run.createdAt)} />
@@ -111,14 +134,6 @@ function recoveryFor(code: string | null) {
   if (code.includes("validation") || code.includes("input")) return { cause: "Saved version or input failed validation.", action: "Correct highlighted workflow step, save, and validate again." }
   if (code.includes("pause")) return { cause: "Workflow execution is paused.", action: "Resume workflow before testing again." }
   return { cause: "Run stopped at this persisted step.", action: "Open related Job in Operations Center for next action." }
-}
-
-function runTone(status: string): StatusTone {
-  if (status === "succeeded") return "success"
-  if (["failed", "cancelled"].includes(status)) return "error"
-  if (["queued", "running"].includes(status)) return "info"
-  if (["warning", "waiting_for_review"].includes(status)) return "warning"
-  return "neutral"
 }
 
 function humanize(value: string) {

@@ -237,7 +237,8 @@ export function NewsroomSidebar({
 }
 
 export function isCurrentPath(pathname: string, href: string) {
-  return href === "/" ? pathname === href : pathname === href || pathname.startsWith(`${href}/`)
+  const target = href.split("?", 1)[0]
+  return target === "/" ? pathname === target : pathname === target || pathname.startsWith(`${target}/`)
 }
 
 export function isNavItemCurrent(pathname: string, item: NewsroomNavItem) {

@@ -31,6 +31,7 @@ export function connectionCompatibility(
   graph: WorkflowGraph,
   catalog: AutomationNodeCatalog,
   edge: WorkflowEdge,
+  cache?: Map<string, ArtifactShape>,
 ): CompatibilityStatus {
   const sourceNode = graph.nodes.find((node) => node.id === edge.sourceNodeId)
   const targetNode = graph.nodes.find((node) => node.id === edge.targetNodeId)
@@ -40,7 +41,7 @@ export function connectionCompatibility(
   const input = target?.inputs.find((port) => port.name === edge.targetPort)
   if (!source || !target || !output || !input) return "incompatible"
   if (!hasContract(output, input, source, target)) return legacyPortCompatibility(output, input)
-  const shape = artifactShapeForOutput(graph, catalog, edge.sourceNodeId, edge.sourcePort)
+  const shape = artifactShapeForOutput(graph, catalog, edge.sourceNodeId, edge.sourcePort, cache ?? new Map())
   return matchInputContract(shape, inputContract(target, input))
 }
 
@@ -121,7 +122,7 @@ function artifactShapeForOutput(
   catalog: AutomationNodeCatalog,
   nodeId: string,
   portName: string,
-  cache = new Map<string, ArtifactShape>(),
+  cache: Map<string, ArtifactShape>,
   visiting = new Set<string>(),
 ): ArtifactShape {
   const cacheKey = `${nodeId}:${portName}`

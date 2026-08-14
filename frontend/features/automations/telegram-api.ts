@@ -5,7 +5,6 @@ import { apiRequest } from "@/lib/http"
 import type {
   BrandProfile,
   BrandProfileInput,
-  BrandProfilePatch,
   CredentialCapabilityState,
   JobAccepted,
   PromptTemplate,
@@ -200,14 +199,8 @@ export async function getTelegramPublishJob(id: string): Promise<TelegramPublish
 // Reconciliation decisions have exactly one client:
 // features/operations/api.ts submitReconciliationDecision.
 
-export async function getBrandProfiles(): Promise<BrandProfile[]> {
-  return apiRequest<BrandProfile[]>("/brand-profiles")
-}
 export async function createBrandProfile(input: BrandProfileInput): Promise<BrandProfile> {
   return apiRequest<BrandProfile>("/brand-profiles", json("POST", input))
-}
-export async function updateBrandProfile(id: string, input: BrandProfilePatch): Promise<BrandProfile> {
-  return apiRequest<BrandProfile>(`/brand-profiles/${encodeURIComponent(id)}`, json("PATCH", input))
 }
 
 export async function getPromptTemplates(): Promise<PromptTemplate[]> {

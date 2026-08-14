@@ -1,12 +1,3 @@
-import type { JobFilters } from "@/features/jobs/types"
-import type { HistoryFilters } from "@/features/operations/types"
-import type { ArticleFilters, ArticleSort } from "@/features/articles/types"
-import type {
-  AutomationListFilters,
-  AutomationResourceRequest,
-  AutomationRunFilters,
-} from "@/features/automations/automation-types"
-
 export const queryKeys = {
   sources: ["sources"] as const,
   sourcesPage: (scope: string, offset = 0) => ["sources", "page", scope, offset] as const,
@@ -57,7 +48,7 @@ export const queryKeys = {
   ] as const,
   diagnostics: ["diagnostics"] as const,
   ingestRunsToday: (limit: number) => ["ingest-runs", "today", limit] as const,
-  jobs: (filters: JobFilters = {}) => ["jobs", filters] as const,
+  jobs: <Filters extends object = Record<string, never>>(filters: Filters = {} as Filters) => ["jobs", filters] as const,
   job: (id: string) => ["jobs", id] as const,
   jobSummary: ["jobs", "summary"] as const,
   automationControl: ["automation-control"] as const,
@@ -65,15 +56,15 @@ export const queryKeys = {
   notifications: ["notifications"] as const,
   article: (id: string) => ["articles", "detail", id] as const,
   articlesToday: (limit: number) => ["articles", "today", limit] as const,
-  articlePage: (params: {
+  articlePage: <Params extends {
     identity: string
-    sort: ArticleSort
-    filters: ArticleFilters
+    sort: string
+    filters: object
     query: string
     collectionId: string | null
     page: number
     cursor: string | null
-  }) => ["articles", "feed-page", params] as const,
+  }>(params: Params) => ["articles", "feed-page", params] as const,
   articlePages: ["articles", "feed-page"] as const,
   articleCollections: ["articles", "collections"] as const,
   articleFacets: ["articles", "facets"] as const,
@@ -87,19 +78,19 @@ export const queryKeys = {
   telegramPublicationContext: (id: string) => ["telegram", "publication-context", id] as const,
   telegramPublicationOutcomes: ["telegram", "publication-outcomes"] as const,
   telegramPublishJob: (id: string) => ["telegram", "publish-jobs", id] as const,
-  automations: (filters: AutomationListFilters = {}) => ["automations", filters] as const,
+  automations: <Filters extends object = Record<string, never>>(filters: Filters = {} as Filters) => ["automations", filters] as const,
   automation: (id: string) => ["automations", id] as const,
   automationVersions: (id: string) => ["automations", id, "versions"] as const,
   automationVersion: (id: string, version: number) => ["automations", id, "versions", version] as const,
   automationNodeCatalog: ["automations", "node-catalog"] as const,
-  automationResourceCatalog: (automationId: string | undefined, resources: AutomationResourceRequest[] = []) => [
+  automationResourceCatalog: <Resource extends object>(automationId: string | undefined, resources: Resource[] = []) => [
     "automations",
     "resource-catalog",
     automationId,
     resources,
   ] as const,
   automationTemplates: ["automations", "templates"] as const,
-  automationRuns: (id: string, filters: AutomationRunFilters = {}) => ["automations", id, "runs", filters] as const,
+  automationRuns: <Filters extends object = Record<string, never>>(id: string, filters: Filters = {} as Filters) => ["automations", id, "runs", filters] as const,
   automationRun: (id: string) => ["automation-runs", id] as const,
   brandProfiles: ["settings", "brand-profiles"] as const,
   promptTemplates: ["settings", "prompt-templates"] as const,
@@ -130,7 +121,7 @@ export const packageQueryKeys = {
 export const operationsQueryKeys = {
   diagnostics: ["operations", "diagnostics"] as const,
   health: ["operations", "health"] as const,
-  history: (filters: HistoryFilters) => ["operations", "history", filters] as const,
+  history: <Filters extends object>(filters: Filters) => ["operations", "history", filters] as const,
   reconciliations: ["publications", "reconciliation"] as const,
   retentionPolicy: ["operations", "retention-policy"] as const,
   retentionPreview: (policyHash: string) => ["operations", "retention-preview", policyHash] as const,
