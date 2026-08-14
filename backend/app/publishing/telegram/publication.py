@@ -58,20 +58,12 @@ from app.stories.models import StoryEvidenceSnapshot, StoryRevision
 _ROUTE_UNSET = object()
 
 
-async def load_context(
-    session: Any,
-    publish_job_id: UUID,
-    observed_at: datetime,
-    expected_proxy_profile_id: UUID | None | object = _ROUTE_UNSET,
-) -> _PublishContext | dict:
+async def _load_publish_intent(session: Any, publish_job_id: UUID) -> tuple[Any, Any] | dict[str, Any]:
     revision_id = await session.scalar(
         select(PublishJob.platform_variant_revision_id).where(PublishJob.id == publish_job_id)
     )
     if revision_id is None:
-        raise PermanentJobError(
-            code="telegram_publish_job_missing",
-            message="Telegram publish job was not found",
-        )
+        raise PermanentJobError(code="telegram_publish_job_missing", message="Telegram publish job was not found")
     revision = await session.scalar(
         select(PlatformVariantRevision)
         .where(PlatformVariantRevision.id == revision_id)
@@ -89,35 +81,34 @@ async def load_context(
             code="telegram_publish_context_missing",
             message="Telegram publish context is incomplete",
         )
-    existing_publication = await session.scalar(
+    existing = await session.scalar(
         select(Publication)
         .where(Publication.publish_job_id == publish_job.id)
         .execution_options(populate_existing=True)
     )
-    if existing_publication is not None:
-        if (
-            existing_publication.reconciliation_status != "confirmed"
-            or existing_publication.destination_id != publish_job.destination_id
-            or existing_publication.platform_variant_revision_id != publish_job.platform_variant_revision_id
-            or existing_publication.payload_hash != publish_job.payload_hash
-        ):
-            raise NeedsReviewJobError(
-                code="telegram_publication_drift",
-                message="Existing publication does not match the publish intent",
-            )
-        return {
-            "publish_job_id": str(publish_job.id),
-            "publication_id": str(existing_publication.id),
-            "remote_message_ids": list(existing_publication.remote_message_ids),
-            "permalink": existing_publication.permalink,
-            "idempotent": True,
-        }
+    if existing is None:
+        return revision, publish_job
+    if (
+        existing.reconciliation_status != "confirmed"
+        or existing.destination_id != publish_job.destination_id
+        or existing.platform_variant_revision_id != publish_job.platform_variant_revision_id
+        or existing.payload_hash != publish_job.payload_hash
+    ):
+        raise NeedsReviewJobError(
+            code="telegram_publication_drift",
+            message="Existing publication does not match the publish intent",
+        )
+    return {
+        "publish_job_id": str(publish_job.id),
+        "publication_id": str(existing.id),
+        "remote_message_ids": list(existing.remote_message_ids),
+        "permalink": existing.permalink,
+        "idempotent": True,
+    }
 
-    variant = await session.get(
-        PlatformVariant,
-        revision.platform_variant_id,
-        populate_existing=True,
-    )
+
+async def _load_publish_revision(session: Any, revision: Any) -> tuple[Any, TelegramVariantContent]:
+    variant = await session.get(PlatformVariant, revision.platform_variant_id, populate_existing=True)
     if variant is None or variant.platform != "telegram":
         raise PermanentJobError(
             code="telegram_publish_context_missing",
@@ -141,16 +132,24 @@ async def load_context(
             code="telegram_revision_hash_drift",
             message="Telegram revision hash no longer matches",
         )
+    return variant, content
 
-    dispatch_ancestor = await _revision_dispatch(session, revision)
-    if dispatch_ancestor is None:
+
+async def _load_publish_route(
+    session: Any,
+    revision: Any,
+    publish_job: Any,
+    expected_proxy_profile_id: UUID | None | object,
+) -> tuple[Any, Any, Any]:
+    ancestor = await _revision_dispatch(session, revision)
+    if ancestor is None:
         raise NeedsReviewJobError(
             code="telegram_route_provenance_missing",
             message="Telegram revision has no route provenance",
         )
     dispatch = await session.scalar(
         select(AutomationDispatch)
-        .where(AutomationDispatch.id == dispatch_ancestor.id)
+        .where(AutomationDispatch.id == ancestor.id)
         .with_for_update()
         .execution_options(populate_existing=True)
     )
@@ -177,6 +176,17 @@ async def load_context(
         .with_for_update()
         .execution_options(populate_existing=True)
     )
+    _validate_publish_route(route, control, destination, publish_job, expected_proxy_profile_id)
+    return dispatch, route, destination
+
+
+def _validate_publish_route(
+    route: Any,
+    control: Any,
+    destination: Any,
+    publish_job: Any,
+    expected_proxy_profile_id: UUID | None | object,
+) -> None:
     if destination is None:
         raise PermanentJobError(
             code="telegram_publish_context_missing",
@@ -189,8 +199,7 @@ async def load_context(
         )
     if route is None or route.destination_id != destination.id:
         raise NeedsReviewJobError(
-            code="telegram_publish_route_drift",
-            message="Telegram publish route no longer matches",
+            code="telegram_publish_route_drift", message="Telegram publish route no longer matches"
         )
     if (
         control is None
@@ -207,21 +216,15 @@ async def load_context(
             message="Telegram publication is blocked by current controls",
         )
 
-    pack = await session.get(
-        ContentPack,
-        variant.content_pack_id,
-        populate_existing=True,
-    )
-    story_revision = (
-        await session.get(
-            StoryRevision,
-            pack.story_revision_id,
-            populate_existing=True,
-        )
-        if pack
-        else None
-    )
-    citations: list[TelegramEvidenceCitation] = []
+
+async def _validate_publish_evidence_context(
+    session: Any,
+    revision: Any,
+    variant: Any,
+    dispatch: Any,
+) -> None:
+    pack = await session.get(ContentPack, variant.content_pack_id, populate_existing=True)
+    story_revision = await session.get(StoryRevision, pack.story_revision_id, populate_existing=True) if pack else None
     try:
         citations = [TelegramEvidenceCitation.model_validate(item) for item in revision.evidence_map]
     except Exception:
@@ -250,6 +253,14 @@ async def load_context(
             message="Telegram evidence no longer belongs to the revision story",
         )
 
+
+async def _load_publish_plan_receipts(
+    session: Any,
+    revision: Any,
+    content: TelegramVariantContent,
+    destination: Any,
+    publish_job: Any,
+) -> tuple[Any, list[Any]]:
     media = list(
         await session.scalars(
             select(MediaAsset)
@@ -260,11 +271,7 @@ async def load_context(
     try:
         plan = build_publish_plan(revision, media, destination)
     except TelegramPublishNeedsReview as exc:
-        raise NeedsReviewJobError(
-            code="telegram_publish_plan_invalid",
-            message=str(exc),
-        ) from None
-
+        raise NeedsReviewJobError(code="telegram_publish_plan_invalid", message=str(exc)) from None
     receipts = list(
         await session.scalars(
             select(PublishOperationReceipt)
@@ -293,51 +300,26 @@ async def load_context(
     except PublishValidationError as exc:
         raise NeedsReviewJobError(code=exc.code, message=str(exc)) from None
     publish_job.payload_hash = plan.payload_hash
+    return plan, receipts
 
+
+async def _publish_receipt_short_circuit(
+    session: Any,
+    publish_job: Any,
+    receipts: list[Any],
+    observed_at: datetime,
+) -> dict[str, Any] | None:
     ambiguous = next((item for item in receipts if reconciliation_required(receipt_status=item.status)), None)
     if ambiguous is not None:
         publish_job.status = "reconciliation_required"
-        return {
-            "publish_job_id": str(publish_job.id),
-            "reconciliation_required": True,
-        }
+        return {"publish_job_id": str(publish_job.id), "reconciliation_required": True}
     dispatching = next((item for item in receipts if item.status == "dispatching"), None)
     if dispatching is not None:
-        dispatch_stale = bool(dispatching.updated_at and dispatching.updated_at < observed_at - timedelta(minutes=5))
-        if reconciliation_required(
-            receipt_status=dispatching.status,
-            dispatch_stale=dispatch_stale,
-        ):
-            dispatching.status = "ambiguous"
-            dispatching.ambiguous_at = observed_at
-            publish_job.status = "reconciliation_required"
-            await _close_running_publish_attempts(
-                session,
-                publish_job_id=publish_job.id,
-                status="needs_review",
-                error_class="needs_review",
-                error_code="telegram_publish_ambiguous",
-                error_message="Telegram publish outcome is ambiguous after worker interruption",
-                finished_at=observed_at,
-            )
-            return {
-                "publish_job_id": str(publish_job.id),
-                "reconciliation_required": True,
-            }
-        return {
-            "publish_job_id": str(publish_job.id),
-            "in_progress": True,
-            "retry_at": (dispatching.updated_at or observed_at) + timedelta(minutes=5),
-        }
-
+        return await _dispatching_receipt_result(session, publish_job, dispatching, observed_at)
     first_incomplete = next((item for item in receipts if item.status != "succeeded"), None)
     retry_at = first_incomplete.next_attempt_at if first_incomplete is not None else None
     if retry_at is not None and retry_at > observed_at:
-        return {
-            "publish_job_id": str(publish_job.id),
-            "retry_at": retry_at,
-        }
-
+        return {"publish_job_id": str(publish_job.id), "retry_at": retry_at}
     if receipts and all(item.status == "succeeded" for item in receipts):
         await _close_running_publish_attempts(
             session,
@@ -348,7 +330,45 @@ async def load_context(
             error_message="Prior Telegram publish attempt was interrupted after durable receipt",
             finished_at=observed_at,
         )
+    return None
 
+
+async def _dispatching_receipt_result(
+    session: Any,
+    publish_job: Any,
+    dispatching: Any,
+    observed_at: datetime,
+) -> dict[str, Any]:
+    stale = bool(dispatching.updated_at and dispatching.updated_at < observed_at - timedelta(minutes=5))
+    if reconciliation_required(receipt_status=dispatching.status, dispatch_stale=stale):
+        dispatching.status = "ambiguous"
+        dispatching.ambiguous_at = observed_at
+        publish_job.status = "reconciliation_required"
+        await _close_running_publish_attempts(
+            session,
+            publish_job_id=publish_job.id,
+            status="needs_review",
+            error_class="needs_review",
+            error_code="telegram_publish_ambiguous",
+            error_message="Telegram publish outcome is ambiguous after worker interruption",
+            finished_at=observed_at,
+        )
+        return {"publish_job_id": str(publish_job.id), "reconciliation_required": True}
+    return {
+        "publish_job_id": str(publish_job.id),
+        "in_progress": True,
+        "retry_at": (dispatching.updated_at or observed_at) + timedelta(minutes=5),
+    }
+
+
+async def _create_publish_attempt(
+    session: Any,
+    publish_job: Any,
+    revision: Any,
+    destination: Any,
+    plan: Any,
+    observed_at: datetime,
+) -> Any:
     attempt_number = (
         int(
             await session.scalar(
@@ -385,6 +405,50 @@ async def load_context(
     )
     session.add(attempt)
     await session.flush()
+    return attempt
+
+
+async def load_context(
+    session: Any,
+    publish_job_id: UUID,
+    observed_at: datetime,
+    expected_proxy_profile_id: UUID | None | object = _ROUTE_UNSET,
+) -> _PublishContext | dict:
+    intent = await _load_publish_intent(session, publish_job_id)
+    if isinstance(intent, dict):
+        return intent
+    revision, publish_job = intent
+    variant, content = await _load_publish_revision(session, revision)
+    dispatch, route, destination = await _load_publish_route(
+        session,
+        revision,
+        publish_job,
+        expected_proxy_profile_id,
+    )
+    await _validate_publish_evidence_context(session, revision, variant, dispatch)
+    plan, receipts = await _load_publish_plan_receipts(
+        session,
+        revision,
+        content,
+        destination,
+        publish_job,
+    )
+    short_circuit = await _publish_receipt_short_circuit(
+        session,
+        publish_job,
+        receipts,
+        observed_at,
+    )
+    if short_circuit is not None:
+        return short_circuit
+    attempt = await _create_publish_attempt(
+        session,
+        publish_job,
+        revision,
+        destination,
+        plan,
+        observed_at,
+    )
     return _PublishContext(
         publish_job_id=publish_job.id,
         destination_id=destination.id,
@@ -399,7 +463,7 @@ async def load_context(
     )
 
 
-async def revalidate_claim(session: Any, context: _PublishContext) -> PublishJob:
+async def _load_claim_context(session: Any, context: _PublishContext) -> tuple[Any, Any, Any, Any, Any, Any]:
     revision = await session.scalar(
         select(PlatformVariantRevision)
         .where(PlatformVariantRevision.id == context.revision_id)
@@ -440,18 +504,23 @@ async def revalidate_claim(session: Any, context: _PublishContext) -> PublishJob
         .with_for_update()
         .execution_options(populate_existing=True)
     )
-    if (
-        revision is None
-        or publish_job is None
-        or dispatch is None
-        or route is None
-        or destination is None
-        or control is None
-    ):
+    if any(item is None for item in (revision, publish_job, dispatch, route, destination, control)):
         raise NeedsReviewJobError(
             code="telegram_publish_context_drift",
             message="Telegram publish context changed before dispatch",
         )
+    return revision, publish_job, dispatch, route, control, destination
+
+
+def _validate_claim_controls(
+    context: _PublishContext,
+    revision: Any,
+    publish_job: Any,
+    dispatch: Any,
+    route: Any,
+    control: Any,
+    destination: Any,
+) -> TelegramVariantContent:
     try:
         content = TelegramVariantContent.model_validate(revision.content)
     except Exception:
@@ -489,29 +558,13 @@ async def revalidate_claim(session: Any, context: _PublishContext) -> PublishJob
             code="telegram_publish_source_drift",
             message="Telegram revision no longer matches its source dispatch",
         )
-    variant = await session.get(
-        PlatformVariant,
-        revision.platform_variant_id,
-        populate_existing=True,
-    )
-    pack = (
-        await session.get(
-            ContentPack,
-            variant.content_pack_id,
-            populate_existing=True,
-        )
-        if variant is not None
-        else None
-    )
-    story_revision = (
-        await session.get(
-            StoryRevision,
-            pack.story_revision_id,
-            populate_existing=True,
-        )
-        if pack is not None
-        else None
-    )
+    return content
+
+
+async def _validate_claim_evidence(session: Any, revision: Any, dispatch: Any) -> None:
+    variant = await session.get(PlatformVariant, revision.platform_variant_id, populate_existing=True)
+    pack = await session.get(ContentPack, variant.content_pack_id, populate_existing=True) if variant else None
+    story_revision = await session.get(StoryRevision, pack.story_revision_id, populate_existing=True) if pack else None
     try:
         citations = [TelegramEvidenceCitation.model_validate(item) for item in revision.evidence_map]
     except Exception:
@@ -539,26 +592,35 @@ async def revalidate_claim(session: Any, context: _PublishContext) -> PublishJob
             code="telegram_publish_evidence_story_drift",
             message="Telegram evidence lineage changed before dispatch",
         )
-    if content.media_policy == "preserve" and content.media_asset_ids:
-        source_item = await session.get(
-            SourceItem,
-            dispatch.source_item_id,
-            populate_existing=True,
-        )
-        linked_ids = (
-            set(
-                await session.scalars(
-                    select(ItemMedia.media_asset_id).where(ItemMedia.content_item_id == source_item.content_item_id)
-                )
+
+
+async def _validate_claim_media_lineage(session: Any, content: TelegramVariantContent, dispatch: Any) -> None:
+    if content.media_policy != "preserve" or not content.media_asset_ids:
+        return
+    source_item = await session.get(SourceItem, dispatch.source_item_id, populate_existing=True)
+    linked_ids = (
+        set(
+            await session.scalars(
+                select(ItemMedia.media_asset_id).where(ItemMedia.content_item_id == source_item.content_item_id)
             )
-            if source_item is not None
-            else set()
         )
-        if not set(content.media_asset_ids).issubset(linked_ids):
-            raise NeedsReviewJobError(
-                code="telegram_publish_media_lineage_drift",
-                message="Telegram revision media no longer belongs to its source",
-            )
+        if source_item is not None
+        else set()
+    )
+    if not set(content.media_asset_ids).issubset(linked_ids):
+        raise NeedsReviewJobError(
+            code="telegram_publish_media_lineage_drift",
+            message="Telegram revision media no longer belongs to its source",
+        )
+
+
+async def _validate_claim_plan(
+    session: Any,
+    context: _PublishContext,
+    revision: Any,
+    content: TelegramVariantContent,
+    destination: Any,
+) -> None:
     media = list(
         await session.scalars(
             select(MediaAsset)
@@ -569,15 +631,7 @@ async def revalidate_claim(session: Any, context: _PublishContext) -> PublishJob
     try:
         current_plan = build_publish_plan(revision, media, destination)
     except TelegramPublishNeedsReview as exc:
-        raise NeedsReviewJobError(
-            code="telegram_publish_plan_drift",
-            message=str(exc),
-        ) from None
-    if current_plan.payload_hash != context.plan.payload_hash:
-        raise NeedsReviewJobError(
-            code="telegram_publish_plan_drift",
-            message="Telegram publish plan changed before dispatch",
-        )
+        raise NeedsReviewJobError(code="telegram_publish_plan_drift", message=str(exc)) from None
     prepared_operations = [
         (operation.index, operation.key, operation.method, operation.request_hash)
         for operation in context.plan.operations
@@ -586,11 +640,31 @@ async def revalidate_claim(session: Any, context: _PublishContext) -> PublishJob
         (operation.index, operation.key, operation.method, operation.request_hash)
         for operation in current_plan.operations
     ]
-    if current_operations != prepared_operations:
+    if current_plan.payload_hash != context.plan.payload_hash or current_operations != prepared_operations:
         raise NeedsReviewJobError(
             code="telegram_publish_plan_drift",
-            message="Telegram publish operations changed before dispatch",
+            message=(
+                "Telegram publish plan changed before dispatch"
+                if current_plan.payload_hash != context.plan.payload_hash
+                else "Telegram publish operations changed before dispatch"
+            ),
         )
+
+
+async def revalidate_claim(session: Any, context: _PublishContext) -> PublishJob:
+    revision, publish_job, dispatch, route, control, destination = await _load_claim_context(session, context)
+    content = _validate_claim_controls(
+        context,
+        revision,
+        publish_job,
+        dispatch,
+        route,
+        control,
+        destination,
+    )
+    await _validate_claim_evidence(session, revision, dispatch)
+    await _validate_claim_media_lineage(session, content, dispatch)
+    await _validate_claim_plan(session, context, revision, content, destination)
     return publish_job
 
 
@@ -614,16 +688,94 @@ async def _prepare_publish(
         raise
 
 
+async def _finish_claim_attempt(
+    session: Any,
+    attempt_id: UUID,
+    claim_time: datetime,
+    *,
+    status: str,
+    error_class: str,
+    error_code: str,
+    error_message: str,
+) -> None:
+    attempt = await session.get(PublishAttempt, attempt_id, populate_existing=True)
+    if attempt is not None and attempt.status == "running":
+        attempt.status = status
+        attempt.error_class = error_class
+        attempt.error_code = redact_string(error_code)
+        attempt.error_message = redact_string(error_message)
+        attempt.finished_at = claim_time
+
+
+async def _apply_claim_state(
+    session: Any,
+    prepared: _PublishContext,
+    publish_job: Any,
+    receipt: Any,
+    claim_time: datetime,
+    claim_error: NeedsReviewJobError | None,
+) -> _ClaimOutcome:
+    if claim_error is not None:
+        publish_job.status = "attention"
+        await _finish_claim_attempt(
+            session,
+            prepared.attempt_id,
+            claim_time,
+            status="needs_review",
+            error_class="needs_review",
+            error_code=claim_error.code,
+            error_message=claim_error.message,
+        )
+        return _ClaimOutcome(claim_error=claim_error)
+    if receipt.status == "succeeded":
+        return _ClaimOutcome(already_succeeded=True)
+    if receipt.status == "dispatching":
+        await _finish_claim_attempt(
+            session,
+            prepared.attempt_id,
+            claim_time,
+            status="failed",
+            error_class="retryable",
+            error_code="telegram_publish_in_progress",
+            error_message="Another Telegram publish claim is in progress",
+        )
+        return _ClaimOutcome(
+            retry_at=(receipt.updated_at or claim_time) + timedelta(minutes=5),
+            competing_claim=True,
+        )
+    if receipt.status != "pending":
+        error = NeedsReviewJobError(
+            code="telegram_publish_receipt_not_sendable",
+            message="Telegram publish receipt requires attention",
+        )
+        publish_job.status = "reconciliation_required" if receipt.status == "ambiguous" else "attention"
+        await _finish_claim_attempt(
+            session,
+            prepared.attempt_id,
+            claim_time,
+            status="needs_review",
+            error_class="needs_review",
+            error_code=error.code,
+            error_message=error.message,
+        )
+        return _ClaimOutcome(claim_error=error)
+    if receipt.next_attempt_at and receipt.next_attempt_at > claim_time:
+        return _ClaimOutcome(retry_at=receipt.next_attempt_at)
+    receipt.status = "dispatching"
+    receipt.attempt_count += 1
+    receipt.next_attempt_at = None
+    receipt.updated_at = claim_time
+    publish_job.status = "dispatching"
+    return _ClaimOutcome(claimed_attempt_count=receipt.attempt_count)
+
+
 async def _claim_operation(
     session: Any,
     prepared: _PublishContext,
     operation: Any,
     claim_time: datetime,
 ) -> _ClaimOutcome:
-    claimed_attempt_count = 0
-    retry_at: datetime | None = None
     claim_error: NeedsReviewJobError | None = None
-    competing_claim = False
     async with session.begin():
         try:
             publish_job = await revalidate_claim(session, prepared)
@@ -654,264 +806,269 @@ async def _claim_operation(
                 code="telegram_publish_receipt_missing",
                 message="Telegram publish receipt is missing",
             )
-        if claim_error is not None:
-            attempt = await session.get(
-                PublishAttempt,
-                prepared.attempt_id,
-                populate_existing=True,
-            )
-            publish_job.status = "attention"
-            if attempt is not None and attempt.status == "running":
-                attempt.status = "needs_review"
-                attempt.error_class = "needs_review"
-                attempt.error_code = redact_string(claim_error.code)
-                attempt.error_message = redact_string(claim_error.message)
-                attempt.finished_at = claim_time
-        elif receipt.status == "succeeded":
-            return _ClaimOutcome(already_succeeded=True)
-        elif receipt.status == "dispatching":
-            competing_claim = True
-            retry_at = (receipt.updated_at or claim_time) + timedelta(minutes=5)
-            attempt = await session.get(
-                PublishAttempt,
-                prepared.attempt_id,
-                populate_existing=True,
-            )
-            if attempt is not None and attempt.status == "running":
-                attempt.status = "failed"
-                attempt.error_class = "retryable"
-                attempt.error_code = redact_string("telegram_publish_in_progress")
-                attempt.error_message = redact_string("Another Telegram publish claim is in progress")
-                attempt.finished_at = claim_time
-        elif receipt.status != "pending":
-            claim_error = NeedsReviewJobError(
-                code="telegram_publish_receipt_not_sendable",
-                message="Telegram publish receipt requires attention",
-            )
-            attempt = await session.get(
-                PublishAttempt,
-                prepared.attempt_id,
-                populate_existing=True,
-            )
-            if receipt.status == "ambiguous":
-                publish_job.status = "reconciliation_required"
-            else:
-                publish_job.status = "attention"
-            if attempt is not None and attempt.status == "running":
-                attempt.status = "needs_review"
-                attempt.error_class = "needs_review"
-                attempt.error_code = redact_string(claim_error.code)
-                attempt.error_message = redact_string(claim_error.message)
-                attempt.finished_at = claim_time
-        elif receipt.next_attempt_at and receipt.next_attempt_at > claim_time:
-            retry_at = receipt.next_attempt_at
-        else:
-            receipt.status = "dispatching"
-            receipt.attempt_count += 1
-            receipt.next_attempt_at = None
-            receipt.updated_at = claim_time
-            publish_job.status = "dispatching"
-            claimed_attempt_count = receipt.attempt_count
-    return _ClaimOutcome(
-        claimed_attempt_count=claimed_attempt_count,
-        retry_at=retry_at,
-        competing_claim=competing_claim,
-        claim_error=claim_error,
-    )
+        return await _apply_claim_state(session, prepared, publish_job, receipt, claim_time, claim_error)
 
 
-async def publish_telegram(
+async def _resolve_publish_token(
     session: Any,
+    prepared: _PublishContext,
+    operation: Any,
+    claimed_attempt_count: int,
+    secret_resolver: Any,
+    clock: Any,
+) -> str:
+    try:
+        return await resolve_destination_secret(secret_resolver, prepared.destination_secret_ref)
+    except Exception as exc:
+        mapped = await _record_failure(
+            session,
+            context=prepared,
+            operation=operation,
+            claimed_attempt_count=claimed_attempt_count,
+            error=exc,
+            observed_at=clock(),
+        )
+        raise mapped from None
+
+
+def _fault_context(prepared: _PublishContext, operation: Any, claimed_attempt_count: int) -> dict[str, Any]:
+    return {
+        "publish_job_id": str(prepared.publish_job_id),
+        "publish_attempt_id": str(prepared.attempt_id),
+        "operation_index": operation.index,
+        "operation_key": operation.key,
+        "method": operation.method,
+        "attempt_count": claimed_attempt_count,
+    }
+
+
+async def _execute_publish_operation(
+    session: Any,
+    prepared: _PublishContext,
+    operation: Any,
+    claimed_attempt_count: int,
+    client: Any,
+    token: str,
+    injector: FaultInjector,
+    clock: Any,
+) -> Any:
+    fault_context = _fault_context(prepared, operation, claimed_attempt_count)
+    try:
+        await injector.hit("telegram.before_send", fault_context)
+    except BaseException:
+        await _record_failure(
+            session,
+            context=prepared,
+            operation=operation,
+            claimed_attempt_count=claimed_attempt_count,
+            error=TelegramRetryableBeforeDispatch("Fault injected before Telegram dispatch"),
+            observed_at=clock(),
+        )
+        raise
+    try:
+        result = await client.execute(operation, token)
+    except Exception as exc:
+        mapped = await _record_failure(
+            session,
+            context=prepared,
+            operation=operation,
+            claimed_attempt_count=claimed_attempt_count,
+            error=exc,
+            observed_at=clock(),
+        )
+        raise mapped from None
+    try:
+        await injector.hit(
+            "telegram.after_send_before_receipt",
+            {**fault_context, "remote_message_count": len(result.remote_message_ids)},
+        )
+    except BaseException as exc:
+        await _record_failure(
+            session,
+            context=prepared,
+            operation=operation,
+            claimed_attempt_count=claimed_attempt_count,
+            error=exc,
+            observed_at=clock(),
+        )
+        raise
+    return result
+
+
+async def _persist_operation_receipt(
+    session: Any,
+    prepared: _PublishContext,
+    operation: Any,
+    claimed_attempt_count: int,
+    result: Any,
+    token: str,
+    clock: Any,
+) -> None:
+    async with session.begin():
+        receipt = await session.scalar(
+            select(PublishOperationReceipt)
+            .where(
+                PublishOperationReceipt.publish_job_id == prepared.publish_job_id,
+                PublishOperationReceipt.operation_index == operation.index,
+            )
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )
+        if receipt is None or receipt.status != "dispatching" or receipt.attempt_count != claimed_attempt_count:
+            raise NeedsReviewJobError(
+                code="telegram_publish_claim_superseded",
+                message="Telegram publish claim was superseded",
+            )
+        receipt.status = "succeeded"
+        receipt.remote_message_ids = list(result.remote_message_ids)
+        metadata = redact_secrets(result.response_metadata, secrets=(token,))
+        receipt.response_metadata = metadata if isinstance(metadata, dict) else {}
+        receipt.completed_at = clock()
+
+
+async def _publish_one_operation(
+    session: Any,
+    prepared: _PublishContext,
+    operation: Any,
     *,
-    publish_job_id: UUID,
     client: Any,
     secret_resolver: Any,
-    expected_proxy_profile_id: UUID | None | object = _ROUTE_UNSET,
-    now: Any | None = None,
-    fault_injector: FaultInjector | None = None,
-) -> dict[str, Any]:
-    injector = fault_injector if fault_injector is not None else NoopFaultInjector()
-    clock = now or (lambda: datetime.now(UTC))
-    prepared = await _prepare_publish(
+    token: str | None,
+    injector: FaultInjector,
+    clock: Any,
+) -> str | None:
+    claim = await _claim_operation(session, prepared, operation, clock())
+    if claim.claim_error is not None:
+        raise claim.claim_error
+    if claim.already_succeeded:
+        return token
+    if claim.retry_at is not None:
+        await _release_claim_for_retry(
+            session,
+            prepared,
+            retry_at=claim.retry_at,
+            competing_claim=claim.competing_claim,
+            finished_at=clock(),
+        )
+        raise RetryableJobError(
+            code="telegram_publish_not_due",
+            message="Telegram publish retry is not due",
+            retry_at=claim.retry_at,
+        )
+    if token is None:
+        token = await _resolve_publish_token(
+            session,
+            prepared,
+            operation,
+            claim.claimed_attempt_count,
+            secret_resolver,
+            clock,
+        )
+    result = await _execute_publish_operation(
         session,
-        publish_job_id,
-        clock(),
-        expected_proxy_profile_id=expected_proxy_profile_id,
+        prepared,
+        operation,
+        claim.claimed_attempt_count,
+        client,
+        token,
+        injector,
+        clock,
     )
-    if isinstance(prepared, dict):
-        return _short_circuit_result(prepared)
-
-    token: str | None = None
-    for operation in prepared.plan.operations:
-        claim = await _claim_operation(session, prepared, operation, clock())
-        if claim.claim_error is not None:
-            raise claim.claim_error
-        if claim.already_succeeded:
-            continue
-        if claim.retry_at is not None:
-            await _release_claim_for_retry(
-                session,
-                prepared,
-                retry_at=claim.retry_at,
-                competing_claim=claim.competing_claim,
-                finished_at=clock(),
-            )
-            raise RetryableJobError(
-                code="telegram_publish_not_due",
-                message="Telegram publish retry is not due",
-                retry_at=claim.retry_at,
-            )
-        claimed_attempt_count = claim.claimed_attempt_count
-        if token is None:
-            try:
-                token = await resolve_destination_secret(secret_resolver, prepared.destination_secret_ref)
-            except Exception as exc:
-                mapped = await _record_failure(
-                    session,
-                    context=prepared,
-                    operation=operation,
-                    claimed_attempt_count=claimed_attempt_count,
-                    error=exc,
-                    observed_at=clock(),
-                )
-                raise mapped from None
-        fault_context = {
-            "publish_job_id": str(prepared.publish_job_id),
-            "publish_attempt_id": str(prepared.attempt_id),
-            "operation_index": operation.index,
-            "operation_key": operation.key,
-            "method": operation.method,
-            "attempt_count": claimed_attempt_count,
-        }
-        try:
-            await injector.hit("telegram.before_send", fault_context)
-        except BaseException:
-            await _record_failure(
-                session,
-                context=prepared,
-                operation=operation,
-                claimed_attempt_count=claimed_attempt_count,
-                error=TelegramRetryableBeforeDispatch("Fault injected before Telegram dispatch"),
-                observed_at=clock(),
-            )
-            raise
-        try:
-            result = await client.execute(operation, token)
-        except Exception as exc:
-            mapped = await _record_failure(
-                session,
-                context=prepared,
-                operation=operation,
-                claimed_attempt_count=claimed_attempt_count,
-                error=exc,
-                observed_at=clock(),
-            )
-            raise mapped from None
-        try:
-            await injector.hit(
-                "telegram.after_send_before_receipt",
-                {
-                    **fault_context,
-                    "remote_message_count": len(result.remote_message_ids),
-                },
-            )
-        except BaseException as exc:
-            await _record_failure(
-                session,
-                context=prepared,
-                operation=operation,
-                claimed_attempt_count=claimed_attempt_count,
-                error=exc,
-                observed_at=clock(),
-            )
-            raise
-        async with session.begin():
-            receipt = await session.scalar(
-                select(PublishOperationReceipt)
-                .where(
-                    PublishOperationReceipt.publish_job_id == prepared.publish_job_id,
-                    PublishOperationReceipt.operation_index == operation.index,
-                )
-                .with_for_update()
-                .execution_options(populate_existing=True)
-            )
-            if receipt is None or receipt.status != "dispatching" or receipt.attempt_count != claimed_attempt_count:
-                raise NeedsReviewJobError(
-                    code="telegram_publish_claim_superseded",
-                    message="Telegram publish claim was superseded",
-                )
-            receipt.status = "succeeded"
-            receipt.remote_message_ids = list(result.remote_message_ids)
-            metadata = redact_secrets(result.response_metadata, secrets=(token,))
-            receipt.response_metadata = metadata if isinstance(metadata, dict) else {}
-            receipt.completed_at = clock()
-
-    await injector.hit(
-        "publication.after_receipt_before_commit",
-        {
-            "publish_job_id": str(prepared.publish_job_id),
-            "publish_attempt_id": str(prepared.attempt_id),
-            "operation_count": len(prepared.plan.operations),
-        },
+    await _persist_operation_receipt(
+        session,
+        prepared,
+        operation,
+        claim.claimed_attempt_count,
+        result,
+        token,
+        clock,
     )
-    async with session.begin():
-        publish_job = await session.scalar(
-            select(PublishJob).where(PublishJob.id == prepared.publish_job_id).with_for_update()
+    return token
+
+
+async def _load_completed_publish_state(session: Any, prepared: _PublishContext) -> tuple[Any, Any, list[Any]]:
+    publish_job = await session.scalar(
+        select(PublishJob).where(PublishJob.id == prepared.publish_job_id).with_for_update()
+    )
+    attempt = await session.get(PublishAttempt, prepared.attempt_id)
+    receipts = list(
+        await session.scalars(
+            select(PublishOperationReceipt)
+            .where(PublishOperationReceipt.publish_job_id == prepared.publish_job_id)
+            .order_by(PublishOperationReceipt.operation_index)
+            .with_for_update()
         )
-        attempt = await session.get(PublishAttempt, prepared.attempt_id)
-        receipts = list(
-            await session.scalars(
-                select(PublishOperationReceipt)
-                .where(PublishOperationReceipt.publish_job_id == prepared.publish_job_id)
-                .order_by(PublishOperationReceipt.operation_index)
-                .with_for_update()
-            )
+    )
+    if publish_job is None or attempt is None or any(receipt.status != "succeeded" for receipt in receipts):
+        raise NeedsReviewJobError(
+            code="telegram_publish_incomplete",
+            message="Telegram publish operation set is incomplete",
         )
-        if publish_job is None or attempt is None or any(receipt.status != "succeeded" for receipt in receipts):
-            raise NeedsReviewJobError(
-                code="telegram_publish_incomplete",
-                message="Telegram publish operation set is incomplete",
-            )
-        remote_ids = ordered_receipt_remote_ids(receipts)
+    return publish_job, attempt, receipts
+
+
+async def _get_or_create_publication(
+    session: Any,
+    prepared: _PublishContext,
+    publish_job: Any,
+    remote_ids: list[int],
+    clock: Any,
+) -> Any:
+    publication = await session.scalar(select(Publication).where(Publication.publish_job_id == publish_job.id))
+    if publication is not None:
+        return publication
+    publication = Publication(
+        publish_job_id=publish_job.id,
+        destination_id=prepared.destination_id,
+        platform_variant_revision_id=prepared.revision_id,
+        remote_message_ids=remote_ids,
+        permalink=derive_telegram_permalink(prepared.target_ref, remote_ids),
+        payload_hash=prepared.plan.payload_hash,
+        published_at=clock(),
+        reconciliation_status="confirmed",
+    )
+    try:
+        async with session.begin_nested():
+            session.add(publication)
+            await session.flush()
+    except IntegrityError:
         publication = await session.scalar(select(Publication).where(Publication.publish_job_id == publish_job.id))
         if publication is None:
-            publication = Publication(
-                publish_job_id=publish_job.id,
-                destination_id=prepared.destination_id,
-                platform_variant_revision_id=prepared.revision_id,
-                remote_message_ids=remote_ids,
-                permalink=derive_telegram_permalink(prepared.target_ref, remote_ids),
-                payload_hash=prepared.plan.payload_hash,
-                published_at=clock(),
-                reconciliation_status="confirmed",
-            )
-            try:
-                async with session.begin_nested():
-                    session.add(publication)
-                    await session.flush()
-            except IntegrityError:
-                publication = await session.scalar(
-                    select(Publication).where(Publication.publish_job_id == publish_job.id)
-                )
-                if publication is None:
-                    raise
-        if (
-            publication.destination_id != prepared.destination_id
-            or publication.platform_variant_revision_id != prepared.revision_id
-            or publication.payload_hash != prepared.plan.payload_hash
-            or list(publication.remote_message_ids) != remote_ids
-            or publication.reconciliation_status != "confirmed"
-        ):
-            raise NeedsReviewJobError(
-                code="telegram_publication_drift",
-                message="Existing publication does not match the completed operation receipts",
-            )
+            raise
+    return publication
+
+
+def _validate_completed_publication(
+    publication: Any,
+    prepared: _PublishContext,
+    remote_ids: list[int],
+) -> None:
+    if (
+        publication.destination_id != prepared.destination_id
+        or publication.platform_variant_revision_id != prepared.revision_id
+        or publication.payload_hash != prepared.plan.payload_hash
+        or list(publication.remote_message_ids) != remote_ids
+        or publication.reconciliation_status != "confirmed"
+    ):
+        raise NeedsReviewJobError(
+            code="telegram_publication_drift",
+            message="Existing publication does not match the completed operation receipts",
+        )
+
+
+async def _finalize_publication(
+    session: Any,
+    prepared: _PublishContext,
+    clock: Any,
+) -> dict[str, Any]:
+    async with session.begin():
+        publish_job, attempt, receipts = await _load_completed_publish_state(session, prepared)
+        remote_ids = ordered_receipt_remote_ids(receipts)
+        publication = await _get_or_create_publication(session, prepared, publish_job, remote_ids, clock)
+        _validate_completed_publication(publication, prepared, remote_ids)
         publish_job.status = "succeeded"
         attempt.status = "succeeded"
-        attempt.remote_response = {
-            "remote_message_ids": remote_ids,
-            "publication_id": str(publication.id),
-        }
+        attempt.remote_response = {"remote_message_ids": remote_ids, "publication_id": str(publication.id)}
         attempt.finished_at = clock()
         dispatch = await session.get(AutomationDispatch, prepared.dispatch_id) if prepared.dispatch_id else None
         if dispatch is not None:
@@ -939,3 +1096,46 @@ async def publish_telegram(
             "remote_message_ids": remote_ids,
             "permalink": publication.permalink,
         }
+
+
+async def publish_telegram(
+    session: Any,
+    *,
+    publish_job_id: UUID,
+    client: Any,
+    secret_resolver: Any,
+    expected_proxy_profile_id: UUID | None | object = _ROUTE_UNSET,
+    now: Any | None = None,
+    fault_injector: FaultInjector | None = None,
+) -> dict[str, Any]:
+    injector = fault_injector if fault_injector is not None else NoopFaultInjector()
+    clock = now or (lambda: datetime.now(UTC))
+    prepared = await _prepare_publish(
+        session,
+        publish_job_id,
+        clock(),
+        expected_proxy_profile_id=expected_proxy_profile_id,
+    )
+    if isinstance(prepared, dict):
+        return _short_circuit_result(prepared)
+    token: str | None = None
+    for operation in prepared.plan.operations:
+        token = await _publish_one_operation(
+            session,
+            prepared,
+            operation,
+            client=client,
+            secret_resolver=secret_resolver,
+            token=token,
+            injector=injector,
+            clock=clock,
+        )
+    await injector.hit(
+        "publication.after_receipt_before_commit",
+        {
+            "publish_job_id": str(prepared.publish_job_id),
+            "publish_attempt_id": str(prepared.attempt_id),
+            "operation_count": len(prepared.plan.operations),
+        },
+    )
+    return await _finalize_publication(session, prepared, clock)

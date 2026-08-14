@@ -72,6 +72,154 @@ def group_mtproto_messages(
     return tuple(sorted(envelopes, key=_envelope_coordinate))
 
 
+def _create_mtproto_client(
+    client_factory: Callable[..., Any],
+    credentials: tuple[int, str, str],
+    credential_refs: tuple[str, str, str],
+    *,
+    purpose: str,
+) -> Any:
+    try:
+        return client_factory(api_id=credentials[0], api_hash=credentials[1], session=credentials[2])
+    except Exception:
+        raise RuntimeError(f"failed to initialize MTProto {purpose} for {', '.join(credential_refs)}") from None
+
+
+def _mtproto_snapshot_state(request: TelegramFetchRequest) -> tuple[dict, int | None, str | None]:
+    page_state = _decode_token(request.page_token, "page") if request.page_token else {}
+    snapshot_token = request.snapshot_token
+    snapshot_head = None
+    if snapshot_token:
+        snapshot_head = _token_integer(_decode_token(snapshot_token, "snapshot"), "head", "snapshot")
+    if not request.page_token:
+        return page_state, snapshot_head, snapshot_token
+    page_snapshot_head = _token_integer(page_state, "snapshot", "page")
+    if snapshot_head is not None and page_snapshot_head != snapshot_head:
+        raise ValueError("page token snapshot does not match snapshot token")
+    if snapshot_head is None:
+        snapshot_head = page_snapshot_head
+        snapshot_token = _encode_token("snapshot", {"head": snapshot_head})
+    return page_state, snapshot_head, snapshot_token
+
+
+def _effective_max_id(request: TelegramFetchRequest, snapshot_head: int | None) -> int:
+    if snapshot_head is None:
+        return request.before_id or 0
+    pinned_max_id = snapshot_head + 1
+    return min(request.before_id, pinned_max_id) if request.before_id is not None else pinned_max_id
+
+
+async def _fetch_mtproto_page(
+    client: Any,
+    request: TelegramFetchRequest,
+    page_state: dict,
+    snapshot_head: int | None,
+    *,
+    transport_page_size: int,
+) -> tuple[list[Any], list[Any]]:
+    try:
+        async with client:
+            page_messages = list(
+                await client.get_messages(
+                    request.channel_ref,
+                    min_id=request.after_id or 0,
+                    max_id=_effective_max_id(request, snapshot_head),
+                    offset_id=int(page_state.get("before", 0)),
+                    offset_date=_page_offset_date(page_state),
+                    limit=transport_page_size,
+                )
+            )
+            pending_ids = [int(value) for value in page_state.get("pending_group_ids", [])]
+            pending_messages = await _refetch_messages(client, request.channel_ref, pending_ids)
+            return page_messages, pending_messages
+    except Exception:
+        raise RuntimeError(f"MTProto fetch failed for channel {request.channel_ref}") from None
+
+
+def _selected_mtproto_envelopes(
+    request: TelegramFetchRequest,
+    messages: list[Any],
+    *,
+    held_group_id: str | None,
+    snapshot_head: int,
+) -> tuple[list[TelegramEnvelope], tuple[TelegramEnvelope, ...], bool]:
+    complete_messages = [item for item in messages if str(item.grouped_id) != held_group_id]
+    raw = group_mtproto_messages(complete_messages, peer_id=request.channel_ref, channel_ref=request.channel_ref)
+    pinned = [item for item in raw if item.anchor_message_id <= snapshot_head]
+    filtered = [item for item in pinned if _within_bounds(item, request)]
+    selected_list = sorted(filtered, key=_envelope_coordinate, reverse=True)[: request.limit]
+    selected_list.sort(key=_envelope_coordinate)
+    selected = tuple(selected_list)
+    return pinned, selected, len(filtered) > len(selected)
+
+
+def _next_mtproto_page_token(
+    *,
+    complete: bool,
+    page_messages: list[Any],
+    selected: tuple[TelegramEnvelope, ...],
+    has_buffered_envelopes: bool,
+    snapshot_head: int,
+    held_messages: list[Any],
+) -> str | None:
+    if complete or not (page_messages or selected):
+        return None
+    if has_buffered_envelopes and selected:
+        before_next = min(min(item.message_ids) for item in selected)
+    else:
+        before_next = min(int(item.id) for item in page_messages)
+    return _encode_token(
+        "page",
+        {
+            "before": before_next,
+            "snapshot": snapshot_head,
+            "pending_group_ids": [int(item.id) for item in held_messages],
+        },
+    )
+
+
+def _build_mtproto_fetch_result(
+    request: TelegramFetchRequest,
+    *,
+    page_messages: list[Any],
+    pending_messages: list[Any],
+    snapshot_head: int | None,
+    snapshot_token: str | None,
+    transport_page_size: int,
+) -> TelegramFetchResult:
+    messages = _deduplicate_messages([*pending_messages, *page_messages])
+    exhausted = len(page_messages) < transport_page_size
+    held_group_id = _incomplete_oldest_group_id(page_messages, transport_exhausted=exhausted)
+    held_messages = [item for item in messages if str(item.grouped_id) == held_group_id]
+    if snapshot_head is None:
+        snapshot_head = max((int(item.id) for item in messages), default=0)
+        snapshot_token = _encode_token("snapshot", {"head": snapshot_head})
+    assert snapshot_token is not None
+    pinned, selected, buffered = _selected_mtproto_envelopes(
+        request,
+        messages,
+        held_group_id=held_group_id,
+        snapshot_head=snapshot_head,
+    )
+    complete = (exhausted or _boundary_proven(pinned, request)) and not buffered and not held_messages
+    next_page_token = _next_mtproto_page_token(
+        complete=complete,
+        page_messages=page_messages,
+        selected=selected,
+        has_buffered_envelopes=buffered,
+        snapshot_head=snapshot_head,
+        held_messages=held_messages,
+    )
+    return TelegramFetchResult(
+        peer_id=request.channel_ref,
+        envelopes=selected,
+        fetched_at=datetime.now(UTC),
+        snapshot_token=snapshot_token,
+        next_page_token=next_page_token,
+        complete=complete,
+    )
+
+
 class MtprotoTelegramAdapter:
     def __init__(
         self,
@@ -89,97 +237,22 @@ class MtprotoTelegramAdapter:
 
     async def fetch(self, request: TelegramFetchRequest) -> TelegramFetchResult:
         credential_refs, credentials = self._resolve_credentials(request)
-        try:
-            client = self.client_factory(
-                api_id=credentials[0],
-                api_hash=credentials[1],
-                session=credentials[2],
-            )
-        except Exception:
-            raise RuntimeError(f"failed to initialize MTProto client for {', '.join(credential_refs)}") from None
-
-        page_state = _decode_token(request.page_token, "page") if request.page_token else {}
-        snapshot_head = None
-        snapshot_token = request.snapshot_token
-        if snapshot_token:
-            snapshot_state = _decode_token(snapshot_token, "snapshot")
-            snapshot_head = _token_integer(snapshot_state, "head", "snapshot")
-        if request.page_token:
-            page_snapshot_head = _token_integer(page_state, "snapshot", "page")
-            if snapshot_head is not None and page_snapshot_head != snapshot_head:
-                raise ValueError("page token snapshot does not match snapshot token")
-            if snapshot_head is None:
-                snapshot_head = page_snapshot_head
-                snapshot_token = _encode_token("snapshot", {"head": snapshot_head})
-
-        effective_max_id = request.before_id or 0
-        if snapshot_head is not None:
-            pinned_max_id = snapshot_head + 1
-            effective_max_id = min(request.before_id, pinned_max_id) if request.before_id is not None else pinned_max_id
-        offset_id = int(page_state.get("before", 0))
-        offset_date = _page_offset_date(page_state)
-        try:
-            async with client:
-                page_messages = list(
-                    await client.get_messages(
-                        request.channel_ref,
-                        min_id=request.after_id or 0,
-                        max_id=effective_max_id,
-                        offset_id=offset_id,
-                        offset_date=offset_date,
-                        limit=self.transport_page_size,
-                    )
-                )
-                pending_ids = [int(value) for value in page_state.get("pending_group_ids", [])]
-                pending_messages = await _refetch_messages(client, request.channel_ref, pending_ids)
-        except Exception:
-            raise RuntimeError(f"MTProto fetch failed for channel {request.channel_ref}") from None
-
-        fetched_at = datetime.now(UTC)
-        messages = _deduplicate_messages([*pending_messages, *page_messages])
-        transport_exhausted = len(page_messages) < self.transport_page_size
-        held_group_id = _incomplete_oldest_group_id(page_messages, transport_exhausted=transport_exhausted)
-        held_messages = [item for item in messages if str(item.grouped_id) == held_group_id]
-        complete_messages = [item for item in messages if str(item.grouped_id) != held_group_id]
-        raw_envelopes = group_mtproto_messages(
-            complete_messages, peer_id=request.channel_ref, channel_ref=request.channel_ref
+        client = _create_mtproto_client(self.client_factory, credentials, credential_refs, purpose="client")
+        page_state, snapshot_head, snapshot_token = _mtproto_snapshot_state(request)
+        page_messages, pending_messages = await _fetch_mtproto_page(
+            client,
+            request,
+            page_state,
+            snapshot_head,
+            transport_page_size=self.transport_page_size,
         )
-        if snapshot_head is None:
-            snapshot_head = max((int(item.id) for item in messages), default=0)
-            snapshot_token = _encode_token("snapshot", {"head": snapshot_head})
-        assert snapshot_token is not None
-        pinned = [item for item in raw_envelopes if item.anchor_message_id <= snapshot_head]
-        filtered = [item for item in pinned if _within_bounds(item, request)]
-        selected_list = sorted(filtered, key=_envelope_coordinate, reverse=True)[: request.limit]
-        selected_list.sort(key=_envelope_coordinate)
-        selected = tuple(selected_list)
-        has_buffered_envelopes = len(filtered) > len(selected)
-        complete = (
-            (transport_exhausted or _boundary_proven(pinned, request))
-            and not has_buffered_envelopes
-            and not held_messages
-        )
-        next_page_token = None
-        if not complete and (page_messages or selected):
-            if has_buffered_envelopes and selected:
-                before_next = min(min(item.message_ids) for item in selected)
-            else:
-                before_next = min(int(item.id) for item in page_messages)
-            next_page_token = _encode_token(
-                "page",
-                {
-                    "before": before_next,
-                    "snapshot": snapshot_head,
-                    "pending_group_ids": [int(item.id) for item in held_messages],
-                },
-            )
-        result = TelegramFetchResult(
-            peer_id=request.channel_ref,
-            envelopes=selected,
-            fetched_at=fetched_at,
+        result = _build_mtproto_fetch_result(
+            request,
+            page_messages=page_messages,
+            pending_messages=pending_messages,
+            snapshot_head=snapshot_head,
             snapshot_token=snapshot_token,
-            next_page_token=next_page_token,
-            complete=complete,
+            transport_page_size=self.transport_page_size,
         )
         for envelope in result.envelopes:
             self._bind_credentials(envelope, credential_refs)
@@ -201,101 +274,30 @@ class MtprotoTelegramAdapter:
             session_secret_ref=credential_refs[2],
         )
         _, credentials = self._resolve_credentials(request)
-        try:
-            client = self.client_factory(api_id=credentials[0], api_hash=credentials[1], session=credentials[2])
-        except Exception:
-            raise RuntimeError(f"failed to initialize MTProto media client for {', '.join(credential_refs)}") from None
+        client = _create_mtproto_client(self.client_factory, credentials, credential_refs, purpose="media client")
         staging_dir.mkdir(parents=True, exist_ok=True)
         created: list[Path] = []
-        result: list[MaterializedTelegramMedia] = []
         try:
-            body_error: BaseException | None = None
-            try:
-                await client.__aenter__()
-            except Exception as exc:
-                raise _MtprotoMediaClientLifecycleError("connection") from exc
-            try:
-                for reference in envelope.media:
-                    if reference.remote_ref is None:
-                        raise ValueError(f"media {reference.key} has no MTProto reference")
-                    remote = _decode_token(reference.remote_ref, "mtproto_media")
-                    if remote.get("channel") != envelope.channel_ref:
-                        raise ValueError(f"media {reference.key} channel does not match envelope")
-                    message_id = int(remote["message_id"])
-                    try:
-                        message = await client.get_messages(envelope.channel_ref, ids=message_id)
-                    except Exception as exc:
-                        raise _MtprotoMediaTransportError(reference.key) from exc
-                    if isinstance(message, (list, tuple)):
-                        message = message[0] if message else None
-                    if message is None or int(message.id) != message_id or not message.media:
-                        raise ValueError(f"media {reference.key} could not be re-fetched")
-                    path = staging_dir / (
-                        f"{hashlib.sha256(reference.key.encode()).hexdigest()}{_safe_staging_suffix(reference)}"
-                    )
-                    created.append(path)
-                    checksum = hashlib.sha256()
-                    byte_length = 0
-                    try:
-                        with path.open("wb") as output:
-                            async for chunk in client.iter_download(
-                                message.media,
-                                request_size=min(512 * 1024, max(1, self.max_media_bytes)),
-                            ):
-                                if byte_length + len(chunk) > self.max_media_bytes:
-                                    raise _MtprotoMediaLimitExceeded(reference.key, self.max_media_bytes)
-                                output.write(chunk)
-                                checksum.update(chunk)
-                                byte_length += len(chunk)
-                    except _MtprotoMediaLimitExceeded:
-                        raise
-                    except Exception as exc:
-                        raise _MtprotoMediaTransportError(reference.key) from exc
-                    result.append(
-                        MaterializedTelegramMedia(
-                            reference,
-                            path,
-                            byte_length,
-                            checksum.hexdigest(),
-                            reference.mime_type or "application/octet-stream",
-                        )
-                    )
-            except BaseException as exc:
-                body_error = exc
-
-            try:
-                suppressed = await client.__aexit__(
-                    type(body_error) if body_error is not None else None,
-                    body_error,
-                    body_error.__traceback__ if body_error is not None else None,
-                )
-            except Exception as exc:
-                if isinstance(body_error, (_MtprotoMediaLimitExceeded, _MtprotoMediaTransportError)):
-                    raise body_error from None
-                if body_error is not None and not isinstance(body_error, Exception):
-                    raise body_error from None
-                raise _MtprotoMediaClientLifecycleError("disconnection") from exc
-            if isinstance(body_error, (_MtprotoMediaLimitExceeded, _MtprotoMediaTransportError)):
-                raise body_error
-            if body_error is not None and not suppressed:
-                raise body_error
+            result = await _materialize_mtproto_batch(
+                client,
+                envelope,
+                staging_dir,
+                created,
+                max_media_bytes=self.max_media_bytes,
+            )
         except _MtprotoMediaLimitExceeded as exc:
-            for path in created:
-                path.unlink(missing_ok=True)
+            _cleanup_media_paths(created)
             raise ValueError(f"media {exc.media_key} exceeds {exc.limit} bytes") from None
         except _MtprotoMediaTransportError as exc:
-            for path in created:
-                path.unlink(missing_ok=True)
+            _cleanup_media_paths(created)
             raise RuntimeError(
                 f"MTProto media materialization failed for channel {envelope.channel_ref} media {exc.media_key}"
             ) from None
         except _MtprotoMediaClientLifecycleError as exc:
-            for path in created:
-                path.unlink(missing_ok=True)
+            _cleanup_media_paths(created)
             raise RuntimeError(f"MTProto media client {exc.phase} failed for channel {envelope.channel_ref}") from None
         except BaseException:
-            for path in created:
-                path.unlink(missing_ok=True)
+            _cleanup_media_paths(created)
             raise
         return tuple(result)
 
@@ -393,6 +395,157 @@ class _MtprotoMediaClientLifecycleError(RuntimeError):
     def __init__(self, phase: str) -> None:
         self.phase = phase
         super().__init__(phase)
+
+
+def _cleanup_media_paths(paths: list[Path]) -> None:
+    for path in paths:
+        path.unlink(missing_ok=True)
+
+
+def _single_refetched_message(message: Any) -> Any:
+    if isinstance(message, (list, tuple)):
+        return message[0] if message else None
+    return message
+
+
+async def _refetch_mtproto_media(client: Any, envelope: TelegramEnvelope, reference: TelegramMediaReference) -> Any:
+    if reference.remote_ref is None:
+        raise ValueError(f"media {reference.key} has no MTProto reference")
+    remote = _decode_token(reference.remote_ref, "mtproto_media")
+    if remote.get("channel") != envelope.channel_ref:
+        raise ValueError(f"media {reference.key} channel does not match envelope")
+    message_id = int(remote["message_id"])
+    try:
+        message = _single_refetched_message(await client.get_messages(envelope.channel_ref, ids=message_id))
+    except Exception as exc:
+        raise _MtprotoMediaTransportError(reference.key) from exc
+    if message is None or int(message.id) != message_id or not message.media:
+        raise ValueError(f"media {reference.key} could not be re-fetched")
+    return message
+
+
+async def _download_mtproto_media(
+    client: Any,
+    message: Any,
+    reference: TelegramMediaReference,
+    path: Path,
+    *,
+    max_media_bytes: int,
+) -> tuple[int, str]:
+    checksum = hashlib.sha256()
+    byte_length = 0
+    try:
+        with path.open("wb") as output:
+            async for chunk in client.iter_download(
+                message.media,
+                request_size=min(512 * 1024, max(1, max_media_bytes)),
+            ):
+                if byte_length + len(chunk) > max_media_bytes:
+                    raise _MtprotoMediaLimitExceeded(reference.key, max_media_bytes)
+                output.write(chunk)
+                checksum.update(chunk)
+                byte_length += len(chunk)
+    except _MtprotoMediaLimitExceeded:
+        raise
+    except Exception as exc:
+        raise _MtprotoMediaTransportError(reference.key) from exc
+    return byte_length, checksum.hexdigest()
+
+
+async def _materialize_mtproto_reference(
+    client: Any,
+    envelope: TelegramEnvelope,
+    reference: TelegramMediaReference,
+    staging_dir: Path,
+    created: list[Path],
+    *,
+    max_media_bytes: int,
+) -> MaterializedTelegramMedia:
+    message = await _refetch_mtproto_media(client, envelope, reference)
+    path = staging_dir / f"{hashlib.sha256(reference.key.encode()).hexdigest()}{_safe_staging_suffix(reference)}"
+    created.append(path)
+    byte_length, checksum = await _download_mtproto_media(
+        client,
+        message,
+        reference,
+        path,
+        max_media_bytes=max_media_bytes,
+    )
+    return MaterializedTelegramMedia(
+        reference,
+        path,
+        byte_length,
+        checksum,
+        reference.mime_type or "application/octet-stream",
+    )
+
+
+async def _materialize_mtproto_body(
+    client: Any,
+    envelope: TelegramEnvelope,
+    staging_dir: Path,
+    created: list[Path],
+    *,
+    max_media_bytes: int,
+) -> list[MaterializedTelegramMedia]:
+    return [
+        await _materialize_mtproto_reference(
+            client,
+            envelope,
+            reference,
+            staging_dir,
+            created,
+            max_media_bytes=max_media_bytes,
+        )
+        for reference in envelope.media
+    ]
+
+
+async def _exit_mtproto_media_client(client: Any, body_error: BaseException | None) -> Any:
+    try:
+        return await client.__aexit__(
+            type(body_error) if body_error is not None else None,
+            body_error,
+            body_error.__traceback__ if body_error is not None else None,
+        )
+    except Exception as exc:
+        if isinstance(body_error, (_MtprotoMediaLimitExceeded, _MtprotoMediaTransportError)):
+            raise body_error from None
+        if body_error is not None and not isinstance(body_error, Exception):
+            raise body_error from None
+        raise _MtprotoMediaClientLifecycleError("disconnection") from exc
+
+
+async def _materialize_mtproto_batch(
+    client: Any,
+    envelope: TelegramEnvelope,
+    staging_dir: Path,
+    created: list[Path],
+    *,
+    max_media_bytes: int,
+) -> list[MaterializedTelegramMedia]:
+    try:
+        await client.__aenter__()
+    except Exception as exc:
+        raise _MtprotoMediaClientLifecycleError("connection") from exc
+    body_error: BaseException | None = None
+    result: list[MaterializedTelegramMedia] = []
+    try:
+        result = await _materialize_mtproto_body(
+            client,
+            envelope,
+            staging_dir,
+            created,
+            max_media_bytes=max_media_bytes,
+        )
+    except BaseException as exc:
+        body_error = exc
+    suppressed = await _exit_mtproto_media_client(client, body_error)
+    if isinstance(body_error, (_MtprotoMediaLimitExceeded, _MtprotoMediaTransportError)):
+        raise body_error
+    if body_error is not None and not suppressed:
+        raise body_error
+    return result
 
 
 def _page_offset_date(page_state: dict) -> datetime | None:

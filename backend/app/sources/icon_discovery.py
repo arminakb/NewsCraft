@@ -168,13 +168,8 @@ def _dedupe_candidates(candidates: list[IconCandidate]) -> tuple[IconCandidate, 
     return tuple(unique)
 
 
-def extract_feed_identity(feed_body: str | bytes, source_url: str) -> FeedIdentity:
-    """Extract publisher and feed-declared icon candidates without network access."""
-
-    parsed = feedparser.parse(feed_body)
-    feed = parsed.feed if getattr(parsed, "feed", None) else {}
+def _feed_declared_icon_candidates(feed: Mapping[str, Any], source_url: str) -> list[IconCandidate]:
     candidates: list[IconCandidate] = []
-
     for field_name, source_name in (
         ("image", "feed_image"),
         ("logo", "feed_logo"),
@@ -185,43 +180,50 @@ def extract_feed_identity(feed_body: str | bytes, source_url: str) -> FeedIdenti
         resolved = _absolute_http_url(value, source_url)
         if resolved:
             candidates.append(IconCandidate(resolved, source_name))
+    return candidates
 
-    publisher_candidates: list[str] = []
+
+def _feed_link_identity(feed: Mapping[str, Any], source_url: str) -> tuple[list[IconCandidate], list[str]]:
+    candidates: list[IconCandidate] = []
+    publishers: list[str] = []
     for link in feed.get("links", []) or []:
         rels = link.get("rel", []) if isinstance(link, Mapping) else []
-        if isinstance(rels, str):
-            rels = rels.split()
+        rels = rels.split() if isinstance(rels, str) else rels
         rel_set = {str(rel).casefold() for rel in rels}
         href = _mapping_value(link, "href", "url")
-        if "icon" in rel_set or "logo" in rel_set:
-            resolved = _absolute_http_url(href, source_url)
-            if resolved:
-                candidates.append(IconCandidate(resolved, "feed_link_icon"))
-        if "alternate" in rel_set or "canonical" in rel_set:
-            resolved = _absolute_http_url(href, source_url)
-            if resolved:
-                publisher_candidates.append(resolved)
+        resolved = _absolute_http_url(href, source_url)
+        if resolved and ("icon" in rel_set or "logo" in rel_set):
+            candidates.append(IconCandidate(resolved, "feed_link_icon"))
+        if resolved and ("alternate" in rel_set or "canonical" in rel_set):
+            publishers.append(resolved)
+    return candidates, publishers
 
-    for value in (
-        feed.get("link"),
-        _mapping_value(feed.get("source"), "href", "url", "link"),
-    ):
+
+def _feed_publisher_candidates(parsed: Any, feed: Mapping[str, Any], source_url: str) -> list[str]:
+    candidates: list[str] = []
+    for value in (feed.get("link"), _mapping_value(feed.get("source"), "href", "url", "link")):
         resolved = _absolute_http_url(_text(value), source_url)
         if resolved:
-            publisher_candidates.append(resolved)
-
+            candidates.append(resolved)
     for entry in (getattr(parsed, "entries", []) or [])[:5]:
         source = entry.get("source") if isinstance(entry, Mapping) else None
         resolved = _absolute_http_url(_mapping_value(source, "href", "url", "link"), source_url)
         if resolved:
-            publisher_candidates.append(resolved)
+            candidates.append(resolved)
+    return candidates
 
+
+def extract_feed_identity(feed_body: str | bytes, source_url: str) -> FeedIdentity:
+    """Extract publisher and feed-declared icon candidates without network access."""
+
+    parsed = feedparser.parse(feed_body)
+    feed = parsed.feed if getattr(parsed, "feed", None) else {}
+    candidates = _feed_declared_icon_candidates(feed, source_url)
+    link_candidates, publisher_candidates = _feed_link_identity(feed, source_url)
+    candidates.extend(link_candidates)
+    publisher_candidates.extend(_feed_publisher_candidates(parsed, feed, source_url))
     publisher_url = next(
-        (
-            candidate
-            for candidate in publisher_candidates
-            if candidate.rstrip("/") != source_url.rstrip("/")
-        ),
+        (candidate for candidate in publisher_candidates if candidate.rstrip("/") != source_url.rstrip("/")),
         None,
     )
     return FeedIdentity(publisher_url=publisher_url, candidates=_dedupe_candidates(candidates))
@@ -253,9 +255,7 @@ def extract_website_icon_candidates(html: str | bytes, base_url: str) -> tuple[I
         elif "icon" in rel_set:
             grouped["website_icon"].append(IconCandidate(href, "website_icon"))
     return _dedupe_candidates(
-        grouped["website_icon"]
-        + grouped["website_shortcut_icon"]
-        + grouped["website_apple_touch_icon"]
+        grouped["website_icon"] + grouped["website_shortcut_icon"] + grouped["website_apple_touch_icon"]
     )
 
 
@@ -350,6 +350,176 @@ async def _get_response(
     return response
 
 
+@dataclass(slots=True)
+class _DiscoveryFailures:
+    saw_retryable: bool = False
+    first_code: str | None = None
+
+    def observe(self, retryable: bool, code: str | None) -> None:
+        self.saw_retryable = self.saw_retryable or retryable
+        self.first_code = self.first_code or code
+
+
+def _initialize_icon_client(
+    service: SourceIconDiscoveryService, source_id: UUID
+) -> SafeHttpClient | IconDiscoveryResult:
+    try:
+        return service.http_client_factory()
+    except ProxyConfigurationError:
+        logger.exception(
+            "source_icon_client_initialization_failed source_id=%s reason=proxy_configuration_error",
+            source_id,
+        )
+        return IconDiscoveryResult(status=ICON_STATUS_RETRYABLE, error="proxy_configuration_error")
+    except Exception:
+        logger.exception(
+            "source_icon_client_initialization_failed source_id=%s reason=client_initialization_error",
+            source_id,
+        )
+        return IconDiscoveryResult(status=ICON_STATUS_RETRYABLE, error="client_initialization_error")
+
+
+async def _fetch_feed_response(
+    client: SafeHttpClient,
+    target: SourceIconTarget,
+    request_url: str,
+    *,
+    max_bytes: int,
+) -> httpx.Response | IconDiscoveryResult:
+    try:
+        return await _get_response(client, request_url, max_bytes=max_bytes, source_id=target.id)
+    except IconCandidateError as exc:
+        logger.info(
+            "source_icon_feed_failed source_id=%s url=%s reason=%s retryable=%s",
+            target.id,
+            _safe_log_url(request_url),
+            exc.code,
+            exc.retryable,
+        )
+        return IconDiscoveryResult(
+            status=ICON_STATUS_RETRYABLE if exc.retryable else ICON_STATUS_UNAVAILABLE,
+            error=exc.code,
+        )
+
+
+async def _try_icon_candidates(
+    service: SourceIconDiscoveryService,
+    client: SafeHttpClient,
+    candidates: tuple[IconCandidate, ...],
+    publisher_url: str | None,
+    source_id: UUID,
+    failures: _DiscoveryFailures,
+) -> IconDiscoveryResult | None:
+    for candidate in candidates:
+        result, retryable, error = await service._try_icon_candidate(
+            client,
+            candidate,
+            publisher_url,
+            source_id=source_id,
+        )
+        if result is not None:
+            return result
+        failures.observe(retryable, error)
+    return None
+
+
+async def _website_icon_candidates(
+    service: SourceIconDiscoveryService,
+    client: SafeHttpClient,
+    website_url: str,
+    source_id: UUID,
+    failures: _DiscoveryFailures,
+) -> tuple[IconDiscoveryResult | None, str]:
+    website_base = website_url
+    try:
+        response = await _get_response(
+            client,
+            website_url,
+            max_bytes=service.config.source_icon_discovery_max_bytes,
+            source_id=source_id,
+        )
+        website_base = str(response.url)
+        content_type = normalized_content_type(response.headers.get("content-type"))
+        if content_type in {None, "text/html", "application/xhtml+xml"}:
+            candidates = extract_website_icon_candidates(response.content, website_base)
+            result = await _try_icon_candidates(
+                service,
+                client,
+                candidates,
+                website_base,
+                source_id,
+                failures,
+            )
+            if result is not None:
+                return result, website_base
+    except IconCandidateError as exc:
+        failures.observe(exc.retryable, exc.code)
+    return None, website_base
+
+
+async def _discover_icon_with_client(
+    service: SourceIconDiscoveryService,
+    client: SafeHttpClient,
+    target: SourceIconTarget,
+    request_url: str,
+) -> IconDiscoveryResult:
+    feed_response = await _fetch_feed_response(
+        client,
+        target,
+        request_url,
+        max_bytes=service.config.source_icon_discovery_max_bytes,
+    )
+    if isinstance(feed_response, IconDiscoveryResult):
+        return feed_response
+    feed_url = str(feed_response.url)
+    identity = extract_feed_identity(feed_response.content, feed_url)
+    publisher_url = identity.publisher_url or target.homepage_url or _origin(feed_url)
+    logger.info(
+        "source_icon_feed_identity source_id=%s publisher_url=%s candidates=%s",
+        target.id,
+        _safe_log_url(publisher_url) if publisher_url else None,
+        [(candidate.source, _safe_log_url(candidate.url)) for candidate in identity.candidates],
+    )
+    failures = _DiscoveryFailures()
+    result = await _try_icon_candidates(
+        service,
+        client,
+        identity.candidates,
+        publisher_url,
+        target.id,
+        failures,
+    )
+    if result is not None:
+        return result
+    website_url = publisher_url or target.homepage_url or _origin(feed_url)
+    if website_url:
+        result, website_base = await _website_icon_candidates(
+            service,
+            client,
+            website_url,
+            target.id,
+            failures,
+        )
+        if result is not None:
+            return result
+        conventional = (IconCandidate(url=urljoin(website_base, "/favicon.ico"), source="conventional_favicon"),)
+        result = await _try_icon_candidates(
+            service,
+            client,
+            conventional,
+            website_base,
+            target.id,
+            failures,
+        )
+        if result is not None:
+            return result
+    return IconDiscoveryResult(
+        status=ICON_STATUS_RETRYABLE if failures.saw_retryable else ICON_STATUS_UNAVAILABLE,
+        publisher_url=publisher_url,
+        error=failures.first_code or ("icon_fetch_failed" if failures.saw_retryable else "icon_not_found"),
+    )
+
+
 class SourceIconDiscoveryService:
     def __init__(
         self,
@@ -374,115 +544,11 @@ class SourceIconDiscoveryService:
         if target.platform not in ICON_PLATFORMS or not request_url:
             return IconDiscoveryResult(status=ICON_STATUS_UNAVAILABLE, error="source_not_discoverable")
 
-        try:
-            client = self.http_client_factory()
-        except ProxyConfigurationError:
-            logger.exception(
-                "source_icon_client_initialization_failed source_id=%s reason=proxy_configuration_error",
-                target.id,
-            )
-            return IconDiscoveryResult(status=ICON_STATUS_RETRYABLE, error="proxy_configuration_error")
-        except Exception:
-            logger.exception(
-                "source_icon_client_initialization_failed source_id=%s reason=client_initialization_error",
-                target.id,
-            )
-            return IconDiscoveryResult(status=ICON_STATUS_RETRYABLE, error="client_initialization_error")
+        client = _initialize_icon_client(self, target.id)
+        if isinstance(client, IconDiscoveryResult):
+            return client
         async with client:
-            try:
-                feed_response = await _get_response(
-                    client,
-                    request_url,
-                    max_bytes=self.config.source_icon_discovery_max_bytes,
-                    source_id=target.id,
-                )
-            except IconCandidateError as exc:
-                logger.info(
-                    "source_icon_feed_failed source_id=%s url=%s reason=%s retryable=%s",
-                    target.id,
-                    _safe_log_url(request_url),
-                    exc.code,
-                    exc.retryable,
-                )
-                return IconDiscoveryResult(
-                    status=ICON_STATUS_RETRYABLE if exc.retryable else ICON_STATUS_UNAVAILABLE,
-                    error=exc.code,
-                )
-
-            feed_url = str(feed_response.url)
-            identity = extract_feed_identity(feed_response.content, feed_url)
-            publisher_url = identity.publisher_url or target.homepage_url or _origin(feed_url)
-            logger.info(
-                "source_icon_feed_identity source_id=%s publisher_url=%s candidates=%s",
-                target.id,
-                _safe_log_url(publisher_url) if publisher_url else None,
-                [(candidate.source, _safe_log_url(candidate.url)) for candidate in identity.candidates],
-            )
-            saw_retryable = False
-            first_failure_code: str | None = None
-            for candidate in identity.candidates:
-                result, candidate_retryable, candidate_error = await self._try_icon_candidate(
-                    client,
-                    candidate,
-                    publisher_url,
-                    source_id=target.id,
-                )
-                if result is not None:
-                    return result
-                saw_retryable = saw_retryable or candidate_retryable
-                first_failure_code = first_failure_code or candidate_error
-
-            website_url = publisher_url or target.homepage_url or _origin(feed_url)
-            if website_url:
-                website_base = website_url
-                try:
-                    website_response = await _get_response(
-                        client,
-                        website_url,
-                        max_bytes=self.config.source_icon_discovery_max_bytes,
-                        source_id=target.id,
-                    )
-                    website_base = str(website_response.url)
-                    content_type = normalized_content_type(website_response.headers.get("content-type"))
-                    if content_type in {None, "text/html", "application/xhtml+xml"}:
-                        website_candidates = extract_website_icon_candidates(
-                            website_response.content,
-                            website_base,
-                        )
-                        for candidate in website_candidates:
-                            result, candidate_retryable, candidate_error = await self._try_icon_candidate(
-                                client,
-                                candidate,
-                                website_base,
-                                source_id=target.id,
-                            )
-                            if result is not None:
-                                return result
-                            saw_retryable = saw_retryable or candidate_retryable
-                            first_failure_code = first_failure_code or candidate_error
-                except IconCandidateError as exc:
-                    saw_retryable = saw_retryable or exc.retryable
-                    first_failure_code = first_failure_code or exc.code
-                conventional = IconCandidate(
-                    url=urljoin(website_base, "/favicon.ico"),
-                    source="conventional_favicon",
-                )
-                result, candidate_retryable, candidate_error = await self._try_icon_candidate(
-                    client,
-                    conventional,
-                    website_base,
-                    source_id=target.id,
-                )
-                if result is not None:
-                    return result
-                saw_retryable = saw_retryable or candidate_retryable
-                first_failure_code = first_failure_code or candidate_error
-
-            return IconDiscoveryResult(
-                status=ICON_STATUS_RETRYABLE if saw_retryable else ICON_STATUS_UNAVAILABLE,
-                publisher_url=publisher_url,
-                error=first_failure_code or ("icon_fetch_failed" if saw_retryable else "icon_not_found"),
-            )
+            return await _discover_icon_with_client(self, client, target, request_url)
 
     async def _try_icon_candidate(
         self,
@@ -573,27 +639,120 @@ def source_icon_target(source: Source) -> SourceIconTarget:
     )
 
 
+def _source_icon_payload(payload: Mapping[str, Any]) -> tuple[UUID, int]:
+    try:
+        source_id = UUID(str(payload.get("source_id")))
+        raw_attempt = payload.get("attempt")
+        if not isinstance(raw_attempt, int | float | str):
+            raise TypeError("attempt must be numeric")
+        return source_id, int(raw_attempt)
+    except TypeError, ValueError:
+        raise PermanentJobError(
+            code="source_icon_payload_invalid",
+            message="Source icon discovery payload is invalid.",
+        ) from None
+
+
+def _discovery_failure_result(exc: Exception, source_id: UUID, attempt: int) -> IconDiscoveryResult:
+    if isinstance(exc, ProxyConfigurationError):
+        error_code = "proxy_configuration_error"
+    elif isinstance(exc, httpx.ProxyError):
+        error_code = "proxy_error"
+    elif isinstance(exc, (SafeHttpError, httpx.HTTPError)):
+        error_code = "network_error"
+    else:
+        error_code = "discovery_failed"
+    logger.exception(
+        "source_icon_job_failed source_id=%s attempt=%s reason=%s error_type=%s",
+        source_id,
+        attempt,
+        error_code,
+        type(exc).__name__,
+    )
+    return IconDiscoveryResult(status=ICON_STATUS_RETRYABLE, error=error_code)
+
+
+def _persist_resolved_icon(
+    source: Source,
+    result: IconDiscoveryResult,
+    observed_at: datetime,
+    attempt: int,
+    config: Settings,
+) -> tuple[dict[str, Any] | None, IconDiscoveryResult]:
+    if result.status != ICON_STATUS_RESOLVED or not result.body or not result.mime_type:
+        return None, result
+    try:
+        storage_path = persist_icon_bytes(config.media_root, result.body, result.mime_type)
+    except OSError:
+        return None, IconDiscoveryResult(
+            status=ICON_STATUS_RETRYABLE,
+            publisher_url=result.publisher_url,
+            error="icon_storage_failed",
+        )
+    source.icon_url = f"/sources/{source.id}/icon"
+    source.icon_source = result.icon_source
+    source.icon_updated_at = observed_at
+    source.icon_status = ICON_STATUS_RESOLVED
+    source.icon_storage_path = storage_path
+    source.icon_original_url = result.original_url
+    source.icon_mime_type = result.mime_type
+    source.icon_width = result.width
+    source.icon_height = result.height
+    source.icon_failure_count = 0
+    source.icon_next_retry_at = None
+    source.icon_last_error = None
+    source.icon_enqueued_at = None
+    logger.info(
+        "source_icon_job_result source_id=%s attempt=%s status=%s icon_source=%s mime_type=%s storage_path=%s",
+        source.id,
+        attempt,
+        ICON_STATUS_RESOLVED,
+        result.icon_source,
+        result.mime_type,
+        storage_path,
+    )
+    return {
+        "status": ICON_STATUS_RESOLVED,
+        "source_id": str(source.id),
+        "icon_source": result.icon_source,
+    }, result
+
+
+def _persist_icon_failure(
+    source: Source,
+    result: IconDiscoveryResult,
+    observed_at: datetime,
+    attempt: int,
+    config: Settings,
+) -> dict[str, Any]:
+    failure_count = int(source.icon_failure_count or 0) + 1
+    source.icon_failure_count = failure_count
+    source.icon_status = (
+        result.status if result.status in {ICON_STATUS_RETRYABLE, ICON_STATUS_UNAVAILABLE} else ICON_STATUS_RETRYABLE
+    )
+    source.icon_next_retry_at = _retry_at(observed_at, failure_count, result, config)
+    source.icon_last_error = result.error or "icon_discovery_failed"
+    source.icon_enqueued_at = None
+    logger.info(
+        "source_icon_job_result source_id=%s attempt=%s status=%s error=%s failure_count=%s next_retry_at=%s",
+        source.id,
+        attempt,
+        source.icon_status,
+        source.icon_last_error,
+        source.icon_failure_count,
+        source.icon_next_retry_at,
+    )
+    return {"status": source.icon_status, "source_id": str(source.id), "error": source.icon_last_error}
+
+
 def build_source_icon_discovery_handler(
     service: SourceIconDiscoveryService,
     *,
     config: Settings = settings,
 ):
     async def handle_source_icon_discovery(job: JobExecution, context: JobContext) -> dict[str, Any]:
-        payload = dict(job.payload)
-        try:
-            source_id = UUID(str(payload.get("source_id")))
-            raw_attempt = payload.get("attempt")
-            if not isinstance(raw_attempt, int | float | str):
-                raise TypeError("attempt must be numeric")
-            attempt = int(raw_attempt)
-        except (TypeError, ValueError):
-            raise PermanentJobError(
-                code="source_icon_payload_invalid",
-                message="Source icon discovery payload is invalid.",
-            ) from None
-        source = await context.session.scalar(
-            select(Source).where(Source.id == source_id).with_for_update()
-        )
+        source_id, attempt = _source_icon_payload(job.payload)
+        source = await context.session.scalar(select(Source).where(Source.id == source_id).with_for_update())
         if source is None:
             return {"status": "orphaned", "source_id": str(source_id)}
         if source.platform not in ICON_PLATFORMS:
@@ -609,95 +768,18 @@ def build_source_icon_discovery_handler(
         try:
             result = await service.discover(target)
         except Exception as exc:  # noqa: BLE001 - discovery is isolated from the worker boundary
-            if isinstance(exc, ProxyConfigurationError):
-                error_code = "proxy_configuration_error"
-            elif isinstance(exc, httpx.ProxyError):
-                error_code = "proxy_error"
-            elif isinstance(exc, (SafeHttpError, httpx.HTTPError)):
-                error_code = "network_error"
-            else:
-                error_code = "discovery_failed"
-            logger.exception(
-                "source_icon_job_failed source_id=%s attempt=%s reason=%s error_type=%s",
-                source_id,
-                attempt,
-                error_code,
-                type(exc).__name__,
-            )
-            result = IconDiscoveryResult(status=ICON_STATUS_RETRYABLE, error=error_code)
+            result = _discovery_failure_result(exc, source_id, attempt)
 
-        source = await context.session.scalar(
-            select(Source).where(Source.id == source_id).with_for_update()
-        )
+        source = await context.session.scalar(select(Source).where(Source.id == source_id).with_for_update())
         if source is None or source.icon_attempt != attempt:
             return {"status": "stale", "source_id": str(source_id), "attempt": attempt}
         observed_at = datetime.now(UTC)
         if not source.homepage_url and result.publisher_url:
             source.homepage_url = result.publisher_url
-        if result.status == ICON_STATUS_RESOLVED and result.body and result.mime_type:
-            try:
-                storage_path = persist_icon_bytes(config.media_root, result.body, result.mime_type)
-            except OSError:
-                result = IconDiscoveryResult(
-                    status=ICON_STATUS_RETRYABLE,
-                    publisher_url=result.publisher_url,
-                    error="icon_storage_failed",
-                )
-            else:
-                source.icon_url = f"/sources/{source.id}/icon"
-                source.icon_source = result.icon_source
-                source.icon_updated_at = observed_at
-                source.icon_status = ICON_STATUS_RESOLVED
-                source.icon_storage_path = storage_path
-                source.icon_original_url = result.original_url
-                source.icon_mime_type = result.mime_type
-                source.icon_width = result.width
-                source.icon_height = result.height
-                source.icon_failure_count = 0
-                source.icon_next_retry_at = None
-                source.icon_last_error = None
-                source.icon_enqueued_at = None
-                logger.info(
-                    "source_icon_job_result source_id=%s attempt=%s status=%s icon_source=%s "
-                    "mime_type=%s storage_path=%s",
-                    source.id,
-                    attempt,
-                    ICON_STATUS_RESOLVED,
-                    result.icon_source,
-                    result.mime_type,
-                    storage_path,
-                )
-                return {
-                    "status": ICON_STATUS_RESOLVED,
-                    "source_id": str(source.id),
-                    "icon_source": result.icon_source,
-                }
-
-        failure_count = int(source.icon_failure_count or 0) + 1
-        source.icon_failure_count = failure_count
-        source.icon_status = (
-            result.status
-            if result.status in {ICON_STATUS_RETRYABLE, ICON_STATUS_UNAVAILABLE}
-            else ICON_STATUS_RETRYABLE
-        )
-        source.icon_next_retry_at = _retry_at(observed_at, failure_count, result, config)
-        source.icon_last_error = result.error or "icon_discovery_failed"
-        source.icon_enqueued_at = None
-        logger.info(
-            "source_icon_job_result source_id=%s attempt=%s status=%s error=%s failure_count=%s "
-            "next_retry_at=%s",
-            source.id,
-            attempt,
-            source.icon_status,
-            source.icon_last_error,
-            source.icon_failure_count,
-            source.icon_next_retry_at,
-        )
-        return {
-            "status": source.icon_status,
-            "source_id": str(source.id),
-            "error": source.icon_last_error,
-        }
+        resolved, result = _persist_resolved_icon(source, result, observed_at, attempt, config)
+        if resolved is not None:
+            return resolved
+        return _persist_icon_failure(source, result, observed_at, attempt, config)
 
     return handle_source_icon_discovery
 
