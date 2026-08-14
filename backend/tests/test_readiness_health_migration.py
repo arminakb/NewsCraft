@@ -4,7 +4,7 @@ from app.db.model_registry import Base
 from app.db.schema import SCHEMA_HEAD
 
 READINESS_MIGRATION = Path("alembic/versions/0010_readiness_health_indexes.py")
-SCHEMA_HEAD_MIGRATION = Path("alembic/versions/0035_feed_clear.py")
+SCHEMA_HEAD_MIGRATION = Path("alembic/versions/0037_wave2a_ops.py")
 
 
 def test_phase_9_migration_is_single_head_and_adds_bounded_queue_index():
@@ -19,9 +19,9 @@ def test_phase_9_migration_is_single_head_and_adds_bounded_queue_index():
 def test_application_schema_head_matches_latest_migration():
     source = SCHEMA_HEAD_MIGRATION.read_text(encoding="utf-8")
 
-    assert SCHEMA_HEAD == "0035_feed_clear"
-    assert 'revision = "0035_feed_clear"' in source
-    assert 'down_revision = "0034_source_icon_discovery"' in source
+    assert SCHEMA_HEAD == "0037_wave2a_ops"
+    assert 'revision = "0037_wave2a_ops"' in source
+    assert 'down_revision = "0036_wave2a_ingest"' in source
 
 
 def test_phase_9_operational_health_index_matches_model_metadata():

@@ -807,6 +807,14 @@ def _preserve_more_complete_content(
     patched on top of excerpt-derived ones.
     """
 
+    incoming_metrics_raw = values.get("metrics")
+    incoming_origin = incoming_metrics_raw.get("content_origin") if isinstance(incoming_metrics_raw, dict) else None
+    if incoming_origin == "source_provided":
+        # The source handed us a full body: that is an authoritative edit even
+        # when it is shorter than what we stored. Only excerpt/unavailable
+        # re-parses may fall through to the preservation path below.
+        return values
+
     stored_text = existing.content_text or ""
     incoming_text = str(values.get("content_text") or "")
     if _normalized_content_length(incoming_text) >= _normalized_content_length(stored_text):

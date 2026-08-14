@@ -385,6 +385,9 @@ async def test_articles_handle_legacy_source_and_missing_optional_fields(db_sess
         "name": "Legacy Wire",
         "platform": "telegram_public",
         "homepage_url": None,
+        "icon_status": None,
+        "icon_updated_at": None,
+        "icon_url": None,
     }
     assert legacy_row["domain"] == "news.example.com"
     assert legacy_row["language"] == "fa"
