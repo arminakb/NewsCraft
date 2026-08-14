@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import hashlib
 import logging
-import re
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
@@ -26,6 +25,8 @@ from app.jobs.registry import JobContext
 from app.jobs.repository import JobRepository
 from app.jobs.types import JobExecution, JobOrigin
 from app.media.atomic_files import atomic_write
+from app.media.imagecodec import normalized_content_type, sniff_image
+from app.media.svg_sanitizer import is_safe_svg
 from app.normalization.url_safety import UnsafeUrlError, validate_public_http_url
 
 ICON_JOB_TYPE = "source.icon.discover"
@@ -58,14 +59,6 @@ _ALLOWED_RESPONSE_MIME_TYPES = frozenset(
 )
 _MAX_ICON_DIMENSION = 4096
 _MAX_CANDIDATES = 12
-_SVG_EXTERNAL_REFERENCE = re.compile(
-    r"(?:xlink:)?(?:href|src)\s*=\s*['\"]\s*(?:https?:|//|data:|javascript:|vbscript:)",
-    re.I,
-)
-_SVG_EXTERNAL_CSS = re.compile(r"url\(\s*['\"]?\s*(?:https?:|//|data:|javascript:|vbscript:)", re.I)
-_SVG_HANDLER = re.compile(r"\son[a-z0-9_-]+\s*=", re.I)
-_SVG_ROOT = re.compile(r"<svg\b([^>]*)>", re.I | re.S)
-_SVG_ATTRIBUTE = re.compile(r"\b(width|height|viewBox)\s*=\s*['\"]([^'\"]+)['\"]", re.I)
 
 
 @dataclass(frozen=True, slots=True)
@@ -275,152 +268,30 @@ def validate_icon_url(value: str) -> str:
         raise IconCandidateError("unsafe_url", retryable=False) from None
 
 
-def _content_type(response: httpx.Response) -> str | None:
-    value = response.headers.get("content-type", "").split(";", 1)[0].strip().casefold()
-    return value or None
-
-
-def _png_dimensions(body: bytes) -> tuple[int, int] | None:
-    if len(body) < 24 or body[:8] != b"\x89PNG\r\n\x1a\n" or body[12:16] != b"IHDR":
-        return None
-    return int.from_bytes(body[16:20], "big"), int.from_bytes(body[20:24], "big")
-
-
-def _gif_dimensions(body: bytes) -> tuple[int, int] | None:
-    if len(body) < 10 or body[:6] not in {b"GIF87a", b"GIF89a"}:
-        return None
-    return int.from_bytes(body[6:8], "little"), int.from_bytes(body[8:10], "little")
-
-
-def _jpeg_dimensions(body: bytes) -> tuple[int, int] | None:
-    if len(body) < 4 or body[:2] != b"\xff\xd8":
-        return None
-    offset = 2
-    sof_markers = set(range(0xC0, 0xC4)) | set(range(0xC5, 0xC8)) | set(range(0xC9, 0xCC)) | set(
-        range(0xCD, 0xD0)
-    )
-    while offset + 4 <= len(body):
-        if body[offset] != 0xFF:
-            offset += 1
-            continue
-        while offset < len(body) and body[offset] == 0xFF:
-            offset += 1
-        if offset >= len(body):
-            break
-        marker = body[offset]
-        offset += 1
-        if marker in {0xD8, 0xD9}:
-            continue
-        if offset + 2 > len(body):
-            break
-        length = int.from_bytes(body[offset : offset + 2], "big")
-        if length < 2 or offset + length > len(body):
-            break
-        if marker in sof_markers and length >= 7:
-            return int.from_bytes(body[offset + 5 : offset + 7], "big"), int.from_bytes(
-                body[offset + 3 : offset + 5], "big"
-            )
-        offset += length
-    return None
-
-
-def _webp_dimensions(body: bytes) -> tuple[int, int] | None:
-    if len(body) < 16 or body[:4] != b"RIFF" or body[8:12] != b"WEBP":
-        return None
-    chunk = body[12:16]
-    if chunk == b"VP8X" and len(body) >= 30:
-        width = 1 + int.from_bytes(body[24:27], "little")
-        height = 1 + int.from_bytes(body[27:30], "little")
-        return width, height
-    if chunk == b"VP8 " and len(body) >= 30:
-        marker = body.find(b"\x9d\x01\x2a", 16)
-        if marker >= 0 and marker + 7 <= len(body):
-            return int.from_bytes(body[marker + 3 : marker + 5], "little") & 0x3FFF, int.from_bytes(
-                body[marker + 5 : marker + 7], "little"
-            ) & 0x3FFF
-    return None
-
-
-def _ico_dimensions(body: bytes) -> tuple[int, int] | None:
-    if len(body) < 22 or body[:4] != b"\x00\x00\x01\x00" or int.from_bytes(body[4:6], "little") < 1:
-        return None
-    width = body[6] or 256
-    height = body[7] or 256
-    return width, height
-
-
-def _svg_dimensions(body: bytes) -> tuple[int, int] | None:
-    text = body.decode("utf-8", errors="replace")
-    root = _SVG_ROOT.search(text[:16_384])
-    if not root:
-        return None
-    attributes = {name.casefold(): value.strip() for name, value in _SVG_ATTRIBUTE.findall(root.group(1))}
-    view_box = attributes.get("viewbox")
-    if view_box:
-        values = re.split(r"[\s,]+", view_box)
-        if len(values) == 4:
-            try:
-                return max(1, round(float(values[2]))), max(1, round(float(values[3])))
-            except ValueError:
-                pass
-    dimensions: list[int] = []
-    for key in ("width", "height"):
-        value = attributes.get(key, "")
-        match = re.match(r"([0-9]+(?:\.[0-9]+)?)", value)
-        if not match:
-            return None
-        dimensions.append(max(1, round(float(match.group(1)))))
-    return tuple(dimensions) if len(dimensions) == 2 else None  # type: ignore[return-value]
-
-
 def _validate_icon_bytes(body: bytes, claimed_type: str | None, max_bytes: int) -> _ValidatedIcon:
     if not body:
         raise IconCandidateError("icon_empty", retryable=False)
     if len(body) > max_bytes:
         raise IconCandidateError("icon_too_large", retryable=False)
 
-    signatures: list[tuple[str, Callable[[bytes], tuple[int, int] | None]]] = [
-        ("image/png", _png_dimensions),
-        ("image/gif", _gif_dimensions),
-        ("image/jpeg", _jpeg_dimensions),
-        ("image/webp", _webp_dimensions),
-        ("image/vnd.microsoft.icon", _ico_dimensions),
-        ("image/svg+xml", _svg_dimensions),
-    ]
-    detected_type: str | None = None
-    dimensions: tuple[int, int] | None = None
-    for mime, parser in signatures:
-        candidate = parser(body)
-        if candidate is None:
-            continue
-        detected_type = mime
-        dimensions = candidate
-        break
-    if detected_type == "image/svg+xml":
-        text = body.decode("utf-8", errors="replace")
-        has_unsafe_element = re.search(r"<\s*(script|foreignObject)\b", text, re.I)
-        if (
-            _SVG_HANDLER.search(text)
-            or _SVG_EXTERNAL_REFERENCE.search(text)
-            or _SVG_EXTERNAL_CSS.search(text)
-            or has_unsafe_element
-        ):
-            raise IconCandidateError("unsafe_svg", retryable=False)
-    if detected_type is None:
+    detected = sniff_image(body)
+    if detected is None:
         raise IconCandidateError("unsupported_image", retryable=False)
+    if detected.mime_type == "image/svg+xml" and not is_safe_svg(body):
+        raise IconCandidateError("unsafe_svg", retryable=False)
     if claimed_type and claimed_type not in _ALLOWED_RESPONSE_MIME_TYPES:
         raise IconCandidateError("unsupported_mime", retryable=False)
-    if dimensions is not None and (
-        dimensions[0] < 1
-        or dimensions[1] < 1
-        or dimensions[0] > _MAX_ICON_DIMENSION
-        or dimensions[1] > _MAX_ICON_DIMENSION
+    if (
+        detected.width < 1
+        or detected.height < 1
+        or detected.width > _MAX_ICON_DIMENSION
+        or detected.height > _MAX_ICON_DIMENSION
     ):
         raise IconCandidateError("icon_dimensions_invalid", retryable=False)
     return _ValidatedIcon(
-        detected_type,
-        dimensions[0] if dimensions else None,
-        dimensions[1] if dimensions else None,
+        detected.mime_type,
+        detected.width,
+        detected.height,
         body,
     )
 
@@ -466,7 +337,7 @@ async def _get_response(
         _safe_log_url(url),
         _safe_log_url(final_url),
         response.status_code,
-        _content_type(response),
+        normalized_content_type(response.headers.get("content-type")),
         len(response.content),
     )
     if response.status_code < 200 or response.status_code >= 300:
@@ -572,7 +443,7 @@ class SourceIconDiscoveryService:
                         source_id=target.id,
                     )
                     website_base = str(website_response.url)
-                    content_type = _content_type(website_response)
+                    content_type = normalized_content_type(website_response.headers.get("content-type"))
                     if content_type in {None, "text/html", "application/xhtml+xml"}:
                         website_candidates = extract_website_icon_candidates(
                             website_response.content,
@@ -630,7 +501,7 @@ class SourceIconDiscoveryService:
             )
             validated = _validate_icon_bytes(
                 response.content,
-                _content_type(response),
+                normalized_content_type(response.headers.get("content-type")),
                 self.config.source_icon_discovery_max_bytes,
             )
         except IconCandidateError as exc:

@@ -6,14 +6,20 @@ import pytest
 from sqlalchemy.dialects import postgresql
 
 from app.db.models import MediaAsset, Source
-from app.ingestion.repository import (
-    IngestionRepository,
-    _apply_media_candidate,
-    _identity_insert_statement,
-    _media_asset_values,
-    build_item_identities,
+from app.ingestion.identity import build_item_identities
+from app.ingestion.media_policy import (
+    apply_media_candidate as _apply_media_candidate,
+)
+from app.ingestion.media_policy import (
     dedupe_media_candidates,
     plan_item_media_rows,
+)
+from app.ingestion.media_policy import (
+    media_asset_values as _media_asset_values,
+)
+from app.ingestion.repository import (
+    IngestionRepository,
+    _identity_insert_statement,
 )
 from app.sources.base import MediaCandidate, ParsedSourceItem
 from app.sources.rss import _extract_media_candidates

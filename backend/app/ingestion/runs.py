@@ -8,11 +8,29 @@ once here instead of being retyped at each construction site.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
 from uuid import UUID
 
 from app.db.models import IngestRun
+
+
+@dataclass(frozen=True, slots=True)
+class IngestRunCounters:
+    processed: int
+    success: int
+    failure: int
+
+
+def ingest_run_counters(stats: dict[str, Any]) -> IngestRunCounters:
+    processed = max(0, int(stats.get("checked", 0)))
+    failure = max(0, int(stats.get("failed", 0)))
+    return IngestRunCounters(
+        processed=processed,
+        success=max(0, processed - failure),
+        failure=failure,
+    )
 
 
 def initial_ingest_stats() -> dict[str, Any]:

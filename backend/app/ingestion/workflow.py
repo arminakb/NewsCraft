@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from collections.abc import Awaitable, Callable, Mapping
 from contextlib import suppress
 from dataclasses import dataclass
@@ -18,14 +19,16 @@ from app.core.config import settings
 from app.core.outbound_proxy import build_outbound_http_client
 from app.core.redaction import redact_secrets, redact_string
 from app.db.models import IngestRun, Source
-from app.ingestion.repository import IngestionRepository, build_item_identities
-from app.ingestion.runs import initial_ingest_stats
+from app.ingestion.identity import build_item_identities
+from app.ingestion.repository import IngestionRepository
+from app.ingestion.runs import ingest_run_counters, initial_ingest_stats
 from app.normalization.titles import normalize_title
 from app.source_collections.models import IngestRunSourceSnapshot
 from app.sources.base import SourceFetchTarget
 from app.sources.fetch_target import parse_source_payload, source_request_url
 
 DEFAULT_HEADERS = {"User-Agent": "NewsCraftBot/1.0"}
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True, slots=True)
@@ -434,7 +437,9 @@ class IngestionWorkflow:
     ) -> tuple[PreparedSource, FetchedSourceBatch | None, Exception | None]:
         try:
             batch = await self.fetch_source(source, client=client)
-            await self._after_fetch(source, batch)
+            # Preserve a cancellation checkpoint between network completion and
+            # the first persistence transaction without a test-only hook.
+            await asyncio.sleep(0)
             return source, batch, None
         except asyncio.CancelledError:
             raise
@@ -486,6 +491,7 @@ class IngestionWorkflow:
         if not prepared.collection_snapshot:
             return
         now = datetime.now(UTC)
+        counters = ingest_run_counters(stats)
         await session.execute(
             update(IngestRunSourceSnapshot)
             .where(
@@ -503,9 +509,9 @@ class IngestionWorkflow:
             update(IngestRun)
             .where(IngestRun.id == prepared.run_id)
             .values(
-                processed_count=stats["checked"],
-                success_count=max(0, stats["checked"] - stats["failed"]),
-                failure_count=stats["failed"],
+                processed_count=counters.processed,
+                success_count=counters.success,
+                failure_count=counters.failure,
                 stats=_sanitized_stats(stats),
             )
         )
@@ -513,14 +519,18 @@ class IngestionWorkflow:
             try:
                 await on_progress(
                     {
-                        "processed_count": stats["checked"],
+                        "processed_count": counters.processed,
                         "source_count": len(prepared.sources),
-                        "success_count": max(0, stats["checked"] - stats["failed"]),
-                        "failure_count": stats["failed"],
+                        "success_count": counters.success,
+                        "failure_count": counters.failure,
                     }
                 )
             except Exception:  # noqa: BLE001 - progress reporting cannot stop ingestion
-                pass
+                logger.warning(
+                    "ingest_progress_report_failed source=%s",
+                    source.id,
+                    exc_info=True,
+                )
 
     async def run(
         self,
@@ -664,10 +674,6 @@ class IngestionWorkflow:
             await self._abort_run_quietly(session, run_id=prepared.run_id, stats=stats, error=exc)
             raise
         return safe_stats
-
-    async def _after_fetch(self, source: PreparedSource, batch: FetchedSourceBatch) -> None:
-        del source, batch
-        await asyncio.sleep(0)
 
     @staticmethod
     def _merge_result(stats: dict[str, Any], result: SourcePersistResult) -> None:

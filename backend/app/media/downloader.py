@@ -10,6 +10,7 @@ from app.core.config import settings
 from app.core.safe_http import SafeHttpClient, SafeHttpError
 from app.db.models import MediaAsset
 from app.media.atomic_files import atomic_write
+from app.media.imagecodec import normalized_content_type, sniff_image_format
 from app.normalization.url_safety import UnsafeUrlError, validate_public_http_url
 
 IMAGE_MIME_EXTENSIONS = {
@@ -103,7 +104,7 @@ class MediaDownloader:
             return "failed"
 
         content = response.content
-        content_type = _normalized_content_type(response.headers.get("content-type"))
+        content_type = normalized_content_type(response.headers.get("content-type"))
         if len(content) > self.max_image_bytes:
             asset.fetch_status = "skipped"
             return "skipped"
@@ -112,7 +113,8 @@ class MediaDownloader:
             return "skipped"
 
         checksum = sha256(content).hexdigest()
-        extension = _extension_for_image(content_type, asset.normalized_url)
+        assert content_type is not None
+        extension = IMAGE_MIME_EXTENSIONS[content_type]
         storage_path = self.media_root / checksum[:2] / f"{checksum}{extension}"
         await self.session.execute(text("LOCK TABLE media_assets IN ROW EXCLUSIVE MODE"))
         asset = await self.session.scalar(
@@ -137,31 +139,7 @@ class MediaDownloader:
         return "downloaded"
 
 
-def _normalized_content_type(value: str | None) -> str | None:
-    if not value:
-        return None
-    return value.split(";", 1)[0].strip().lower()
-
-
 def _is_supported_image(content: bytes, content_type: str | None) -> bool:
     if content_type not in IMAGE_MIME_EXTENSIONS:
         return False
-    if content_type == "image/jpeg":
-        return content.startswith(b"\xff\xd8")
-    if content_type == "image/png":
-        return content.startswith(b"\x89PNG\r\n\x1a\n")
-    if content_type == "image/gif":
-        return content.startswith((b"GIF87a", b"GIF89a"))
-    if content_type == "image/webp":
-        return content.startswith(b"RIFF") and content[8:12] == b"WEBP"
-    return False
-
-
-def _extension_for_image(content_type: str | None, url: str) -> str:
-    if content_type in IMAGE_MIME_EXTENSIONS:
-        return IMAGE_MIME_EXTENSIONS[content_type]
-    suffix = Path(url).suffix.lower()
-    if suffix in {".jpg", ".jpeg", ".png", ".gif", ".webp"}:
-        return ".jpg" if suffix == ".jpeg" else suffix
-    return ".bin"
-
+    return sniff_image_format(content) == content_type

@@ -24,13 +24,4 @@ def source_request_url(source: SourceFetchTarget) -> str:
 
 
 def parse_source_payload(source: SourceFetchTarget, raw_text: str, request_url: str) -> ParsedSourcePayload:
-    parser = parser_for_source(source)
-    if source.platform == "telegram_public":
-        return parser(raw_text, channel=source.telegram_username)
-    # parser_for_source has already rejected every platform except rss/atom.
-    return parser(
-        raw_text,
-        source_name=source.name,
-        source_url=source.feed_url or request_url,
-        default_timezone=source.default_timezone or "UTC",
-    )
+    return parser_for_source(source)(raw_text, source, request_url)
