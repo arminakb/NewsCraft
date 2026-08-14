@@ -27,16 +27,16 @@ from app.retention.contracts import (
     RetentionNotFound,
     RetentionPolicyInput,
     RetentionRecordType,
-    _snapshot_candidates,
-    _snapshot_intents,
     build_preview_token,
+    snapshot_candidates,
+    snapshot_intents,
 )
 from app.retention.filesystem import (
     MediaClaimClassification,
+    UnsafeStoragePath,
     _classified_media_claims,
-    _export_relative_path,
-    _media_relative_path,
-    _UnsafeStoragePath,
+    export_relative_path,
+    media_relative_path,
 )
 from app.retention.models import RETENTION_SCHEMA_REVISION, RetentionRun
 
@@ -58,13 +58,13 @@ class RetentionDatabaseExecutor:
         self.now = now
         self.collect_candidates = collect_candidates
 
-    async def _reset_all_skipped_database_run(self, run: RetentionRun) -> bool:
+    async def reset_all_skipped_database_run(self, run: RetentionRun) -> bool:
         if run.status not in {"partial", "succeeded"} or run.cleanup_intent_snapshot:
             return False
-        candidates = _snapshot_candidates(run)
+        candidates = snapshot_candidates(run)
         if not candidates:
             return False
-        execution = self._execution_counts(run).execution
+        execution = self.execution_counts(run).execution
         if any(
             values[category] > 0
             for values in (execution.scrubbed, execution.expired, execution.filesystem_deleted)
@@ -90,7 +90,7 @@ class RetentionDatabaseExecutor:
         )
 
     @staticmethod
-    def _execution_counts(run: RetentionRun) -> RetentionCountSnapshot:
+    def execution_counts(run: RetentionRun) -> RetentionCountSnapshot:
         """Parse the persisted snapshot into a detached, mutable model.
 
         Validation copies every nested container, so incrementing the result
@@ -103,7 +103,7 @@ class RetentionDatabaseExecutor:
         return RetentionExecutionPlan(
             run_id=run.id,
             preview_token=run.preview_token,
-            cleanup_intents=_snapshot_intents(run),
+            cleanup_intents=snapshot_intents(run),
             count_snapshot=run.count_snapshot,
         )
 
@@ -200,7 +200,7 @@ class RetentionDatabaseExecutor:
     async def _executable_candidates(self, run: RetentionRun, preview_token: str) -> list[RetentionCandidate]:
         """The persisted plan, proven to still be the plan this token authorized."""
         try:
-            candidates = _snapshot_candidates(run)
+            candidates = snapshot_candidates(run)
         except RetentionConflict:
             await self._fail_run(
                 run,
@@ -350,7 +350,7 @@ class RetentionDatabaseExecutor:
         await self._lock_protection_tables()
         current = await self._revalidate(run, candidates, media_root=media_root)
         observed_at = self.now()
-        counts = self._execution_counts(run)
+        counts = self.execution_counts(run)
         errors = list(run.error_snapshot)
         intents: list[RetentionCleanupIntent] = []
 
@@ -377,8 +377,8 @@ class RetentionDatabaseExecutor:
                     media = media_rows[candidate.record_id]
                     if media is not None and media.storage_path is not None:
                         try:
-                            _media_relative_path(media_root, media.storage_path)
-                        except _UnsafeStoragePath:
+                            media_relative_path(media_root, media.storage_path)
+                        except UnsafeStoragePath:
                             errors.append(
                                 {
                                     "phase": "database",
@@ -437,8 +437,8 @@ class RetentionDatabaseExecutor:
                     counts.execution.increment("skipped", candidate.category)
                     continue
                 try:
-                    relative_path = _export_relative_path(export_root, export.id)
-                except _UnsafeStoragePath:
+                    relative_path = export_relative_path(export_root, export.id)
+                except UnsafeStoragePath:
                     errors.append(
                         {
                             "phase": "database",

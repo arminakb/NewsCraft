@@ -10,6 +10,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.capabilities import CapabilityStatusDependency
 from app.api.content_pack_mappers import (
+    ContentPackOut,
+    ContentPackRequestOut,
+    PlatformVariantRevisionOut,
+    StoryEvidenceOut,
+    StoryRevisionOut,
+    StorySummaryOut,
     _pack_out,
     _packs_out,
     _prefetch_revision_graph,
@@ -45,6 +51,7 @@ from app.generation.platform_schemas import (
 )
 from app.generation.providers.profiles import ProviderProfileResolver
 from app.jobs.models import WorkflowJob
+from app.jobs.schemas import JobAcceptedOut
 from app.stories.models import Story, StoryEvidenceSnapshot, StoryRevision
 
 router = APIRouter(tags=["content-packs"])
@@ -84,7 +91,7 @@ def _pack_summary(
     }
 
 
-@router.get("/stories/{story_id}")
+@router.get("/stories/{story_id}", response_model=StorySummaryOut)
 async def get_story(story_id: UUID, session: AsyncSession = SessionDependency):
     story = await session.get(Story, story_id)
     if story is None:
@@ -92,7 +99,7 @@ async def get_story(story_id: UUID, session: AsyncSession = SessionDependency):
     return await _story_summary(session, story)
 
 
-@router.get("/stories/{story_id}/evidence")
+@router.get("/stories/{story_id}/evidence", response_model=list[StoryEvidenceOut])
 async def story_evidence(story_id: UUID, session: AsyncSession = SessionDependency):
     if await session.get(Story, story_id) is None:
         raise HTTPException(404, "Story not found")
@@ -119,7 +126,7 @@ async def story_evidence(story_id: UUID, session: AsyncSession = SessionDependen
     ]
 
 
-@router.get("/stories/{story_id}/revisions")
+@router.get("/stories/{story_id}/revisions", response_model=list[StoryRevisionOut])
 async def story_revisions(story_id: UUID, session: AsyncSession = SessionDependency):
     return list(
         await session.scalars(
@@ -130,7 +137,7 @@ async def story_revisions(story_id: UUID, session: AsyncSession = SessionDepende
     )
 
 
-@router.post("/stories/{story_id}/content-packs", status_code=202)
+@router.post("/stories/{story_id}/content-packs", response_model=JobAcceptedOut, status_code=202)
 async def create_content_pack(
     story_id: UUID,
     body: GeneratePackRequest,
@@ -167,13 +174,13 @@ async def create_content_pack(
 LIST_CEILING = 200
 
 
-@router.get("/content-packs")
+@router.get("/content-packs", response_model=list[ContentPackOut])
 async def list_content_packs(session: AsyncSession = SessionDependency):
     rows = list(await session.scalars(select(ContentPack).order_by(ContentPack.created_at.desc()).limit(LIST_CEILING)))
     return await _packs_out(session, rows)
 
 
-@router.get("/content-pack-requests")
+@router.get("/content-pack-requests", response_model=list[ContentPackRequestOut])
 async def list_content_pack_requests(session: AsyncSession = SessionDependency):
     jobs = list(
         await session.scalars(
@@ -226,7 +233,7 @@ async def list_content_pack_requests(session: AsyncSession = SessionDependency):
     return output
 
 
-@router.get("/content-packs/{pack_id}")
+@router.get("/content-packs/{pack_id}", response_model=ContentPackOut)
 async def get_content_pack(pack_id: UUID, session: AsyncSession = SessionDependency):
     pack = await session.get(ContentPack, pack_id)
     if pack is None:
@@ -234,7 +241,7 @@ async def get_content_pack(pack_id: UUID, session: AsyncSession = SessionDepende
     return await _pack_out(session, pack)
 
 
-@router.get("/platform-variants/{variant_id}/revisions")
+@router.get("/platform-variants/{variant_id}/revisions", response_model=list[PlatformVariantRevisionOut])
 async def list_variant_revisions(variant_id: UUID, session: AsyncSession = SessionDependency):
     rows = list(
         await session.scalars(
@@ -248,7 +255,7 @@ async def list_variant_revisions(variant_id: UUID, session: AsyncSession = Sessi
     return [await _revision_out(session, row, media_cache) for row in rows]
 
 
-@router.get("/platform-variant-revisions/{revision_id}")
+@router.get("/platform-variant-revisions/{revision_id}", response_model=PlatformVariantRevisionOut)
 async def get_variant_revision(revision_id: UUID, session: AsyncSession = SessionDependency):
     row = await session.get(PlatformVariantRevision, revision_id)
     if row is None:
@@ -286,7 +293,11 @@ async def get_variant_revision_rendered_html(
     )
 
 
-@router.post("/platform-variants/{variant_id}/revisions", status_code=201)
+@router.post(
+    "/platform-variants/{variant_id}/revisions",
+    response_model=PlatformVariantRevisionOut,
+    status_code=201,
+)
 async def edit_variant(
     variant_id: UUID,
     body: EditVariantRequest | ManualPlatformEditRequest,
@@ -305,7 +316,11 @@ async def edit_variant(
     return await _revision_out(session, result)
 
 
-@router.post("/platform-variants/{variant_id}/regenerate", status_code=202)
+@router.post(
+    "/platform-variants/{variant_id}/regenerate",
+    response_model=JobAcceptedOut,
+    status_code=202,
+)
 async def regenerate_variant(
     variant_id: UUID,
     body: RegenerateVariantRequest,
@@ -327,7 +342,10 @@ async def regenerate_variant(
     return result
 
 
-@router.post("/platform-variant-revisions/{revision_id}/approve")
+@router.post(
+    "/platform-variant-revisions/{revision_id}/approve",
+    response_model=PlatformVariantRevisionOut,
+)
 async def approve_revision(revision_id: UUID, body: ApprovalRequest, session: AsyncSession = SessionDependency):
     try:
         result = await EditorialService(session).approve_revision(revision_id, body)
@@ -343,7 +361,10 @@ async def approve_revision(revision_id: UUID, body: ApprovalRequest, session: As
     return await _revision_out(session, result)
 
 
-@router.post("/platform-variant-revisions/{revision_id}/reject")
+@router.post(
+    "/platform-variant-revisions/{revision_id}/reject",
+    response_model=PlatformVariantRevisionOut,
+)
 async def reject_revision(revision_id: UUID, body: ApprovalRequest, session: AsyncSession = SessionDependency):
     try:
         result = await EditorialService(session).reject_revision(revision_id, body)

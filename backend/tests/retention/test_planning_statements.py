@@ -52,7 +52,7 @@ class _RecordingSession:
 async def _collect_sql(*, lock: bool) -> list[str]:
     session = _RecordingSession()
     planner = RetentionPlanner(session, Path("/nonexistent-media-root"))  # type: ignore[arg-type]
-    await planner._collect_candidates(POLICY, now=NOW, lock=lock)
+    await planner.collect_candidates(POLICY, now=NOW, lock=lock)
     return session.sql
 
 

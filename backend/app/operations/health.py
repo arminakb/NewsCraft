@@ -60,9 +60,10 @@ async def probe_storage_directory(
     path: Path,
     observed_at: datetime,
     *,
-    timeout_seconds: float = settings.health_storage_timeout_seconds,
+    timeout_seconds: float | None = None,
 ) -> DependencyHealth:
     started = time.monotonic()
+    timeout = settings.health_storage_timeout_seconds if timeout_seconds is None else timeout_seconds
 
     def inspect() -> bool:
         if not path.is_dir():
@@ -77,7 +78,7 @@ async def probe_storage_directory(
         return True
 
     try:
-        async with asyncio.timeout(timeout_seconds):
+        async with asyncio.timeout(timeout):
             available = await asyncio.to_thread(inspect)
     except OSError, TimeoutError:
         available = False

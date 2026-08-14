@@ -26,6 +26,7 @@ from app.api.stories import router as stories_router
 from app.api.telegram_automations import router as telegram_automations_router
 from app.api.telegram_destinations import router as telegram_destinations_router
 from app.api.telegram_drafts import router as telegram_drafts_router
+from app.api.telegram_reconciliation import router as telegram_reconciliation_router
 from app.api.telegram_sources import router as telegram_sources_router
 
 router = APIRouter()
@@ -54,5 +55,6 @@ router.include_router(date_time_settings_router)
 router.include_router(telegram_sources_router)
 router.include_router(telegram_destinations_router)
 router.include_router(telegram_drafts_router)
+router.include_router(telegram_reconciliation_router)
 router.include_router(telegram_automations_router)
 router.include_router(generation_settings_router)

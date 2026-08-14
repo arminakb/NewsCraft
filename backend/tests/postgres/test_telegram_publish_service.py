@@ -11,7 +11,7 @@ import pytest
 from fastapi import HTTPException, Response
 from sqlalchemy import func, select
 
-from app.api.telegram_drafts import (
+from app.api.telegram_reconciliation import (
     TelegramReconcileIn,
     reconcile_telegram_publish_job,
 )

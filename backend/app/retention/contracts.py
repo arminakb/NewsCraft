@@ -49,6 +49,41 @@ RETENTION_PREVIEW_TTL = timedelta(minutes=30)
 RAW_PAYLOAD_SCRUBBED_URL = "retention:scrubbed"
 GENERATION_SUCCESS_STATUSES = ("succeeded", "completed")
 
+__all__ = [
+    "GENERATION_SUCCESS_STATUSES",
+    "RAW_PAYLOAD_SCRUBBED_URL",
+    "RETENTION_CATEGORIES",
+    "RETENTION_CONFIRMATION",
+    "RETENTION_PREVIEW_TTL",
+    "RetentionCandidate",
+    "RetentionCategory",
+    "RetentionCategorySummary",
+    "RetentionCleanupIntent",
+    "RetentionConfirmationError",
+    "RetentionConfirmationPhrase",
+    "RetentionConflict",
+    "RetentionCountSnapshot",
+    "RetentionEnqueueResult",
+    "RetentionExecutionCounts",
+    "RetentionExecutionPhase",
+    "RetentionExecutionPlan",
+    "RetentionNotFound",
+    "RetentionOperation",
+    "RetentionPolicyInput",
+    "RetentionPreview",
+    "RetentionRecordType",
+    "build_preview_token",
+    "canonical_json",
+    "json_byte_length",
+    "policy_input",
+    "preview_from_run",
+    "snapshot_candidates",
+    "snapshot_intents",
+    "state_hash",
+    "summarize_candidates",
+    "uuid_values",
+]
+
 
 class RetentionConflict(ValueError):
     """Raised when a retention preview can no longer be executed safely."""
@@ -263,7 +298,7 @@ def _json_default(value: object) -> object:
     raise TypeError(f"unsupported retention identity value: {type(value).__name__}")
 
 
-def _canonical_json(value: object) -> bytes:
+def canonical_json(value: object) -> bytes:
     return json.dumps(
         value,
         default=_json_default,
@@ -303,7 +338,7 @@ def build_preview_token(
         "policy": policy.model_dump(mode="json"),
         "schema_revision": schema_revision,
     }
-    return hashlib.sha256(_canonical_json(value)).hexdigest()
+    return hashlib.sha256(canonical_json(value)).hexdigest()
 
 
 def summarize_candidates(
@@ -329,15 +364,15 @@ def summarize_candidates(
     return result
 
 
-def _state_hash(value: object) -> str:
-    return hashlib.sha256(_canonical_json(value)).hexdigest()
+def state_hash(value: object) -> str:
+    return hashlib.sha256(canonical_json(value)).hexdigest()
 
 
-def _json_byte_length(*values: object) -> int:
-    return sum(len(_canonical_json(value)) for value in values)
+def json_byte_length(*values: object) -> int:
+    return sum(len(canonical_json(value)) for value in values)
 
 
-def _policy_input(policy: RetentionPolicy | RetentionPolicyInput) -> RetentionPolicyInput:
+def policy_input(policy: RetentionPolicy | RetentionPolicyInput) -> RetentionPolicyInput:
     if isinstance(policy, RetentionPolicyInput):
         return policy
     return RetentionPolicyInput(
@@ -349,7 +384,7 @@ def _policy_input(policy: RetentionPolicy | RetentionPolicyInput) -> RetentionPo
     )
 
 
-def _uuid_values(value: object) -> set[UUID]:
+def uuid_values(value: object) -> set[UUID]:
     found: set[UUID] = set()
 
     def visit(candidate: object) -> None:
@@ -374,7 +409,7 @@ def _uuid_values(value: object) -> set[UUID]:
     return found
 
 
-def _snapshot_candidates(run: RetentionRun) -> list[RetentionCandidate]:
+def snapshot_candidates(run: RetentionRun) -> list[RetentionCandidate]:
     try:
         candidates = [RetentionCandidate.model_validate(value) for value in run.candidate_snapshot]
     except ValueError as exc:
@@ -382,16 +417,16 @@ def _snapshot_candidates(run: RetentionRun) -> list[RetentionCandidate]:
     return sorted(candidates, key=_candidate_sort_key)
 
 
-def _snapshot_intents(run: RetentionRun) -> list[RetentionCleanupIntent]:
+def snapshot_intents(run: RetentionRun) -> list[RetentionCleanupIntent]:
     try:
         return [RetentionCleanupIntent.model_validate(value) for value in run.cleanup_intent_snapshot]
     except ValueError as exc:
         raise RetentionConflict("persisted retention cleanup snapshot is invalid") from exc
 
 
-def _preview_from_run(run: RetentionRun) -> RetentionPreview:
+def preview_from_run(run: RetentionRun) -> RetentionPreview:
     policy = RetentionPolicyInput.model_validate(run.policy_snapshot)
-    candidates = _snapshot_candidates(run)
+    candidates = snapshot_candidates(run)
     counts = summarize_candidates(candidates)
     return RetentionPreview(
         run_id=run.id,

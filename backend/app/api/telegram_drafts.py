@@ -5,13 +5,18 @@ from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID
 
-from fastapi import APIRouter, HTTPException, Response
+from fastapi import APIRouter, HTTPException
 from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, field_validator
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.capabilities import CapabilityStatusDependency
 from app.api.dependencies import InjectedSession, SessionDependency
+from app.api.telegram_reconciliation import (
+    TelegramReconcileIn,
+    publication_out,
+    receipt_out,
+)
 from app.automations.definitions.runtime_state import bind_automation_publish_job
 from app.automations.models import AutomationDispatch
 from app.generation.models import PlatformVariant, PlatformVariantRevision
@@ -30,15 +35,6 @@ from app.publishing.telegram.draft_publication import (
 from app.publishing.telegram.draft_publication import (
     revision_dispatch as _revision_dispatch,
 )
-from app.publishing.telegram.reconciliation_operation import (
-    TelegramReconcileIn,
-    _publication_out,
-    _receipt_out,
-    _validate_reconciled_remote_ids,
-)
-from app.publishing.telegram.reconciliation_operation import (
-    reconcile_telegram_publish_job as _reconcile_telegram_publish_job,
-)
 from app.publishing.telegram.service import (
     ReconciliationCase,
     ReviewedTelegramScheduleError,
@@ -51,10 +47,7 @@ __all__ = [
     "ScheduleTelegramIn",
     "TelegramContentHashIn",
     "TelegramReconcileIn",
-    "_publication_out",
-    "_validate_reconciled_remote_ids",
     "publish_telegram_draft",
-    "reconcile_telegram_publish_job",
     "router",
     "schedule_telegram_revision",
 ]
@@ -135,8 +128,8 @@ def _publish_job_out(
         "scheduled_for": publish_job.scheduled_for,
         "created_at": publish_job.created_at,
         "updated_at": publish_job.updated_at,
-        "receipts": [_receipt_out(receipt) for receipt in receipts],
-        "publication": _publication_out(publication) if publication is not None else None,
+        "receipts": [receipt_out(receipt) for receipt in receipts],
+        "publication": publication_out(publication) if publication is not None else None,
     }
 
 
@@ -175,7 +168,7 @@ def _publication_context(
         publish_job_id=publish_job.id if publish_job is not None else None,
         publish_status=publish_job.status if publish_job is not None else None,
         publication=(
-            TelegramPublicationOut.model_validate(_publication_out(publication)) if publication is not None else None
+            TelegramPublicationOut.model_validate(publication_out(publication)) if publication is not None else None
         ),
     )
 
@@ -382,23 +375,6 @@ async def get_telegram_reconciliation_case(
     if case is None:
         raise HTTPException(404, "Telegram reconciliation case not found")
     return case
-
-
-@router.post("/publish-jobs/{publish_job_id}/reconcile")
-async def reconcile_telegram_publish_job(
-    publish_job_id: UUID,
-    body: TelegramReconcileIn,
-    response: Response,
-    session: InjectedSession,
-    capability_status: CapabilityStatusDependency,
-):
-    return await _reconcile_telegram_publish_job(
-        publish_job_id,
-        body,
-        response,
-        session,
-        capability_status,
-    )
 
 
 router.include_router(draft_router)

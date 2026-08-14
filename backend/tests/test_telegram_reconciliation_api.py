@@ -12,12 +12,17 @@ from pydantic import ValidationError
 
 import app.api.telegram_drafts as telegram_api
 from app.api.telegram_drafts import (
-    TelegramReconcileIn,
-    _publication_out,
     _publish_job_out,
-    _validate_reconciled_remote_ids,
-    reconcile_telegram_publish_job,
     router,
+)
+from app.api.telegram_reconciliation import (
+    TelegramReconcileIn,
+    publication_out,
+    reconcile_telegram_publish_job,
+    validate_reconciled_remote_ids,
+)
+from app.api.telegram_reconciliation import (
+    router as reconciliation_router,
 )
 from app.automations.telegram.handlers import sha256_canonical
 from app.db.session import get_session
@@ -299,19 +304,19 @@ def test_not_published_resets_only_one_ambiguous_operation_and_requires_no_remot
 def test_operator_confirmed_ids_must_match_operation_semantics(method, remote_ids, valid):
     receipt = SimpleNamespace(method=method)
     if valid:
-        _validate_reconciled_remote_ids(receipt, remote_ids)
+        validate_reconciled_remote_ids(receipt, remote_ids)
     else:
         with pytest.raises(HTTPException) as error:
-            _validate_reconciled_remote_ids(receipt, remote_ids)
+            validate_reconciled_remote_ids(receipt, remote_ids)
         assert error.value.status_code == 422
 
 
 def test_operator_confirmed_ids_must_match_persisted_exact_upload_count():
     receipt = SimpleNamespace(method="sendMediaGroup")
 
-    _validate_reconciled_remote_ids(receipt, [501, 502, 503], expected_count=3)
+    validate_reconciled_remote_ids(receipt, [501, 502, 503], expected_count=3)
     with pytest.raises(HTTPException) as error:
-        _validate_reconciled_remote_ids(receipt, [501, 502], expected_count=3)
+        validate_reconciled_remote_ids(receipt, [501, 502], expected_count=3)
 
     assert error.value.status_code == 422
 
@@ -369,7 +374,7 @@ def test_publication_projection_is_exact_and_secret_free():
         reconciliation_status="confirmed",
     )
 
-    output = _publication_out(publication)
+    output = publication_out(publication)
 
     assert output["remote_message_ids"] == [501, 502]
     assert output["reconciliation_status"] == "confirmed"
@@ -379,6 +384,7 @@ def test_publication_projection_is_exact_and_secret_free():
 def test_publication_and_reconciliation_routes_are_public():
     app = FastAPI()
     app.include_router(router)
+    app.include_router(reconciliation_router)
     paths = set(app.openapi()["paths"])
 
     assert "/telegram/publish-jobs/{publish_job_id}" in paths
@@ -475,6 +481,7 @@ def test_reconciliation_case_routes_use_strict_read_only_service_projections(mon
     monkeypatch.setattr(telegram_api, "get_reconciliation_case", fake_get, raising=False)
     api = FastAPI()
     api.include_router(router)
+    api.include_router(reconciliation_router)
 
     async def override_session():
         yield session
@@ -497,6 +504,7 @@ def test_reconciliation_detail_returns_404_for_missing_or_resolved_case(monkeypa
     monkeypatch.setattr(telegram_api, "get_reconciliation_case", fake_get, raising=False)
     api = FastAPI()
     api.include_router(router)
+    api.include_router(reconciliation_router)
 
     async def override_session():
         yield object()
@@ -552,7 +560,7 @@ async def test_published_exact_decision_replay_reuses_immutable_publication():
         AVAILABLE_CAPABILITIES,
     )
 
-    assert result == _publication_out(publication)
+    assert result == publication_out(publication)
     assert session.added == []
     assert not any("publish_attempts" in sql for sql in session.scalar_sql)
 
@@ -695,7 +703,7 @@ async def test_new_ambiguity_generation_can_be_decided_and_records_complete_reda
         return SimpleNamespace(job=requeued_job, created=True)
 
     monkeypatch.setattr(
-        "app.publishing.telegram.reconciliation_operation.JobRepository.enqueue_job",
+        "app.api.telegram_reconciliation.JobRepository.enqueue_job",
         fake_enqueue,
     )
 
@@ -781,7 +789,7 @@ async def test_stale_exact_decision_from_older_generation_is_rejected(monkeypatc
         )
 
     monkeypatch.setattr(
-        "app.publishing.telegram.reconciliation_operation.JobRepository.enqueue_job",
+        "app.api.telegram_reconciliation.JobRepository.enqueue_job",
         fake_enqueue,
     )
 

@@ -31,10 +31,10 @@ from app.retention.contracts import (
     RetentionPolicyInput,
     RetentionRecordType,
     _candidate_sort_key,
-    _canonical_json,
-    _json_byte_length,
-    _state_hash,
-    _uuid_values,
+    canonical_json,
+    json_byte_length,
+    state_hash,
+    uuid_values,
 )
 from app.retention.filesystem import (
     _classified_media_claims,
@@ -74,7 +74,7 @@ class RetentionPlanner:
             )
         )
 
-    async def _referenced_media_ids(self) -> set[UUID]:
+    async def referenced_media_ids(self) -> set[UUID]:
         referenced = set(await self.session.scalars(select(ItemMedia.media_asset_id)))
         # Existing broad protection covers every primary image, including those
         # referenced by ContentItems saved in one or more collections.
@@ -89,8 +89,8 @@ class RetentionPlanner:
             select(PlatformVariantRevision.content, PlatformVariantRevision.evidence_map)
         )
         for content, evidence_map in revisions:
-            referenced.update(_uuid_values(content))
-            referenced.update(_uuid_values(evidence_map))
+            referenced.update(uuid_values(content))
+            referenced.update(uuid_values(evidence_map))
         export_results = await self.session.scalars(
             select(WorkflowJob.result).where(
                 WorkflowJob.job_type == "build_export",
@@ -99,7 +99,7 @@ class RetentionPlanner:
         )
         for result in export_results:
             if isinstance(result, Mapping) and result.get("state") != "expired":
-                referenced.update(_uuid_values(result))
+                referenced.update(uuid_values(result))
         return referenced
 
     async def _publication_referencing_job_ids(self, candidate_job_ids: Select[tuple[UUID]]) -> set[UUID]:
@@ -121,7 +121,7 @@ class RetentionPlanner:
         return {
             workflow_job_id
             for workflow_job_id, event_data in event_rows
-            if workflow_job_id is not None and not _uuid_values(event_data).isdisjoint(published_revision_ids)
+            if workflow_job_id is not None and not uuid_values(event_data).isdisjoint(published_revision_ids)
         }
 
     async def _raw_state(self, row: RawPayload) -> dict[str, object]:
@@ -249,7 +249,7 @@ class RetentionPlanner:
             "updated_at": row.updated_at,
         }
 
-    async def _collect_candidates(
+    async def collect_candidates(
         self,
         policy: RetentionPolicyInput,
         *,
@@ -337,8 +337,8 @@ class RetentionPlanner:
                     record_id=raw_payload.id,
                     operation="scrub",
                     occurred_at=raw_payload.captured_at,
-                    byte_length=_json_byte_length(state),
-                    state_hash=_state_hash(state),
+                    byte_length=json_byte_length(state),
+                    state_hash=state_hash(state),
                 )
             )
         return candidates
@@ -406,8 +406,8 @@ class RetentionPlanner:
                     record_id=completed_job.id,
                     operation="scrub",
                     occurred_at=completed_job.finished_at,
-                    byte_length=_json_byte_length(state),
-                    state_hash=_state_hash(state),
+                    byte_length=json_byte_length(state),
+                    state_hash=state_hash(state),
                 )
             )
         return candidates
@@ -476,8 +476,8 @@ class RetentionPlanner:
                     record_id=research_attempt.id,
                     operation="scrub",
                     occurred_at=research_attempt.finished_at,
-                    byte_length=_json_byte_length(state),
-                    state_hash=_state_hash(state),
+                    byte_length=json_byte_length(state),
+                    state_hash=state_hash(state),
                 )
             )
         return candidates
@@ -561,7 +561,7 @@ class RetentionPlanner:
                     # The parent GenerationRun state is bound into every sibling's
                     # hash but scrubbed once, so a per-attempt byte total is unknown.
                     byte_length=None,
-                    state_hash=_state_hash(state),
+                    state_hash=state_hash(state),
                 )
             )
         return candidates
@@ -636,8 +636,8 @@ class RetentionPlanner:
                     record_id=publish_attempt.id,
                     operation="scrub",
                     occurred_at=publish_attempt.finished_at,
-                    byte_length=_json_byte_length(state),
-                    state_hash=_state_hash(state),
+                    byte_length=json_byte_length(state),
+                    state_hash=state_hash(state),
                 )
             )
         return candidates
@@ -672,7 +672,7 @@ class RetentionPlanner:
             if (
                 artifact.manifest.created_at != export_job.created_at
                 or artifact.manifest_sha256
-                != hashlib.sha256(_canonical_json(artifact.manifest.model_dump(mode="json"))).hexdigest()
+                != hashlib.sha256(canonical_json(artifact.manifest.model_dump(mode="json"))).hexdigest()
             ):
                 continue
             variants = artifact.manifest.variants
@@ -701,7 +701,7 @@ class RetentionPlanner:
                     operation="expire",
                     occurred_at=export_job.finished_at,
                     byte_length=sum(known_sizes),
-                    state_hash=_state_hash(state),
+                    state_hash=state_hash(state),
                 )
             )
         return candidates
@@ -729,7 +729,7 @@ class RetentionPlanner:
                 ).where(MediaAsset.storage_path.is_not(None))
             )
         )
-        referenced_media_ids = await self._referenced_media_ids()
+        referenced_media_ids = await self.referenced_media_ids()
         eligible_media_ids = {
             row.id
             for row in all_stored_media
@@ -786,7 +786,7 @@ class RetentionPlanner:
                     operation="expire",
                     occurred_at=media_asset.created_at,
                     byte_length=int(media_asset.byte_length) if media_asset.byte_length is not None else None,
-                    state_hash=_state_hash(state),
+                    state_hash=state_hash(state),
                 )
             )
         return candidates

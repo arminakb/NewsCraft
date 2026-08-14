@@ -5,6 +5,7 @@ from uuid import uuid4
 import pytest
 from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
+from httpx import ASGITransport, AsyncClient
 
 from app.api.content_packs import (
     _request_out,
@@ -52,6 +53,34 @@ def test_content_pack_resource_routes_are_registered_with_exact_methods():
     assert expected <= routes
     edit_operation = app.openapi()["paths"]["/platform-variants/{variant_id}/revisions"]["post"]
     assert "201" in edit_operation["responses"]
+
+
+@pytest.mark.asyncio
+async def test_content_pack_list_enforces_response_model_at_the_real_listener(monkeypatch):
+    import app.api.content_packs as content_pack_api
+
+    class Session:
+        async def scalars(self, _statement):
+            return []
+
+    async def uncontracted_projection(_session, _rows):
+        return [{"unexpected": True}]
+
+    monkeypatch.setattr(content_pack_api, "_packs_out", uncontracted_projection)
+    api = FastAPI()
+    api.include_router(content_pack_router)
+
+    async def override_session():
+        yield Session()
+
+    api.dependency_overrides[get_session] = override_session
+    async with AsyncClient(
+        transport=ASGITransport(app=api, raise_app_exceptions=False),
+        base_url="http://test",
+    ) as client:
+        response = await client.get("/content-packs")
+
+    assert response.status_code == 500
 
 
 @pytest.mark.asyncio

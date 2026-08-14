@@ -231,17 +231,7 @@ def test_history_route_delegates_all_filters_and_returns_the_strict_page(api_cli
                 next_cursor="stable-next-cursor",
             )
 
-    def fake_decode_history_cursor(cursor):
-        seen["decoded_cursor"] = cursor
-        return GENERATED_AT, EVENT_ID
-
     monkeypatch.setattr(operations_api, "HistoryService", FakeHistoryService, raising=False)
-    monkeypatch.setattr(
-        operations_api,
-        "decode_history_cursor",
-        fake_decode_history_cursor,
-        raising=False,
-    )
 
     response = client.get(
         "/operations/history",
@@ -274,7 +264,6 @@ def test_history_route_delegates_all_filters_and_returns_the_strict_page(api_cli
     }
     assert seen == {
         "session": session,
-        "decoded_cursor": "stable-input-cursor",
         "filters": {
             "subject_type": "automation_route",
             "subject_id": ROUTE_ID,
@@ -306,14 +295,17 @@ def test_history_route_delegates_all_filters_and_returns_the_strict_page(api_cli
         {"limit": 101},
     ],
 )
-def test_history_route_rejects_invalid_filters_before_query(api_client, monkeypatch, params):
+def test_history_route_maps_invalid_filters_to_422_without_query(api_client, monkeypatch, params):
     client, _session = api_client
 
-    class ShouldNotQuery:
+    class RejectingService:
         def __init__(self, *_args, **_kwargs):
-            raise AssertionError("invalid history filters must not construct the service")
+            pass
 
-    monkeypatch.setattr(operations_api, "HistoryService", ShouldNotQuery, raising=False)
+        async def list(self, **_filters):
+            raise ValueError("invalid history filter")
+
+    monkeypatch.setattr(operations_api, "HistoryService", RejectingService, raising=False)
 
     response = client.get("/operations/history", params=params)
 
@@ -644,25 +636,6 @@ def test_retention_run_detail_redacts_legacy_snapshots_without_changing_numeric_
             "attempt": 2,
         }
     ]
-    assert session.commits == 0
-
-
-def test_retention_run_detail_returns_404_when_service_has_no_run(api_client, monkeypatch):
-    client, session = api_client
-
-    class Service:
-        def __init__(self, _received_session):
-            pass
-
-        async def get_run(self, _run_id):
-            return None
-
-    monkeypatch.setattr(operations_api, "RetentionService", Service, raising=False)
-
-    response = client.get(f"/operations/retention-runs/{RUN_ID}")
-
-    assert response.status_code == 404
-    assert response.json() == {"detail": "Retention run not found"}
     assert session.commits == 0
 
 

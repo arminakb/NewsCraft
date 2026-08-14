@@ -4430,6 +4430,126 @@ export interface components {
             /** Title */
             title?: string | null;
         };
+        /** ContentPackOut */
+        ContentPackOut: {
+            /**
+             * Brand Profile Id
+             * Format: uuid
+             */
+            brand_profile_id: string;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Status */
+            status: string;
+            /** Story Id */
+            story_id: string | null;
+            /**
+             * Story Revision Id
+             * Format: uuid
+             */
+            story_revision_id: string;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+            /** Variants */
+            variants: components["schemas"]["ContentPackVariantOut"][];
+        };
+        /** ContentPackRequestOut */
+        ContentPackRequestOut: {
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Id */
+            id: string;
+            /** Job Id */
+            job_id: string | null;
+            /** Last Failure */
+            last_failure: string | null;
+            /** Pack */
+            pack: components["schemas"]["ContentPackOut"] | components["schemas"]["ContentPackSummaryOut"] | null;
+            /** Status */
+            status: string;
+            /**
+             * Story Id
+             * Format: uuid
+             */
+            story_id: string;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+        };
+        /** ContentPackSummaryOut */
+        ContentPackSummaryOut: {
+            /**
+             * Brand Profile Id
+             * Format: uuid
+             */
+            brand_profile_id: string;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Status */
+            status: string;
+            /**
+             * Story Id
+             * Format: uuid
+             */
+            story_id: string;
+            /**
+             * Story Revision Id
+             * Format: uuid
+             */
+            story_revision_id: string;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+            /** Variants */
+            variants: components["schemas"]["ContentPackSummaryVariantOut"][];
+        };
+        /** ContentPackSummaryVariantOut */
+        ContentPackSummaryVariantOut: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Platform */
+            platform: string;
+        };
+        /** ContentPackVariantOut */
+        ContentPackVariantOut: {
+            current_revision: components["schemas"]["PlatformVariantRevisionOut"] | null;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Platform */
+            platform: string;
+        };
         /** ContentSettingsSummaryOut */
         ContentSettingsSummaryOut: {
             automations: components["schemas"]["AutomationsSummaryOut"];
@@ -5845,6 +5965,74 @@ export interface components {
         };
         /** @enum {string} */
         Platform: "telegram" | "instagram" | "x" | "blog";
+        /** PlatformVariantRevisionOut */
+        PlatformVariantRevisionOut: {
+            /** Approval Note */
+            approval_note: string | null;
+            /** Approval State */
+            approval_state: string;
+            /** Approved At */
+            approved_at: string | null;
+            /** Content */
+            content: {
+                [key: string]: unknown;
+            };
+            /** Content Hash */
+            content_hash: string;
+            /** Content Pack Id */
+            content_pack_id: string | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Created By */
+            created_by: string;
+            /** Evidence Map */
+            evidence_map: unknown[];
+            /** Generation Attempt Id */
+            generation_attempt_id: string | null;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Manual Checklist */
+            manual_checklist: unknown[];
+            /** Media Plan */
+            media_plan: unknown[];
+            /** Origin */
+            origin: string;
+            /** Parent Revision Id */
+            parent_revision_id: string | null;
+            /** Platform */
+            platform: string | null;
+            /**
+             * Platform Variant Id
+             * Format: uuid
+             */
+            platform_variant_id: string;
+            prompt_version: components["schemas"]["PromptVersionOut"] | null;
+            provider_profile: components["schemas"]["ProviderProfileOut"] | null;
+            /** Resolved Model */
+            resolved_model: string | null;
+            /** Revision Number */
+            revision_number: number;
+            /** Source Media */
+            source_media: {
+                [key: string]: unknown;
+            }[];
+            /** Story Id */
+            story_id: string | null;
+            /** Validation Issues */
+            validation_issues: {
+                [key: string]: unknown;
+            }[];
+            /** Validation Results */
+            validation_results: {
+                [key: string]: unknown;
+            }[];
+        };
         /** PortCatalogOut */
         PortCatalogOut: {
             /** Artifact Types */
@@ -5933,6 +6121,20 @@ export interface components {
             /** Version */
             version: number;
         };
+        /** PromptVersionOut */
+        PromptVersionOut: {
+            /** Checksum Sha256 */
+            checksum_sha256: string;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Output Schema Version */
+            output_schema_version: string;
+            /** Version */
+            version: number;
+        };
         /** ProviderPricingSettings */
         "ProviderPricingSettings-Input": {
             /** Input Usd Per Million */
@@ -5946,6 +6148,18 @@ export interface components {
             input_usd_per_million: string;
             /** Output Usd Per Million */
             output_usd_per_million: string;
+        };
+        /** ProviderProfileOut */
+        ProviderProfileOut: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Name */
+            name: string;
+            /** Provider Type */
+            provider_type: string;
         };
         /** ProxyDiagnostics */
         ProxyDiagnostics: {
@@ -6997,6 +7211,103 @@ export interface components {
              * @enum {string}
              */
             state: "inbox" | "shortlisted" | "rejected";
+        };
+        /** StoryEvidenceOut */
+        StoryEvidenceOut: {
+            /** Authors */
+            authors: unknown[];
+            /**
+             * Captured At
+             * Format: date-time
+             */
+            captured_at: string;
+            /** Content Sha256 */
+            content_sha256: string;
+            /** Content Text */
+            content_text: string;
+            /** Evidence Key */
+            evidence_key: string;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Published At */
+            published_at: string | null;
+            /** Source Url */
+            source_url: string | null;
+            /** Title */
+            title: string | null;
+        };
+        /** StoryRevisionOut */
+        StoryRevisionOut: {
+            /** Angles */
+            angles: unknown[];
+            /** Citations */
+            citations: unknown[];
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Created By */
+            created_by: string;
+            /** Disagreements */
+            disagreements: unknown[];
+            /** Facts */
+            facts: unknown[];
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Narrative */
+            narrative: string;
+            /** Parent Revision Id */
+            parent_revision_id: string | null;
+            /** Revision Number */
+            revision_number: number;
+            /**
+             * Story Id
+             * Format: uuid
+             */
+            story_id: string;
+        };
+        /** StorySummaryOut */
+        StorySummaryOut: {
+            /** Completeness */
+            completeness: {
+                [key: string]: unknown;
+            };
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Evidence Count */
+            evidence_count: number;
+            /** Evidence Set Hash */
+            evidence_set_hash: string;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Latest Evidence At */
+            latest_evidence_at: string | null;
+            /** Primary Language */
+            primary_language: string;
+            /** Status */
+            status: string;
+            /** Superseded By Id */
+            superseded_by_id: string | null;
+            /** Title */
+            title: string;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
         };
         /** TelegramAutomationOptionsOut */
         TelegramAutomationOptionsOut: {
@@ -9749,7 +10060,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["ContentPackRequestOut"][];
                 };
             };
         };
@@ -9769,7 +10080,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["ContentPackOut"][];
                 };
             };
         };
@@ -9791,7 +10102,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["ContentPackOut"];
                 };
             };
             /** @description Validation Error */
@@ -11199,7 +11510,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["PlatformVariantRevisionOut"];
                 };
             };
             /** @description Validation Error */
@@ -11234,7 +11545,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["PlatformVariantRevisionOut"];
                 };
             };
             /** @description Validation Error */
@@ -11309,7 +11620,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["PlatformVariantRevisionOut"];
                 };
             };
             /** @description Validation Error */
@@ -11375,7 +11686,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["JobAcceptedOut"];
                 };
             };
             /** @description Validation Error */
@@ -11406,7 +11717,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["PlatformVariantRevisionOut"][];
                 };
             };
             /** @description Validation Error */
@@ -11441,7 +11752,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["PlatformVariantRevisionOut"];
                 };
             };
             /** @description Validation Error */
@@ -12484,7 +12795,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["StorySummaryOut"];
                 };
             };
             /** @description Validation Error */
@@ -12519,7 +12830,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["JobAcceptedOut"];
                 };
             };
             /** @description Validation Error */
@@ -12585,7 +12896,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["StoryEvidenceOut"][];
                 };
             };
             /** @description Validation Error */
@@ -12682,7 +12993,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["StoryRevisionOut"][];
                 };
             };
             /** @description Validation Error */

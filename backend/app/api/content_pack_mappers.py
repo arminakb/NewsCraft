@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 from collections.abc import Iterable, Sequence
+from datetime import datetime
 from typing import Any
 from uuid import UUID
 
+from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
@@ -25,6 +27,153 @@ from app.generation.platform_validation import validate_platform_payload
 from app.jobs.models import WorkflowJob
 from app.research.schemas import CitationRef
 from app.stories.models import StoryEvidenceSnapshot, StoryRevision
+
+
+class StorySummaryOut(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: UUID
+    title: str
+    status: str
+    primary_language: str
+    superseded_by_id: UUID | None
+    evidence_count: int = Field(ge=0)
+    latest_evidence_at: datetime | None
+    completeness: dict[str, Any]
+    evidence_set_hash: str
+    created_at: datetime
+    updated_at: datetime
+
+
+class StoryEvidenceOut(BaseModel):
+    model_config = ConfigDict(extra="forbid", from_attributes=True)
+
+    id: UUID
+    evidence_key: str
+    title: str | None
+    content_text: str
+    content_sha256: str
+    source_url: str | None
+    authors: list[Any]
+    published_at: datetime | None
+    captured_at: datetime
+
+
+class StoryRevisionOut(BaseModel):
+    model_config = ConfigDict(extra="forbid", from_attributes=True)
+
+    id: UUID
+    story_id: UUID
+    parent_revision_id: UUID | None
+    revision_number: int
+    narrative: str
+    facts: list[Any]
+    disagreements: list[Any]
+    angles: list[Any]
+    citations: list[Any]
+    created_by: str
+    created_at: datetime
+
+
+class ProviderProfileOut(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: UUID
+    name: str
+    provider_type: str
+
+
+class PromptVersionOut(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: UUID
+    version: int
+    output_schema_version: str
+    checksum_sha256: str
+
+
+class PlatformVariantRevisionOut(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: UUID
+    platform: str | None
+    platform_variant_id: UUID
+    content_pack_id: UUID | None
+    story_id: UUID | None
+    parent_revision_id: UUID | None
+    generation_attempt_id: UUID | None
+    revision_number: int
+    content: dict[str, Any]
+    content_hash: str
+    evidence_map: list[Any]
+    manual_checklist: list[Any]
+    validation_results: list[dict[str, Any]]
+    validation_issues: list[dict[str, Any]]
+    media_plan: list[Any]
+    source_media: list[dict[str, Any]]
+    approval_state: str
+    approval_note: str | None
+    approved_at: datetime | None
+    created_by: str
+    origin: str
+    provider_profile: ProviderProfileOut | None
+    resolved_model: str | None
+    prompt_version: PromptVersionOut | None
+    created_at: datetime
+
+
+class ContentPackVariantOut(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: UUID
+    platform: str
+    current_revision: PlatformVariantRevisionOut | None
+
+
+class ContentPackOut(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: UUID
+    story_id: UUID | None
+    story_revision_id: UUID
+    brand_profile_id: UUID
+    status: str
+    created_at: datetime
+    updated_at: datetime
+    variants: list[ContentPackVariantOut]
+
+
+class ContentPackSummaryVariantOut(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: UUID
+    platform: str
+
+
+class ContentPackSummaryOut(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: UUID
+    story_id: UUID
+    story_revision_id: UUID
+    brand_profile_id: UUID
+    status: str
+    created_at: datetime
+    updated_at: datetime
+    variants: list[ContentPackSummaryVariantOut]
+
+
+class ContentPackRequestOut(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: UUID | str
+    job_id: UUID | None
+    story_id: UUID
+    status: str
+    last_failure: str | None
+    created_at: datetime
+    updated_at: datetime
+    pack: ContentPackOut | ContentPackSummaryOut | None
 
 
 def _platform_values(rows: Any) -> set[str]:
