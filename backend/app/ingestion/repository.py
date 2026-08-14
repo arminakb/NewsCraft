@@ -5,7 +5,6 @@ from datetime import UTC, datetime
 from decimal import Decimal
 from hashlib import sha256
 from typing import Any
-from urllib.parse import urlsplit
 from uuid import UUID
 
 from sqlalchemy import Select, and_, func, or_, select, text, update
@@ -28,9 +27,15 @@ from app.db.models import (
     Source,
     SourceItem,
 )
-from app.ingestion.runs import new_ingest_run
-from app.normalization.fingerprints import content_hash, title_date_fingerprint
-from app.normalization.text import fingerprint_text, infer_direction
+from app.ingestion.identity import build_item_identities
+from app.ingestion.media_policy import (
+    apply_media_candidate,
+    dedupe_media_candidates,
+    media_asset_values,
+    plan_item_media_rows,
+)
+from app.ingestion.runs import ingest_run_counters, new_ingest_run
+from app.normalization.text import fingerprint_text, infer_direction, infer_script, normalized_language_hint
 from app.normalization.titles import normalize_title
 from app.normalization.urls import hash_value
 from app.sources.base import MediaCandidate, ParsedSourceItem
@@ -39,129 +44,8 @@ GLOBAL_STRONG_IDENTITY_INDEX_WHERE = text("scope = 'global' AND is_strong")
 SOURCE_STRONG_IDENTITY_INDEX_WHERE = text("scope = 'source' AND is_strong")
 SOURCE_WEAK_IDENTITY_INDEX_WHERE = text("scope = 'source' AND NOT is_strong")
 LIVE_MEDIA_ASSET_INDEX_WHERE = text("fetch_status <> 'expired'")
-DISCOVERY_SOURCE_DEFINITIONS = {
-    "gdelt": {
-        "name": "GDELT",
-        "feed_url": "https://api.gdeltproject.org/api/v2/doc/doc",
-        "source_group": "discovery",
-        "language_hint": "en",
-    },
-    "google_news": {
-        "name": "Google News RSS",
-        "feed_url": "https://news.google.com/rss/search",
-        "source_group": "discovery",
-        "language_hint": "en",
-    },
-    "hackernews": {
-        "name": "Hacker News",
-        "feed_url": "https://hacker-news.firebaseio.com/v0",
-        "source_group": "tech",
-        "language_hint": "en",
-    },
-}
 
-
-def build_item_identities(source: Source, parsed_item: ParsedSourceItem) -> list[dict[str, Any]]:
-    identities: list[dict[str, Any]] = []
-
-    if parsed_item.canonical_url_candidate:
-        _append_identity(identities, "canonical_url", parsed_item.canonical_url_candidate, "global", True)
-
-    if parsed_item.source_url_norm:
-        _append_identity(identities, "normalized_url", parsed_item.source_url_norm, "global", True)
-
-    if source.platform == "telegram_public":
-        _append_identity(identities, "telegram_post", parsed_item.external_id_norm, "global", True)
-    elif source.platform == "rss" and parsed_item.external_id_norm:
-        _append_identity(identities, "rss_guid", parsed_item.external_id_norm, "source", True, source.id)
-    elif source.platform == "atom" and parsed_item.external_id_norm:
-        _append_identity(identities, "atom_id", parsed_item.external_id_norm, "source", True, source.id)
-
-    if len(parsed_item.content_text.strip()) >= 80:
-        _append_identity(
-            identities,
-            "content_hash",
-            content_hash(parsed_item.content_text),
-            "global",
-            True,
-            confidence=Decimal("0.92"),
-        )
-
-    date_key = (
-        parsed_item.published_at.date().isoformat() if parsed_item.published_at else parsed_item.published_raw or ""
-    )
-    _append_identity(
-        identities,
-        "title_date_fingerprint",
-        title_date_fingerprint(parsed_item.title, date_key),
-        "source",
-        False,
-        source.id,
-        confidence=Decimal("0.55"),
-    )
-
-    deduped: dict[tuple[str, str, str, UUID | None], dict[str, Any]] = {}
-    for identity in identities:
-        key = (
-            identity["identity_type"],
-            identity["identity_hash"],
-            identity["scope"],
-            identity["source_id"],
-        )
-        deduped[key] = identity
-    return list(deduped.values())
-
-
-def dedupe_media_candidates(candidates: list[MediaCandidate]) -> list[MediaCandidate]:
-    """Collapse candidates that point at one URL, keeping the strongest claim.
-
-    Parsers may surface the same image through several fields (a `<media:content>`
-    lead image that also appears as an inline `<img>`). Keyed only by URL, a plain
-    dict comprehension kept whichever entry came last — the weakest one — which
-    then overwrote the strong candidate's dimensions and quality on the shared
-    asset row and emitted a second `item_media` row for the same asset.
-    """
-
-    strongest: dict[str, MediaCandidate] = {}
-    order: list[str] = []
-    for candidate in candidates:
-        existing = strongest.get(candidate.normalized_url)
-        if existing is None:
-            strongest[candidate.normalized_url] = candidate
-            order.append(candidate.normalized_url)
-        elif candidate.confidence > existing.confidence:
-            strongest[candidate.normalized_url] = candidate
-    return [strongest[url] for url in order]
-
-
-def plan_item_media_rows(
-    content_item_id: UUID,
-    media_assets: list[MediaAsset],
-    parsed_item: ParsedSourceItem,
-) -> list[dict[str, Any]]:
-    rows: list[dict[str, Any]] = []
-    candidates_by_url = {
-        candidate.normalized_url: candidate
-        for candidate in dedupe_media_candidates(parsed_item.media_candidates)
-    }
-    primary_image_assigned = False
-
-    for sort_order, media_asset in enumerate(media_assets):
-        candidate = candidates_by_url.get(media_asset.normalized_url)
-        role = _media_role(media_asset, candidate, primary_image_assigned)
-        if role == "primary_image":
-            primary_image_assigned = True
-        rows.append(
-            {
-                "content_item_id": content_item_id,
-                "media_asset_id": media_asset.id,
-                "role": role,
-                "sort_order": sort_order,
-                "confidence": _media_confidence(media_asset, candidate),
-                "extracted_from": candidate.source_field if candidate else media_asset.source_field,
-            }
-        )
-    return rows
+__all__ = ["IngestionRepository", "build_item_identities"]
 
 
 class IngestionRepository:
@@ -176,8 +60,7 @@ class IngestionRepository:
 
     async def finish_run(self, run_id: UUID, status: str, stats: dict, error: str | None = None) -> None:
         durable_stats = redact_secrets(stats)
-        checked = max(0, int(stats.get("checked", 0)))
-        failed = max(0, int(stats.get("failed", 0)))
+        counters = ingest_run_counters(stats)
         await self.session.execute(
             update(IngestRun)
             .where(IngestRun.id == run_id)
@@ -186,9 +69,9 @@ class IngestionRepository:
                 status=status,
                 stats=durable_stats if isinstance(durable_stats, dict) else {},
                 error=redact_string(error) if error is not None else None,
-                processed_count=checked,
-                success_count=max(0, checked - failed),
-                failure_count=failed,
+                processed_count=counters.processed,
+                success_count=counters.success,
+                failure_count=counters.failure,
             )
         )
 
@@ -198,29 +81,6 @@ class IngestionRepository:
             stmt = stmt.where(Source.platform.in_(platforms))
         rows = await self.session.scalars(stmt.order_by(Source.name))
         return list(rows)
-
-    async def ensure_discovery_source(self, platform: str) -> Source:
-        definition = DISCOVERY_SOURCE_DEFINITIONS.get(platform)
-        if definition is None:
-            raise ValueError(f"Unsupported discovery platform: {platform}")
-
-        stmt = select(Source).where(Source.platform == platform, Source.feed_url == definition["feed_url"]).limit(1)
-        existing = await self.session.scalar(stmt)
-        if existing:
-            return existing
-
-        source = Source(
-            platform=platform,
-            name=definition["name"],
-            feed_url=definition["feed_url"],
-            source_group=definition["source_group"],
-            language_hint=definition["language_hint"],
-            default_timezone="UTC",
-            active=True,
-        )
-        self.session.add(source)
-        await self.session.flush()
-        return source
 
     async def save_raw_payload(
         self,
@@ -507,13 +367,13 @@ class IngestionRepository:
                 .execution_options(populate_existing=True)
             )
             if existing is not None:
-                _apply_media_candidate(existing, candidate, url_hash)
+                apply_media_candidate(existing, candidate, url_hash)
                 return existing
 
             inserted = (
                 await self.session.execute(
                     insert(MediaAsset)
-                    .values(**_media_asset_values(candidate, url_hash))
+                    .values(**media_asset_values(candidate, url_hash))
                     .on_conflict_do_nothing(
                         index_elements=[MediaAsset.url_hash],
                         index_where=LIVE_MEDIA_ASSET_INDEX_WHERE,
@@ -588,28 +448,6 @@ class IngestionRepository:
                     .values(primary_image_id=None)
                 )
         await self.session.flush()
-
-
-def _append_identity(
-    identities: list[dict[str, Any]],
-    identity_type: str,
-    identity_value: str,
-    scope: str,
-    is_strong: bool,
-    source_id: UUID | None = None,
-    confidence: Decimal = Decimal("1.0"),
-) -> None:
-    identities.append(
-        {
-            "identity_type": identity_type,
-            "identity_value": identity_value,
-            "identity_hash": hash_value(identity_value),
-            "scope": scope,
-            "source_id": source_id,
-            "confidence": confidence,
-            "is_strong": is_strong,
-        }
-    )
 
 
 def _source_item_values(
@@ -723,6 +561,7 @@ def _content_item_values(source: Source, parsed_item: ParsedSourceItem) -> dict[
     title_normalization = normalize_title(parsed_item.title, parsed_item.content_text)
     normalized_item = _parsed_item_with_title(parsed_item, title_normalization.title)
     direction = infer_direction(normalized_item.content_text)
+    script_code = infer_script(normalized_item.content_text)
     taxonomy = classify_content_taxonomy(source, normalized_item)
     content_classification = classify_content_item(source, normalized_item)
     bucket_assignment = assign_rewrite_bucket(
@@ -747,8 +586,8 @@ def _content_item_values(source: Source, parsed_item: ParsedSourceItem) -> dict[
         "summary": normalized_item.summary,
         "content_text": normalized_item.content_text,
         "content_html_sanitized": normalized_item.content_html,
-        "language_code": source.language_hint,
-        "script_code": "Arab" if direction == "rtl" else "Latn",
+        "language_code": normalized_language_hint(source.language_hint, script_code=script_code),
+        "script_code": script_code,
         "direction": direction,
         "authors": [normalized_item.author] if normalized_item.author else [],
         "tags": taxonomy.tags,
@@ -854,195 +693,3 @@ def _parsed_item_with_title(parsed_item: ParsedSourceItem, title: str) -> Parsed
         media_candidates=parsed_item.media_candidates,
         parser_meta=parsed_item.parser_meta,
     )
-
-
-def _media_asset_values(candidate: MediaCandidate, url_hash: str) -> dict[str, Any]:
-    quality = _classify_media(candidate)
-    return {
-        "original_url": candidate.original_url,
-        "normalized_url": candidate.normalized_url,
-        "url_hash": url_hash,
-        "kind": candidate.kind,
-        "mime_type": candidate.mime_type,
-        "width": candidate.width,
-        "height": candidate.height,
-        "alt_text": candidate.alt_text,
-        "title": candidate.title,
-        "source_field": candidate.source_field,
-        "storage_path": candidate.storage_path,
-        "checksum_sha256": candidate.checksum_sha256,
-        "byte_length": candidate.byte_length,
-        "fetch_status": candidate.fetch_status,
-        "media_quality": quality["media_quality"],
-        "media_confidence": quality["media_confidence"],
-        "media_source_type": quality["media_source_type"],
-        "asset_role": quality["asset_role"],
-        "is_primary_candidate": quality["is_primary_candidate"],
-        "is_primary": False,
-        "raw_metadata": {
-            "confidence": candidate.confidence,
-            "quality_reasons": quality["quality_reasons"],
-        },
-    }
-
-
-def _apply_media_candidate(asset: MediaAsset, candidate: MediaCandidate, url_hash: str) -> None:
-    values = _media_asset_values(candidate, url_hash)
-    stored_asset = bool(asset.storage_path)
-    if stored_asset:
-        values["media_source_type"] = "stored"
-    for key, value in values.items():
-        if stored_asset and key in {
-            "source_field",
-            "media_quality",
-            "media_confidence",
-            "media_source_type",
-            "asset_role",
-            "is_primary_candidate",
-        }:
-            if key == "media_source_type":
-                asset.media_source_type = "stored"
-            continue
-        # A feed that simply omits `type`/`width`/`height` says nothing about the
-        # asset; it must not erase what a download already established.
-        if key in {"storage_path", "checksum_sha256", "byte_length", "mime_type", "width", "height"} and value is None:
-            continue
-        # For bytes we hold, the magic-byte-verified content type beats the feed's
-        # claim — unless this candidate brings storage of its own (a capture that
-        # re-supplies both the file and its type).
-        if key == "mime_type" and stored_asset and candidate.storage_path is None:
-            continue
-        if key in {"fetch_status", "raw_metadata"} and getattr(asset, key) not in (None, {}, "remote_only"):
-            continue
-        setattr(asset, key, value)
-
-
-def _media_role(
-    media_asset: MediaAsset,
-    candidate: MediaCandidate | None,
-    primary_image_assigned: bool,
-) -> str:
-    source_field = candidate.source_field if candidate else media_asset.source_field
-    asset_role = getattr(media_asset, "asset_role", None) or _asset_role(media_asset.kind, source_field)
-    if asset_role == "tracking_pixel" or getattr(media_asset, "media_quality", None) == "tracking":
-        return "tracking_pixel"
-    if _can_be_primary(media_asset, candidate) and not primary_image_assigned:
-        return "primary_image"
-    if asset_role in {"thumbnail", "inline_image", "video", "document", "preview", "unknown"}:
-        return asset_role
-    if source_field in {"media_thumbnail", "link_preview_image"}:
-        return "thumbnail"
-    if media_asset.kind == "image":
-        return "inline_image"
-    if source_field == "enclosure":
-        return "document"
-    if media_asset.kind == "document":
-        return "document"
-    return "unknown"
-
-
-def _classify_media(candidate: MediaCandidate) -> dict[str, Any]:
-    role = _asset_role(candidate.kind, candidate.source_field)
-    source_type = _media_source_type(candidate.normalized_url)
-    confidence = Decimal(str(candidate.confidence))
-    reasons: list[str] = []
-
-    if _is_tracking_pixel(candidate):
-        return {
-            "media_quality": "tracking",
-            "media_confidence": Decimal("0.05"),
-            "media_source_type": source_type,
-            "asset_role": "tracking_pixel",
-            "is_primary_candidate": False,
-            "quality_reasons": ["tracking_pixel"],
-        }
-    if candidate.confidence < 0.4:
-        reasons.append("low_candidate_confidence")
-        quality = "low"
-        confidence = min(confidence, Decimal("0.30"))
-    elif candidate.kind == "image" and _is_tiny_image(candidate):
-        reasons.append("tiny_image")
-        quality = "low"
-        confidence = min(confidence, Decimal("0.30"))
-    elif role == "unknown":
-        reasons.append("unknown_role")
-        quality = "unknown"
-        confidence = min(confidence, Decimal("0.20"))
-    else:
-        quality = "good"
-        reasons.append("usable_media")
-
-    return {
-        "media_quality": quality,
-        "media_confidence": confidence,
-        "media_source_type": source_type,
-        "asset_role": role,
-        "is_primary_candidate": quality == "good" and candidate.kind == "image",
-        "quality_reasons": reasons,
-    }
-
-
-def _asset_role(kind: str, source_field: str | None) -> str:
-    if source_field == "media_thumbnail":
-        return "thumbnail"
-    if source_field == "link_preview_image":
-        return "preview"
-    if kind == "image":
-        return "inline_image"
-    if kind == "video":
-        return "video"
-    if kind == "document":
-        return "document"
-    return "unknown"
-
-
-def _media_source_type(url: str) -> str:
-    host = urlsplit(url).hostname or ""
-    if "cdn-telegram.org" in host:
-        return "temporary_external"
-    return "external"
-
-
-def _is_tracking_pixel(candidate: MediaCandidate) -> bool:
-    if _is_medium_stat_url(candidate.normalized_url):
-        return True
-    return (
-        candidate.kind == "image"
-        and candidate.width is not None
-        and candidate.height is not None
-        and (candidate.width <= 2 or candidate.height <= 2)
-    )
-
-
-def _is_medium_stat_url(url: str) -> bool:
-    parsed = urlsplit(url)
-    host = parsed.hostname or ""
-    return host.endswith("medium.com") and (parsed.path.startswith("/_/stat") or "event=" in parsed.query)
-
-
-def _is_tiny_image(candidate: MediaCandidate) -> bool:
-    if candidate.width is None or candidate.height is None:
-        return False
-    return candidate.width < 120 or candidate.height < 90
-
-
-def _can_be_primary(media_asset: MediaAsset, candidate: MediaCandidate | None) -> bool:
-    explicit_candidate = getattr(media_asset, "is_primary_candidate", None)
-    if explicit_candidate is False:
-        return False
-    if media_asset.kind != "image":
-        return False
-    if getattr(media_asset, "media_quality", None) in {"tracking", "low", "unknown"}:
-        return False
-    if candidate and candidate.confidence < 0.4:
-        return False
-    if candidate and _is_tracking_pixel(candidate):
-        return False
-    return True
-
-
-def _media_confidence(media_asset: MediaAsset, candidate: MediaCandidate | None) -> Decimal:
-    value = getattr(media_asset, "media_confidence", None)
-    if value is not None:
-        return Decimal(str(value))
-    return Decimal(str(candidate.confidence if candidate else 1.0))

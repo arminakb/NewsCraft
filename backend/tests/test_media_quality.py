@@ -7,7 +7,15 @@ from uuid import uuid4
 
 from app.api.schemas import MediaAssetOut
 from app.db.models import MediaAsset
-from app.ingestion.repository import _apply_media_candidate, _media_asset_values, plan_item_media_rows
+from app.ingestion.media_policy import (
+    apply_media_candidate as _apply_media_candidate,
+)
+from app.ingestion.media_policy import (
+    media_asset_values as _media_asset_values,
+)
+from app.ingestion.media_policy import (
+    plan_item_media_rows,
+)
 from app.sources.base import MediaCandidate, ParsedSourceItem
 
 

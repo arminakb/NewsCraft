@@ -9,7 +9,7 @@ from bs4 import BeautifulSoup
 from app.normalization.dates import normalize_source_datetime
 from app.normalization.fingerprints import title_date_fingerprint
 from app.normalization.media import infer_media_kind, is_http_media_url, parse_int
-from app.normalization.text import fingerprint_text
+from app.normalization.text import fingerprint_text, html_to_text
 from app.normalization.titles import normalize_title
 from app.normalization.urls import normalize_url
 from app.sources.base import MediaCandidate, ParsedSourceItem, ParsedSourcePayload
@@ -54,8 +54,8 @@ def _parse_entry(
     summary_html = entry.get("summary") or entry.get("description") or ""
     source_content_html = _entry_content_html(entry)
     content_html = source_content_html or summary_html or None
-    summary = _html_to_text(summary_html)
-    content_text = _html_to_text(content_html) if content_html else summary or title
+    summary = html_to_text(summary_html)
+    content_text = html_to_text(content_html) if content_html else summary or title
     published_raw, published_at, date_parse_status = _entry_date(entry, default_timezone)
     categories = [tag.get("term") for tag in entry.get("tags", []) if tag.get("term")]
     external_id_raw = entry.get("id") or entry.get("guid") or link
@@ -247,7 +247,3 @@ def _append_media_candidate(
             confidence=confidence,
         )
     )
-
-
-def _html_to_text(html: str) -> str:
-    return BeautifulSoup(html, "lxml").get_text(" ", strip=True)

@@ -84,3 +84,5 @@ def test_repository_stores_generated_telegram_title_before_classification():
     assert values["title_quality"] == "generated"
     assert values["title_was_generated"] is True
     assert values["content_type"] == "tutorial"
+    assert values["language_code"] == "fa"
+    assert values["script_code"] == "Arab"

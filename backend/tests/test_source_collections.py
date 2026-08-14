@@ -168,7 +168,7 @@ class _RecordingSession(_Session):
 
 
 @pytest.mark.asyncio
-async def test_collection_snapshot_reports_a_source_as_running_before_it_completes(monkeypatch):
+async def test_collection_snapshot_reports_a_source_as_running_before_it_completes(monkeypatch, caplog):
     class CollectionWorkflow(IngestionWorkflow):
         def __init__(self):
             super().__init__()
@@ -202,13 +202,20 @@ async def test_collection_snapshot_reports_a_source_as_running_before_it_complet
             return None
 
     monkeypatch.setattr("app.ingestion.workflow.settings.ingestion_source_concurrency", 1)
+
+    async def fail_progress(payload):
+        del payload
+        raise RuntimeError("progress store unavailable")
+
     session = _RecordingSession()
-    await CollectionWorkflow().run(
-        session=session,
-        platforms=None,
-        source_ids=None,
-        trigger="test",
-    )
+    with caplog.at_level("WARNING", logger="app.ingestion.workflow"):
+        await CollectionWorkflow().run(
+            session=session,
+            platforms=None,
+            source_ids=None,
+            trigger="test",
+            on_progress=fail_progress,
+        )
 
     statuses = [update["status"] for update in session.snapshot_updates]
     assert statuses == ["running", "succeeded", "running", "succeeded"]
@@ -217,3 +224,4 @@ async def test_collection_snapshot_reports_a_source_as_running_before_it_complet
     assert running["completed_at"] is None
     assert terminal["started_at"] == running["started_at"]
     assert terminal["completed_at"] > terminal["started_at"]
+    assert sum(message.startswith("ingest_progress_report_failed source=") for message in caplog.messages) == 2

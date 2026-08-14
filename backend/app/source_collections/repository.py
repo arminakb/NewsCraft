@@ -103,6 +103,28 @@ def collection_projection() -> Select:
         )
         .subquery()
     )
+    projection = (
+        active_run.c.active_ingest_run_id,
+        active_run.c.active_ingest_status,
+        active_run.c.active_ingest_source_count,
+        active_run.c.active_ingest_processed_count,
+        active_run.c.active_ingest_success_count,
+        active_run.c.active_ingest_failure_count,
+        latest_subscription.c.continuous_subscription_id,
+        latest_subscription.c.continuous_mode,
+        latest_subscription.c.continuous_status,
+        latest_subscription.c.continuous_interval_minutes,
+        latest_subscription.c.continuous_started_at,
+        latest_subscription.c.continuous_stopped_at,
+        latest_subscription.c.continuous_last_cycle_at,
+        latest_subscription.c.continuous_next_cycle_at,
+        latest_subscription.c.continuous_last_success_at,
+        latest_subscription.c.continuous_cycle_count,
+        latest_subscription.c.continuous_last_cycle_status,
+        latest_subscription.c.continuous_last_error,
+        latest_subscription.c.continuous_current_cycle_job_id,
+        latest_subscription.c.continuous_current_cycle_run_id,
+    )
     return (
         select(
             SourceCollection.id,
@@ -112,26 +134,7 @@ def collection_projection() -> Select:
             SourceCollection.created_at,
             SourceCollection.updated_at,
             func.count(SourceCollectionMembership.source_id).label("source_count"),
-            active_run.c.active_ingest_run_id,
-            active_run.c.active_ingest_status,
-            active_run.c.active_ingest_source_count,
-            active_run.c.active_ingest_processed_count,
-            active_run.c.active_ingest_success_count,
-            active_run.c.active_ingest_failure_count,
-            latest_subscription.c.continuous_subscription_id,
-            latest_subscription.c.continuous_mode,
-            latest_subscription.c.continuous_status,
-            latest_subscription.c.continuous_interval_minutes,
-            latest_subscription.c.continuous_started_at,
-            latest_subscription.c.continuous_stopped_at,
-            latest_subscription.c.continuous_last_cycle_at,
-            latest_subscription.c.continuous_next_cycle_at,
-            latest_subscription.c.continuous_last_success_at,
-            latest_subscription.c.continuous_cycle_count,
-            latest_subscription.c.continuous_last_cycle_status,
-            latest_subscription.c.continuous_last_error,
-            latest_subscription.c.continuous_current_cycle_job_id,
-            latest_subscription.c.continuous_current_cycle_run_id,
+            *projection,
         )
         .outerjoin(
             SourceCollectionMembership,
@@ -148,26 +151,7 @@ def collection_projection() -> Select:
         )
         .group_by(
             SourceCollection.id,
-            active_run.c.active_ingest_run_id,
-            active_run.c.active_ingest_status,
-            active_run.c.active_ingest_source_count,
-            active_run.c.active_ingest_processed_count,
-            active_run.c.active_ingest_success_count,
-            active_run.c.active_ingest_failure_count,
-            latest_subscription.c.continuous_subscription_id,
-            latest_subscription.c.continuous_mode,
-            latest_subscription.c.continuous_status,
-            latest_subscription.c.continuous_interval_minutes,
-            latest_subscription.c.continuous_started_at,
-            latest_subscription.c.continuous_stopped_at,
-            latest_subscription.c.continuous_last_cycle_at,
-            latest_subscription.c.continuous_next_cycle_at,
-            latest_subscription.c.continuous_last_success_at,
-            latest_subscription.c.continuous_cycle_count,
-            latest_subscription.c.continuous_last_cycle_status,
-            latest_subscription.c.continuous_last_error,
-            latest_subscription.c.continuous_current_cycle_job_id,
-            latest_subscription.c.continuous_current_cycle_run_id,
+            *projection,
         )
     )
 
@@ -275,16 +259,6 @@ async def list_sources(
     total = int(await session.scalar(count_statement) or 0)
     rows = list(await session.scalars(base.limit(limit).offset(offset)))
     return SourceCollectionPage(items=tuple(rows), total=total, limit=limit, offset=offset)
-
-
-async def source_ids_for_collection(session: AsyncSession, collection_id: UUID) -> list[UUID]:
-    return list(
-        await session.scalars(
-            select(SourceCollectionMembership.source_id)
-            .where(SourceCollectionMembership.collection_id == collection_id)
-            .order_by(SourceCollectionMembership.source_id)
-        )
-    )
 
 
 async def collection_source_count(session: AsyncSession, collection_id: UUID) -> int:
