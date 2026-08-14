@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections import defaultdict
-from collections.abc import Iterable
+from collections.abc import Iterable, Iterator
 from uuid import UUID
 
 from sqlalchemy import select, text
@@ -46,51 +46,37 @@ _RESOURCE_FIELDS: dict[str, dict[str, ResourceKind]] = {
 }
 
 
-def graph_resource_requests(graph: WorkflowGraphV1) -> set[tuple[ResourceKind, UUID]]:
-    found: set[tuple[ResourceKind, UUID]] = set()
+def _iter_resource_refs(graph: WorkflowGraphV1) -> Iterator[tuple[ResourceKind, UUID, str, str]]:
     for node in graph.nodes:
         for field, kind in _RESOURCE_FIELDS.get(node.type, {}).items():
             raw = node.config.get(field)
-            if raw is None:
-                continue
             values = raw if isinstance(raw, list) else [raw]
             for value in values:
                 try:
-                    found.add((kind, UUID(str(value))))
+                    resource_id = UUID(str(value))
                 except (TypeError, ValueError):
                     continue
+                yield kind, resource_id, node.id, f"config.{field}"
         if node.type == "generate_content_pack":
             prompt_ids = node.config.get("prompt_version_ids", [])
             for raw in prompt_ids if isinstance(prompt_ids, list) else []:
                 try:
-                    found.add(("prompt_version", UUID(str(raw))))
+                    resource_id = UUID(str(raw))
                 except (TypeError, ValueError):
                     continue
-    return found
+                yield "prompt_version", resource_id, node.id, "config.prompt_version_ids"
+
+
+def graph_resource_requests(graph: WorkflowGraphV1) -> set[tuple[ResourceKind, UUID]]:
+    return {(kind, resource_id) for kind, resource_id, _node_id, _field_path in _iter_resource_refs(graph)}
 
 
 def graph_resource_locations(
     graph: WorkflowGraphV1,
 ) -> dict[tuple[ResourceKind, UUID], list[tuple[str, str]]]:
     locations: dict[tuple[ResourceKind, UUID], list[tuple[str, str]]] = defaultdict(list)
-    for node in graph.nodes:
-        for field, kind in _RESOURCE_FIELDS.get(node.type, {}).items():
-            raw = node.config.get(field)
-            values = raw if isinstance(raw, list) else [raw]
-            for value in values:
-                try:
-                    resource_id = UUID(str(value))
-                except (TypeError, ValueError):
-                    continue
-                locations[(kind, resource_id)].append((node.id, f"config.{field}"))
-        if node.type == "generate_content_pack":
-            raw_prompt_ids = node.config.get("prompt_version_ids", [])
-            for value in raw_prompt_ids if isinstance(raw_prompt_ids, list) else []:
-                try:
-                    resource_id = UUID(str(value))
-                except (TypeError, ValueError):
-                    continue
-                locations[("prompt_version", resource_id)].append((node.id, "config.prompt_version_ids"))
+    for kind, resource_id, node_id, field_path in _iter_resource_refs(graph):
+        locations[(kind, resource_id)].append((node_id, field_path))
     return locations
 
 
@@ -224,11 +210,13 @@ async def summarize_resources(
             reason = None
             if not source.active:
                 state, reason = "disabled", "disabled"
-            elif source.platform == "telegram_public" and resource_id in new_source_trigger_ids:
-                # The canonical ingestion worker reads Source.telegram_username directly.
-                # TelegramSourceConfig belongs to the legacy Telegram route trigger.
-                pass
-            elif source.platform == "telegram_public" and resource_id not in source_configs:
+            # New-source triggers read Source.telegram_username directly;
+            # only legacy Telegram route sources require TelegramSourceConfig.
+            elif (
+                source.platform == "telegram_public"
+                and resource_id not in new_source_trigger_ids
+                and resource_id not in source_configs
+            ):
                 state, reason = "not_configured", "source_configuration_missing"
             elif (
                 capability_status is not None

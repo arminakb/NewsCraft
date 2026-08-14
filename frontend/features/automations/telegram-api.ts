@@ -5,22 +5,18 @@ import { apiRequest } from "@/lib/http"
 import type {
   BrandProfile,
   BrandProfileInput,
-  BrandProfilePatch,
   CredentialCapabilityState,
   JobAccepted,
   PromptTemplate,
   PromptVersion,
   PromptVersionInput,
   TelegramAutomationOptions,
-  TelegramDestination,
+  TelegramDestinationHealth,
   TelegramDispatch,
-  TelegramPublication,
   TelegramPublicationContext,
   TelegramPublishAccepted,
   TelegramPublishJob,
   TelegramPublishReceipt,
-  TelegramReconcileInput,
-  TelegramReconciliationResult,
   TelegramRoute,
   TelegramRouteAccepted,
   TelegramRouteBackfillInput,
@@ -51,6 +47,14 @@ type BackendTelegramReceipt = {
   remote_message_ids: number[]; response_metadata: Record<string, unknown>; next_attempt_at: string | null
   ambiguous_at: string | null; completed_at: string | null; created_at: string; updated_at: string
 }
+type BackendTelegramDispatch = {
+  id: string; route_id: string; source_item_id: string; story_id: string; story_revision_id: string
+  source_key: string; source_fingerprint: string; source_message_ids: number[]
+  dispatch_kind: TelegramDispatch["dispatchKind"]; status: string; generation_run_id: string | null
+  variant_revision_id: string | null; publish_job_id: string | null; error_code: string | null
+  error_message: string | null; created_at: string; updated_at: string
+}
+type BackendPromptTemplate = { id: string; purpose_key: string; name: string; description: string | null }
 type BackendTelegramPublishJob = {
   publish_job_id: string; workflow_job_id: string | null; destination_id: string
   platform_variant_revision_id: string; status: TelegramPublishJob["status"]; payload_hash: string
@@ -70,7 +74,7 @@ const defined = (value: Record<string, unknown>) =>
 export async function getTelegramAutomationOptions(): Promise<TelegramAutomationOptions> {
   const row = await apiRequest<{
     sources: Array<{ id: string; name: string; access_mode: TelegramRoute["accessMode"]; capability_state: unknown }>
-    destinations: Array<{ id: string; name: string; health_status: TelegramDestination["healthStatus"]; capability_state: unknown }>
+    destinations: Array<{ id: string; name: string; health_status: TelegramDestinationHealth; capability_state: unknown }>
     brand_profiles: Array<{ id: string; name: string }>
     prompt_template_versions: Array<{ id: string; version: number; is_active: boolean; checksum_sha256: string }>
     ai_provider_profiles: Array<{ id: string; name: string; provider_type: "fake" | "openrouter" | "codex"; default_model: string | null; configured: boolean; capabilities: { generation: boolean; research: boolean }; capability_states: { generation?: unknown; research?: unknown } }>
@@ -98,9 +102,9 @@ export async function createTelegramSource(input: TelegramSourceInput): Promise<
   return mapTelegramSource(row)
 }
 
-export async function getTelegramDestinations(): Promise<TelegramDestination[]> {
-  return (await apiRequest<Array<Record<string, unknown>>>("/telegram/destinations")).map(mapTelegramDestination)
-}
+// Destination listing has exactly one client:
+// features/settings/content-settings-api.ts getTelegramDestinations, typed
+// against the generated TelegramDestinationOut schema.
 
 export async function getTelegramRoutes(): Promise<TelegramRoute[]> {
   return (await apiRequest<BackendTelegramRoute[]>("/telegram/automations")).map(mapTelegramRoute)
@@ -168,7 +172,7 @@ export async function backfillTelegramRoute(id: string, input: TelegramRouteBack
 }
 
 export async function getTelegramDispatches(routeId: string): Promise<TelegramDispatch[]> {
-  const rows = await apiRequest<Array<Record<string, unknown>>>(`/telegram/automations/${encodeURIComponent(routeId)}/dispatches`)
+  const rows = await apiRequest<BackendTelegramDispatch[]>(`/telegram/automations/${encodeURIComponent(routeId)}/dispatches`)
   return rows.map(mapTelegramDispatch)
 }
 
@@ -192,49 +196,15 @@ export async function getTelegramPublishJob(id: string): Promise<TelegramPublish
   return mapTelegramPublishJob(await apiRequest<BackendTelegramPublishJob>(`/telegram/publish-jobs/${encodeURIComponent(id)}`))
 }
 
-export function reconcileTelegramPublishJob(id: string, input: TelegramReconcileInput): Promise<TelegramReconciliationResult>
-export function reconcileTelegramPublishJob(
-  id: string,
-  input: { outcome: TelegramReconcileInput["outcome"]; remoteMessageIds?: number[]; permalink?: string | null }
-): Promise<TelegramReconciliationResult>
-export async function reconcileTelegramPublishJob(
-  id: string,
-  input: { outcome: TelegramReconcileInput["outcome"]; remoteMessageIds?: number[]; permalink?: string | null }
-): Promise<TelegramReconciliationResult> {
-  const row = await apiRequest<Record<string, unknown>>(
-    `/telegram/publish-jobs/${encodeURIComponent(id)}/reconcile`,
-    json("POST", { outcome: input.outcome, remote_message_ids: input.outcome === "published" ? (input.remoteMessageIds ?? []) : [], ...(input.outcome === "published" && input.permalink !== undefined ? { permalink: input.permalink } : {}) })
-  )
-  if (Array.isArray(row.remote_message_ids)) {
-    const publication = mapTelegramPublication(row as unknown as BackendTelegramPublication)
-    return {
-      publishJobId: publication.publishJobId,
-      reconciliationStatus: "confirmed",
-      receipts: [],
-      publication,
-    }
-  }
-  return {
-    publishJobId: row.publish_job_id as string,
-    reconciliationStatus: row.reconciliation_status as TelegramReconciliationResult["reconciliationStatus"],
-    receipts: ((row.receipts as BackendTelegramReceipt[] | undefined) ?? []).map(mapTelegramReceipt),
-    ...(row.publication ? { publication: mapTelegramPublication(row.publication as BackendTelegramPublication) } : {}),
-    ...(row.job ? { job: mapJobAccepted(row.job as BackendJobAccepted) } : {}),
-  }
-}
+// Reconciliation decisions have exactly one client:
+// features/operations/api.ts submitReconciliationDecision.
 
-export async function getBrandProfiles(): Promise<BrandProfile[]> {
-  return apiRequest<BrandProfile[]>("/brand-profiles")
-}
 export async function createBrandProfile(input: BrandProfileInput): Promise<BrandProfile> {
   return apiRequest<BrandProfile>("/brand-profiles", json("POST", input))
 }
-export async function updateBrandProfile(id: string, input: BrandProfilePatch): Promise<BrandProfile> {
-  return apiRequest<BrandProfile>(`/brand-profiles/${encodeURIComponent(id)}`, json("PATCH", input))
-}
 
 export async function getPromptTemplates(): Promise<PromptTemplate[]> {
-  return (await apiRequest<Array<Record<string, unknown>>>("/prompt-templates")).map(mapPromptTemplate)
+  return (await apiRequest<BackendPromptTemplate[]>("/prompt-templates")).map(mapPromptTemplate)
 }
 export async function getPromptVersions(templateId: string): Promise<PromptVersion[]> {
   return apiRequest<PromptVersion[]>(`/prompt-templates/${encodeURIComponent(templateId)}/versions`)
@@ -267,28 +237,19 @@ export function mapTelegramRoute(row: BackendTelegramRoute): TelegramRoute {
 }
 
 export function mapTelegramPublishJob(row: BackendTelegramPublishJob): TelegramPublishJob {
-  return { publishJobId: row.publish_job_id, workflowJobId: row.workflow_job_id, destinationId: row.destination_id, platformVariantRevisionId: row.platform_variant_revision_id, status: row.status, payloadHash: row.payload_hash, scheduledFor: row.scheduled_for, createdAt: row.created_at, updatedAt: row.updated_at, receipts: row.receipts.map(mapTelegramReceipt), publication: row.publication ? mapTelegramPublication(row.publication) : null }
+  return camelize(row)
 }
 
 function mapTelegramSource(row: Record<string, unknown>): TelegramSource {
   return { id: row.id as string, name: row.name as string, channelRef: row.channel_ref as string, accessMode: row.access_mode as TelegramSource["accessMode"], languageHint: row.language_hint as string | null, configured: row.configured as boolean, capabilityState: mapCredentialCapabilityState(row.capability_state) }
 }
-function mapTelegramDestination(row: Record<string, unknown>): TelegramDestination {
-  return { id: row.id as string, name: row.name as string, targetRef: row.target_ref as string, enabled: row.enabled as boolean, healthStatus: row.health_status as TelegramDestination["healthStatus"], configured: row.configured as boolean, capabilityState: mapCredentialCapabilityState(row.capability_state) }
-}
-function mapTelegramDispatch(row: Record<string, unknown>): TelegramDispatch {
-  return { id: row.id as string, routeId: row.route_id as string, sourceItemId: row.source_item_id as string, storyId: row.story_id as string, storyRevisionId: row.story_revision_id as string, sourceKey: row.source_key as string, sourceFingerprint: row.source_fingerprint as string, sourceMessageIds: row.source_message_ids as number[], dispatchKind: row.dispatch_kind as TelegramDispatch["dispatchKind"], status: row.status as string, generationRunId: row.generation_run_id as string | null, variantRevisionId: row.variant_revision_id as string | null, publishJobId: row.publish_job_id as string | null, errorCode: row.error_code as string | null, errorMessage: row.error_message as string | null, createdAt: row.created_at as string, updatedAt: row.updated_at as string }
-}
-function mapTelegramReceipt(row: BackendTelegramReceipt): TelegramPublishReceipt {
-  return { id: row.id, operationIndex: row.operation_index, operationKey: row.operation_key, method: row.method, requestHash: row.request_hash, status: row.status, attemptCount: row.attempt_count, remoteMessageIds: row.remote_message_ids, responseMetadata: row.response_metadata, nextAttemptAt: row.next_attempt_at, ambiguousAt: row.ambiguous_at, completedAt: row.completed_at, createdAt: row.created_at, updatedAt: row.updated_at }
-}
-function mapTelegramPublication(row: BackendTelegramPublication): TelegramPublication {
+function mapTelegramDispatch(row: BackendTelegramDispatch): TelegramDispatch {
   return camelize(row)
 }
-function mapJobAccepted(row: BackendJobAccepted): JobAccepted { return { jobId: row.job_id, status: row.status, deduplicated: row.deduplicated } }
+function mapJobAccepted(row: BackendJobAccepted): JobAccepted { return camelize(row) }
 function mapRouteAccepted(row: { route: BackendTelegramRoute; job: BackendJobAccepted }): TelegramRouteAccepted { return { route: mapTelegramRoute(row.route), job: mapJobAccepted(row.job) } }
 async function routeTransition(id: string, transition: "pause" | "resume") { return mapTelegramRoute(await apiRequest<BackendTelegramRoute>(`/telegram/automations/${encodeURIComponent(id)}/${transition}`, { method: "POST" })) }
-function mapPromptTemplate(row: Record<string, unknown>): PromptTemplate { return { id: row.id as string, purposeKey: row.purpose_key as string, name: row.name as string, description: row.description as string | null } }
+function mapPromptTemplate(row: BackendPromptTemplate): PromptTemplate { return camelize(row) }
 
 function mapCredentialCapabilityState(value: unknown): CredentialCapabilityState {
   const row = value && typeof value === "object" ? value as Record<string, unknown> : {}

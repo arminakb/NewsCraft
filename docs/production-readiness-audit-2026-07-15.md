@@ -425,6 +425,39 @@ A further idempotency defect was discovered during the fallback: changing the mo
 
 **Impact:** Changing the model on a provider profile and resubmitting can return a stale failed job instead of executing the newly selected model. It also weakens reproducibility between enqueue and execution.
 
+### Status of findings (updated 2026-08-13)
+
+Everything above this subsection is the 2026-07-15 snapshot and is not
+rewritten. This table is the closure map from each finding ID to the phase
+report that closed it and the current code or test evidence. The hardening
+programme in `docs/archive/solutions.md` covers 15 phases; Phases 6, 7, 9,
+and 15 address audit sections other than section 6 and therefore have no
+finding ID here.
+
+| ID | Closing phase report | Current evidence | Status |
+|---|---|---|---|
+| C1 | [Phase 1](implementation-reports/phase-01-telegram-route-response-boundary.md) | Ten counted smoke executions with zero route-mutation 500 and zero `MissingGreenlet`; also [Phase 1/2 final deployed verification](implementation-reports/phase-01-02-final-deployed-verification.md) | Closed |
+| C2 | [Phase 2](implementation-reports/phase-02-worker-execution-boundary.md) | Spawned-process hard-death coverage for all 16 registered job types with lease recovery and duplicate prevention | Closed |
+| C3 | [Phase 3](implementation-reports/phase-03-restart-supervision.md) | `restart: unless-stopped` on API, workers, and scheduler in `docker-compose.production.yml`; base/dev/test/acceptance deliberately keep `restart: "no"` | Closed (host/Docker-daemon restart criterion not verified) |
+| H1 | [Phase 4](implementation-reports/phase-04-outbound-proxy-policy.md) | The `${VAR:-http://xray-proxy:10808}` defaults and the unconditional external proxy network are gone; proxy attachment lives in `docker-compose.proxy.yml` | Closed |
+| H2 | [Phase 5](implementation-reports/phase-05-safe-access-logging.md) | Redaction verified against the real installed Uvicorn `AccessFormatter` with five-element access arguments | Closed |
+| H3 | none | No hard minimum of meaningful non-URL text exists in [`scoring.py`](../backend/app/content/scoring.py); readiness is still the sum of positive bonuses | Open — no phase claims it |
+| H4 | none | `_source_tier` still classifies by hardcoded name/URL substrings in [`scoring.py`](../backend/app/content/scoring.py) | Open — no phase claims it |
+| H5 | [Phase 13](implementation-reports/phase-13-persian-generation-quality.md), [Phase 14](implementation-reports/phase-14-production-publishing-proof.md) | Repository-side qualification campaign and signed scorer exist; the funded external campaign was not run on this host | Open — external gate |
+| H6 | [Phase 13](implementation-reports/phase-13-persian-generation-quality.md) | Per-stage failure codes `openrouter_output_invalid_{stage}` (`body_json`, `choices`, `message`, `content_type`, `content_json`) in [`openrouter.py`](../backend/app/generation/providers/openrouter.py) | Closed |
+| M1 | none | [`smoke.py`](../scripts/smoke.py) scopes brand, provider, source, destination, and route names to the run ID, but the Telegram `channel_ref` is still the literal `example_channel` | Partially open — no phase claims it |
+| M2 | [Phase 10](implementation-reports/phase-10-contract-drift.md) | Every E2E JSON mock is validated against `contracts/openapi.json` in [`mock-backend.ts`](../frontend/e2e/support/mock-backend.ts) | Closed in code (browser execution omitted by user direction) |
+| M3 | [Phase 11](implementation-reports/phase-11-story-inbox-performance.md) | Bounded DOM, set-based selection, and memoized rows replaced the unbounded 200-row append; the surface has since been reorganized under `frontend/features/` | Closed in code (healthy-hardware browser budget run pending) |
+| M4 | none | [`repository.py`](../backend/app/ingestion/repository.py) still persists `language_code` directly from `source.language_hint` | Open — no phase claims it |
+| M5 | [Phase 8](implementation-reports/phase-08-dependency-locking.md) | Locked backend and frontend dependency graphs, immutable image inputs, and a dependency inventory | Closed (host-dependent regression verification omitted by user direction) |
+| M6 | [Phase 12](implementation-reports/phase-12-diagnostics-accessibility.md) | Per the phase report: all status palettes plus loading and API-error states covered at every theme, replacing the translucent destructive badge | Closed in code (axe and manual verification pending) |
+| M7 | [Phase 13](implementation-reports/phase-13-persian-generation-quality.md) | `generation_provider_configuration_revision` and `..._checksum` are part of the hashed content-pack payload in [`request_pack.py`](../backend/app/generation/request_pack.py) | Closed |
+
+The aggregate programme status is recorded in
+[`hardening-final-audit.md`](implementation-reports/hardening-final-audit.md):
+repository implementation complete, external and healthy-hardware
+verification pending. That is not a production-launch approval.
+
 ## 7. Measurable quality assessment
 
 The release threshold used here is 85/100 with no critical issue, no uninterrupted E2E failure, and a validated production generation provider. Scores are based on observed pass rates and failure severity, not test-count alone.
@@ -509,9 +542,9 @@ Real Telegram publishing should be tested only after the user supplies a control
 
 ## 10. Evidence index
 
-- Architecture report: `graphify-out/GRAPH_REPORT.md`
-- Interactive architecture graph: `graphify-out/graph.html`
-- Machine-readable graph: `graphify-out/graph.json`
+- Architecture report: `graphify-out/GRAPH_REPORT.md` (artifact not retained; `graphify-out/` was never tracked and is absent from the tree and from Git history)
+- Interactive architecture graph: `graphify-out/graph.html` (artifact not retained)
+- Machine-readable graph: `graphify-out/graph.json` (artifact not retained)
 - Stock smoke artifact already present in the workspace: `validation/production-readiness-2026-07-14/smoke-results/smoke-20260714T203527258821Z-55fbb26b.json`
 - Audit-only raw acceptance and recovery evidence: `/tmp/newscraft-acceptance-output/`
 - Live-browser screenshots: `/tmp/newscraft-desktop-today.png`, `/tmp/newscraft-desktop-diagnostics.png`

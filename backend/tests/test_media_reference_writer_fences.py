@@ -7,7 +7,7 @@ from uuid import uuid4
 
 import pytest
 
-from app.automations.telegram.handlers import _dispatch_media, _media_decision
+from app.automations.telegram.handlers import dispatch_media, media_decision
 from app.db.models import ContentItem, MediaAsset
 from app.generation.editorial_service import (
     EditorialService,
@@ -170,10 +170,10 @@ async def test_automation_revision_fresh_locks_and_rejects_tombstoned_media():
             self.executed.append(statement)
 
     session = Session()
-    _, media_rows = await _dispatch_media(session, source_item)
+    _, media_rows = await dispatch_media(session, source_item)
 
     with pytest.raises(NeedsReviewJobError) as caught:
-        _media_decision(SimpleNamespace(media_policy="preserve"), media_rows)
+        media_decision(SimpleNamespace(media_policy="preserve"), media_rows)
 
     assert caught.value.code == "telegram_media_expired"
     _assert_fresh_media_lock(session.media_statement)

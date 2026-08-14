@@ -9,7 +9,7 @@ from pathlib import Path
 from uuid import uuid4
 
 import pytest
-from sqlalchemy import func, select
+from sqlalchemy import func, select, text
 
 from app.db.models import ContentItem, MediaAsset, RawPayload, SourceItem
 from app.generation.models import (
@@ -32,6 +32,7 @@ from app.publishing.models import (
     PublishOperationReceipt,
 )
 from app.research.models import ResearchAttempt, ResearchRun
+from app.retention import filesystem as retention_filesystem
 from app.retention.models import RetentionRun
 from app.retention.service import (
     RETENTION_CONFIRMATION,
@@ -957,16 +958,21 @@ async def test_reconfirmation_retries_an_all_skipped_database_phase_after_root_i
         export_root=export_root,
         media_root=tmp_path / "media",
     )
-    partial = await service.finish_filesystem_phase(
+    first_pass = await service.finish_filesystem_phase(
         enqueued.run.id,
         export_root=export_root,
         media_root=tmp_path / "media",
     )
 
-    assert partial.status == "partial"
-    assert partial.cleanup_intent_snapshot == []
-    assert partial.count_snapshot["execution"]["expired"]["export_artifact"] == 0
-    assert partial.count_snapshot["execution"]["database_skipped"]["export_artifact"] == 1
+    # The database-phase finding stays visible and tagged, but must not pin the run
+    # at "partial": that made the workflow job retry a state re-running the phase
+    # can never clear. Operator reconfirmation is the retry path.
+    assert first_pass.status == "succeeded"
+    assert [error["phase"] for error in first_pass.error_snapshot] == ["database"]
+    assert [error["code"] for error in first_pass.error_snapshot] == ["unsafe_export_path"]
+    assert first_pass.cleanup_intent_snapshot == []
+    assert first_pass.count_snapshot["execution"]["expired"]["export_artifact"] == 0
+    assert first_pass.count_snapshot["execution"]["database_skipped"]["export_artifact"] == 1
     assert rows["export"].result["state"] == "complete"
     enqueued.job.status = JobStatus.FAILED
     enqueued.job.attempt_count = enqueued.job.max_attempts
@@ -1555,3 +1561,131 @@ async def test_reference_table_fence_serializes_no_fk_primary_image_insert(
         assert finished.status == "succeeded"
         assert media_file.exists()
         assert finished.count_snapshot["execution"]["filesystem_skipped"]["unreferenced_media"] == 1
+
+
+@pytest.mark.asyncio
+async def test_database_phase_errors_do_not_pin_the_run_at_partial_forever(db_session, tmp_path):
+    outside = tmp_path / "outside.bin"
+    outside.write_bytes(b"do not delete")
+    media = MediaAsset(
+        original_url="https://example.test/unphased.bin",
+        normalized_url="https://example.test/unphased.bin",
+        url_hash="9" * 64,
+        kind="image",
+        byte_length=outside.stat().st_size,
+        source_field="fixture",
+        checksum_sha256="8" * 64,
+        storage_path=str(outside),
+        fetch_status="downloaded",
+        created_at=NOW - timedelta(days=31),
+        updated_at=NOW - timedelta(days=31),
+    )
+    db_session.add(media)
+    await db_session.flush()
+    service = RetentionService(db_session, clock=lambda: NOW, media_root=tmp_path)
+    preview = await service.preview()
+    enqueued = await service.enqueue(
+        preview_token=preview.preview_token,
+        confirmation=RETENTION_CONFIRMATION,
+    )
+    media_root = tmp_path / "media"
+    media_root.mkdir()
+
+    await service.execute_db_phase(
+        enqueued.run.id,
+        preview.preview_token,
+        export_root=tmp_path / "exports",
+        media_root=media_root,
+    )
+    finished = await service.finish_filesystem_phase(
+        enqueued.run.id,
+        export_root=tmp_path / "exports",
+        media_root=media_root,
+    )
+
+    assert [error["code"] for error in finished.error_snapshot] == ["unsafe_media_path"]
+    assert [error["phase"] for error in finished.error_snapshot] == ["database"]
+    # A database-phase finding must stay visible without forcing the workflow job
+    # into an unbreakable retry loop, so the terminal status is not "partial".
+    assert finished.status == "succeeded"
+    assert outside.exists()
+
+
+@pytest.mark.asyncio
+async def test_filesystem_cleanup_never_holds_table_locks_across_deletion(
+    session_factory,
+    tmp_path,
+    monkeypatch,
+):
+    media_root = tmp_path / "media"
+    media_root.mkdir()
+    media_file = media_root / "unlocked.bin"
+    media_file.write_bytes(b"unlocked")
+    async with session_factory() as seed_session:
+        media = MediaAsset(
+            original_url="https://example.test/unlocked.bin",
+            normalized_url="https://example.test/unlocked.bin",
+            url_hash="7" * 64,
+            kind="image",
+            source_field="fixture",
+            storage_path=str(media_file),
+            fetch_status="downloaded",
+            created_at=NOW - timedelta(days=31),
+            updated_at=NOW - timedelta(days=31),
+        )
+        seed_session.add(media)
+        await seed_session.flush()
+        service = RetentionService(seed_session, clock=lambda: NOW, media_root=media_root)
+        preview = await service.preview()
+        enqueued = await service.enqueue(
+            preview_token=preview.preview_token,
+            confirmation=RETENTION_CONFIRMATION,
+        )
+        run_id = enqueued.run.id
+        await service.execute_db_phase(
+            run_id,
+            preview.preview_token,
+            export_root=tmp_path / "exports",
+            media_root=media_root,
+        )
+        await seed_session.commit()
+
+    loop = asyncio.get_running_loop()
+    probe: dict[str, str] = {}
+    original_delete = retention_filesystem._delete_relative_owned
+
+    async def writer_probe() -> None:
+        async with session_factory() as probe_session:
+            await probe_session.execute(text("SET LOCAL lock_timeout = '2s'"))
+            await probe_session.execute(text("LOCK TABLE media_assets IN ROW EXCLUSIVE MODE"))
+            await probe_session.rollback()
+
+    def delete_with_probe(root, relative_path, *, directory):
+        if "result" not in probe:
+            try:
+                asyncio.run_coroutine_threadsafe(writer_probe(), loop).result(timeout=8)
+                probe["result"] = "writers_unblocked"
+            except BaseException as exc:  # noqa: BLE001 - failure detail is the assertion message
+                probe["result"] = f"writers_blocked: {exc!r}"
+        return original_delete(root, relative_path, directory=directory)
+
+    monkeypatch.setattr(retention_filesystem, "_delete_relative_owned", delete_with_probe)
+
+    async with session_factory() as finish_session:
+        finished = await RetentionService(
+            finish_session,
+            clock=lambda: NOW,
+            media_root=media_root,
+        ).finish_filesystem_phase(
+            run_id,
+            export_root=tmp_path / "exports",
+            media_root=media_root,
+        )
+
+    # The deletion pass must run with no retention transaction open: a concurrent
+    # writer taking ROW EXCLUSIVE on media_assets may not be blocked, and the
+    # blocking unlink may not occupy the event loop.
+    assert probe["result"] == "writers_unblocked"
+    assert finished.status == "succeeded"
+    assert not media_file.exists()
+    assert finished.count_snapshot["execution"]["filesystem_deleted"]["unreferenced_media"] == 1

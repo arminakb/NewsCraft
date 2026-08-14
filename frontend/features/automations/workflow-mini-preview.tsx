@@ -1,8 +1,9 @@
 "use client"
 
 import { TriangleAlert } from "lucide-react"
-import { memo, useEffect, useMemo, useRef, useState } from "react"
+import { memo, useMemo, useRef } from "react"
 
+import { usePrefersReducedMotion } from "@/lib/use-media-query"
 import { cn } from "@/lib/utils"
 
 import type { AutomationPreviewStage } from "./automation-types"
@@ -160,24 +161,6 @@ function StageIcon({ stage }: { stage: AutomationPreviewStage }) {
   if (stage.platforms.length) return <WorkflowPlatformIcon className="size-[18px] shrink-0" platform={platform} />
   const Icon = nodeTypeIcon(stage.nodeType)
   return <Icon aria-hidden="true" className="size-[18px] shrink-0 stroke-[1.8]" />
-}
-
-function usePrefersReducedMotion() {
-  const [reducedMotion, setReducedMotion] = useState(() => (
-    typeof window !== "undefined" && window.matchMedia?.("(prefers-reduced-motion: reduce)").matches === true
-  ))
-
-  useEffect(() => {
-    const mediaQuery = window.matchMedia?.("(prefers-reduced-motion: reduce)")
-    if (!mediaQuery) return
-
-    const update = () => setReducedMotion(mediaQuery.matches)
-    update()
-    mediaQuery.addEventListener?.("change", update)
-    return () => mediaQuery.removeEventListener?.("change", update)
-  }, [])
-
-  return reducedMotion
 }
 
 function buildPreviewItems(summary: ReturnType<typeof summarizePreviewStages>): PreviewItem[] {

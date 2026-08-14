@@ -1,14 +1,20 @@
 "use client"
 
-import { Workflow } from "lucide-react"
+import { Send, Workflow } from "lucide-react"
 import Link from "next/link"
 import type React from "react"
 
 import { PageHeader } from "@/components/ui/page-header"
 import { Tabs, TabsList, TabsTab } from "@/components/ui/tabs"
 
+/**
+ * The Telegram entry keeps /automations/telegram reachable from the shell: it
+ * is a shipped surface with no other in-app link since the workflow library
+ * took over /automations.
+ */
 const sections = [
   { value: "workflows", label: "Workflows", href: "/automations", icon: Workflow },
+  { value: "telegram", label: "Telegram", href: "/automations/telegram", icon: Send },
 ] as const
 
 export function AutomationArea({

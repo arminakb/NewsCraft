@@ -11,7 +11,7 @@ from sqlalchemy import select
 
 from app.automations.telegram.handlers import sha256_canonical
 from app.core.redaction import redact_secrets, redact_string
-from app.generation.default_prompts import prompt_checksum
+from app.generation.default_prompts import prompt_checksum, validate_prompt_template_fields
 from app.generation.models import (
     ContentPack,
     PlatformVariant,
@@ -41,9 +41,7 @@ from app.generation.platform_limits import (
     X_POSTS_MAX,
 )
 from app.generation.platform_media import (
-    trusted_story_media as _trusted_story_media,
-)
-from app.generation.platform_media import (
+    trusted_story_media,
     validate_payload_media_assignments,
 )
 from app.generation.platform_schemas import (
@@ -68,7 +66,6 @@ from app.jobs.types import JobExecution, job_payload_copy
 from app.research.citations import CitationIntegrityError, validate_citations
 from app.research.schemas import CitationRef, Claim
 from app.stories.evidence import EvidenceRecord
-from app.stories.models import StoryEvidenceSnapshot
 
 
 def platform_limits_for(platform: Platform) -> dict[str, int]:
@@ -102,7 +99,7 @@ def platform_limits_for(platform: Platform) -> dict[str, int]:
     return {"body_max": 4096, "button_max": 8}
 
 
-def _platform_stage_input(
+def platform_stage_input(
     *,
     platform: Platform,
     canonical_story: dict[str, Any],
@@ -155,29 +152,36 @@ def _pack_job_result(
     return result
 
 
-async def _require_exact_active_prompt(
+async def _require_active_prompt_version(
     session: Any,
-    platform: Platform,
+    *,
+    purpose_key: str,
     prompt_id: UUID,
-    prompt_checksum: str,
+    prompt_checksum: str | None,
+    invalid_code: str,
+    invalid_message: str,
 ) -> PromptTemplateVersion:
+    """Pin generation to the exact active prompt version recorded at enqueue time.
+
+    Single source of truth for the prompt-pinning fence: the locked row is
+    re-read with ``populate_existing`` so a stale identity-map copy can never
+    satisfy the checksum comparison.
+    """
+
     active = list(
         await session.scalars(
             select(PromptTemplateVersion)
             .join(PromptTemplate, PromptTemplate.id == PromptTemplateVersion.prompt_template_id)
             .where(
                 PromptTemplateVersion.is_active.is_(True),
-                PromptTemplate.purpose_key == PLATFORM_PROMPT_PURPOSE[platform],
+                PromptTemplate.purpose_key == purpose_key,
             )
             .with_for_update()
             .execution_options(populate_existing=True)
         )
     )
     if len(active) != 1 or active[0].id != prompt_id or active[0].checksum_sha256 != prompt_checksum:
-        raise PermanentJobError(
-            code="generation_platform_prompt_configuration_invalid",
-            message="Platform prompt configuration is invalid",
-        )
+        raise PermanentJobError(code=invalid_code, message=invalid_message)
     try:
         require_prompt_integrity(active[0])
     except ValueError:
@@ -186,6 +190,22 @@ async def _require_exact_active_prompt(
             message="Generation prompt snapshot integrity failed",
         ) from None
     return active[0]
+
+
+async def require_exact_active_prompt(
+    session: Any,
+    platform: Platform,
+    prompt_id: UUID,
+    prompt_checksum: str | None,
+) -> PromptTemplateVersion:
+    return await _require_active_prompt_version(
+        session,
+        purpose_key=PLATFORM_PROMPT_PURPOSE[platform],
+        prompt_id=prompt_id,
+        prompt_checksum=prompt_checksum,
+        invalid_code="generation_platform_prompt_configuration_invalid",
+        invalid_message="Platform prompt configuration is invalid",
+    )
 
 
 async def _require_exact_active_canonical_prompt(
@@ -193,31 +213,14 @@ async def _require_exact_active_canonical_prompt(
     prompt_id: UUID,
     prompt_checksum: str,
 ) -> PromptTemplateVersion:
-    active = list(
-        await session.scalars(
-            select(PromptTemplateVersion)
-            .join(PromptTemplate, PromptTemplate.id == PromptTemplateVersion.prompt_template_id)
-            .where(
-                PromptTemplateVersion.is_active.is_(True),
-                PromptTemplate.purpose_key == "canonical_story",
-            )
-            .with_for_update()
-            .execution_options(populate_existing=True)
-        )
+    return await _require_active_prompt_version(
+        session,
+        purpose_key="canonical_story",
+        prompt_id=prompt_id,
+        prompt_checksum=prompt_checksum,
+        invalid_code="generation_canonical_prompt_configuration_invalid",
+        invalid_message="Canonical prompt configuration is invalid",
     )
-    if len(active) != 1 or active[0].id != prompt_id or active[0].checksum_sha256 != prompt_checksum:
-        raise PermanentJobError(
-            code="generation_canonical_prompt_configuration_invalid",
-            message="Canonical prompt configuration is invalid",
-        )
-    try:
-        require_prompt_integrity(active[0])
-    except ValueError:
-        raise PermanentJobError(
-            code="generation_prompt_integrity_failed",
-            message="Generation prompt snapshot integrity failed",
-        ) from None
-    return active[0]
 
 
 async def _require_exact_regeneration_dispatch(
@@ -246,7 +249,7 @@ async def _require_exact_regeneration_dispatch(
             code="generation_regeneration_base_stale",
             message="Regeneration base revision is no longer current",
         )
-    await _require_exact_active_prompt(
+    await require_exact_active_prompt(
         session,
         platform,
         prompt_id,
@@ -366,12 +369,21 @@ async def _checkpoint_parent(
     return parent
 
 
-def _telegram_checkpoint_expectations(
+def _assemble_telegram_revision(
     authored: Any,
     *,
     parent: PlatformVariantRevision | None,
     default_direction: Literal["ltr", "rtl"] | None,
-) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    invalid_code: str,
+    invalid_message: str,
+) -> tuple[dict[str, Any], list[dict[str, Any]], bool]:
+    """Assemble and validate a Telegram revision body.
+
+    Single source of truth for both the persisting path and the checkpoint
+    replay path: any divergence between the two would turn an idempotent replay
+    into a spurious "checkpoint invalid" review.
+    """
+
     try:
         assert default_direction is not None
         content = assemble_telegram_variant(
@@ -380,12 +392,30 @@ def _telegram_checkpoint_expectations(
             default_direction=default_direction,
         ).model_dump(mode="json")
         payload = TelegramVariantPayload.model_validate(content)
-        return content, revision_gates_from_issues(validate_platform_payload("telegram", payload))
+        issues = validate_platform_payload("telegram", payload)
+        return (
+            content,
+            revision_gates_from_issues(issues),
+            any(item.severity == "error" for item in issues),
+        )
     except TypeError, ValueError:
-        raise NeedsReviewJobError(
-            code="generation_checkpoint_invalid",
-            message="Generation checkpoint Telegram context is invalid",
-        ) from None
+        raise NeedsReviewJobError(code=invalid_code, message=invalid_message) from None
+
+
+def _telegram_checkpoint_expectations(
+    authored: Any,
+    *,
+    parent: PlatformVariantRevision | None,
+    default_direction: Literal["ltr", "rtl"] | None,
+) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    content, gates, _has_errors = _assemble_telegram_revision(
+        authored,
+        parent=parent,
+        default_direction=default_direction,
+        invalid_code="generation_checkpoint_invalid",
+        invalid_message="Generation checkpoint Telegram context is invalid",
+    )
+    return content, gates
 
 
 def _require_checkpoint_linkage(
@@ -499,7 +529,7 @@ async def _require_checkpoint_media(
         ) from None
 
 
-async def _artifact_requires_review(
+async def artifact_requires_review(
     session: Any,
     artifact: dict[str, Any],
     *,
@@ -514,7 +544,7 @@ async def _artifact_requires_review(
     evidence: dict[UUID, EvidenceRecord],
     telegram_default_direction: Literal["ltr", "rtl"] | None = None,
     expected_regeneration_base: tuple[UUID, str] | None = None,
-    trusted_media_loader: Any = _trusted_story_media,
+    trusted_media_loader: Any = trusted_story_media,
 ) -> bool:
     ids = _checkpoint_ids(artifact)
     pack, variant, revision = await _checkpoint_rows(
@@ -613,7 +643,7 @@ def _redacted_list(value: object) -> list[Any]:
     return redacted if isinstance(redacted, list) else []
 
 
-def _required_uuid(payload: dict[str, Any], key: str) -> UUID:
+def required_uuid(payload: dict[str, Any], key: str) -> UUID:
     try:
         return UUID(str(payload[key]))
     except KeyError, TypeError, ValueError:
@@ -623,7 +653,7 @@ def _required_uuid(payload: dict[str, Any], key: str) -> UUID:
         ) from None
 
 
-def _job_payload(job: JobExecution | object) -> dict[str, Any]:
+def job_payload(job: JobExecution | object) -> dict[str, Any]:
     try:
         return job_payload_copy(cast(Any, job))
     except TypeError:
@@ -633,7 +663,7 @@ def _job_payload(job: JobExecution | object) -> dict[str, Any]:
         ) from None
 
 
-def _pack_budget_state(job: JobExecution | object, payload: dict[str, Any]) -> tuple[datetime, Decimal]:
+def pack_budget_state(job: JobExecution | object, payload: dict[str, Any]) -> tuple[datetime, Decimal]:
     raw_started = payload.get("generation_budget_started_at")
     raw_cost = payload.get("generation_budget_cost_usd", "0")
     try:
@@ -658,7 +688,7 @@ def _pack_budget_state(job: JobExecution | object, payload: dict[str, Any]) -> t
     return started.astimezone(UTC), cost
 
 
-async def _checkpoint_execution(
+async def checkpoint_execution(
     job: JobExecution | object,
     context: JobContext,
     *,
@@ -688,25 +718,15 @@ def render_prompt_messages(
     values: dict[str, Any],
 ) -> tuple[ProviderMessage, ProviderMessage]:
     try:
+        # The template may reference any SUBSET of the payload keys — payloads
+        # legitimately carry metadata that is never interpolated — but it must
+        # never reference a field outside the payload (or use dotted/indexed/
+        # format-spec fields, which the validator rejects).
+        validate_prompt_template_fields(prompt.user_template, required=(), allowed=tuple(values))
         rendered = prompt.user_template.format(**values)
-    except KeyError, ValueError:
+    except (KeyError, IndexError, AttributeError, TypeError, ValueError):
         raise ValueError("generation prompt template cannot be rendered") from None
     return (
         ProviderMessage(role="system", content=prompt.system_template),
         ProviderMessage(role="user", content=rendered),
-    )
-
-
-def _evidence_record(row: StoryEvidenceSnapshot) -> EvidenceRecord:
-    return EvidenceRecord(
-        evidence_key=row.evidence_key,
-        evidence_snapshot_id=row.id,
-        content_item_id=row.content_item_id,
-        title=row.title,
-        content_text=row.content_text,
-        content_sha256=row.content_sha256,
-        source_url=row.source_url,
-        authors=tuple(row.authors or []),
-        published_at=row.published_at,
-        captured_at=row.captured_at,
     )

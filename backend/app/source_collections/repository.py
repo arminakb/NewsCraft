@@ -12,6 +12,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import IngestRun, Source
+from app.ingestion.runs import new_ingest_run
 from app.source_collections.models import (
     SOURCE_COLLECTION_MAX_SIZE,
     IngestRunSourceSnapshot,
@@ -102,6 +103,28 @@ def collection_projection() -> Select:
         )
         .subquery()
     )
+    projection = (
+        active_run.c.active_ingest_run_id,
+        active_run.c.active_ingest_status,
+        active_run.c.active_ingest_source_count,
+        active_run.c.active_ingest_processed_count,
+        active_run.c.active_ingest_success_count,
+        active_run.c.active_ingest_failure_count,
+        latest_subscription.c.continuous_subscription_id,
+        latest_subscription.c.continuous_mode,
+        latest_subscription.c.continuous_status,
+        latest_subscription.c.continuous_interval_minutes,
+        latest_subscription.c.continuous_started_at,
+        latest_subscription.c.continuous_stopped_at,
+        latest_subscription.c.continuous_last_cycle_at,
+        latest_subscription.c.continuous_next_cycle_at,
+        latest_subscription.c.continuous_last_success_at,
+        latest_subscription.c.continuous_cycle_count,
+        latest_subscription.c.continuous_last_cycle_status,
+        latest_subscription.c.continuous_last_error,
+        latest_subscription.c.continuous_current_cycle_job_id,
+        latest_subscription.c.continuous_current_cycle_run_id,
+    )
     return (
         select(
             SourceCollection.id,
@@ -111,26 +134,7 @@ def collection_projection() -> Select:
             SourceCollection.created_at,
             SourceCollection.updated_at,
             func.count(SourceCollectionMembership.source_id).label("source_count"),
-            active_run.c.active_ingest_run_id,
-            active_run.c.active_ingest_status,
-            active_run.c.active_ingest_source_count,
-            active_run.c.active_ingest_processed_count,
-            active_run.c.active_ingest_success_count,
-            active_run.c.active_ingest_failure_count,
-            latest_subscription.c.continuous_subscription_id,
-            latest_subscription.c.continuous_mode,
-            latest_subscription.c.continuous_status,
-            latest_subscription.c.continuous_interval_minutes,
-            latest_subscription.c.continuous_started_at,
-            latest_subscription.c.continuous_stopped_at,
-            latest_subscription.c.continuous_last_cycle_at,
-            latest_subscription.c.continuous_next_cycle_at,
-            latest_subscription.c.continuous_last_success_at,
-            latest_subscription.c.continuous_cycle_count,
-            latest_subscription.c.continuous_last_cycle_status,
-            latest_subscription.c.continuous_last_error,
-            latest_subscription.c.continuous_current_cycle_job_id,
-            latest_subscription.c.continuous_current_cycle_run_id,
+            *projection,
         )
         .outerjoin(
             SourceCollectionMembership,
@@ -147,26 +151,7 @@ def collection_projection() -> Select:
         )
         .group_by(
             SourceCollection.id,
-            active_run.c.active_ingest_run_id,
-            active_run.c.active_ingest_status,
-            active_run.c.active_ingest_source_count,
-            active_run.c.active_ingest_processed_count,
-            active_run.c.active_ingest_success_count,
-            active_run.c.active_ingest_failure_count,
-            latest_subscription.c.continuous_subscription_id,
-            latest_subscription.c.continuous_mode,
-            latest_subscription.c.continuous_status,
-            latest_subscription.c.continuous_interval_minutes,
-            latest_subscription.c.continuous_started_at,
-            latest_subscription.c.continuous_stopped_at,
-            latest_subscription.c.continuous_last_cycle_at,
-            latest_subscription.c.continuous_next_cycle_at,
-            latest_subscription.c.continuous_last_success_at,
-            latest_subscription.c.continuous_cycle_count,
-            latest_subscription.c.continuous_last_cycle_status,
-            latest_subscription.c.continuous_last_error,
-            latest_subscription.c.continuous_current_cycle_job_id,
-            latest_subscription.c.continuous_current_cycle_run_id,
+            *projection,
         )
     )
 
@@ -215,7 +200,7 @@ def source_page_query(
 
 
 async def list_collections(session: AsyncSession) -> list[Mapping[str, Any]]:
-    return list(
+    rows = (
         (
             await session.execute(
                 collection_projection().order_by(
@@ -227,10 +212,11 @@ async def list_collections(session: AsyncSession) -> list[Mapping[str, Any]]:
         .mappings()
         .all()
     )
+    return [dict(row) for row in rows]
 
 
 async def get_collection_projection(session: AsyncSession, collection_id: UUID) -> Mapping[str, Any] | None:
-    return (
+    row = (
         (
             await session.execute(
                 collection_projection().where(SourceCollection.id == collection_id)
@@ -239,6 +225,7 @@ async def get_collection_projection(session: AsyncSession, collection_id: UUID) 
         .mappings()
         .one_or_none()
     )
+    return None if row is None else dict(row)
 
 
 async def get_collection(session: AsyncSession, collection_id: UUID, *, lock: bool = False) -> SourceCollection | None:
@@ -272,16 +259,6 @@ async def list_sources(
     total = int(await session.scalar(count_statement) or 0)
     rows = list(await session.scalars(base.limit(limit).offset(offset)))
     return SourceCollectionPage(items=tuple(rows), total=total, limit=limit, offset=offset)
-
-
-async def source_ids_for_collection(session: AsyncSession, collection_id: UUID) -> list[UUID]:
-    return list(
-        await session.scalars(
-            select(SourceCollectionMembership.source_id)
-            .where(SourceCollectionMembership.collection_id == collection_id)
-            .order_by(SourceCollectionMembership.source_id)
-        )
-    )
 
 
 async def collection_source_count(session: AsyncSession, collection_id: UUID) -> int:
@@ -464,27 +441,15 @@ async def create_collection_ingest_snapshot(
         raise ValueError("source collection must contain at least one source")
 
     now = datetime.now(UTC)
-    run = IngestRun(
-        id=uuid4(),
+    run = new_ingest_run(
+        run_id=uuid4(),
         started_at=now,
         trigger=trigger,
         parser_version=parser_version,
         status="queued",
-        stats={
-            "checked": 0,
-            "fetched": 0,
-            "skipped": 0,
-            "failed": 0,
-            "items": 0,
-            "media_candidates": 0,
-            "errors": [],
-        },
         source_collection_id=collection.id,
         source_collection_name_at_start=collection.name,
         source_count=len(members),
-        processed_count=0,
-        success_count=0,
-        failure_count=0,
     )
     session.add(run)
     await session.flush()

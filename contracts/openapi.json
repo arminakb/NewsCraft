@@ -1755,11 +1755,17 @@
         "additionalProperties": false,
         "properties": {
           "app_title": {
-            "default": "NewsCraft",
-            "maxLength": 80,
-            "minLength": 1,
-            "title": "App Title",
-            "type": "string"
+            "anyOf": [
+              {
+                "maxLength": 80,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "App Title"
           },
           "http_referer": {
             "anyOf": [
@@ -4882,6 +4888,265 @@
           "sort_at"
         ],
         "title": "ContentItemOut",
+        "type": "object"
+      },
+      "ContentPackOut": {
+        "additionalProperties": false,
+        "properties": {
+          "brand_profile_id": {
+            "format": "uuid",
+            "title": "Brand Profile Id",
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "story_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Story Id"
+          },
+          "story_revision_id": {
+            "format": "uuid",
+            "title": "Story Revision Id",
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          },
+          "variants": {
+            "items": {
+              "$ref": "#/components/schemas/ContentPackVariantOut"
+            },
+            "title": "Variants",
+            "type": "array"
+          }
+        },
+        "required": [
+          "id",
+          "story_id",
+          "story_revision_id",
+          "brand_profile_id",
+          "status",
+          "created_at",
+          "updated_at",
+          "variants"
+        ],
+        "title": "ContentPackOut",
+        "type": "object"
+      },
+      "ContentPackRequestOut": {
+        "additionalProperties": false,
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "string"
+              }
+            ],
+            "title": "Id"
+          },
+          "job_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Job Id"
+          },
+          "last_failure": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Failure"
+          },
+          "pack": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ContentPackOut"
+              },
+              {
+                "$ref": "#/components/schemas/ContentPackSummaryOut"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pack"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "story_id": {
+            "format": "uuid",
+            "title": "Story Id",
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "job_id",
+          "story_id",
+          "status",
+          "last_failure",
+          "created_at",
+          "updated_at",
+          "pack"
+        ],
+        "title": "ContentPackRequestOut",
+        "type": "object"
+      },
+      "ContentPackSummaryOut": {
+        "additionalProperties": false,
+        "properties": {
+          "brand_profile_id": {
+            "format": "uuid",
+            "title": "Brand Profile Id",
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "story_id": {
+            "format": "uuid",
+            "title": "Story Id",
+            "type": "string"
+          },
+          "story_revision_id": {
+            "format": "uuid",
+            "title": "Story Revision Id",
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          },
+          "variants": {
+            "items": {
+              "$ref": "#/components/schemas/ContentPackSummaryVariantOut"
+            },
+            "title": "Variants",
+            "type": "array"
+          }
+        },
+        "required": [
+          "id",
+          "story_id",
+          "story_revision_id",
+          "brand_profile_id",
+          "status",
+          "created_at",
+          "updated_at",
+          "variants"
+        ],
+        "title": "ContentPackSummaryOut",
+        "type": "object"
+      },
+      "ContentPackSummaryVariantOut": {
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "platform": {
+            "title": "Platform",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "platform"
+        ],
+        "title": "ContentPackSummaryVariantOut",
+        "type": "object"
+      },
+      "ContentPackVariantOut": {
+        "additionalProperties": false,
+        "properties": {
+          "current_revision": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PlatformVariantRevisionOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "platform": {
+            "title": "Platform",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "platform",
+          "current_revision"
+        ],
+        "title": "ContentPackVariantOut",
         "type": "object"
       },
       "ContentSettingsSummaryOut": {
@@ -8796,6 +9061,232 @@
         ],
         "type": "string"
       },
+      "PlatformVariantRevisionOut": {
+        "additionalProperties": false,
+        "properties": {
+          "approval_note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Approval Note"
+          },
+          "approval_state": {
+            "title": "Approval State",
+            "type": "string"
+          },
+          "approved_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Approved At"
+          },
+          "content": {
+            "additionalProperties": true,
+            "title": "Content",
+            "type": "object"
+          },
+          "content_hash": {
+            "title": "Content Hash",
+            "type": "string"
+          },
+          "content_pack_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Content Pack Id"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "created_by": {
+            "title": "Created By",
+            "type": "string"
+          },
+          "evidence_map": {
+            "items": {},
+            "title": "Evidence Map",
+            "type": "array"
+          },
+          "generation_attempt_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Generation Attempt Id"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "manual_checklist": {
+            "items": {},
+            "title": "Manual Checklist",
+            "type": "array"
+          },
+          "media_plan": {
+            "items": {},
+            "title": "Media Plan",
+            "type": "array"
+          },
+          "origin": {
+            "title": "Origin",
+            "type": "string"
+          },
+          "parent_revision_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Parent Revision Id"
+          },
+          "platform": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Platform"
+          },
+          "platform_variant_id": {
+            "format": "uuid",
+            "title": "Platform Variant Id",
+            "type": "string"
+          },
+          "prompt_version": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PromptVersionOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "provider_profile": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ProviderProfileOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "resolved_model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Resolved Model"
+          },
+          "revision_number": {
+            "title": "Revision Number",
+            "type": "integer"
+          },
+          "source_media": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Source Media",
+            "type": "array"
+          },
+          "story_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Story Id"
+          },
+          "validation_issues": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Validation Issues",
+            "type": "array"
+          },
+          "validation_results": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Validation Results",
+            "type": "array"
+          }
+        },
+        "required": [
+          "id",
+          "platform",
+          "platform_variant_id",
+          "content_pack_id",
+          "story_id",
+          "parent_revision_id",
+          "generation_attempt_id",
+          "revision_number",
+          "content",
+          "content_hash",
+          "evidence_map",
+          "manual_checklist",
+          "validation_results",
+          "validation_issues",
+          "media_plan",
+          "source_media",
+          "approval_state",
+          "approval_note",
+          "approved_at",
+          "created_by",
+          "origin",
+          "provider_profile",
+          "resolved_model",
+          "prompt_version",
+          "created_at"
+        ],
+        "title": "PlatformVariantRevisionOut",
+        "type": "object"
+      },
       "PortCatalogOut": {
         "additionalProperties": false,
         "properties": {
@@ -9064,6 +9555,36 @@
         "title": "PromptTemplateVersionOut",
         "type": "object"
       },
+      "PromptVersionOut": {
+        "additionalProperties": false,
+        "properties": {
+          "checksum_sha256": {
+            "title": "Checksum Sha256",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "output_schema_version": {
+            "title": "Output Schema Version",
+            "type": "string"
+          },
+          "version": {
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "version",
+          "output_schema_version",
+          "checksum_sha256"
+        ],
+        "title": "PromptVersionOut",
+        "type": "object"
+      },
       "ProviderPricingSettings-Input": {
         "additionalProperties": false,
         "properties": {
@@ -9120,6 +9641,31 @@
           "output_usd_per_million"
         ],
         "title": "ProviderPricingSettings",
+        "type": "object"
+      },
+      "ProviderProfileOut": {
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "provider_type": {
+            "title": "Provider Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "provider_type"
+        ],
+        "title": "ProviderProfileOut",
         "type": "object"
       },
       "ProxyDiagnostics": {
@@ -12033,6 +12579,249 @@
           "state"
         ],
         "title": "StoryEditorialStateInput",
+        "type": "object"
+      },
+      "StoryEvidenceOut": {
+        "additionalProperties": false,
+        "properties": {
+          "authors": {
+            "items": {},
+            "title": "Authors",
+            "type": "array"
+          },
+          "captured_at": {
+            "format": "date-time",
+            "title": "Captured At",
+            "type": "string"
+          },
+          "content_sha256": {
+            "title": "Content Sha256",
+            "type": "string"
+          },
+          "content_text": {
+            "title": "Content Text",
+            "type": "string"
+          },
+          "evidence_key": {
+            "title": "Evidence Key",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "published_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Published At"
+          },
+          "source_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Url"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title"
+          }
+        },
+        "required": [
+          "id",
+          "evidence_key",
+          "title",
+          "content_text",
+          "content_sha256",
+          "source_url",
+          "authors",
+          "published_at",
+          "captured_at"
+        ],
+        "title": "StoryEvidenceOut",
+        "type": "object"
+      },
+      "StoryRevisionOut": {
+        "additionalProperties": false,
+        "properties": {
+          "angles": {
+            "items": {},
+            "title": "Angles",
+            "type": "array"
+          },
+          "citations": {
+            "items": {},
+            "title": "Citations",
+            "type": "array"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "created_by": {
+            "title": "Created By",
+            "type": "string"
+          },
+          "disagreements": {
+            "items": {},
+            "title": "Disagreements",
+            "type": "array"
+          },
+          "facts": {
+            "items": {},
+            "title": "Facts",
+            "type": "array"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "narrative": {
+            "title": "Narrative",
+            "type": "string"
+          },
+          "parent_revision_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Parent Revision Id"
+          },
+          "revision_number": {
+            "title": "Revision Number",
+            "type": "integer"
+          },
+          "story_id": {
+            "format": "uuid",
+            "title": "Story Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "story_id",
+          "parent_revision_id",
+          "revision_number",
+          "narrative",
+          "facts",
+          "disagreements",
+          "angles",
+          "citations",
+          "created_by",
+          "created_at"
+        ],
+        "title": "StoryRevisionOut",
+        "type": "object"
+      },
+      "StorySummaryOut": {
+        "additionalProperties": false,
+        "properties": {
+          "completeness": {
+            "additionalProperties": true,
+            "title": "Completeness",
+            "type": "object"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "evidence_count": {
+            "minimum": 0.0,
+            "title": "Evidence Count",
+            "type": "integer"
+          },
+          "evidence_set_hash": {
+            "title": "Evidence Set Hash",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "latest_evidence_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Latest Evidence At"
+          },
+          "primary_language": {
+            "title": "Primary Language",
+            "type": "string"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "superseded_by_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Superseded By Id"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "title",
+          "status",
+          "primary_language",
+          "superseded_by_id",
+          "evidence_count",
+          "latest_evidence_at",
+          "completeness",
+          "evidence_set_hash",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "StorySummaryOut",
         "type": "object"
       },
       "TelegramAutomationOptionsOut": {
@@ -17572,7 +18361,13 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/ContentPackRequestOut"
+                  },
+                  "title": "Response List Content Pack Requests Content Pack Requests Get",
+                  "type": "array"
+                }
               }
             },
             "description": "Successful Response"
@@ -17591,7 +18386,13 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/ContentPackOut"
+                  },
+                  "title": "Response List Content Packs Content Packs Get",
+                  "type": "array"
+                }
               }
             },
             "description": "Successful Response"
@@ -17622,7 +18423,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/ContentPackOut"
+                }
               }
             },
             "description": "Successful Response"
@@ -19736,7 +20539,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/PlatformVariantRevisionOut"
+                }
               }
             },
             "description": "Successful Response"
@@ -19787,7 +20592,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/PlatformVariantRevisionOut"
+                }
               }
             },
             "description": "Successful Response"
@@ -19891,7 +20698,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/PlatformVariantRevisionOut"
+                }
               }
             },
             "description": "Successful Response"
@@ -19985,7 +20794,9 @@
           "202": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/JobAcceptedOut"
+                }
               }
             },
             "description": "Successful Response"
@@ -20026,7 +20837,13 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/PlatformVariantRevisionOut"
+                  },
+                  "title": "Response List Variant Revisions Platform Variants  Variant Id  Revisions Get",
+                  "type": "array"
+                }
               }
             },
             "description": "Successful Response"
@@ -20083,7 +20900,9 @@
           "201": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/PlatformVariantRevisionOut"
+                }
               }
             },
             "description": "Successful Response"
@@ -22009,7 +22828,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/StorySummaryOut"
+                }
               }
             },
             "description": "Successful Response"
@@ -22060,7 +22881,9 @@
           "202": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/JobAcceptedOut"
+                }
               }
             },
             "description": "Successful Response"
@@ -22149,7 +22972,13 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/StoryEvidenceOut"
+                  },
+                  "title": "Response Story Evidence Stories  Story Id  Evidence Get",
+                  "type": "array"
+                }
               }
             },
             "description": "Successful Response"
@@ -22276,7 +23105,13 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/StoryRevisionOut"
+                  },
+                  "title": "Response Story Revisions Stories  Story Id  Revisions Get",
+                  "type": "array"
+                }
               }
             },
             "description": "Successful Response"

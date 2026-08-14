@@ -652,6 +652,7 @@ def test_default_registry_adds_only_source_handlers_when_dependencies_are_suppli
 
     assert registry.job_types() == (
         "ingest.collect",
+        "ingest.collection.continuous_cycle",
         "manual_intake",
         "operations.canary.source_generation",
         "story.group_pending",
@@ -760,8 +761,14 @@ class HandlerFixture:
         self.capture = FakeCapture(self.route)
         self.media = FakeMediaStager(self.capture)
         self.now = NOW
+        # The fake plays both roles, but each role is now wired explicitly:
+        # production code no longer sniffs the stager for ``enqueue_job``.
         self.handlers = build_telegram_route_handlers(
-            registry, self.media, page_budget=page_budget, clock=lambda: self.now
+            registry,
+            self.media,
+            page_budget=page_budget,
+            clock=lambda: self.now,
+            job_repository=self.media,
         )
         self.job_id = uuid4()
 

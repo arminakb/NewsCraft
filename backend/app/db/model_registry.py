@@ -1,3 +1,16 @@
+"""Model registry for Alembic autogenerate.
+
+The import block below *is* the registry: importing every module that defines
+mapped classes is what populates ``Base.metadata``, and ``alembic/env.py``
+targets that metadata. There is deliberately no separate tuple of mapped
+classes — such a list is never read, drifts silently out of date, and gives a
+false sense of completeness. ``tests/test_model_registry.py`` fails loudly if a
+module defining mapped classes is ever added without an import here (without
+which ``alembic revision --autogenerate`` would emit ``DROP TABLE``).
+"""
+
+# ruff: noqa: F401  (these imports exist for their registration side effect)
+
 from app.automations.definitions.models import (
     Automation,
     AutomationNodeRun,
@@ -61,69 +74,5 @@ from app.source_collections.models import (
     SourceCollectionMembership,
 )
 from app.stories.models import Story, StoryEvidenceLink, StoryEvidenceSnapshot, StoryRevision
-
-_MAPPED_CLASSES = (
-    Automation,
-    AutomationVersion,
-    AutomationTemplate,
-    AutomationRuntimeProjection,
-    AutomationRun,
-    AutomationNodeRun,
-    AutomationRoute,
-    TelegramDestinationMigrationIssue,
-    CodexConnection,
-    CodexIdempotencyRecord,
-    CodexPairingSession,
-    CodexRateLimitBucket,
-    ArticleCollection,
-    ArticleCollectionItem,
-    ContentDraft,
-    ContentItem,
-    IngestRun,
-    ItemIdentity,
-    ItemMedia,
-    MediaAsset,
-    RawPayload,
-    RewriteCandidate,
-    Source,
-    SourceItem,
-    AIProviderProfile,
-    BrandProfile,
-    ContentPack,
-    GenerationAttempt,
-    GenerationRun,
-    PlatformVariant,
-    PlatformVariantRevision,
-    PromptTemplate,
-    PromptTemplateVersion,
-    AutomationControl,
-    RuntimeHeartbeat,
-    WorkflowEvent,
-    WorkflowJob,
-    WorkflowSchedule,
-    LLMProvider,
-    ManualPublicationPlan,
-    DateTimeSettings,
-    Destination,
-    TelegramProxyProfile,
-    Publication,
-    PublishAttempt,
-    PublishJob,
-    RetentionPolicy,
-    RetentionRun,
-    EncryptedSecret,
-    SecurityAuditEvent,
-    SourceCollection,
-    SourceCollectionIngestionSubscription,
-    SourceCollectionMembership,
-    IngestRunSourceSnapshot,
-    ResearchAttempt,
-    ResearchRun,
-    ResearchSource,
-    Story,
-    StoryEvidenceLink,
-    StoryEvidenceSnapshot,
-    StoryRevision,
-)
 
 __all__ = ["Base"]

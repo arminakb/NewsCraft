@@ -2,18 +2,27 @@ from datetime import UTC, datetime
 from decimal import Decimal
 from uuid import uuid4
 
+import pytest
 from sqlalchemy.dialects import postgresql
 
 from app.db.models import MediaAsset, Source
-from app.ingestion.repository import (
-    IngestionRepository,
-    _apply_media_candidate,
-    _identity_insert_statement,
-    _media_asset_values,
-    build_item_identities,
+from app.ingestion.identity import build_item_identities
+from app.ingestion.media_policy import (
+    apply_media_candidate as _apply_media_candidate,
+)
+from app.ingestion.media_policy import (
+    dedupe_media_candidates,
     plan_item_media_rows,
 )
+from app.ingestion.media_policy import (
+    media_asset_values as _media_asset_values,
+)
+from app.ingestion.repository import (
+    IngestionRepository,
+    _identity_insert_statement,
+)
 from app.sources.base import MediaCandidate, ParsedSourceItem
+from app.sources.rss import _extract_media_candidates
 
 
 def test_build_item_identities_marks_strong_and_weak_scopes():
@@ -160,6 +169,42 @@ def test_identity_upserts_match_partial_unique_indexes():
     assert "ON CONFLICT (source_id, identity_type, identity_hash) WHERE scope = 'source' AND is_strong" in source_sql
 
 
+def test_weak_source_identity_upsert_targets_the_weak_unique_index():
+    values = {
+        "content_item_id": uuid4(),
+        "source_item_id": uuid4(),
+        "identity_type": "title_date_fingerprint",
+        "identity_value": "headline|2026-08-13",
+        "identity_hash": "hash",
+        "scope": "source",
+        "source_id": uuid4(),
+        "confidence": Decimal("0.55"),
+        "is_strong": False,
+    }
+
+    weak_sql = str(_identity_insert_statement(values).compile(dialect=postgresql.dialect()))
+
+    assert "ON CONFLICT (source_id, identity_type, identity_hash) WHERE scope = 'source' AND NOT is_strong" in weak_sql
+    assert "DO UPDATE" in weak_sql
+
+
+def test_identity_upsert_rejects_scopes_without_a_unique_index():
+    values = {
+        "content_item_id": uuid4(),
+        "source_item_id": uuid4(),
+        "identity_type": "title_date_fingerprint",
+        "identity_value": "headline|2026-08-13",
+        "identity_hash": "hash",
+        "scope": "global",
+        "source_id": None,
+        "confidence": Decimal("0.55"),
+        "is_strong": False,
+    }
+
+    with pytest.raises(ValueError, match="Unsupported identity scope"):
+        _identity_insert_statement(values)
+
+
 def test_repository_exposes_plan_methods():
     expected_methods = {
         "create_run",
@@ -226,3 +271,160 @@ def test_remote_reingest_does_not_erase_downloaded_media_metadata():
     assert asset.fetch_status == "downloaded"
     assert asset.source_field == "telegram_capture"
     assert asset.media_source_type == "stored"
+
+
+def test_duplicate_urls_resolve_to_the_strongest_candidate():
+    lead = MediaCandidate(
+        "https://e.test/lead.jpg",
+        "https://e.test/lead.jpg",
+        "image",
+        "media_content",
+        width=1200,
+        height=630,
+        confidence=1.0,
+    )
+    inline = MediaCandidate(
+        "https://e.test/lead.jpg",
+        "https://e.test/lead.jpg",
+        "image",
+        "inline_img",
+        confidence=0.7,
+    )
+
+    deduped = dedupe_media_candidates([lead, inline])
+
+    assert len(deduped) == 1
+    assert deduped[0].source_field == "media_content"
+    assert deduped[0].width == 1200
+
+
+def test_plan_item_media_rows_uses_the_strongest_duplicate_candidate():
+    content_item_id = uuid4()
+    asset = MediaAsset(
+        id=uuid4(),
+        original_url="https://e.test/lead.jpg",
+        normalized_url="https://e.test/lead.jpg",
+        url_hash="lead",
+        kind="image",
+        source_field="media_content",
+        width=1200,
+        height=630,
+        fetch_status="remote_only",
+        media_quality="good",
+        is_primary_candidate=True,
+    )
+    parsed_item = ParsedSourceItem(
+        external_id_raw="guid-1",
+        external_id_norm="guid-1",
+        source_url="https://example.com/a",
+        source_url_norm="https://example.com/a",
+        canonical_url_candidate="https://example.com/a",
+        title="AI News",
+        summary="summary",
+        content_html=None,
+        content_text="body",
+        author=None,
+        categories=[],
+        published_raw=None,
+        published_at=None,
+        date_parse_status="missing",
+        media_candidates=[
+            MediaCandidate(
+                "https://e.test/lead.jpg",
+                "https://e.test/lead.jpg",
+                "image",
+                "media_content",
+                width=1200,
+                height=630,
+                confidence=1.0,
+            ),
+            MediaCandidate(
+                "https://e.test/lead.jpg",
+                "https://e.test/lead.jpg",
+                "image",
+                "inline_img",
+                confidence=0.7,
+            ),
+        ],
+    )
+
+    rows = plan_item_media_rows(content_item_id, [asset], parsed_item)
+
+    assert len(rows) == 1
+    assert rows[0]["extracted_from"] == "media_content"
+
+
+def test_rss_media_extraction_emits_one_candidate_per_url():
+    entry = {
+        "media_content": [{"url": "https://e.test/lead.jpg", "medium": "image", "width": "1200", "height": "630"}],
+        "links": [],
+        "enclosures": [],
+    }
+    html = '<p>text</p><img src="https://e.test/lead.jpg" alt="lead"/>'
+
+    candidates = _extract_media_candidates(entry, html, "https://example.com/a")
+
+    assert [candidate.source_field for candidate in candidates] == ["media_content"]
+    assert candidates[0].width == 1200
+
+
+def test_reingestion_keeps_download_verified_metadata():
+    downloaded = MediaAsset(
+        id=uuid4(),
+        original_url="https://e.test/lead.jpg",
+        normalized_url="https://e.test/lead.jpg",
+        url_hash="lead",
+        kind="image",
+        source_field="media_content",
+        mime_type="image/webp",
+        width=1200,
+        height=630,
+        storage_path="/media/ab/lead.webp",
+        checksum_sha256="b" * 64,
+        byte_length=4096,
+        fetch_status="downloaded",
+    )
+    bare_feed_claim = MediaCandidate(
+        "https://e.test/lead.jpg",
+        "https://e.test/lead.jpg",
+        "image",
+        "media_content",
+    )
+
+    _apply_media_candidate(downloaded, bare_feed_claim, "lead")
+
+    assert downloaded.mime_type == "image/webp"
+    assert downloaded.width == 1200
+    assert downloaded.height == 630
+    assert downloaded.storage_path == "/media/ab/lead.webp"
+    assert downloaded.byte_length == 4096
+
+
+def test_a_capture_that_supplies_its_own_storage_may_replace_the_mime_type():
+    stored = MediaAsset(
+        id=uuid4(),
+        original_url="telegram-media:one",
+        normalized_url="telegram-media:one",
+        url_hash="one",
+        kind="image",
+        source_field="telegram_capture",
+        mime_type="image/webp",
+        storage_path="/media/ab/old.webp",
+        fetch_status="downloaded",
+    )
+    recapture = MediaCandidate(
+        "telegram-media:one",
+        "telegram-media:one",
+        "image",
+        "telegram_capture",
+        mime_type="image/jpeg",
+        storage_path="/media/cd/new.jpg",
+        checksum_sha256="c" * 64,
+        byte_length=99,
+        fetch_status="downloaded",
+    )
+
+    _apply_media_candidate(stored, recapture, "one")
+
+    assert stored.mime_type == "image/jpeg"
+    assert stored.storage_path == "/media/cd/new.jpg"

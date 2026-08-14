@@ -77,6 +77,20 @@ describe("SettingsModal", () => {
     expect(push).not.toHaveBeenCalled()
   })
 
+  it("replaces direct-load section history and the close destination", () => {
+    const replaceState = vi.spyOn(window.history, "replaceState")
+    const pushState = vi.spyOn(window.history, "pushState")
+    render(<SettingsModal />)
+
+    fireEvent.click(screen.getByRole("button", { name: "Date & Time" }))
+    expect(replaceState).toHaveBeenLastCalledWith(expect.any(Object), "", "/settings?section=date-time")
+    expect(pushState).not.toHaveBeenCalled()
+
+    fireEvent.click(screen.getAllByRole("button", { name: "Close Settings" })[0])
+    expect(replace).toHaveBeenCalledWith("/", { scroll: false })
+    expect(push).not.toHaveBeenCalled()
+  })
+
   it("canonicalizes missing and invalid section values", () => {
     searchParams = new URLSearchParams("section=unknown")
     render(<SettingsModal />)

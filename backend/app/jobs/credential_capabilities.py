@@ -236,6 +236,7 @@ class WorkerCredentialCapabilityObserver:
                     credential_code = "available"
                 except SecretKeyUnavailable:
                     credential_available = False
+                    credential_code = "invalid_configuration"
                 except SecretDecryptionFailed:
                     credential_available = False
                     credential_code = "credential_invalid"
@@ -370,6 +371,16 @@ class WorkerCredentialCapabilityObserver:
 
 
 class CapabilityStatusService:
+    """Answers capability questions from one worker-heartbeat snapshot.
+
+    An instance reads the heartbeat table at most once and projects every
+    later question from that snapshot, so a caller asking about many
+    resources (a scheduler tick, a resource summary, one API request) pays a
+    single scan. The snapshot is therefore as old as the instance: construct
+    a new service whenever newer heartbeats must be observed, and keep
+    instances short-lived — request-, tick-, or call-scoped.
+    """
+
     def __init__(
         self,
         session: AsyncSession,
@@ -380,6 +391,19 @@ class CapabilityStatusService:
         self.session = session
         self.config = config
         self.clock = clock or (lambda: datetime.now(UTC))
+        self._heartbeats: list[RuntimeHeartbeat] | None = None
+
+    async def _worker_heartbeats(self) -> list[RuntimeHeartbeat]:
+        if self._heartbeats is None:
+            self._heartbeats = list(
+                await self.session.scalars(
+                    select(RuntimeHeartbeat)
+                    .where(RuntimeHeartbeat.component_type == "worker")
+                    .order_by(RuntimeHeartbeat.observed_at.desc())
+                    .limit(10_000)
+                )
+            )
+        return self._heartbeats
 
     async def get(
         self,
@@ -387,16 +411,8 @@ class CapabilityStatusService:
         resource_id: UUID,
         capability: ResourceCapability,
     ) -> CapabilityStatus:
-        rows = list(
-            await self.session.scalars(
-                select(RuntimeHeartbeat)
-                .where(RuntimeHeartbeat.component_type == "worker")
-                .order_by(RuntimeHeartbeat.observed_at.desc())
-                .limit(10_000)
-            )
-        )
         return project_capability_status(
-            rows,
+            await self._worker_heartbeats(),
             resource_type=resource_type,
             resource_id=resource_id,
             capability=capability,

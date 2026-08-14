@@ -66,6 +66,27 @@ class ResearchBackend(Protocol):
     async def research(self, request: ResearchRequest) -> ResearchResult: ...
 
 
+def budget_exceeded(budget: ResearchBudget, usage: ResearchUsage, elapsed_ms: int) -> bool:
+    """Single post-hoc predicate for every research budget dimension.
+
+    Both the in-process assertion that a backend honoured its budget and the
+    trust-boundary rejection of a returned result use this, so a newly added
+    dimension can never be enforced in one place and silently ignored in the
+    other. In-loop incremental guards are a different concern and stay separate.
+    """
+
+    return (
+        usage.model_calls > budget.max_model_calls
+        or usage.input_tokens > budget.max_input_tokens
+        or usage.output_tokens > budget.max_output_tokens
+        or usage.estimated_cost_usd > budget.max_cost_usd
+        or usage.queries > budget.max_queries
+        or usage.pages > budget.max_pages
+        or usage.fetched_characters > budget.max_total_chars
+        or elapsed_ms > budget.max_elapsed_seconds * 1_000
+    )
+
+
 __all__ = [
     "ResearchBackend",
     "ResearchBackendOutput",
@@ -73,4 +94,5 @@ __all__ = [
     "ResearchRequest",
     "ResearchResult",
     "ResearchUsage",
+    "budget_exceeded",
 ]

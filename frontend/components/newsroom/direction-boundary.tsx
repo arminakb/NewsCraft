@@ -6,6 +6,23 @@ import {
 
 export type ContentDirection = "ltr" | "rtl" | "auto"
 
+/**
+ * Primary language subtags written right-to-left. Keyed by subtag because
+ * the region and script suffixes ("fa-IR", "ar_EG") never change direction.
+ */
+const RIGHT_TO_LEFT_SUBTAGS: ReadonlySet<string> = new Set([
+  "ar",
+  "ckb",
+  "dv",
+  "fa",
+  "he",
+  "ps",
+  "sd",
+  "ug",
+  "ur",
+  "yi",
+])
+
 export type DirectionBoundaryProps<T extends ElementType = "div"> = {
   as?: T
   language?: string | null
@@ -21,7 +38,7 @@ export function resolveContentDirection(
   const lang = !candidate || primarySubtag === "und" ? undefined : candidate
   const inferred: ContentDirection = !lang
     ? "auto"
-    : primarySubtag === "fa" || primarySubtag === "ar"
+    : primarySubtag && RIGHT_TO_LEFT_SUBTAGS.has(primarySubtag)
       ? "rtl"
       : "ltr"
 
@@ -37,8 +54,8 @@ export function DirectionBoundary<T extends ElementType = "div">({
   const element = as ?? "div"
   const resolved = resolveContentDirection(language, direction)
   return createElement(element, {
-    ...props,
     "data-testid": "direction-boundary",
+    ...props,
     dir: resolved.dir,
     lang: resolved.lang,
   })

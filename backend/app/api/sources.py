@@ -1,14 +1,16 @@
+import logging
 import stat
 from datetime import UTC, datetime
 from pathlib import Path
 from uuid import UUID, uuid4
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import FileResponse
 from sqlalchemy import delete, func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.dependencies import SessionDependency
 from app.api.schemas import (
     SourceCreateIn,
     SourceDetailOut,
@@ -20,7 +22,6 @@ from app.automations.definitions.resources import count_automation_definitions_r
 from app.automations.models import AutomationRoute
 from app.core.config import settings
 from app.db.models import Source
-from app.db.session import get_session
 from app.ingestion.seed_sources import seed_sources
 from app.jobs.errors import JobCapabilityUnavailable
 from app.jobs.types import JobOrigin
@@ -28,10 +29,39 @@ from app.source_collections.models import SourceCollectionMembership
 from app.source_collections.repository import list_sources as list_source_page
 from app.source_collections.schemas import SourcePageOut
 from app.sources.health import SourceHealthCheck, check_source_health
-from app.sources.icon_discovery import enqueue_source_icon_discovery
+from app.sources.icon_discovery import ICON_PLATFORMS, enqueue_source_icon_discovery
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
-SessionDependency = Depends(get_session)
+
+
+async def _schedule_source_icon_discovery(session: AsyncSession, source_id: UUID) -> None:
+    """Claim the first icon-discovery attempt for a freshly created source.
+
+    This is the seam the create path calls, and the seam tests substitute when
+    they drive the router with a session double that has no durable job store —
+    previously that was expressed as ``hasattr(session, "scalar")`` plus a
+    catch-all for the doubles' ``AttributeError``/``TypeError``, which also
+    swallowed genuine enqueue faults.
+
+    The source row is already committed by the time we get here, and a failed
+    claim rolls back to ``icon_status='pending'`` — exactly the state
+    ``app.jobs.scheduler`` sweeps and re-queues — so dropping the attempt is
+    recoverable. It is not, however, invisible: the warning names the source so
+    a systematically rejected queue is diagnosable instead of showing up as
+    icons that merely take a while.
+    """
+
+    try:
+        await enqueue_source_icon_discovery(session, source_id, origin=JobOrigin.MANUAL)
+        await session.commit()
+    except JobCapabilityUnavailable as exc:
+        logger.warning(
+            "source icon discovery enqueue rejected; scheduler backfill remains the repair path",
+            extra={"source_id": str(source_id), "error_code": exc.code},
+        )
+        await session.rollback()
 
 
 @router.get("/sources", response_model=list[SourceOut])
@@ -70,7 +100,7 @@ async def search_sources(
         offset=offset,
     )
     return SourcePageOut(
-        items=list(page.items),
+        items=[SourceOut.model_validate(item) for item in page.items],
         total=page.total,
         limit=page.limit,
         offset=page.offset,
@@ -103,14 +133,8 @@ async def create_source(payload: SourceCreateIn, session: AsyncSession = Session
     except IntegrityError:
         await session.rollback()
         raise HTTPException(status_code=409, detail="source already exists") from None
-    if source.platform in {"rss", "atom"} and hasattr(session, "scalar"):
-        try:
-            await enqueue_source_icon_discovery(session, source.id, origin=JobOrigin.MANUAL)
-            await session.commit()
-        except (AttributeError, TypeError, NotImplementedError, JobCapabilityUnavailable):
-            # Lightweight API doubles may not implement the durable job store.
-            # The scheduler backfill remains the restart-safe repair path.
-            await session.rollback()
+    if source.platform in ICON_PLATFORMS:
+        await _schedule_source_icon_discovery(session, source.id)
     return source
 
 
@@ -174,12 +198,10 @@ async def delete_source(source_id: UUID, session: AsyncSession = SessionDependen
         )
         or 0
     )
-    try:
-        definition_dependencies = await count_automation_definitions_referencing(session, source_id)
-    except TypeError:
-        # Lightweight API doubles used by legacy tests do not accept bound
-        # parameters. Production AsyncSession instances never take this path.
-        definition_dependencies = 0
+    # No exception is absorbed here: this count is the referential-integrity
+    # guard below, so a failing count must surface as a 500 rather than silently
+    # authorize the delete.
+    definition_dependencies = await count_automation_definitions_referencing(session, source_id)
     if legacy_dependencies or definition_dependencies:
         raise HTTPException(
             status_code=409,
@@ -188,11 +210,9 @@ async def delete_source(source_id: UUID, session: AsyncSession = SessionDependen
                 "automations": legacy_dependencies + definition_dependencies,
             },
         )
-    execute = getattr(session, "execute", None)
-    if execute is not None:
-        await execute(
-            delete(SourceCollectionMembership).where(SourceCollectionMembership.source_id == source_id)
-        )
+    await session.execute(
+        delete(SourceCollectionMembership).where(SourceCollectionMembership.source_id == source_id)
+    )
     source.active = False
     source.disabled_reason = "deleted_by_operator"
     source.deleted_at = datetime.now(UTC)

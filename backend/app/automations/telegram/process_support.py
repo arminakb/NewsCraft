@@ -41,6 +41,10 @@ from app.jobs.repository import JobRepository
 from app.jobs.types import JobExecution, JobOrigin
 from app.media.reference_fence import fence_platform_revision_media_write
 from app.publishing.models import Destination, PublishJob
+from app.publishing.telegram.service_contracts import (
+    immediate_publish_intent_key,
+    reviewed_schedule_intent_key,
+)
 from app.stories.models import StoryEvidenceLink, StoryEvidenceSnapshot, StoryRevision
 
 logger = logging.getLogger(__name__)
@@ -68,11 +72,34 @@ async def enqueue_telegram_publish_intent(
             message=str(exc),
         ) from None
 
-    idempotency_key = f"telegram-publish:{destination.id}:{revision.id}:{revision.content_hash}"
+    idempotency_key = immediate_publish_intent_key(
+        destination_id=destination.id,
+        revision_id=revision.id,
+        content_hash=revision.content_hash,
+    )
     publish_job = await session.scalar(
         select(PublishJob).where(PublishJob.idempotency_key == idempotency_key).with_for_update()
     )
     if publish_job is None:
+        scheduled_intent = await session.scalar(
+            select(PublishJob)
+            .where(
+                PublishJob.idempotency_key
+                == reviewed_schedule_intent_key(
+                    destination_id=destination.id,
+                    revision_id=revision.id,
+                    content_hash=revision.content_hash,
+                )
+            )
+            .with_for_update()
+        )
+        if scheduled_intent is not None:
+            # The operator already pinned an exact due time for this revision.
+            # Creating a second, immediate intent would publish it twice.
+            raise NeedsReviewJobError(
+                code="telegram_publish_already_scheduled",
+                message="Telegram revision already has a reviewed publish schedule",
+            )
         publish_job = PublishJob(
             destination_id=destination.id,
             platform_variant_revision_id=revision.id,
@@ -152,7 +179,7 @@ async def _exact_dispatch_evidence(
     return snapshot
 
 
-async def _dispatch_media(
+async def dispatch_media(
     session: Any,
     source_item: SourceItem,
     *,
@@ -182,7 +209,7 @@ async def _dispatch_media(
     return content_item, media
 
 
-def _media_decision(route: AutomationRoute, media: tuple[MediaAsset, ...]) -> tuple[list[UUID], bool, str | None]:
+def media_decision(route: AutomationRoute, media: tuple[MediaAsset, ...]) -> tuple[list[UUID], bool, str | None]:
     decision = evaluate_media_policy(route.media_policy, media)
     if decision.terminal_reason == "media_expired":
         raise NeedsReviewJobError(
@@ -308,7 +335,7 @@ async def _content_pack_and_variant(
     return pack, variant
 
 
-async def _require_automation_variant_write_allowed(session: Any, variant_id: UUID) -> None:
+async def require_automation_variant_write_allowed(session: Any, variant_id: UUID) -> None:
     try:
         await require_revision_write_allowed(session, variant_id=variant_id)
     except RegenerationFenceConflict:
@@ -346,7 +373,7 @@ def _generation_error(exc: Exception, route: AutomationRoute, job: JobExecution)
     return exc
 
 
-async def _resolve_process_prompt(
+async def resolve_process_prompt(
     session: Any,
     *,
     route: AutomationRoute,

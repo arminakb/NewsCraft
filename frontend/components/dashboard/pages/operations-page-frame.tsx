@@ -10,7 +10,6 @@ export function OperationsPageFrame({
   subtitle: string
   actions?: React.ReactNode
   children: React.ReactNode
-  enableQueries?: boolean
 }) {
   return (
     <section aria-label={title} className="min-w-0 bg-background text-sm text-foreground">

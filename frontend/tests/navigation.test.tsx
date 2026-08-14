@@ -2,7 +2,7 @@ import { fireEvent, render, screen, within } from "@testing-library/react"
 
 import { metadata as settingsMetadata } from "@/app/settings/content/page"
 import { MobileNewsroomNav } from "@/components/newsroom/mobile-newsroom-nav"
-import { NewsroomSidebar } from "@/components/newsroom/newsroom-sidebar"
+import { isCurrentPath, NewsroomSidebar } from "@/components/newsroom/newsroom-sidebar"
 import { ThemeProvider } from "@/components/providers/theme-provider"
 import { packageQueryKeys } from "@/lib/query-keys"
 
@@ -24,6 +24,12 @@ const expectedNavigation = [
 describe("NewsroomSidebar", () => {
   beforeEach(() => {
     pathname = "/sources"
+  })
+
+  it("matches navigation hrefs by pathname when they include a query", () => {
+    expect(isCurrentPath("/settings", "/settings?section=llm-providers")).toBe(true)
+    expect(isCurrentPath("/settings/profile", "/settings?section=llm-providers")).toBe(true)
+    expect(isCurrentPath("/feed", "/settings?section=llm-providers")).toBe(false)
   })
 
   it("exposes every surviving top-level route directly in priority order", () => {

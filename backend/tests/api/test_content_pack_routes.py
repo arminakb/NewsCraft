@@ -5,6 +5,7 @@ from uuid import uuid4
 import pytest
 from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
+from httpx import ASGITransport, AsyncClient
 
 from app.api.content_packs import (
     _request_out,
@@ -52,6 +53,34 @@ def test_content_pack_resource_routes_are_registered_with_exact_methods():
     assert expected <= routes
     edit_operation = app.openapi()["paths"]["/platform-variants/{variant_id}/revisions"]["post"]
     assert "201" in edit_operation["responses"]
+
+
+@pytest.mark.asyncio
+async def test_content_pack_list_enforces_response_model_at_the_real_listener(monkeypatch):
+    import app.api.content_packs as content_pack_api
+
+    class Session:
+        async def scalars(self, _statement):
+            return []
+
+    async def uncontracted_projection(_session, _rows):
+        return [{"unexpected": True}]
+
+    monkeypatch.setattr(content_pack_api, "_packs_out", uncontracted_projection)
+    api = FastAPI()
+    api.include_router(content_pack_router)
+
+    async def override_session():
+        yield Session()
+
+    api.dependency_overrides[get_session] = override_session
+    async with AsyncClient(
+        transport=ASGITransport(app=api, raise_app_exceptions=False),
+        base_url="http://test",
+    ) as client:
+        response = await client.get("/content-packs")
+
+    assert response.status_code == 500
 
 
 @pytest.mark.asyncio
@@ -843,7 +872,16 @@ async def test_succeeded_telegram_child_with_exact_pack_is_ready():
             return None
 
         async def scalars(self, statement):
-            return [SimpleNamespace(id=uuid4(), platform="telegram")]
+            # The pack projection resolves each table once for the page: the
+            # story revisions, then the variants, then a single ranked query for
+            # every variant's current revision. This pack has no revisions, so
+            # that last query answers empty.
+            text = str(statement)
+            if "platform_variant_revisions" in text:
+                return []
+            if "story_revisions" in text:
+                return [SimpleNamespace(id=revision_id, story_id=story_id)]
+            return [SimpleNamespace(id=uuid4(), content_pack_id=pack_id, platform="telegram")]
 
         async def scalar(self, statement):
             return uuid4()
@@ -1043,3 +1081,122 @@ def child_job(parent, child_id, revision_id, *, status, error):
         created_at=datetime.now(UTC),
         updated_at=datetime.now(UTC),
     )
+
+
+def _projection_pack(story_revision_id, now):
+    return SimpleNamespace(
+        id=uuid4(),
+        story_revision_id=story_revision_id,
+        brand_profile_id=uuid4(),
+        status="draft",
+        created_at=now,
+        updated_at=now,
+    )
+
+
+def _projection_revision(variant_id, now):
+    from app.generation.models import PlatformVariantRevision
+
+    # A real ORM instance: the pack projection only treats a ranked row as a
+    # current revision when it is one, so a namespace would silently project
+    # every variant as revision-less and hide the query counts under test.
+    return PlatformVariantRevision(
+        id=uuid4(),
+        platform_variant_id=variant_id,
+        parent_revision_id=None,
+        generation_attempt_id=None,
+        revision_number=1,
+        content={},
+        content_hash="a" * 64,
+        evidence_map=[],
+        validation_results=[],
+        approval_state="draft",
+        approval_note=None,
+        approved_at=None,
+        created_by="operator",
+        created_at=now,
+    )
+
+
+class _CountingProjectionSession:
+    """Answers a pack page's selects and records which table each one read."""
+
+    def __init__(self, packs, variants, revisions, story_revisions):
+        self.rows = {
+            "content_packs": packs,
+            "platform_variants": variants,
+            "platform_variant_revisions": revisions,
+            "story_revisions": story_revisions,
+        }
+        self.by_id = {row.id: row for group in self.rows.values() for row in group}
+        self.reads = []
+
+    def _table(self, statement):
+        text = str(statement)
+        # "platform_variants" is a prefix of no other table name here, but the
+        # revision table must be recognised before it to stay unambiguous.
+        for table in (
+            "platform_variant_revisions",
+            "platform_variants",
+            "story_evidence_snapshots",
+            "content_packs",
+            "story_revisions",
+        ):
+            if table in text:
+                return table
+        return "other"
+
+    async def scalars(self, statement):
+        table = self._table(statement)
+        self.reads.append(table)
+        return self.rows.get(table, [])
+
+    async def get(self, _model, identifier):
+        return self.by_id.get(identifier)
+
+
+def _projection_page(pack_count, variants_per_pack):
+    now = datetime(2026, 8, 13, 9, tzinfo=UTC)
+    citation = {
+        "evidence_key": "evidence:one",
+        "evidence_snapshot_id": str(uuid4()),
+        "source_url": "https://example.com/report",
+        "locator": "chars:0-8",
+        "excerpt_sha256": "b" * 64,
+    }
+    packs, variants, revisions, story_revisions = [], [], [], []
+    for _ in range(pack_count):
+        story_revision = SimpleNamespace(id=uuid4(), story_id=uuid4(), citations=[citation])
+        story_revisions.append(story_revision)
+        pack = _projection_pack(story_revision.id, now)
+        packs.append(pack)
+        for index in range(variants_per_pack):
+            variant = SimpleNamespace(id=uuid4(), content_pack_id=pack.id, platform=("telegram", "x")[index % 2])
+            variants.append(variant)
+            revisions.append(_projection_revision(variant.id, now))
+    return _CountingProjectionSession(packs, variants, revisions, story_revisions), packs
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("pack_count", [1, 4])
+async def test_pack_page_reads_each_table_once_regardless_of_page_size(pack_count):
+    from app.api.content_pack_mappers import _packs_out
+
+    session, packs = _projection_page(pack_count, variants_per_pack=3)
+
+    projected = await _packs_out(session, packs)
+
+    assert [row["id"] for row in projected] == [pack.id for pack in packs]
+    assert all(len(row["variants"]) == 3 for row in projected)
+    assert all(item["current_revision"] is not None for row in projected for item in row["variants"])
+    # One ranked query covers every variant's current revision, and each other
+    # table is read once for the projection and once to warm the revision
+    # graph — counts that must not move with pack_count.
+    assert session.reads.count("platform_variant_revisions") == 1
+    assert session.reads.count("platform_variants") == 2
+    assert session.reads.count("content_packs") == 1
+    assert session.reads.count("story_revisions") == 2
+    # Source media resolves per story revision, not per variant: the three
+    # variants of a pack share one revision, so a per-variant projection would
+    # issue three times as many snapshot reads.
+    assert session.reads.count("story_evidence_snapshots") == pack_count

@@ -11,6 +11,7 @@ from uuid import UUID, uuid4
 
 from pydantic import ValidationError
 from sqlalchemy import func, select
+from sqlalchemy.exc import DBAPIError
 
 from app.automations.telegram.handlers import sha256_canonical
 from app.core.faults import FaultInjector, NoopFaultInjector
@@ -39,10 +40,11 @@ from app.generation.providers.base import (
     GenerationProviderResult,
     ProviderMessage,
 )
-from app.generation.providers.profiles import ResolvedProviderProfile
+from app.generation.providers.profiles import ProviderProfileConfigurationError, ResolvedProviderProfile
 from app.jobs.errors import NeedsReviewJobError, PermanentJobError, RetryableJobError
 from app.jobs.registry import JobContext
 from app.research.citations import CitationIntegrityError
+from app.security.secret_store import SecretStoreUnavailable
 from app.workflows.states import require_generation_run_transition
 
 
@@ -84,11 +86,16 @@ async def _resolve_profile(
         )
     try:
         return profile, await _resolve_provider(profile_resolver, profile, context)
-    except Exception:
+    except (ProviderProfileConfigurationError, ValueError) as exc:
         raise PermanentJobError(
             code="generation_profile_unavailable",
             message="Generation provider profile is unavailable",
-        ) from None
+        ) from exc
+    except (DBAPIError, SecretStoreUnavailable) as exc:
+        raise RetryableJobError(
+            code="generation_profile_temporarily_unavailable",
+            message="Generation provider profile is temporarily unavailable",
+        ) from exc
 
 
 async def _resolve_provider(
@@ -577,7 +584,7 @@ async def _persist_success(
     return run, attempt
 
 
-async def _invoke(
+async def invoke(
     context: JobContext,
     *,
     profile_resolver: Any,
@@ -675,6 +682,3 @@ async def _invoke(
         result=result,
     )
     return durable_run, durable_attempt, validated
-
-
-_usage_with_qualified_pricing = normalize_provider_usage

@@ -1,51 +1,85 @@
 from __future__ import annotations
 
-# ruff: noqa: F401
-import hashlib
-import inspect
-from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass
-from datetime import UTC, datetime, timedelta
+from datetime import datetime
 from typing import Any, Literal, Protocol
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict
-from sqlalchemy import exists, func, select
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy import select
 
-from app.automations.models import AutomationDispatch, AutomationRoute
-from app.automations.telegram.decisions import (
-    classify_publication_failure,
-    reconciliation_required,
-)
-from app.core.faults import FaultInjector, NoopFaultInjector
-from app.core.redaction import redact_secrets, redact_string
-from app.db.models import ItemMedia, MediaAsset, SourceItem
-from app.generation.models import ContentPack, PlatformVariant, PlatformVariantRevision
-from app.generation.revision_validation import RevisionValidationError, validate_approvable_revision
-from app.generation.telegram_schema import (
-    TelegramEvidenceCitation,
-    TelegramVariantContent,
-)
-from app.jobs.errors import NeedsReviewJobError, PermanentJobError, RetryableJobError
-from app.jobs.events import redact_event_data
-from app.jobs.models import AutomationControl, WorkflowEvent, WorkflowJob
-from app.jobs.repository import JobRepository
-from app.jobs.types import JobOrigin, JobStatus
+from app.automations.models import AutomationDispatch
+from app.generation.models import PlatformVariant, PlatformVariantRevision
+from app.jobs.models import WorkflowJob
 from app.publishing.models import (
-    Destination,
-    Publication,
-    PublishAttempt,
     PublishJob,
-    PublishOperationReceipt,
 )
-from app.publishing.telegram.client import (
-    TelegramClientError,
-    TelegramRateLimited,
-    TelegramRetryableBeforeDispatch,
-)
-from app.publishing.telegram.renderer import TelegramPublishNeedsReview, build_publish_plan
-from app.stories.models import StoryEvidenceSnapshot, StoryRevision
+
+
+def immediate_publish_intent_key(*, destination_id: UUID, revision_id: UUID, content_hash: str) -> str:
+    """Idempotency key of the immediate Telegram publish intent.
+
+    Used by the automation dispatcher and by the operator "publish now" action.
+    """
+
+    return f"telegram-publish:{destination_id}:{revision_id}:{content_hash}"
+
+
+def reviewed_schedule_intent_key(*, destination_id: UUID, revision_id: UUID, content_hash: str) -> str:
+    """Idempotency key of the operator-reviewed *scheduled* Telegram intent.
+
+    Deliberately namespaced away from :func:`immediate_publish_intent_key`: the
+    two intents carry different durable shapes (``queued`` with no due time vs.
+    ``scheduled`` with an exact one) and sharing a key made an already-queued
+    immediate publish indistinguishable from a drifted schedule replay.
+    """
+
+    return f"telegram-publish-schedule:{destination_id}:{revision_id}:{content_hash}"
+
+
+async def revision_dispatch(session: Any, revision: PlatformVariantRevision) -> AutomationDispatch | None:
+    """Walk a revision's ancestry to the automation dispatch that produced it.
+
+    Canonical implementation shared by every Telegram publish entry point
+    (reviewed schedule, draft publish, worker publication, reconciliation) so
+    provenance resolves under one freshness and platform rule everywhere:
+    non-Telegram variants never resolve, and both reads bypass any stale
+    identity-mapped row.
+    """
+
+    variant = await session.get(
+        PlatformVariant,
+        revision.platform_variant_id,
+        populate_existing=True,
+    )
+    if variant is None or variant.platform != "telegram":
+        return None
+    expected_variant_id = revision.platform_variant_id
+    current: PlatformVariantRevision | None = revision
+    seen: set[UUID] = set()
+    while current is not None and current.id not in seen:
+        if current.platform_variant_id != expected_variant_id:
+            return None
+        seen.add(current.id)
+        dispatch = await session.scalar(
+            select(AutomationDispatch)
+            .where(AutomationDispatch.variant_revision_id == current.id)
+            .order_by(AutomationDispatch.created_at.desc())
+            .limit(1)
+            .execution_options(populate_existing=True)
+        )
+        if dispatch is not None:
+            return dispatch
+        current = (
+            await session.get(
+                PlatformVariantRevision,
+                current.parent_revision_id,
+                populate_existing=True,
+            )
+            if current.parent_revision_id is not None
+            else None
+        )
+    return None
 
 
 class PublishValidationError(RuntimeError):

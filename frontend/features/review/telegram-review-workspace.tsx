@@ -7,9 +7,9 @@ import { useNotices } from "@/components/providers/notice-provider"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { StatusBadge, type StatusTone } from "@/components/ui/status-badge"
+import { StatusBadge } from "@/components/ui/status-badge"
+import { dispatchTone } from "@/features/automations/automation-run-state"
 import {
-  getTelegramDestinations,
   getTelegramDispatches,
   getTelegramPublicationContext,
   getTelegramPublishJob,
@@ -17,6 +17,7 @@ import {
   publishTelegramDraft,
 } from "@/features/automations/telegram-api"
 import { getAutomationControl } from "@/features/control/api"
+import { getTelegramDestinations } from "@/features/settings/content-settings-api"
 import type { TelegramRevision } from "@/features/packages/types"
 import { getApiErrorMessage } from "@/lib/http"
 import { queryKeys } from "@/lib/query-keys"
@@ -94,7 +95,7 @@ export function TelegramReviewWorkspace({ revision }: { revision: TelegramRevisi
     if (routeQuery.data?.pausedAt) values.push("Route paused")
     if (routeQuery.data && !routeQuery.data.enabled) values.push("Route disabled")
     if (destination && !destination.configured) values.push("Destination unavailable")
-    if (destination && (!destination.enabled || destination.healthStatus !== "healthy")) {
+    if (destination && (!destination.enabled || destination.health_status !== "healthy")) {
       values.push("Destination unhealthy")
     }
     if (revision.payload.dryRun) values.push("Draft dry run blocks publishing")
@@ -183,7 +184,7 @@ export function TelegramReviewWorkspace({ revision }: { revision: TelegramRevisi
                 <>
                   <div className="flex flex-wrap items-center gap-2">
                     <span>Durable status: {publishJobQuery.data.status.replaceAll("_", " ")}</span>
-                    <StatusBadge tone={publishTone(publishJobQuery.data.status)}>{publishJobQuery.data.status.replaceAll("_", " ")}</StatusBadge>
+                    <StatusBadge tone={dispatchTone(publishJobQuery.data.status)}>{publishJobQuery.data.status.replaceAll("_", " ")}</StatusBadge>
                   </div>
                   <div>Operations: {publishJobQuery.data.receipts.map((receipt) => `${receipt.operationIndex + 1} ${receipt.status}`).join(", ") || "not dispatched"}</div>
                   {publishJobQuery.data.publication ? (
@@ -200,12 +201,4 @@ export function TelegramReviewWorkspace({ revision }: { revision: TelegramRevisi
       </Card>
     </section>
   )
-}
-
-function publishTone(status: string): StatusTone {
-  if (["succeeded", "published"].includes(status)) return "success"
-  if (["failed", "cancelled"].includes(status)) return "error"
-  if (["needs_review", "ambiguous"].includes(status)) return "warning"
-  if (["queued", "running", "dispatching"].includes(status)) return "info"
-  return "neutral"
 }

@@ -1,10 +1,10 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import UTC, datetime
 from decimal import Decimal
 from hashlib import sha256
 from typing import Any
-from urllib.parse import urlsplit
 from uuid import UUID
 
 from sqlalchemy import Select, and_, func, or_, select, text, update
@@ -27,113 +27,25 @@ from app.db.models import (
     Source,
     SourceItem,
 )
-from app.normalization.fingerprints import content_hash, title_date_fingerprint
-from app.normalization.text import fingerprint_text, infer_direction
+from app.ingestion.identity import build_item_identities
+from app.ingestion.media_policy import (
+    apply_media_candidate,
+    dedupe_media_candidates,
+    media_asset_values,
+    plan_item_media_rows,
+)
+from app.ingestion.runs import ingest_run_counters, new_ingest_run
+from app.normalization.text import fingerprint_text, infer_direction, infer_script, normalized_language_hint
 from app.normalization.titles import normalize_title
 from app.normalization.urls import hash_value
 from app.sources.base import MediaCandidate, ParsedSourceItem
 
 GLOBAL_STRONG_IDENTITY_INDEX_WHERE = text("scope = 'global' AND is_strong")
 SOURCE_STRONG_IDENTITY_INDEX_WHERE = text("scope = 'source' AND is_strong")
-DISCOVERY_SOURCE_DEFINITIONS = {
-    "gdelt": {
-        "name": "GDELT",
-        "feed_url": "https://api.gdeltproject.org/api/v2/doc/doc",
-        "source_group": "discovery",
-        "language_hint": "en",
-    },
-    "google_news": {
-        "name": "Google News RSS",
-        "feed_url": "https://news.google.com/rss/search",
-        "source_group": "discovery",
-        "language_hint": "en",
-    },
-    "hackernews": {
-        "name": "Hacker News",
-        "feed_url": "https://hacker-news.firebaseio.com/v0",
-        "source_group": "tech",
-        "language_hint": "en",
-    },
-}
+SOURCE_WEAK_IDENTITY_INDEX_WHERE = text("scope = 'source' AND NOT is_strong")
+LIVE_MEDIA_ASSET_INDEX_WHERE = text("fetch_status <> 'expired'")
 
-
-def build_item_identities(source: Source, parsed_item: ParsedSourceItem) -> list[dict[str, Any]]:
-    identities: list[dict[str, Any]] = []
-
-    if parsed_item.canonical_url_candidate:
-        _append_identity(identities, "canonical_url", parsed_item.canonical_url_candidate, "global", True)
-
-    if parsed_item.source_url_norm:
-        _append_identity(identities, "normalized_url", parsed_item.source_url_norm, "global", True)
-
-    if source.platform == "telegram_public":
-        _append_identity(identities, "telegram_post", parsed_item.external_id_norm, "global", True)
-    elif source.platform == "rss" and parsed_item.external_id_norm:
-        _append_identity(identities, "rss_guid", parsed_item.external_id_norm, "source", True, source.id)
-    elif source.platform == "atom" and parsed_item.external_id_norm:
-        _append_identity(identities, "atom_id", parsed_item.external_id_norm, "source", True, source.id)
-
-    if len(parsed_item.content_text.strip()) >= 80:
-        _append_identity(
-            identities,
-            "content_hash",
-            content_hash(parsed_item.content_text),
-            "global",
-            True,
-            confidence=Decimal("0.92"),
-        )
-
-    date_key = (
-        parsed_item.published_at.date().isoformat() if parsed_item.published_at else parsed_item.published_raw or ""
-    )
-    _append_identity(
-        identities,
-        "title_date_fingerprint",
-        title_date_fingerprint(parsed_item.title, date_key),
-        "source",
-        False,
-        source.id,
-        confidence=Decimal("0.55"),
-    )
-
-    deduped: dict[tuple[str, str, str, UUID | None], dict[str, Any]] = {}
-    for identity in identities:
-        key = (
-            identity["identity_type"],
-            identity["identity_hash"],
-            identity["scope"],
-            identity["source_id"],
-        )
-        deduped[key] = identity
-    return list(deduped.values())
-
-
-def plan_item_media_rows(
-    content_item_id: UUID,
-    media_assets: list[MediaAsset],
-    parsed_item: ParsedSourceItem,
-) -> list[dict[str, Any]]:
-    rows: list[dict[str, Any]] = []
-    candidates_by_url = {candidate.normalized_url: candidate for candidate in parsed_item.media_candidates}
-    primary_image_assigned = False
-
-    for sort_order, media_asset in enumerate(media_assets):
-        candidate = candidates_by_url.get(media_asset.normalized_url)
-        role = _media_role(media_asset, candidate, primary_image_assigned)
-        if role == "primary_image":
-            primary_image_assigned = True
-        media_asset.is_primary = role == "primary_image"
-        rows.append(
-            {
-                "content_item_id": content_item_id,
-                "media_asset_id": media_asset.id,
-                "role": role,
-                "sort_order": sort_order,
-                "confidence": _media_confidence(media_asset, candidate),
-                "extracted_from": candidate.source_field if candidate else media_asset.source_field,
-            }
-        )
-    return rows
+__all__ = ["IngestionRepository", "build_item_identities"]
 
 
 class IngestionRepository:
@@ -141,15 +53,14 @@ class IngestionRepository:
         self.session = session
 
     async def create_run(self, trigger: str, parser_version: str) -> IngestRun:
-        run = IngestRun(trigger=trigger, parser_version=parser_version, status="running")
+        run = new_ingest_run(trigger=trigger, parser_version=parser_version, status="running")
         self.session.add(run)
         await self.session.flush()
         return run
 
     async def finish_run(self, run_id: UUID, status: str, stats: dict, error: str | None = None) -> None:
         durable_stats = redact_secrets(stats)
-        checked = max(0, int(stats.get("checked", 0)))
-        failed = max(0, int(stats.get("failed", 0)))
+        counters = ingest_run_counters(stats)
         await self.session.execute(
             update(IngestRun)
             .where(IngestRun.id == run_id)
@@ -158,9 +69,9 @@ class IngestionRepository:
                 status=status,
                 stats=durable_stats if isinstance(durable_stats, dict) else {},
                 error=redact_string(error) if error is not None else None,
-                processed_count=checked,
-                success_count=max(0, checked - failed),
-                failure_count=failed,
+                processed_count=counters.processed,
+                success_count=counters.success,
+                failure_count=counters.failure,
             )
         )
 
@@ -170,29 +81,6 @@ class IngestionRepository:
             stmt = stmt.where(Source.platform.in_(platforms))
         rows = await self.session.scalars(stmt.order_by(Source.name))
         return list(rows)
-
-    async def ensure_discovery_source(self, platform: str) -> Source:
-        definition = DISCOVERY_SOURCE_DEFINITIONS.get(platform)
-        if definition is None:
-            raise ValueError(f"Unsupported discovery platform: {platform}")
-
-        stmt = select(Source).where(Source.platform == platform, Source.feed_url == definition["feed_url"]).limit(1)
-        existing = await self.session.scalar(stmt)
-        if existing:
-            return existing
-
-        source = Source(
-            platform=platform,
-            name=definition["name"],
-            feed_url=definition["feed_url"],
-            source_group=definition["source_group"],
-            language_hint=definition["language_hint"],
-            default_timezone="UTC",
-            active=True,
-        )
-        self.session.add(source)
-        await self.session.flush()
-        return source
 
     async def save_raw_payload(
         self,
@@ -297,7 +185,14 @@ class IngestionRepository:
         result = await self.session.execute(stmt)
         return result.scalar_one(), False
 
-    async def find_content_item_by_identities(self, identities: list[dict[str, Any]]) -> ContentItem | None:
+    async def find_content_items_by_identities(self, identities: list[dict[str, Any]]) -> list[ContentItem]:
+        """Return every content item a strong identity points at, best match first.
+
+        The order is total (best identity confidence, then oldest sighting, then
+        id), so the same input always binds to the same content item no matter
+        which plan PostgreSQL picks. Any further entries are duplicates that the
+        caller merges into the winner.
+        """
         clauses = []
         for identity in identities:
             if not identity["is_strong"]:
@@ -312,10 +207,31 @@ class IngestionRepository:
             clauses.append(clause)
 
         if not clauses:
-            return None
+            return []
 
-        stmt = select(ContentItem).join(ItemIdentity).where(or_(*clauses)).limit(1)
-        return await self.session.scalar(stmt)
+        ranked = (
+            select(
+                ItemIdentity.content_item_id.label("content_item_id"),
+                func.max(ItemIdentity.confidence).label("best_confidence"),
+            )
+            .where(ItemIdentity.content_item_id.is_not(None), or_(*clauses))
+            .group_by(ItemIdentity.content_item_id)
+            .subquery()
+        )
+        stmt = (
+            select(ContentItem)
+            .join(ranked, ranked.c.content_item_id == ContentItem.id)
+            .order_by(
+                ranked.c.best_confidence.desc(),
+                ContentItem.first_seen_at.asc(),
+                ContentItem.id.asc(),
+            )
+        )
+        return list(await self.session.scalars(stmt))
+
+    async def find_content_item_by_identities(self, identities: list[dict[str, Any]]) -> ContentItem | None:
+        matches = await self.find_content_items_by_identities(identities)
+        return matches[0] if matches else None
 
     async def upsert_content_item(
         self,
@@ -325,10 +241,12 @@ class IngestionRepository:
         identities: list[dict[str, Any]],
     ) -> ContentItem:
         await self._lock_strong_identities(identities)
-        existing = await self.find_content_item_by_identities(identities)
+        matches = await self.find_content_items_by_identities(identities)
+        existing = matches[0] if matches else None
         values = _content_item_values(source, parsed_item)
         if existing:
-            values = _preserve_more_complete_content(existing, values)
+            await self._merge_duplicate_content_items(existing, matches[1:])
+            values = _preserve_more_complete_content(source, existing, parsed_item, values)
             for key, value in values.items():
                 if key in {"first_seen_at", "created_at"}:
                     continue
@@ -346,6 +264,29 @@ class IngestionRepository:
         await self.upsert_rewrite_candidate(content_item)
         await self.session.flush()
         return content_item
+
+    async def _merge_duplicate_content_items(self, winner: ContentItem, losers: list[ContentItem]) -> None:
+        """Record the merge before `attach_identities` reparents identity rows.
+
+        When one parsed item matches several existing content items, the losing
+        rows keep their own history but must point at the surviving row —
+        otherwise their identities silently move to the winner and the leftover
+        content item stays in the feed as an untracked duplicate.
+        """
+        loser_ids = [loser.id for loser in losers if loser.id != winner.id]
+        if not loser_ids:
+            return
+        if winner.duplicate_of_id in set(loser_ids):
+            winner.duplicate_of_id = None
+        await self.session.execute(
+            update(ContentItem)
+            .where(
+                ContentItem.id != winner.id,
+                or_(ContentItem.id.in_(loser_ids), ContentItem.duplicate_of_id.in_(loser_ids)),
+            )
+            .values(duplicate_of_id=winner.id)
+        )
+        await self.session.flush()
 
     async def _lock_strong_identities(self, identities: list[dict[str, Any]]) -> None:
         """Serialize creation for any shared durable identity until transaction end."""
@@ -389,11 +330,7 @@ class IngestionRepository:
                 "source_item_id": source_item_id,
                 "source_id": identity["source_id"] or source_id,
             }
-            stmt = _identity_insert_statement(values)
-            if stmt is not None:
-                await self.session.execute(stmt)
-            else:
-                self.session.add(ItemIdentity(**values))
+            await self.session.execute(_identity_insert_statement(values))
         await self.session.flush()
 
     async def upsert_media_assets(self, parsed_item: ParsedSourceItem) -> list[MediaAsset]:
@@ -402,8 +339,22 @@ class IngestionRepository:
         # can hold a row while waiting for the other's table lock.
         await self.session.execute(text("LOCK TABLE content_items, item_media, media_assets IN ROW EXCLUSIVE MODE"))
         assets: list[MediaAsset] = []
-        for candidate in parsed_item.media_candidates:
-            url_hash = hash_value(candidate.normalized_url)
+        for candidate in dedupe_media_candidates(parsed_item.media_candidates):
+            assets.append(await self._upsert_media_asset(candidate))
+        await self.session.flush()
+        return assets
+
+    async def _upsert_media_asset(self, candidate: MediaCandidate) -> MediaAsset:
+        """Bind one candidate to exactly one live media asset row.
+
+        A bare select-then-insert let two concurrent ingest sessions create the
+        same asset twice (the table lock is self-compatible and the row lock
+        matches nothing when the select misses). The insert now carries the
+        live-url_hash conflict target, so at most one writer wins and the loser
+        re-reads the winner's row.
+        """
+        url_hash = hash_value(candidate.normalized_url)
+        for _attempt in range(3):
             existing = await self.session.scalar(
                 select(MediaAsset)
                 .where(
@@ -415,15 +366,24 @@ class IngestionRepository:
                 .with_for_update()
                 .execution_options(populate_existing=True)
             )
-            if existing:
-                _apply_media_candidate(existing, candidate, url_hash)
-                assets.append(existing)
-                continue
-            asset = MediaAsset(**_media_asset_values(candidate, url_hash))
-            self.session.add(asset)
-            assets.append(asset)
-        await self.session.flush()
-        return assets
+            if existing is not None:
+                apply_media_candidate(existing, candidate, url_hash)
+                return existing
+
+            inserted = (
+                await self.session.execute(
+                    insert(MediaAsset)
+                    .values(**media_asset_values(candidate, url_hash))
+                    .on_conflict_do_nothing(
+                        index_elements=[MediaAsset.url_hash],
+                        index_where=LIVE_MEDIA_ASSET_INDEX_WHERE,
+                    )
+                    .returning(MediaAsset)
+                )
+            ).scalar_one_or_none()
+            if inserted is not None:
+                return inserted
+        raise RuntimeError(f"Unable to resolve a media asset for url hash {url_hash}")
 
     async def attach_item_media(
         self,
@@ -466,32 +426,28 @@ class IngestionRepository:
                 )
             )
             await self.session.execute(stmt)
-        await self.session.execute(
-            update(ContentItem).where(ContentItem.id == content_item_id).values(primary_image_id=primary_image_id)
-        )
+        # Re-ingestion sees only what the current parse produced. Writing the
+        # planned value unconditionally cleared a previously-resolved primary
+        # image whenever a later parse shipped no media (or only media that
+        # `_can_be_primary` rejects). Publish a new primary when we have one,
+        # and otherwise clear the stored one only when this parse actually
+        # re-planned that same asset into a non-primary role.
+        if primary_image_id is not None:
+            await self.session.execute(
+                update(ContentItem).where(ContentItem.id == content_item_id).values(primary_image_id=primary_image_id)
+            )
+        else:
+            demoted_asset_ids = {row["media_asset_id"] for row in rows}
+            if demoted_asset_ids:
+                await self.session.execute(
+                    update(ContentItem)
+                    .where(
+                        ContentItem.id == content_item_id,
+                        ContentItem.primary_image_id.in_(demoted_asset_ids),
+                    )
+                    .values(primary_image_id=None)
+                )
         await self.session.flush()
-
-
-def _append_identity(
-    identities: list[dict[str, Any]],
-    identity_type: str,
-    identity_value: str,
-    scope: str,
-    is_strong: bool,
-    source_id: UUID | None = None,
-    confidence: Decimal = Decimal("1.0"),
-) -> None:
-    identities.append(
-        {
-            "identity_type": identity_type,
-            "identity_value": identity_value,
-            "identity_hash": hash_value(identity_value),
-            "scope": scope,
-            "source_id": source_id,
-            "confidence": confidence,
-            "is_strong": is_strong,
-        }
-    )
 
 
 def _source_item_values(
@@ -521,27 +477,43 @@ def _source_item_values(
 
 
 def _identity_insert_statement(values: dict[str, Any]):
-    if not values["is_strong"]:
-        return None
+    """Build the conflict-aware INSERT for one identity row.
 
+    Every identity NewsCraft writes must land on a partial unique index, so a
+    repeated ingest cycle updates the existing row instead of appending a new
+    one. Any scope/strength combination without a matching index is rejected
+    loudly rather than degrading to an unbounded plain INSERT.
+    """
     stmt = insert(ItemIdentity).values(**values)
     update_values = {
         "content_item_id": values["content_item_id"],
         "source_item_id": values["source_item_id"],
     }
-    if values["scope"] == "global":
-        return stmt.on_conflict_do_update(
-            index_elements=[ItemIdentity.identity_type, ItemIdentity.identity_hash],
-            index_where=GLOBAL_STRONG_IDENTITY_INDEX_WHERE,
-            set_=update_values,
-        )
-    if values["scope"] == "source":
+    scope = values["scope"]
+    if values["is_strong"]:
+        if scope == "global":
+            return stmt.on_conflict_do_update(
+                index_elements=[ItemIdentity.identity_type, ItemIdentity.identity_hash],
+                index_where=GLOBAL_STRONG_IDENTITY_INDEX_WHERE,
+                set_=update_values,
+            )
+        if scope == "source":
+            return stmt.on_conflict_do_update(
+                index_elements=[ItemIdentity.source_id, ItemIdentity.identity_type, ItemIdentity.identity_hash],
+                index_where=SOURCE_STRONG_IDENTITY_INDEX_WHERE,
+                set_=update_values,
+            )
+    elif scope == "source":
         return stmt.on_conflict_do_update(
             index_elements=[ItemIdentity.source_id, ItemIdentity.identity_type, ItemIdentity.identity_hash],
-            index_where=SOURCE_STRONG_IDENTITY_INDEX_WHERE,
-            set_=update_values,
+            index_where=SOURCE_WEAK_IDENTITY_INDEX_WHERE,
+            set_={
+                **update_values,
+                "identity_value": values["identity_value"],
+                "confidence": values["confidence"],
+            },
         )
-    return None
+    raise ValueError(f"Unsupported identity scope/strength combination: {scope}/{values['is_strong']}")
 
 
 def plan_rewrite_candidate(content_item: ContentItem) -> dict[str, Any]:
@@ -589,6 +561,7 @@ def _content_item_values(source: Source, parsed_item: ParsedSourceItem) -> dict[
     title_normalization = normalize_title(parsed_item.title, parsed_item.content_text)
     normalized_item = _parsed_item_with_title(parsed_item, title_normalization.title)
     direction = infer_direction(normalized_item.content_text)
+    script_code = infer_script(normalized_item.content_text)
     taxonomy = classify_content_taxonomy(source, normalized_item)
     content_classification = classify_content_item(source, normalized_item)
     bucket_assignment = assign_rewrite_bucket(
@@ -613,8 +586,8 @@ def _content_item_values(source: Source, parsed_item: ParsedSourceItem) -> dict[
         "summary": normalized_item.summary,
         "content_text": normalized_item.content_text,
         "content_html_sanitized": normalized_item.content_html,
-        "language_code": source.language_hint,
-        "script_code": "Arab" if direction == "rtl" else "Latn",
+        "language_code": normalized_language_hint(source.language_hint, script_code=script_code),
+        "script_code": script_code,
         "direction": direction,
         "authors": [normalized_item.author] if normalized_item.author else [],
         "tags": taxonomy.tags,
@@ -659,15 +632,40 @@ def _content_item_values(source: Source, parsed_item: ParsedSourceItem) -> dict[
     return values
 
 
-def _preserve_more_complete_content(existing: ContentItem, values: dict[str, Any]) -> dict[str, Any]:
+def _preserve_more_complete_content(
+    source: Source,
+    existing: ContentItem,
+    parsed_item: ParsedSourceItem,
+    values: dict[str, Any],
+) -> dict[str, Any]:
+    """Keep the fuller stored body — and everything derived from it.
+
+    A summary-only re-parse of an item first seen with full text must not
+    downgrade classification, scoring, quality or rewrite readiness, so the
+    derived values are recomputed from the preserved body instead of being
+    patched on top of excerpt-derived ones.
+    """
+
+    incoming_metrics_raw = values.get("metrics")
+    incoming_origin = incoming_metrics_raw.get("content_origin") if isinstance(incoming_metrics_raw, dict) else None
+    if incoming_origin not in ("source_excerpt", "unavailable"):
+        # Only an explicit downgrade re-parse (feed excerpt, or no body at
+        # all) may keep the stored body. A source-provided body — or any
+        # ingest path that does not mark its origin — is an authoritative
+        # edit even when shorter than what we stored.
+        return values
+
     stored_text = existing.content_text or ""
     incoming_text = str(values.get("content_text") or "")
     if _normalized_content_length(incoming_text) >= _normalized_content_length(stored_text):
         return values
 
-    preserved = dict(values)
-    preserved["content_text"] = existing.content_text
-    preserved["content_html_sanitized"] = existing.content_html_sanitized
+    preserved_item = replace(
+        parsed_item,
+        content_text=stored_text,
+        content_html=existing.content_html_sanitized,
+    )
+    preserved = _content_item_values(source, preserved_item)
 
     incoming_metrics = dict(preserved.get("metrics") or {})
     stored_metrics = existing.metrics if isinstance(existing.metrics, dict) else {}
@@ -704,188 +702,3 @@ def _parsed_item_with_title(parsed_item: ParsedSourceItem, title: str) -> Parsed
         media_candidates=parsed_item.media_candidates,
         parser_meta=parsed_item.parser_meta,
     )
-
-
-def _media_asset_values(candidate: MediaCandidate, url_hash: str) -> dict[str, Any]:
-    quality = _classify_media(candidate)
-    return {
-        "original_url": candidate.original_url,
-        "normalized_url": candidate.normalized_url,
-        "url_hash": url_hash,
-        "kind": candidate.kind,
-        "mime_type": candidate.mime_type,
-        "width": candidate.width,
-        "height": candidate.height,
-        "alt_text": candidate.alt_text,
-        "title": candidate.title,
-        "source_field": candidate.source_field,
-        "storage_path": candidate.storage_path,
-        "checksum_sha256": candidate.checksum_sha256,
-        "byte_length": candidate.byte_length,
-        "fetch_status": candidate.fetch_status,
-        "media_quality": quality["media_quality"],
-        "media_confidence": quality["media_confidence"],
-        "media_source_type": quality["media_source_type"],
-        "asset_role": quality["asset_role"],
-        "is_primary_candidate": quality["is_primary_candidate"],
-        "is_primary": False,
-        "raw_metadata": {
-            "confidence": candidate.confidence,
-            "quality_reasons": quality["quality_reasons"],
-        },
-    }
-
-
-def _apply_media_candidate(asset: MediaAsset, candidate: MediaCandidate, url_hash: str) -> None:
-    values = _media_asset_values(candidate, url_hash)
-    stored_asset = bool(asset.storage_path)
-    if stored_asset:
-        values["media_source_type"] = "stored"
-    for key, value in values.items():
-        if stored_asset and key in {
-            "source_field",
-            "media_quality",
-            "media_confidence",
-            "media_source_type",
-            "asset_role",
-            "is_primary_candidate",
-        }:
-            if key == "media_source_type":
-                asset.media_source_type = "stored"
-            continue
-        if key in {"storage_path", "checksum_sha256", "byte_length"} and value is None:
-            continue
-        if key in {"fetch_status", "raw_metadata"} and getattr(asset, key) not in (None, {}, "remote_only"):
-            continue
-        setattr(asset, key, value)
-
-
-def _media_role(
-    media_asset: MediaAsset,
-    candidate: MediaCandidate | None,
-    primary_image_assigned: bool,
-) -> str:
-    source_field = candidate.source_field if candidate else media_asset.source_field
-    asset_role = getattr(media_asset, "asset_role", None) or _asset_role(media_asset.kind, source_field)
-    if asset_role == "tracking_pixel" or getattr(media_asset, "media_quality", None) == "tracking":
-        return "tracking_pixel"
-    if _can_be_primary(media_asset, candidate) and not primary_image_assigned:
-        return "primary_image"
-    if asset_role in {"thumbnail", "inline_image", "video", "document", "preview", "unknown"}:
-        return asset_role
-    if source_field in {"media_thumbnail", "link_preview_image"}:
-        return "thumbnail"
-    if media_asset.kind == "image":
-        return "inline_image"
-    if source_field == "enclosure":
-        return "document"
-    if media_asset.kind == "document":
-        return "document"
-    return "unknown"
-
-
-def _classify_media(candidate: MediaCandidate) -> dict[str, Any]:
-    role = _asset_role(candidate.kind, candidate.source_field)
-    source_type = _media_source_type(candidate.normalized_url)
-    confidence = Decimal(str(candidate.confidence))
-    reasons: list[str] = []
-
-    if _is_tracking_pixel(candidate):
-        return {
-            "media_quality": "tracking",
-            "media_confidence": Decimal("0.05"),
-            "media_source_type": source_type,
-            "asset_role": "tracking_pixel",
-            "is_primary_candidate": False,
-            "quality_reasons": ["tracking_pixel"],
-        }
-    if candidate.confidence < 0.4:
-        reasons.append("low_candidate_confidence")
-        quality = "low"
-        confidence = min(confidence, Decimal("0.30"))
-    elif candidate.kind == "image" and _is_tiny_image(candidate):
-        reasons.append("tiny_image")
-        quality = "low"
-        confidence = min(confidence, Decimal("0.30"))
-    elif role == "unknown":
-        reasons.append("unknown_role")
-        quality = "unknown"
-        confidence = min(confidence, Decimal("0.20"))
-    else:
-        quality = "good"
-        reasons.append("usable_media")
-
-    return {
-        "media_quality": quality,
-        "media_confidence": confidence,
-        "media_source_type": source_type,
-        "asset_role": role,
-        "is_primary_candidate": quality == "good" and candidate.kind == "image",
-        "quality_reasons": reasons,
-    }
-
-
-def _asset_role(kind: str, source_field: str | None) -> str:
-    if source_field == "media_thumbnail":
-        return "thumbnail"
-    if source_field == "link_preview_image":
-        return "preview"
-    if kind == "image":
-        return "inline_image"
-    if kind == "video":
-        return "video"
-    if kind == "document":
-        return "document"
-    return "unknown"
-
-
-def _media_source_type(url: str) -> str:
-    host = urlsplit(url).hostname or ""
-    if "cdn-telegram.org" in host:
-        return "temporary_external"
-    return "external"
-
-
-def _is_tracking_pixel(candidate: MediaCandidate) -> bool:
-    if _is_medium_stat_url(candidate.normalized_url):
-        return True
-    return (
-        candidate.kind == "image"
-        and candidate.width is not None
-        and candidate.height is not None
-        and (candidate.width <= 2 or candidate.height <= 2)
-    )
-
-
-def _is_medium_stat_url(url: str) -> bool:
-    parsed = urlsplit(url)
-    host = parsed.hostname or ""
-    return host.endswith("medium.com") and (parsed.path.startswith("/_/stat") or "event=" in parsed.query)
-
-
-def _is_tiny_image(candidate: MediaCandidate) -> bool:
-    if candidate.width is None or candidate.height is None:
-        return False
-    return candidate.width < 120 or candidate.height < 90
-
-
-def _can_be_primary(media_asset: MediaAsset, candidate: MediaCandidate | None) -> bool:
-    explicit_candidate = getattr(media_asset, "is_primary_candidate", None)
-    if explicit_candidate is False:
-        return False
-    if media_asset.kind != "image":
-        return False
-    if getattr(media_asset, "media_quality", None) in {"tracking", "low", "unknown"}:
-        return False
-    if candidate and candidate.confidence < 0.4:
-        return False
-    if candidate and _is_tracking_pixel(candidate):
-        return False
-    return True
-
-
-def _media_confidence(media_asset: MediaAsset, candidate: MediaCandidate | None) -> Decimal:
-    value = getattr(media_asset, "media_confidence", None)
-    if value is not None:
-        return Decimal(str(value))
-    return Decimal(str(candidate.confidence if candidate else 1.0))

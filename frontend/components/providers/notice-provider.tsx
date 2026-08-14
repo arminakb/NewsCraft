@@ -19,6 +19,7 @@ export type Notice = NoticeInput & { id: string; createdAt: number }
 type NoticeContextValue = {
   pushNotice: (notice: NoticeInput) => void
   notices: readonly Notice[]
+  retainedNotices: readonly Notice[]
   dismissNotice: (id: string) => void
 }
 
@@ -26,6 +27,7 @@ const NoticeContext = createContext<NoticeContextValue | null>(null)
 
 export function NoticeProvider({ children }: { children: React.ReactNode }) {
   const [notices, setNotices] = useState<Notice[]>([])
+  const [retainedNotices, setRetainedNotices] = useState<Notice[]>([])
   const nextId = useRef(0)
   const timers = useRef(new Set<ReturnType<typeof setTimeout>>())
 
@@ -38,7 +40,9 @@ export function NoticeProvider({ children }: { children: React.ReactNode }) {
 
   const pushNotice = useCallback((input: NoticeInput) => {
     const id = `notice-${nextId.current++}`
-    setNotices((current) => [...current, { ...input, id, createdAt: Date.now() }])
+    const notice = { ...input, id, createdAt: Date.now() }
+    setNotices((current) => [...current, notice])
+    setRetainedNotices((current) => [...current.slice(-99), notice])
     const timer = setTimeout(() => {
       setNotices((current) => current.filter((notice) => notice.id !== id))
       timers.current.delete(timer)
@@ -48,10 +52,11 @@ export function NoticeProvider({ children }: { children: React.ReactNode }) {
 
   const dismissNotice = useCallback((id: string) => {
     setNotices((current) => current.filter((notice) => notice.id !== id))
+    setRetainedNotices((current) => current.filter((notice) => notice.id !== id))
   }, [])
 
   return (
-    <NoticeContext.Provider value={{ dismissNotice, notices, pushNotice }}>
+    <NoticeContext.Provider value={{ dismissNotice, notices, pushNotice, retainedNotices }}>
       {children}
       <div
         role="status"

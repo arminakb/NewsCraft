@@ -8,11 +8,5 @@ class OpenAICompatibleProvider(OpenRouterProvider):
 
     provider_name = "openai_compatible"
 
-    def __repr__(self) -> str:
-        return (
-            f"OpenAICompatibleProvider(base_url={self.base_url!r}, "
-            f"timeout_seconds={self.timeout_seconds!r}, app_title={self.app_title!r})"
-        )
-
 
 __all__ = ["OpenAICompatibleProvider"]

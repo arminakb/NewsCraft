@@ -46,10 +46,7 @@ class AgeInvalidOutputQuarantine:
                 response_sha256,
             )
             return
-        if not self.recipient_file.is_file():
-            raise InvalidOutputQuarantineError("age recipient file is unavailable")
-        self.root.mkdir(mode=0o700, parents=True, exist_ok=True)
-        os.chmod(self.root, 0o700)
+        await asyncio.to_thread(self._prepare_storage)
         await self.prune()
         artifact_id = uuid4().hex
         temporary = self.root / f".{artifact_id}.age.tmp"
@@ -66,10 +63,9 @@ class AgeInvalidOutputQuarantine:
         )
         _stdout, _stderr = await process.communicate(content)
         if process.returncode != 0:
-            temporary.unlink(missing_ok=True)
+            await asyncio.to_thread(temporary.unlink, missing_ok=True)
             raise InvalidOutputQuarantineError("invalid output encryption failed")
-        os.chmod(temporary, 0o600)
-        temporary.replace(destination)
+        await asyncio.to_thread(self._publish, temporary, destination)
         logger.warning(
             "invalid provider output quarantined artifact_id=%s stage=%s response_sha256=%s",
             artifact_id,
@@ -78,9 +74,23 @@ class AgeInvalidOutputQuarantine:
         )
 
     async def prune(self, *, now: datetime | None = None) -> None:
+        await asyncio.to_thread(self._prune, now or datetime.now(UTC))
+
+    def _prepare_storage(self) -> None:
+        if not self.recipient_file.is_file():
+            raise InvalidOutputQuarantineError("age recipient file is unavailable")
+        self.root.mkdir(mode=0o700, parents=True, exist_ok=True)
+        os.chmod(self.root, 0o700)
+
+    @staticmethod
+    def _publish(temporary: Path, destination: Path) -> None:
+        os.chmod(temporary, 0o600)
+        temporary.replace(destination)
+
+    def _prune(self, now: datetime) -> None:
         if not self.root.exists():
             return
-        cutoff = (now or datetime.now(UTC)).timestamp() - self.ttl.total_seconds()
+        cutoff = now.timestamp() - self.ttl.total_seconds()
         for path in self.root.glob("*.age"):
             try:
                 if path.is_file() and path.stat().st_mtime < cutoff:

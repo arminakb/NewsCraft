@@ -70,16 +70,6 @@ async def extract_article(client: ArticleHttpClient, item: DiscoveryItem) -> Ext
     author = extracted.get("author") or metadata.get("author") or item.author
     if item.summary and len(content_text) < len(item.summary.strip()):
         warnings.append("short_extraction")
-    extraction_status = "ok"
-    if _is_weak_google_news_wrapper(item, final_url, title, summary, content_text):
-        fallback_text = _html_to_text(item.summary) or item.title
-        title = _fallback_title(item, fallback_text)
-        summary = _html_to_text(item.summary)
-        content_text = fallback_text
-        image_url = item.image_url
-        extraction_status = "fallback"
-        warnings.append("weak_extraction")
-
     return ExtractedArticle(
         url=item.url,
         final_url=final_url,
@@ -90,7 +80,7 @@ async def extract_article(client: ArticleHttpClient, item: DiscoveryItem) -> Ext
         author=author,
         published_at=published_at,
         image_url=image_url,
-        extraction_status=extraction_status,
+        extraction_status="ok",
         extraction_warnings=warnings,
     )
 
@@ -284,44 +274,6 @@ def _failed_article(item: DiscoveryItem, warning: str) -> ExtractedArticle:
         extraction_status="failed",
         extraction_warnings=[warning],
     )
-
-
-def _is_weak_google_news_wrapper(
-    item: DiscoveryItem,
-    final_url: str,
-    title: str,
-    summary: str,
-    content_text: str,
-) -> bool:
-    if item.source_platform != "google_news":
-        return False
-    host = urlsplit(final_url).hostname or ""
-    if not host.endswith("news.google.com"):
-        return False
-    generic_phrase = "comprehensive up-to-date news coverage"
-    return (
-        title.strip().casefold() == "google news"
-        or generic_phrase in summary.casefold()
-        or generic_phrase in content_text.casefold()
-    )
-
-
-def _html_to_text(value: str) -> str:
-    if not value:
-        return ""
-    return BeautifulSoup(value, "lxml").get_text(" ", strip=True)
-
-
-def _fallback_title(item: DiscoveryItem, fallback_text: str) -> str:
-    if item.title.strip().casefold() != "google news":
-        return item.title
-    soup = BeautifulSoup(item.summary or "", "lxml")
-    anchor = soup.find("a")
-    if anchor:
-        text = anchor.get_text(" ", strip=True)
-        if text:
-            return text
-    return fallback_text.splitlines()[0] if fallback_text else item.title
 
 
 def _first_present(*values: Any) -> Any:

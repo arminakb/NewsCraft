@@ -5,6 +5,8 @@ import dataclasses
 import json
 import math
 import re
+import sys
+import threading
 from collections.abc import Collection, Iterable, Mapping
 from datetime import date, datetime, time
 from decimal import Decimal
@@ -48,6 +50,61 @@ _HEX_KEY_ESCAPE_PATTERN = re.compile(r"\\x([0-9a-fA-F]{2})")
 _NUMERIC_TEXT_PATTERN = re.compile(r"^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?$")
 _STRUCTURED_CLOSERS = {"{": "}", "[": "]", "(": ")"}
 
+_DEGRADATION_LABEL_PATTERN = re.compile(r"[^A-Za-z0-9_.]+")
+_DEGRADATION_LOCK = threading.Lock()
+_DEGRADATION_COUNTS: dict[tuple[str, str], int] = {}
+
+
+def record_sanitizer_degradation(scope: str, exc: BaseException) -> str:
+    """Count one fail-closed sanitizer degradation and name each new kind once.
+
+    Redaction is deliberately fail-closed: when inspecting a value raises, the
+    caller substitutes a type-name placeholder rather than risk emitting the
+    value. That is correct, and it is also indistinguishable from a value that
+    was simply unrenderable — so a systematic failure (a redaction bug turning
+    every log line into a placeholder) leaves no trace at all. This counter is
+    that trace.
+
+    Only the scope and the exception's class name are recorded; the value being
+    sanitized never reaches this function, so nothing here can leak. The stderr
+    line fires only on the first occurrence of each (scope, class) pair, so a
+    hot loop degrades quietly after announcing itself once, and it is written
+    directly rather than logged because the log formatters are themselves one
+    of the callers.
+
+    Returns the sanitized class label so callers can embed it in their own
+    diagnostic output.
+    """
+
+    label = _DEGRADATION_LABEL_PATTERN.sub("_", type(exc).__name__)[:64] or "Exception"
+    key = (scope, label)
+    with _DEGRADATION_LOCK:
+        count = _DEGRADATION_COUNTS.get(key, 0) + 1
+        _DEGRADATION_COUNTS[key] = count
+    if count == 1:
+        try:
+            sys.stderr.write(f"[REDACTION_DEGRADED] scope={scope} error={label}\n")
+        except Exception:
+            # A closed or hostile stderr must not turn an already-degraded
+            # sanitizer into a raised exception inside a log formatter. The
+            # count above is kept regardless, so the signal is not lost.
+            pass
+    return label
+
+
+def sanitizer_degradation_counts() -> dict[tuple[str, str], int]:
+    """Snapshot the fail-closed degradation counts by (scope, exception class)."""
+
+    with _DEGRADATION_LOCK:
+        return dict(_DEGRADATION_COUNTS)
+
+
+def reset_sanitizer_degradation_counts() -> None:
+    """Clear the degradation counts. Intended for tests and process bootstrap."""
+
+    with _DEGRADATION_LOCK:
+        _DEGRADATION_COUNTS.clear()
+
 
 def _normalized_key(key: object) -> str:
     return str(key).casefold().replace("-", "_").replace(" ", "_")
@@ -83,7 +140,8 @@ def _safe_numeric_mapping(value: object) -> bool:
                 return False
             if _secret_key(key_name) and normalized not in _SAFE_NUMERIC_KEYS:
                 return False
-    except Exception:
+    except Exception as exc:
+        record_sanitizer_degradation("numeric_mapping_classification", exc)
         return False
     return True
 
@@ -242,13 +300,22 @@ def _structured_value_end(value: str, start: int, *, bare_delimiters: str = ",}]
     if current in {'"', "'"}:
         return _quoted_value_end(value, start, limit=limit)
     if current not in _STRUCTURED_CLOSERS:
-        index = start
-        while index < limit and value[index] not in bare_delimiters:
-            index += 1
-        if index == limit and limit < len(value):
-            return None
-        return index
+        return _bare_value_end(value, start, limit=limit, delimiters=bare_delimiters)
 
+    return _container_value_end(value, start, limit=limit)
+
+
+def _bare_value_end(value: str, start: int, *, limit: int, delimiters: str) -> int | None:
+    index = start
+    while index < limit and value[index] not in delimiters:
+        index += 1
+    if index == limit and limit < len(value):
+        return None
+    return index
+
+
+def _container_value_end(value: str, start: int, *, limit: int) -> int | None:
+    current = value[start]
     expected_closers = [_STRUCTURED_CLOSERS[current]]
     index = start + 1
     while index < limit:
@@ -324,6 +391,66 @@ def _quoted_body_requires_redaction(value: str, *, embedded_depth: int) -> bool:
     return _redact_recognizable_values(decoded, embedded_depth=embedded_depth + 1) != decoded
 
 
+def _structured_pair_bounds(value: str, index: int) -> tuple[int, int] | None:
+    key_end = _quoted_value_end(
+        value,
+        index,
+        limit=min(len(value), index + _MAX_STRUCTURED_VALUE_CHARS),
+    )
+    if key_end is None:
+        return None
+    colon = key_end
+    while colon < len(value) and value[colon].isspace():
+        colon += 1
+    if colon >= len(value) or value[colon] != ":":
+        return None
+    value_start = colon + 1
+    while value_start < len(value) and value[value_start].isspace():
+        value_start += 1
+    return key_end, value_start
+
+
+def _redacted_structured_pair(raw_key: str, quote: str) -> str:
+    return f"{quote}{raw_key}{quote}: {_REDACTED}"
+
+
+def _redact_secret_structured_value(
+    value: str,
+    *,
+    index: int,
+    value_start: int,
+    raw_key: str,
+    decoded_key: str,
+) -> tuple[str | None, int]:
+    value_end = _structured_value_end(value, value_start, bare_delimiters=",}])\r\n \t")
+    if value_end is not None and _safe_secret_value(
+        decoded_key,
+        value[value_start:value_end],
+        serialized=True,
+    ):
+        return None, value_end
+    replacement = _redacted_structured_pair(raw_key, value[index])
+    return replacement, value_end if value_end is not None else len(value)
+
+
+def _redact_embedded_structured_value(
+    value: str,
+    *,
+    index: int,
+    value_start: int,
+    raw_key: str,
+    embedded_depth: int,
+) -> tuple[str | None, int | None]:
+    if value_start >= len(value) or value[value_start] not in {'"', "'"}:
+        return None, None
+    value_end = _structured_value_end(value, value_start)
+    if value_end is None:
+        return _redacted_structured_pair(raw_key, value[index]), len(value)
+    if _quoted_body_requires_redaction(value[value_start:value_end], embedded_depth=embedded_depth):
+        return _redacted_structured_pair(raw_key, value[index]), value_end
+    return None, None
+
+
 def _redact_structured_pairs(value: str, *, embedded_depth: int) -> str:
     result: list[str] = []
     cursor = 0
@@ -332,68 +459,82 @@ def _redact_structured_pairs(value: str, *, embedded_depth: int) -> str:
         if value[index] not in {'"', "'"}:
             index += 1
             continue
-        key_end = _quoted_value_end(
-            value,
-            index,
-            limit=min(len(value), index + _MAX_STRUCTURED_VALUE_CHARS),
-        )
-        if key_end is None:
+        bounds = _structured_pair_bounds(value, index)
+        if bounds is None:
             index += 1
             continue
-        colon = key_end
-        while colon < len(value) and value[colon].isspace():
-            colon += 1
-        if colon >= len(value) or value[colon] != ":":
-            index += 1
-            continue
-
+        key_end, value_start = bounds
         raw_key = value[index + 1 : key_end - 1]
         decoded_key = _decode_structured_key(raw_key)
-        secret_key = _secret_key(decoded_key)
-        value_start = colon + 1
-        while value_start < len(value) and value[value_start].isspace():
-            value_start += 1
-        if secret_key:
-            value_end = _structured_value_end(
+        if _secret_key(decoded_key):
+            replacement, value_end = _redact_secret_structured_value(
                 value,
-                value_start,
-                bare_delimiters=",}])\r\n \t",
+                index=index,
+                value_start=value_start,
+                raw_key=raw_key,
+                decoded_key=decoded_key,
             )
-            if value_end is not None and _safe_secret_value(
-                decoded_key,
-                value[value_start:value_end],
-                serialized=True,
-            ):
+            if replacement is None:
                 index = value_end
                 continue
             result.append(value[cursor:index])
-            quote = value[index]
-            result.append(f"{quote}{raw_key}{quote}: {_REDACTED}")
-            if value_end is None:
+            result.append(replacement)
+            if value_end == len(value):
                 return "".join(result)
             cursor = value_end
             index = value_end
             continue
-
-        if not secret_key:
-            if value_start < len(value) and value[value_start] in {'"', "'"}:
-                value_end = _structured_value_end(value, value_start)
-                if value_end is None:
-                    result.append(value[cursor:index])
-                    quote = value[index]
-                    result.append(f"{quote}{raw_key}{quote}: {_REDACTED}")
-                    return "".join(result)
-                if _quoted_body_requires_redaction(value[value_start:value_end], embedded_depth=embedded_depth):
-                    result.append(value[cursor:index])
-                    quote = value[index]
-                    result.append(f"{quote}{raw_key}{quote}: {_REDACTED}")
-                    cursor = value_end
-                    index = value_end
-                    continue
-            index = key_end
+        replacement, embedded_end = _redact_embedded_structured_value(
+            value,
+            index=index,
+            value_start=value_start,
+            raw_key=raw_key,
+            embedded_depth=embedded_depth,
+        )
+        if replacement is not None and embedded_end is not None:
+            result.append(value[cursor:index])
+            result.append(replacement)
+            if embedded_end == len(value):
+                return "".join(result)
+            cursor = embedded_end
+            index = embedded_end
             continue
+        index = key_end
     result.append(value[cursor:])
     return "".join(result)
+
+
+def _unquoted_field_bounds(value: str, index: int, separator: str) -> tuple[int, int] | None:
+    if not _field_name_character(value[index]) or (index > 0 and _field_name_character(value[index - 1])):
+        return None
+    key_end = _field_name_end(value, index)
+    delimiter = key_end
+    while delimiter < len(value) and value[delimiter].isspace():
+        delimiter += 1
+    if delimiter >= len(value) or value[delimiter] != separator:
+        return key_end, -1
+    value_start = delimiter + 1
+    while value_start < len(value) and value[value_start].isspace():
+        value_start += 1
+    return key_end, value_start
+
+
+def _embedded_unquoted_replacement(
+    value: str,
+    *,
+    key: str,
+    value_start: int,
+    embedded_depth: int,
+) -> tuple[str | None, int | None]:
+    if value_start >= len(value) or value[value_start] not in {'"', "'"}:
+        return None, None
+    value_end = _structured_value_end(value, value_start)
+    if value_end is None or _quoted_body_requires_redaction(
+        value[value_start:value_end],
+        embedded_depth=embedded_depth,
+    ):
+        return f"{key}={_REDACTED}", value_end if value_end is not None else len(value)
+    return None, None
 
 
 def _redact_unquoted_fields(value: str, *, separator: str, embedded_depth: int) -> str:
@@ -401,35 +542,31 @@ def _redact_unquoted_fields(value: str, *, separator: str, embedded_depth: int) 
     cursor = 0
     index = 0
     while index < len(value):
-        if not _field_name_character(value[index]) or (index > 0 and _field_name_character(value[index - 1])):
+        bounds = _unquoted_field_bounds(value, index, separator)
+        if bounds is None:
             index += 1
             continue
-        key_end = _field_name_end(value, index)
-        delimiter = key_end
-        while delimiter < len(value) and value[delimiter].isspace():
-            delimiter += 1
-        if delimiter >= len(value) or value[delimiter] != separator:
+        key_end, value_start = bounds
+        if value_start < 0:
             index = max(key_end, index + 1)
             continue
-
         key = value[index:key_end]
-        value_start = delimiter + 1
-        while value_start < len(value) and value[value_start].isspace():
-            value_start += 1
         secret_key = _secret_key(key)
         if not secret_key and separator == "=" and value_start < len(value):
-            if value[value_start] in {'"', "'"}:
-                value_end = _structured_value_end(value, value_start)
-                if value_end is None or _quoted_body_requires_redaction(
-                    value[value_start:value_end], embedded_depth=embedded_depth
-                ):
-                    result.append(value[cursor:index])
-                    result.append(f"{key}={_REDACTED}")
-                    if value_end is None:
-                        return "".join(result)
-                    cursor = value_end
-                    index = value_end
-                    continue
+            replacement, value_end = _embedded_unquoted_replacement(
+                value,
+                key=key,
+                value_start=value_start,
+                embedded_depth=embedded_depth,
+            )
+            if replacement is not None and value_end is not None:
+                result.append(value[cursor:index])
+                result.append(replacement)
+                if value_end == len(value):
+                    return "".join(result)
+                cursor = value_end
+                index = value_end
+                continue
             index = key_end
             continue
         if not secret_key:
@@ -492,6 +629,31 @@ def redact_secrets(
 ) -> object:
     """Return a bounded, recursively sanitized copy without mutating *value*."""
 
+    scalar = _redact_scalar(value, secrets=secrets, seen=seen, depth=depth)
+    if scalar is not _NOT_SCALAR:
+        return scalar
+
+    active = seen if seen is not None else set()
+    identity = id(value)
+    if identity in active:
+        return _CYCLE
+    active.add(identity)
+    try:
+        return _redact_complex(value, secrets=secrets, active=active, depth=depth)
+    finally:
+        active.remove(identity)
+
+
+_NOT_SCALAR = object()
+
+
+def _redact_scalar(
+    value: object,
+    *,
+    secrets: Collection[str],
+    seen: set[int] | None,
+    depth: int,
+) -> object:
     if depth > 20:
         return _MAX_DEPTH
     if value is None:
@@ -500,9 +662,7 @@ def redact_secrets(
         return redact_secrets(value.value, secrets=secrets, seen=seen, depth=depth)
     if isinstance(value, (bool, int, float)):
         return value
-    if isinstance(value, Decimal):
-        return str(value)
-    if isinstance(value, UUID):
+    if isinstance(value, Decimal | UUID):
         return str(value)
     if isinstance(value, (datetime, date, time)):
         return value.isoformat()
@@ -510,62 +670,80 @@ def redact_secrets(
         return f"[BYTES:{len(value)}]"
     if isinstance(value, str):
         return redact_string(value, secrets=secrets)
+    return _NOT_SCALAR
 
-    active = seen if seen is not None else set()
-    identity = id(value)
-    if identity in active:
-        return _CYCLE
-    active.add(identity)
+
+def _convert_complex(value: object) -> tuple[object, str | None]:
+    if isinstance(value, BaseModel):
+        try:
+            return value.model_dump(mode="json"), None
+        except Exception as exc:
+            record_sanitizer_degradation("pydantic_model_dump", exc)
+            return value, f"[{type(value).__name__}]"
+    if dataclasses.is_dataclass(value) and not isinstance(value, type):
+        try:
+            return {field.name: getattr(value, field.name) for field in dataclasses.fields(value)}, None
+        except Exception as exc:
+            record_sanitizer_degradation("dataclass_fields", exc)
+            return value, f"[{type(value).__name__}]"
+    return value, None
+
+
+def _redact_mapping(
+    value: object,
+    converted: Mapping[object, object],
+    *,
+    secrets: Collection[str],
+    active: set[int],
+    depth: int,
+) -> object:
+    result: dict[str, object] = {}
     try:
-        converted = value
-        if isinstance(value, BaseModel):
-            try:
-                converted = value.model_dump(mode="json")
-            except Exception:
-                return f"[{type(value).__name__}]"
-        elif dataclasses.is_dataclass(value) and not isinstance(value, type):
-            try:
-                converted = {field.name: getattr(value, field.name) for field in dataclasses.fields(value)}
-            except Exception:
-                return f"[{type(value).__name__}]"
-
-        if isinstance(converted, Mapping):
-            result: dict[str, object] = {}
-            try:
-                entries = islice(converted.items(), _MAX_MAPPING_ITEMS)
-                for key, nested in entries:
-                    original_name, inspectable = _safe_mapping_key(key)
-                    name = redact_string(original_name, secrets=secrets)
-                    result[name] = (
-                        _REDACTED
-                        if not inspectable or _redact_key_value(original_name, nested)
-                        else redact_secrets(
-                            nested,
-                            secrets=secrets,
-                            seen=active,
-                            depth=depth + 1,
-                        )
-                    )
-            except Exception:
-                return f"[{type(value).__name__}]"
-            return result
-
-        if isinstance(converted, Iterable):
-            result_sequence: list[object] = []
-            try:
-                for nested in islice(iter(converted), _MAX_SEQUENCE_ITEMS):
-                    result_sequence.append(
-                        redact_secrets(
-                            nested,
-                            secrets=secrets,
-                            seen=active,
-                            depth=depth + 1,
-                        )
-                    )
-            except Exception:
-                return f"[{type(value).__name__}]"
-            return result_sequence
-
+        entries = islice(converted.items(), _MAX_MAPPING_ITEMS)
+        for key, nested in entries:
+            original_name, inspectable = _safe_mapping_key(key)
+            name = redact_string(original_name, secrets=secrets)
+            result[name] = (
+                _REDACTED
+                if not inspectable or _redact_key_value(original_name, nested)
+                else redact_secrets(nested, secrets=secrets, seen=active, depth=depth + 1)
+            )
+    except Exception as exc:
+        record_sanitizer_degradation("mapping_traversal", exc)
         return f"[{type(value).__name__}]"
-    finally:
-        active.remove(identity)
+    return result
+
+
+def _redact_iterable(
+    value: object,
+    converted: Iterable[object],
+    *,
+    secrets: Collection[str],
+    active: set[int],
+    depth: int,
+) -> object:
+    result: list[object] = []
+    try:
+        for nested in islice(iter(converted), _MAX_SEQUENCE_ITEMS):
+            result.append(redact_secrets(nested, secrets=secrets, seen=active, depth=depth + 1))
+    except Exception as exc:
+        record_sanitizer_degradation("sequence_traversal", exc)
+        return f"[{type(value).__name__}]"
+    return result
+
+
+def _redact_complex(
+    value: object,
+    *,
+    secrets: Collection[str],
+    active: set[int],
+    depth: int,
+) -> object:
+    converted, failure = _convert_complex(value)
+    if failure is not None:
+        return failure
+    if isinstance(converted, Mapping):
+        return _redact_mapping(value, converted, secrets=secrets, active=active, depth=depth)
+    if isinstance(converted, Iterable):
+        return _redact_iterable(value, converted, secrets=secrets, active=active, depth=depth)
+    return f"[{type(value).__name__}]"

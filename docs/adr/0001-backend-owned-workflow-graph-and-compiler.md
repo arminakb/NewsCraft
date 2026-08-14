@@ -12,11 +12,11 @@
 
 NewsCraft already executes a durable, source-grounded Telegram workflow, but its definition is a fixed `AutomationRoute` rather than a general graph. The current runtime separates route capture, research/generation, exact revision review, publish intent, credential-bearing publication, and reconciliation across persisted records and capability-specific workers:
 
-- route and dispatch state: [`automations/models.py`](../../backend/app/automations/models.py#L26);
-- durable jobs, events, schedules, leases, retries, and pause state: [`jobs/models.py`](../../backend/app/jobs/models.py#L14);
-- capability-specific handler registration: [`jobs/registry.py`](../../backend/app/jobs/registry.py#L52);
-- immutable generated revisions and exact review: [`generation/models.py`](../../backend/app/generation/models.py#L207) and [`review_decisions.py`](../../backend/app/generation/review_decisions.py#L19);
-- publish-intent and publishing-worker separation: [`process_support.py`](../../backend/app/automations/telegram/process_support.py#L49) and [`publication.py`](../../backend/app/publishing/telegram/publication.py#L620).
+- route and dispatch state: [`automations/models.py`](../../backend/app/automations/models.py);
+- durable jobs, events, schedules, leases, retries, and pause state: [`jobs/models.py`](../../backend/app/jobs/models.py);
+- capability-specific handler registration: [`jobs/registry.py`](../../backend/app/jobs/registry.py);
+- immutable generated revisions and exact review: [`generation/models.py`](../../backend/app/generation/models.py) and [`review_decisions.py`](../../backend/app/generation/review_decisions.py);
+- publish-intent and publishing-worker separation: [`process_support.py`](../../backend/app/automations/telegram/process_support.py) and [`publication.py`](../../backend/app/publishing/telegram/publication.py).
 
 A visual editor introduces two risks: allowing a diagram library to become the domain schema, and implying that arbitrary visual connections are executable. Either would weaken the existing validation, review, idempotency, worker-capability, or credential boundaries.
 
@@ -56,7 +56,7 @@ The decision has these binding parts:
 
 ## Schedule and trigger consequence
 
-`WorkflowSchedule` already enqueues its stored job type and payload with a due-time-derived idempotency key ([source](../../backend/app/jobs/scheduler.py#L136)). A Schedule node will therefore target the allowlisted `automation.run.start` job directly; it does not materialize a Telegram route. A scheduled graph must still compile to deterministic input selection.
+`WorkflowSchedule` already enqueues its stored job type and payload with a due-time-derived idempotency key ([source](../../backend/app/jobs/scheduler.py)). A Schedule node will therefore target the allowlisted `automation.run.start` job directly; it does not materialize a Telegram route. A scheduled graph must still compile to deterministic input selection.
 
 Telegram new-item remains different: `AutomationRoute` owns activation boundary, polling cursor, source-edit lookback, and next-poll state. Its runtime projection remains required until a future source-trigger abstraction proves equivalent safety.
 

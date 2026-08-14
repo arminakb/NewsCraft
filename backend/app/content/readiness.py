@@ -9,6 +9,7 @@ from app.content.quality import (
     NAVIGATION_OR_PROMOTIONAL_TEXT,
     QUALITY_REASON_ORDER,
     UNSUPPORTED_CONTENT,
+    minimum_word_count,
 )
 from app.db.models import ContentItem
 
@@ -33,7 +34,9 @@ def evaluate_rewrite_readiness(content_item: ContentItem) -> RewriteReadiness:
         blockers.append("missing_source_url")
     if not (content_item.content_text or "").strip():
         blockers.append(MISSING_BODY)
-    elif not durable_quality_reasons and len((content_item.content_text or "").split()) < 8:
+    elif not durable_quality_reasons and len((content_item.content_text or "").split()) < minimum_word_count(
+        str(metadata.get("source_platform", "telegram_public"))
+    ):
         blockers.append(INSUFFICIENT_FACTS)
     if isinstance(durable_quality_reasons, list):
         blockers.extend(reason for reason in QUALITY_REASON_ORDER if reason in durable_quality_reasons)

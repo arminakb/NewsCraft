@@ -22,10 +22,6 @@ export function useWorkflowEditorState(initialGraph: WorkflowGraph) {
   return useReducer(reducer, initialGraph, initializeEditorState)
 }
 
-export function initialWorkflowEditorGraph(initialGraph: WorkflowGraph): WorkflowGraph {
-  return initialGraph
-}
-
 export function emptyWorkflowGraph(): WorkflowGraph {
   return {
     schemaVersion: 1,
@@ -69,7 +65,11 @@ function reducer(state: EditorState, action: EditorAction): EditorState {
       future: state.future.slice(1),
     }
   }
-  if (action.type === "saved") return { ...state, savedGraph: action.graph }
+  // The server canonicalizes the graph it stores (node/edge ordering, JSONB key
+  // order), so the echo is the new editor truth: adopting it for both graphs
+  // keeps the dirty comparison honest. Saving is disabled while the mutation is
+  // pending, so no in-flight edit can be dropped here.
+  if (action.type === "saved") return { ...state, graph: action.graph, savedGraph: action.graph }
   if (action.type === "reload") {
     return { graph: action.graph, savedGraph: action.graph, past: [], future: [], selectedNodeId: action.graph.entryNodeId }
   }
@@ -79,7 +79,7 @@ function reducer(state: EditorState, action: EditorAction): EditorState {
 export type { EditorAction, EditorState }
 
 function initializeEditorState(initialGraph: WorkflowGraph): EditorState {
-  const graph = initialWorkflowEditorGraph(initialGraph)
+  const graph = initialGraph
   return {
     graph,
     savedGraph: graph,

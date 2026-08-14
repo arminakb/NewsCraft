@@ -8,10 +8,11 @@ import {
   removeArticleFromCollection,
   saveArticleToCollection,
 } from "./api"
+import { validateCollectionName } from "./collection-validation"
 import type { ArticleCollection, ArticleSummary } from "./types"
 
 import { DirectionBoundary } from "@/components/newsroom/direction-boundary"
-import { useEditorialModal } from "@/components/editorial/use-editorial-modal"
+import { EditorialDialog } from "@/components/editorial/editorial-dialog"
 import { Button } from "@/components/ui/button"
 import { formatNumber } from "@/lib/format"
 import { getApiErrorMessage } from "@/lib/http"
@@ -52,18 +53,13 @@ export function SaveToCollectionDialog({
   const [nameTouched, setNameTouched] = useState(false)
   const [createPending, setCreatePending] = useState(false)
   const [createError, setCreateError] = useState<string | null>(null)
-  const dialogRef = useRef<HTMLDivElement>(null)
   const firstCheckboxRef = useRef<HTMLInputElement>(null)
   const createInputRef = useRef<HTMLInputElement>(null)
   const busyRef = useRef(false)
   const nameId = useId()
   const busy = pending || createPending
   const trimmedName = name.trim()
-  const nameError = trimmedName.length === 0
-    ? "Enter a collection name."
-    : trimmedName.length > 60
-      ? "Collection name must be 60 characters or fewer."
-      : null
+  const nameError = validateCollectionName(name)
 
   useEffect(() => {
     if (!open || !article) return
@@ -87,14 +83,6 @@ export function SaveToCollectionDialog({
     if (busy || busyRef.current) return
     onClose()
   }
-
-  useEditorialModal({
-    open,
-    containerRef: dialogRef,
-    initialFocusRef: collections?.length ? firstCheckboxRef : createInputRef,
-    onClose: close,
-    canClose: !busy,
-  })
 
   if (!open || !article) return null
   const activeArticle = article
@@ -186,17 +174,13 @@ export function SaveToCollectionDialog({
   const showNameError = nameTouched && nameError
 
   return (
-    <div
-      aria-describedby="save-to-collection-description"
-      aria-labelledby="save-to-collection-title"
-      aria-modal="true"
-      className="nc-dialog-scrim fixed inset-0 z-50 grid place-items-center p-4"
-      onMouseDown={(event) => {
-        if (event.target === event.currentTarget) close()
-      }}
-      ref={dialogRef}
-      role="dialog"
-      tabIndex={-1}
+    <EditorialDialog
+      canClose={!busy}
+      describedBy="save-to-collection-description"
+      initialFocusRef={collections?.length ? firstCheckboxRef : createInputRef}
+      labelledBy="save-to-collection-title"
+      onClose={close}
+      open={open}
     >
       <div className="nc-dialog flex max-h-[min(760px,calc(100vh-2rem))] w-full max-w-lg flex-col overflow-hidden">
         <header className="border-b px-5 py-4">
@@ -313,6 +297,6 @@ export function SaveToCollectionDialog({
           </Button>
         </footer>
       </div>
-    </div>
+    </EditorialDialog>
   )
 }

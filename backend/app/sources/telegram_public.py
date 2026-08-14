@@ -23,7 +23,7 @@ def parse_public_telegram_page(html: str, channel: str) -> ParsedSourcePayload:
         for block in soup.select(".tgme_widget_message[data-post]")
     ]
     items = [item for item in parsed_items if item is not None]
-    return ParsedSourcePayload(items=items, warnings=warnings, feed_meta={"channel": channel})
+    return ParsedSourcePayload(items=items, warnings=warnings)
 
 
 def _parse_message(block: Tag, channel: str, warnings: list[str]) -> ParsedSourceItem | None:

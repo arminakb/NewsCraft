@@ -1,12 +1,22 @@
 from datetime import datetime
 from decimal import Decimal
-from typing import Any, Literal
+from typing import Any, Literal, Self
 from urllib.parse import urlsplit
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from app.core.redaction import redact_secrets
+
+
+def coerce_progress_count(value: object) -> int:
+    """Normalize a stored progress counter to a plain non-null integer."""
+
+    if value is None:
+        return 0
+    if isinstance(value, int | float | str | Decimal):
+        return int(value)
+    raise ValueError("progress counts must be numeric")
 
 
 class SourceOut(BaseModel):
@@ -132,6 +142,15 @@ class ContentItemOut(BaseModel):
     primary_source_id: UUID | None = None
     classification_metadata: dict[str, Any] = Field(default_factory=dict)
 
+    @model_validator(mode="after")
+    def derive_primary_media_flag(self) -> Self:
+        # `MediaAsset.is_primary` is an asset-global column and a single asset row is
+        # shared by every content item citing the same URL, so it cannot carry a
+        # per-item decision. Derive the flag from the item being serialized instead.
+        if self.primary_media is not None:
+            self.primary_media.is_primary = True
+        return self
+
 
 class IngestRunRequest(BaseModel):
     request_id: UUID
@@ -158,7 +177,7 @@ class IngestRunSummaryOut(BaseModel):
     @field_validator("source_count", "processed_count", "success_count", "failure_count", mode="before")
     @classmethod
     def default_progress_counts(cls, value: object) -> int:
-        return 0 if value is None else int(value)
+        return coerce_progress_count(value)
 
     @field_validator("stats", mode="before")
     @classmethod

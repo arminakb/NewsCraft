@@ -66,7 +66,7 @@ class _LifecycleSession:
 
 
 def _lifecycle_prompt():
-    from app.generation.default_prompts import telegram_prompt_checksum
+    from app.generation.default_prompts import prompt_checksum
     from app.generation.models import PromptTemplateVersion
 
     schema = {"type": "object"}
@@ -80,7 +80,7 @@ def _lifecycle_prompt():
         user_template=user,
         output_schema_version="test.v1",
         output_schema=schema,
-        checksum_sha256=telegram_prompt_checksum(system, user, schema),
+        checksum_sha256=prompt_checksum(system, user, schema),
         is_active=False,
     )
 
@@ -157,6 +157,18 @@ def test_rendered_prompt_executes_the_immutable_operator_user_template():
     assert messages[1].content == 'Evidence=[{"id":1}]; story=Operator title'
 
 
+@pytest.mark.parametrize("template", ["{0}", "{value.missing}", "{value[0]}", "{value!r}"])
+def test_rendered_prompt_rejects_unsupported_format_fields(template):
+    from types import SimpleNamespace
+
+    from tests.generation.handler_exports import render_prompt_messages
+
+    prompt = SimpleNamespace(system_template="System", user_template=template)
+
+    with pytest.raises(ValueError, match="cannot be rendered"):
+        render_prompt_messages(prompt, {"value": "safe"})
+
+
 def test_instruction_changes_rendered_telegram_prompt_and_input_hash():
     from types import SimpleNamespace
 
@@ -174,9 +186,9 @@ def test_instruction_changes_rendered_telegram_prompt_and_input_hash():
 
 
 def test_qualified_generation_usage_uses_frozen_pricing_as_cost_floor():
-    from tests.generation.handler_exports import _usage_with_qualified_pricing
+    from tests.generation.handler_exports import normalize_provider_usage
 
-    usage, cost = _usage_with_qualified_pricing(
+    usage, cost = normalize_provider_usage(
         {"input_tokens": 1_000_000, "output_tokens": 500_000, "cost_usd": 1},
         SimpleNamespace(
             pricing_input_usd_per_million=Decimal("2"),
@@ -192,10 +204,10 @@ def test_qualified_generation_usage_uses_frozen_pricing_as_cost_floor():
 @pytest.mark.parametrize("invalid", ["NaN", "Infinity", "-1"])
 def test_qualified_generation_usage_rejects_invalid_cost(invalid):
     from app.jobs.errors import NeedsReviewJobError
-    from tests.generation.handler_exports import _usage_with_qualified_pricing
+    from tests.generation.handler_exports import normalize_provider_usage
 
     with pytest.raises(NeedsReviewJobError, match="usage metadata"):
-        _usage_with_qualified_pricing(
+        normalize_provider_usage(
             {"input_tokens": 1, "output_tokens": 1, "cost_usd": invalid},
             SimpleNamespace(
                 pricing_input_usd_per_million=Decimal("1"),
@@ -207,10 +219,10 @@ def test_qualified_generation_usage_rejects_invalid_cost(invalid):
 
 def test_qualified_generation_usage_rejects_output_token_overrun():
     from app.jobs.errors import NeedsReviewJobError
-    from tests.generation.handler_exports import _usage_with_qualified_pricing
+    from tests.generation.handler_exports import normalize_provider_usage
 
     with pytest.raises(NeedsReviewJobError, match="output-token budget"):
-        _usage_with_qualified_pricing(
+        normalize_provider_usage(
             {"input_tokens": 1, "output_tokens": 101, "cost_usd": 0},
             SimpleNamespace(
                 pricing_input_usd_per_million=Decimal("1"),
@@ -229,7 +241,7 @@ async def test_generation_lifecycle_commits_running_attempt_before_provider_and_
     from app.generation.models import AIProviderProfile
     from app.generation.providers.base import GenerationProviderResult
     from app.jobs.registry import JobContext
-    from tests.generation.handler_exports import _invoke
+    from tests.generation.handler_exports import invoke
 
     session = _LifecycleSession()
     profile = AIProviderProfile(
@@ -263,7 +275,7 @@ async def test_generation_lifecycle_commits_running_attempt_before_provider_and_
             SimpleNamespace(provider=Provider(), provider_type="fake", model="fake-v1")
         )
     )
-    run, attempt, validated = await _invoke(
+    run, attempt, validated = await invoke(
         JobContext(session=session, providers=SimpleNamespace()),
         profile_resolver=resolver,
         profile_id=profile.id,
@@ -286,7 +298,7 @@ async def test_generation_lifecycle_stops_when_frozen_pack_cost_budget_is_exceed
     from app.generation.providers.base import GenerationProviderResult
     from app.jobs.errors import NeedsReviewJobError
     from app.jobs.registry import JobContext
-    from tests.generation.handler_exports import _invoke
+    from tests.generation.handler_exports import invoke
 
     session = _LifecycleSession()
     profile = AIProviderProfile(
@@ -325,7 +337,7 @@ async def test_generation_lifecycle_stops_when_frozen_pack_cost_budget_is_exceed
     resolver = SimpleNamespace(resolve=lambda profile, model: _async_value(resolved))
 
     with pytest.raises(NeedsReviewJobError) as caught:
-        await _invoke(
+        await invoke(
             JobContext(session=session, providers=SimpleNamespace()),
             profile_resolver=resolver,
             profile_id=profile.id,
@@ -351,7 +363,7 @@ async def test_generation_crash_after_provider_leaves_durable_running_attempt_be
     from app.generation.providers.base import GenerationProviderResult
     from app.jobs.registry import JobContext
     from qualification.faults import InjectedFault, ScriptedFaultInjector
-    from tests.generation.handler_exports import _invoke
+    from tests.generation.handler_exports import invoke
 
     session = _LifecycleSession()
     profile = AIProviderProfile(
@@ -385,7 +397,7 @@ async def test_generation_crash_after_provider_leaves_durable_running_attempt_be
 
     injector = ScriptedFaultInjector({"generation.after_provider_before_persist": 1})
     with pytest.raises(InjectedFault):
-        await _invoke(
+        await invoke(
             JobContext(session=session, providers=SimpleNamespace()),
             profile_resolver=resolver,
             profile_id=profile.id,
@@ -414,7 +426,7 @@ async def test_generation_lifecycle_rechecks_prompt_after_durable_attempt_and_cl
     from app.generation.models import AIProviderProfile
     from app.generation.providers.base import GenerationProviderResult
     from app.jobs.registry import JobContext
-    from tests.generation.handler_exports import _invoke
+    from tests.generation.handler_exports import invoke
 
     session = _LifecycleSession()
     profile = AIProviderProfile(
@@ -453,7 +465,7 @@ async def test_generation_lifecycle_rechecks_prompt_after_durable_attempt_and_cl
             SimpleNamespace(provider=Provider(), provider_type="fake", model="fake-v1")
         )
     )
-    await _invoke(
+    await invoke(
         JobContext(session=session, providers=SimpleNamespace()),
         profile_resolver=resolver,
         profile_id=profile.id,
@@ -475,7 +487,7 @@ async def test_generation_revalidates_with_session_resolver_and_shared_identity_
     from app.generation.provider_identity import provider_identity_for_profile
     from app.generation.providers.base import GenerationProviderResult
     from app.jobs.registry import JobContext
-    from tests.generation.handler_exports import _invoke
+    from tests.generation.handler_exports import invoke
 
     session = _LifecycleSession()
     profile = AIProviderProfile(
@@ -518,7 +530,7 @@ async def test_generation_revalidates_with_session_resolver_and_shared_identity_
             )
 
     identity = provider_identity_for_profile(profile)
-    run, attempt, _validated = await _invoke(
+    run, attempt, _validated = await invoke(
         JobContext(session=session, providers=SimpleNamespace()),
         profile_resolver=Resolver(),
         profile_id=profile.id,
@@ -545,7 +557,7 @@ async def test_generation_validation_failure_is_durable_needs_review_not_false_s
     from app.generation.providers.base import GenerationProviderResult
     from app.jobs.errors import NeedsReviewJobError
     from app.jobs.registry import JobContext
-    from tests.generation.handler_exports import _invoke
+    from tests.generation.handler_exports import invoke
 
     session = _LifecycleSession()
     profile = AIProviderProfile(
@@ -577,7 +589,7 @@ async def test_generation_validation_failure_is_durable_needs_review_not_false_s
         )
     )
     with pytest.raises(NeedsReviewJobError):
-        await _invoke(
+        await invoke(
             JobContext(session=session, providers=SimpleNamespace()),
             profile_resolver=resolver,
             profile_id=profile.id,
@@ -610,7 +622,7 @@ async def test_codex_execution_classification_maps_exact_job_and_durable_attempt
     from app.generation.models import AIProviderProfile
     from app.jobs import errors as job_errors
     from app.jobs.registry import JobContext
-    from tests.generation.handler_exports import _invoke
+    from tests.generation.handler_exports import invoke
 
     session = _LifecycleSession()
     profile = AIProviderProfile(
@@ -636,7 +648,7 @@ async def test_codex_execution_classification_maps_exact_job_and_durable_attempt
         resolve=lambda p, m: _async_value(SimpleNamespace(provider=Provider(), provider_type="codex", model="gpt-5.4"))
     )
     with pytest.raises(getattr(job_errors, expected_error)) as caught:
-        await _invoke(
+        await invoke(
             JobContext(session=session, providers=SimpleNamespace()),
             profile_resolver=resolver,
             profile_id=profile.id,
@@ -696,7 +708,7 @@ async def test_completed_stage_reuses_durable_output_without_second_provider_cal
     from app.automations.telegram.handlers import sha256_canonical
     from app.generation.models import AIProviderProfile, GenerationAttempt, GenerationRun
     from app.jobs.registry import JobContext
-    from tests.generation.handler_exports import _invoke
+    from tests.generation.handler_exports import invoke
 
     profile = AIProviderProfile(
         id=uuid4(),
@@ -753,7 +765,7 @@ async def test_completed_stage_reuses_durable_output_without_second_provider_cal
     resolver = SimpleNamespace(
         resolve=lambda p, m: _async_value(SimpleNamespace(provider=Provider(), provider_type="fake", model="fake-v1"))
     )
-    reused_run, reused_attempt, output = await _invoke(
+    reused_run, reused_attempt, output = await invoke(
         JobContext(session=session, providers=SimpleNamespace()),
         profile_resolver=resolver,
         profile_id=profile.id,
@@ -1261,7 +1273,7 @@ async def test_canonical_handler_rechecks_exact_active_prompt_immediately_before
         recheck,
         raising=False,
     )
-    monkeypatch.setattr("app.generation.canonical_generation._invoke", invoke)
+    monkeypatch.setattr("app.generation.canonical_generation.invoke", invoke)
 
     with pytest.raises(PermanentJobError) as caught:
         await build_canonical_generation_handler(SimpleNamespace())(
@@ -1287,7 +1299,7 @@ async def test_generation_rejects_provider_configuration_drift_before_provider_c
     from app.generation.models import AIProviderProfile
     from app.jobs.errors import PermanentJobError
     from app.jobs.registry import JobContext
-    from tests.generation.handler_exports import _invoke
+    from tests.generation.handler_exports import invoke
 
     session = _LifecycleSession()
     profile = AIProviderProfile(
@@ -1318,7 +1330,7 @@ async def test_generation_rejects_provider_configuration_drift_before_provider_c
         )
 
     with pytest.raises(PermanentJobError) as caught:
-        await _invoke(
+        await invoke(
             JobContext(session=session, providers=SimpleNamespace()),
             profile_resolver=SimpleNamespace(resolve=resolve),
             profile_id=profile.id,

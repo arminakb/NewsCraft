@@ -19,12 +19,12 @@ from app.research.citations import CitationIntegrityError
 from app.research.schemas import CitationRef
 from app.stories.evidence import EvidenceRecord
 from tests.generation.handler_exports import (
-    _artifact_requires_review,
     _manual_output_with_ordinary_issues,
-    _platform_stage_input,
-    _require_exact_active_prompt,
-    _trusted_story_media,
+    artifact_requires_review,
     platform_limits_for,
+    platform_stage_input,
+    require_exact_active_prompt,
+    trusted_story_media,
     validate_payload_media_assignments,
 )
 
@@ -450,7 +450,7 @@ def test_telegram_trusted_assembly_preserves_locked_parent_context_and_ignores_p
 async def test_telegram_artifact_replay_reconstructs_expected_content_from_immutable_parent():
     from app.automations.telegram.handlers import sha256_canonical
     from app.generation.telegram_schema import TelegramRewriteOutput, assemble_telegram_variant
-    from tests.generation.handler_exports import _artifact_requires_review
+    from tests.generation.handler_exports import artifact_requires_review
 
     fixture = _pack_handler_fixture(platforms=("telegram",))
     pack_id, variant_id, parent_id, revision_id, attempt_id = (
@@ -508,7 +508,7 @@ async def test_telegram_artifact_replay_reconstructs_expected_content_from_immut
         scalar_values=[pack, variant, revision, parent],
     )
 
-    requires_review = await _artifact_requires_review(
+    requires_review = await artifact_requires_review(
         session,
         {
             "content_pack_id": str(pack_id),
@@ -615,7 +615,7 @@ async def test_source_media_is_grounded_to_story_evidence_and_provider_projectio
             self.statements.append(statement)
             return [link, duplicate_link, invalid_link] if self.calls == 1 else [invalid_asset, asset]
 
-    authorized, projection = await _trusted_story_media(Session(), evidence)
+    authorized, projection = await trusted_story_media(Session(), evidence)
 
     assert set(authorized) == {asset_id}
     assert projection == [
@@ -651,7 +651,7 @@ async def test_source_media_is_grounded_to_story_evidence_and_provider_projectio
     assert all("storage_path" not in item and "original_url" not in item for item in projection)
 
     locked_session = Session()
-    await _trusted_story_media(locked_session, evidence, lock_rows=True)
+    await trusted_story_media(locked_session, evidence, lock_rows=True)
     assert len(locked_session.statements) == 2
     link_statement, asset_statement = locked_session.statements
     assert link_statement._for_update_arg is None
@@ -679,7 +679,7 @@ def test_platform_stage_input_hash_binds_concrete_limits_and_safe_source_media()
             "order": 1,
         }
     ]
-    input_payload, stage_hash = _platform_stage_input(
+    input_payload, stage_hash = platform_stage_input(
         platform="instagram",
         canonical_story={"narrative": "Grounded"},
         brand_profile={"output_language": "fa", "platform_preferences": {}},
@@ -693,7 +693,7 @@ def test_platform_stage_input_hash_binds_concrete_limits_and_safe_source_media()
     assert __import__("json").loads(input_payload["source_media_json"]) == media
     assert input_payload["direction"] == "rtl"
     changed_media = [{**media[0], "checksum_sha256": "d" * 64}]
-    _, changed_hash = _platform_stage_input(
+    _, changed_hash = platform_stage_input(
         platform="instagram",
         canonical_story={"narrative": "Grounded"},
         brand_profile={"output_language": "fa", "platform_preferences": {}},
@@ -850,7 +850,7 @@ async def test_retry_checkpoint_reloads_failed_revision_gates_and_remains_needs_
         "platform": "instagram",
     }
     assert (
-        await _artifact_requires_review(
+        await artifact_requires_review(
             Session(),
             artifact,
             expected_platform="instagram",
@@ -872,7 +872,7 @@ async def test_retry_checkpoint_reloads_failed_revision_gates_and_remains_needs_
     assert all(statement.get_execution_options().get("populate_existing") is True for statement in statements)
     statements.clear()
     with pytest.raises(NeedsReviewJobError):
-        await _artifact_requires_review(
+        await artifact_requires_review(
             Session(),
             {**artifact, "content_pack_id": str(uuid4())},
             expected_platform="instagram",
@@ -886,7 +886,7 @@ async def test_retry_checkpoint_reloads_failed_revision_gates_and_remains_needs_
             evidence=evidence,
         )
     with pytest.raises(NeedsReviewJobError):
-        await _artifact_requires_review(
+        await artifact_requires_review(
             Session(),
             artifact,
             expected_platform="instagram",
@@ -901,7 +901,7 @@ async def test_retry_checkpoint_reloads_failed_revision_gates_and_remains_needs_
         )
     revision.generation_attempt_id = uuid4()
     with pytest.raises(NeedsReviewJobError):
-        await _artifact_requires_review(
+        await artifact_requires_review(
             Session(),
             artifact,
             expected_platform="instagram",
@@ -917,7 +917,7 @@ async def test_retry_checkpoint_reloads_failed_revision_gates_and_remains_needs_
     revision.generation_attempt_id = attempt_id
     revision.content_hash = "0" * 64
     with pytest.raises(NeedsReviewJobError):
-        await _artifact_requires_review(
+        await artifact_requires_review(
             Session(),
             artifact,
             expected_platform="instagram",
@@ -934,7 +934,7 @@ async def test_retry_checkpoint_reloads_failed_revision_gates_and_remains_needs_
     revision.evidence_map = drifted_evidence
     revision.content_hash = sha256_canonical({"content": revision.content, "evidence_map": drifted_evidence})
     with pytest.raises(NeedsReviewJobError):
-        await _artifact_requires_review(
+        await artifact_requires_review(
             Session(),
             artifact,
             expected_platform="instagram",
@@ -951,7 +951,7 @@ async def test_retry_checkpoint_reloads_failed_revision_gates_and_remains_needs_
     revision.content_hash = sha256_canonical({"content": revision.content, "evidence_map": evidence_map})
     revision.validation_results = [{"gate": "tampered", "ok": True, "reason": None}]
     with pytest.raises(NeedsReviewJobError):
-        await _artifact_requires_review(
+        await artifact_requires_review(
             Session(),
             artifact,
             expected_platform="instagram",
@@ -966,7 +966,7 @@ async def test_retry_checkpoint_reloads_failed_revision_gates_and_remains_needs_
         )
     revision.validation_results = [{"gate": "invalid", "ok": "false", "reason": None}]
     with pytest.raises(NeedsReviewJobError):
-        await _artifact_requires_review(
+        await artifact_requires_review(
             Session(),
             artifact,
             expected_platform="instagram",
@@ -999,7 +999,7 @@ async def test_prompt_drift_before_later_platform_is_permanent_and_never_dispatc
             calls += 1
 
     with pytest.raises(PermanentJobError) as caught:
-        await _require_exact_active_prompt(Session(), "instagram", requested_id, "a" * 64)
+        await require_exact_active_prompt(Session(), "instagram", requested_id, "a" * 64)
 
     assert caught.value.code == "generation_platform_prompt_configuration_invalid"
     assert calls == 0
@@ -1017,7 +1017,7 @@ async def test_prompt_checksum_drift_before_provider_is_permanent():
             return [active]
 
     with pytest.raises(PermanentJobError) as caught:
-        await _require_exact_active_prompt(Session(), "instagram", requested_id, "a" * 64)
+        await require_exact_active_prompt(Session(), "instagram", requested_id, "a" * 64)
 
     assert caught.value.code == "generation_platform_prompt_configuration_invalid"
 
@@ -1033,6 +1033,7 @@ async def test_all_selected_prompts_lock_in_canonical_order_before_first_provide
         async def scalars(self, statement):
             if statement.column_descriptions[0].get("entity") is PromptTemplateVersion:
                 assert statement._for_update_arg is not None
+                assert statement.get_execution_options().get("populate_existing") is True
             return await super().scalars(statement)
 
     fixture = _pack_handler_fixture(platforms=("blog", "instagram"))
@@ -1055,8 +1056,8 @@ async def test_all_selected_prompts_lock_in_canonical_order_before_first_provide
         provider_calls += 1
         raise AssertionError("provider must not run before every prompt passes preflight")
 
-    monkeypatch.setattr("app.generation.package_generation.require_prompt_integrity", require_integrity)
-    monkeypatch.setattr("app.generation.package_generation._invoke", invoke)
+    monkeypatch.setattr("app.generation.generation_helpers.require_prompt_integrity", require_integrity)
+    monkeypatch.setattr("app.generation.package_generation.invoke", invoke)
 
     with pytest.raises(PermanentJobError) as caught:
         await build_pack_generation_handler(SimpleNamespace())(
@@ -1271,10 +1272,10 @@ async def test_pack_handler_wires_safe_media_limits_hash_and_prompt_recheck_befo
         authored = kwargs["validate_output"](fixture.raw)
         return durable_run, SimpleNamespace(id=attempt_id), authored
 
-    monkeypatch.setattr("app.generation.package_generation._locked_story_evidence", locked_evidence)
-    monkeypatch.setattr("app.generation.package_generation._trusted_story_media", trusted_media)
-    monkeypatch.setattr("app.generation.package_generation._require_exact_active_prompt", recheck)
-    monkeypatch.setattr("app.generation.package_generation._invoke", invoke)
+    monkeypatch.setattr("app.generation.package_generation.locked_story_evidence", locked_evidence)
+    monkeypatch.setattr("app.generation.package_generation.trusted_story_media", trusted_media)
+    monkeypatch.setattr("app.generation.package_generation.require_exact_active_prompt", recheck)
+    monkeypatch.setattr("app.generation.package_generation.invoke", invoke)
 
     result = await build_pack_generation_handler(SimpleNamespace())(
         fixture.job,
@@ -1285,7 +1286,7 @@ async def test_pack_handler_wires_safe_media_limits_hash_and_prompt_recheck_befo
     assert rechecks == [("instagram", fixture.prompts["instagram"].id)]
     assert __import__("json").loads(invocation["input_payload"]["platform_limits_json"])["caption_max"] == 2200
     assert __import__("json").loads(invocation["input_payload"]["source_media_json"]) == safe_media
-    expected_input, expected_hash = _platform_stage_input(
+    expected_input, expected_hash = platform_stage_input(
         platform="instagram",
         canonical_story={
             "narrative": fixture.story_revision.narrative,
@@ -1358,15 +1359,15 @@ async def test_release_three_queued_telegram_job_uses_singular_prompt_checksum_f
         return prompt
 
     monkeypatch.setattr(
-        "app.generation.package_generation._locked_story_evidence",
+        "app.generation.package_generation.locked_story_evidence",
         lambda context, revision: _resolved(([fixture.ref], fixture.evidence)),
     )
     monkeypatch.setattr(
-        "app.generation.package_generation._trusted_story_media",
+        "app.generation.package_generation.trusted_story_media",
         lambda session_value, evidence, **kwargs: _resolved(({}, [])),
     )
-    monkeypatch.setattr("app.generation.package_generation._require_exact_active_prompt", recheck)
-    monkeypatch.setattr("app.generation.package_generation._invoke", invoke)
+    monkeypatch.setattr("app.generation.package_generation.require_exact_active_prompt", recheck)
+    monkeypatch.setattr("app.generation.package_generation.invoke", invoke)
 
     result = await build_pack_generation_handler(SimpleNamespace())(
         fixture.job,
@@ -1441,15 +1442,15 @@ async def test_existing_telegram_variant_generation_preserves_exact_trusted_pare
         return fixture.prompts[platform]
 
     monkeypatch.setattr(
-        "app.generation.package_generation._locked_story_evidence",
+        "app.generation.package_generation.locked_story_evidence",
         lambda context, revision: _resolved(([fixture.ref], fixture.evidence)),
     )
     monkeypatch.setattr(
-        "app.generation.package_generation._trusted_story_media",
+        "app.generation.package_generation.trusted_story_media",
         lambda session_value, evidence, **kwargs: _resolved(({}, [])),
     )
-    monkeypatch.setattr("app.generation.package_generation._require_exact_active_prompt", recheck)
-    monkeypatch.setattr("app.generation.package_generation._invoke", invoke)
+    monkeypatch.setattr("app.generation.package_generation.require_exact_active_prompt", recheck)
+    monkeypatch.setattr("app.generation.package_generation.invoke", invoke)
 
     with pytest.raises(NeedsReviewJobError) as caught:
         await build_pack_generation_handler(SimpleNamespace())(
@@ -1508,12 +1509,12 @@ async def test_pack_handler_relocks_media_after_provider_and_rejects_unlinked_as
         return fixture.prompts[platform]
 
     monkeypatch.setattr(
-        "app.generation.package_generation._locked_story_evidence",
+        "app.generation.package_generation.locked_story_evidence",
         lambda context, revision: _resolved(([fixture.ref], fixture.evidence)),
     )
-    monkeypatch.setattr("app.generation.package_generation._trusted_story_media", trusted_media)
-    monkeypatch.setattr("app.generation.package_generation._require_exact_active_prompt", recheck)
-    monkeypatch.setattr("app.generation.package_generation._invoke", invoke)
+    monkeypatch.setattr("app.generation.package_generation.trusted_story_media", trusted_media)
+    monkeypatch.setattr("app.generation.package_generation.require_exact_active_prompt", recheck)
+    monkeypatch.setattr("app.generation.package_generation.invoke", invoke)
 
     with pytest.raises(NeedsReviewJobError) as caught:
         await build_pack_generation_handler(SimpleNamespace())(
@@ -1552,15 +1553,15 @@ async def test_pack_handler_rejects_unauthorized_provider_media_before_revision(
         return fixture.prompts[platform]
 
     monkeypatch.setattr(
-        "app.generation.package_generation._locked_story_evidence",
+        "app.generation.package_generation.locked_story_evidence",
         lambda context, revision: _resolved(([fixture.ref], fixture.evidence)),
     )
     monkeypatch.setattr(
-        "app.generation.package_generation._trusted_story_media",
+        "app.generation.package_generation.trusted_story_media",
         lambda session_value, evidence, **kwargs: _resolved(({}, [])),
     )
-    monkeypatch.setattr("app.generation.package_generation._require_exact_active_prompt", recheck)
-    monkeypatch.setattr("app.generation.package_generation._invoke", invoke)
+    monkeypatch.setattr("app.generation.package_generation.require_exact_active_prompt", recheck)
+    monkeypatch.setattr("app.generation.package_generation.invoke", invoke)
 
     with pytest.raises(NeedsReviewJobError) as caught:
         await build_pack_generation_handler(SimpleNamespace())(
@@ -1623,15 +1624,15 @@ async def test_pack_handler_retry_uses_linked_failed_artifact_and_persists_needs
         return fixture.prompts[platform]
 
     monkeypatch.setattr(
-        "app.generation.package_generation._locked_story_evidence",
+        "app.generation.package_generation.locked_story_evidence",
         lambda context, revision_value: _resolved(([fixture.ref], fixture.evidence)),
     )
     monkeypatch.setattr(
-        "app.generation.package_generation._trusted_story_media",
+        "app.generation.package_generation.trusted_story_media",
         lambda session_value, evidence, **kwargs: _resolved(({}, [])),
     )
-    monkeypatch.setattr("app.generation.package_generation._require_exact_active_prompt", recheck)
-    monkeypatch.setattr("app.generation.package_generation._invoke", invoke)
+    monkeypatch.setattr("app.generation.package_generation.require_exact_active_prompt", recheck)
+    monkeypatch.setattr("app.generation.package_generation.invoke", invoke)
 
     with pytest.raises(NeedsReviewJobError) as caught:
         await build_pack_generation_handler(SimpleNamespace())(
@@ -1675,15 +1676,15 @@ async def test_pack_handler_records_incremental_result_before_later_platform_fai
         return fixture.prompts[platform]
 
     monkeypatch.setattr(
-        "app.generation.package_generation._locked_story_evidence",
+        "app.generation.package_generation.locked_story_evidence",
         lambda context, revision_value: _resolved(([fixture.ref], fixture.evidence)),
     )
     monkeypatch.setattr(
-        "app.generation.package_generation._trusted_story_media",
+        "app.generation.package_generation.trusted_story_media",
         lambda session_value, evidence, **kwargs: _resolved(({}, [])),
     )
-    monkeypatch.setattr("app.generation.package_generation._require_exact_active_prompt", recheck)
-    monkeypatch.setattr("app.generation.package_generation._invoke", invoke)
+    monkeypatch.setattr("app.generation.package_generation.require_exact_active_prompt", recheck)
+    monkeypatch.setattr("app.generation.package_generation.invoke", invoke)
 
     with pytest.raises(NeedsReviewJobError, match="Blog citations failed"):
         await build_pack_generation_handler(SimpleNamespace())(
@@ -1725,15 +1726,15 @@ async def test_pack_handler_persists_full_schema_max_violation_then_requires_rev
         return fixture.prompts[platform]
 
     monkeypatch.setattr(
-        "app.generation.package_generation._locked_story_evidence",
+        "app.generation.package_generation.locked_story_evidence",
         lambda context, revision_value: _resolved(([fixture.ref], fixture.evidence)),
     )
     monkeypatch.setattr(
-        "app.generation.package_generation._trusted_story_media",
+        "app.generation.package_generation.trusted_story_media",
         lambda session_value, evidence, **kwargs: _resolved(({}, [])),
     )
-    monkeypatch.setattr("app.generation.package_generation._require_exact_active_prompt", recheck)
-    monkeypatch.setattr("app.generation.package_generation._invoke", invoke)
+    monkeypatch.setattr("app.generation.package_generation.require_exact_active_prompt", recheck)
+    monkeypatch.setattr("app.generation.package_generation.invoke", invoke)
 
     with pytest.raises(NeedsReviewJobError) as caught:
         await build_pack_generation_handler(SimpleNamespace())(
@@ -1807,15 +1808,15 @@ async def test_regeneration_rechecks_base_before_provider_and_creates_no_child(m
         return fixture.prompts[platform]
 
     monkeypatch.setattr(
-        "app.generation.package_generation._locked_story_evidence",
+        "app.generation.package_generation.locked_story_evidence",
         lambda context, revision: _resolved(([fixture.ref], fixture.evidence)),
     )
     monkeypatch.setattr(
-        "app.generation.package_generation._trusted_story_media",
+        "app.generation.package_generation.trusted_story_media",
         lambda session_value, evidence, **kwargs: _resolved(({}, [])),
     )
-    monkeypatch.setattr("app.generation.generation_helpers._require_exact_active_prompt", recheck)
-    monkeypatch.setattr("app.generation.package_generation._invoke", invoke)
+    monkeypatch.setattr("app.generation.generation_helpers.require_exact_active_prompt", recheck)
+    monkeypatch.setattr("app.generation.package_generation.invoke", invoke)
 
     with pytest.raises(NeedsReviewJobError) as caught:
         await build_pack_generation_handler(SimpleNamespace())(
@@ -1922,16 +1923,16 @@ async def test_regeneration_fence_survives_provider_and_cached_success_until_chi
         return durable_run, SimpleNamespace(id=attempt_id), authored
 
     monkeypatch.setattr(
-        "app.generation.package_generation._locked_story_evidence",
+        "app.generation.package_generation.locked_story_evidence",
         lambda context, revision: _resolved(([fixture.ref], fixture.evidence)),
     )
     monkeypatch.setattr(
-        "app.generation.package_generation._trusted_story_media",
+        "app.generation.package_generation.trusted_story_media",
         lambda session_value, evidence, **kwargs: _resolved(({}, [])),
     )
     monkeypatch.setattr("app.generation.package_generation._require_exact_regeneration_dispatch", dispatch)
     monkeypatch.setattr("app.generation.package_generation.require_revision_write_allowed", require_owner)
-    monkeypatch.setattr("app.generation.package_generation._invoke", invoke)
+    monkeypatch.setattr("app.generation.package_generation.invoke", invoke)
 
     result = await build_pack_generation_handler(SimpleNamespace())(
         fixture.job,
@@ -1950,7 +1951,7 @@ async def test_platform_stage_retry_reuses_durable_attempt_without_second_provid
     from app.automations.telegram.handlers import sha256_canonical
     from app.generation.models import AIProviderProfile, GenerationAttempt, GenerationRun
     from app.jobs.registry import JobContext
-    from tests.generation.handler_exports import _invoke
+    from tests.generation.handler_exports import invoke
     from tests.generation.test_editorial_service import _lifecycle_prompt, _LifecycleSession
 
     profile = AIProviderProfile(
@@ -2011,7 +2012,7 @@ async def test_platform_stage_retry_reuses_durable_attempt_without_second_provid
     async def resolve(profile_value, model_override):
         return SimpleNamespace(provider=Provider(), provider_type="fake", model="fake-v1")
 
-    reused = await _invoke(
+    reused = await invoke(
         JobContext(session=session, providers=SimpleNamespace()),
         profile_resolver=SimpleNamespace(resolve=resolve),
         profile_id=profile.id,
@@ -2046,7 +2047,7 @@ async def test_durable_success_revalidation_failure_is_sanitized_needs_review_wi
     from app.generation.models import AIProviderProfile, GenerationAttempt, GenerationRun
     from app.jobs.errors import NeedsReviewJobError
     from app.jobs.registry import JobContext
-    from tests.generation.handler_exports import _invoke
+    from tests.generation.handler_exports import invoke
     from tests.generation.test_editorial_service import _lifecycle_prompt, _LifecycleSession
 
     profile = AIProviderProfile(
@@ -2115,7 +2116,7 @@ async def test_durable_success_revalidation_failure_is_sanitized_needs_review_wi
         raise ValueError("unsafe validation detail")
 
     with pytest.raises(NeedsReviewJobError) as caught:
-        await _invoke(
+        await invoke(
             JobContext(session=session, providers=SimpleNamespace()),
             profile_resolver=SimpleNamespace(resolve=resolve),
             profile_id=profile.id,
@@ -2483,14 +2484,14 @@ async def test_regeneration_retry_replays_actual_committed_artifact_bound_to_imm
         return durable_run, SimpleNamespace(id=attempt_id), authored
 
     monkeypatch.setattr(
-        "app.generation.package_generation._locked_story_evidence",
+        "app.generation.package_generation.locked_story_evidence",
         lambda context, revision: _resolved(([fixture.ref], fixture.evidence)),
     )
     monkeypatch.setattr(
-        "app.generation.package_generation._trusted_story_media",
+        "app.generation.package_generation.trusted_story_media",
         lambda session_value, evidence, **kwargs: _resolved(({}, [])),
     )
-    monkeypatch.setattr("app.generation.package_generation._invoke", cached_invoke)
+    monkeypatch.setattr("app.generation.package_generation.invoke", cached_invoke)
 
     result = await build_regenerate_handler(SimpleNamespace())(
         fixture.job,

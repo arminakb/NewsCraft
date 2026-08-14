@@ -4,6 +4,7 @@ import asyncio
 import copy
 import io
 import logging
+import re
 import socket
 import sys
 from collections.abc import Iterator
@@ -20,6 +21,9 @@ from app.core.logging import RedactingAccessFormatter, RedactingFormatter, confi
 
 ACCESS_FORMAT = '%(client_addr)s - "%(request_line)s" %(status_code)s'
 FORMAT_FAILED = "[LOG_FORMAT_FAILED] logger=uvicorn.access level=INFO"
+# The sentinel now carries the class of the exception that stopped the format,
+# so a systematic redaction failure is distinguishable from one bad record.
+FORMAT_FAILED_ERROR = re.compile(r" error=[A-Za-z0-9_.]+$")
 
 
 def _access_record(
@@ -124,7 +128,8 @@ def test_access_formatter_fails_closed_for_invalid_structure(args: object | None
 
     rendered = formatter.format(record)
 
-    assert rendered == FORMAT_FAILED
+    assert rendered.startswith(FORMAT_FAILED + " error=")
+    assert FORMAT_FAILED_ERROR.search(rendered) is not None
     assert "invalid-access-canary" not in rendered
     assert record.__dict__ == original
 
@@ -210,11 +215,23 @@ def test_generic_formatter_returns_constant_sentinel_for_message_or_delegate_fai
         ("one",),
         None,
     )
+    # Well formed, so the delegate is actually reached and its own failure —
+    # not a message-rendering failure — is the one named in the sentinel.
+    well_formed = logging.LogRecord(
+        "newscraft.phase5",
+        logging.WARNING,
+        "<phase5-test>",
+        5,
+        "password=malformed-canary",
+        (),
+        None,
+    )
     malformed_output = RedactingFormatter("%(message)s").format(malformed)
-    delegated_output = RedactingFormatter(delegate=ExplodingFormatter()).format(malformed)
+    delegated_output = RedactingFormatter(delegate=ExplodingFormatter()).format(well_formed)
 
-    assert malformed_output == "[LOG_FORMAT_FAILED] logger=newscraft.phase5 level=WARNING"
-    assert delegated_output == "[LOG_FORMAT_FAILED] logger=newscraft.phase5 level=WARNING"
+    sentinel = "[LOG_FORMAT_FAILED] logger=newscraft.phase5 level=WARNING"
+    assert malformed_output == f"{sentinel} error=TypeError"
+    assert delegated_output == f"{sentinel} error=RuntimeError"
     assert "malformed-canary" not in malformed_output + delegated_output
     assert "delegate-canary" not in malformed_output + delegated_output
 

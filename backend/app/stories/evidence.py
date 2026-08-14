@@ -10,6 +10,7 @@ from app.normalization.urls import normalize_url
 
 if TYPE_CHECKING:
     from app.discovery.models import ExtractedArticle
+    from app.stories.models import StoryEvidenceSnapshot
     from app.stories.schemas import ManualTextInput
 
 
@@ -99,6 +100,21 @@ class EvidenceRecord:
     authors: tuple[str, ...]
     published_at: datetime | None
     captured_at: datetime
+
+
+def evidence_record_from_snapshot(row: StoryEvidenceSnapshot) -> EvidenceRecord:
+    return EvidenceRecord(
+        evidence_key=row.evidence_key,
+        evidence_snapshot_id=row.id,
+        content_item_id=row.content_item_id,
+        title=row.title,
+        content_text=row.content_text,
+        content_sha256=row.content_sha256,
+        source_url=row.source_url,
+        authors=tuple(row.authors),
+        published_at=row.published_at,
+        captured_at=row.captured_at,
+    )
 
 
 def build_evidence_key(

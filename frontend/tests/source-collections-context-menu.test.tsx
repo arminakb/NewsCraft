@@ -88,7 +88,6 @@ function renderPanel(onSelectScope: (scope: string) => void) {
   return render(
     <QueryClientProvider client={queryClient}>
       <SourceCollectionsPanel
-        enableQueries
         onSelectScope={onSelectScope}
         selectedScope={ALL_SOURCES_SCOPE}
       >

@@ -208,7 +208,7 @@ async def test_collection_article_trigger_starts_one_durable_run_and_preserves_a
     assert events[0].event_data["article_id"] == str(article.id)
     assert events[0].event_data["collection_id"] == str(collection.id)
     assert events[0].event_data["added_at"]
-    assert events[0].event_data["actor_id"] == "operator"
+    assert events[0].event_data["actor_id"] == "test_harness:pytest"
 
     job = await JobRepository(db_session).claim_next_job(
         worker_id="collection-trigger-test",
@@ -252,9 +252,14 @@ async def test_collection_article_trigger_starts_one_durable_run_and_preserves_a
         },
         "trigger": {
             "type": "collection_article_added",
+            "event_type": "collection.article_added",
             "collection_id": str(collection.id),
             "article_id": str(article.id),
             "occurred_at": result["output"]["trigger"]["occurred_at"],
+        },
+        "collection": {
+            "id": str(collection.id),
+            "name": "Trigger queue",
         },
     }
 

@@ -164,6 +164,11 @@ def _canonical_json(value) -> bytes:
     return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
 
 
+async def _build_export(service, request, *, export_id, created_at):
+    payload = await service.prepare_payload(request)
+    return await service.build_from_payload(payload, export_id=export_id, created_at=created_at)
+
+
 @pytest.mark.asyncio
 async def test_export_manifest_binds_every_file_to_exact_revision_and_hash(monkeypatch, tmp_path):
     from app.exports.models import ExportRequest
@@ -185,7 +190,8 @@ async def test_export_manifest_binds_every_file_to_exact_revision_and_hash(monke
 
     monkeypatch.setattr(Path, "write_bytes", tracked_write_bytes)
 
-    artifact = await service.build(
+    artifact = await _build_export(
+        service,
         ExportRequest(
             content_pack_id=pack.id,
             formats=["json", "markdown", "html", "zip"],
@@ -260,11 +266,16 @@ async def test_export_retry_reuses_only_a_complete_checksummed_artifact(tmp_path
     pack, variants, revisions = _pack_fixture()
     export_id = uuid4()
     request = ExportRequest(content_pack_id=pack.id, formats=["json"])
-    first = await ExportService(
-        _ExportSession(pack=pack, variants=variants, revisions=revisions),
-        export_root=tmp_path / "exports",
-        media_root=tmp_path / "media",
-    ).build(request, export_id=export_id, created_at=FIXED_NOW)
+    first = await _build_export(
+        ExportService(
+            _ExportSession(pack=pack, variants=variants, revisions=revisions),
+            export_root=tmp_path / "exports",
+            media_root=tmp_path / "media",
+        ),
+        request,
+        export_id=export_id,
+        created_at=FIXED_NOW,
+    )
 
     target = tmp_path / "exports" / str(export_id)
     manifest_path = target / "manifest.json"
@@ -273,11 +284,16 @@ async def test_export_retry_reuses_only_a_complete_checksummed_artifact(tmp_path
     (target / removed["file_name"]).unlink()
     manifest_path.write_bytes(_canonical_json(incomplete_manifest))
 
-    second = await ExportService(
-        _ExportSession(pack=pack, variants=variants, revisions=revisions),
-        export_root=tmp_path / "exports",
-        media_root=tmp_path / "media",
-    ).build(request, export_id=export_id, created_at=FIXED_NOW)
+    second = await _build_export(
+        ExportService(
+            _ExportSession(pack=pack, variants=variants, revisions=revisions),
+            export_root=tmp_path / "exports",
+            media_root=tmp_path / "media",
+        ),
+        request,
+        export_id=export_id,
+        created_at=FIXED_NOW,
+    )
 
     assert second == first
     assert (target / removed["file_name"]).is_file()
@@ -298,11 +314,16 @@ async def test_independent_exports_have_identical_bytes_and_never_embed_job_or_r
     artifacts = []
     for export_id in export_ids:
         artifacts.append(
-            await ExportService(
-                _ExportSession(pack=pack, variants=variants, revisions=revisions),
-                export_root=tmp_path / "exports",
-                media_root=tmp_path / "media",
-            ).build(request, export_id=export_id, created_at=FIXED_NOW)
+            await _build_export(
+                ExportService(
+                    _ExportSession(pack=pack, variants=variants, revisions=revisions),
+                    export_root=tmp_path / "exports",
+                    media_root=tmp_path / "media",
+                ),
+                request,
+                export_id=export_id,
+                created_at=FIXED_NOW,
+            )
         )
 
     def package_bytes(export_id):
@@ -462,7 +483,8 @@ async def test_export_rejects_duplicate_unapproved_or_foreign_explicit_revisions
         media_root=tmp_path / "media",
     )
     with pytest.raises(ExportContractError, match="unique"):
-        await service.build(
+        await _build_export(
+            service,
             ExportRequest(
                 content_pack_id=pack.id,
                 revision_ids=[revisions[0].id, revisions[0].id],
@@ -478,7 +500,8 @@ async def test_export_rejects_duplicate_unapproved_or_foreign_explicit_revisions
         media_root=tmp_path / "media",
     )
     with pytest.raises(ExportContractError, match="approved"):
-        await service.build(
+        await _build_export(
+            service,
             ExportRequest(content_pack_id=pack.id, formats=["json"]),
             export_id=uuid4(),
             created_at=FIXED_NOW,
@@ -521,11 +544,16 @@ async def test_media_export_skips_manual_assignment_and_rejects_tampered_storage
     _rehash(revisions[1])
     request = ExportRequest(content_pack_id=pack.id, formats=["json"], include_media=True)
 
-    artifact = await ExportService(
-        _ExportSession(pack=pack, variants=variants, revisions=revisions, assets=[asset]),
-        export_root=tmp_path / "exports",
-        media_root=media_root,
-    ).build(request, export_id=uuid4(), created_at=FIXED_NOW)
+    artifact = await _build_export(
+        ExportService(
+            _ExportSession(pack=pack, variants=variants, revisions=revisions, assets=[asset]),
+            export_root=tmp_path / "exports",
+            media_root=media_root,
+        ),
+        request,
+        export_id=uuid4(),
+        created_at=FIXED_NOW,
+    )
     media_entry = next(item for item in artifact.manifest.files if item.kind == "media")
     copied = tmp_path / "exports" / str(artifact.export_id) / media_entry.file_name
     assert copied.read_bytes() == media_bytes
@@ -533,11 +561,16 @@ async def test_media_export_skips_manual_assignment_and_rejects_tampered_storage
 
     media_path.write_bytes(b"tampered")
     with pytest.raises(ExportContractError, match="checksum"):
-        await ExportService(
-            _ExportSession(pack=pack, variants=variants, revisions=revisions, assets=[asset]),
-            export_root=tmp_path / "other-exports",
-            media_root=media_root,
-        ).build(request, export_id=uuid4(), created_at=FIXED_NOW)
+        await _build_export(
+            ExportService(
+                _ExportSession(pack=pack, variants=variants, revisions=revisions, assets=[asset]),
+                export_root=tmp_path / "other-exports",
+                media_root=media_root,
+            ),
+            request,
+            export_id=uuid4(),
+            created_at=FIXED_NOW,
+        )
 
     manual_pack, manual_variants, manual_revisions = _pack_fixture()
     manual_revisions[1].content["hero_media"] = {
@@ -549,15 +582,16 @@ async def test_media_export_skips_manual_assignment_and_rejects_tampered_storage
         "image_prompt": None,
     }
     _rehash(manual_revisions[1])
-    manual_artifact = await ExportService(
-        _ExportSession(
-            pack=manual_pack,
-            variants=manual_variants,
-            revisions=manual_revisions,
+    manual_artifact = await _build_export(
+        ExportService(
+            _ExportSession(
+                pack=manual_pack,
+                variants=manual_variants,
+                revisions=manual_revisions,
+            ),
+            export_root=tmp_path / "manual-exports",
+            media_root=media_root,
         ),
-        export_root=tmp_path / "manual-exports",
-        media_root=media_root,
-    ).build(
         ExportRequest(content_pack_id=manual_pack.id, formats=["json"], include_media=True),
         export_id=uuid4(),
         created_at=FIXED_NOW,
@@ -640,11 +674,12 @@ async def test_media_export_rejects_untrusted_storage_shapes(case, message, tmp_
     _rehash(revisions[1])
 
     with pytest.raises(ExportContractError, match=message):
-        await ExportService(
-            _ExportSession(pack=pack, variants=variants, revisions=revisions, assets=[asset]),
-            export_root=tmp_path / "exports",
-            media_root=media_root,
-        ).build(
+        await _build_export(
+            ExportService(
+                _ExportSession(pack=pack, variants=variants, revisions=revisions, assets=[asset]),
+                export_root=tmp_path / "exports",
+                media_root=media_root,
+            ),
             ExportRequest(content_pack_id=pack.id, formats=["json"], include_media=True),
             export_id=uuid4(),
             created_at=FIXED_NOW,

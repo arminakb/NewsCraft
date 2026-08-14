@@ -1,4 +1,4 @@
-import { safeArticleUrl, selectEditorialContent } from "@/features/articles/article-detail-dialog"
+import { selectEditorialContent } from "@/features/articles/article-detail-dialog"
 import type { ArticleDetail } from "@/features/articles/types"
 
 describe("article detail content selection", () => {
@@ -39,14 +39,6 @@ describe("article detail content selection", () => {
       excerpt: null,
       summary: null,
     }))).toEqual({ kind: "unavailable", label: "Content unavailable", text: null })
-  })
-
-  it("allows only absolute HTTP and HTTPS source URLs", () => {
-    expect(safeArticleUrl("https://example.com/article")).toBe("https://example.com/article")
-    expect(safeArticleUrl("http://example.com/article")).toBe("http://example.com/article")
-    expect(safeArticleUrl("javascript:alert(1)")).toBeNull()
-    expect(safeArticleUrl("data:text/html,unsafe")).toBeNull()
-    expect(safeArticleUrl("/relative-source")).toBeNull()
   })
 })
 

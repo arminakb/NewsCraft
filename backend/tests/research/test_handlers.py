@@ -8,6 +8,7 @@ from types import SimpleNamespace
 from uuid import UUID, uuid4
 
 import pytest
+from pydantic import ValidationError
 
 from app.automations.models import AutomationDispatch, AutomationRoute
 from app.generation.models import AIProviderProfile
@@ -16,6 +17,7 @@ from app.jobs.errors import NeedsReviewJobError
 from app.jobs.models import WorkflowEvent, WorkflowJob
 from app.jobs.registry import JobContext
 from app.research.base import ResearchBackendOutput, ResearchRequest, ResearchResult, ResearchUsage
+from app.research.citations import CitationIntegrityError
 from app.research.continuations import append_unique_continuation, enqueue_bound_continuation, normalize_continuation
 from app.research.fake import FakeResearchBackend
 from app.research.handlers import (
@@ -55,6 +57,25 @@ def test_handler_recomputes_source_hash_and_key():
         }
     )
     _validate_source(source)
+
+    with pytest.raises(ValidationError, match="evidence_key does not match"):
+        DiscoveredSourcePayload.model_validate(
+            {
+                "evidence_key": f"url:https://news.example/other:{digest}",
+                "url": "https://news.example/report",
+                "title": "Report",
+                "publisher": "News",
+                "published_at": None,
+                "retrieved_at": datetime.now(UTC),
+                "content_text": text,
+                "content_sha256": digest,
+                "extraction_status": "ok",
+            }
+        )
+
+    tampered = source.model_copy(update={"content_text": text + " tampered"})
+    with pytest.raises(CitationIntegrityError):
+        _validate_source(tampered)
 
 
 def test_continuation_is_constrained_to_telegram_process():

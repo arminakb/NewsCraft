@@ -1,10 +1,16 @@
 from __future__ import annotations
 
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import pytest
 
-from app.automations.definitions.compiler import CompilationError, compile_graph, verify_compiled_plan
+from app.automations.definitions.compiler import (
+    LEGACY_COMPILER_VERSION,
+    CompilationError,
+    compile_graph,
+    verify_compiled_plan,
+)
+from app.automations.definitions.resources import graph_resource_locations, graph_resource_requests
 from app.automations.definitions.schemas import WorkflowGraphV1
 from app.automations.definitions.validation import validate_graph
 
@@ -64,6 +70,18 @@ def test_compiler_is_deterministic_and_keeps_stable_node_ids():
     assert verify_compiled_plan(graph, first.model_dump(mode="json")) == first
 
 
+def test_resource_request_and_location_projections_share_one_reference_inventory():
+    graph = _manual_graph()
+
+    requests = graph_resource_requests(graph)
+    locations = graph_resource_locations(graph)
+
+    assert set(locations) == requests
+    generate = next(node for node in graph.nodes if node.type == "generate_content_pack")
+    prompt_id = UUID(str(generate.config["prompt_version_ids"][0]))
+    assert locations[("prompt_version", prompt_id)] == [("generate-1", "config.prompt_version_ids")]
+
+
 def test_compiler_keeps_server_owned_generation_jobs_and_dry_run_support():
     plan = compile_graph(_manual_graph())
 
@@ -105,6 +123,25 @@ def test_compiler_rejects_stale_or_tampered_saved_plan():
         verify_compiled_plan(graph, raw)
 
     assert exc.value.code == "automation_compiled_plan_stale"
+
+
+def test_compiler_rejects_legacy_placeholder_until_a_new_version_is_compiled():
+    graph = _manual_graph()
+    placeholder = {
+        "compiler_version": LEGACY_COMPILER_VERSION,
+        "projection_type": "telegram_route",
+        "route_id": str(uuid4()),
+    }
+
+    for legacy_plan in (
+        placeholder,
+        {**placeholder, "projection_type": "something_else"},
+        {**placeholder, "stages": []},
+        {"compiler_version": LEGACY_COMPILER_VERSION},
+    ):
+        with pytest.raises(CompilationError) as exc:
+            verify_compiled_plan(graph, legacy_plan)
+        assert exc.value.code == "automation_compiled_plan_stale"
 
 
 def test_compiler_rejects_non_linear_fan_out_with_stable_error():

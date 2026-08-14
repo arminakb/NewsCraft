@@ -1,0 +1,38 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["status", "commit_sha", "findings_addressed", "tests_run", "notes"],
+  "properties": {
+    "status": {
+      "type": "string",
+      "enum": ["DONE", "PARTIAL", "BLOCKED"]
+    },
+    "commit_sha": { "type": "string" },
+    "findings_addressed": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["finding", "action", "outcome"],
+        "properties": {
+          "finding": { "type": "string" },
+          "action": { "type": "string" },
+          "outcome": { "type": "string", "enum": ["FIXED", "COULD_NOT_FIX_SAFELY"] }
+        }
+      }
+    },
+    "tests_run": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["command", "result"],
+        "properties": {
+          "command": { "type": "string" },
+          "result": { "type": "string", "enum": ["PASS", "FAIL"] }
+        }
+      }
+    },
+    "notes": { "type": "string" }
+  }
+}

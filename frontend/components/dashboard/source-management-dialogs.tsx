@@ -3,7 +3,7 @@
 import { LoaderCircle, Trash2 } from "lucide-react"
 import { cloneElement, isValidElement, useEffect, useId, useRef, useState } from "react"
 
-import { useEditorialModal } from "@/components/editorial/use-editorial-modal"
+import { EditorialDialog } from "@/components/editorial/editorial-dialog"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Select } from "@/components/ui/select"
@@ -35,7 +35,6 @@ export function AddSourceDialog({
 }) {
   const [form, setForm] = useState<NewSourceInput>(initialForm)
   const [touched, setTouched] = useState(false)
-  const dialogRef = useRef<HTMLDivElement>(null)
   const nameRef = useRef<HTMLInputElement>(null)
   const titleId = useId()
   const descriptionId = useId()
@@ -47,27 +46,15 @@ export function AddSourceDialog({
     setTouched(false)
   }, [open])
 
-  useEditorialModal({
-    open,
-    containerRef: dialogRef,
-    initialFocusRef: nameRef,
-    onClose,
-  })
-
-  if (!open) return null
-
   return (
-    <div
-      aria-describedby={descriptionId}
-      aria-labelledby={titleId}
-      aria-modal="true"
-      className="nc-dialog-scrim fixed inset-0 z-50 grid place-items-center overflow-y-auto p-4"
-      onMouseDown={(event) => {
-        if (!isSubmitting && event.target === event.currentTarget) onClose()
-      }}
-      ref={dialogRef}
-      role="dialog"
-      tabIndex={-1}
+    <EditorialDialog
+      canClose={!isSubmitting}
+      className="overflow-y-auto"
+      describedBy={descriptionId}
+      initialFocusRef={nameRef}
+      labelledBy={titleId}
+      onClose={onClose}
+      open={open}
     >
       <form
         aria-busy={isSubmitting}
@@ -194,7 +181,7 @@ export function AddSourceDialog({
           </Button>
         </div>
       </form>
-    </div>
+    </EditorialDialog>
   )
 }
 
@@ -211,32 +198,20 @@ export function DeleteSourceDialog({
   onConfirm: () => void
   source: SourceSummary | null
 }) {
-  const dialogRef = useRef<HTMLDivElement>(null)
   const cancelRef = useRef<HTMLButtonElement>(null)
   const titleId = useId()
   const descriptionId = useId()
 
-  useEditorialModal({
-    open: Boolean(source),
-    containerRef: dialogRef,
-    initialFocusRef: cancelRef,
-    onClose,
-  })
-
   if (!source) return null
 
   return (
-    <div
-      aria-describedby={descriptionId}
-      aria-labelledby={titleId}
-      aria-modal="true"
-      className="nc-dialog-scrim fixed inset-0 z-50 grid place-items-center p-4"
-      onMouseDown={(event) => {
-        if (!isDeleting && event.target === event.currentTarget) onClose()
-      }}
-      ref={dialogRef}
-      role="dialog"
-      tabIndex={-1}
+    <EditorialDialog
+      canClose={!isDeleting}
+      describedBy={descriptionId}
+      initialFocusRef={cancelRef}
+      labelledBy={titleId}
+      onClose={onClose}
+      open
     >
       <div className="nc-dialog w-full max-w-md space-y-5 p-5">
         <div>
@@ -269,7 +244,7 @@ export function DeleteSourceDialog({
           </Button>
         </div>
       </div>
-    </div>
+    </EditorialDialog>
   )
 }
 

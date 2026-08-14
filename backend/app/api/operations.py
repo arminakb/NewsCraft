@@ -9,11 +9,15 @@ from fastapi.responses import PlainTextResponse
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.outbound_proxy import ProxyDiagnostics
 from app.core.redaction import redact_secrets
 from app.db.session import get_session
 from app.jobs.schemas import JobAcceptedOut
-from app.operations.diagnostics import OperationsDiagnostics
+from app.operations.diagnostics import (
+    AttentionItem,
+    ComponentHealth,
+    OperationsDiagnostics,
+    OperationsSnapshot,
+)
 from app.operations.health import (
     OperationalHealthService,
     OperationalHealthSnapshot,
@@ -21,11 +25,12 @@ from app.operations.health import (
 )
 from app.operations.history import (
     HistoryCategory,
+    HistoryEntry,
+    HistoryPage,
     HistoryService,
     HistorySubjectType,
-    decode_history_cursor,
 )
-from app.retention.contracts import RetentionPreview
+from app.retention.contracts import RetentionConfirmationPhrase, RetentionPreview
 from app.retention.models import RetentionRun
 from app.retention.service import (
     RetentionCategory,
@@ -38,67 +43,36 @@ from app.retention.service import (
     RetentionService,
 )
 
-
-class ComponentHealthOut(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    status: Literal["healthy", "degraded", "down", "unknown"]
-    observed_at: datetime | None
-    last_success_at: datetime | None
-    message: str
-    action_url: str | None
+# The wire models are the domain models. They used to restate every field of
+# ComponentHealth/AttentionItem/OperationsSnapshot and HistoryEntry/HistoryPage
+# character-for-character, so a field added to a domain model silently failed to
+# reach the API. Inheriting keeps the published component names (and therefore
+# the generated frontend types) while making the domain model the single source;
+# only the nested annotations are narrowed so the *Out schemas stay referenced.
 
 
-class AttentionItemOut(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    id: str
-    severity: Literal["warning", "error"]
-    kind: Literal[
-        "job",
-        "route",
-        "research",
-        "generation",
-        "publication",
-        "destination",
-        "source",
-    ]
-    title: str
-    occurred_at: datetime
-    action_url: str
+class ComponentHealthOut(ComponentHealth):
+    pass
 
 
-class OperationsSnapshotOut(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    generated_at: datetime
-    global_paused: bool
-    dry_run: bool
-    components: dict[str, ComponentHealthOut]
-    queue_counts: dict[str, int]
-    attention: list[AttentionItemOut]
-    outbound_proxy: ProxyDiagnostics
+class AttentionItemOut(AttentionItem):
+    pass
 
 
-class HistoryEntryOut(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    id: str
-    occurred_at: datetime
-    category: HistoryCategory
-    status: str
-    title: str
-    summary: str
-    job_id: UUID | None
-    subject_url: str
-    sanitized_metadata: dict[str, object]
+class OperationsSnapshotOut(OperationsSnapshot):
+    # Narrowing a container field to the wire subclass is exactly what pydantic
+    # needs to keep the nested component names; mypy only objects because dict
+    # and list are invariant.
+    components: dict[str, ComponentHealthOut]  # type: ignore[assignment]
+    attention: list[AttentionItemOut]  # type: ignore[assignment]
 
 
-class HistoryPageOut(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+class HistoryEntryOut(HistoryEntry):
+    pass
 
-    items: list[HistoryEntryOut]
-    next_cursor: str | None
+
+class HistoryPageOut(HistoryPage):
+    items: list[HistoryEntryOut]  # type: ignore[assignment]
 
 
 class RetentionPolicyOut(RetentionPolicyInput):
@@ -150,7 +124,7 @@ class RetentionRunCreateIn(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     preview_token: str = Field(pattern=r"^[0-9a-f]{64}$")
-    confirmation: Literal["DELETE PREVIEWED DATA"]
+    confirmation: RetentionConfirmationPhrase
 
 
 class RetentionRunOut(BaseModel):
@@ -229,20 +203,17 @@ async def operations_history(
     limit: int = Query(default=50, ge=1, le=100),
     session: AsyncSession = SessionDependency,
 ) -> HistoryPageOut:
-    if (subject_type is None) != (subject_id is None):
-        raise HTTPException(
-            status_code=422,
-            detail="subject_type and subject_id must be supplied together",
+    try:
+        page = await HistoryService(session).list(
+            subject_type=subject_type,
+            subject_id=subject_id,
+            category=category,
+            status=status,
+            cursor=cursor,
+            limit=limit,
         )
-    _validate_history_cursor(cursor)
-    page = await HistoryService(session).list(
-        subject_type=subject_type,
-        subject_id=subject_id,
-        category=category,
-        status=status,
-        cursor=cursor,
-        limit=limit,
-    )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from None
     return HistoryPageOut.model_validate(page.model_dump())
 
 
@@ -323,28 +294,7 @@ async def get_retention_run(
         run = await RetentionService(session).get_run(run_id)
     except RetentionNotFound:
         raise HTTPException(status_code=404, detail="Retention run not found") from None
-    if run is None:
-        raise HTTPException(status_code=404, detail="Retention run not found")
     return _retention_run_out(run)
-
-
-def _validate_history_cursor(cursor: str | None) -> None:
-    if cursor is None:
-        return
-    try:
-        decode_history_cursor(cursor)
-    except ValueError as exc:
-        raise HTTPException(status_code=422, detail=str(exc)) from None
-
-
-def _retention_policy_input(value: RetentionPolicyInput) -> RetentionPolicyInput:
-    return RetentionPolicyInput(
-        raw_payload_days=value.raw_payload_days,
-        completed_job_days=value.completed_job_days,
-        attempt_metadata_days=value.attempt_metadata_days,
-        export_artifact_days=value.export_artifact_days,
-        unreferenced_media_days=value.unreferenced_media_days,
-    )
 
 
 def _retention_preview_out(preview: RetentionPreview) -> RetentionPreviewOut:
@@ -352,7 +302,7 @@ def _retention_preview_out(preview: RetentionPreview) -> RetentionPreviewOut:
         run_id=preview.run_id,
         preview_token=preview.preview_token,
         schema_revision=preview.schema_revision,
-        policy=_retention_policy_input(preview.policy),
+        policy=preview.policy,
         candidates=[RetentionCandidateOut.model_validate(candidate) for candidate in preview.candidates],
         counts={
             category: RetentionCategorySummaryOut.model_validate(summary)

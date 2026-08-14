@@ -1,7 +1,7 @@
 # Phase 5 Implementation Report — Safe Uvicorn Access Logging
 
 Date: 2026-07-17  
-Plan source: `solutions.md`, Phase 5  
+Plan source: `docs/archive/solutions.md`, Phase 5  
 Implementation base revision: `f2953eeed31c4e82756344b6edaac858fda526c2`  
 Verified Uvicorn version: `0.51.0`
 

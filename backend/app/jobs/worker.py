@@ -492,6 +492,12 @@ class WorkerRunner:
             except PermanentJobError as exc:
                 failure = (JobErrorClass.PERMANENT, exc.code, exc.message, None)
             except Exception:  # noqa: BLE001 - boundary maps unknown failures without leaking details
+                logger.exception(
+                    "job handler raised an unclassified exception id=%s type=%s attempt=%s",
+                    execution.id,
+                    execution.job_type,
+                    execution.attempt_count,
+                )
                 failure = (
                     JobErrorClass.RETRYABLE,
                     "unhandled_exception",

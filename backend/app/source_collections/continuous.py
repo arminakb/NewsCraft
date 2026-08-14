@@ -169,27 +169,7 @@ async def stop_subscription(
     if subscription.status in {"stopped", "error"}:
         return subscription
 
-    job = None
-    if subscription.current_cycle_job_id is not None:
-        job = await session.scalar(
-            select(WorkflowJob)
-            .where(WorkflowJob.id == subscription.current_cycle_job_id)
-            .with_for_update()
-        )
-    if job is not None and job.status == "queued":
-        await JobRepository(session).cancel_job(job_id=job.id, now=observed_at)
-        subscription.current_cycle_job_id = None
-        subscription.current_cycle_run_id = None
-        _mark_stopped(subscription, observed_at=observed_at, reason=reason)
-    elif job is not None and job.status == "running":
-        subscription.status = "stopping"
-        subscription.next_cycle_at = None
-        if reason:
-            subscription.last_error = reason
-    else:
-        subscription.current_cycle_job_id = None
-        subscription.current_cycle_run_id = None
-        _mark_stopped(subscription, observed_at=observed_at, reason=reason)
+    await _stop_one(session, subscription, observed_at=observed_at, reason=reason)
     await session.flush()
     return subscription
 
@@ -212,28 +192,46 @@ async def stop_subscriptions_for_collection_delete(
         )
     )
     for subscription in subscriptions:
-        job = None
-        if subscription.current_cycle_job_id is not None:
-            job = await session.scalar(
-                select(WorkflowJob)
-                .where(WorkflowJob.id == subscription.current_cycle_job_id)
-                .with_for_update()
-            )
-        reason = "Source Collection was deleted."
-        if job is not None and job.status == "queued":
-            await JobRepository(session).cancel_job(job_id=job.id, now=observed_at)
-            subscription.current_cycle_job_id = None
-            subscription.current_cycle_run_id = None
-            _mark_stopped(subscription, observed_at=observed_at, reason=reason)
-        elif job is not None and job.status == "running":
-            subscription.status = "stopping"
-            subscription.next_cycle_at = None
-            subscription.last_error = reason
-        else:
-            subscription.current_cycle_job_id = None
-            subscription.current_cycle_run_id = None
-            _mark_stopped(subscription, observed_at=observed_at, reason=reason)
+        await _stop_one(
+            session,
+            subscription,
+            observed_at=observed_at,
+            reason="Source Collection was deleted.",
+        )
     await session.flush()
+
+
+async def _stop_one(
+    session: AsyncSession,
+    subscription: SourceCollectionIngestionSubscription,
+    *,
+    observed_at: datetime,
+    reason: str | None,
+) -> None:
+    """Wind one subscription down, cancelling or handing off its current cycle.
+
+    A queued cycle job is cancelled outright; a running one cannot be, so the
+    subscription only asks it to stop and the worker finishes the handover.
+    """
+
+    job = None
+    if subscription.current_cycle_job_id is not None:
+        job = await session.scalar(
+            select(WorkflowJob)
+            .where(WorkflowJob.id == subscription.current_cycle_job_id)
+            .with_for_update()
+        )
+    if job is not None and job.status == "running":
+        subscription.status = "stopping"
+        subscription.next_cycle_at = None
+        if reason:
+            subscription.last_error = reason
+        return
+    if job is not None and job.status == "queued":
+        await JobRepository(session).cancel_job(job_id=job.id, now=observed_at)
+    subscription.current_cycle_job_id = None
+    subscription.current_cycle_run_id = None
+    _mark_stopped(subscription, observed_at=observed_at, reason=reason)
 
 
 def _mark_stopped(

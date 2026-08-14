@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+from collections.abc import Mapping
 from datetime import UTC, datetime
+from typing import Any, Literal
 from uuid import UUID, uuid4
 
 from sqlalchemy import case, func, select
@@ -35,6 +37,8 @@ from app.automations.definitions.schemas import (
     AutomationVersionPageOut,
     AutomationVersionRestore,
     GraphValidationResult,
+    PreviewCategory,
+    PreviewPlatform,
     ResourceRequest,
     ValidationFinding,
     WorkflowGraphV1,
@@ -49,10 +53,12 @@ from app.jobs.models import WorkflowEvent, WorkflowSchedule
 from app.security.auth import SecurityPrincipal
 from app.stories.models import StoryRevision
 
+type AutomationVersionState = Literal["active", "draft"]
+
 _ACTIVE_RUN_STATUSES = ("pending", "queued", "running", "waiting_for_review")
 _COMPLETED_RUN_STATUSES = ("succeeded", "failed", "cancelled")
 
-_PREVIEW_CATEGORIES = {
+_PREVIEW_CATEGORIES: dict[str, PreviewCategory] = {
     "trigger": "trigger",
     "select_filter": "content",
     "research": "content",
@@ -62,7 +68,7 @@ _PREVIEW_CATEGORIES = {
 }
 
 
-def _output_platforms(node_type: str, config: object) -> list[str]:
+def _output_platforms(node_type: str, config: object) -> list[PreviewPlatform]:
     if node_type == "telegram_publish":
         return ["telegram"]
     if node_type == "save_drafts":
@@ -77,7 +83,7 @@ def _output_platforms(node_type: str, config: object) -> list[str]:
     return ["unknown"]
 
 
-def _preview_category(node_type: str, family: str, platforms: list[str]) -> str:
+def _preview_category(node_type: str, family: str, platforms: list[PreviewPlatform]) -> PreviewCategory:
     if node_type == "save_drafts" or platforms == ["draft"]:
         return "draft"
     if family == "output":
@@ -85,10 +91,15 @@ def _preview_category(node_type: str, family: str, platforms: list[str]) -> str:
     return _PREVIEW_CATEGORIES.get(family, "unknown")
 
 
+def _stage_ordinal(item: Mapping[Any, Any]) -> int:
+    ordinal = item.get("ordinal")
+    return ordinal if isinstance(ordinal, int) else 10_000
+
+
 def _automation_preview(
     version: AutomationVersion,
     *,
-    version_state: str,
+    version_state: AutomationVersionState,
     run_count: int,
     completed_count: int,
     succeeded_count: int,
@@ -135,9 +146,9 @@ def _automation_preview(
     stages: list[AutomationPreviewStageOut] = []
     ordered = sorted(
         (item for item in raw_stages if isinstance(item, dict)),
-        key=lambda item: item.get("ordinal") if isinstance(item.get("ordinal"), int) else 10_000,
+        key=_stage_ordinal,
     )
-    output_platforms: list[str] = []
+    output_platforms: list[PreviewPlatform] = []
     for item in ordered:
         node_id = item.get("node_id")
         node_type = item.get("node_type")
@@ -335,7 +346,7 @@ class AutomationDefinitionService:
         if not rows:
             return AutomationPageOut(items=[], next_cursor=None)
 
-        version_selection = {
+        version_selection: dict[UUID, tuple[UUID | None, AutomationVersionState]] = {
             row.id: (
                 (row.active_version_id, "active")
                 if row.lifecycle in {"active", "paused"} and row.active_version_id is not None

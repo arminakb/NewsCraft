@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import hashlib
 import inspect
 import shutil
 from collections.abc import Awaitable, Callable
@@ -21,16 +20,21 @@ from app.jobs.events import redact_event_data
 from app.jobs.models import WorkflowEvent, WorkflowJob
 from app.jobs.registry import JobContext, JobHandler
 from app.jobs.types import JobExecution, job_payload_copy
-from app.research.base import ResearchBackend, ResearchBudgetExceeded, ResearchRequest
+from app.research.base import ResearchBackend, ResearchBudgetExceeded, ResearchRequest, ResearchResult, budget_exceeded
 from app.research.citations import CitationIntegrityError, resolve_candidate_brief
 from app.research.continuations import (
     enqueue_bound_continuation,
     normalize_continuation,
 )
 from app.research.models import ResearchAttempt, ResearchRun, ResearchSource
-from app.research.schemas import DiscoveredSourcePayload, ResearchBudget
+from app.research.schemas import (
+    DiscoveredSourcePayload,
+    ResearchBrief,
+    ResearchBudget,
+    describe_source_integrity_violation,
+)
 from app.research.service import ResearchRequestError, ResearchService, evidence_set_hash
-from app.stories.evidence import EvidenceRecord, build_evidence_key
+from app.stories.evidence import EvidenceRecord, evidence_record_from_snapshot
 from app.stories.models import Story, StoryEvidenceLink, StoryEvidenceSnapshot, StoryRevision
 from app.workflows.states import ResearchRunState, require_research_run_transition
 
@@ -94,18 +98,7 @@ class DefaultResearchBackendResolver:
 
 
 def _evidence(snapshot: StoryEvidenceSnapshot) -> EvidenceRecord:
-    return EvidenceRecord(
-        evidence_key=snapshot.evidence_key,
-        evidence_snapshot_id=snapshot.id,
-        content_item_id=snapshot.content_item_id,
-        title=snapshot.title,
-        content_text=snapshot.content_text,
-        content_sha256=snapshot.content_sha256,
-        source_url=snapshot.source_url,
-        authors=tuple(snapshot.authors),
-        published_at=snapshot.published_at,
-        captured_at=snapshot.captured_at,
-    )
+    return evidence_record_from_snapshot(snapshot)
 
 
 def _classification(exc: Exception) -> tuple[str, str, str]:
@@ -165,31 +158,228 @@ def _validate_result_contract(
     if result.requested_model != requested_model:
         raise CitationIntegrityError("research result requested model mismatch")
     usage = result.usage
-    over_budget = (
-        usage.model_calls > budget.max_model_calls
-        or usage.input_tokens > budget.max_input_tokens
-        or usage.output_tokens > budget.max_output_tokens
-        or usage.estimated_cost_usd > budget.max_cost_usd
-        or usage.queries > budget.max_queries
-        or usage.pages > budget.max_pages
-        or usage.fetched_characters > budget.max_total_chars
-        or result.elapsed_ms > budget.max_elapsed_seconds * 1_000
-    )
-    if over_budget:
+    if budget_exceeded(budget, usage, result.elapsed_ms):
         raise CitationIntegrityError("research result usage exceeds budget")
     source_characters = sum(len(source.content_text) for source in result.output.sources)
     if usage.pages < len(result.output.sources) or usage.fetched_characters != source_characters:
         raise CitationIntegrityError("research result source usage is inconsistent")
 
 
-def build_research_story_handler(
-    backend_resolver: ResearchBackendResolver,
-    *,
-    fault_injector: FaultInjector | None = None,
-) -> JobHandler:
-    injector = fault_injector if fault_injector is not None else NoopFaultInjector()
+class ResearchStoryHandler:
+    def __init__(
+        self,
+        backend_resolver: ResearchBackendResolver,
+        *,
+        fault_injector: FaultInjector | None = None,
+    ) -> None:
+        self.backend_resolver = backend_resolver
+        self.injector = fault_injector if fault_injector is not None else NoopFaultInjector()
 
-    async def handle(job: JobExecution, context: JobContext) -> dict[str, Any]:
+    async def _invoke_backend(
+        self,
+        profile: AIProviderProfile,
+        session: Any,
+        request: ResearchRequest,
+    ) -> ResearchResult:
+        resolve_with_session = getattr(self.backend_resolver, "resolve_with_session", None)
+        resolved = (
+            resolve_with_session(profile, session=session)
+            if resolve_with_session is not None
+            else self.backend_resolver(profile)
+        )
+        backend = await resolved if inspect.isawaitable(resolved) else resolved
+        return await backend.research(request)
+
+    @staticmethod
+    async def _materialize_sources(
+        session: Any,
+        *,
+        run: ResearchRun,
+        story: Story,
+        sources: list[DiscoveredSourcePayload],
+        evidence_by_key: dict[str, EvidenceRecord],
+    ) -> dict[str, UUID]:
+        source_ids: dict[str, UUID] = {}
+        discovered_keys: set[str] = set()
+        for source in sources:
+            _validate_source(source)
+            if source.evidence_key in evidence_by_key or source.evidence_key in discovered_keys:
+                raise CitationIntegrityError("duplicate research evidence key")
+            discovered_keys.add(source.evidence_key)
+            research_source = ResearchSource(
+                research_run_id=run.id,
+                url=str(source.url),
+                title=source.title,
+                publisher=source.publisher,
+                published_at=source.published_at,
+                content_sha256=source.content_sha256,
+                extraction_status=source.extraction_status,
+                relevance=0,
+                citation_key=source.evidence_key,
+                snapshot_metadata={"retrieved_at": source.retrieved_at.isoformat()},
+            )
+            session.add(research_source)
+            await session.flush()
+            snapshot = StoryEvidenceSnapshot(
+                story_id=story.id,
+                content_item_id=None,
+                evidence_key=source.evidence_key,
+                source_url=str(source.url),
+                title=source.title,
+                content_text=source.content_text,
+                authors=[],
+                published_at=source.published_at,
+                content_sha256=source.content_sha256,
+                snapshot_metadata={
+                    "research_source_id": str(research_source.id),
+                    "evidence_key": source.evidence_key,
+                    "retrieved_at": source.retrieved_at.isoformat(),
+                },
+            )
+            session.add(snapshot)
+            await session.flush()
+            evidence_by_key[source.evidence_key] = _evidence(snapshot)
+            source_ids[source.evidence_key] = research_source.id
+        return source_ids
+
+    @staticmethod
+    def _resolve_brief(
+        result: ResearchResult,
+        evidence_by_key: dict[str, EvidenceRecord],
+        source_ids: dict[str, UUID],
+    ) -> ResearchBrief:
+        return resolve_candidate_brief(result.output.brief, evidence_by_key, source_ids)
+
+    @staticmethod
+    async def _fan_out_continuations(
+        session: Any,
+        *,
+        workflow_job_id: UUID,
+        run: ResearchRun,
+        revision: StoryRevision,
+    ) -> list[WorkflowJob]:
+        canonical_job = await session.scalar(
+            select(WorkflowJob).where(WorkflowJob.id == workflow_job_id).with_for_update()
+        )
+        if canonical_job is None:
+            raise CitationIntegrityError("canonical research job is unavailable")
+        continuation_jobs = []
+        for descriptor in (canonical_job.payload or {}).get("continuations", []):
+            continuation_jobs.append(
+                (
+                    await enqueue_bound_continuation(
+                        session,
+                        descriptor=descriptor,
+                        run=run,
+                        result_revision=revision,
+                    )
+                ).job
+            )
+        return continuation_jobs
+
+    @staticmethod
+    async def _record_failure(
+        session: Any,
+        *,
+        run_id: UUID,
+        active_attempt_id: UUID,
+        workflow_job_id: UUID,
+        error_class: str,
+        code: str,
+        message: str,
+    ) -> bool:
+        durable_code = redact_string(code)
+        durable_message = redact_string(message)
+        async with session.begin():
+            run = await session.scalar(select(ResearchRun).where(ResearchRun.id == run_id).with_for_update())
+            attempt = await session.scalar(
+                select(ResearchAttempt).where(ResearchAttempt.id == active_attempt_id).with_for_update()
+            )
+            attempts = list(
+                await session.scalars(
+                    select(ResearchAttempt)
+                    .where(ResearchAttempt.research_run_id == run_id)
+                    .order_by(ResearchAttempt.attempt_number)
+                    .with_for_update()
+                )
+            )
+            latest = max(attempts, key=lambda item: item.attempt_number, default=None)
+            owns_current = bool(
+                run is not None
+                and run.status != "succeeded"
+                and attempt is not None
+                and attempt.status == "running"
+                and latest is not None
+                and latest.id == active_attempt_id
+            )
+            now = datetime.now(UTC)
+            if owns_current and run is not None:
+                target_status: ResearchRunState = "needs_review" if error_class == "needs_review" else "failed"
+                run.status = require_research_run_transition(run.status, target_status)
+                run.finished_at = now
+            if owns_current and attempt is not None:
+                attempt.status = "needs_review" if error_class == "needs_review" else "failed"
+                attempt.error_class = error_class
+                attempt.error_code = durable_code
+                attempt.error_message = durable_message
+                attempt.finished_at = now
+            canonical_job = await session.scalar(
+                select(WorkflowJob).where(WorkflowJob.id == workflow_job_id).with_for_update()
+            )
+            if owns_current and canonical_job is not None:
+                for descriptor in (canonical_job.payload or {}).get("continuations", []):
+                    try:
+                        normalized = normalize_continuation(descriptor)
+                        dispatch_id = UUID(normalized["payload"]["dispatch_id"])
+                    except TypeError, ValueError:
+                        continue
+                    dispatch = await session.scalar(
+                        select(AutomationDispatch).where(AutomationDispatch.id == dispatch_id).with_for_update()
+                    )
+                    if dispatch is not None and dispatch.variant_revision_id is None:
+                        dispatch.status = "needs_review"
+                        dispatch.error_code = durable_code
+                        dispatch.error_message = durable_message
+            if owns_current:
+                session.add(
+                    WorkflowEvent(
+                        workflow_job_id=workflow_job_id,
+                        event_type="research.failed",
+                        actor="automation",
+                        event_data=redact_event_data(
+                            {
+                                "run_id": str(run_id),
+                                "error_class": error_class,
+                                "error_code": durable_code,
+                            }
+                        ),
+                    )
+                )
+            else:
+                existing_stale_event = await session.scalar(
+                    select(WorkflowEvent).where(
+                        WorkflowEvent.workflow_job_id == workflow_job_id,
+                        WorkflowEvent.event_type == "research.stale_attempt_ignored",
+                        WorkflowEvent.event_data["attempt_id"].as_string() == str(active_attempt_id),
+                    )
+                )
+                if existing_stale_event is None:
+                    session.add(
+                        WorkflowEvent(
+                            workflow_job_id=workflow_job_id,
+                            event_type="research.stale_attempt_ignored",
+                            actor="automation",
+                            event_data=redact_event_data(
+                                {
+                                    "run_id": str(run_id),
+                                    "attempt_id": str(active_attempt_id),
+                                }
+                            ),
+                        )
+                    )
+        return not owns_current
+
+    async def __call__(self, job: JobExecution, context: JobContext) -> dict[str, Any]:
         session = context.session
         workflow_job_id = job.id
         payload = job_payload_copy(job)
@@ -207,7 +397,6 @@ def build_research_story_handler(
             await session.rollback()
         active_attempt_id: UUID
         request: ResearchRequest | None = None
-        backend: ResearchBackend
         preparation_error: Exception | None = None
         async with session.begin():
             run = await session.scalar(select(ResearchRun).where(ResearchRun.id == run_id).with_for_update())
@@ -292,15 +481,8 @@ def build_research_story_handler(
                 raise preparation_error
             if request is None:  # pragma: no cover - guarded by preparation validation
                 raise ResearchRequestError("Research request preparation failed")
-            resolve_with_session = getattr(backend_resolver, "resolve_with_session", None)
-            resolved = (
-                resolve_with_session(profile, session=session)
-                if resolve_with_session is not None
-                else backend_resolver(profile)
-            )
-            backend = await resolved if inspect.isawaitable(resolved) else resolved
-            result = await backend.research(request)
-            await injector.hit(
+            result = await self._invoke_backend(profile, session, request)
+            await self.injector.hit(
                 "research.after_provider_before_persist",
                 {
                     "workflow_job_id": str(workflow_job_id),
@@ -351,48 +533,14 @@ def build_research_story_handler(
                     )
                 )
                 evidence_by_key = {item.evidence_key: _evidence(item) for item in existing}
-                source_ids: dict[str, UUID] = {}
-                discovered_keys: set[str] = set()
-                for source in result.output.sources:
-                    _validate_source(source)
-                    if source.evidence_key in evidence_by_key or source.evidence_key in discovered_keys:
-                        raise CitationIntegrityError("duplicate research evidence key")
-                    discovered_keys.add(source.evidence_key)
-                    research_source = ResearchSource(
-                        research_run_id=run.id,
-                        url=str(source.url),
-                        title=source.title,
-                        publisher=source.publisher,
-                        published_at=source.published_at,
-                        content_sha256=source.content_sha256,
-                        extraction_status=source.extraction_status,
-                        relevance=0,
-                        citation_key=source.evidence_key,
-                        snapshot_metadata={"retrieved_at": source.retrieved_at.isoformat()},
-                    )
-                    session.add(research_source)
-                    await session.flush()
-                    snapshot = StoryEvidenceSnapshot(
-                        story_id=story.id,
-                        content_item_id=None,
-                        evidence_key=source.evidence_key,
-                        source_url=str(source.url),
-                        title=source.title,
-                        content_text=source.content_text,
-                        authors=[],
-                        published_at=source.published_at,
-                        content_sha256=source.content_sha256,
-                        snapshot_metadata={
-                            "research_source_id": str(research_source.id),
-                            "evidence_key": source.evidence_key,
-                            "retrieved_at": source.retrieved_at.isoformat(),
-                        },
-                    )
-                    session.add(snapshot)
-                    await session.flush()
-                    evidence_by_key[source.evidence_key] = _evidence(snapshot)
-                    source_ids[source.evidence_key] = research_source.id
-                brief = resolve_candidate_brief(result.output.brief, evidence_by_key, source_ids)
+                source_ids = await self._materialize_sources(
+                    session,
+                    run=run,
+                    story=story,
+                    sources=result.output.sources,
+                    evidence_by_key=evidence_by_key,
+                )
+                brief = self._resolve_brief(result, evidence_by_key, source_ids)
                 parent = await session.scalar(
                     select(StoryRevision)
                     .where(StoryRevision.story_id == story.id)
@@ -460,23 +608,12 @@ def build_research_story_handler(
                         ),
                     )
                 )
-                canonical_job = await session.scalar(
-                    select(WorkflowJob).where(WorkflowJob.id == workflow_job_id).with_for_update()
+                continuation_jobs = await self._fan_out_continuations(
+                    session,
+                    workflow_job_id=workflow_job_id,
+                    run=run,
+                    revision=revision,
                 )
-                if canonical_job is None:
-                    raise CitationIntegrityError("canonical research job is unavailable")
-                continuation_jobs = []
-                for descriptor in (canonical_job.payload or {}).get("continuations", []):
-                    continuation_jobs.append(
-                        (
-                            await enqueue_bound_continuation(
-                                session,
-                                descriptor=descriptor,
-                                run=run,
-                                result_revision=revision,
-                            )
-                        ).job
-                    )
                 await session.flush()
                 return {
                     "run_id": str(run.id),
@@ -488,97 +625,15 @@ def build_research_story_handler(
             if session.in_transaction():
                 await session.rollback()
             error_class, code, message = _classification(exc)
-            durable_code = redact_string(code)
-            durable_message = redact_string(message)
-            stale_attempt_ignored = False
-            async with session.begin():
-                run = await session.scalar(select(ResearchRun).where(ResearchRun.id == run_id).with_for_update())
-                attempt = await session.scalar(
-                    select(ResearchAttempt).where(ResearchAttempt.id == active_attempt_id).with_for_update()
-                )
-                attempts = list(
-                    await session.scalars(
-                        select(ResearchAttempt)
-                        .where(ResearchAttempt.research_run_id == run_id)
-                        .order_by(ResearchAttempt.attempt_number)
-                        .with_for_update()
-                    )
-                )
-                latest = max(attempts, key=lambda item: item.attempt_number, default=None)
-                owns_current = bool(
-                    run is not None
-                    and run.status != "succeeded"
-                    and attempt is not None
-                    and attempt.status == "running"
-                    and latest is not None
-                    and latest.id == active_attempt_id
-                )
-                stale_attempt_ignored = not owns_current
-                now = datetime.now(UTC)
-                if owns_current and run is not None:
-                    target_status: ResearchRunState = "needs_review" if error_class == "needs_review" else "failed"
-                    run.status = require_research_run_transition(run.status, target_status)
-                    run.finished_at = now
-                if owns_current and attempt is not None:
-                    attempt.status = "needs_review" if error_class == "needs_review" else "failed"
-                    attempt.error_class = error_class
-                    attempt.error_code = durable_code
-                    attempt.error_message = durable_message
-                    attempt.finished_at = now
-                canonical_job = await session.scalar(
-                    select(WorkflowJob).where(WorkflowJob.id == workflow_job_id).with_for_update()
-                )
-                if owns_current and canonical_job is not None:
-                    for descriptor in (canonical_job.payload or {}).get("continuations", []):
-                        try:
-                            normalized = normalize_continuation(descriptor)
-                            dispatch_id = UUID(normalized["payload"]["dispatch_id"])
-                        except TypeError, ValueError:
-                            continue
-                        dispatch = await session.scalar(
-                            select(AutomationDispatch).where(AutomationDispatch.id == dispatch_id).with_for_update()
-                        )
-                        if dispatch is not None and dispatch.variant_revision_id is None:
-                            dispatch.status = "needs_review"
-                            dispatch.error_code = durable_code
-                            dispatch.error_message = durable_message
-                if owns_current:
-                    session.add(
-                        WorkflowEvent(
-                            workflow_job_id=workflow_job_id,
-                            event_type="research.failed",
-                            actor="automation",
-                            event_data=redact_event_data(
-                                {
-                                    "run_id": str(run_id),
-                                    "error_class": error_class,
-                                    "error_code": durable_code,
-                                }
-                            ),
-                        )
-                    )
-                else:
-                    existing_stale_event = await session.scalar(
-                        select(WorkflowEvent).where(
-                            WorkflowEvent.workflow_job_id == workflow_job_id,
-                            WorkflowEvent.event_type == "research.stale_attempt_ignored",
-                            WorkflowEvent.event_data["attempt_id"].as_string() == str(active_attempt_id),
-                        )
-                    )
-                    if existing_stale_event is None:
-                        session.add(
-                            WorkflowEvent(
-                                workflow_job_id=workflow_job_id,
-                                event_type="research.stale_attempt_ignored",
-                                actor="automation",
-                                event_data=redact_event_data(
-                                    {
-                                        "run_id": str(run_id),
-                                        "attempt_id": str(active_attempt_id),
-                                    }
-                                ),
-                            )
-                        )
+            stale_attempt_ignored = await self._record_failure(
+                session,
+                run_id=run_id,
+                active_attempt_id=active_attempt_id,
+                workflow_job_id=workflow_job_id,
+                error_class=error_class,
+                code=code,
+                message=message,
+            )
             if stale_attempt_ignored:
                 return {
                     "run_id": str(run_id),
@@ -591,13 +646,31 @@ def build_research_story_handler(
                 raise NeedsReviewJobError(code=code, message=message) from None
             raise PermanentJobError(code=code, message=message) from None
 
-    return handle
+
+
+def build_research_story_handler(
+    backend_resolver: ResearchBackendResolver,
+    *,
+    fault_injector: FaultInjector | None = None,
+) -> JobHandler:
+    return ResearchStoryHandler(backend_resolver, fault_injector=fault_injector)
 
 
 def _validate_source(source: DiscoveredSourcePayload) -> None:
-    digest = hashlib.sha256(source.content_text.encode()).hexdigest()
-    expected = build_evidence_key(content_item_id=None, source_url=str(source.url), content_sha256=digest)
-    if digest != source.content_sha256 or expected != source.evidence_key:
+    """Re-assert discovered-source integrity at the persistence boundary.
+
+    The payload model already enforces this on construction; this keeps the
+    guarantee for instances that bypass validation (``model_construct``) and
+    translates it into the job-side citation error.
+    """
+
+    violation = describe_source_integrity_violation(
+        url=str(source.url),
+        content_text=source.content_text,
+        content_sha256=source.content_sha256,
+        evidence_key=source.evidence_key,
+    )
+    if violation is not None:
         raise CitationIntegrityError("research source integrity check failed")
 
 

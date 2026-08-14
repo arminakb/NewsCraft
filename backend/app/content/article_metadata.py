@@ -1,19 +1,5 @@
 from __future__ import annotations
 
-CONTENT_TYPES = frozenset(
-    {
-        "article",
-        "longform",
-        "low_signal",
-        "news",
-        "promo",
-        "research",
-        "tool_update",
-        "tutorial",
-        "vendor_update",
-        "video",
-    }
-)
 TOPICS = {
     "ai": "AI",
     "economy": "Economy",

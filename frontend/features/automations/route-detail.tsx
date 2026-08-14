@@ -13,7 +13,7 @@ import { Input } from "@/components/ui/input"
 import { PageHeader } from "@/components/ui/page-header"
 import { Select } from "@/components/ui/select"
 import { EmptyState, ErrorState, LoadingState } from "@/components/ui/state-panel"
-import { StatusBadge, type StatusTone } from "@/components/ui/status-badge"
+import { StatusBadge } from "@/components/ui/status-badge"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import {
   backfillTelegramRoute, dryRunTelegramRoute, getTelegramAutomationOptions, getTelegramDispatches,
@@ -24,6 +24,7 @@ import { getApiErrorMessage } from "@/lib/http"
 import { formatInTimeZone, zonedLocalDateTimeToUtc } from "@/lib/date-time"
 import { queryKeys } from "@/lib/query-keys"
 import { DispatchResearchOutcome } from "@/features/automations/research-outcome"
+import { cursorTone, dispatchTone } from "@/features/automations/automation-run-state"
 
 export function RouteDetail({ routeId }: { routeId: string }) {
   const { timezone } = useDateTime()
@@ -144,7 +145,7 @@ export function RouteDetail({ routeId }: { routeId: string }) {
       <details className="rounded-lg border border-border/50 bg-card p-4 shadow-sm">
         <summary className="cursor-pointer font-medium">Advanced route details</summary>
         <div className="mt-4 grid gap-4 lg:grid-cols-3">
-          <Card size="sm"><CardHeader><CardTitle>Cursor and schedule</CardTitle></CardHeader><CardContent className="space-y-2"><StatusBadge tone={cursorTone(cursorStatus)}>{labelValue(cursorStatus)}</StatusBadge><p>{route.cursorState.lastMessageId == null ? "Last message not available" : `Last message ${route.cursorState.lastMessageId}`}</p><KeyValue label="Next poll" value={route.nextPollAt ? formatDate(route.nextPollAt, timezone) : "Not scheduled"} /><KeyValue label="Last poll" value={route.lastPolledAt ? formatDate(route.lastPolledAt, timezone) : "Not polled"} /></CardContent></Card>
+          <Card size="sm"><CardHeader><CardTitle>Cursor and schedule</CardTitle></CardHeader><CardContent className="space-y-2"><StatusBadge tone={cursorTone(cursorStatus)}>{labelValue(cursorStatus)}</StatusBadge><p>{route.cursorState.lastMessageId == null ? "Last message not available" : `Last message ${route.cursorState.lastMessageId}`}</p><KeyValue label="Next poll" value={route.nextPollAt ? formatInTimeZone(route.nextPollAt, timezone) : "Not scheduled"} /><KeyValue label="Last poll" value={route.lastPolledAt ? formatInTimeZone(route.lastPolledAt, timezone) : "Not polled"} /></CardContent></Card>
           <Card size="sm"><CardHeader><CardTitle>Policy</CardTitle></CardHeader><CardContent className="space-y-2"><KeyValue label="Prompt updates" value={labelValue(route.promptPolicy)} /><KeyValue label="Publishing" value={labelValue(route.publishingPolicy)} /><KeyValue label="Research" value={labelValue(route.researchMode)} /><KeyValue label="Research provider" value={route.contentFilters.researchProviderProfileId ? optionsQuery.data?.aiProviderProfiles.find((item) => item.id === route.contentFilters.researchProviderProfileId)?.name ?? "Configured profile" : "Not selected"} /><KeyValue label="Access" value={labelValue(route.accessMode)} /><KeyValue label="Media" value={labelValue(route.mediaPolicy)} /><KeyValue label="Polling" value={`${route.pollIntervalSeconds} seconds`} /><KeyValue label="Retry limit" value={`${route.retryPolicy.maxAttempts} attempts`} /><KeyValue label="Quiet hours" value={route.quietHours ? `${route.quietHours.start}–${route.quietHours.end} (${route.quietHours.timezone})` : "Not configured"} /></CardContent></Card>
           <Card size="sm"><CardHeader><CardTitle>Destination health</CardTitle></CardHeader><CardContent className="space-y-2"><StatusBadge tone={destination?.healthStatus === "healthy" ? "success" : optionsQuery.isPending ? "warning" : "error"}>{destination ? labelValue(destination.healthStatus) : optionsQuery.isPending ? "Checking" : "Destination not configured"}</StatusBadge><p className="text-muted-foreground">{destination?.name ?? "Destination details unavailable"}</p></CardContent></Card>
         </div>
@@ -257,23 +258,6 @@ function labelValue(value: string) {
   if (value === "public_html") return "Public HTML"
   return value.split("_").map((part) => part[0]?.toUpperCase() + part.slice(1)).join(" ")
 }
-function formatDate(value: string, timezone: string) {
-  return formatInTimeZone(value, timezone)
-}
-function cursorTone(value: string): StatusTone {
-  if (value === "ready") return "success"
-  if (["failed", "error"].includes(value)) return "error"
-  if (["initializing", "checking"].includes(value)) return "warning"
-  return "neutral"
-}
-function dispatchTone(value: string): StatusTone {
-  if (["succeeded", "published", "generated"].includes(value)) return "success"
-  if (["failed", "cancelled"].includes(value)) return "error"
-  if (["needs_review", "ambiguous"].includes(value)) return "warning"
-  if (["queued", "running", "dispatching"].includes(value)) return "info"
-  return "neutral"
-}
-
 function routeReadiness({
   enabled,
   paused,

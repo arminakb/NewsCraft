@@ -1,0 +1,38 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["verdict", "findings", "verification_gaps"],
+  "properties": {
+    "verdict": {
+      "type": "string",
+      "enum": ["PASS", "FAIL", "BLOCKED"]
+    },
+    "findings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "severity",
+          "location",
+          "issue",
+          "failure_mechanism",
+          "evidence",
+          "smallest_safe_repair"
+        ],
+        "properties": {
+          "severity": { "type": "string", "enum": ["P0", "P1", "P2"] },
+          "location": { "type": "string" },
+          "issue": { "type": "string" },
+          "failure_mechanism": { "type": "string" },
+          "evidence": { "type": "string" },
+          "smallest_safe_repair": { "type": "string" }
+        }
+      }
+    },
+    "verification_gaps": {
+      "type": "array",
+      "items": { "type": "string" }
+    }
+  }
+}

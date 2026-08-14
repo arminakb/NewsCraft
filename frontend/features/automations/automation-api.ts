@@ -1,15 +1,13 @@
 import type { components } from "@/lib/api/generated"
-import { camelize } from "@/lib/camelize"
+import { camelize, FREE_FORM_MAP_FIELDS, snakeKey } from "@/lib/camelize"
 import { apiRequest } from "@/lib/http"
 
 import type {
-  Automation,
   AutomationCreateInput,
   AutomationDetail,
   AutomationListFilters,
   AutomationNodeCatalog,
   AutomationPage,
-  AutomationPatchInput,
   AutomationResourceCatalog,
   AutomationResourceRequest,
   AutomationRun,
@@ -28,12 +26,12 @@ import { normalizeWorkflowGraphForSave } from "./workflow-graph"
 type Schemas = components["schemas"]
 
 function snakeize(value: unknown, preserveKeys = false): unknown {
-  if (Array.isArray(value)) return value.map((item) => snakeize(item))
+  if (Array.isArray(value)) return value.map((item) => snakeize(item, preserveKeys))
   if (value === null || typeof value !== "object") return value
   return Object.fromEntries(
     Object.entries(value).map(([key, item]) => [
-      preserveKeys ? key : key.replace(/[A-Z]/g, (letter) => `_${letter.toLowerCase()}`),
-      snakeize(item, key === "layout" || key === "promptChecksums" || key === "prompt_checksums"),
+      preserveKeys ? key : snakeKey(key),
+      snakeize(item, FREE_FORM_MAP_FIELDS.has(key)),
     ]),
   )
 }
@@ -81,13 +79,6 @@ export async function createAutomation(
   )) as unknown as AutomationDetail
 }
 
-export async function patchAutomation(id: string, input: AutomationPatchInput): Promise<Automation> {
-  return camelize(await apiRequest<Schemas["AutomationOut"]>(
-    `/automations/${encodeURIComponent(id)}`,
-    json("PATCH", input),
-  )) as unknown as Automation
-}
-
 export async function duplicateAutomation(
   id: string,
   input: AutomationTemplateCreateInput,
@@ -129,13 +120,6 @@ export async function getAutomationVersions(
     `/automations/${encodeURIComponent(automationId)}/versions${query}`,
     withSignal(undefined, signal),
   )) as unknown as AutomationVersionPage
-}
-
-export async function getAutomationVersion(automationId: string, version: number, signal?: AbortSignal): Promise<AutomationVersion> {
-  return camelize(await apiRequest<Schemas["AutomationVersionOut"]>(
-    `/automations/${encodeURIComponent(automationId)}/versions/${version}`,
-    withSignal(undefined, signal),
-  )) as unknown as AutomationVersion
 }
 
 export async function createAutomationVersion(

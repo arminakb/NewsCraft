@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from ipaddress import ip_address
 from typing import Protocol
@@ -12,6 +12,12 @@ import tldextract
 from app.research.schemas import CompletenessReason, CompletenessReport
 
 _TLD_EXTRACT = tldextract.TLDExtract(suffix_list_urls=(), include_psl_private_domains=True)
+
+# The canonical completeness thresholds. Every other surface that decides whether a
+# story is complete — including the SQL coverage rule in app.api.articles — must read
+# them from here so the two implementations cannot drift apart.
+MIN_INDEPENDENT_SOURCES = 2
+MIN_BODY_CHARACTERS = 800
 
 
 class EvidenceRecordCompatible(Protocol):
@@ -70,12 +76,38 @@ def _registrable_host(url: str) -> str | None:
     return extracted.top_domain_under_public_suffix or host
 
 
-def _source_identity(value: CompletenessEvidence) -> str | None:
-    host = _registrable_host(value.source_url) if value.source_url else None
+def source_identity_token(source_url: object, source_label: object = None) -> str | None:
+    """Canonical identity of one evidence source.
+
+    This is the single definition of source identity: every consumer (the
+    Python completeness evaluation and the persisted column the SQL coverage
+    filter reads) must derive identities through this function so the filter,
+    the facet counts, and each story's own completeness payload agree.
+    """
+
+    url = source_url if isinstance(source_url, str) else None
+    host = _registrable_host(url) if url else None
     if host:
         return f"host:{host}"
-    identity = value.source_identity.strip().casefold() if value.source_identity else ""
+    label = source_label if isinstance(source_label, str) else None
+    identity = label.strip().casefold() if label else ""
     return f"source:{identity}" if identity else None
+
+
+def snapshot_source_identity(source_url: object, snapshot_metadata: Mapping[str, object] | None) -> str | None:
+    """Canonical source identity for a stored evidence snapshot."""
+
+    return source_identity_token(source_url, (snapshot_metadata or {}).get("source_label"))
+
+
+def snapshot_is_primary(snapshot_metadata: Mapping[str, object] | None) -> bool:
+    """Canonical primary-evidence flag for a stored evidence snapshot."""
+
+    return bool((snapshot_metadata or {}).get("is_primary"))
+
+
+def _source_identity(value: CompletenessEvidence) -> str | None:
+    return source_identity_token(value.source_url, value.source_identity)
 
 
 def evaluate_completeness(
@@ -92,10 +124,10 @@ def evaluate_completeness(
 
     reasons: list[CompletenessReason] = []
     score = 100
-    if source_count < 2:
+    if source_count < MIN_INDEPENDENT_SOURCES:
         reasons.append("fewer_than_two_independent_sources")
         score -= 30
-    if body_character_count < 800:
+    if body_character_count < MIN_BODY_CHARACTERS:
         reasons.append("insufficient_body_text")
         score -= 25
     if not has_primary:

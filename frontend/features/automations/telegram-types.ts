@@ -55,15 +55,9 @@ export type TelegramSourceInput = {
   sessionSecretRef?: string | null
 }
 
-export type TelegramDestination = {
-  id: string
-  name: string
-  targetRef: string
-  enabled: boolean
-  healthStatus: TelegramDestinationHealth
-  configured: boolean
-  capabilityState: CredentialCapabilityState
-}
+// The destination row type is the generated TelegramDestinationOut, exported as
+// TelegramDestination from features/settings/content-settings-api.ts — a second
+// hand-written camelCase copy of the same endpoint lived here and drifted.
 
 export type TelegramContentFilters = {
   model?: string | null
@@ -208,20 +202,9 @@ export type TelegramPublishJob = {
   receipts: TelegramPublishReceipt[]
   publication: TelegramPublication | null
 }
-export type TelegramReconcileInput =
-  | { outcome: "published"; remoteMessageIds: number[]; permalink?: string | null }
-  | { outcome: "not_published"; remoteMessageIds?: never; permalink?: never }
-export type TelegramReconciliationResult = {
-  publishJobId: string
-  reconciliationStatus: "confirmed" | "requeued"
-  receipts: TelegramPublishReceipt[]
-  publication?: TelegramPublication
-  job?: JobAccepted
-}
 
 export type BrandProfile = Schemas["BrandProfileOut"]
 export type BrandProfileInput = Schemas["BrandProfileCreate"]
-export type BrandProfilePatch = Schemas["BrandProfilePatch"]
 
 export type PromptTemplate = { id: string; purposeKey: string; name: string; description: string | null }
 export type PromptVersion = Schemas["PromptTemplateVersionOut"]

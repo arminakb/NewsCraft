@@ -1,10 +1,14 @@
 from __future__ import annotations
 
+from collections.abc import Iterable, Sequence
+from datetime import datetime
 from typing import Any
 from uuid import UUID
 
-from sqlalchemy import select
+from pydantic import BaseModel, ConfigDict, Field
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import aliased
 
 from app.core.redaction import redact_secrets, redact_string
 from app.generation.models import (
@@ -23,6 +27,153 @@ from app.generation.platform_validation import validate_platform_payload
 from app.jobs.models import WorkflowJob
 from app.research.schemas import CitationRef
 from app.stories.models import StoryEvidenceSnapshot, StoryRevision
+
+
+class StorySummaryOut(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: UUID
+    title: str
+    status: str
+    primary_language: str
+    superseded_by_id: UUID | None
+    evidence_count: int = Field(ge=0)
+    latest_evidence_at: datetime | None
+    completeness: dict[str, Any]
+    evidence_set_hash: str
+    created_at: datetime
+    updated_at: datetime
+
+
+class StoryEvidenceOut(BaseModel):
+    model_config = ConfigDict(extra="forbid", from_attributes=True)
+
+    id: UUID
+    evidence_key: str
+    title: str | None
+    content_text: str
+    content_sha256: str
+    source_url: str | None
+    authors: list[Any]
+    published_at: datetime | None
+    captured_at: datetime
+
+
+class StoryRevisionOut(BaseModel):
+    model_config = ConfigDict(extra="forbid", from_attributes=True)
+
+    id: UUID
+    story_id: UUID
+    parent_revision_id: UUID | None
+    revision_number: int
+    narrative: str
+    facts: list[Any]
+    disagreements: list[Any]
+    angles: list[Any]
+    citations: list[Any]
+    created_by: str
+    created_at: datetime
+
+
+class ProviderProfileOut(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: UUID
+    name: str
+    provider_type: str
+
+
+class PromptVersionOut(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: UUID
+    version: int
+    output_schema_version: str
+    checksum_sha256: str
+
+
+class PlatformVariantRevisionOut(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: UUID
+    platform: str | None
+    platform_variant_id: UUID
+    content_pack_id: UUID | None
+    story_id: UUID | None
+    parent_revision_id: UUID | None
+    generation_attempt_id: UUID | None
+    revision_number: int
+    content: dict[str, Any]
+    content_hash: str
+    evidence_map: list[Any]
+    manual_checklist: list[Any]
+    validation_results: list[dict[str, Any]]
+    validation_issues: list[dict[str, Any]]
+    media_plan: list[Any]
+    source_media: list[dict[str, Any]]
+    approval_state: str
+    approval_note: str | None
+    approved_at: datetime | None
+    created_by: str
+    origin: str
+    provider_profile: ProviderProfileOut | None
+    resolved_model: str | None
+    prompt_version: PromptVersionOut | None
+    created_at: datetime
+
+
+class ContentPackVariantOut(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: UUID
+    platform: str
+    current_revision: PlatformVariantRevisionOut | None
+
+
+class ContentPackOut(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: UUID
+    story_id: UUID | None
+    story_revision_id: UUID
+    brand_profile_id: UUID
+    status: str
+    created_at: datetime
+    updated_at: datetime
+    variants: list[ContentPackVariantOut]
+
+
+class ContentPackSummaryVariantOut(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: UUID
+    platform: str
+
+
+class ContentPackSummaryOut(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: UUID
+    story_id: UUID
+    story_revision_id: UUID
+    brand_profile_id: UUID
+    status: str
+    created_at: datetime
+    updated_at: datetime
+    variants: list[ContentPackSummaryVariantOut]
+
+
+class ContentPackRequestOut(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: UUID | str
+    job_id: UUID | None
+    story_id: UUID
+    status: str
+    last_failure: str | None
+    created_at: datetime
+    updated_at: datetime
+    pack: ContentPackOut | ContentPackSummaryOut | None
 
 
 def _platform_values(rows: Any) -> set[str]:
@@ -82,12 +233,73 @@ def _media_plan(platform: str | None, content: dict[str, Any]) -> list[Any]:
     return []
 
 
+def _identifiers(values: Iterable[UUID | None]) -> set[UUID]:
+    return {value for value in values if value is not None}
+
+
+async def _prefetch_revision_graph(
+    session: AsyncSession,
+    revisions: Sequence[PlatformVariantRevision],
+) -> None:
+    """Warm the session with every row ``_revision_out`` will walk to.
+
+    ``_revision_out`` reaches a revision's variant, pack, story revision,
+    attempt, run, prompt version and provider profile through ``session.get``,
+    which answers from the identity map without emitting SQL once the row is
+    loaded. Loading each of those tables once for a whole page therefore turns
+    seven round trips *per revision* into seven per page, while every
+    projection keeps resolving exactly the rows it resolved before.
+    """
+
+    variant_ids = _identifiers(row.platform_variant_id for row in revisions)
+    attempt_ids = _identifiers(row.generation_attempt_id for row in revisions)
+    variants = (
+        list(await session.scalars(select(PlatformVariant).where(PlatformVariant.id.in_(variant_ids))))
+        if variant_ids
+        else []
+    )
+    pack_ids = _identifiers(item.content_pack_id for item in variants)
+    packs = list(await session.scalars(select(ContentPack).where(ContentPack.id.in_(pack_ids)))) if pack_ids else []
+    story_revision_ids = _identifiers(item.story_revision_id for item in packs)
+    if story_revision_ids:
+        list(await session.scalars(select(StoryRevision).where(StoryRevision.id.in_(story_revision_ids))))
+    attempts = (
+        list(await session.scalars(select(GenerationAttempt).where(GenerationAttempt.id.in_(attempt_ids))))
+        if attempt_ids
+        else []
+    )
+    run_ids = _identifiers(item.generation_run_id for item in attempts)
+    runs = list(await session.scalars(select(GenerationRun).where(GenerationRun.id.in_(run_ids)))) if run_ids else []
+    prompt_ids = _identifiers(item.prompt_template_version_id for item in runs)
+    if prompt_ids:
+        list(await session.scalars(select(PromptTemplateVersion).where(PromptTemplateVersion.id.in_(prompt_ids))))
+    profile_ids = _identifiers(item.provider_profile_id for item in runs)
+    if profile_ids:
+        list(await session.scalars(select(AIProviderProfile).where(AIProviderProfile.id.in_(profile_ids))))
+
+
 async def _source_media_out(
     session: AsyncSession,
     story_revision: StoryRevision | None,
+    media_cache: dict[UUID, list[dict[str, Any]]] | None = None,
 ) -> list[dict[str, Any]]:
     if story_revision is None:
         return []
+    if media_cache is not None and story_revision.id in media_cache:
+        # Every variant of a pack projects the same story revision, so without
+        # this the snapshot lookup and media authorization repeat once per
+        # platform for identical input.
+        return media_cache[story_revision.id]
+    projection = await _uncached_source_media_out(session, story_revision)
+    if media_cache is not None:
+        media_cache[story_revision.id] = projection
+    return projection
+
+
+async def _uncached_source_media_out(
+    session: AsyncSession,
+    story_revision: StoryRevision,
+) -> list[dict[str, Any]]:
     raw_citations = getattr(story_revision, "citations", None)
     if not raw_citations:
         return []
@@ -113,7 +325,11 @@ async def _source_media_out(
     return projection
 
 
-async def _revision_out(session: AsyncSession, row: PlatformVariantRevision) -> dict[str, Any]:
+async def _revision_out(
+    session: AsyncSession,
+    row: PlatformVariantRevision,
+    media_cache: dict[UUID, list[dict[str, Any]]] | None = None,
+) -> dict[str, Any]:
     variant = await session.get(PlatformVariant, row.platform_variant_id)
     pack = await session.get(ContentPack, variant.content_pack_id) if variant is not None else None
     story_revision = await session.get(StoryRevision, pack.story_revision_id) if pack is not None else None
@@ -175,7 +391,7 @@ async def _revision_out(session: AsyncSession, row: PlatformVariantRevision) -> 
             ]
     platform = variant.platform if variant is not None else None
     manual_checklist = list(row.content.get("manual_checklist") or []) if platform in {"instagram", "x", "blog"} else []
-    source_media = await _source_media_out(session, story_revision)
+    source_media = await _source_media_out(session, story_revision, media_cache)
     return {
         "id": row.id,
         "platform": platform,
@@ -222,42 +438,107 @@ async def _revision_out(session: AsyncSession, row: PlatformVariantRevision) -> 
     }
 
 
-async def _pack_out(session: AsyncSession, pack: ContentPack) -> dict[str, Any]:
-    story_revision = await session.get(StoryRevision, pack.story_revision_id)
-    variants = list(await session.scalars(select(PlatformVariant).where(PlatformVariant.content_pack_id == pack.id)))
-    order: dict[str, int] = {platform: index for index, platform in enumerate(PLATFORM_ORDER)}
-    variants.sort(key=lambda item: (order.get(item.platform, len(order)), str(item.id)))
-    projected = []
-    for item in variants:
-        current = await session.scalar(
-            select(PlatformVariantRevision)
-            .where(PlatformVariantRevision.platform_variant_id == item.id)
-            .order_by(
-                PlatformVariantRevision.revision_number.desc(),
-                PlatformVariantRevision.created_at.desc(),
-                PlatformVariantRevision.id.desc(),
-            )
-            .limit(1)
-        )
-        projected.append(
-            {
-                "id": item.id,
-                "platform": item.platform,
-                "current_revision": (
-                    await _revision_out(session, current) if isinstance(current, PlatformVariantRevision) else None
+async def _current_revisions(
+    session: AsyncSession,
+    variant_ids: list[UUID],
+) -> dict[UUID, PlatformVariantRevision]:
+    """Return each variant's newest revision in one query.
+
+    Ranking in SQL keeps a pack's projection at a single round trip no matter
+    how many platforms it carries, where a per-variant ``ORDER BY … LIMIT 1``
+    multiplied the listing's query count by its variant count.
+    """
+
+    if not variant_ids:
+        return {}
+    ranked = (
+        select(
+            PlatformVariantRevision,
+            func.row_number()
+            .over(
+                partition_by=PlatformVariantRevision.platform_variant_id,
+                order_by=(
+                    PlatformVariantRevision.revision_number.desc(),
+                    PlatformVariantRevision.created_at.desc(),
+                    PlatformVariantRevision.id.desc(),
                 ),
+            )
+            .label("revision_rank"),
+        )
+        .where(PlatformVariantRevision.platform_variant_id.in_(variant_ids))
+        .subquery()
+    )
+    entity = aliased(PlatformVariantRevision, ranked)
+    rows = await session.scalars(select(entity).where(ranked.c.revision_rank == 1))
+    return {row.platform_variant_id: row for row in rows}
+
+
+async def _packs_out(session: AsyncSession, packs: Sequence[ContentPack]) -> list[dict[str, Any]]:
+    """Project a whole page of packs with a query count independent of its size.
+
+    A listing used to re-derive one pack at a time — its story revision, its
+    variants, each variant's current revision, and then each revision's seven
+    ancestors — so the work grew with the archive rather than with the page.
+    Every lookup here is issued once for the page and indexed in memory.
+    """
+
+    if not packs:
+        return []
+    story_revision_ids = _identifiers(pack.story_revision_id for pack in packs)
+    story_revisions = {
+        row.id: row
+        for row in await session.scalars(select(StoryRevision).where(StoryRevision.id.in_(story_revision_ids)))
+    }
+    variants_by_pack: dict[UUID, list[PlatformVariant]] = {pack.id: [] for pack in packs}
+    all_variants = list(
+        await session.scalars(
+            select(PlatformVariant).where(PlatformVariant.content_pack_id.in_(list(variants_by_pack)))
+        )
+    )
+    for variant in all_variants:
+        variants_by_pack.setdefault(variant.content_pack_id, []).append(variant)
+    current_by_variant = await _current_revisions(session, [variant.id for variant in all_variants])
+    await _prefetch_revision_graph(session, list(current_by_variant.values()))
+    order: dict[str, int] = {platform: index for index, platform in enumerate(PLATFORM_ORDER)}
+    media_cache: dict[UUID, list[dict[str, Any]]] = {}
+    projection = []
+    for pack in packs:
+        variants = sorted(
+            variants_by_pack.get(pack.id, []),
+            key=lambda item: (order.get(item.platform, len(order)), str(item.id)),
+        )
+        projected = []
+        for item in variants:
+            current = current_by_variant.get(item.id)
+            projected.append(
+                {
+                    "id": item.id,
+                    "platform": item.platform,
+                    "current_revision": (
+                        await _revision_out(session, current, media_cache)
+                        if isinstance(current, PlatformVariantRevision)
+                        else None
+                    ),
+                }
+            )
+        story_revision = story_revisions.get(pack.story_revision_id)
+        projection.append(
+            {
+                "id": pack.id,
+                "story_id": story_revision.story_id if story_revision is not None else None,
+                "story_revision_id": pack.story_revision_id,
+                "brand_profile_id": pack.brand_profile_id,
+                "status": pack.status,
+                "created_at": pack.created_at,
+                "updated_at": pack.updated_at,
+                "variants": projected,
             }
         )
-    return {
-        "id": pack.id,
-        "story_id": story_revision.story_id if story_revision is not None else None,
-        "story_revision_id": pack.story_revision_id,
-        "brand_profile_id": pack.brand_profile_id,
-        "status": pack.status,
-        "created_at": pack.created_at,
-        "updated_at": pack.updated_at,
-        "variants": projected,
-    }
+    return projection
+
+
+async def _pack_out(session: AsyncSession, pack: ContentPack) -> dict[str, Any]:
+    return (await _packs_out(session, [pack]))[0]
 
 
 def _parsed_uuid(value: Any) -> UUID | None:

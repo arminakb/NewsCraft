@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import asyncio
 import os
 import shutil
 import stat
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Sequence
+from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path, PurePosixPath
 from uuid import UUID
@@ -14,15 +16,24 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.faults import FaultInjector, NoopFaultInjector
 from app.db.models import MediaAsset
 from app.retention.contracts import (
-    RETENTION_CATEGORIES,
     RetentionConflict,
+    RetentionCountSnapshot,
     RetentionNotFound,
-    _snapshot_intents,
+    snapshot_intents,
 )
 from app.retention.models import RetentionRun
 
+__all__ = [
+    "MediaClaimClassification",
+    "UnsafeStoragePath",
+    "export_relative_path",
+    "finish_filesystem_phase",
+    "media_claim_identity",
+    "media_relative_path",
+]
 
-class _UnsafeStoragePath(ValueError):
+
+class UnsafeStoragePath(ValueError):
     pass
 
 
@@ -32,34 +43,34 @@ def _owned_root(value: Path) -> tuple[Path, Path]:
     for part in root.parts[1:]:
         current = current / part
         if current.is_symlink():
-            raise _UnsafeStoragePath("storage root contains a symlink")
+            raise UnsafeStoragePath("storage root contains a symlink")
         if current.exists() and not current.is_dir():
-            raise _UnsafeStoragePath("storage root contains a non-directory component")
+            raise UnsafeStoragePath("storage root contains a non-directory component")
     try:
         resolved = root.resolve(strict=False)
     except OSError as exc:
-        raise _UnsafeStoragePath("storage root cannot be resolved safely") from exc
+        raise UnsafeStoragePath("storage root cannot be resolved safely") from exc
     return root, resolved
 
 
-def _export_relative_path(export_root: Path, export_id: UUID) -> str:
+def export_relative_path(export_root: Path, export_id: UUID) -> str:
     root, resolved_root = _owned_root(export_root)
     target = root / str(export_id)
     if target.is_symlink():
-        raise _UnsafeStoragePath("export directory is a symlink")
+        raise UnsafeStoragePath("export directory is a symlink")
     if target.exists():
         if not target.is_dir():
-            raise _UnsafeStoragePath("export path is not a directory")
+            raise UnsafeStoragePath("export path is not a directory")
         try:
             resolved = target.resolve(strict=True)
         except OSError as exc:
-            raise _UnsafeStoragePath("export directory cannot be resolved safely") from exc
+            raise UnsafeStoragePath("export directory cannot be resolved safely") from exc
         if not resolved.is_relative_to(resolved_root):
-            raise _UnsafeStoragePath("export directory escapes the owned root")
+            raise UnsafeStoragePath("export directory escapes the owned root")
     return str(export_id)
 
 
-def _media_relative_path(media_root: Path, stored_path: str) -> str:
+def media_relative_path(media_root: Path, stored_path: str) -> str:
     root, resolved_root = _owned_root(media_root)
     stored = Path(stored_path)
     candidate = stored if stored.is_absolute() else root / stored
@@ -67,31 +78,31 @@ def _media_relative_path(media_root: Path, stored_path: str) -> str:
     try:
         relative = candidate.relative_to(root)
     except ValueError:
-        raise _UnsafeStoragePath("media path escapes the owned root") from None
+        raise UnsafeStoragePath("media path escapes the owned root") from None
     current = root
     for index, part in enumerate(relative.parts):
         current = current / part
         if current.is_symlink():
-            raise _UnsafeStoragePath("media path contains a symlink")
+            raise UnsafeStoragePath("media path contains a symlink")
         if current.exists() and index < len(relative.parts) - 1 and not current.is_dir():
-            raise _UnsafeStoragePath("media path contains a non-directory component")
+            raise UnsafeStoragePath("media path contains a non-directory component")
     if candidate.exists():
         try:
             resolved = candidate.resolve(strict=True)
         except OSError as exc:
-            raise _UnsafeStoragePath("media file cannot be resolved safely") from exc
+            raise UnsafeStoragePath("media file cannot be resolved safely") from exc
         if not resolved.is_relative_to(resolved_root) or not stat.S_ISREG(resolved.stat().st_mode):
-            raise _UnsafeStoragePath("media path is not a regular file under the owned root")
+            raise UnsafeStoragePath("media path is not a regular file under the owned root")
         return resolved.relative_to(resolved_root).as_posix()
     normalized = Path(os.path.normpath(str(candidate)))
     try:
         normalized_relative = normalized.relative_to(root)
     except ValueError:
-        raise _UnsafeStoragePath("missing media path escapes the owned root") from None
+        raise UnsafeStoragePath("missing media path escapes the owned root") from None
     return normalized_relative.as_posix()
 
 
-def _media_claim_identity(media_root: Path, stored_path: str) -> str:
+def media_claim_identity(media_root: Path, stored_path: str) -> str:
     """Resolve a retained path for protection only; deletion uses stricter no-follow rules."""
     root, resolved_root = _owned_root(media_root)
     stored = Path(stored_path)
@@ -100,12 +111,83 @@ def _media_claim_identity(media_root: Path, stored_path: str) -> str:
     try:
         resolved = candidate.resolve(strict=False)
     except OSError as exc:
-        raise _UnsafeStoragePath("media claim cannot be resolved safely") from exc
+        raise UnsafeStoragePath("media claim cannot be resolved safely") from exc
     if not resolved.is_relative_to(resolved_root):
-        raise _UnsafeStoragePath("media claim escapes the owned root")
+        raise UnsafeStoragePath("media claim escapes the owned root")
     if resolved.exists() and not stat.S_ISREG(resolved.stat().st_mode):
-        raise _UnsafeStoragePath("media claim does not resolve to a regular file")
+        raise UnsafeStoragePath("media claim does not resolve to a regular file")
     return resolved.relative_to(resolved_root).as_posix()
+
+
+def _claimed_media_identities(media_root: Path, stored_paths: list[str]) -> tuple[set[str], bool]:
+    """Classify stored media paths into canonical claim identities.
+
+    Purely synchronous (many blocking path syscalls), so callers on an event loop
+    must hand the whole batch to a worker thread instead of walking row by row.
+    """
+    identities: set[str] = set()
+    unclassifiable = False
+    for stored_path in stored_paths:
+        try:
+            identities.add(media_claim_identity(media_root, stored_path))
+        except UnsafeStoragePath:
+            unclassifiable = True
+    return identities, unclassifiable
+
+
+@dataclass(frozen=True)
+class MediaClaimClassification:
+    """How every stored media row maps onto a canonical path on disk.
+
+    `canonical_paths` is the claim identity per media id, `ids_by_path` its
+    inverse (several rows may claim one file), `deletion_authorized` the rows
+    whose strict identity matches their claim, and `unclassifiable` records
+    that at least one stored path could not be resolved safely — every caller
+    must fail closed on it.
+    """
+
+    canonical_paths: dict[UUID, str]
+    ids_by_path: dict[str, set[UUID]]
+    deletion_authorized: set[UUID]
+    unclassifiable: bool
+
+
+def _classified_media_claims(
+    media_root: Path,
+    stored_rows: Sequence[tuple[UUID, str]],
+) -> MediaClaimClassification:
+    """Classify stored media rows into claim identities and deletion authority.
+
+    The single classification pass for both retention phases: the planner reads
+    the deletion authority, the database executor the path index. Purely
+    synchronous (many blocking path syscalls per row), so callers on an event
+    loop must hand the whole batch to a worker thread instead of walking row by
+    row.
+    """
+    canonical_paths: dict[UUID, str] = {}
+    ids_by_path: dict[str, set[UUID]] = {}
+    deletion_authorized: set[UUID] = set()
+    unclassifiable = False
+    for media_id, stored_path in stored_rows:
+        try:
+            claim_identity = media_claim_identity(media_root, stored_path)
+        except UnsafeStoragePath:
+            unclassifiable = True
+            continue
+        canonical_paths[media_id] = claim_identity
+        ids_by_path.setdefault(claim_identity, set()).add(media_id)
+        try:
+            strict_identity = media_relative_path(media_root, stored_path)
+        except UnsafeStoragePath:
+            continue
+        if strict_identity == claim_identity:
+            deletion_authorized.add(media_id)
+    return MediaClaimClassification(
+        canonical_paths=canonical_paths,
+        ids_by_path=ids_by_path,
+        deletion_authorized=deletion_authorized,
+        unclassifiable=unclassifiable,
+    )
 
 
 def _delete_relative_owned(root_value: Path, relative_path: str, *, directory: bool) -> None:
@@ -117,7 +199,7 @@ def _delete_relative_owned(root_value: Path, relative_path: str, *, directory: b
         or "." in relative.parts
         or "\\" in relative_path
     ):
-        raise _UnsafeStoragePath("cleanup path is not a safe relative identity")
+        raise UnsafeStoragePath("cleanup path is not a safe relative identity")
     root = Path(root_value).absolute()
     flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC
     descriptors: list[int] = []
@@ -143,14 +225,14 @@ def _delete_relative_owned(root_value: Path, relative_path: str, *, directory: b
             return
         if directory:
             if not stat.S_ISDIR(metadata.st_mode):
-                raise _UnsafeStoragePath("cleanup target is not a directory")
+                raise UnsafeStoragePath("cleanup target is not a directory")
             shutil.rmtree(name, dir_fd=current_fd)
         else:
             if not stat.S_ISREG(metadata.st_mode):
-                raise _UnsafeStoragePath("cleanup target is not a regular file")
+                raise UnsafeStoragePath("cleanup target is not a regular file")
             os.unlink(name, dir_fd=current_fd)
     except OSError as exc:
-        raise _UnsafeStoragePath("cleanup target could not be traversed without symlinks") from exc
+        raise UnsafeStoragePath("cleanup target could not be traversed without symlinks") from exc
     finally:
         for descriptor in reversed(descriptors):
             os.close(descriptor)
@@ -163,7 +245,7 @@ async def finish_filesystem_phase(
     export_root: Path,
     media_root: Path,
     now: Callable[[], datetime],
-    execution_counts: Callable[[RetentionRun], dict[str, object]],
+    execution_counts: Callable[[RetentionRun], RetentionCountSnapshot],
     referenced_media_ids: Callable[[], Awaitable[set[UUID]]],
     fault_injector: FaultInjector | None = None,
 ) -> RetentionRun:
@@ -177,28 +259,18 @@ async def finish_filesystem_phase(
         raise RetentionConflict(f"retention filesystem cleanup cannot run from status {run.status!r}")
     counts = execution_counts(run)
     errors = [error for error in run.error_snapshot if error.get("phase") != "filesystem"]
-    execution = counts["execution"]
-    if not isinstance(execution, dict):
-        raise RetentionConflict("retention execution count snapshot is invalid")
-    deleted_counts = execution["filesystem_deleted"]
-    if not isinstance(deleted_counts, dict):
-        raise RetentionConflict("retention filesystem count snapshot is invalid")
-    for category in RETENTION_CATEGORIES:
-        deleted_counts[category] = 0
-    database_skipped = execution.get("database_skipped", execution["skipped"])
-    if not isinstance(database_skipped, dict):
-        raise RetentionConflict("retention database skip snapshot is invalid")
-    filesystem_skipped = execution.get("filesystem_skipped")
-    if not isinstance(filesystem_skipped, dict):
-        filesystem_skipped = {category: 0 for category in RETENTION_CATEGORIES}
-        execution["filesystem_skipped"] = filesystem_skipped
-    execution["skipped"] = dict(database_skipped)
-    for category in RETENTION_CATEGORIES:
-        filesystem_skipped[category] = 0
-    intents = _snapshot_intents(run)
+    execution = counts.execution
+    # This phase is replayable: its own tallies start from zero on every run,
+    # while the database phase's verdict (`database_skipped`) is what `skipped`
+    # is rebuilt from, so a replay never double-counts nor forgets.
+    execution.reset("filesystem_deleted")
+    execution.reset("filesystem_skipped")
+    execution.skipped = dict(execution.database_skipped)
+    intents = snapshot_intents(run)
     reclaimed_media_paths: set[str] = set()
     reclaimed_media_ids: set[UUID] = set()
     unclassifiable_media_claim = False
+    claimed_storage_paths: list[str] = []
     if any(intent.category == "unreferenced_media" for intent in intents):
         await session.execute(
             text(
@@ -208,11 +280,15 @@ async def finish_filesystem_phase(
         )
         reclaimed_media_ids = await referenced_media_ids()
         claimed_media = await session.scalars(select(MediaAsset).where(MediaAsset.storage_path.is_not(None)))
-        for media in claimed_media:
-            try:
-                reclaimed_media_paths.add(_media_claim_identity(media_root, str(media.storage_path)))
-            except _UnsafeStoragePath:
-                unclassifiable_media_claim = True
+        claimed_storage_paths = [str(media.storage_path) for media in claimed_media]
+    # The SHARE lock above only has to cover the protection *read*. Committing here
+    # releases it (and the run row lock) before any blocking filesystem work runs, so
+    # ingestion/generation/publishing writers are never stalled by a deletion pass.
+    await session.commit()
+    if claimed_storage_paths:
+        reclaimed_media_paths, unclassifiable_media_claim = await asyncio.to_thread(
+            _claimed_media_identities, media_root, claimed_storage_paths
+        )
     media_record_ids_by_path: dict[str, set[UUID]] = {}
     for intent in intents:
         if intent.category == "unreferenced_media":
@@ -229,19 +305,18 @@ async def finish_filesystem_phase(
             or not media_record_ids_by_path[intent.relative_path].isdisjoint(reclaimed_media_ids)
             or intent.relative_path in reclaimed_media_paths
         ):
-            filesystem_skipped[intent.category] = int(filesystem_skipped.get(intent.category, 0)) + 1
-            skipped = execution["skipped"]
-            if isinstance(skipped, dict):
-                skipped[intent.category] = int(skipped.get(intent.category, 0)) + 1
+            execution.increment("filesystem_skipped", intent.category)
+            execution.increment("skipped", intent.category)
             continue
         try:
-            _delete_relative_owned(
+            await asyncio.to_thread(
+                _delete_relative_owned,
                 root,
                 intent.relative_path,
                 directory=intent.operation == "delete_tree",
             )
-            deleted_counts[intent.category] = int(deleted_counts.get(intent.category, 0)) + 1
-        except OSError, _UnsafeStoragePath:
+            execution.increment("filesystem_deleted", intent.category)
+        except OSError, UnsafeStoragePath:
             errors.append(
                 {
                     "phase": "filesystem",
@@ -255,13 +330,22 @@ async def finish_filesystem_phase(
     await injector.hit(
         "retention.after_filesystem_delete_before_finalize",
         {
-            "retention_run_id": str(run.id),
+            "retention_run_id": str(run_id),
             "cleanup_intent_count": len(intents),
         },
     )
-    run.count_snapshot = counts
+    # Second, short transaction: re-take the run row and persist the outcome. The
+    # first transaction was committed before the deletion pass, so `run` may be
+    # expired here.
+    run = await session.scalar(select(RetentionRun).where(RetentionRun.id == run_id).with_for_update())
+    if run is None:  # pragma: no cover - the run row is protected by its own FKs
+        raise RetentionNotFound(f"retention run {run_id} was not found")
+    run.count_snapshot = counts.to_snapshot()
     run.error_snapshot = errors
-    run.status = "partial" if errors else "succeeded"
+    # Only filesystem-phase findings can be retried by re-running this phase.
+    # Database-phase findings stay visible in the snapshot but must not pin the
+    # run at "partial", which would make the workflow job retry forever.
+    run.status = "partial" if any(error.get("phase") == "filesystem" for error in errors) else "succeeded"
     run.finished_at = now()
     await session.flush()
     await session.commit()

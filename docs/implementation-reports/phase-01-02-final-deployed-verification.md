@@ -1,7 +1,7 @@
 # Phase 1 and Phase 2 Final Deployed Verification
 
 Date: 2026-07-17  
-Acceptance sources: `solutions.md` and the Phase 1, Phase 2, Phase 5, and Phase 9 implementation reports  
+Acceptance sources: `docs/archive/solutions.md` and the Phase 1, Phase 2, Phase 5, and Phase 9 implementation reports  
 Strict result: **COMPLETE — 10/10 counted deployed executions passed all 13 stages**
 
 ## Scope
@@ -16,7 +16,7 @@ No production code, schema, Compose policy, smoke assertion, or additional produ
 
 The acceptance sources read before execution were:
 
-- `solutions.md`;
+- `docs/archive/solutions.md`;
 - `docs/implementation-reports/phase-01-telegram-route-response-boundary.md`;
 - `docs/implementation-reports/phase-02-worker-execution-boundary.md`;
 - `docs/implementation-reports/phase-05-safe-access-logging.md`;

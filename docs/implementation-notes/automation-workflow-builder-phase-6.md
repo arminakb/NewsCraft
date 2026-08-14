@@ -17,7 +17,7 @@ Phase 6 hardens workflow security, prompt/resource boundaries, runtime recovery,
 
 ## Supported and deferred boundary
 
-Supported v1 nodes and recovery policy are documented in [automation-workflows.md](../operations/automation-workflows.md). Arbitrary HTTP/webhooks, SQL, shell/code, filesystem/environment/credential nodes, unrestricted expressions, loops, recursion, generic branching, dynamic tools/permissions, and direct Instagram/X/blog publication remain intentionally deferred.
+Supported v1 nodes and recovery policy are documented in [automation-workflows.md](../operations/automation-workflows.md). The deferred and prohibited set is canonical in “Explicit deferrals and prohibited nodes” of [automation-workflow-builder-contract.md](automation-workflow-builder-contract.md#explicit-deferrals-and-prohibited-nodes).
 
 ## Release evidence
 
@@ -82,8 +82,8 @@ env -u NODE_ENV npm run test:e2e
 
 - Ruff complex-function findings: `62`, committed budget `53`;
 - Ruff excessive-statement findings: `32`, committed budget `25`;
-- two application modules remain at least 1,000 lines: `backend/app/operations/health.py` (1,089) and `backend/app/api/articles.py` (1,023).
+- four application modules remain at least 1,000 lines, across both scanned areas: `backend/app/operations/health.py` (1,089), `backend/app/api/articles.py` (1,034), `frontend/components/dashboard/source-collections-panel.tsx` (1,143), and `frontend/features/articles/articles-page.tsx` (1,111). The 1,000-line ceiling is blocking for frontend as well as backend: `scripts/quality_baseline.py` scans `app`, `components`, `features`, and `lib` (`FRONTEND_SOURCE_DIRS`, line 18; `size_metrics(frontend_files(root), (300, 500, 1000))`, line 180) and `quality_gate_failures` reports a failure for either area whose `1000` bucket is non-empty (line 297).
 
-The exact `+9` complexity and `+7` statement delta belongs to the already-present Phase 1–5 workflow definition implementation. The two oversized files also predated this Phase 6 execution. Phase 6 does not hide the regression by raising budgets or adding lint suppressions. Normal Ruff, unused TypeScript, and full mypy remain clean.
+The exact `+9` complexity and `+7` statement delta belongs to the already-present Phase 1–5 workflow definition implementation. The oversized backend files also predated this Phase 6 execution. Phase 6 does not hide the regression by raising budgets or adding lint suppressions. Normal Ruff, unused TypeScript, and full mypy remain clean.
 
-This debt does not invalidate the plan's explicit PostgreSQL/browser exit gate, both of which passed. It does prevent describing the entire repository quality gate as green and should be resolved by extracting orchestration helpers and splitting the two oversized modules before a strict all-gates release.
+This debt does not invalidate the plan's explicit PostgreSQL/browser exit gate, both of which passed. It does prevent describing the entire repository quality gate as green and should be resolved by extracting orchestration helpers and splitting the oversized modules before a strict all-gates release.

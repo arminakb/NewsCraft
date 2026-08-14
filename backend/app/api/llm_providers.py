@@ -2,13 +2,13 @@ from __future__ import annotations
 
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Request, Response
+from fastapi import APIRouter, HTTPException, Request, Response
 from pydantic import ValidationError
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.dependencies import SessionDependency, request_principal
 from app.core.config import settings
-from app.db.session import get_session
 from app.llm_providers.schemas import (
     LLMProviderCreate,
     LLMProviderDependenciesOut,
@@ -16,7 +16,6 @@ from app.llm_providers.schemas import (
     LLMProviderPatch,
 )
 from app.llm_providers.service import LLMProviderService, ProviderDependencyConflict, provider_out
-from app.security.auth import TEST_ADMIN, SecurityPrincipal
 from app.security.schemas import SecretWriteIn
 from app.security.secret_store import (
     SecretStoreError,
@@ -26,18 +25,6 @@ from app.security.secret_store import (
 )
 
 router = APIRouter(prefix="/llm-providers", tags=["llm-providers"])
-SessionDependency = Depends(get_session)
-
-
-def _principal(request: Request) -> SecurityPrincipal:
-    principal = getattr(request.state, "security_principal", None)
-    if isinstance(principal, SecurityPrincipal):
-        return principal
-    if settings.app_env == "test":
-        return TEST_ADMIN
-    if request.method == "GET":
-        return SecurityPrincipal("internal_service", "unauthenticated-read", frozenset())
-    raise HTTPException(401, detail={"code": "authentication_required"})
 
 
 def _service(
@@ -59,7 +46,7 @@ def _service(
             raise HTTPException(503, detail={"code": exc.public_code}) from None
     return LLMProviderService(
         session,
-        principal=_principal(request),
+        principal=request_principal(request, read_scope="providers:read"),
         secret_store=secret_store,
         config=settings,
     )

@@ -2,9 +2,6 @@
 
 import {
   Activity,
-  CheckCircle2,
-  CircleAlert,
-  CircleDashed,
   LoaderCircle,
 } from "lucide-react"
 import { cloneElement, createContext, isValidElement, useContext, useId, useState } from "react"
@@ -12,7 +9,6 @@ import type React from "react"
 
 import { DirectionBoundary } from "@/components/newsroom/direction-boundary"
 import { useNotices } from "@/components/providers/notice-provider"
-import { Badge } from "@/components/ui/badge"
 import { Button, buttonVariants } from "@/components/ui/button"
 import {
   Card,
@@ -32,7 +28,6 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import { controlClassName } from "@/components/ui/input"
-import { Skeleton } from "@/components/ui/skeleton"
 import { EmptyState as SharedEmptyState } from "@/components/ui/state-panel"
 import { StatusBadge as SharedStatusBadge, type StatusTone } from "@/components/ui/status-badge"
 import { useDirtyNavigation } from "@/components/editorial/use-dirty-navigation"
@@ -254,25 +249,12 @@ export function StatusBadge({ value }: { value: string }) {
   return <SharedStatusBadge tone={tone}>{safeCode(value)}</SharedStatusBadge>
 }
 
-export function ReadinessLabel({ label, ready, value }: { label: string; ready: boolean; value: string }) {
-  return <Badge className="h-auto gap-1.5 px-2.5 py-1" variant={ready ? "success" : "warning"}>{ready ? <CheckCircle2 className="size-3.5" aria-hidden="true" /> : <CircleAlert className="size-3.5" aria-hidden="true" />}{label}: {safeCode(value)}</Badge>
-}
-
-export function HealthStage({ label, value }: { label: string; value: string }) {
-  const healthy = ["healthy", "reachable", "authenticated", "resolved", "administrator", "ready", "direct"].includes(value)
-  return <div className="rounded-lg bg-muted/60 p-2 text-xs"><div className="font-medium">{label}</div><div className={`mt-1 flex items-center gap-1 ${healthy ? "text-success" : "text-muted-foreground"}`}>{healthy ? <CheckCircle2 className="size-3.5" aria-hidden="true" /> : <CircleDashed className="size-3.5" aria-hidden="true" />}{safeCode(value)}</div></div>
-}
-
 export function Metric({ label, value }: { label: string; value: string }) {
   return <div><dt className="text-xs text-muted-foreground">{label}</dt><dd className="font-medium">{value}</dd></div>
 }
 
 export function EmptyState({ title, detail }: { title: string; detail: string }) {
   return <SharedEmptyState className="border-dashed p-8" title={title} description={detail} />
-}
-
-export function SettingsSkeleton() {
-  return <section className="nc-page gap-5" role="status" aria-label="Loading settings"><Skeleton className="h-9 w-64" /><div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">{Array.from({ length: 4 }, (_, index) => <Skeleton key={index} className="h-20 border border-border/50 bg-card shadow-sm" />)}</div><Skeleton className="h-72 border border-border/50 bg-card shadow-sm" /><span className="sr-only">Loading settings</span></section>
 }
 
 export function safeCode(value: string) {
@@ -298,25 +280,4 @@ export function lines(value: string) {
 
 export function words(value: string) {
   return value.split(/\s+/).map((item) => item.trim()).filter(Boolean)
-}
-
-export function parseJsonObject(value: string): { value: Record<string, unknown>; error: string | null } {
-  if (!value.trim()) return { value: {}, error: null }
-  try {
-    const parsed: unknown = JSON.parse(value)
-    if (!parsed || Array.isArray(parsed) || typeof parsed !== "object") {
-      return { value: {}, error: "Enter a JSON object using braces." }
-    }
-    return { value: parsed as Record<string, unknown>, error: null }
-  } catch {
-    return { value: {}, error: "Enter valid JSON with quoted keys and values." }
-  }
-}
-
-export function formatJsonObject(value: Record<string, unknown>) {
-  return JSON.stringify(value, null, 2)
-}
-
-export function compactJson(value: Record<string, unknown>) {
-  return Object.keys(value).length ? JSON.stringify(value) : "None"
 }

@@ -4,6 +4,8 @@ import type { LucideIcon } from "lucide-react"
 import { useEffect, useId, useRef, useState } from "react"
 import { flushSync } from "react-dom"
 
+import { useDismissOnOutside, useMenuRovingFocus } from "@/components/ui/context-menu-behavior"
+
 export type CollectionContextMenuAction = {
   destructive?: boolean
   icon: LucideIcon
@@ -33,31 +35,22 @@ export function CollectionContextMenu({
   const firstItemRef = useRef<HTMLButtonElement>(null)
   const menuId = useId()
 
+  const moveMenuFocus = useMenuRovingFocus(menuRef)
+  useDismissOnOutside(
+    Boolean(position),
+    [menuRef, triggerRef],
+    () => setPosition(null),
+    { includeFocus: true },
+  )
+
   useEffect(() => {
     if (!position) return
     queueMicrotask(() => firstItemRef.current?.focus())
     const menu = menuRef.current
-    if (menu) {
-      const bounds = menu.getBoundingClientRect()
-      const next = clampToViewport(position.left, position.top, bounds.width, bounds.height)
-      if (next.left !== position.left || next.top !== position.top) setPosition(next)
-    }
-    const closeOnOutsidePress = (event: PointerEvent) => {
-      const target = event.target as Node
-      if (menuRef.current?.contains(target) || triggerRef.current?.contains(target)) return
-      setPosition(null)
-    }
-    const closeOnOutsideFocus = (event: FocusEvent) => {
-      const target = event.target as Node
-      if (menuRef.current?.contains(target) || triggerRef.current?.contains(target)) return
-      setPosition(null)
-    }
-    document.addEventListener("pointerdown", closeOnOutsidePress)
-    document.addEventListener("focusin", closeOnOutsideFocus)
-    return () => {
-      document.removeEventListener("pointerdown", closeOnOutsidePress)
-      document.removeEventListener("focusin", closeOnOutsideFocus)
-    }
+    if (!menu) return
+    const bounds = menu.getBoundingClientRect()
+    const next = clampToViewport(position.left, position.top, bounds.width, bounds.height)
+    if (next.left !== position.left || next.top !== position.top) setPosition(next)
   }, [position])
 
   function openAt(left: number, top: number) {
@@ -89,18 +82,7 @@ export function CollectionContextMenu({
       close(true)
       return
     }
-    if (!["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) return
-    const items = [...menuRef.current!.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')]
-    const current = items.indexOf(document.activeElement as HTMLButtonElement)
-    const next = event.key === "Home"
-      ? 0
-      : event.key === "End"
-        ? items.length - 1
-        : event.key === "ArrowDown"
-          ? (current + 1) % items.length
-          : (current - 1 + items.length) % items.length
-    event.preventDefault()
-    items[next]?.focus()
+    moveMenuFocus(event)
   }
 
   return (

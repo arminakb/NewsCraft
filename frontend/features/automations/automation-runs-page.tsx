@@ -15,14 +15,14 @@ import { Input } from "@/components/ui/input"
 import { Select } from "@/components/ui/select"
 import { Sheet, SheetClose, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet"
 import { EmptyState, ErrorState, LoadingState } from "@/components/ui/state-panel"
-import { StatusBadge, type StatusTone } from "@/components/ui/status-badge"
+import { StatusBadge } from "@/components/ui/status-badge"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { getApiErrorMessage } from "@/lib/http"
 import { queryKeys } from "@/lib/query-keys"
 
 import { getAutomationRun, getAutomationRuns, getAutomations } from "./automation-api"
 import { AutomationArea } from "./automation-area"
-import { isTerminalRun } from "./automation-run-state"
+import { isTerminalRun, runTone } from "./automation-run-state"
 import type { AutomationRun, AutomationRunFilters } from "./automation-types"
 
 const AutomationRunDetail = dynamic(
@@ -204,14 +204,6 @@ function duration(run: AutomationRun) {
 
 function dayBoundary(value: string | null, end: boolean) {
   return value ? `${value}T${end ? "23:59:59.999" : "00:00:00.000"}Z` : null
-}
-
-function runTone(status: string): StatusTone {
-  if (status === "succeeded") return "success"
-  if (["failed", "cancelled"].includes(status)) return "error"
-  if (["queued", "running"].includes(status)) return "info"
-  if (["warning", "waiting_for_review"].includes(status)) return "warning"
-  return "neutral"
 }
 
 function humanize(value: string) {

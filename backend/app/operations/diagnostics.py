@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping, Sequence
-from datetime import UTC, datetime, timedelta
-from typing import Literal, Protocol
+from collections.abc import Mapping, Sequence
+from datetime import UTC, datetime
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy import and_, func, or_, select
@@ -18,7 +18,13 @@ from app.generation.models import GenerationRun
 from app.jobs.models import AutomationControl, RuntimeHeartbeat, WorkflowJob
 from app.jobs.runtime import RuntimeHeartbeatService
 from app.jobs.types import JobStatus
-from app.operations.health import database_time, normalize_utc, snapshot_high_water
+from app.operations.health import (
+    build_component_health,
+    database_time,
+    normalize_utc,
+    snapshot_high_water,
+)
+from app.operations.health_schemas import Clock, HealthState
 from app.publishing.models import Destination, Publication, PublishJob, PublishOperationReceipt
 from app.research.models import ResearchAttempt, ResearchRun
 
@@ -33,10 +39,13 @@ AttentionKind = Literal[
 ]
 
 
+ComponentStatus = Literal["healthy", "degraded", "down", "unknown"]
+
+
 class ComponentHealth(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    status: Literal["healthy", "degraded", "down", "unknown"]
+    status: ComponentStatus
     observed_at: datetime | None
     last_success_at: datetime | None
     message: str
@@ -66,13 +75,6 @@ class OperationsSnapshot(BaseModel):
     outbound_proxy: ProxyDiagnostics
 
 
-class Clock(Protocol):
-    def now(self) -> datetime: ...
-
-
-ClockSource = Clock | Callable[[], datetime]
-
-
 class OperationsDiagnostics:
     """Build a read-only operational projection from already-durable state."""
 
@@ -80,7 +82,7 @@ class OperationsDiagnostics:
         self,
         session: AsyncSession,
         *,
-        clock: ClockSource | None = None,
+        clock: Clock | None = None,
         expected_runtime_component_ids: str | None = None,
     ) -> None:
         self.session = session
@@ -334,14 +336,17 @@ class OperationsDiagnostics:
         return _newest_distinct(candidates, limit=100)
 
 
-def _now(clock: ClockSource | None) -> datetime:
-    if clock is None:
-        value = datetime.now(UTC)
-    elif callable(clock):
-        value = clock()
-    else:
-        value = clock.now()
+def _now(clock: Clock | None) -> datetime:
+    value = datetime.now(UTC) if clock is None else clock()
     return normalize_utc(value, field="clock")
+
+
+_LEGACY_COMPONENT_STATUS: Mapping[HealthState, ComponentStatus] = {
+    HealthState.HEALTHY: "healthy",
+    HealthState.STALE: "degraded",
+    HealthState.UNAVAILABLE: "down",
+    HealthState.UNKNOWN: "unknown",
+}
 
 
 def _component_health(
@@ -350,43 +355,33 @@ def _component_health(
     generated_at: datetime,
     expected_component_ids: str,
 ) -> dict[str, ComponentHealth]:
-    expected = {value.strip() for value in expected_component_ids.split(",") if value.strip()}
-    by_id: dict[str, RuntimeHeartbeat] = {}
-    for heartbeat in heartbeats:
-        by_id.setdefault(str(heartbeat.component_id), heartbeat)
+    """Project the canonical component health onto this endpoint's legacy shape.
 
-    components: dict[str, ComponentHealth] = {}
-    for component_id in sorted(expected | set(by_id)):
-        current_heartbeat = by_id.get(component_id)
-        if current_heartbeat is None:
-            components[component_id] = ComponentHealth(
-                status="unknown",
-                observed_at=None,
-                last_success_at=None,
-                message="No persisted heartbeat has been observed",
-                action_url=_component_action_url(component_id, None),
-            )
-            continue
-        observed_at = normalize_utc(current_heartbeat.observed_at, field="heartbeat observed_at")
-        age = generated_at - observed_at
-        status: Literal["healthy", "degraded", "down", "unknown"]
-        if age <= timedelta(seconds=30):
-            status = "healthy"
-            message = "Heartbeat observed within 30 seconds"
-        elif age <= timedelta(seconds=90):
-            status = "degraded"
-            message = "Heartbeat is older than 30 seconds"
-        else:
-            status = "down"
-            message = "Heartbeat is older than 90 seconds"
-        components[component_id] = ComponentHealth(
-            status=status,
-            observed_at=observed_at,
-            last_success_at=None,
-            message=message,
-            action_url=_component_action_url(component_id, current_heartbeat),
+    The rules — freshness thresholds, latest-heartbeat selection, component id
+    sanitisation — live once in `build_component_health`. This endpoint used to
+    carry a second implementation with hard-coded 30s/90s thresholds, arbitrary
+    heartbeat selection and unredacted ids, so the same worker could read
+    "degraded" here and "healthy" on /operations/health at the same instant.
+    """
+    operational, _coverage = build_component_health(
+        heartbeats,
+        reference_time=generated_at,
+        config=settings,
+        expected_component_ids=expected_component_ids,
+    )
+    return {
+        component_id: ComponentHealth(
+            status=_LEGACY_COMPONENT_STATUS[component.state],
+            observed_at=component.observed_at,
+            last_success_at=component.last_success_at,
+            message=component.message,
+            action_url=_component_action_url(
+                component_id,
+                None if component.code == "heartbeat_missing" else component,
+            ),
         )
-    return components
+        for component_id, component in operational.items()
+    }
 
 
 def _job_attention(job: WorkflowJob) -> AttentionItem:

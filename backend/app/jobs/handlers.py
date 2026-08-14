@@ -84,7 +84,10 @@ async def handle_source_collection_continuous_cycle(
     payload = job_payload_copy(job)
     try:
         subscription_id = UUID(str(payload.get("subscription_id")))
-        cycle_number = int(payload.get("cycle_number"))
+        raw_cycle_number = payload.get("cycle_number")
+        if not isinstance(raw_cycle_number, int | float | str):
+            raise TypeError("cycle_number must be numeric")
+        cycle_number = int(raw_cycle_number)
     except (TypeError, ValueError):
         raise PermanentJobError(
             code="continuous_cycle_payload_invalid",

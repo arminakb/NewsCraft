@@ -3,6 +3,7 @@ from uuid import uuid4
 
 import httpx
 
+from app.core.safe_http import SafeHttpClient
 from app.db.models import MediaAsset
 from app.media.downloader import MediaDownloader
 
@@ -86,7 +87,7 @@ def test_failed_url_marks_fetch_status_failed(tmp_path: Path):
 
     downloader = MediaDownloader(
         FakeSession([asset]),
-        http_client=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
+        http_client=_safe_client(handler),
         media_root=tmp_path,
     )
 
@@ -125,6 +126,79 @@ def test_download_revalidates_under_retention_fence_before_writing(tmp_path: Pat
     assert list(tmp_path.rglob("*.jpg")) == []
 
 
+def test_private_and_metadata_targets_are_never_requested(tmp_path: Path):
+    requested: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requested.append(str(request.url))
+        return httpx.Response(200, headers={"content-type": "image/jpeg"}, content=JPEG_BYTES)
+
+    for url in (
+        "http://169.254.169.254/latest/meta-data/image.jpg",
+        "http://127.0.0.1/image.jpg",
+        "https://metadata.google.internal/image.jpg",
+        "https://user:secret@cdn.example/image.jpg",
+    ):
+        asset = _image_asset(url)
+        downloader = MediaDownloader(
+            FakeSession([asset]),
+            http_client=_safe_client(handler),
+            media_root=tmp_path,
+        )
+
+        counts = _run(downloader)
+
+        assert counts == {"checked": 1, "downloaded": 0, "skipped": 1, "failed": 0}
+        assert asset.fetch_status == "skipped"
+    assert requested == []
+    assert list(tmp_path.rglob("*")) == []
+
+
+def test_redirect_into_a_private_target_is_rejected(tmp_path: Path):
+    requested: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requested.append(str(request.url))
+        return httpx.Response(302, headers={"location": "http://169.254.169.254/latest/meta-data/"})
+
+    asset = _image_asset("https://cdn.example/redirect.jpg")
+    downloader = MediaDownloader(
+        FakeSession([asset]),
+        http_client=_safe_client(handler),
+        media_root=tmp_path,
+    )
+
+    counts = _run(downloader)
+
+    assert counts == {"checked": 1, "downloaded": 0, "skipped": 1, "failed": 0}
+    assert asset.fetch_status == "skipped"
+    assert requested == ["https://cdn.example/redirect.jpg"]
+
+
+def test_oversized_body_is_aborted_before_it_is_buffered(tmp_path: Path):
+    served: list[int] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        body = JPEG_BYTES + b"\x00" * 4096
+        served.append(len(body))
+        return httpx.Response(200, headers={"content-type": "image/jpeg"}, content=body)
+
+    asset = _image_asset("https://cdn.example/huge.jpg")
+    downloader = MediaDownloader(
+        FakeSession([asset]),
+        http_client=_safe_client(handler, max_response_bytes=64),
+        media_root=tmp_path,
+        max_image_bytes=64,
+    )
+
+    counts = _run(downloader)
+
+    assert counts == {"checked": 1, "downloaded": 0, "skipped": 1, "failed": 0}
+    assert asset.fetch_status == "skipped"
+    assert asset.storage_path is None
+    assert list(tmp_path.rglob("*")) == []
+
+
 def _image_asset(url: str) -> MediaAsset:
     return MediaAsset(
         id=uuid4(),
@@ -137,14 +211,30 @@ def _image_asset(url: str) -> MediaAsset:
     )
 
 
-def _client_for_bytes(content: bytes, content_type: str, content_length: int | None = None) -> httpx.AsyncClient:
+async def _public_resolver(host: str) -> list[str]:
+    return ["93.184.216.34"]
+
+
+def _safe_client(handler, *, max_response_bytes: int = 5_000_000) -> SafeHttpClient:
+    return SafeHttpClient(
+        transport=httpx.MockTransport(handler),
+        resolver=_public_resolver,
+        max_response_bytes=max_response_bytes,
+    )
+
+
+def _client_for_bytes(
+    content: bytes,
+    content_type: str,
+    content_length: int | None = None,
+    *,
+    max_response_bytes: int = 5_000_000,
+) -> SafeHttpClient:
     def handler(request: httpx.Request) -> httpx.Response:
         headers = {"content-type": content_type, "content-length": str(content_length or len(content))}
-        if request.method == "HEAD":
-            return httpx.Response(200, headers=headers)
         return httpx.Response(200, headers=headers, content=content)
 
-    return httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    return _safe_client(handler, max_response_bytes=max_response_bytes)
 
 
 def _run(downloader: MediaDownloader, limit: int = 100) -> dict:

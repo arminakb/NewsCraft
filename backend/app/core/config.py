@@ -10,6 +10,15 @@ from pydantic_settings import BaseSettings, SettingsConfigDict, SettingsError
 
 _SECRET_SETTINGS_DIR = "/run/secrets" if Path("/run/secrets").is_dir() else None
 
+READINESS_CAPABILITIES: frozenset[str] = frozenset(
+    {"generation", "ingestion", "publishing", "scheduling", "source"}
+)
+"""Capability names a component may advertise and readiness may require.
+
+Single source of truth: the settings validator below rejects anything else,
+and `app.operations.health` filters advertised capabilities against it.
+"""
+
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
@@ -133,9 +142,8 @@ class Settings(BaseSettings):
     @field_validator("readiness_required_capabilities")
     @classmethod
     def validate_readiness_required_capabilities(cls, value: str) -> str:
-        supported = {"generation", "ingestion", "publishing", "scheduling", "source"}
         configured = {part.strip().casefold() for part in value.split(",") if part.strip()}
-        if configured - supported:
+        if configured - READINESS_CAPABILITIES:
             raise ValueError("readiness_required_capabilities contains unsupported values")
         return ",".join(sorted(configured))
 

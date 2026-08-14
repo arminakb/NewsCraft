@@ -3,6 +3,7 @@ import { fireEvent, render, screen, waitFor, within } from "@testing-library/rea
 
 import { AutomationBuilder } from "@/features/automations/automation-builder"
 import * as api from "@/features/automations/automation-api"
+import type { WorkflowGraph } from "@/features/automations/automation-types"
 import { ApiError } from "@/lib/http"
 import {
   connectWorkflowNodes,
@@ -251,6 +252,27 @@ describe("Phase 4 automation builder", () => {
     expect(trigger).toHaveFocus()
   })
 
+  it("clears the dirty state when the server echoes a canonicalized graph", async () => {
+    vi.mocked(api.createAutomationVersion).mockImplementation(async (_id, input) => ({
+      ...version,
+      version: 2,
+      id: "version-2",
+      graph: canonicalizeLikeBackend(input.graph),
+    } as never))
+    renderBuilder()
+    await screen.findByRole("region", { name: "Ordered workflow editor" })
+
+    fireEvent.click(screen.getByRole("button", { name: "Select Generate content package" }))
+    fireEvent.click(screen.getByRole("button", { name: "Add next step" }))
+    fireEvent.click(within(await screen.findByRole("dialog")).getByRole("button", { name: /Validate/ }))
+    expect(screen.getByText(/Unsaved changes/)).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole("button", { name: "Save draft" }))
+    await waitFor(() => expect(screen.getByText(/Draft saved/)).toBeInTheDocument())
+    expect(screen.getByRole("button", { name: "Save draft" })).toBeDisabled()
+    expect(screen.getByRole("button", { name: "Test" })).toBeEnabled()
+  })
+
   it("does not render a Needs attention trigger when validation has no findings", async () => {
     renderBuilder()
     await screen.findByRole("region", { name: "Ordered workflow editor" })
@@ -259,6 +281,20 @@ describe("Phase 4 automation builder", () => {
     expect(screen.queryByText(/\b0 issues\b/)).not.toBeInTheDocument()
   })
 })
+
+// Mirrors backend canonical_graph_data + JSONB storage: nodes/edges are sorted
+// and object key order is not preserved.
+function canonicalizeLikeBackend(graph: WorkflowGraph): WorkflowGraph {
+  const layout = graph.metadata?.layout ?? {}
+  return {
+    metadata: { ...graph.metadata, layout: Object.fromEntries(Object.keys(layout).sort().reverse().map((key) => [key, { y: layout[key].y, x: layout[key].x }])) },
+    outputNodeIds: [...graph.outputNodeIds].sort(),
+    edges: [...graph.edges].sort((left, right) => left.targetNodeId.localeCompare(right.targetNodeId)),
+    nodes: [...graph.nodes].sort((left, right) => left.id.localeCompare(right.id)),
+    entryNodeId: graph.entryNodeId,
+    schemaVersion: graph.schemaVersion,
+  }
+}
 
 function renderBuilder() {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })

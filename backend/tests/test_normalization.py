@@ -2,7 +2,12 @@ from datetime import UTC, datetime
 
 from app.normalization.dates import normalize_source_datetime, parse_source_datetime
 from app.normalization.fingerprints import content_hash, title_date_fingerprint
-from app.normalization.text import fingerprint_text, infer_direction
+from app.normalization.text import (
+    fingerprint_text,
+    infer_direction,
+    infer_script,
+    normalized_language_hint,
+)
 from app.normalization.urls import normalize_url
 
 
@@ -13,6 +18,16 @@ def test_normalize_url_removes_tracking_and_fragment():
 def test_persian_fingerprint_normalizes_arabic_variants():
     assert fingerprint_text("علي كاظمي") == fingerprint_text("علی کاظمی")
     assert infer_direction("خبر فوری درباره اقتصاد ایران") == "rtl"
+
+
+def test_language_metadata_uses_item_script_to_validate_source_hint():
+    assert infer_script("خبر فوری درباره اقتصاد ایران") == "Arab"
+    assert infer_script("Новости технологий") == "Cyrl"
+    assert infer_script("1234") is None
+    assert normalized_language_hint("FA-ir", script_code="Arab") == "fa"
+    assert normalized_language_hint("en", script_code="Arab") is None
+    assert normalized_language_hint(None, script_code="Latn") is None
+    assert normalized_language_hint("not_a_language", script_code="Latn") is None
 
 
 def test_parse_source_datetime_uses_default_timezone():

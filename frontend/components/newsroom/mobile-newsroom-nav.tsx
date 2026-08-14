@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation"
 import { Menu, X } from "lucide-react"
 import { useCallback, useEffect, useRef, useState } from "react"
 
+import { useEditorialModal } from "@/components/editorial/use-editorial-modal"
 import {
   isNavItemCurrent,
   newsroomNavItems,
@@ -47,45 +48,21 @@ export function MobileNewsroomNav({
     triggerRef.current?.focus()
   }, [])
 
+  useEditorialModal({
+    containerRef: dialogRef,
+    initialFocusRef: firstLinkRef,
+    onClose: closeAndRestore,
+    open,
+  })
+
   useEffect(() => {
     if (!open) return
-
     const previousBodyOverflow = document.body.style.overflow
     document.body.style.overflow = "hidden"
-    firstLinkRef.current?.focus()
-
-    const keepFocusInDialog = (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
-        event.preventDefault()
-        closeAndRestore()
-        return
-      }
-      if (event.key !== "Tab") return
-
-      const focusableElements = Array.from(
-        dialogRef.current?.querySelectorAll<HTMLElement>(
-          'a[href], button:not([disabled]), [tabindex]:not([tabindex="-1"])',
-        ) ?? [],
-      )
-      if (!focusableElements.length) return
-
-      const first = focusableElements[0]
-      const last = focusableElements.at(-1)
-      if (event.shiftKey && document.activeElement === first) {
-        event.preventDefault()
-        last?.focus()
-      } else if (!event.shiftKey && document.activeElement === last) {
-        event.preventDefault()
-        first.focus()
-      }
-    }
-
-    document.addEventListener("keydown", keepFocusInDialog)
     return () => {
-      document.removeEventListener("keydown", keepFocusInDialog)
       document.body.style.overflow = previousBodyOverflow
     }
-  }, [closeAndRestore, open])
+  }, [open])
 
   useEffect(() => {
     setOpen(false)

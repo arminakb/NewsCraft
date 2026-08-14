@@ -37,11 +37,9 @@ import { queryKeys } from "@/lib/query-keys"
 
 export function SourcesPage({
   initialSources = [],
-  enableQueries = true,
   initialSourceId = null,
 }: {
   initialSources?: SourceSummary[]
-  enableQueries?: boolean
   initialSourceId?: string | null
 }) {
   const searchParams = useSearchParams()
@@ -71,7 +69,6 @@ export function SourcesPage({
         ? getSourcePage({ unassigned: true, limit: 50, offset: sourcePageOffset }, signal)
         : getSourcePage({ collectionId: selectedScope, limit: 50, offset: sourcePageOffset }, signal),
     placeholderData: selectedScope === ALL_SOURCES_SCOPE ? initialSources as SourceSummaryList : undefined,
-    enabled: enableQueries,
     refetchInterval: (query) => {
       const data = query.state.data
       const rows = data ? (Array.isArray(data) ? data : data.items) : []
@@ -86,12 +83,8 @@ export function SourcesPage({
   const fetchedSources = pageData
     ? Array.isArray(pageData) ? pageData : pageData.items
     : initialSources
-  const sourceTotal = pageData
-    ? Array.isArray(pageData) ? pageData.total : pageData.total
-    : initialSources.length
-  const sourceHasMore = pageData
-    ? Array.isArray(pageData) ? pageData.hasMore : pageData.hasMore
-    : false
+  const sourceTotal = pageData?.total ?? initialSources.length
+  const sourceHasMore = pageData?.hasMore ?? false
   const baseSources = useMemo(
     () => selectedScope === ALL_SOURCES_SCOPE
       ? [
@@ -118,11 +111,6 @@ export function SourcesPage({
         source,
         ...current.filter((item) => item.id !== source.id),
       ])
-      queryClient.setQueryData<SourceSummary[]>(queryKeys.sources, (current) =>
-        current
-          ? [source, ...current.filter((item) => item.id !== source.id)]
-          : [source]
-      )
       void queryClient.invalidateQueries({ queryKey: queryKeys.sources })
       setSelectedSourceId(source.id)
       setDetailOpen(true)
@@ -172,9 +160,9 @@ export function SourcesPage({
   })
   const selectedSource = sources.find((source) => source.id === selectedSourceId) ?? sources[0]
   const sourceDetailQuery = useQuery({
-    queryKey: selectedSourceId ? queryKeys.source(selectedSourceId) : ["sources", "detail"],
+    queryKey: selectedSourceId ? queryKeys.source(selectedSourceId) : queryKeys.sourceDetailIdle,
     queryFn: () => getSource(selectedSourceId),
-    enabled: Boolean(selectedSourceId) && enableQueries,
+    enabled: Boolean(selectedSourceId),
     placeholderData: selectedSource,
     refetchInterval: (query) => {
       const status = query.state.data?.iconStatus
@@ -269,9 +257,6 @@ export function SourcesPage({
         ...current,
         [sourceId]: { ...current[sourceId], ...patch },
       }))
-      queryClient.setQueryData<SourceSummary[]>(queryKeys.sources, (current) =>
-        current?.map((source) => source.id === sourceId ? { ...source, ...patch } : source)
-      )
       queryClient.setQueryData<SourceSummary>(queryKeys.source(sourceId), (current) =>
         current ? { ...current, ...patch } : current
       )
@@ -335,7 +320,6 @@ export function SourcesPage({
   return (
     <>
       <OperationsPageFrame
-        enableQueries={enableQueries}
         title="Sources"
         subtitle="Manage RSS feeds and public Telegram channels."
         actions={
@@ -352,7 +336,6 @@ export function SourcesPage({
         }
       >
         <SourceCollectionsPanel
-          enableQueries={enableQueries}
           onSelectScope={selectSourceScope}
           selectedScope={selectedScope}
         >

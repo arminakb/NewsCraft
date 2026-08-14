@@ -13,7 +13,6 @@ import {
   getTelegramPublishJob,
   pauseTelegramRoute,
   publishTelegramDraft,
-  reconcileTelegramPublishJob,
   resumeTelegramRoute,
 } from "@/features/automations/telegram-api"
 import { queryKeys } from "@/lib/query-keys"
@@ -186,9 +185,9 @@ describe("Telegram automation API", () => {
     ])
   })
 
-  it("maps durable publish jobs and sends reconciliation evidence exactly", async () => {
+  it("maps durable publish jobs", async () => {
     const backendJob = makeBackendPublishJob()
-    const fetchSpy = stubFetchSequence(backendJob, backendJob.publication)
+    const fetchSpy = stubFetchSequence(backendJob)
 
     await expect(getTelegramPublishJob(ids.publishJob)).resolves.toEqual(expect.objectContaining({
       publishJobId: ids.publishJob,
@@ -196,22 +195,15 @@ describe("Telegram automation API", () => {
       receipts: [expect.objectContaining({ operationIndex: 0, remoteMessageIds: [501, 502] })],
       publication: expect.objectContaining({ reconciliationStatus: "operator_confirmed" }),
     }))
-    await expect(
-      reconcileTelegramPublishJob(ids.publishJob, {
-        outcome: "published",
-        remoteMessageIds: [501, 502],
-        permalink: "https://t.me/news/501",
-      })
-    ).resolves.toEqual(expect.objectContaining({
-      publishJobId: ids.publishJob,
-      reconciliationStatus: "confirmed",
-      publication: expect.objectContaining({ remoteMessageIds: [501, 502] }),
-    }))
 
-    expect(fetchSpy.mock.calls[1]).toEqual([
-      `/api/backend/telegram/publish-jobs/${ids.publishJob}/reconcile`,
-      jsonPost({ outcome: "published", remote_message_ids: [501, 502], permalink: "https://t.me/news/501" }),
+    expect(fetchSpy.mock.calls).toEqual([
+      [`/api/backend/telegram/publish-jobs/${ids.publishJob}`, undefined],
     ])
+  })
+
+  it("exposes no second reconciliation client (operations/api.ts owns that call)", async () => {
+    const telegramApi: Record<string, unknown> = await import("@/features/automations/telegram-api")
+    expect(Object.keys(telegramApi).filter((name) => name.toLowerCase().includes("reconcile"))).toEqual([])
   })
 
   it("maps settings and uses immutable prompt version and environment-reference requests", async () => {

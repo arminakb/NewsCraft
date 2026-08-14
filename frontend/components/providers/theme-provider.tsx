@@ -3,6 +3,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react"
 
 import { isTheme, THEME_STORAGE_KEY, type Theme } from "@/lib/theme"
+import { useMediaQuery } from "@/lib/use-media-query"
 
 type ThemeContextValue = {
   theme: Theme | undefined
@@ -13,6 +14,7 @@ const ThemeContext = createContext<ThemeContextValue | null>(null)
 
 export function ThemeProvider({ children }: { children: React.ReactNode }) {
   const [theme, setTheme] = useState<Theme>()
+  const systemDark = useMediaQuery("(prefers-color-scheme: dark)")
 
   const chooseTheme = useCallback((nextTheme: Theme, persist: boolean) => {
     applyTheme(nextTheme)
@@ -28,21 +30,11 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
   }, [])
 
   useEffect(() => {
-    const media = window.matchMedia?.("(prefers-color-scheme: dark)")
     const storedTheme = readStoredTheme()
-    const initialTheme = storedTheme ?? (media?.matches ? "dark" : "light")
+    const initialTheme = storedTheme ?? (systemDark ? "dark" : "light")
 
     chooseTheme(initialTheme, false)
-
-    const followSystemTheme = (event: MediaQueryListEvent) => {
-      if (readStoredTheme() === null) {
-        chooseTheme(event.matches ? "dark" : "light", false)
-      }
-    }
-
-    media?.addEventListener?.("change", followSystemTheme)
-    return () => media?.removeEventListener?.("change", followSystemTheme)
-  }, [chooseTheme])
+  }, [chooseTheme, systemDark])
 
   const toggleTheme = useCallback(() => {
     const currentTheme = theme ?? readAppliedTheme()

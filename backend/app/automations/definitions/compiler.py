@@ -12,6 +12,7 @@ from app.automations.definitions.schemas import WorkflowGraphV1, graph_sha256
 from app.automations.definitions.validation import validate_graph
 
 COMPILER_VERSION = "workflow-v1.0"
+LEGACY_COMPILER_VERSION = "legacy-route-v1"
 
 
 class CompilationError(ValueError):
@@ -173,13 +174,40 @@ def compile_graph(graph: WorkflowGraphV1) -> CompiledWorkflowPlan:
     )
 
 
-def compiled_plan_data(graph: WorkflowGraphV1) -> dict[str, object]:
-    return compile_graph(graph).model_dump(mode="json")
+def stage(plan: CompiledWorkflowPlan, node_type: str) -> CompiledStage | None:
+    """Return the first compiled stage of ``node_type``, or ``None``."""
+
+    return next((item for item in plan.stages if item.node_type == node_type), None)
+
+
+def node_map(plan: CompiledWorkflowPlan) -> dict[str, list[str]]:
+    """Group the plan's node ids by node type, preserving stage order."""
+
+    grouped: dict[str, list[str]] = {}
+    for item in plan.stages:
+        grouped.setdefault(item.node_type, []).append(item.node_id)
+    return grouped
 
 
 def verify_compiled_plan(graph: WorkflowGraphV1, raw_plan: dict[str, object]) -> CompiledWorkflowPlan:
-    if raw_plan.get("compiler_version") == "legacy-route-v1":
-        return compile_graph(graph)
+    """Return the plan a run may execute, refusing one that has drifted from the graph.
+
+    The stored ``compiled_plan`` is a drift assertion, not a cache: the graph is
+    recompiled on every call and the stored plan is returned only while it still
+    matches. Callers therefore pay one ``compile_graph`` per verification and must
+    not compile again themselves.
+
+    Versions backfilled by migration 0027 carry the ``legacy-route-v1``
+    placeholder, which records no stages and so has nothing to compare against.
+    Those versions must be recompiled into a new immutable version before they
+    can execute.
+    """
+
+    if raw_plan.get("compiler_version") == LEGACY_COMPILER_VERSION:
+        raise CompilationError(
+            "automation_compiled_plan_stale",
+            "Saved execution plan must be recompiled as a new version.",
+        )
     saved = CompiledWorkflowPlan.model_validate(raw_plan)
     current = compile_graph(graph)
     if saved.compiler_version != current.compiler_version or saved.plan_hash != current.plan_hash:
@@ -192,10 +220,12 @@ def verify_compiled_plan(graph: WorkflowGraphV1, raw_plan: dict[str, object]) ->
 
 __all__ = [
     "COMPILER_VERSION",
+    "LEGACY_COMPILER_VERSION",
     "CompilationError",
     "CompiledStage",
     "CompiledWorkflowPlan",
     "compile_graph",
-    "compiled_plan_data",
+    "node_map",
+    "stage",
     "verify_compiled_plan",
 ]

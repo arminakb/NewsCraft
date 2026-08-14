@@ -46,6 +46,10 @@ secrets/
 # foglamp scan (holds edit token secret)
 .foglamp/
 
+# Orchestrator per-run artifacts (state.md/ledger.md stay tracked)
+.orchestrator/runs/
+.claude/settings.local.json
+
 # Generated analysis artifacts
 graphify-out/
 validation/content-intelligence-report.md

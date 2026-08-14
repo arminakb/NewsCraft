@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-import json
-from collections.abc import Awaitable, Callable, Mapping
+import asyncio
+from collections.abc import Awaitable, Callable
 from datetime import datetime
 from pathlib import Path
 from uuid import UUID
@@ -22,20 +22,26 @@ from app.retention.contracts import (
     RetentionCategory,
     RetentionCleanupIntent,
     RetentionConflict,
+    RetentionCountSnapshot,
     RetentionExecutionPlan,
     RetentionNotFound,
     RetentionPolicyInput,
-    _snapshot_candidates,
-    _snapshot_intents,
+    RetentionRecordType,
     build_preview_token,
+    snapshot_candidates,
+    snapshot_intents,
 )
 from app.retention.filesystem import (
-    _export_relative_path,
-    _media_claim_identity,
-    _media_relative_path,
-    _UnsafeStoragePath,
+    MediaClaimClassification,
+    UnsafeStoragePath,
+    _classified_media_claims,
+    export_relative_path,
+    media_relative_path,
 )
 from app.retention.models import RETENTION_SCHEMA_REVISION, RetentionRun
+
+# A candidate's stable identity across the preview and the execution phases.
+_CandidateIdentity = tuple[RetentionCategory, RetentionRecordType, UUID]
 
 
 class RetentionDatabaseExecutor:
@@ -52,33 +58,20 @@ class RetentionDatabaseExecutor:
         self.now = now
         self.collect_candidates = collect_candidates
 
-    async def _reset_all_skipped_database_run(self, run: RetentionRun) -> bool:
+    async def reset_all_skipped_database_run(self, run: RetentionRun) -> bool:
         if run.status not in {"partial", "succeeded"} or run.cleanup_intent_snapshot:
             return False
-        candidates = _snapshot_candidates(run)
+        candidates = snapshot_candidates(run)
         if not candidates:
             return False
-        execution = run.count_snapshot.get("execution")
-        if not isinstance(execution, Mapping):
-            return False
-        scrubbed = execution.get("scrubbed")
-        expired = execution.get("expired")
-        database_skipped = execution.get("database_skipped")
-        filesystem_deleted = execution.get("filesystem_deleted")
-        if (
-            not isinstance(scrubbed, Mapping)
-            or not isinstance(expired, Mapping)
-            or not isinstance(database_skipped, Mapping)
-            or not isinstance(filesystem_deleted, Mapping)
-        ):
-            return False
+        execution = self.execution_counts(run).execution
         if any(
-            int(values.get(category, 0)) > 0
-            for values in (scrubbed, expired, filesystem_deleted)
+            values[category] > 0
+            for values in (execution.scrubbed, execution.expired, execution.filesystem_deleted)
             for category in RETENTION_CATEGORIES
         ):
             return False
-        if sum(int(database_skipped.get(category, 0)) for category in RETENTION_CATEGORIES) != len(candidates):
+        if sum(execution.database_skipped[category] for category in RETENTION_CATEGORIES) != len(candidates):
             return False
         identities = {(candidate.category, candidate.record_type, candidate.record_id) for candidate in candidates}
         current_candidates = await self.collect_candidates(
@@ -97,41 +90,20 @@ class RetentionDatabaseExecutor:
         )
 
     @staticmethod
-    def _execution_counts(run: RetentionRun) -> dict[str, object]:
-        counts = json.loads(json.dumps(run.count_snapshot))
-        counts.setdefault(
-            "execution",
-            {
-                "scrubbed": {category: 0 for category in RETENTION_CATEGORIES},
-                "expired": {category: 0 for category in RETENTION_CATEGORIES},
-                "skipped": {category: 0 for category in RETENTION_CATEGORIES},
-                "database_skipped": {category: 0 for category in RETENTION_CATEGORIES},
-                "filesystem_skipped": {category: 0 for category in RETENTION_CATEGORIES},
-                "filesystem_deleted": {category: 0 for category in RETENTION_CATEGORIES},
-            },
-        )
-        return counts
+    def execution_counts(run: RetentionRun) -> RetentionCountSnapshot:
+        """Parse the persisted snapshot into a detached, mutable model.
 
-    @staticmethod
-    def _increment(
-        counts: dict[str, object],
-        phase: str,
-        category: RetentionCategory,
-    ) -> None:
-        execution = counts["execution"]
-        if not isinstance(execution, dict):  # pragma: no cover - persisted by this service
-            raise RetentionConflict("retention execution count snapshot is invalid")
-        values = execution[phase]
-        if not isinstance(values, dict):  # pragma: no cover - persisted by this service
-            raise RetentionConflict("retention execution phase count is invalid")
-        values[category] = int(values.get(category, 0)) + 1
+        Validation copies every nested container, so incrementing the result
+        never mutates `run.count_snapshot` in place.
+        """
+        return RetentionCountSnapshot.from_snapshot(run.count_snapshot)
 
     @staticmethod
     def _execution_plan(run: RetentionRun) -> RetentionExecutionPlan:
         return RetentionExecutionPlan(
             run_id=run.id,
             preview_token=run.preview_token,
-            cleanup_intents=_snapshot_intents(run),
+            cleanup_intents=snapshot_intents(run),
             count_snapshot=run.count_snapshot,
         )
 
@@ -225,6 +197,130 @@ class RetentionDatabaseExecutor:
             return
         raise RetentionConflict(f"unsupported attempt record type {candidate.record_type!r}")
 
+    async def _executable_candidates(self, run: RetentionRun, preview_token: str) -> list[RetentionCandidate]:
+        """The persisted plan, proven to still be the plan this token authorized."""
+        try:
+            candidates = snapshot_candidates(run)
+        except RetentionConflict:
+            await self._fail_run(
+                run,
+                code="retention_snapshot_invalid",
+                message="The persisted retention candidate snapshot is invalid",
+            )
+            raise
+        expected_token = build_preview_token(
+            RetentionPolicyInput.model_validate(run.policy_snapshot),
+            candidates,
+            schema_revision=run.schema_revision,
+        )
+        if expected_token != preview_token:
+            await self._fail_run(
+                run,
+                code="retention_snapshot_token_invalid",
+                message="The persisted retention preview no longer matches its token",
+            )
+            raise RetentionConflict("preview token does not match its server snapshot")
+        return candidates
+
+    async def _lock_protection_tables(self) -> None:
+        # These tables contain JSON/no-FK protection edges. SHARE prevents a new
+        # reference from appearing between the protection query and the DB marker.
+        await self.session.execute(
+            text(
+                "LOCK TABLE content_items, item_media, media_assets, workflow_jobs, "
+                "publish_jobs, platform_variant_revisions, "
+                "generation_attempts, generation_runs, research_attempts, research_runs, "
+                "publish_attempts, publications, publish_operation_receipts, source_items, "
+                "story_evidence_snapshots, "
+                "workflow_events IN SHARE MODE"
+            )
+        )
+
+    async def _revalidate(
+        self,
+        run: RetentionRun,
+        candidates: list[RetentionCandidate],
+        *,
+        media_root: Path,
+    ) -> dict[_CandidateIdentity, RetentionCandidate]:
+        """Re-collect the snapshot's identities under lock, keyed for lookup.
+
+        A candidate missing from the result, or carrying a different state hash,
+        has changed since the preview and must not be touched.
+        """
+        identities = {(candidate.category, candidate.record_type, candidate.record_id) for candidate in candidates}
+        current_candidates = await self.collect_candidates(
+            RetentionPolicyInput.model_validate(run.policy_snapshot),
+            now=self.now(),
+            only=identities,
+            lock=True,
+            media_root=media_root,
+        )
+        return {
+            (candidate.category, candidate.record_type, candidate.record_id): candidate
+            for candidate in current_candidates
+        }
+
+    async def _classify_media(self, media_root: Path) -> MediaClaimClassification:
+        """Same classification the planner ran; one implementation so the two
+        phases can never disagree about which rows claim which file. The
+        per-row path syscalls go to a worker thread instead of the event loop.
+        """
+        stored_media_rows = list(
+            await self.session.execute(
+                select(MediaAsset.id, MediaAsset.storage_path).where(MediaAsset.storage_path.is_not(None))
+            )
+        )
+        return await asyncio.to_thread(
+            _classified_media_claims,
+            media_root,
+            [(row.id, str(row.storage_path)) for row in stored_media_rows],
+        )
+
+    @staticmethod
+    def _invalid_canonical_paths(
+        candidates: list[RetentionCandidate],
+        current: dict[_CandidateIdentity, RetentionCandidate],
+        classification: MediaClaimClassification,
+    ) -> set[str]:
+        """Paths no deletion may claim: any file some unverified row also claims."""
+        rows_by_canonical_path = classification.ids_by_path
+        unchanged_media_ids = {
+            candidate.record_id
+            for candidate in candidates
+            if candidate.record_type == "media_asset"
+            and (current_candidate := current.get((candidate.category, candidate.record_type, candidate.record_id)))
+            is not None
+            and current_candidate.state_hash == candidate.state_hash
+        }
+        invalid_canonical_paths = {
+            relative_path
+            for relative_path, record_ids in rows_by_canonical_path.items()
+            if not record_ids.issubset(unchanged_media_ids)
+        }
+        if classification.unclassifiable:
+            invalid_canonical_paths.update(rows_by_canonical_path)
+        return invalid_canonical_paths
+
+    @staticmethod
+    def _invalid_generation_run_ids(
+        candidates: list[RetentionCandidate],
+        current: dict[_CandidateIdentity, RetentionCandidate],
+        generation_attempt_rows: dict[UUID, GenerationAttempt | None],
+    ) -> set[UUID]:
+        """Runs with a changed sibling attempt: the shared run state stays intact."""
+        invalid_generation_run_ids: set[UUID] = set()
+        for candidate in candidates:
+            if candidate.record_type != "generation_attempt":
+                continue
+            generation_attempt = generation_attempt_rows[candidate.record_id]
+            current_candidate = current.get((candidate.category, candidate.record_type, candidate.record_id))
+            if generation_attempt is not None and (
+                current_candidate is None or current_candidate.state_hash != candidate.state_hash
+            ):
+                invalid_generation_run_ids.add(generation_attempt.generation_run_id)
+        return invalid_generation_run_ids
+
     async def execute_db_phase(
         self,
         run_id: UUID,
@@ -250,54 +346,11 @@ class RetentionDatabaseExecutor:
         if run.status != "queued":
             raise RetentionConflict(f"retention run cannot execute from status {run.status!r}")
 
-        try:
-            candidates = _snapshot_candidates(run)
-        except RetentionConflict:
-            await self._fail_run(
-                run,
-                code="retention_snapshot_invalid",
-                message="The persisted retention candidate snapshot is invalid",
-            )
-            raise
-        expected_token = build_preview_token(
-            RetentionPolicyInput.model_validate(run.policy_snapshot),
-            candidates,
-            schema_revision=run.schema_revision,
-        )
-        if expected_token != preview_token:
-            await self._fail_run(
-                run,
-                code="retention_snapshot_token_invalid",
-                message="The persisted retention preview no longer matches its token",
-            )
-            raise RetentionConflict("preview token does not match its server snapshot")
-
-        # These tables contain JSON/no-FK protection edges. SHARE prevents a new
-        # reference from appearing between the protection query and the DB marker.
-        await self.session.execute(
-            text(
-                "LOCK TABLE content_items, item_media, media_assets, workflow_jobs, "
-                "publish_jobs, platform_variant_revisions, "
-                "generation_attempts, generation_runs, research_attempts, research_runs, "
-                "publish_attempts, publications, publish_operation_receipts, source_items, "
-                "story_evidence_snapshots, "
-                "workflow_events IN SHARE MODE"
-            )
-        )
-        identities = {(candidate.category, candidate.record_type, candidate.record_id) for candidate in candidates}
-        current_candidates = await self.collect_candidates(
-            RetentionPolicyInput.model_validate(run.policy_snapshot),
-            now=self.now(),
-            only=identities,
-            lock=True,
-            media_root=media_root,
-        )
-        current = {
-            (candidate.category, candidate.record_type, candidate.record_id): candidate
-            for candidate in current_candidates
-        }
+        candidates = await self._executable_candidates(run, preview_token)
+        await self._lock_protection_tables()
+        current = await self._revalidate(run, candidates, media_root=media_root)
         observed_at = self.now()
-        counts = self._execution_counts(run)
+        counts = self.execution_counts(run)
         errors = list(run.error_snapshot)
         intents: list[RetentionCleanupIntent] = []
 
@@ -306,50 +359,15 @@ class RetentionDatabaseExecutor:
             for candidate in candidates
             if candidate.record_type == "media_asset"
         }
-        canonical_media_paths: dict[UUID, str] = {}
-        rows_by_canonical_path: dict[str, set[UUID]] = {}
-        all_stored_media = list(
-            await self.session.scalars(select(MediaAsset).where(MediaAsset.storage_path.is_not(None)))
-        )
-        unclassifiable_media_claim = False
-        for row in all_stored_media:
-            try:
-                relative_path = _media_claim_identity(media_root, str(row.storage_path))
-            except _UnsafeStoragePath:
-                unclassifiable_media_claim = True
-                continue
-            canonical_media_paths[row.id] = relative_path
-            rows_by_canonical_path.setdefault(relative_path, set()).add(row.id)
-        unchanged_media_ids = {
-            candidate.record_id
-            for candidate in candidates
-            if candidate.record_type == "media_asset"
-            and (current_candidate := current.get((candidate.category, candidate.record_type, candidate.record_id)))
-            is not None
-            and current_candidate.state_hash == candidate.state_hash
-        }
-        invalid_canonical_paths = {
-            relative_path
-            for relative_path, record_ids in rows_by_canonical_path.items()
-            if not record_ids.issubset(unchanged_media_ids)
-        }
-        if unclassifiable_media_claim:
-            invalid_canonical_paths.update(rows_by_canonical_path)
+        classification = await self._classify_media(media_root)
+        canonical_media_paths = classification.canonical_paths
+        invalid_canonical_paths = self._invalid_canonical_paths(candidates, current, classification)
         generation_attempt_rows = {
             candidate.record_id: await self.session.get(GenerationAttempt, candidate.record_id)
             for candidate in candidates
             if candidate.record_type == "generation_attempt"
         }
-        invalid_generation_run_ids: set[UUID] = set()
-        for candidate in candidates:
-            if candidate.record_type != "generation_attempt":
-                continue
-            generation_attempt = generation_attempt_rows[candidate.record_id]
-            current_candidate = current.get((candidate.category, candidate.record_type, candidate.record_id))
-            if generation_attempt is not None and (
-                current_candidate is None or current_candidate.state_hash != candidate.state_hash
-            ):
-                invalid_generation_run_ids.add(generation_attempt.generation_run_id)
+        invalid_generation_run_ids = self._invalid_generation_run_ids(candidates, current, generation_attempt_rows)
 
         for candidate in candidates:
             identity = (candidate.category, candidate.record_type, candidate.record_id)
@@ -359,10 +377,11 @@ class RetentionDatabaseExecutor:
                     media = media_rows[candidate.record_id]
                     if media is not None and media.storage_path is not None:
                         try:
-                            _media_relative_path(media_root, media.storage_path)
-                        except _UnsafeStoragePath:
+                            media_relative_path(media_root, media.storage_path)
+                        except UnsafeStoragePath:
                             errors.append(
                                 {
+                                    "phase": "database",
                                     "category": candidate.category,
                                     "record_type": candidate.record_type,
                                     "record_id": str(candidate.record_id),
@@ -370,22 +389,23 @@ class RetentionDatabaseExecutor:
                                     "message": ("Media storage identity is outside the owned root or unsafe"),
                                 }
                             )
-                self._increment(counts, "skipped", candidate.category)
+                counts.execution.increment("skipped", candidate.category)
                 continue
             if candidate.record_type == "generation_attempt":
                 generation_attempt = generation_attempt_rows[candidate.record_id]
                 if generation_attempt is None or generation_attempt.generation_run_id in invalid_generation_run_ids:
-                    self._increment(counts, "skipped", candidate.category)
+                    counts.execution.increment("skipped", candidate.category)
                     continue
             if candidate.record_type == "media_asset":
                 media = media_rows[candidate.record_id]
                 if media is None or media.storage_path is None:
-                    self._increment(counts, "skipped", candidate.category)
+                    counts.execution.increment("skipped", candidate.category)
                     continue
                 canonical_path = canonical_media_paths.get(media.id)
                 if canonical_path is None:
                     errors.append(
                         {
+                            "phase": "database",
                             "category": candidate.category,
                             "record_type": candidate.record_type,
                             "record_id": str(candidate.record_id),
@@ -393,10 +413,10 @@ class RetentionDatabaseExecutor:
                             "message": "Media storage identity is outside the owned root or unsafe",
                         }
                     )
-                    self._increment(counts, "skipped", candidate.category)
+                    counts.execution.increment("skipped", candidate.category)
                     continue
                 if canonical_path in invalid_canonical_paths:
-                    self._increment(counts, "skipped", candidate.category)
+                    counts.execution.increment("skipped", candidate.category)
                     continue
                 media.storage_path = None
                 media.fetch_status = "expired"
@@ -409,18 +429,19 @@ class RetentionDatabaseExecutor:
                         relative_path=canonical_path,
                     )
                 )
-                self._increment(counts, "expired", candidate.category)
+                counts.execution.increment("expired", candidate.category)
                 continue
             if candidate.category == "export_artifact":
                 export = await self.session.get(WorkflowJob, candidate.record_id)
                 if export is None:
-                    self._increment(counts, "skipped", candidate.category)
+                    counts.execution.increment("skipped", candidate.category)
                     continue
                 try:
-                    relative_path = _export_relative_path(export_root, export.id)
-                except _UnsafeStoragePath:
+                    relative_path = export_relative_path(export_root, export.id)
+                except UnsafeStoragePath:
                     errors.append(
                         {
+                            "phase": "database",
                             "category": candidate.category,
                             "record_type": candidate.record_type,
                             "record_id": str(candidate.record_id),
@@ -428,7 +449,7 @@ class RetentionDatabaseExecutor:
                             "message": "Export storage identity is outside the owned root or unsafe",
                         }
                     )
-                    self._increment(counts, "skipped", candidate.category)
+                    counts.execution.increment("skipped", candidate.category)
                     continue
                 artifact = ExportArtifact.model_validate(export.result)
                 export.result = {
@@ -445,7 +466,7 @@ class RetentionDatabaseExecutor:
                         relative_path=relative_path,
                     )
                 )
-                self._increment(counts, "expired", candidate.category)
+                counts.execution.increment("expired", candidate.category)
                 continue
             if candidate.category == "raw_payload":
                 await self._scrub_raw_payload(candidate.record_id)
@@ -455,15 +476,15 @@ class RetentionDatabaseExecutor:
                 await self._scrub_attempt(candidate)
             else:  # pragma: no cover - strict category/record_type validation above
                 raise RetentionConflict(f"unsupported retention category {candidate.category!r}")
-            self._increment(counts, "scrubbed", candidate.category)
+            counts.execution.increment("scrubbed", candidate.category)
 
         run.status = "running"
         run.started_at = run.started_at or observed_at
         run.cleanup_intent_snapshot = [intent.model_dump(mode="json") for intent in intents]
-        execution_counts = counts["execution"]
-        if isinstance(execution_counts, dict):
-            execution_counts["database_skipped"] = dict(execution_counts["skipped"])
-        run.count_snapshot = counts
+        # The database phase owns `database_skipped`; the filesystem phase reads it
+        # to rebuild `skipped` without losing what this phase declined to touch.
+        counts.execution.database_skipped = dict(counts.execution.skipped)
+        run.count_snapshot = counts.to_snapshot()
         run.error_snapshot = errors
         await self.session.flush()
         await self.session.commit()

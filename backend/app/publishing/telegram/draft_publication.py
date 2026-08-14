@@ -7,13 +7,24 @@ from uuid import UUID
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.automations.models import AutomationDispatch, AutomationRoute
+from app.automations.models import AutomationRoute
 from app.automations.telegram.handlers import enqueue_telegram_publish_intent
 from app.generation.models import PlatformVariant, PlatformVariantRevision
 from app.generation.revision_validation import RevisionValidationError, validate_approvable_revision
+from app.jobs.errors import NeedsReviewJobError
 from app.jobs.events import redact_event_data
 from app.jobs.models import WorkflowEvent
 from app.publishing.models import Destination, PublishJob
+from app.publishing.telegram.service_contracts import revision_dispatch
+
+__all__ = [
+    "DraftPublicationResult",
+    "ReviewedTelegramDraftError",
+    "locked_revision",
+    "publish_reviewed_draft",
+    "require_revision_transition",
+    "revision_dispatch",
+]
 
 
 class ReviewedTelegramDraftError(RuntimeError):
@@ -43,36 +54,6 @@ def require_revision_transition(
         raise ReviewedTelegramDraftError(str(exc)) from None
     if bool((revision.content or {}).get("dry_run")):
         raise ReviewedTelegramDraftError("Dry-run drafts cannot be published")
-
-
-async def revision_dispatch(
-    session: AsyncSession,
-    revision: PlatformVariantRevision,
-) -> AutomationDispatch | None:
-    variant = await session.get(PlatformVariant, revision.platform_variant_id)
-    if variant is None or variant.platform != "telegram":
-        return None
-    expected_variant_id = revision.platform_variant_id
-    current: PlatformVariantRevision | None = revision
-    seen: set[UUID] = set()
-    while current is not None and current.id not in seen:
-        if current.platform_variant_id != expected_variant_id:
-            return None
-        seen.add(current.id)
-        dispatch = await session.scalar(
-            select(AutomationDispatch)
-            .where(AutomationDispatch.variant_revision_id == current.id)
-            .order_by(AutomationDispatch.created_at.desc())
-            .limit(1)
-        )
-        if dispatch is not None:
-            return dispatch
-        current = (
-            await session.get(PlatformVariantRevision, current.parent_revision_id)
-            if current.parent_revision_id is not None
-            else None
-        )
-    return None
 
 
 async def locked_revision(
@@ -169,12 +150,19 @@ async def publish_reviewed_draft(
         "publishing",
         job_type="telegram.publish",
     )
-    publish_job = await enqueue_telegram_publish_intent(
-        session,
-        revision=revision,
-        destination=destination,
-        dispatch=dispatch if dispatch.variant_revision_id == revision.id else None,
-    )
+    try:
+        publish_job = await enqueue_telegram_publish_intent(
+            session,
+            revision=revision,
+            destination=destination,
+            dispatch=dispatch if dispatch.variant_revision_id == revision.id else None,
+        )
+    except NeedsReviewJobError as exc:
+        if exc.code != "telegram_publish_already_scheduled":
+            raise
+        raise ReviewedTelegramDraftError(
+            "Telegram draft is already scheduled for publication",
+        ) from None
     append_draft_event(
         session,
         event_type="telegram.revision.publish_requested",

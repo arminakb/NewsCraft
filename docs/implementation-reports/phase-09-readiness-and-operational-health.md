@@ -2,7 +2,7 @@
 
 Date: 2026-07-17
 
-Authoritative plan: `solutions.md`, Phase 9 only
+Authoritative plan: `docs/archive/solutions.md`, Phase 9 only
 
 ## Outcome
 

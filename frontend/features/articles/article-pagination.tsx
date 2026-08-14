@@ -1,7 +1,5 @@
 "use client"
 
-import * as React from "react"
-
 import {
   Pagination,
   PaginationEllipsis,
@@ -9,6 +7,7 @@ import {
   PaginationNext,
   PaginationPrevious,
 } from "@/components/ui/pagination"
+import { useMediaQuery } from "@/lib/use-media-query"
 
 type PageItem = number | "..."
 
@@ -70,7 +69,7 @@ export function ArticlePagination({
   )
 }
 
-export function getVisiblePages(totalPages: number, currentPage: number, delta: number): PageItem[] {
+function getVisiblePages(totalPages: number, currentPage: number, delta: number): PageItem[] {
   if (totalPages <= 7) return Array.from({ length: totalPages }, (_, index) => index + 1)
 
   const rangeWithDots: PageItem[] = [1]
@@ -93,23 +92,4 @@ export function getVisiblePages(totalPages: number, currentPage: number, delta: 
   if (endPage < totalPages - 1) rangeWithDots.push("...")
   if (totalPages > 1) rangeWithDots.push(totalPages)
   return rangeWithDots
-}
-
-function useMediaQuery(query: string) {
-  const [matches, setMatches] = React.useState(false)
-
-  React.useEffect(() => {
-    if (typeof window.matchMedia !== "function") return
-    const media = window.matchMedia(query)
-    const update = () => setMatches(media.matches)
-    update()
-    if (typeof media.addEventListener === "function") {
-      media.addEventListener("change", update)
-      return () => media.removeEventListener("change", update)
-    }
-    media.addListener(update)
-    return () => media.removeListener(update)
-  }, [query])
-
-  return matches
 }

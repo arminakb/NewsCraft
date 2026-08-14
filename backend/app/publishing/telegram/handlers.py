@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import inspect
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
@@ -27,6 +26,7 @@ from app.publishing.telegram.routing import (
     check_proxy_reachability,
     validate_proxy_endpoint,
 )
+from app.publishing.telegram.secret_resolution import resolve_destination_secret
 from app.publishing.telegram.service import publish_telegram
 
 
@@ -55,36 +55,10 @@ class TelegramPublishHandlers:
     proxy_check: Any
 
 
-async def _resolve_secret(resolver: Any, secret_ref: str) -> str:
-    target = getattr(resolver, "resolve", None)
-    if target is None and callable(resolver):
-        target = resolver
-    if target is None:
-        raise PermanentJobError(
-            code="telegram_destination_secret_missing",
-            message="Destination secret is unavailable",
-        )
-    try:
-        value = target(secret_ref)
-        if inspect.isawaitable(value):
-            value = await value
-    except Exception:
-        raise PermanentJobError(
-            code="telegram_destination_secret_missing",
-            message="Destination secret is unavailable",
-        ) from None
-    if not isinstance(value, str) or not value:
-        raise PermanentJobError(
-            code="telegram_destination_secret_missing",
-            message="Destination secret is unavailable",
-        )
-    return value
-
-
 @asynccontextmanager
 async def _runtime(session, destination, client, secret_resolver, route_resolver):
     if route_resolver is None:
-        token = await _resolve_secret(secret_resolver, destination.secret_ref)
+        token = await resolve_destination_secret(secret_resolver, destination.secret_ref)
         yield client, token
         return
     token = await route_resolver.destination_token(session, destination)
@@ -238,19 +212,13 @@ async def destination_check(
             get_me = getattr(routed_client, "get_me", None)
             get_member = getattr(routed_client, "get_chat_member", None)
             if get_me is None or get_member is None:
-                chat = await routed_client.get_chat(destination.target_ref, token)
-                bot = {"id": None, "username": None}
-                member = {"administrator": True}
-            else:
-                bot = await get_me(token)
-                stages["telegram_health_status"] = "healthy"
-                stages["bot_health_status"] = "healthy"
-                chat = await routed_client.get_chat(destination.target_ref, token)
-                stages["target_health_status"] = "healthy"
-                member = await get_member(destination.target_ref, bot["id"], token)
+                raise TelegramConfigurationError("telegram_destination_check_unsupported_client")
+            bot = await get_me(token)
             stages["telegram_health_status"] = "healthy"
             stages["bot_health_status"] = "healthy"
+            chat = await routed_client.get_chat(destination.target_ref, token)
             stages["target_health_status"] = "healthy"
+            member = await get_member(destination.target_ref, bot["id"], token)
             stages["administrator_status"] = (
                 "administrator" if member.get("administrator") is True else "not_administrator"
             )

@@ -4,14 +4,16 @@ from datetime import UTC, datetime
 from typing import Annotated, Literal
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, Header, HTTPException, Query
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.dependencies import InjectedSession, scoped_principal_dependency
 from app.automations.definitions.execution import AutomationExecutionService
 from app.automations.definitions.models import AutomationRun, AutomationTemplate
 from app.automations.definitions.registry import node_catalog
 from app.automations.definitions.resources import summarize_resources
+from app.automations.definitions.runtime_state import continue_automation_artifact_review
 from app.automations.definitions.schemas import (
     AutomationCreate,
     AutomationDetailOut,
@@ -35,33 +37,28 @@ from app.automations.definitions.schemas import (
 )
 from app.automations.definitions.service import AutomationDefinitionService
 from app.core.config import settings
-from app.db.session import get_session
 from app.jobs.credential_capabilities import CapabilityStatusService
-from app.security.application_principal import resolve_application_principal
-from app.security.auth import AuthenticationFailure, SecurityPrincipal
+from app.security.auth import SecurityPrincipal
 
 router = APIRouter(tags=["automations"])
-InjectedSession = Annotated[AsyncSession, Depends(get_session)]
 IdempotencyKey = Annotated[str, Header(alias="Idempotency-Key", min_length=1, max_length=200)]
 
 
-def _principal(request: Request, *, required_scope: str, mutation: bool) -> SecurityPrincipal:
-    try:
-        principal = resolve_application_principal(request, config=settings, mutation=mutation)
-    except AuthenticationFailure as exc:
-        raise HTTPException(exc.status_code, detail={"code": exc.code}) from exc
-    if not principal.permits(required_scope):
-        raise HTTPException(403, detail={"code": "insufficient_permission"})
-    return principal
+# The automation surface publishes `insufficient_permission` rather than the
+# repo-wide `scope_denied` (see the policy note in app.security.middleware), so
+# the code is bound once here instead of repeated at every denial site.
+AUTOMATION_DENIAL_CODE = "insufficient_permission"
 
-
-async def _read_principal(request: Request) -> SecurityPrincipal:
-    return _principal(request, required_scope="automations:read", mutation=False)
-
-
-async def _write_principal(request: Request) -> SecurityPrincipal:
-    return _principal(request, required_scope="automations:write", mutation=True)
-
+_read_principal = scoped_principal_dependency(
+    "automations:read",
+    mutation=False,
+    denial_code=AUTOMATION_DENIAL_CODE,
+)
+_write_principal = scoped_principal_dependency(
+    "automations:write",
+    mutation=True,
+    denial_code=AUTOMATION_DENIAL_CODE,
+)
 
 ReadPrincipal = Annotated[SecurityPrincipal, Depends(_read_principal)]
 WritePrincipal = Annotated[SecurityPrincipal, Depends(_write_principal)]
@@ -77,7 +74,7 @@ def _require_resource_scopes(principal: SecurityPrincipal, kinds: set[str]) -> N
     for kind in kinds:
         scope = required.get(kind)
         if scope is not None and not principal.permits(scope):
-            raise HTTPException(403, detail={"code": "insufficient_permission"})
+            raise HTTPException(403, detail={"code": AUTOMATION_DENIAL_CODE})
 
 
 def _capability_status(session: AsyncSession) -> CapabilityStatusService:
@@ -439,8 +436,6 @@ async def approve_automation_artifact_review(
     run = await session.get(AutomationRun, run_id)
     if run is None:
         raise HTTPException(404, detail={"code": "automation_run_not_found"})
-    from app.automations.definitions.runtime_state import continue_automation_artifact_review
-
     await continue_automation_artifact_review(session, run_id=run_id, observed_at=datetime.now(UTC))
     await session.commit()
     return await AutomationExecutionService(session).get(run_id)

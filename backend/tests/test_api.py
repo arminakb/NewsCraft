@@ -2,6 +2,7 @@ from datetime import UTC, datetime
 from types import SimpleNamespace
 from uuid import uuid4
 
+import pytest
 from httpx import ASGITransport, AsyncClient
 
 from app.db.models import IngestRun, MediaAsset, Source
@@ -146,6 +147,69 @@ async def test_source_deletion_persists_across_listing_requests():
     assert after.json() == []
     assert source.deleted_at is not None
     assert fake_session.committed is True
+
+
+async def test_source_deletion_refuses_when_the_dependency_count_fails(monkeypatch):
+    """A broken dependency count must never be read as "no dependencies"."""
+
+    import app.api.sources as sources
+
+    source = Source(
+        id=uuid4(),
+        platform="rss",
+        name="Guarded",
+        feed_url="https://example.com/guarded.xml",
+        source_group="test",
+        language_hint="en",
+        active=True,
+    )
+    fake_session = PersistentSourceSession([source])
+    _override_session(fake_session)
+
+    async def exploding_count(session, resource_id):
+        raise TypeError("query signature changed")
+
+    monkeypatch.setattr(sources, "count_automation_definitions_referencing", exploding_count)
+
+    try:
+        with pytest.raises(TypeError):
+            await _delete(f"/sources/{source.id}")
+    finally:
+        app.dependency_overrides.clear()
+
+    assert source.deleted_at is None
+    assert fake_session.committed is False
+
+
+async def test_source_deletion_reports_definition_dependencies(monkeypatch):
+    import app.api.sources as sources
+
+    source = Source(
+        id=uuid4(),
+        platform="rss",
+        name="Referenced",
+        feed_url="https://example.com/referenced.xml",
+        source_group="test",
+        language_hint="en",
+        active=True,
+    )
+    fake_session = PersistentSourceSession([source])
+    _override_session(fake_session)
+
+    async def counted(session, resource_id):
+        return 2
+
+    monkeypatch.setattr(sources, "count_automation_definitions_referencing", counted)
+
+    try:
+        response = await _delete(f"/sources/{source.id}")
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 409
+    assert response.json()["detail"]["code"] == "source_has_automation_dependencies"
+    assert response.json()["detail"]["automations"] == 2
+    assert source.deleted_at is None
 
 
 async def test_individual_source_health_check_persists_result(monkeypatch):
@@ -526,7 +590,9 @@ class FakeSession:
     async def scalars(self, stmt):
         return self.rows
 
-    async def scalar(self, stmt):
+    async def scalar(self, stmt, params=None):
+        # AsyncSession.scalar accepts bound parameters; the double must too, so
+        # a parameterized query cannot silently degrade into a swallowed error.
         if self.scalar_results:
             return self.scalar_results.pop(0)
         return self.item
@@ -550,8 +616,16 @@ class FakeInsertResult:
 
 
 class PersistentSourceSession(FakeSession):
+    def __init__(self, rows, item=None, scalar_results=None):
+        super().__init__(rows, item=item, scalar_results=scalar_results)
+        self.executed = []
+
     def add(self, source):
         self.rows.append(source)
+
+    async def execute(self, statement):
+        self.executed.append(statement)
+        return None
 
     async def scalars(self, stmt):
         return [source for source in self.rows if source.deleted_at is None]

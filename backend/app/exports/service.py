@@ -18,6 +18,7 @@ import nh3
 from pydantic import ValidationError
 from sqlalchemy import case, select
 
+from app.automations.canonical_json import canonical_json_bytes, sha256_canonical
 from app.db.models import MediaAsset
 from app.exports.models import (
     BuildExportPayload,
@@ -46,15 +47,6 @@ class ExportContractError(ValueError):
         self.code = code
 
 
-def _canonical_json_bytes(value: Any) -> bytes:
-    return json.dumps(
-        value,
-        ensure_ascii=False,
-        sort_keys=True,
-        separators=(",", ":"),
-    ).encode("utf-8")
-
-
 def _sha256_bytes(content: bytes) -> str:
     return hashlib.sha256(content).hexdigest()
 
@@ -68,13 +60,11 @@ def _sha256_path(path: Path) -> str:
 
 
 def export_revision_content_hash(revision: PlatformVariantRevision) -> str:
-    return _sha256_bytes(
-        _canonical_json_bytes(
-            {
-                "content": revision.content,
-                "evidence_map": revision.evidence_map,
-            }
-        )
+    return sha256_canonical(
+        {
+            "content": revision.content,
+            "evidence_map": revision.evidence_map,
+        }
     )
 
 
@@ -234,16 +224,6 @@ class ExportService:
             include_media=request.include_media,
         )
 
-    async def build(
-        self,
-        request: ExportRequest,
-        *,
-        export_id: UUID,
-        created_at: datetime,
-    ) -> ExportArtifact:
-        payload = await self.prepare_payload(request)
-        return await self.build_from_payload(payload, export_id=export_id, created_at=created_at)
-
     async def build_from_payload(
         self,
         payload: BuildExportPayload,
@@ -314,7 +294,7 @@ class ExportService:
                 variants=actual_identities,
                 files=files,
             )
-            manifest_bytes = _canonical_json_bytes(manifest.model_dump(mode="json"))
+            manifest_bytes = canonical_json_bytes(manifest.model_dump(mode="json"))
             archive_sha256 = None
             if "zip" in payload.formats:
                 archive_path = staging / ARCHIVE_FILE
@@ -479,7 +459,7 @@ class ExportService:
             output.append(
                 (
                     base / "content.json",
-                    _canonical_json_bytes(
+                    canonical_json_bytes(
                         {
                             "platform": platform,
                             "revision_id": str(revision.id),
@@ -696,7 +676,7 @@ class ExportService:
             manifest = ExportManifest.model_validate_json(manifest_bytes)
         except ValidationError, ValueError:
             raise ExportContractError("existing export manifest is invalid") from None
-        if manifest_bytes != _canonical_json_bytes(manifest.model_dump(mode="json")):
+        if manifest_bytes != canonical_json_bytes(manifest.model_dump(mode="json")):
             raise ExportContractError("existing export manifest is not canonical")
         if (
             manifest.content_pack_id != pack.id

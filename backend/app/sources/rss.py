@@ -9,11 +9,10 @@ from bs4 import BeautifulSoup
 from app.normalization.dates import normalize_source_datetime
 from app.normalization.fingerprints import title_date_fingerprint
 from app.normalization.media import infer_media_kind, is_http_media_url, parse_int
-from app.normalization.text import fingerprint_text
+from app.normalization.text import fingerprint_text, html_to_text
 from app.normalization.titles import normalize_title
 from app.normalization.urls import normalize_url
 from app.sources.base import MediaCandidate, ParsedSourceItem, ParsedSourcePayload
-from app.sources.icon_discovery import extract_feed_identity
 
 
 def parse_rss_feed(
@@ -22,6 +21,14 @@ def parse_rss_feed(
     source_url: str,
     default_timezone: str = "UTC",
 ) -> ParsedSourcePayload:
+    """Parse a feed body into items.
+
+    `source_name` is accepted for call-site symmetry with the other parsers;
+    feed-level identity (publisher URL, icon candidates) is derived by icon
+    discovery from its own fetch, so it is deliberately not re-derived here.
+    """
+
+    del source_name
     feed = feedparser.parse(xml)
     warnings: list[str] = []
     if getattr(feed, "bozo", False):
@@ -32,23 +39,7 @@ def parse_rss_feed(
         for entry in feed.entries
     ]
 
-    feed_title = feed.feed.get("title") if getattr(feed, "feed", None) else None
-    identity = extract_feed_identity(xml, source_url)
-    return ParsedSourcePayload(
-        items=items,
-        warnings=warnings,
-        feed_meta={
-            "source_name": source_name,
-            "source_url": source_url,
-            "feed_title": feed_title,
-            "feed_version": feed.get("version"),
-            "publisher_url": identity.publisher_url,
-            "icon_candidates": [
-                {"url": candidate.url, "source": candidate.source}
-                for candidate in identity.candidates
-            ],
-        },
-    )
+    return ParsedSourcePayload(items=items, warnings=warnings)
 
 
 def _parse_entry(
@@ -63,8 +54,8 @@ def _parse_entry(
     summary_html = entry.get("summary") or entry.get("description") or ""
     source_content_html = _entry_content_html(entry)
     content_html = source_content_html or summary_html or None
-    summary = _html_to_text(summary_html)
-    content_text = _html_to_text(content_html) if content_html else summary or title
+    summary = html_to_text(summary_html)
+    content_text = html_to_text(content_html) if content_html else summary or title
     published_raw, published_at, date_parse_status = _entry_date(entry, default_timezone)
     categories = [tag.get("term") for tag in entry.get("tags", []) if tag.get("term")]
     external_id_raw = entry.get("id") or entry.get("guid") or link
@@ -189,7 +180,7 @@ def _external_id_norm(
 
 def _extract_media_candidates(entry: Any, content_html: str | None, source_url: str) -> list[MediaCandidate]:
     candidates: list[MediaCandidate] = []
-    seen: set[tuple[str, str]] = set()
+    seen: set[str] = set()
 
     for media in entry.get("media_content") or []:
         _append_media_candidate(candidates, seen, media, source_url, "media_content", confidence=1.0)
@@ -221,7 +212,7 @@ def _extract_media_candidates(entry: Any, content_html: str | None, source_url: 
 
 def _append_media_candidate(
     candidates: list[MediaCandidate],
-    seen: set[tuple[str, str]],
+    seen: set[str],
     media: dict,
     base_url: str,
     source_field: str,
@@ -233,10 +224,12 @@ def _append_media_candidate(
     normalized_url = normalize_url(original_url, base_url)
     if not is_http_media_url(normalized_url):
         return
-    dedupe_key = (normalized_url, source_field)
-    if dedupe_key in seen:
+    # Keyed on the URL alone: the fields are appended strongest-first, so the
+    # first sighting is the highest-confidence one. Keying on (url, field) let
+    # one image enter twice and the weaker copy then won downstream.
+    if normalized_url in seen:
         return
-    seen.add(dedupe_key)
+    seen.add(normalized_url)
 
     mime_type = media.get("type")
     medium = media.get("medium")
@@ -254,7 +247,3 @@ def _append_media_candidate(
             confidence=confidence,
         )
     )
-
-
-def _html_to_text(html: str) -> str:
-    return BeautifulSoup(html, "lxml").get_text(" ", strip=True)

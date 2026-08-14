@@ -89,7 +89,7 @@ export function WorkflowLibrary() {
         <section aria-labelledby="workflow-library-heading" className="min-w-0">
           <h2 className="sr-only" id="workflow-library-heading">Workflow library</h2>
           {workflows.data.items.length ? (
-            <WorkflowToolbar
+            <WorkflowLibraryFilters
               filters={{ search, status, trigger, platform, sort }}
               options={filterOptions}
               onSearch={setSearch}
@@ -138,7 +138,7 @@ type WorkflowFilters = {
   sort: "updated" | "name"
 }
 
-function WorkflowToolbar({
+function WorkflowLibraryFilters({
   filters,
   options,
   onSearch,

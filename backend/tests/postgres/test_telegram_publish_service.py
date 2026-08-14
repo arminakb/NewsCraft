@@ -11,7 +11,7 @@ import pytest
 from fastapi import HTTPException, Response
 from sqlalchemy import func, select
 
-from app.api.telegram_drafts import (
+from app.api.telegram_reconciliation import (
     TelegramReconcileIn,
     reconcile_telegram_publish_job,
 )
@@ -308,7 +308,7 @@ async def test_pre_dispatch_revalidation_refreshes_control_changed_between_trans
 ):
     fixture = await _seed_publish_fixtures(session_factory)
     client = CountingTelegramClient()
-    original_revalidate = telegram_publication._revalidate_claim
+    original_revalidate = telegram_publication.revalidate_claim
     changed = False
 
     async def change_control_then_revalidate(session, context):
@@ -323,7 +323,7 @@ async def test_pre_dispatch_revalidation_refreshes_control_changed_between_trans
 
     monkeypatch.setattr(
         telegram_publication,
-        "_revalidate_claim",
+        "revalidate_claim",
         change_control_then_revalidate,
     )
 
@@ -353,7 +353,7 @@ async def test_publish_claim_error_redacts_attempt_columns_without_changing_rais
     async def reject_claim(_session, _context):
         raise NeedsReviewJobError(code=code, message=message)
 
-    monkeypatch.setattr(telegram_publication, "_revalidate_claim", reject_claim)
+    monkeypatch.setattr(telegram_publication, "revalidate_claim", reject_claim)
     async with session_factory() as session:
         with pytest.raises(NeedsReviewJobError) as caught:
             await publish_telegram(

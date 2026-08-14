@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import math
-import re
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -11,6 +10,7 @@ from typing import Any, Protocol, cast
 from uuid import UUID
 
 from app.core.redaction import redact_secrets
+from app.jobs.secret_policy import restore_exempt_secrets
 
 
 class JobStatus(StrEnum):
@@ -36,23 +36,47 @@ class JobOrigin(StrEnum):
 
 
 class JobType(StrEnum):
+    """Every job type the default registry can route.
+
+    This enum is the inventory of routable work, not documentation: a job type
+    the worker can claim but cannot route is a queued row that dies at claim
+    time with ``UnknownJobTypeError``. ``build_default_registry`` registers
+    through these members and
+    ``tests/test_job_handler_registry.py::test_job_type_enum_matches_the_fully_capable_registry``
+    fails the moment a registration and this enum disagree in either direction.
+    """
+
+    # ingestion capability
+    CANARY_SOURCE_GENERATION = "operations.canary.source_generation"
+    INGEST_COLLECT = "ingest.collect"
+    INGEST_COLLECTION_CONTINUOUS_CYCLE = "ingest.collection.continuous_cycle"
     MANUAL_INTAKE = "manual_intake"
     STORY_GROUP_PENDING = "story.group_pending"
-    INGEST_COLLECTION_CONTINUOUS_CYCLE = "ingest.collection.continuous_cycle"
+
+    # source capability
     SOURCE_ICON_DISCOVERY = "source.icon.discover"
-    RESEARCH_STORY = "research_story"
-    TELEGRAM_ROUTE_INITIALIZE = "telegram.route.initialize"
-    TELEGRAM_ROUTE_POLL = "telegram.route.poll"
     TELEGRAM_ROUTE_BACKFILL = "telegram.route.backfill"
     TELEGRAM_ROUTE_DRY_RUN = "telegram.route.dry_run"
+    TELEGRAM_ROUTE_INITIALIZE = "telegram.route.initialize"
+    TELEGRAM_ROUTE_POLL = "telegram.route.poll"
+
+    # generation capability
+    AUTOMATION_RUN_START = "automation.run.start"
+    BUILD_EXPORT = "build_export"
+    CONTENT_PACK_GENERATE = "content_pack.generate"
+    CONTENT_PACK_GENERATE_TELEGRAM = "content_pack.generate_telegram"
+    CONTENT_PACK_REGENERATE = "content_pack.regenerate"
+    EXECUTE_RETENTION = "execute_retention"
     TELEGRAM_ROUTE_PROCESS = "telegram.route.process"
+
+    # research backend
+    RESEARCH_STORY = "research_story"
+
+    # publishing capability
+    CANARY_PUBLISHING = "operations.canary.publishing"
     TELEGRAM_DESTINATION_CHECK = "telegram.destination.check"
     TELEGRAM_PROXY_CHECK = "telegram.proxy.check"
     TELEGRAM_PUBLISH = "telegram.publish"
-    AUTOMATION_RUN_START = "automation.run.start"
-
-
-_RETENTION_PREVIEW_TOKEN_PATTERN = re.compile(r"^[0-9a-f]{64}$")
 
 
 def _freeze_json(value: object) -> object:
@@ -84,11 +108,8 @@ def _thaw_json(value: object) -> object:
 
 def _reject_secret_payload(job_type: str, payload: dict[str, Any]) -> None:
     sanitized = redact_secrets(payload)
-    if job_type == "execute_retention":
-        preview_token = payload.get("preview_token")
-        if isinstance(preview_token, str) and _RETENTION_PREVIEW_TOKEN_PATTERN.fullmatch(preview_token):
-            if isinstance(sanitized, dict):
-                sanitized["preview_token"] = preview_token
+    if isinstance(sanitized, dict):
+        sanitized = restore_exempt_secrets(job_type, payload, sanitized)
     if sanitized != payload:
         raise ValueError("job execution payload contains a secret value")
 

@@ -16,6 +16,9 @@ describe("DirectionBoundary", () => {
     ["fa", "rtl", "گزارش امروز"],
     ["fa-IR", "rtl", "گزارش منطقه‌ای"],
     ["ar-SA", "rtl", "تقرير اليوم"],
+    ["he", "rtl", "דיווח היום"],
+    ["ur-PK", "rtl", "آج کی رپورٹ"],
+    ["ckb", "rtl", "ڕاپۆرتی ئەمڕۆ"],
     ["en", "ltr", "Today report"],
     ["en-GB", "ltr", "Regional report"],
     ["fr", "ltr", "Rapport du jour"],
@@ -60,6 +63,17 @@ describe("DirectionBoundary", () => {
 
     expect(screen.getByLabelText("Story copy")).toHaveClass("copy")
     expect(screen.getByLabelText("Story copy").tagName).toBe("P")
+  })
+
+  it("lets a caller override the default test id", () => {
+    render(
+      <DirectionBoundary data-testid="story-copy" language="fa">
+        متن خبر
+      </DirectionBoundary>,
+    )
+
+    expect(screen.getByTestId("story-copy")).toHaveAttribute("dir", "rtl")
+    expect(screen.queryByTestId("direction-boundary")).not.toBeInTheDocument()
   })
 
   it("forwards a typed ref to the selected semantic element", () => {

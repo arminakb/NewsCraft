@@ -1,8 +1,8 @@
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react"
 
 import { SourcesPage } from "@/components/dashboard/pages/sources-page"
 import { NoticeProvider } from "@/components/providers/notice-provider"
-import { QueryProvider } from "@/components/providers/query-provider"
 import { dashboardMock } from "@/tests/fixtures/dashboard-mock"
 
 const ingestionMocks = vi.hoisted(() => ({
@@ -47,7 +47,7 @@ describe("operational pages", () => {
       lastCheckedAt: "2026-07-27T08:30:00Z",
       failureReason: "Source returned HTTP 503.",
     })
-    renderWithQuery(<SourcesPage initialSources={dashboardMock.sources} enableQueries={false} />)
+    renderWithQuery(<SourcesPage initialSources={dashboardMock.sources} />)
 
     fireEvent.click(screen.getByRole("button", { name: /check techcrunch health, currently healthy/i }))
 
@@ -90,7 +90,7 @@ describe("operational pages", () => {
         pending.set(sourceId, { resolve, reject })
       })
     )
-    renderWithQuery(<SourcesPage initialSources={sources} enableQueries={false} />)
+    renderWithQuery(<SourcesPage initialSources={sources} />)
 
     fireEvent.click(screen.getByRole("button", { name: /check all source health/i }))
 
@@ -139,7 +139,7 @@ describe("operational pages", () => {
   })
 
   it("renders source operations including seeding", async () => {
-    const { container } = renderWithQuery(<SourcesPage initialSources={dashboardMock.sources} enableQueries={false} />)
+    const { container } = renderWithQuery(<SourcesPage initialSources={dashboardMock.sources} />)
 
     expect(await screen.findByRole("heading", { name: /sources/i })).toBeInTheDocument()
     expect(screen.getByRole("navigation", { name: "Source collection filters" })).toBeInTheDocument()
@@ -160,7 +160,7 @@ describe("operational pages", () => {
   })
 
   it("keeps the Sources page responsive while switching source types", async () => {
-    renderWithQuery(<SourcesPage initialSources={dashboardMock.sources} enableQueries={false} />)
+    renderWithQuery(<SourcesPage initialSources={dashboardMock.sources} />)
 
     fireEvent.click(await screen.findByRole("tab", { name: /rss 1/i }))
     expect(screen.getByRole("row", { name: /techcrunch/i })).toBeInTheDocument()
@@ -175,7 +175,6 @@ describe("operational pages", () => {
     renderWithQuery(
       <SourcesPage
         initialSources={dashboardMock.sources}
-        enableQueries={false}
         initialSourceId={dashboardMock.sources[0].id}
       />
     )
@@ -198,7 +197,7 @@ describe("operational pages", () => {
   })
 
   it("adds an RSS source from the management dialog", async () => {
-    renderWithQuery(<SourcesPage initialSources={dashboardMock.sources} enableQueries={false} />)
+    renderWithQuery(<SourcesPage initialSources={dashboardMock.sources} />)
 
     fireEvent.click(screen.getByRole("button", { name: /add source/i }))
     const dialog = screen.getByRole("dialog", { name: /add source/i })
@@ -221,7 +220,7 @@ describe("operational pages", () => {
 
   it("keeps the add dialog open when persistent creation fails", async () => {
     ingestionMocks.createSource.mockRejectedValueOnce(new Error("Database unavailable"))
-    renderWithQuery(<SourcesPage initialSources={dashboardMock.sources} enableQueries={false} />)
+    renderWithQuery(<SourcesPage initialSources={dashboardMock.sources} />)
 
     fireEvent.click(screen.getByRole("button", { name: /add source/i }))
     const dialog = screen.getByRole("dialog", { name: /add source/i })
@@ -237,7 +236,7 @@ describe("operational pages", () => {
   })
 
   it("confirms before deleting an existing source", async () => {
-    renderWithQuery(<SourcesPage initialSources={dashboardMock.sources} enableQueries={false} />)
+    renderWithQuery(<SourcesPage initialSources={dashboardMock.sources} />)
 
     fireEvent.click(screen.getByRole("button", { name: /delete techcrunch/i }))
     const dialog = screen.getByRole("dialog", { name: /delete source/i })
@@ -260,7 +259,7 @@ describe("operational pages", () => {
         resolveDelete = resolve
       })
     )
-    renderWithQuery(<SourcesPage initialSources={dashboardMock.sources} enableQueries={false} />)
+    renderWithQuery(<SourcesPage initialSources={dashboardMock.sources} />)
 
     fireEvent.click(screen.getByRole("button", { name: /delete techcrunch/i }))
     const dialog = screen.getByRole("dialog", { name: /delete source/i })
@@ -279,7 +278,7 @@ describe("operational pages", () => {
 
   it("keeps the source visible and reports a persistent deletion failure", async () => {
     ingestionMocks.deleteSource.mockRejectedValueOnce(new Error("Database unavailable"))
-    renderWithQuery(<SourcesPage initialSources={dashboardMock.sources} enableQueries={false} />)
+    renderWithQuery(<SourcesPage initialSources={dashboardMock.sources} />)
 
     fireEvent.click(screen.getByRole("button", { name: /delete techcrunch/i }))
     const dialog = screen.getByRole("dialog", { name: /delete source/i })
@@ -294,9 +293,14 @@ describe("operational pages", () => {
 })
 
 function renderWithQuery(ui: React.ReactElement) {
+  // Queries stay disabled here: these specs drive the pages from
+  // `initialSources` and mocked mutations, never from network fetches.
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { enabled: false, retry: false } },
+  })
   return render(
-    <QueryProvider>
+    <QueryClientProvider client={queryClient}>
       <NoticeProvider>{ui}</NoticeProvider>
-    </QueryProvider>
+    </QueryClientProvider>
   )
 }

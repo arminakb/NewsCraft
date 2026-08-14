@@ -53,6 +53,7 @@ export function SettingsModal() {
   const dirty = useHasDirtyNavigation()
   const closeButtonRef = useRef<HTMLButtonElement>(null)
   const historyDepthRef = useRef(0)
+  const returnThroughHistoryRef = useRef(hasRememberedSettingsReturnPath())
   const [open, setOpen] = useState(true)
   const [mobileView, setMobileView] = useState<"categories" | "content">("categories")
 
@@ -69,7 +70,7 @@ export function SettingsModal() {
   }, [requestedSection])
 
   useEffect(() => {
-    if (!hasRememberedSettingsReturnPath()) return
+    if (!returnThroughHistoryRef.current) return
     const existingDepth = settingsHistoryDepth(window.history.state)
     historyDepthRef.current = existingDepth ?? 0
     if (existingDepth !== null) return
@@ -95,23 +96,25 @@ export function SettingsModal() {
 
   const closeModal = useCallback(() => {
     guardedNavigation(() => {
-      const returnThroughHistory = hasRememberedSettingsReturnPath()
       const returnPath = consumeSettingsReturnPath()
       requestSettingsFocusRestoration()
       setOpen(false)
-      if (returnThroughHistory) {
+      if (returnThroughHistoryRef.current) {
         const historyDelta = -(historyDepthRef.current + 1)
         window.setTimeout(() => window.history.go(historyDelta), 0)
         return
       }
-      router.push(returnPath, { scroll: false })
+      router.replace(returnPath, { scroll: false })
     }, discardMessage)
   }, [router])
 
   const selectSection = useCallback((section: SettingsSectionId) => {
     const navigate = () => {
-      const nextDepth = historyDepthRef.current + 1
-      window.history.pushState(
+      const nextDepth = returnThroughHistoryRef.current ? historyDepthRef.current + 1 : 0
+      const updateHistory = returnThroughHistoryRef.current
+        ? window.history.pushState.bind(window.history)
+        : window.history.replaceState.bind(window.history)
+      updateHistory(
         {
           ...(window.history.state ?? {}),
           [settingsHistoryDepthKey]: nextDepth,

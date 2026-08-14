@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from datetime import UTC, datetime
 from typing import Any
@@ -26,6 +27,7 @@ from app.llm_providers.schemas import (
     LLMProviderPatch,
     LLMProviderSettings,
     effective_llm_provider_settings,
+    generation_policy_for_provider,
 )
 from app.research.models import ResearchRun
 from app.security.auth import SecurityPrincipal
@@ -41,6 +43,30 @@ from app.security.secret_store import (
 
 ProviderProbe = Callable[[LLMProvider, str, LLMProviderSettings], Awaitable[None]]
 _ACTIVE_JOB_STATES = frozenset({"queued", "running", "retry_scheduled", "paused"})
+_PROVIDER_HTTP_ERROR = re.compile(r"(?:openrouter|openai_compatible)_http_(\d{3})\Z")
+
+
+def connection_failure_code(exc: Exception) -> str:
+    code = str(getattr(exc, "code", exc))
+    status_match = _PROVIDER_HTTP_ERROR.fullmatch(code)
+    if status_match is not None:
+        status = int(status_match.group(1))
+        if status in {401, 403}:
+            return "authentication_failed"
+        if status == 404:
+            return "model_unavailable"
+        return "connection_failed"
+    if code in {"openrouter_model_missing", "openai_compatible_model_missing"}:
+        return "model_unavailable"
+    if code in {"openrouter_transport_failed", "openai_compatible_transport_failed"}:
+        return "connection_failed"
+    if code.startswith(("openrouter_output_invalid_", "openai_compatible_output_invalid_")):
+        return "invalid_configuration"
+    if code == "credential_missing":
+        return "credential_missing"
+    if isinstance(exc, (ValidationError, ValueError)):
+        return "invalid_configuration"
+    return "connection_failed"
 
 
 def _base_url(value: object) -> str:
@@ -62,14 +88,17 @@ def _legacy_settings(provider: LLMProvider) -> dict[str, Any]:
         return {}
     configured = effective_llm_provider_settings(provider.settings)
     attribution = configured.attribution_headers
-    return {
+    legacy = {
         "base_url": provider.base_url,
         "timeout_seconds": configured.timeout_seconds,
         "http_referer": str(attribution.http_referer) if attribution.http_referer else None,
-        "app_title": attribution.app_title,
         "pricing": configured.pricing.model_dump(mode="json"),
         "research_budgets": configured.research_budgets.model_dump(mode="json"),
+        "generation_policy": generation_policy_for_provider(configured).model_dump(mode="json"),
     }
+    if attribution.app_title is not None:
+        legacy["app_title"] = attribution.app_title
+    return legacy
 
 
 def _contains_provider_id(value: object, provider_id: str) -> bool:
@@ -292,17 +321,7 @@ class LLMProviderService:
         except SecretStoreError:
             raise
         except Exception as exc:
-            code = str(getattr(exc, "code", exc))
-            if "401" in code or "403" in code:
-                failure = "authentication_failed"
-            elif "model" in code or "404" in code:
-                failure = "model_unavailable"
-            elif "credential" in code:
-                failure = "credential_missing"
-            elif isinstance(exc, (ValidationError, ValueError)):
-                failure = "invalid_configuration"
-            else:
-                failure = "connection_failed"
+            failure = connection_failure_code(exc)
             provider.health_status = "unhealthy"
             provider.generation_capability = "unavailable"
             provider.research_capability = "unavailable"

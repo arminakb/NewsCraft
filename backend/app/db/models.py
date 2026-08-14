@@ -372,6 +372,14 @@ class ItemIdentity(Base):
             unique=True,
             postgresql_where=text("scope = 'source' AND is_strong"),
         ),
+        Index(
+            "uq_identity_source_weak",
+            "source_id",
+            "identity_type",
+            "identity_hash",
+            unique=True,
+            postgresql_where=text("scope = 'source' AND NOT is_strong"),
+        ),
     )
 
 
@@ -404,6 +412,16 @@ class MediaAsset(Base):
     created_at: Mapped[datetime] = timestamp_now()
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now()
+    )
+
+    __table_args__ = (
+        Index(
+            "uq_media_assets_live_url_hash",
+            "url_hash",
+            unique=True,
+            postgresql_where=text("fetch_status <> 'expired'"),
+        ),
+        Index("ix_media_assets_url_hash", "url_hash"),
     )
 
 
