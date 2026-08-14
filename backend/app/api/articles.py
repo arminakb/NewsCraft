@@ -1,11 +1,7 @@
 from __future__ import annotations
 
-import base64
-import binascii
-import hashlib
-import json
 from collections import defaultdict
-from dataclasses import asdict, dataclass
+from dataclasses import dataclass
 from datetime import datetime
 from typing import Annotated, Any, Literal, cast
 from urllib.parse import urlsplit
@@ -18,6 +14,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 from sqlalchemy.sql import Select
 
+from app.api import article_query_helpers as _article_query_helpers
+from app.api.article_query_helpers import (
+    ArticleFilters,
+    ArticleSort,
+    decode_article_cursor,
+    encode_article_cursor,
+)
 from app.api.article_schemas import (
     ArticleAdvancedOut,
     ArticleCoverageFacetOut,
@@ -57,36 +60,7 @@ SessionDependency = Depends(get_session)
 
 _EXCERPT_LIMIT = 500
 _EXCERPT_SCAN_LIMIT = 2_000
-ArticleSort = Literal["newest", "score"]
-
-
-@dataclass(frozen=True, slots=True)
-class ArticleFilters:
-    search_query: str | None = None
-    languages: tuple[str, ...] = ()
-    topics: tuple[str, ...] = ()
-    content_types: tuple[str, ...] = ()
-    source_ids: tuple[UUID, ...] = ()
-    coverage: tuple[CoverageState, ...] = ()
-    has_image: bool | None = None
-    score_min: int | None = None
-    score_max: int | None = None
-    date_from: datetime | None = None
-    date_to: datetime | None = None
-    collection_id: UUID | None = None
-
-    def fingerprint(self) -> str:
-        raw = json.dumps(
-            asdict(self),
-            default=str,
-            ensure_ascii=True,
-            sort_keys=True,
-            separators=(",", ":"),
-        ).encode()
-        return hashlib.sha256(raw).hexdigest()
-
-
-_EMPTY_FILTER_KEY = ArticleFilters().fingerprint()
+_EMPTY_FILTER_KEY = _article_query_helpers._EMPTY_FILTER_KEY
 
 
 def _display_at_expression():
@@ -297,6 +271,77 @@ def _join_article_projection(statement: Select) -> Select:
     )
 
 
+def _apply_search_filter(statement: Select, search_query: str | None) -> Select:
+    if search_query is None:
+        return statement
+    if any(character.isalnum() for character in search_query):
+        return statement.where(
+            _search_vector_expression().op("@@")(
+                func.websearch_to_tsquery(
+                    literal_column("'simple'::regconfig"),
+                    search_query,
+                )
+            )
+        )
+    escaped_query = search_query.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+    pattern = f"%{escaped_query}%"
+    return statement.where(
+        or_(
+            ContentItem.title.ilike(pattern, escape="\\"),
+            ContentItem.content_text.ilike(pattern, escape="\\"),
+        )
+    )
+
+
+def _apply_classification_filters(
+    statement: Select,
+    filters: ArticleFilters,
+    *,
+    content_type,
+    topic,
+    language,
+) -> Select:
+    for values, expression in (
+        (filters.languages, language),
+        (filters.topics, topic),
+        (filters.content_types, content_type),
+    ):
+        if values:
+            statement = statement.where(expression.in_(values))
+    return statement
+
+
+def _apply_article_filters(statement: Select, filters: ArticleFilters, *, display_at) -> Select:
+    if filters.source_ids:
+        statement = statement.where(ContentItem.primary_source_id.in_(filters.source_ids))
+    if filters.coverage:
+        statement = statement.where(_coverage_state_expression().in_(filters.coverage))
+    if filters.has_image is not None:
+        usable_image = _usable_image_expression()
+        statement = statement.where(usable_image if filters.has_image else ~usable_image)
+    if filters.score_min is not None:
+        statement = statement.where(ContentItem.score >= filters.score_min)
+    if filters.score_max is not None:
+        statement = statement.where(ContentItem.score <= filters.score_max)
+    if filters.date_from is not None:
+        statement = statement.where(display_at >= filters.date_from)
+    if filters.date_to is not None:
+        statement = statement.where(display_at < filters.date_to)
+    if filters.collection_id is not None:
+        statement = statement.where(
+            exists(
+                select(1)
+                .select_from(ArticleCollectionItem)
+                .where(
+                    ArticleCollectionItem.collection_id == filters.collection_id,
+                    ArticleCollectionItem.content_item_id == ContentItem.id,
+                )
+                .correlate(ContentItem)
+            )
+        )
+    return statement
+
+
 @dataclass(frozen=True, slots=True)
 class ArticleQuery:
     filters: ArticleFilters
@@ -308,59 +353,15 @@ class ArticleQuery:
         content_type, topic, language = _article_classification_expressions()
         filters = self.filters
         statement = statement.where(active_feed_condition())
-        if filters.search_query is not None:
-            if any(character.isalnum() for character in filters.search_query):
-                statement = statement.where(
-                    _search_vector_expression().op("@@")(
-                        func.websearch_to_tsquery(
-                            literal_column("'simple'::regconfig"),
-                            filters.search_query,
-                        )
-                    )
-                )
-            else:
-                escaped_query = filters.search_query.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
-                pattern = f"%{escaped_query}%"
-                statement = statement.where(
-                    or_(
-                        ContentItem.title.ilike(pattern, escape="\\"),
-                        ContentItem.content_text.ilike(pattern, escape="\\"),
-                    )
-                )
-        if filters.languages:
-            statement = statement.where(language.in_(filters.languages))
-        if filters.topics:
-            statement = statement.where(topic.in_(filters.topics))
-        if filters.content_types:
-            statement = statement.where(content_type.in_(filters.content_types))
-        if filters.source_ids:
-            statement = statement.where(ContentItem.primary_source_id.in_(filters.source_ids))
-        if filters.coverage:
-            statement = statement.where(_coverage_state_expression().in_(filters.coverage))
-        if filters.has_image is not None:
-            usable_image = _usable_image_expression()
-            statement = statement.where(usable_image if filters.has_image else ~usable_image)
-        if filters.score_min is not None:
-            statement = statement.where(ContentItem.score >= filters.score_min)
-        if filters.score_max is not None:
-            statement = statement.where(ContentItem.score <= filters.score_max)
-        if filters.date_from is not None:
-            statement = statement.where(display_at >= filters.date_from)
-        if filters.date_to is not None:
-            statement = statement.where(display_at < filters.date_to)
-        if filters.collection_id is not None:
-            statement = statement.where(
-                exists(
-                    select(1)
-                    .select_from(ArticleCollectionItem)
-                    .where(
-                        ArticleCollectionItem.collection_id == filters.collection_id,
-                        ArticleCollectionItem.content_item_id == ContentItem.id,
-                    )
-                    .correlate(ContentItem)
-                )
-            )
-        return statement
+        statement = _apply_search_filter(statement, filters.search_query)
+        statement = _apply_classification_filters(
+            statement,
+            filters,
+            content_type=content_type,
+            topic=topic,
+            language=language,
+        )
+        return _apply_article_filters(statement, filters, display_at=display_at)
 
     def count_statement(self) -> Select:
         return self.filtered(select(func.count()).select_from(ContentItem))
@@ -431,50 +432,6 @@ def article_detail_statement(content_item_id: UUID) -> Select:
             MediaAsset.title.label("image_title"),
         )
     ).where(ContentItem.id == content_item_id)
-
-
-def encode_article_cursor(sort: ArticleSort, row: Any, filters_key: str = _EMPTY_FILTER_KEY) -> str:
-    payload: dict[str, object] = {
-        "v": 2,
-        "sort": sort,
-        "filters": filters_key,
-        "display_at": row.display_at.isoformat(),
-        "id": str(row.id),
-    }
-    if sort == "score":
-        payload["score"] = row.score
-    raw = json.dumps(payload, ensure_ascii=True, sort_keys=True, separators=(",", ":")).encode()
-    return base64.urlsafe_b64encode(raw).rstrip(b"=").decode("ascii")
-
-
-def decode_article_cursor(
-    value: str,
-    sort: ArticleSort,
-    filters_key: str = _EMPTY_FILTER_KEY,
-) -> tuple[datetime, UUID] | tuple[int, datetime, UUID]:
-    try:
-        padded = value + "=" * (-len(value) % 4)
-        raw = base64.b64decode(padded, altchars=b"-_", validate=True)
-        payload = json.loads(raw.decode("utf-8"))
-        expected_keys = {"v", "sort", "filters", "display_at", "id"}
-        if sort == "score":
-            expected_keys.add("score")
-        if not isinstance(payload, dict) or set(payload) != expected_keys:
-            raise ValueError
-        if payload["v"] != 2 or payload["sort"] != sort or payload["filters"] != filters_key:
-            raise ValueError
-        display_at = datetime.fromisoformat(payload["display_at"])
-        if display_at.tzinfo is None or display_at.utcoffset() is None:
-            raise ValueError
-        content_item_id = UUID(payload["id"])
-        if sort == "score":
-            score = payload["score"]
-            if isinstance(score, bool) or not isinstance(score, int):
-                raise ValueError
-            return score, display_at, content_item_id
-        return display_at, content_item_id
-    except binascii.Error, UnicodeError, json.JSONDecodeError, KeyError, TypeError, ValueError:
-        raise ValueError("invalid article cursor") from None
 
 
 def _route_cursor(value: str | None, sort: ArticleSort, filters_key: str):
