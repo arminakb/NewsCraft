@@ -10,12 +10,19 @@ LAST_UPDATED_BY: wingman-host (local session)
 OBJECTIVE: Full-codebase refactor — fix all bugs, remove redundancy and
   dead code, decompose oversized modules, make every gate green. Owner:
   "every stone turned", "give me a clean repo".
-PHASE: PAUSED by owner (2026-08-13 night) — wave2 chains integrated, gates green
+PHASE: sol-only continuation (2026-08-14) — finish today
 INTEGRATION_BRANCH: agent/finish-refactor-plan
 BASE_SHA: 8d5129a (merge of origin/main 46b4489 + orchestrator kit)
 CURRENT_HEAD_SHA: 397671c (gate fixes integrated: 3155f34 frontend test fix, 397671c backend gate fix)
 PR: none
 MERGE_POLICY: never merge without explicit user approval for the exact PR.
+
+OWNER_DIRECTIVES (verbatim, 2026-08-14): "ok so from now on dont use opus
+5 at all .. only sol .. high to max for fix and review .. max only for
+reviews . and continue the work . i want this finish today" — ALL
+delegated work runs on codex gpt-5.6-sol via .orchestrator/scripts/
+(CODEX_FIX_EFFORT=high default, max for hardest scopes; reviews always
+max). No Claude subagents of any model.
 
 OWNER_DIRECTIVES (verbatim, 2026-08-13):
 - "Wait dont use fable sub agents !! never use fable sub agents" — ALL
