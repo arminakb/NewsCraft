@@ -809,10 +809,11 @@ def _preserve_more_complete_content(
 
     incoming_metrics_raw = values.get("metrics")
     incoming_origin = incoming_metrics_raw.get("content_origin") if isinstance(incoming_metrics_raw, dict) else None
-    if incoming_origin == "source_provided":
-        # The source handed us a full body: that is an authoritative edit even
-        # when it is shorter than what we stored. Only excerpt/unavailable
-        # re-parses may fall through to the preservation path below.
+    if incoming_origin not in ("source_excerpt", "unavailable"):
+        # Only an explicit downgrade re-parse (feed excerpt, or no body at
+        # all) may keep the stored body. A source-provided body — or any
+        # ingest path that does not mark its origin — is an authoritative
+        # edit even when shorter than what we stored.
         return values
 
     stored_text = existing.content_text or ""
