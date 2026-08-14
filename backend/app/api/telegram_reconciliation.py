@@ -4,7 +4,7 @@ from datetime import UTC, datetime
 from typing import Annotated, Any, Literal
 from uuid import UUID
 
-from fastapi import Depends, HTTPException, Response
+from fastapi import APIRouter, Depends, HTTPException, Response
 from pydantic import BaseModel, ConfigDict, Field, HttpUrl, field_validator, model_validator
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -35,11 +35,8 @@ from app.publishing.telegram.service import (
     validate_reconciliation,
 )
 
-# This module owns the reconciliation operation's request model and handler
-# body; app/api/telegram_drafts.py owns the route table that mounts it. It
-# therefore declares no router of its own — a second APIRouter(prefix=
-# "/telegram") here was never decorated and never mounted.
 InjectedSession = Annotated[AsyncSession, Depends(get_session)]
+router = APIRouter(prefix="/telegram", tags=["telegram"])
 
 
 class TelegramReconcileIn(BaseModel):
@@ -62,7 +59,7 @@ class TelegramReconcileIn(BaseModel):
         return self
 
 
-def _publication_out(publication: Publication) -> dict[str, Any]:
+def publication_out(publication: Publication) -> dict[str, Any]:
     return {
         "id": publication.id,
         "publish_job_id": publication.publish_job_id,
@@ -76,7 +73,7 @@ def _publication_out(publication: Publication) -> dict[str, Any]:
     }
 
 
-def _receipt_out(receipt: PublishOperationReceipt) -> dict[str, Any]:
+def receipt_out(receipt: PublishOperationReceipt) -> dict[str, Any]:
     return {
         "id": receipt.id,
         "operation_index": receipt.operation_index,
@@ -95,7 +92,7 @@ def _receipt_out(receipt: PublishOperationReceipt) -> dict[str, Any]:
     }
 
 
-def _validate_reconciled_remote_ids(
+def validate_reconciled_remote_ids(
     receipt: Any,
     remote_message_ids: list[int],
     *,
@@ -199,7 +196,7 @@ async def _replay_reconciliation_decision(
         )
         if publication is None:
             raise HTTPException(409, "Prior reconciliation result is unavailable")
-        return _publication_out(publication)
+        return publication_out(publication)
 
     if event_data.get("outcome") == "not_published":
         workflow_job_id = _uuid_or_none(event_data.get("requeued_workflow_job_id"))
@@ -221,7 +218,7 @@ async def _replay_reconciliation_decision(
                 "status": requeued_job_status,
                 "deduplicated": requeued_job_deduplicated,
             },
-            "receipts": [_receipt_out(receipt) for receipt in receipts],
+            "receipts": [receipt_out(receipt) for receipt in receipts],
         }
 
     raise HTTPException(409, "Prior reconciliation result is unavailable")
@@ -312,7 +309,7 @@ async def _requeue_not_published(
             "status": result.job.status,
             "deduplicated": not result.created,
         },
-        "receipts": [_receipt_out(receipt) for receipt in receipts],
+        "receipts": [receipt_out(receipt) for receipt in receipts],
     }
 
 
@@ -327,7 +324,7 @@ async def _confirm_published(
     observed_at: datetime,
     generation: dict[str, object],
 ) -> dict[str, Any]:
-    _validate_reconciled_remote_ids(ambiguous, body.remote_message_ids)
+    validate_reconciled_remote_ids(ambiguous, body.remote_message_ids)
     ambiguous.status = "succeeded"
     ambiguous.remote_message_ids = list(body.remote_message_ids)
     ambiguous.response_metadata = {
@@ -401,9 +398,10 @@ async def _confirm_published(
         )
     )
     await session.flush()
-    return _publication_out(publication)
+    return publication_out(publication)
 
 
+@router.post("/publish-jobs/{publish_job_id}/reconcile")
 async def reconcile_telegram_publish_job(
     publish_job_id: UUID,
     body: TelegramReconcileIn,

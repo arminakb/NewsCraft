@@ -7,6 +7,7 @@ from types import SimpleNamespace
 
 import pytest
 
+import app.operations.health as health_module
 from app.core.config import Settings
 from app.db.schema import SCHEMA_HEAD
 from app.operations.health import (
@@ -34,6 +35,38 @@ class Rows:
 
     def __iter__(self):
         return iter(self.values)
+
+
+@pytest.mark.asyncio
+async def test_storage_probe_resolves_default_timeout_at_call_time(tmp_path, monkeypatch):
+    observed: dict[str, float] = {}
+
+    class Deadline:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_args):
+            return False
+
+    def timeout(seconds: float):
+        observed["seconds"] = seconds
+        return Deadline()
+
+    async def to_thread(_function):
+        return True
+
+    monkeypatch.setattr(
+        health_module,
+        "settings",
+        SimpleNamespace(health_storage_timeout_seconds=1.25),
+    )
+    monkeypatch.setattr(health_module.asyncio, "timeout", timeout)
+    monkeypatch.setattr(health_module.asyncio, "to_thread", to_thread)
+
+    result = await probe_storage_directory("media_storage", tmp_path, NOW)
+
+    assert result.state == HealthState.HEALTHY
+    assert observed == {"seconds": 1.25}
 
 
 class ReadinessSession:

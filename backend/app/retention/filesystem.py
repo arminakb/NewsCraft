@@ -19,12 +19,21 @@ from app.retention.contracts import (
     RetentionConflict,
     RetentionCountSnapshot,
     RetentionNotFound,
-    _snapshot_intents,
+    snapshot_intents,
 )
 from app.retention.models import RetentionRun
 
+__all__ = [
+    "MediaClaimClassification",
+    "UnsafeStoragePath",
+    "export_relative_path",
+    "finish_filesystem_phase",
+    "media_claim_identity",
+    "media_relative_path",
+]
 
-class _UnsafeStoragePath(ValueError):
+
+class UnsafeStoragePath(ValueError):
     pass
 
 
@@ -34,34 +43,34 @@ def _owned_root(value: Path) -> tuple[Path, Path]:
     for part in root.parts[1:]:
         current = current / part
         if current.is_symlink():
-            raise _UnsafeStoragePath("storage root contains a symlink")
+            raise UnsafeStoragePath("storage root contains a symlink")
         if current.exists() and not current.is_dir():
-            raise _UnsafeStoragePath("storage root contains a non-directory component")
+            raise UnsafeStoragePath("storage root contains a non-directory component")
     try:
         resolved = root.resolve(strict=False)
     except OSError as exc:
-        raise _UnsafeStoragePath("storage root cannot be resolved safely") from exc
+        raise UnsafeStoragePath("storage root cannot be resolved safely") from exc
     return root, resolved
 
 
-def _export_relative_path(export_root: Path, export_id: UUID) -> str:
+def export_relative_path(export_root: Path, export_id: UUID) -> str:
     root, resolved_root = _owned_root(export_root)
     target = root / str(export_id)
     if target.is_symlink():
-        raise _UnsafeStoragePath("export directory is a symlink")
+        raise UnsafeStoragePath("export directory is a symlink")
     if target.exists():
         if not target.is_dir():
-            raise _UnsafeStoragePath("export path is not a directory")
+            raise UnsafeStoragePath("export path is not a directory")
         try:
             resolved = target.resolve(strict=True)
         except OSError as exc:
-            raise _UnsafeStoragePath("export directory cannot be resolved safely") from exc
+            raise UnsafeStoragePath("export directory cannot be resolved safely") from exc
         if not resolved.is_relative_to(resolved_root):
-            raise _UnsafeStoragePath("export directory escapes the owned root")
+            raise UnsafeStoragePath("export directory escapes the owned root")
     return str(export_id)
 
 
-def _media_relative_path(media_root: Path, stored_path: str) -> str:
+def media_relative_path(media_root: Path, stored_path: str) -> str:
     root, resolved_root = _owned_root(media_root)
     stored = Path(stored_path)
     candidate = stored if stored.is_absolute() else root / stored
@@ -69,31 +78,31 @@ def _media_relative_path(media_root: Path, stored_path: str) -> str:
     try:
         relative = candidate.relative_to(root)
     except ValueError:
-        raise _UnsafeStoragePath("media path escapes the owned root") from None
+        raise UnsafeStoragePath("media path escapes the owned root") from None
     current = root
     for index, part in enumerate(relative.parts):
         current = current / part
         if current.is_symlink():
-            raise _UnsafeStoragePath("media path contains a symlink")
+            raise UnsafeStoragePath("media path contains a symlink")
         if current.exists() and index < len(relative.parts) - 1 and not current.is_dir():
-            raise _UnsafeStoragePath("media path contains a non-directory component")
+            raise UnsafeStoragePath("media path contains a non-directory component")
     if candidate.exists():
         try:
             resolved = candidate.resolve(strict=True)
         except OSError as exc:
-            raise _UnsafeStoragePath("media file cannot be resolved safely") from exc
+            raise UnsafeStoragePath("media file cannot be resolved safely") from exc
         if not resolved.is_relative_to(resolved_root) or not stat.S_ISREG(resolved.stat().st_mode):
-            raise _UnsafeStoragePath("media path is not a regular file under the owned root")
+            raise UnsafeStoragePath("media path is not a regular file under the owned root")
         return resolved.relative_to(resolved_root).as_posix()
     normalized = Path(os.path.normpath(str(candidate)))
     try:
         normalized_relative = normalized.relative_to(root)
     except ValueError:
-        raise _UnsafeStoragePath("missing media path escapes the owned root") from None
+        raise UnsafeStoragePath("missing media path escapes the owned root") from None
     return normalized_relative.as_posix()
 
 
-def _media_claim_identity(media_root: Path, stored_path: str) -> str:
+def media_claim_identity(media_root: Path, stored_path: str) -> str:
     """Resolve a retained path for protection only; deletion uses stricter no-follow rules."""
     root, resolved_root = _owned_root(media_root)
     stored = Path(stored_path)
@@ -102,11 +111,11 @@ def _media_claim_identity(media_root: Path, stored_path: str) -> str:
     try:
         resolved = candidate.resolve(strict=False)
     except OSError as exc:
-        raise _UnsafeStoragePath("media claim cannot be resolved safely") from exc
+        raise UnsafeStoragePath("media claim cannot be resolved safely") from exc
     if not resolved.is_relative_to(resolved_root):
-        raise _UnsafeStoragePath("media claim escapes the owned root")
+        raise UnsafeStoragePath("media claim escapes the owned root")
     if resolved.exists() and not stat.S_ISREG(resolved.stat().st_mode):
-        raise _UnsafeStoragePath("media claim does not resolve to a regular file")
+        raise UnsafeStoragePath("media claim does not resolve to a regular file")
     return resolved.relative_to(resolved_root).as_posix()
 
 
@@ -120,8 +129,8 @@ def _claimed_media_identities(media_root: Path, stored_paths: list[str]) -> tupl
     unclassifiable = False
     for stored_path in stored_paths:
         try:
-            identities.add(_media_claim_identity(media_root, stored_path))
-        except _UnsafeStoragePath:
+            identities.add(media_claim_identity(media_root, stored_path))
+        except UnsafeStoragePath:
             unclassifiable = True
     return identities, unclassifiable
 
@@ -161,15 +170,15 @@ def _classified_media_claims(
     unclassifiable = False
     for media_id, stored_path in stored_rows:
         try:
-            claim_identity = _media_claim_identity(media_root, stored_path)
-        except _UnsafeStoragePath:
+            claim_identity = media_claim_identity(media_root, stored_path)
+        except UnsafeStoragePath:
             unclassifiable = True
             continue
         canonical_paths[media_id] = claim_identity
         ids_by_path.setdefault(claim_identity, set()).add(media_id)
         try:
-            strict_identity = _media_relative_path(media_root, stored_path)
-        except _UnsafeStoragePath:
+            strict_identity = media_relative_path(media_root, stored_path)
+        except UnsafeStoragePath:
             continue
         if strict_identity == claim_identity:
             deletion_authorized.add(media_id)
@@ -190,7 +199,7 @@ def _delete_relative_owned(root_value: Path, relative_path: str, *, directory: b
         or "." in relative.parts
         or "\\" in relative_path
     ):
-        raise _UnsafeStoragePath("cleanup path is not a safe relative identity")
+        raise UnsafeStoragePath("cleanup path is not a safe relative identity")
     root = Path(root_value).absolute()
     flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC
     descriptors: list[int] = []
@@ -216,14 +225,14 @@ def _delete_relative_owned(root_value: Path, relative_path: str, *, directory: b
             return
         if directory:
             if not stat.S_ISDIR(metadata.st_mode):
-                raise _UnsafeStoragePath("cleanup target is not a directory")
+                raise UnsafeStoragePath("cleanup target is not a directory")
             shutil.rmtree(name, dir_fd=current_fd)
         else:
             if not stat.S_ISREG(metadata.st_mode):
-                raise _UnsafeStoragePath("cleanup target is not a regular file")
+                raise UnsafeStoragePath("cleanup target is not a regular file")
             os.unlink(name, dir_fd=current_fd)
     except OSError as exc:
-        raise _UnsafeStoragePath("cleanup target could not be traversed without symlinks") from exc
+        raise UnsafeStoragePath("cleanup target could not be traversed without symlinks") from exc
     finally:
         for descriptor in reversed(descriptors):
             os.close(descriptor)
@@ -257,7 +266,7 @@ async def finish_filesystem_phase(
     execution.reset("filesystem_deleted")
     execution.reset("filesystem_skipped")
     execution.skipped = dict(execution.database_skipped)
-    intents = _snapshot_intents(run)
+    intents = snapshot_intents(run)
     reclaimed_media_paths: set[str] = set()
     reclaimed_media_ids: set[UUID] = set()
     unclassifiable_media_claim = False
@@ -307,7 +316,7 @@ async def finish_filesystem_phase(
                 directory=intent.operation == "delete_tree",
             )
             execution.increment("filesystem_deleted", intent.category)
-        except OSError, _UnsafeStoragePath:
+        except OSError, UnsafeStoragePath:
             errors.append(
                 {
                     "phase": "filesystem",

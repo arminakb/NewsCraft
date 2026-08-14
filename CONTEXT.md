@@ -19,3 +19,23 @@ _Avoid_: Topic, category
 **Topic**:
 The subject an article covers, such as `AI`, `Tech`, or `Economy`.
 _Avoid_: Content type, format
+
+## Automation workflows
+
+**Automation**:
+A workflow definition with a draft version and, when activated, an active version.
+
+**AutomationVersion**:
+An immutable saved automation definition. Editing or restoring creates a new version.
+
+**AutomationRun**:
+One execution of an exact AutomationVersion and its immutable execution snapshots.
+
+**AutomationNodeRun**:
+One persisted node attempt within an AutomationRun, linked to the durable jobs and artifacts that implement it.
+
+**Template**:
+A reusable starting definition for creating an Automation; it is not itself an executable AutomationVersion.
+
+**Node type**:
+An allowlisted, server-owned workflow capability whose ports, safe configuration, validation, and runtime mapping are defined by the server registry.

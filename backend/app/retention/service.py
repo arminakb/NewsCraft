@@ -28,10 +28,10 @@ from app.retention.contracts import (
     RetentionPolicyInput,
     RetentionPreview,
     RetentionRecordType,
-    _policy_input,
-    _preview_from_run,
-    _snapshot_candidates,
     build_preview_token,
+    policy_input,
+    preview_from_run,
+    snapshot_candidates,
     summarize_candidates,
 )
 from app.retention.database import RetentionDatabaseExecutor
@@ -127,8 +127,6 @@ class RetentionService:
         await self.session.flush()
         return policy
 
-    save_policy = update_policy
-
     async def list_runs(self, limit: int = 50) -> list[RetentionRun]:
         if not 1 <= limit <= 250:
             raise ValueError("retention run limit must be between 1 and 250")
@@ -145,7 +143,7 @@ class RetentionService:
         return run
 
     async def _referenced_media_ids(self) -> set[UUID]:
-        return await self.planner._referenced_media_ids()
+        return await self.planner.referenced_media_ids()
 
     async def _collect_candidates(
         self,
@@ -156,7 +154,7 @@ class RetentionService:
         lock: bool = False,
         media_root: Path | None = None,
     ) -> list[RetentionCandidate]:
-        return await self.planner._collect_candidates(
+        return await self.planner.collect_candidates(
             policy,
             now=now,
             only=only,
@@ -166,7 +164,7 @@ class RetentionService:
 
     async def preview(self, policy: RetentionPolicyInput | None = None) -> RetentionPreview:
         observed_at = self._now()
-        effective_policy = policy or _policy_input(await self.get_policy())
+        effective_policy = policy or policy_input(await self.get_policy())
         candidates = await self._collect_candidates(effective_policy, now=observed_at)
         token = build_preview_token(
             effective_policy,
@@ -202,7 +200,7 @@ class RetentionService:
             run = await self.session.get(RetentionRun, inserted_id)
             if run is None:  # pragma: no cover - RETURNING guarantees the row
                 raise RuntimeError("retention preview could not be loaded")
-            return _preview_from_run(run)
+            return preview_from_run(run)
         existing = await self.session.scalar(
             select(RetentionRun).where(RetentionRun.preview_token == token).with_for_update()
         )
@@ -217,7 +215,7 @@ class RetentionService:
             existing.previewed_at = observed_at
             existing.preview_expires_at = observed_at + RETENTION_PREVIEW_TTL
             await self.session.flush()
-        return _preview_from_run(existing)
+        return preview_from_run(existing)
 
     async def enqueue(
         self,
@@ -234,7 +232,7 @@ class RetentionService:
             raise RetentionConflict("preview token does not match a persisted preview")
         if run.schema_revision != RETENTION_SCHEMA_REVISION:
             raise RetentionConflict("preview schema revision is no longer executable")
-        candidates = _snapshot_candidates(run)
+        candidates = snapshot_candidates(run)
         policy = RetentionPolicyInput.model_validate(run.policy_snapshot)
         expected_token = build_preview_token(
             policy,
@@ -378,11 +376,11 @@ class RetentionService:
         return RetentionEnqueueResult(run=run, job=result.job, created=result.created)
 
     async def _reset_all_skipped_database_run(self, run: RetentionRun) -> bool:
-        return await self.database._reset_all_skipped_database_run(run)
+        return await self.database.reset_all_skipped_database_run(run)
 
     @staticmethod
     def _execution_counts(run: RetentionRun) -> RetentionCountSnapshot:
-        return RetentionDatabaseExecutor._execution_counts(run)
+        return RetentionDatabaseExecutor.execution_counts(run)
 
     async def execute_db_phase(
         self,
