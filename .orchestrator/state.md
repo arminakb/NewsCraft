@@ -14,7 +14,7 @@ PHASE: COMPLETE (light-gate scope, 2026-08-14). Heavy battery + cold review pend
 INTEGRATION_BRANCH: agent/finish-refactor-plan
 BASE_SHA: 8d5129a (merge of origin/main 46b4489 + orchestrator kit)
 CURRENT_HEAD_SHA: 397671c (gate fixes integrated: 3155f34 frontend test fix, 397671c backend gate fix)
-PR: none
+PR: https://github.com/arminakb/NewsCraft/pull/19 (opened 2026-08-14; merge ONLY on owner approval after heavy battery per HANDOFF-heavy-testing.md)
 MERGE_POLICY: never merge without explicit user approval for the exact PR.
 
 OWNER_DIRECTIVES (verbatim, 2026-08-14): "ok so from now on dont use opus
