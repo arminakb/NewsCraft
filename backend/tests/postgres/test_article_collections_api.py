@@ -252,9 +252,14 @@ async def test_collection_article_trigger_starts_one_durable_run_and_preserves_a
         },
         "trigger": {
             "type": "collection_article_added",
+            "event_type": "collection.article_added",
             "collection_id": str(collection.id),
             "article_id": str(article.id),
             "occurred_at": result["output"]["trigger"]["occurred_at"],
+        },
+        "collection": {
+            "id": str(collection.id),
+            "name": "Trigger queue",
         },
     }
 

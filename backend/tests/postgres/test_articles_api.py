@@ -408,6 +408,9 @@ async def test_articles_handle_legacy_source_and_missing_optional_fields(db_sess
         "name": None,
         "platform": None,
         "homepage_url": None,
+        "icon_status": None,
+        "icon_updated_at": None,
+        "icon_url": None,
     }
     assert missing_row["published_at"] is None
     assert missing_row["topic"] is None

@@ -3424,11 +3424,8 @@ export interface components {
         };
         /** AttributionHeaders */
         AttributionHeaders: {
-            /**
-             * App Title
-             * @default NewsCraft
-             */
-            app_title: string;
+            /** App Title */
+            app_title?: string | null;
             /** Http Referer */
             http_referer?: string | null;
         };

@@ -718,7 +718,11 @@ def render_prompt_messages(
     values: dict[str, Any],
 ) -> tuple[ProviderMessage, ProviderMessage]:
     try:
-        validate_prompt_template_fields(prompt.user_template, required=tuple(values))
+        # The template may reference any SUBSET of the payload keys — payloads
+        # legitimately carry metadata that is never interpolated — but it must
+        # never reference a field outside the payload (or use dotted/indexed/
+        # format-spec fields, which the validator rejects).
+        validate_prompt_template_fields(prompt.user_template, required=(), allowed=tuple(values))
         rendered = prompt.user_template.format(**values)
     except (KeyError, IndexError, AttributeError, TypeError, ValueError):
         raise ValueError("generation prompt template cannot be rendered") from None

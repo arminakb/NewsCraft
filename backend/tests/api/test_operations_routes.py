@@ -430,13 +430,13 @@ def test_retention_preview_persists_and_returns_public_candidate_contract(api_cl
                 run_id=RUN_ID,
                 preview_token="b" * 64,
                 schema_revision="0009_operational_retention",
-                policy=SimpleNamespace(
-                    raw_payload_days=30,
-                    completed_job_days=90,
-                    attempt_metadata_days=90,
-                    export_artifact_days=14,
-                    unreferenced_media_days=30,
-                ),
+                policy={
+                    "raw_payload_days": 30,
+                    "completed_job_days": 90,
+                    "attempt_metadata_days": 90,
+                    "export_artifact_days": 14,
+                    "unreferenced_media_days": 30,
+                },
                 candidates=[
                     SimpleNamespace(
                         category="export_artifact",

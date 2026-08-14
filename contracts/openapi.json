@@ -1755,11 +1755,17 @@
         "additionalProperties": false,
         "properties": {
           "app_title": {
-            "default": "NewsCraft",
-            "maxLength": 80,
-            "minLength": 1,
-            "title": "App Title",
-            "type": "string"
+            "anyOf": [
+              {
+                "maxLength": 80,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "App Title"
           },
           "http_referer": {
             "anyOf": [
