@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+from dataclasses import dataclass
 from datetime import datetime
 
 from sqlalchemy import func, select
@@ -13,6 +14,7 @@ from app.jobs.types import JobStatus
 from app.operations.health import build_component_health, normalize_utc
 
 API_CAPABILITY_GATE_SESSION_KEY = "enforce_api_capability_gate"
+API_CAPABILITY_GATE_SNAPSHOT_KEY = "api_capability_gate_snapshot"
 SAFE_GATE_JOB_TYPE = re.compile(r"^[a-z][a-z0-9_.]{0,127}$")
 SAFE_GATE_CODES = frozenset(
     {
@@ -28,6 +30,44 @@ def api_capability_gate_enabled(session: AsyncSession) -> bool:
     return isinstance(info, dict) and info.get(API_CAPABILITY_GATE_SESSION_KEY) is True
 
 
+@dataclass(frozen=True, slots=True)
+class _CapabilityGateSnapshot:
+    config: Settings
+    coverage: dict[str, int]
+
+
+async def _request_snapshot(session: AsyncSession, config: Settings) -> _CapabilityGateSnapshot:
+    info = getattr(session, "info", None)
+    if isinstance(info, dict):
+        cached = info.get(API_CAPABILITY_GATE_SNAPSHOT_KEY)
+        if isinstance(cached, _CapabilityGateSnapshot) and cached.config is config:
+            return cached
+
+    database_now = await session.scalar(select(func.clock_timestamp()))
+    if not isinstance(database_now, datetime):
+        raise RuntimeError("database clock unavailable")
+    database_now = normalize_utc(database_now, field="capability gate database clock")
+    heartbeats = list(
+        await session.scalars(
+            select(RuntimeHeartbeat)
+            .where(RuntimeHeartbeat.component_type == "worker")
+            .order_by(RuntimeHeartbeat.observed_at.desc())
+            .limit(10_000)
+        )
+    )
+    _components, coverage = build_component_health(
+        heartbeats,
+        reference_time=database_now,
+        database_time_value=database_now,
+        config=config,
+        expected_component_ids="",
+    )
+    snapshot = _CapabilityGateSnapshot(config=config, coverage=coverage)
+    if isinstance(info, dict):
+        info[API_CAPABILITY_GATE_SNAPSHOT_KEY] = snapshot
+    return snapshot
+
+
 async def require_available_job_type(
     session: AsyncSession,
     job_type: str,
@@ -40,25 +80,7 @@ async def require_available_job_type(
 
     retry_after = config.capability_retry_after_seconds
     try:
-        database_now = await session.scalar(select(func.clock_timestamp()))
-        if not isinstance(database_now, datetime):
-            raise RuntimeError("database clock unavailable")
-        database_now = normalize_utc(database_now, field="capability gate database clock")
-        heartbeats = list(
-            await session.scalars(
-                select(RuntimeHeartbeat)
-                .where(RuntimeHeartbeat.component_type == "worker")
-                .order_by(RuntimeHeartbeat.observed_at.desc())
-                .limit(10_000)
-            )
-        )
-        _components, coverage = build_component_health(
-            heartbeats,
-            reference_time=database_now,
-            database_time_value=database_now,
-            config=config,
-            expected_component_ids="",
-        )
+        snapshot = await _request_snapshot(session, config)
         active_count = int(
             await session.scalar(
                 select(func.count())
@@ -79,7 +101,7 @@ async def require_available_job_type(
             retry_after_seconds=retry_after,
         ) from None
 
-    if coverage.get(job_type, 0) < 1:
+    if snapshot.coverage.get(job_type, 0) < 1:
         raise JobCapabilityUnavailable(
             code="job_capability_unavailable",
             job_type=job_type,

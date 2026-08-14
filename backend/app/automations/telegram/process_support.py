@@ -179,7 +179,7 @@ async def _exact_dispatch_evidence(
     return snapshot
 
 
-async def _dispatch_media(
+async def dispatch_media(
     session: Any,
     source_item: SourceItem,
     *,
@@ -209,7 +209,7 @@ async def _dispatch_media(
     return content_item, media
 
 
-def _media_decision(route: AutomationRoute, media: tuple[MediaAsset, ...]) -> tuple[list[UUID], bool, str | None]:
+def media_decision(route: AutomationRoute, media: tuple[MediaAsset, ...]) -> tuple[list[UUID], bool, str | None]:
     decision = evaluate_media_policy(route.media_policy, media)
     if decision.terminal_reason == "media_expired":
         raise NeedsReviewJobError(
@@ -335,7 +335,7 @@ async def _content_pack_and_variant(
     return pack, variant
 
 
-async def _require_automation_variant_write_allowed(session: Any, variant_id: UUID) -> None:
+async def require_automation_variant_write_allowed(session: Any, variant_id: UUID) -> None:
     try:
         await require_revision_write_allowed(session, variant_id=variant_id)
     except RegenerationFenceConflict:
@@ -373,7 +373,7 @@ def _generation_error(exc: Exception, route: AutomationRoute, job: JobExecution)
     return exc
 
 
-async def _resolve_process_prompt(
+async def resolve_process_prompt(
     session: Any,
     *,
     route: AutomationRoute,

@@ -13,8 +13,6 @@ from app.automations.definitions.validation import validate_graph
 
 COMPILER_VERSION = "workflow-v1.0"
 LEGACY_COMPILER_VERSION = "legacy-route-v1"
-_LEGACY_PROJECTION_TYPE = "telegram_route"
-_LEGACY_PLAN_KEYS = frozenset({"compiler_version", "projection_type", "route_id"})
 
 
 class CompilationError(ValueError):
@@ -191,10 +189,6 @@ def node_map(plan: CompiledWorkflowPlan) -> dict[str, list[str]]:
     return grouped
 
 
-def compiled_plan_data(graph: WorkflowGraphV1) -> dict[str, object]:
-    return compile_graph(graph).model_dump(mode="json")
-
-
 def verify_compiled_plan(graph: WorkflowGraphV1, raw_plan: dict[str, object]) -> CompiledWorkflowPlan:
     """Return the plan a run may execute, refusing one that has drifted from the graph.
 
@@ -205,18 +199,15 @@ def verify_compiled_plan(graph: WorkflowGraphV1, raw_plan: dict[str, object]) ->
 
     Versions backfilled by migration 0027 carry the ``legacy-route-v1``
     placeholder, which records no stages and so has nothing to compare against.
-    Those are executed from a freshly compiled plan, but only when the row really
-    is that placeholder — anything else claiming the legacy version is treated as
-    stale rather than trusted unread.
+    Those versions must be recompiled into a new immutable version before they
+    can execute.
     """
 
     if raw_plan.get("compiler_version") == LEGACY_COMPILER_VERSION:
-        if set(raw_plan) != _LEGACY_PLAN_KEYS or raw_plan.get("projection_type") != _LEGACY_PROJECTION_TYPE:
-            raise CompilationError(
-                "automation_compiled_plan_stale",
-                "Saved execution plan must be recompiled as a new version.",
-            )
-        return compile_graph(graph)
+        raise CompilationError(
+            "automation_compiled_plan_stale",
+            "Saved execution plan must be recompiled as a new version.",
+        )
     saved = CompiledWorkflowPlan.model_validate(raw_plan)
     current = compile_graph(graph)
     if saved.compiler_version != current.compiler_version or saved.plan_hash != current.plan_hash:
@@ -234,7 +225,6 @@ __all__ = [
     "CompiledStage",
     "CompiledWorkflowPlan",
     "compile_graph",
-    "compiled_plan_data",
     "node_map",
     "stage",
     "verify_compiled_plan",

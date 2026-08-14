@@ -219,9 +219,6 @@ async def destination_check(
             chat = await routed_client.get_chat(destination.target_ref, token)
             stages["target_health_status"] = "healthy"
             member = await get_member(destination.target_ref, bot["id"], token)
-            stages["telegram_health_status"] = "healthy"
-            stages["bot_health_status"] = "healthy"
-            stages["target_health_status"] = "healthy"
             stages["administrator_status"] = (
                 "administrator" if member.get("administrator") is True else "not_administrator"
             )

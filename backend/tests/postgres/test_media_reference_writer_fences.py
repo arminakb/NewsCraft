@@ -8,7 +8,7 @@ from uuid import uuid4
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from app.automations.telegram.handlers import _dispatch_media, _media_decision
+from app.automations.telegram.handlers import dispatch_media, media_decision
 from app.db.models import ContentItem, ItemMedia, MediaAsset
 from app.jobs.errors import NeedsReviewJobError
 
@@ -63,7 +63,7 @@ async def test_revision_media_lock_refreshes_a_stale_tombstoned_asset(
             expired.storage_path = None
             await retention_session.commit()
 
-        _, refreshed_media = await _dispatch_media(
+        _, refreshed_media = await dispatch_media(
             stale_session,
             SimpleNamespace(content_item_id=content_item.id),
         )
@@ -72,5 +72,5 @@ async def test_revision_media_lock_refreshes_a_stale_tombstoned_asset(
         assert stale_media.fetch_status == "expired"
         assert stale_media.storage_path is None
         with pytest.raises(NeedsReviewJobError) as caught:
-            _media_decision(SimpleNamespace(media_policy="preserve"), refreshed_media)
+            media_decision(SimpleNamespace(media_policy="preserve"), refreshed_media)
         assert caught.value.code == "telegram_media_expired"
