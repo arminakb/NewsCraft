@@ -87,18 +87,18 @@ async def _defer_if_paused(
     }
 
 
-async def initialize_route(
-    job: JobExecution,
-    context: JobContext,
-    *,
-    dependencies: TelegramRouteDependencies,
-) -> dict[str, Any]:
-    payload = _parse_payload(InitializeJobPayload, job_payload_copy(job))
-    loaded = await _load_route(context, payload.route_id, dependencies.source_registry)
-    route = loaded.route
-    deferred = await _defer_if_paused(job, context, loaded, dependencies=dependencies)
-    if deferred is not None:
-        return deferred
+@dataclass(frozen=True, slots=True)
+class _ActivationScan:
+    predecessor: int | None
+    envelopes: tuple[TelegramEnvelope, ...]
+    snapshot_token: str | None
+    page_token: str | None
+    seen_page_tokens: tuple[str | None, ...]
+    last_scanned: int
+    proven: bool
+
+
+def _initialization_state(route: Any, payload: InitializeJobPayload) -> tuple[dict[str, Any], str, datetime, str]:
     state = dict(route.cursor_state or {})
     requested_raw = state.get("activation_requested_at")
     if not requested_raw:
@@ -118,337 +118,371 @@ async def initialize_route(
             code="activation_changed",
             message="Telegram route activation does not match this initialization job",
         )
-    if state.get("status") == "ready":
-        return {
-            "route_id": str(route.id),
-            "cursor": state.get("last_message_id", 0),
-            "captured": 0,
-            "initialized": True,
-        }
-    expected_initialization_status = str(state.get("status"))
-    if expected_initialization_status not in {"initializing", "catching_up"}:
-        raise PermanentJobError(
-            code="route_state_changed",
-            message="Telegram route is not initializing",
-        )
-    boundary = requested_at.replace(microsecond=0)
-    await context.session.commit()
+    expected_status = str(state.get("status"))
+    if expected_status != "ready" and expected_status not in {"initializing", "catching_up"}:
+        raise PermanentJobError(code="route_state_changed", message="Telegram route is not initializing")
+    return state, str(requested_raw), requested_at, expected_status
 
-    captured = 0
-    predecessor = state.get("activation_message_id")
+
+async def _lock_validate_or_defer(
+    job: JobExecution,
+    context: JobContext,
+    route_id: Any,
+    *,
+    dependencies: TelegramRouteDependencies,
+    required_status: str,
+    activation_requested_at: str | None,
+) -> tuple[Any, dict[str, Any] | None]:
+    locked, control = await _lock_route_and_control(context, route_id)
+    pause_reason = _validate_locked_route(
+        locked,
+        control,
+        required_status=required_status,
+        activation_requested_at=activation_requested_at,
+    )
+    if pause_reason is None:
+        return locked, None
+    deferred_until = dependencies.now() + timedelta(seconds=max(locked.poll_interval_seconds, 30))
+    await _defer_route_job(
+        context,
+        repository=dependencies.job_repository,
+        route=locked,
+        job=job,
+        scheduled_for=deferred_until,
+    )
+    return locked, {"held": True, "reason": pause_reason, "deferred_until": deferred_until.isoformat()}
+
+
+async def _scan_activation_pages(
+    loaded: _LoadedRoute,
+    state: dict[str, Any],
+    boundary: datetime,
+    *,
+    page_budget: int,
+) -> _ActivationScan:
+    snapshot_token = state.get("activation_snapshot_token")
+    page_token = state.get("activation_page_token")
+    seen_page_tokens = list(state.get("activation_seen_page_tokens") or [])
+    last_scanned = int(state.get("activation_last_scanned_id") or 0)
     initial_envelopes: list[TelegramEnvelope] = []
-    if predecessor is None:
-        snapshot_token = state.get("activation_snapshot_token")
-        page_token = state.get("activation_page_token")
-        seen_page_tokens = list(state.get("activation_seen_page_tokens") or [])
-        last_scanned = int(state.get("activation_last_scanned_id") or 0)
-        proven = False
-        for _ in range(dependencies.page_budget):
-            current_page_token = page_token
-            if current_page_token in seen_page_tokens:
-                raise RetryableJobError(
-                    code="telegram_activation_token_repeated",
-                    message="Telegram activation repeated a page token",
-                )
-            result = await loaded.adapter.fetch(
-                _request(
-                    loaded,
-                    limit=100,
-                    snapshot_token=snapshot_token,
-                    page_token=page_token,
-                )
+    for _ in range(page_budget):
+        current_page_token = page_token
+        if current_page_token in seen_page_tokens:
+            raise RetryableJobError(
+                code="telegram_activation_token_repeated",
+                message="Telegram activation repeated a page token",
             )
-            if snapshot_token is not None and result.snapshot_token != snapshot_token:
-                raise RetryableJobError(
-                    code="telegram_activation_snapshot_changed",
-                    message="Telegram activation snapshot changed during pagination",
-                )
-            snapshot_token = result.snapshot_token
-            seen_page_tokens.append(current_page_token)
-            ordered = sorted(result.envelopes, key=_coordinate, reverse=True)
-            if ordered:
-                page_minimum = min(item.anchor_message_id for item in ordered)
-                if last_scanned and page_minimum >= last_scanned:
-                    raise RetryableJobError(
-                        code="telegram_activation_envelope_no_progress",
-                        message="Telegram activation pages made no unique progress",
-                    )
-                last_scanned = page_minimum
-            boundary_decision = classify_activation_page(
-                ordered,
-                boundary=boundary,
-                complete=result.complete,
-            )
-            initial_envelopes.extend(boundary_decision.newer)
-            if boundary_decision.boundary_proven:
-                predecessor = boundary_decision.predecessor_id
-                proven = True
-                break
-            if not ordered:
-                raise RetryableJobError(
-                    code="telegram_activation_page_no_progress",
-                    message="Telegram activation page made no progress",
-                )
-            if result.next_page_token is None:
-                raise RetryableJobError(
-                    code="telegram_activation_page_incomplete",
-                    message="Telegram source did not provide a complete activation page",
-                )
-            if result.next_page_token == current_page_token or result.next_page_token in seen_page_tokens:
-                raise RetryableJobError(
-                    code="telegram_activation_token_repeated",
-                    message="Telegram activation repeated a page token",
-                )
-            page_token = result.next_page_token
-        if not proven:
-            async with context.session.begin():
-                locked, control = await _lock_route_and_control(context, route.id)
-                pause_reason = _validate_locked_route(
-                    locked,
-                    control,
-                    required_status=expected_initialization_status,
-                    activation_requested_at=str(requested_raw),
-                )
-                if pause_reason is not None:
-                    deferred_until = dependencies.now() + timedelta(seconds=max(locked.poll_interval_seconds, 30))
-                    await _defer_route_job(
-                        context,
-                        repository=dependencies.job_repository,
-                        route=locked,
-                        job=job,
-                        scheduled_for=deferred_until,
-                    )
-                    return {
-                        "held": True,
-                        "reason": pause_reason,
-                        "deferred_until": deferred_until.isoformat(),
-                    }
-                locked_state = dict(locked.cursor_state or {})
-                locked_state.update(
-                    {
-                        "status": "catching_up",
-                        "activation_boundary_at": boundary.isoformat(),
-                        "activation_snapshot_token": snapshot_token,
-                        "activation_page_token": page_token,
-                        "activation_seen_page_tokens": seen_page_tokens,
-                        "activation_last_scanned_id": last_scanned,
-                    }
-                )
-                locked.cursor_state = locked_state
-                await _enqueue_continuation(
-                    context,
-                    repository=dependencies.job_repository,
-                    route_id=route.id,
-                    last_scanned_id=last_scanned,
-                    activation_requested_at=str(requested_raw),
-                    phase="activation_scan",
-                    continuation_state={
-                        "activation_requested_at": str(requested_raw),
-                        "snapshot_token": snapshot_token,
-                        "page_token": page_token,
-                        "last_scanned_id": last_scanned,
-                    },
-                )
-            return {
-                "route_id": str(route.id),
-                "captured": 0,
-                "initialized": False,
-                "continuation_enqueued": True,
-            }
-
-        async with context.session.begin():
-            locked, control = await _lock_route_and_control(context, route.id)
-            pause_reason = _validate_locked_route(
-                locked,
-                control,
-                required_status=expected_initialization_status,
-                activation_requested_at=str(requested_raw),
-            )
-            if pause_reason is not None:
-                deferred_until = dependencies.now() + timedelta(seconds=max(locked.poll_interval_seconds, 30))
-                await _defer_route_job(
-                    context,
-                    repository=dependencies.job_repository,
-                    route=locked,
-                    job=job,
-                    scheduled_for=deferred_until,
-                )
-                return {
-                    "held": True,
-                    "reason": pause_reason,
-                    "deferred_until": deferred_until.isoformat(),
-                }
-            if predecessor is None:
-                predecessor = 0
-            locked_state = dict(locked.cursor_state or {})
-            locked_state.update(
-                {
-                    "status": "catching_up",
-                    "activation_boundary_at": boundary.isoformat(),
-                    "activation_message_id": int(predecessor),
-                    "last_message_id": int(predecessor),
-                }
-            )
-            locked_state.pop("activation_snapshot_token", None)
-            locked_state.pop("activation_page_token", None)
-            locked_state.pop("activation_seen_page_tokens", None)
-            locked_state.pop("activation_last_scanned_id", None)
-            locked.cursor_state = locked_state
-
-        unique_initial = {item.source_key: item for item in initial_envelopes}
-        for envelope in sorted(unique_initial.values(), key=_coordinate):
-            _, deferred = await _capture(
-                loaded=loaded,
-                envelope=envelope,
-                dispatch_kind="live",
-                job=job,
-                context=context,
-                media_stager=dependencies.media_stager,
-                repository=dependencies.job_repository,
-                activation_requested_at=str(requested_raw),
-                required_status="catching_up",
-                deferred_until=dependencies.now() + timedelta(seconds=max(route.poll_interval_seconds, 30)),
-            )
-            if deferred is not None:
-                return deferred
-            captured += 1
-
-    for _ in range(dependencies.page_budget):
-        cursor = int((route.cursor_state or {}).get("last_message_id") or 0)
-        saved_forward = (route.cursor_state or {}).get("initialization_forward")
-        base_cursor = int((saved_forward or {}).get("base_after_id", cursor))
-        step = await _fetch_forward_step(
-            loaded,
-            after_id=base_cursor,
-            page_budget=dependencies.page_budget,
-            saved_state=saved_forward,
+        result = await loaded.adapter.fetch(
+            _request(loaded, limit=100, snapshot_token=snapshot_token, page_token=page_token)
         )
-        for envelope in step.envelopes:
-            _, deferred = await _capture(
-                loaded=loaded,
-                envelope=envelope,
-                dispatch_kind="live",
-                job=job,
-                context=context,
-                media_stager=dependencies.media_stager,
-                repository=dependencies.job_repository,
-                activation_requested_at=str(requested_raw),
-                required_status="catching_up",
-                deferred_until=dependencies.now() + timedelta(seconds=max(route.poll_interval_seconds, 30)),
+        if snapshot_token is not None and result.snapshot_token != snapshot_token:
+            raise RetryableJobError(
+                code="telegram_activation_snapshot_changed",
+                message="Telegram activation snapshot changed during pagination",
             )
-            if deferred is not None:
-                return deferred
-            captured += 1
-        if step.state is not None:
-            progress = await _persist_forward_progress(
-                context,
-                repository=dependencies.job_repository,
-                route_id=route.id,
-                job=job,
-                state_key="initialization_forward",
-                state=step.state,
-                last_scanned_id=step.last_scanned_id,
-                required_status="catching_up",
-                activation_requested_at=str(requested_raw),
-                deferred_until=dependencies.now() + timedelta(seconds=max(route.poll_interval_seconds, 30)),
+        snapshot_token = result.snapshot_token
+        seen_page_tokens.append(current_page_token)
+        ordered = sorted(result.envelopes, key=_coordinate, reverse=True)
+        last_scanned = _activation_page_progress(ordered, last_scanned)
+        decision = classify_activation_page(ordered, boundary=boundary, complete=result.complete)
+        initial_envelopes.extend(decision.newer)
+        if decision.boundary_proven:
+            return _ActivationScan(
+                decision.predecessor_id,
+                tuple(initial_envelopes),
+                snapshot_token,
+                page_token,
+                tuple(seen_page_tokens),
+                last_scanned,
+                True,
             )
-            progress["captured"] = captured
-            return progress
-        if not step.envelopes:
-            async with context.session.begin():
-                locked, control = await _lock_route_and_control(context, route.id)
-                pause_reason = _validate_locked_route(
-                    locked,
-                    control,
-                    required_status="catching_up",
-                    activation_requested_at=str(requested_raw),
-                )
-                if pause_reason is not None:
-                    deferred_until = dependencies.now() + timedelta(seconds=max(locked.poll_interval_seconds, 30))
-                    await _defer_route_job(
-                        context,
-                        repository=dependencies.job_repository,
-                        route=locked,
-                        job=job,
-                        scheduled_for=deferred_until,
-                    )
-                    return {
-                        "held": True,
-                        "reason": pause_reason,
-                        "deferred_until": deferred_until.isoformat(),
-                    }
-                locked_state = dict(locked.cursor_state or {})
-                locked_state.pop("initialization_forward", None)
-                locked_state["status"] = "ready"
-                initialized_at = dependencies.now()
-                locked_state["initialized_at"] = initialized_at.isoformat()
-                locked.cursor_state = locked_state
-                locked.next_poll_at = initialized_at
-            cursor = int((route.cursor_state or {}).get("last_message_id") or 0)
-            return {
-                "route_id": str(route.id),
-                "cursor": cursor,
-                "captured": captured,
-                "initialized": True,
-            }
-        if saved_forward is not None:
-            async with context.session.begin():
-                locked, control = await _lock_route_and_control(context, route.id)
-                pause_reason = _validate_locked_route(
-                    locked,
-                    control,
-                    required_status="catching_up",
-                    activation_requested_at=str(requested_raw),
-                )
-                if pause_reason is not None:
-                    deferred_until = dependencies.now() + timedelta(seconds=max(locked.poll_interval_seconds, 30))
-                    await _defer_route_job(
-                        context,
-                        repository=dependencies.job_repository,
-                        route=locked,
-                        job=job,
-                        scheduled_for=deferred_until,
-                    )
-                    return {
-                        "held": True,
-                        "reason": pause_reason,
-                        "deferred_until": deferred_until.isoformat(),
-                    }
-                locked_state = dict(locked.cursor_state or {})
-                locked_state.pop("initialization_forward", None)
-                locked.cursor_state = locked_state
-    cursor = int((route.cursor_state or {}).get("last_message_id") or 0)
+        page_token = _next_activation_page_token(result, current_page_token, seen_page_tokens, ordered)
+    return _ActivationScan(
+        None,
+        tuple(initial_envelopes),
+        snapshot_token,
+        page_token,
+        tuple(seen_page_tokens),
+        last_scanned,
+        False,
+    )
+
+
+def _activation_page_progress(ordered: list[TelegramEnvelope], last_scanned: int) -> int:
+    if not ordered:
+        return last_scanned
+    page_minimum = min(item.anchor_message_id for item in ordered)
+    if last_scanned and page_minimum >= last_scanned:
+        raise RetryableJobError(
+            code="telegram_activation_envelope_no_progress",
+            message="Telegram activation pages made no unique progress",
+        )
+    return page_minimum
+
+
+def _next_activation_page_token(
+    result: Any,
+    current_page_token: str | None,
+    seen_page_tokens: list[str | None],
+    ordered: list[TelegramEnvelope],
+) -> str:
+    if not ordered:
+        raise RetryableJobError(
+            code="telegram_activation_page_no_progress",
+            message="Telegram activation page made no progress",
+        )
+    if result.next_page_token is None:
+        raise RetryableJobError(
+            code="telegram_activation_page_incomplete",
+            message="Telegram source did not provide a complete activation page",
+        )
+    if result.next_page_token == current_page_token or result.next_page_token in seen_page_tokens:
+        raise RetryableJobError(
+            code="telegram_activation_token_repeated",
+            message="Telegram activation repeated a page token",
+        )
+    return result.next_page_token
+
+
+async def _persist_activation_scan(
+    job: JobExecution,
+    context: JobContext,
+    route: Any,
+    scan: _ActivationScan,
+    *,
+    dependencies: TelegramRouteDependencies,
+    expected_status: str,
+    requested_raw: str,
+    boundary: datetime,
+) -> dict[str, Any]:
     async with context.session.begin():
-        locked, control = await _lock_route_and_control(context, route.id)
-        pause_reason = _validate_locked_route(
-            locked,
-            control,
-            required_status="catching_up",
-            activation_requested_at=str(requested_raw),
+        locked, deferred = await _lock_validate_or_defer(
+            job,
+            context,
+            route.id,
+            dependencies=dependencies,
+            required_status=expected_status,
+            activation_requested_at=requested_raw,
         )
-        if pause_reason is not None:
-            deferred_until = dependencies.now() + timedelta(seconds=max(locked.poll_interval_seconds, 30))
-            await _defer_route_job(
-                context,
-                repository=dependencies.job_repository,
-                route=locked,
-                job=job,
-                scheduled_for=deferred_until,
-            )
-            return {
-                "held": True,
-                "reason": pause_reason,
-                "deferred_until": deferred_until.isoformat(),
+        if deferred is not None:
+            return deferred
+        locked_state = dict(locked.cursor_state or {})
+        locked_state.update(
+            {
+                "status": "catching_up",
+                "activation_boundary_at": boundary.isoformat(),
+                "activation_snapshot_token": scan.snapshot_token,
+                "activation_page_token": scan.page_token,
+                "activation_seen_page_tokens": list(scan.seen_page_tokens),
+                "activation_last_scanned_id": scan.last_scanned,
             }
+        )
+        locked.cursor_state = locked_state
+        await _enqueue_continuation(
+            context,
+            repository=dependencies.job_repository,
+            route_id=route.id,
+            last_scanned_id=scan.last_scanned,
+            activation_requested_at=requested_raw,
+            phase="activation_scan",
+            continuation_state={
+                "activation_requested_at": requested_raw,
+                "snapshot_token": scan.snapshot_token,
+                "page_token": scan.page_token,
+                "last_scanned_id": scan.last_scanned,
+            },
+        )
+    return {"route_id": str(route.id), "captured": 0, "initialized": False, "continuation_enqueued": True}
+
+
+async def _persist_activation_boundary(
+    job: JobExecution,
+    context: JobContext,
+    route: Any,
+    predecessor: int | None,
+    *,
+    dependencies: TelegramRouteDependencies,
+    expected_status: str,
+    requested_raw: str,
+    boundary: datetime,
+) -> dict[str, Any] | None:
+    async with context.session.begin():
+        locked, deferred = await _lock_validate_or_defer(
+            job,
+            context,
+            route.id,
+            dependencies=dependencies,
+            required_status=expected_status,
+            activation_requested_at=requested_raw,
+        )
+        if deferred is not None:
+            return deferred
+        predecessor = predecessor if predecessor is not None else 0
+        locked_state = dict(locked.cursor_state or {})
+        locked_state.update(
+            {
+                "status": "catching_up",
+                "activation_boundary_at": boundary.isoformat(),
+                "activation_message_id": int(predecessor),
+                "last_message_id": int(predecessor),
+            }
+        )
+        for key in (
+            "activation_snapshot_token",
+            "activation_page_token",
+            "activation_seen_page_tokens",
+            "activation_last_scanned_id",
+        ):
+            locked_state.pop(key, None)
+        locked.cursor_state = locked_state
+    return None
+
+
+async def _capture_initial_envelopes(
+    job: JobExecution,
+    context: JobContext,
+    loaded: _LoadedRoute,
+    envelopes: tuple[TelegramEnvelope, ...],
+    *,
+    dependencies: TelegramRouteDependencies,
+    requested_raw: str,
+) -> tuple[int, dict[str, Any] | None]:
+    captured = 0
+    unique = {item.source_key: item for item in envelopes}
+    for envelope in sorted(unique.values(), key=_coordinate):
+        _, deferred = await _capture(
+            loaded=loaded,
+            envelope=envelope,
+            dispatch_kind="live",
+            job=job,
+            context=context,
+            media_stager=dependencies.media_stager,
+            repository=dependencies.job_repository,
+            activation_requested_at=requested_raw,
+            required_status="catching_up",
+            deferred_until=dependencies.now() + timedelta(seconds=max(loaded.route.poll_interval_seconds, 30)),
+        )
+        if deferred is not None:
+            return captured, deferred
+        captured += 1
+    return captured, None
+
+
+async def _capture_catch_up_envelopes(
+    job: JobExecution,
+    context: JobContext,
+    loaded: _LoadedRoute,
+    envelopes: tuple[TelegramEnvelope, ...],
+    *,
+    dependencies: TelegramRouteDependencies,
+    requested_raw: str,
+) -> tuple[int, dict[str, Any] | None]:
+    captured = 0
+    for envelope in envelopes:
+        _, deferred = await _capture(
+            loaded=loaded,
+            envelope=envelope,
+            dispatch_kind="live",
+            job=job,
+            context=context,
+            media_stager=dependencies.media_stager,
+            repository=dependencies.job_repository,
+            activation_requested_at=requested_raw,
+            required_status="catching_up",
+            deferred_until=dependencies.now() + timedelta(seconds=max(loaded.route.poll_interval_seconds, 30)),
+        )
+        if deferred is not None:
+            return captured, deferred
+        captured += 1
+    return captured, None
+
+
+async def _finalize_initialization(
+    job: JobExecution,
+    context: JobContext,
+    route: Any,
+    captured: int,
+    *,
+    dependencies: TelegramRouteDependencies,
+    requested_raw: str,
+) -> dict[str, Any]:
+    async with context.session.begin():
+        locked, deferred = await _lock_validate_or_defer(
+            job,
+            context,
+            route.id,
+            dependencies=dependencies,
+            required_status="catching_up",
+            activation_requested_at=requested_raw,
+        )
+        if deferred is not None:
+            return deferred
+        locked_state = dict(locked.cursor_state or {})
+        locked_state.pop("initialization_forward", None)
+        locked_state["status"] = "ready"
+        initialized_at = dependencies.now()
+        locked_state["initialized_at"] = initialized_at.isoformat()
+        locked.cursor_state = locked_state
+        locked.next_poll_at = initialized_at
+    cursor = int((route.cursor_state or {}).get("last_message_id") or 0)
+    return {"route_id": str(route.id), "cursor": cursor, "captured": captured, "initialized": True}
+
+
+async def _clear_initialization_forward(
+    job: JobExecution,
+    context: JobContext,
+    route: Any,
+    *,
+    dependencies: TelegramRouteDependencies,
+    requested_raw: str,
+) -> dict[str, Any] | None:
+    async with context.session.begin():
+        locked, deferred = await _lock_validate_or_defer(
+            job,
+            context,
+            route.id,
+            dependencies=dependencies,
+            required_status="catching_up",
+            activation_requested_at=requested_raw,
+        )
+        if deferred is not None:
+            return deferred
+        locked_state = dict(locked.cursor_state or {})
+        locked_state.pop("initialization_forward", None)
+        locked.cursor_state = locked_state
+    return None
+
+
+async def _enqueue_catch_up_cycle(
+    job: JobExecution,
+    context: JobContext,
+    route: Any,
+    cursor: int,
+    captured: int,
+    *,
+    dependencies: TelegramRouteDependencies,
+    requested_raw: str,
+) -> dict[str, Any]:
+    async with context.session.begin():
+        _, deferred = await _lock_validate_or_defer(
+            job,
+            context,
+            route.id,
+            dependencies=dependencies,
+            required_status="catching_up",
+            activation_requested_at=requested_raw,
+        )
+        if deferred is not None:
+            return deferred
         await _enqueue_continuation(
             context,
             repository=dependencies.job_repository,
             route_id=route.id,
             last_scanned_id=cursor,
-            activation_requested_at=str(requested_raw),
+            activation_requested_at=requested_raw,
             phase="catch_up_cycle",
             continuation_state={
-                "activation_requested_at": str(requested_raw),
+                "activation_requested_at": requested_raw,
                 "cursor": cursor,
                 "phase": "catch_up_cycle",
             },
@@ -460,6 +494,302 @@ async def initialize_route(
         "initialized": False,
         "continuation_enqueued": True,
     }
+
+
+async def _run_initialization_catch_up(
+    job: JobExecution,
+    context: JobContext,
+    loaded: _LoadedRoute,
+    captured: int,
+    *,
+    dependencies: TelegramRouteDependencies,
+    requested_raw: str,
+) -> dict[str, Any]:
+    route = loaded.route
+    for _ in range(dependencies.page_budget):
+        cursor = int((route.cursor_state or {}).get("last_message_id") or 0)
+        saved_forward = (route.cursor_state or {}).get("initialization_forward")
+        base_cursor = int((saved_forward or {}).get("base_after_id", cursor))
+        step = await _fetch_forward_step(
+            loaded,
+            after_id=base_cursor,
+            page_budget=dependencies.page_budget,
+            saved_state=saved_forward,
+        )
+        captured_now, deferred = await _capture_catch_up_envelopes(
+            job,
+            context,
+            loaded,
+            step.envelopes,
+            dependencies=dependencies,
+            requested_raw=requested_raw,
+        )
+        captured += captured_now
+        if deferred is not None:
+            return deferred
+        if step.state is not None:
+            progress = await _persist_forward_progress(
+                context,
+                repository=dependencies.job_repository,
+                route_id=route.id,
+                job=job,
+                state_key="initialization_forward",
+                state=step.state,
+                last_scanned_id=step.last_scanned_id,
+                required_status="catching_up",
+                activation_requested_at=requested_raw,
+                deferred_until=dependencies.now() + timedelta(seconds=max(route.poll_interval_seconds, 30)),
+            )
+            progress["captured"] = captured
+            return progress
+        if not step.envelopes:
+            return await _finalize_initialization(
+                job,
+                context,
+                route,
+                captured,
+                dependencies=dependencies,
+                requested_raw=requested_raw,
+            )
+        if saved_forward is not None:
+            deferred = await _clear_initialization_forward(
+                job,
+                context,
+                route,
+                dependencies=dependencies,
+                requested_raw=requested_raw,
+            )
+            if deferred is not None:
+                return deferred
+    cursor = int((route.cursor_state or {}).get("last_message_id") or 0)
+    return await _enqueue_catch_up_cycle(
+        job,
+        context,
+        route,
+        cursor,
+        captured,
+        dependencies=dependencies,
+        requested_raw=requested_raw,
+    )
+
+
+async def initialize_route(
+    job: JobExecution,
+    context: JobContext,
+    *,
+    dependencies: TelegramRouteDependencies,
+) -> dict[str, Any]:
+    payload = _parse_payload(InitializeJobPayload, job_payload_copy(job))
+    loaded = await _load_route(context, payload.route_id, dependencies.source_registry)
+    route = loaded.route
+    deferred = await _defer_if_paused(job, context, loaded, dependencies=dependencies)
+    if deferred is not None:
+        return deferred
+    state, requested_raw, requested_at, expected_status = _initialization_state(route, payload)
+    if expected_status == "ready":
+        return {
+            "route_id": str(route.id),
+            "cursor": state.get("last_message_id", 0),
+            "captured": 0,
+            "initialized": True,
+        }
+    await context.session.commit()
+    captured = 0
+    predecessor = state.get("activation_message_id")
+    if predecessor is None:
+        boundary = requested_at.replace(microsecond=0)
+        scan = await _scan_activation_pages(
+            loaded,
+            state,
+            boundary,
+            page_budget=dependencies.page_budget,
+        )
+        if not scan.proven:
+            return await _persist_activation_scan(
+                job,
+                context,
+                route,
+                scan,
+                dependencies=dependencies,
+                expected_status=expected_status,
+                requested_raw=requested_raw,
+                boundary=boundary,
+            )
+        deferred = await _persist_activation_boundary(
+            job,
+            context,
+            route,
+            scan.predecessor,
+            dependencies=dependencies,
+            expected_status=expected_status,
+            requested_raw=requested_raw,
+            boundary=boundary,
+        )
+        if deferred is not None:
+            return deferred
+        captured, deferred = await _capture_initial_envelopes(
+            job,
+            context,
+            loaded,
+            scan.envelopes,
+            dependencies=dependencies,
+            requested_raw=requested_raw,
+        )
+        if deferred is not None:
+            return deferred
+    return await _run_initialization_catch_up(
+        job,
+        context,
+        loaded,
+        captured,
+        dependencies=dependencies,
+        requested_raw=requested_raw,
+    )
+
+
+def _poll_state(route: Any) -> tuple[dict[str, Any], str | None, dict[str, Any] | None, int]:
+    state = dict(route.cursor_state or {})
+    if not route.enabled or state.get("status") != "ready" or state.get("last_message_id") is None:
+        raise PermanentJobError(code="route_not_ready", message="Telegram route is not ready for polling")
+    saved_value = state.get("poll_forward")
+    saved_forward = saved_value if isinstance(saved_value, dict) else None
+    base_cursor = (saved_forward or {}).get("base_after_id", state["last_message_id"])
+    if not isinstance(base_cursor, int):
+        raise PermanentJobError(code="route_cursor_invalid", message="Telegram route cursor is invalid")
+    return state, state.get("activation_requested_at"), saved_forward, base_cursor
+
+
+async def _capture_source_edits(
+    job: JobExecution,
+    context: JobContext,
+    loaded: _LoadedRoute,
+    state: dict[str, Any],
+    *,
+    dependencies: TelegramRouteDependencies,
+    expected_activation: str | None,
+) -> tuple[int, dict[str, Any] | None]:
+    recent = await _fetch_recent(loaded, limit=50)
+    fingerprints = dict(state.get("recent_fingerprints") or {})
+    edits = [
+        envelope
+        for envelope in recent
+        if fingerprints.get(str(envelope.anchor_message_id)) is not None
+        and fingerprints[str(envelope.anchor_message_id)] != telegram_envelope_fingerprint(envelope)
+    ]
+    count = 0
+    for envelope in sorted(edits, key=_coordinate):
+        _, deferred = await _capture(
+            loaded=loaded,
+            envelope=envelope,
+            dispatch_kind="source_edit",
+            job=job,
+            context=context,
+            media_stager=dependencies.media_stager,
+            repository=dependencies.job_repository,
+            force_review=True,
+            activation_requested_at=expected_activation,
+            required_status="ready",
+            deferred_until=dependencies.now() + timedelta(seconds=max(loaded.route.poll_interval_seconds, 30)),
+        )
+        if deferred is not None:
+            return count, deferred
+        count += 1
+    return count, None
+
+
+async def _capture_poll_envelopes(
+    job: JobExecution,
+    context: JobContext,
+    loaded: _LoadedRoute,
+    envelopes: tuple[TelegramEnvelope, ...],
+    *,
+    dependencies: TelegramRouteDependencies,
+    expected_activation: str | None,
+) -> tuple[int, int, dict[str, Any] | None]:
+    captured = 0
+    filtered = 0
+    for envelope in envelopes:
+        decision = evaluate_content_filter(envelope.text, bool(envelope.media), loaded.route.content_filters or {})
+        observed_at = dependencies.now()
+        allowed_at = next_allowed_at(observed_at, loaded.route.quiet_hours or {})
+        _, deferred = await _capture(
+            loaded=loaded,
+            envelope=envelope,
+            dispatch_kind="live",
+            job=job,
+            context=context,
+            media_stager=dependencies.media_stager,
+            repository=dependencies.job_repository,
+            enqueue_process=decision.accepted,
+            scheduled_for=allowed_at if allowed_at > observed_at else None,
+            filter_reason=decision.reason,
+            activation_requested_at=expected_activation,
+            required_status="ready",
+            deferred_until=dependencies.now() + timedelta(seconds=max(loaded.route.poll_interval_seconds, 30)),
+        )
+        if deferred is not None:
+            return captured, filtered, deferred
+        captured += int(decision.accepted)
+        filtered += int(not decision.accepted)
+    return captured, filtered, None
+
+
+async def _persist_poll_progress(
+    job: JobExecution,
+    context: JobContext,
+    route: Any,
+    step: Any,
+    *,
+    dependencies: TelegramRouteDependencies,
+    expected_activation: str | None,
+    captured: int,
+    source_edits: int,
+    filtered: int,
+) -> dict[str, Any]:
+    progress = await _persist_forward_progress(
+        context,
+        repository=dependencies.job_repository,
+        route_id=route.id,
+        job=job,
+        state_key="poll_forward",
+        state=step.state,
+        last_scanned_id=step.last_scanned_id,
+        required_status="ready",
+        activation_requested_at=expected_activation,
+        deferred_until=dependencies.now() + timedelta(seconds=max(route.poll_interval_seconds, 30)),
+    )
+    progress.update({"captured": captured, "source_edits": source_edits, "filtered": filtered})
+    return progress
+
+
+async def _finish_poll(
+    job: JobExecution,
+    context: JobContext,
+    route: Any,
+    *,
+    dependencies: TelegramRouteDependencies,
+    expected_activation: str | None,
+    captured: int,
+    source_edits: int,
+    filtered: int,
+) -> dict[str, Any]:
+    async with context.session.begin():
+        locked, deferred = await _lock_validate_or_defer(
+            job,
+            context,
+            route.id,
+            dependencies=dependencies,
+            required_status="ready",
+            activation_requested_at=expected_activation,
+        )
+        if deferred is not None:
+            return deferred
+        locked_state = dict(locked.cursor_state or {})
+        locked_state.pop("poll_forward", None)
+        locked.cursor_state = locked_state
+        locked.last_polled_at = dependencies.now()
+        locked.next_poll_at = locked.last_polled_at + timedelta(seconds=locked.poll_interval_seconds)
+    return {"captured": captured, "source_edits": source_edits, "filtered": filtered}
 
 
 async def poll_route(
@@ -474,149 +804,68 @@ async def poll_route(
     deferred = await _defer_if_paused(job, context, loaded, dependencies=dependencies)
     if deferred is not None:
         return deferred
-    state = dict(route.cursor_state or {})
-    if not route.enabled or state.get("status") != "ready" or state.get("last_message_id") is None:
-        raise PermanentJobError(
-            code="route_not_ready",
-            message="Telegram route is not ready for polling",
-        )
-    expected_activation = state.get("activation_requested_at")
+    state, expected_activation, saved_forward, base_cursor = _poll_state(route)
     await context.session.commit()
-    saved_forward_value = state.get("poll_forward")
-    saved_forward = saved_forward_value if isinstance(saved_forward_value, dict) else None
-    base_cursor_value = (saved_forward or {}).get("base_after_id", state["last_message_id"])
-    if not isinstance(base_cursor_value, int):
-        raise PermanentJobError(code="route_cursor_invalid", message="Telegram route cursor is invalid")
-    base_cursor = base_cursor_value
     step = await _fetch_forward_step(
         loaded,
         after_id=base_cursor,
         page_budget=dependencies.page_budget,
         saved_state=saved_forward,
     )
-    captured = 0
-    filtered = 0
     if not step.envelopes and step.state is not None:
-        progress = await _persist_forward_progress(
+        return await _persist_poll_progress(
+            job,
             context,
-            repository=dependencies.job_repository,
-            route_id=route.id,
-            job=job,
-            state_key="poll_forward",
-            state=step.state,
-            last_scanned_id=step.last_scanned_id,
-            required_status="ready",
-            activation_requested_at=expected_activation,
-            deferred_until=dependencies.now() + timedelta(seconds=max(route.poll_interval_seconds, 30)),
+            route,
+            step,
+            dependencies=dependencies,
+            expected_activation=expected_activation,
+            captured=0,
+            source_edits=0,
+            filtered=0,
         )
-        progress.update({"captured": captured, "source_edits": 0, "filtered": filtered})
-        return progress
-
-    recent = await _fetch_recent(loaded, limit=50)
-    fingerprints = dict(state.get("recent_fingerprints") or {})
-    edits = []
-    for envelope in recent:
-        previous = fingerprints.get(str(envelope.anchor_message_id))
-        current = telegram_envelope_fingerprint(envelope)
-        if previous is not None and previous != current:
-            edits.append(envelope)
-    source_edits = 0
-    for envelope in sorted(edits, key=_coordinate):
-        _, deferred = await _capture(
-            loaded=loaded,
-            envelope=envelope,
-            dispatch_kind="source_edit",
-            job=job,
-            context=context,
-            media_stager=dependencies.media_stager,
-            repository=dependencies.job_repository,
-            force_review=True,
-            activation_requested_at=expected_activation,
-            required_status="ready",
-            deferred_until=dependencies.now() + timedelta(seconds=max(route.poll_interval_seconds, 30)),
-        )
-        if deferred is not None:
-            return deferred
-        source_edits += 1
-    for envelope in step.envelopes:
-        decision = evaluate_content_filter(
-            envelope.text,
-            bool(envelope.media),
-            route.content_filters or {},
-        )
-        observed_at = dependencies.now()
-        allowed_at = next_allowed_at(observed_at, route.quiet_hours or {})
-        scheduled_for = allowed_at if allowed_at > observed_at else None
-        _, deferred = await _capture(
-            loaded=loaded,
-            envelope=envelope,
-            dispatch_kind="live",
-            job=job,
-            context=context,
-            media_stager=dependencies.media_stager,
-            repository=dependencies.job_repository,
-            enqueue_process=decision.accepted,
-            scheduled_for=scheduled_for,
-            filter_reason=decision.reason,
-            activation_requested_at=expected_activation,
-            required_status="ready",
-            deferred_until=dependencies.now() + timedelta(seconds=max(route.poll_interval_seconds, 30)),
-        )
-        if deferred is not None:
-            return deferred
-        if decision.accepted:
-            captured += 1
-        else:
-            filtered += 1
+    source_edits, deferred = await _capture_source_edits(
+        job,
+        context,
+        loaded,
+        state,
+        dependencies=dependencies,
+        expected_activation=expected_activation,
+    )
+    if deferred is not None:
+        return deferred
+    captured, filtered, deferred = await _capture_poll_envelopes(
+        job,
+        context,
+        loaded,
+        step.envelopes,
+        dependencies=dependencies,
+        expected_activation=expected_activation,
+    )
+    if deferred is not None:
+        return deferred
     if step.state is not None:
-        progress = await _persist_forward_progress(
+        return await _persist_poll_progress(
+            job,
             context,
-            repository=dependencies.job_repository,
-            route_id=route.id,
-            job=job,
-            state_key="poll_forward",
-            state=step.state,
-            last_scanned_id=step.last_scanned_id,
-            required_status="ready",
-            activation_requested_at=expected_activation,
-            deferred_until=dependencies.now() + timedelta(seconds=max(route.poll_interval_seconds, 30)),
+            route,
+            step,
+            dependencies=dependencies,
+            expected_activation=expected_activation,
+            captured=captured,
+            source_edits=source_edits,
+            filtered=filtered,
         )
-        progress.update(
-            {
-                "captured": captured,
-                "source_edits": source_edits,
-                "filtered": filtered,
-            }
-        )
-        return progress
-    async with context.session.begin():
-        locked, control = await _lock_route_and_control(context, route.id)
-        pause_reason = _validate_locked_route(
-            locked,
-            control,
-            required_status="ready",
-            activation_requested_at=expected_activation,
-        )
-        if pause_reason is not None:
-            deferred_until = dependencies.now() + timedelta(seconds=max(locked.poll_interval_seconds, 30))
-            await _defer_route_job(
-                context,
-                repository=dependencies.job_repository,
-                route=locked,
-                job=job,
-                scheduled_for=deferred_until,
-            )
-            return {
-                "held": True,
-                "reason": pause_reason,
-                "deferred_until": deferred_until.isoformat(),
-            }
-        locked_state = dict(locked.cursor_state or {})
-        locked_state.pop("poll_forward", None)
-        locked.cursor_state = locked_state
-        locked.last_polled_at = dependencies.now()
-        locked.next_poll_at = locked.last_polled_at + timedelta(seconds=locked.poll_interval_seconds)
-    return {"captured": captured, "source_edits": source_edits, "filtered": filtered}
+    return await _finish_poll(
+        job,
+        context,
+        route,
+        dependencies=dependencies,
+        expected_activation=expected_activation,
+        captured=captured,
+        source_edits=source_edits,
+        filtered=filtered,
+    )
 
 
 async def backfill_route(
