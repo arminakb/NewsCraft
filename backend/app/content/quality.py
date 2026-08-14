@@ -63,10 +63,13 @@ def content_quality_reasons(source: Source, item: ParsedSourceItem) -> list[str]
         reasons.append(NAVIGATION_OR_PROMOTIONAL_TEXT)
     if body and _contains_duplicate_fragment(item.content_text):
         reasons.append(DUPLICATE_FRAGMENT)
-    minimum_words = 8 if source.platform == "telegram_public" else 16
-    if body and len(_WORD_RE.findall(body)) < minimum_words:
+    if body and len(_WORD_RE.findall(body)) < minimum_word_count(source.platform):
         reasons.append(INSUFFICIENT_FACTS)
     return reasons
+
+
+def minimum_word_count(platform: str) -> int:
+    return 8 if platform == "telegram_public" else 16
 
 
 def with_content_support_reason(reasons: list[str], content_type: str) -> list[str]:
@@ -84,11 +87,17 @@ def has_meaningful_content(item: ParsedSourceItem) -> bool:
 
 def _looks_like_navigation_or_promotion(body: str) -> bool:
     normalized = body.casefold()
-    if any(keyword in normalized for keyword in PROMO_KEYWORDS):
-        return True
     words = [word.casefold() for word in _WORD_RE.findall(normalized)]
     navigation_count = sum(word in _NAVIGATION_TERMS for word in words)
-    return bool(words) and len(words) <= 20 and navigation_count >= max(3, len(words) // 2)
+    navigation_heavy = bool(words) and navigation_count >= max(3, len(words) // 2)
+    promotional = any(_contains_keyword(words, keyword) for keyword in PROMO_KEYWORDS)
+    return navigation_heavy or (promotional and len(words) <= 20)
+
+
+def _contains_keyword(words: list[str], keyword: str) -> bool:
+    keyword_words = _WORD_RE.findall(keyword.casefold())
+    width = len(keyword_words)
+    return bool(width) and any(words[index : index + width] == keyword_words for index in range(len(words) - width + 1))
 
 
 def _contains_duplicate_fragment(body: str) -> bool:

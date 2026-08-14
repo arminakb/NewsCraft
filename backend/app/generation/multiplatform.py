@@ -4,8 +4,6 @@ from collections.abc import Iterable
 from typing import Literal
 from uuid import UUID
 
-from pydantic import BaseModel
-
 from app.generation.platform_schemas import (
     BlogVariantPayload,
     InstagramVariantPayload,
@@ -103,10 +101,3 @@ def payload_claims(platform: Platform, payload: PlatformPayload) -> list[Claim]:
             )
         ]
     raise ValueError(f"Platform {platform} payload type does not match")
-
-
-MANUAL_PLATFORM_ADAPTERS: dict[Platform, type[BaseModel]] = {
-    "instagram": InstagramVariantPayload,
-    "x": XVariantPayload,
-    "blog": BlogVariantPayload,
-}

@@ -14,7 +14,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.models import ContentItem, RawPayload, SourceItem
 from app.normalization.fingerprints import fingerprint_text
 from app.normalization.urls import hash_value, normalize_url
-from app.stories.evidence import EvidenceInput, EvidenceRecord, build_evidence_key, capture_evidence
+from app.stories.evidence import (
+    EvidenceInput,
+    EvidenceRecord,
+    build_evidence_key,
+    capture_evidence,
+    evidence_record_from_snapshot,
+)
 from app.stories.grouping import GroupingInput, decide_group
 from app.stories.models import Story, StoryEvidenceLink, StoryEvidenceSnapshot
 from app.stories.states import INBOX, TELEGRAM_PROVISIONAL
@@ -38,6 +44,7 @@ class GroupedItemResult:
 class StoryGroupingResult:
     story: Story | None
     items: tuple[GroupedItemResult, ...]
+    created_evidence_snapshot_count: int
 
     @property
     def id(self) -> UUID:
@@ -334,21 +341,7 @@ class StoryRepository:
                 .order_by(StoryEvidenceSnapshot.captured_at, StoryEvidenceSnapshot.id)
             )
         )
-        return [
-            EvidenceRecord(
-                evidence_key=row.evidence_key,
-                evidence_snapshot_id=row.id,
-                content_item_id=row.content_item_id,
-                title=row.title,
-                content_text=row.content_text,
-                content_sha256=row.content_sha256,
-                source_url=row.source_url,
-                authors=tuple(row.authors),
-                published_at=row.published_at,
-                captured_at=row.captured_at,
-            )
-            for row in rows
-        ]
+        return [evidence_record_from_snapshot(row) for row in rows]
 
     async def list_pending_content_items(
         self,
@@ -495,6 +488,7 @@ class StoryRepository:
                     )
                     for value in requested_ids
                 ),
+                created_evidence_snapshot_count=0,
             )
 
         matching_snapshots = list(
@@ -556,6 +550,7 @@ class StoryRepository:
                 items=tuple(
                     GroupedItemResult(value, "conflicted", "multiple_active_stories") for value in requested_ids
                 ),
+                created_evidence_snapshot_count=0,
             )
         canonical = active_canonicals[0] if active_canonicals else None
         if canonical is None:
@@ -659,4 +654,8 @@ class StoryRepository:
             for value in requested_ids
         ]
         item_results.extend(GroupedItemResult(value, "skipped", "repeated_request") for value in repeated_ids)
-        return StoryGroupingResult(story=canonical, items=tuple(item_results))
+        return StoryGroupingResult(
+            story=canonical,
+            items=tuple(item_results),
+            created_evidence_snapshot_count=len(unique_incoming),
+        )

@@ -3,7 +3,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from uuid import uuid4
 
-from app.content.classification import classify_content_item, classify_content_taxonomy
+from app.content.classification import classify_content_item, classify_content_taxonomy, score_keywords
 from app.db.models import Source
 from app.ingestion.repository import _content_item_values
 from app.sources.base import MediaCandidate, ParsedSourceItem
@@ -103,6 +103,40 @@ def test_classifies_promo_content():
     )
 
     assert result.content_type == "promo"
+
+
+def test_source_metadata_does_not_classify_ordinary_content_as_promo():
+    result = classify_content_item(
+        _source(name="Salesforce Engineering", homepage_url="https://example.com/promo-feed"),
+        _item(
+            title="Reliable queue processing patterns",
+            body="Engineers describe retries, leases, observability, and failure recovery in production systems.",
+        ),
+    )
+
+    assert result.content_type == "article"
+    assert "navigation_or_promotional_text" not in result.quality_reasons
+
+
+def test_promotional_substrings_in_news_words_do_not_block_content():
+    result = classify_content_item(
+        _source(name="Engineering News"),
+        _item(
+            title="Salesforce saves metadata after promoted release",
+            body=(
+                "The wholesale platform saved metadata after a promoted release and published detailed recovery "
+                "results for operators reviewing the incident across several production regions today."
+            ),
+        ),
+    )
+
+    assert result.content_type != "promo"
+    assert "navigation_or_promotional_text" not in result.quality_reasons
+
+
+def test_keyword_scoring_uses_whole_words_and_deduplicates_inputs():
+    assert score_keywords("said email detail chain capital rapid metadata", ("ai", "api", "meta")) == 0
+    assert score_keywords("model model", ("model", "model")) == 2
 
 
 def test_classifies_low_signal_content():

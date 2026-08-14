@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from sqlalchemy import func, select, text
+from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import ContentItem
@@ -26,22 +26,15 @@ async def count_active_feed(session: AsyncSession) -> int:
 async def clear_active_feed(session: AsyncSession) -> FeedClearResult:
     """Hide every active Feed item in one database statement.
 
-    The CTE returns only the aggregate count to the application. Canonical content,
-    source rows, source identities, and downstream references remain untouched.
+    Canonical content, source rows, source identities, and downstream references
+    remain untouched.
     """
-    count = await session.scalar(
-        text(
-            """
-            WITH cleared AS (
-                UPDATE content_items
-                SET feed_cleared_at = CURRENT_TIMESTAMP,
-                    updated_at = CURRENT_TIMESTAMP
-                WHERE feed_cleared_at IS NULL
-                RETURNING id
-            )
-            SELECT count(*) AS cleared_count
-            FROM cleared
-            """
+    result = await session.execute(
+        update(ContentItem)
+        .where(active_feed_condition())
+        .values(
+            feed_cleared_at=func.current_timestamp(),
+            updated_at=func.current_timestamp(),
         )
     )
-    return FeedClearResult(cleared_count=int(count or 0))
+    return FeedClearResult(cleared_count=int(getattr(result, "rowcount", 0) or 0))

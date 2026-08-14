@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import asyncio
 import re
 import time
 from collections.abc import Callable
@@ -19,6 +18,7 @@ from app.research.base import (
     ResearchResult,
     ResearchUsage,
 )
+from app.research.deadline import elapsed_ms, with_deadline
 from app.research.prompts import build_research_prompt
 from app.research.safe_fetch import SafeArticleFetcher, SafeArticleFetchError
 from app.research.schemas import (
@@ -113,7 +113,7 @@ class CodexResearchBackend:
                 started=started,
             )
         except ResearchBackendError as exc:
-            exc.add_metadata(elapsed_ms=self._elapsed_ms(started))
+            exc.add_metadata(elapsed_ms=elapsed_ms(self.monotonic, started))
             raise
         except CodexExecutionError as exc:
             safe_metadata = redact_secrets(exc.metadata)
@@ -134,7 +134,7 @@ class CodexResearchBackend:
                 code=normalized_code,
                 metadata={
                     **(safe_metadata if isinstance(safe_metadata, dict) else {}),
-                    "elapsed_ms": self._elapsed_ms(started),
+                    "elapsed_ms": elapsed_ms(self.monotonic, started),
                 },
             ) from None
         try:
@@ -165,7 +165,7 @@ class CodexResearchBackend:
                 ),
             }
         except ResearchBackendError as exc:
-            exc.add_metadata(elapsed_ms=self._elapsed_ms(started))
+            exc.add_metadata(elapsed_ms=elapsed_ms(self.monotonic, started))
             raise
         except (SafeArticleFetchError, ValueError) as exc:
             raise ResearchBackendError(
@@ -174,7 +174,7 @@ class CodexResearchBackend:
                 code="codex_evidence_invalid",
                 metadata={
                     "status": "evidence_invalid",
-                    "elapsed_ms": self._elapsed_ms(started),
+                    "elapsed_ms": elapsed_ms(self.monotonic, started),
                 },
             ) from exc
 
@@ -224,9 +224,6 @@ class CodexResearchBackend:
             }
         )
 
-    def _elapsed_ms(self, started: float) -> int:
-        return max(0, round((self.monotonic() - started) * 1000))
-
     def _assert_within_deadline(self, *, deadline: float, started: float) -> None:
         if self.monotonic() >= deadline:
             raise self._elapsed_budget_error(started)
@@ -246,22 +243,18 @@ class CodexResearchBackend:
         return max(0, round((now - started) * 1000))
 
     async def _within_deadline(self, awaitable, *, deadline: float, started: float):
-        remaining = deadline - self.monotonic()
-        if remaining <= 0:
-            if hasattr(awaitable, "close"):
-                awaitable.close()
-            raise self._elapsed_budget_error(started)
-        try:
-            return await asyncio.wait_for(awaitable, timeout=remaining)
-        except TimeoutError:
-            raise self._elapsed_budget_error(started) from None
+        return await with_deadline(
+            awaitable,
+            remaining_seconds=deadline - self.monotonic(),
+            on_expired=lambda: self._elapsed_budget_error(started),
+        )
 
     def _elapsed_budget_error(self, started: float) -> ResearchBackendError:
         return ResearchBackendError(
             "codex research elapsed budget exceeded",
             classification="needs_review",
             code="codex_elapsed_budget_exceeded",
-            metadata={"status": "over_budget", "elapsed_ms": self._elapsed_ms(started)},
+            metadata={"status": "over_budget", "elapsed_ms": elapsed_ms(self.monotonic, started)},
         )
 
     async def _materialize_sources(

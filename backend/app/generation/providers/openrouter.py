@@ -112,7 +112,7 @@ class OpenRouterProvider:
         base_url: str = "https://openrouter.ai/api/v1",
         timeout_seconds: int = 60,
         http_referer: str | None = None,
-        app_title: str = "NewsCraft",
+        app_title: str | None = None,
         invalid_output_quarantine: Any | None = None,
     ) -> None:
         self.http_client = http_client
@@ -129,7 +129,7 @@ class OpenRouterProvider:
 
     def __repr__(self) -> str:
         return (
-            f"OpenRouterProvider(base_url={self.base_url!r}, "
+            f"{type(self).__name__}(base_url={self.base_url!r}, "
             f"timeout_seconds={self.timeout_seconds!r}, app_title={self.app_title!r})"
         )
 
@@ -137,7 +137,7 @@ class OpenRouterProvider:
         if request.requested_model:
             return request.requested_model
         raise OpenRouterPermanentError(
-            code="openrouter_model_missing",
+            code=f"{self.provider_name}_model_missing",
             message="OpenRouter request requires a model",
         )
 
@@ -149,7 +149,7 @@ class OpenRouterProvider:
             Draft202012Validator.check_schema(request.response_schema)
         except SchemaError:
             raise OpenRouterPermanentError(
-                code="openrouter_schema_invalid",
+                code=f"{self.provider_name}_schema_invalid",
                 message="OpenRouter request schema is invalid",
             ) from None
         return Draft202012Validator(
@@ -161,8 +161,9 @@ class OpenRouterProvider:
         headers = {
             "Authorization": f"Bearer {self._api_key}",
             "Content-Type": "application/json",
-            "X-Title": self.app_title,
         }
+        if self.app_title:
+            headers["X-Title"] = self.app_title
         if self.http_referer:
             headers["HTTP-Referer"] = self.http_referer
         return headers
@@ -189,7 +190,7 @@ class OpenRouterProvider:
             return payload
         if isinstance(max_output_tokens, bool) or not isinstance(max_output_tokens, int) or max_output_tokens < 1:
             raise OpenRouterPermanentError(
-                code="openrouter_max_output_tokens_invalid",
+                code=f"{self.provider_name}_max_output_tokens_invalid",
                 message="OpenRouter output token allowance is invalid",
             )
         payload["max_tokens"] = max_output_tokens
@@ -209,7 +210,7 @@ class OpenRouterProvider:
             )
         except httpx.TimeoutException, httpx.TransportError:
             raise OpenRouterRetryableError(
-                code="openrouter_transport_failed",
+                code=f"{self.provider_name}_transport_failed",
                 message="OpenRouter transport failed",
             ) from None
         if response.status_code >= 400:
@@ -246,7 +247,7 @@ class OpenRouterProvider:
                     diagnostic["response_sha256"],
                 )
         raise OpenRouterNeedsReviewError(
-            code=f"openrouter_output_invalid_{stage}",
+            code=f"{self.provider_name}_output_invalid_{stage}",
             message="OpenRouter returned invalid structured output",
             diagnostic=diagnostic,
         ) from None
@@ -619,7 +620,7 @@ class OpenRouterProvider:
             if retry_after_seconds is not None:
                 retry_after_seconds = min(300, max(1, retry_after_seconds))
         raise error_type(
-            code=f"openrouter_http_{status_code}",
+            code=f"{self.provider_name}_http_{status_code}",
             message=f"OpenRouter request failed with HTTP {safe_status}",
             diagnostic=_response_diagnostic(
                 response,

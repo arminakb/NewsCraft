@@ -6,7 +6,7 @@ from typing import Any
 from sqlalchemy import select
 
 from app.core.faults import FaultInjector
-from app.generation.generation_helpers import _checkpoint_execution, _job_payload, _required_uuid
+from app.generation.generation_helpers import checkpoint_execution, job_payload, required_uuid
 from app.generation.models import (
     ContentPack,
     PlatformVariant,
@@ -27,8 +27,8 @@ def build_regenerate_handler(
     fault_injector: FaultInjector | None = None,
 ):
     async def handle(job: JobExecution, context: JobContext) -> dict[str, Any]:
-        payload = _job_payload(job)
-        variant_id = _required_uuid(payload, "variant_id")
+        payload = job_payload(job)
+        variant_id = required_uuid(payload, "variant_id")
         variant = await context.session.scalar(
             select(PlatformVariant).where(PlatformVariant.id == variant_id).execution_options(populate_existing=True)
         )
@@ -43,7 +43,7 @@ def build_regenerate_handler(
                 code="generation_content_pack_missing",
                 message="Regeneration variant context was not found",
             )
-        _required_uuid(payload, "base_revision_id")
+        required_uuid(payload, "base_revision_id")
         base_content_hash = payload.get("base_content_hash")
         if not isinstance(base_content_hash, str) or re.fullmatch(r"[0-9a-f]{64}", base_content_hash) is None:
             raise PermanentJobError(
@@ -63,7 +63,7 @@ def build_regenerate_handler(
         payload.update(
             {"story_revision_id": str(pack.story_revision_id), "brand_profile_id": str(pack.brand_profile_id)}
         )
-        delegated_job = await _checkpoint_execution(job, context, payload=payload)
+        delegated_job = await checkpoint_execution(job, context, payload=payload)
         fence_owner = None
         if (
             isinstance(getattr(job, "attempt_count", None), int)

@@ -11,7 +11,7 @@ from sqlalchemy import select
 
 from app.automations.telegram.handlers import sha256_canonical
 from app.core.redaction import redact_secrets, redact_string
-from app.generation.default_prompts import prompt_checksum
+from app.generation.default_prompts import prompt_checksum, validate_prompt_template_fields
 from app.generation.models import (
     ContentPack,
     PlatformVariant,
@@ -41,9 +41,7 @@ from app.generation.platform_limits import (
     X_POSTS_MAX,
 )
 from app.generation.platform_media import (
-    trusted_story_media as _trusted_story_media,
-)
-from app.generation.platform_media import (
+    trusted_story_media,
     validate_payload_media_assignments,
 )
 from app.generation.platform_schemas import (
@@ -68,7 +66,6 @@ from app.jobs.types import JobExecution, job_payload_copy
 from app.research.citations import CitationIntegrityError, validate_citations
 from app.research.schemas import CitationRef, Claim
 from app.stories.evidence import EvidenceRecord
-from app.stories.models import StoryEvidenceSnapshot
 
 
 def platform_limits_for(platform: Platform) -> dict[str, int]:
@@ -102,7 +99,7 @@ def platform_limits_for(platform: Platform) -> dict[str, int]:
     return {"body_max": 4096, "button_max": 8}
 
 
-def _platform_stage_input(
+def platform_stage_input(
     *,
     platform: Platform,
     canonical_story: dict[str, Any],
@@ -195,7 +192,7 @@ async def _require_active_prompt_version(
     return active[0]
 
 
-async def _require_exact_active_prompt(
+async def require_exact_active_prompt(
     session: Any,
     platform: Platform,
     prompt_id: UUID,
@@ -252,7 +249,7 @@ async def _require_exact_regeneration_dispatch(
             code="generation_regeneration_base_stale",
             message="Regeneration base revision is no longer current",
         )
-    await _require_exact_active_prompt(
+    await require_exact_active_prompt(
         session,
         platform,
         prompt_id,
@@ -532,7 +529,7 @@ async def _require_checkpoint_media(
         ) from None
 
 
-async def _artifact_requires_review(
+async def artifact_requires_review(
     session: Any,
     artifact: dict[str, Any],
     *,
@@ -547,7 +544,7 @@ async def _artifact_requires_review(
     evidence: dict[UUID, EvidenceRecord],
     telegram_default_direction: Literal["ltr", "rtl"] | None = None,
     expected_regeneration_base: tuple[UUID, str] | None = None,
-    trusted_media_loader: Any = _trusted_story_media,
+    trusted_media_loader: Any = trusted_story_media,
 ) -> bool:
     ids = _checkpoint_ids(artifact)
     pack, variant, revision = await _checkpoint_rows(
@@ -646,7 +643,7 @@ def _redacted_list(value: object) -> list[Any]:
     return redacted if isinstance(redacted, list) else []
 
 
-def _required_uuid(payload: dict[str, Any], key: str) -> UUID:
+def required_uuid(payload: dict[str, Any], key: str) -> UUID:
     try:
         return UUID(str(payload[key]))
     except KeyError, TypeError, ValueError:
@@ -656,7 +653,7 @@ def _required_uuid(payload: dict[str, Any], key: str) -> UUID:
         ) from None
 
 
-def _job_payload(job: JobExecution | object) -> dict[str, Any]:
+def job_payload(job: JobExecution | object) -> dict[str, Any]:
     try:
         return job_payload_copy(cast(Any, job))
     except TypeError:
@@ -666,7 +663,7 @@ def _job_payload(job: JobExecution | object) -> dict[str, Any]:
         ) from None
 
 
-def _pack_budget_state(job: JobExecution | object, payload: dict[str, Any]) -> tuple[datetime, Decimal]:
+def pack_budget_state(job: JobExecution | object, payload: dict[str, Any]) -> tuple[datetime, Decimal]:
     raw_started = payload.get("generation_budget_started_at")
     raw_cost = payload.get("generation_budget_cost_usd", "0")
     try:
@@ -691,7 +688,7 @@ def _pack_budget_state(job: JobExecution | object, payload: dict[str, Any]) -> t
     return started.astimezone(UTC), cost
 
 
-async def _checkpoint_execution(
+async def checkpoint_execution(
     job: JobExecution | object,
     context: JobContext,
     *,
@@ -721,25 +718,11 @@ def render_prompt_messages(
     values: dict[str, Any],
 ) -> tuple[ProviderMessage, ProviderMessage]:
     try:
+        validate_prompt_template_fields(prompt.user_template, required=tuple(values))
         rendered = prompt.user_template.format(**values)
-    except KeyError, ValueError:
+    except (KeyError, IndexError, AttributeError, TypeError, ValueError):
         raise ValueError("generation prompt template cannot be rendered") from None
     return (
         ProviderMessage(role="system", content=prompt.system_template),
         ProviderMessage(role="user", content=rendered),
-    )
-
-
-def _evidence_record(row: StoryEvidenceSnapshot) -> EvidenceRecord:
-    return EvidenceRecord(
-        evidence_key=row.evidence_key,
-        evidence_snapshot_id=row.id,
-        content_item_id=row.content_item_id,
-        title=row.title,
-        content_text=row.content_text,
-        content_sha256=row.content_sha256,
-        source_url=row.source_url,
-        authors=tuple(row.authors or []),
-        published_at=row.published_at,
-        captured_at=row.captured_at,
     )

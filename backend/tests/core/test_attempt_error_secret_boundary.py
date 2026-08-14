@@ -8,14 +8,14 @@ import pytest
 
 from app.api.telegram_automations import list_route_dispatches
 from app.automations.models import AutomationRoute
-from app.generation.default_prompts import telegram_prompt_checksum
+from app.generation.default_prompts import prompt_checksum
 from app.generation.models import AIProviderProfile, GenerationAttempt, GenerationRun, PromptTemplateVersion
 from app.generation.providers.base import GenerationProviderResult
 from app.ingestion.repository import IngestionRepository
 from app.ingestion.workflow import _record_source_failure
 from app.jobs.errors import RetryableJobError
 from app.jobs.registry import JobContext
-from tests.generation.handler_exports import _invoke
+from tests.generation.handler_exports import invoke
 
 
 class _Transaction:
@@ -79,7 +79,7 @@ def _prompt() -> PromptTemplateVersion:
         user_template=user,
         output_schema_version="test.v1",
         output_schema=schema,
-        checksum_sha256=telegram_prompt_checksum(system, user, schema),
+        checksum_sha256=prompt_checksum(system, user, schema),
         is_active=False,
     )
 
@@ -114,7 +114,7 @@ async def test_generation_error_columns_redact_nested_and_inline_canaries_withou
 
     resolver = SimpleNamespace(resolve=lambda _profile, _model: _resolved(Provider()))
     with pytest.raises(RetryableJobError) as caught:
-        await _invoke(
+        await invoke(
             JobContext(session=session, providers=SimpleNamespace()),
             profile_resolver=resolver,
             profile_id=profile.id,
@@ -153,7 +153,7 @@ async def test_classified_provider_error_code_is_redacted_before_normalization()
 
     resolver = SimpleNamespace(resolve=lambda _profile, _model: _resolved(Provider()))
     with pytest.raises(RetryableJobError) as caught:
-        await _invoke(
+        await invoke(
             JobContext(session=session, providers=SimpleNamespace()),
             profile_resolver=resolver,
             profile_id=profile.id,
@@ -200,7 +200,7 @@ async def test_generation_request_response_and_usage_are_sanitized_before_durabl
             model="api_key=canonical-model-canary",
         )
     )
-    run, attempt, validated = await _invoke(
+    run, attempt, validated = await invoke(
         JobContext(session=session, providers=SimpleNamespace()),
         profile_resolver=resolver,
         profile_id=profile.id,

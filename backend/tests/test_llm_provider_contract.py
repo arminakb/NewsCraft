@@ -8,7 +8,29 @@ from app.generation.models import AIProviderProfile
 from app.generation.provider_identity import is_qualified_generation_profile
 from app.llm_providers.models import LLMProvider
 from app.llm_providers.schemas import LLMProviderCreate, LLMProviderSettings
-from app.llm_providers.service import _legacy_settings, provider_out
+from app.llm_providers.service import _legacy_settings, connection_failure_code, provider_out
+
+
+class ProviderError(RuntimeError):
+    def __init__(self, code: str) -> None:
+        self.code = code
+        super().__init__(code)
+
+
+@pytest.mark.parametrize(
+    ("code", "expected"),
+    [
+        ("openai_compatible_http_401", "authentication_failed"),
+        ("openrouter_http_404", "model_unavailable"),
+        ("openai_compatible_model_missing", "model_unavailable"),
+        ("openrouter_transport_failed", "connection_failed"),
+        ("openrouter_output_invalid_resolved_model", "invalid_configuration"),
+        ("upstream mentioned 401 in prose", "connection_failed"),
+        ("not_a_model_error", "connection_failed"),
+    ],
+)
+def test_connection_failure_code_uses_exact_provider_codes(code, expected):
+    assert connection_failure_code(ProviderError(code)) == expected
 
 
 def test_simple_connection_defaults_are_research_ready_and_secret_is_write_only():

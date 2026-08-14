@@ -1,12 +1,10 @@
 from __future__ import annotations
 
-from collections.abc import Callable
 from typing import Any
 
 from app.core.config import Settings, settings
 from app.core.secrets import SecretResolver
 from app.generation.providers.base import GenerationProvider
-from app.generation.providers.codex import CodexGenerationProvider
 from app.generation.providers.fake import DeterministicFakeProvider
 
 
@@ -21,7 +19,6 @@ class UnknownProviderError(LookupError):
 class ProviderRegistry:
     def __init__(self) -> None:
         self._providers: dict[str, GenerationProvider] = {}
-        self._factories: dict[str, Callable[..., GenerationProvider]] = {}
 
     def register(self, provider: GenerationProvider) -> None:
         name = provider.provider_name
@@ -38,26 +35,9 @@ class ProviderRegistry:
     def names(self) -> tuple[str, ...]:
         return tuple(sorted(self._providers))
 
-    def register_factory(self, name: str, factory: Callable[..., GenerationProvider]) -> None:
-        if name in self._factories:
-            raise DuplicateProviderError(name)
-        self._factories[name] = factory
-
-    def create(self, name: str, **kwargs: Any) -> GenerationProvider:
-        try:
-            factory = self._factories[name]
-        except KeyError:
-            raise UnknownProviderError(name) from None
-        return factory(**kwargs)
-
-    def factory_names(self) -> tuple[str, ...]:
-        return tuple(sorted(self._factories))
-
-
 def build_default_provider_registry() -> ProviderRegistry:
     registry = ProviderRegistry()
     registry.register(DeterministicFakeProvider())
-    registry.register_factory("codex", CodexGenerationProvider)
     return registry
 
 

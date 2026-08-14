@@ -65,6 +65,16 @@ def test_missing_title_url_or_text_is_blocked():
     assert "insufficient_facts" in evaluate_rewrite_readiness(_content_item(content_text="tiny")).blockers
 
 
+def test_missing_durable_quality_reasons_uses_source_platform_threshold():
+    rss_item = _content_item(content_text="one two three four five six seven eight nine ten")
+    rss_item.classification_metadata = {"source_platform": "rss"}
+    telegram_item = _content_item(content_text="one two three four five six seven eight nine ten")
+    telegram_item.classification_metadata = {"source_platform": "telegram_public"}
+
+    assert "insufficient_facts" in evaluate_rewrite_readiness(rss_item).blockers
+    assert "insufficient_facts" not in evaluate_rewrite_readiness(telegram_item).blockers
+
+
 def test_repository_stores_rewrite_readiness_fields():
     values = _content_item_values(
         Source(

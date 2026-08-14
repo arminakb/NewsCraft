@@ -1,13 +1,14 @@
 from __future__ import annotations
 
 import shutil
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from decimal import Decimal
 from typing import Any
 from uuid import UUID
 
 import httpx
+from sqlalchemy.exc import DBAPIError
 
 from app.core.codex_exec import CodexExecutor
 from app.core.config import Settings, settings
@@ -23,6 +24,7 @@ from app.generation.provider_settings import (
     validate_provider_shape,
 )
 from app.generation.providers.base import GenerationProvider
+from app.generation.providers.codex import CodexGenerationProvider
 from app.generation.providers.openai_compatible import OpenAICompatibleProvider
 from app.generation.providers.openrouter import OpenRouterProvider
 from app.generation.providers.registry import ProviderRegistry
@@ -31,7 +33,7 @@ from app.llm_providers.schemas import effective_llm_provider_settings, generatio
 from app.security.auth import SecurityPrincipal
 from app.security.models import EncryptedSecret
 from app.security.scopes import parse_scopes
-from app.security.secret_store import EncryptedSecretStore, MasterKeyRing
+from app.security.secret_store import EncryptedSecretStore, MasterKeyRing, SecretStoreUnavailable
 
 
 class ProviderProfileConfigurationError(ValueError):
@@ -127,8 +129,7 @@ class ProviderProfileResolver:
         if executable is None:
             raise ProviderProfileConfigurationError("Codex executable is unavailable")
         try:
-            provider = self.provider_registry.create(
-                "codex",
+            provider = CodexGenerationProvider(
                 executor=self.codex_executor_factory(executable),
                 profile=profile,
             )
@@ -328,14 +329,18 @@ class ProviderProfileResolver:
             )
         except ProviderProfileConfigurationError:
             raise
-        except Exception:
-            raise ProviderProfileConfigurationError("Selected provider profile is unavailable") from None
+        except (DBAPIError, SecretStoreUnavailable):
+            raise
+        except Exception as exc:
+            raise ProviderProfileConfigurationError("Selected provider profile is unavailable") from exc
         attribution = configured.attribution_headers
+        raw_attribution = generic.settings.get("attribution_headers")
+        explicit_attribution = raw_attribution if isinstance(raw_attribution, Mapping) else {}
         http_kwargs = {
             "base_url": generic.base_url,
             "timeout_seconds": configured.timeout_seconds,
             "http_referer": str(attribution.http_referer) if attribution.http_referer else None,
-            "app_title": attribution.app_title,
+            "app_title": attribution.app_title if "app_title" in explicit_attribution else None,
         }
         client = self.http_client_factory(**http_kwargs)
         policy = generation_policy_for_provider(configured)
