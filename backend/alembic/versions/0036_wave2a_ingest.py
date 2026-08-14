@@ -6,7 +6,7 @@ Revises: 0035_feed_clear
 
 from alembic import op
 
-revision = "0028_wave2a_ingest"
+revision = "0036_wave2a_ingest"
 down_revision = "0035_feed_clear"
 branch_labels = None
 depends_on = None

@@ -20,8 +20,8 @@ from sqlalchemy.dialects import postgresql
 
 from alembic import op
 
-revision = "0029_wave2a_ops"
-down_revision = "0035_feed_clear"
+revision = "0037_wave2a_ops"
+down_revision = "0036_wave2a_ingest"
 branch_labels = None
 depends_on = None
 
