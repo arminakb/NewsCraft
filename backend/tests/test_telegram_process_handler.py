@@ -11,14 +11,14 @@ import pytest
 from app.automations.models import AutomationDispatch, AutomationRoute
 from app.automations.telegram.handlers import (
     ProcessDispatchPayload,
-    _resolve_process_prompt,
     build_evidence_map,
     build_telegram_process_handler,
+    resolve_process_prompt,
     sha256_canonical,
     validate_evidence_snapshot,
 )
 from app.automations.telegram.policy import evaluate_auto_publish
-from app.automations.telegram.process_operations import _process_route_dispatch
+from app.automations.telegram.process_dispatch import _persist_revision_and_publish
 from app.db.models import ContentItem, MediaAsset, SourceItem
 from app.generation.models import (
     AIProviderProfile,
@@ -100,7 +100,7 @@ async def test_follow_active_resolves_once_and_persists_exact_job_prompt_snapsho
             return [item for item in (template, pinned, active) if isinstance(item, entity)]
 
     session = Session()
-    resolved = await _resolve_process_prompt(
+    resolved = await resolve_process_prompt(
         session,
         route=route,
         payload=ProcessDispatchPayload(dispatch_id=uuid4()),
@@ -111,7 +111,7 @@ async def test_follow_active_resolves_once_and_persists_exact_job_prompt_snapsho
     assert workflow_job.payload["prompt_checksum"] == active.checksum_sha256
 
     active.is_active = False
-    replay = await _resolve_process_prompt(
+    replay = await resolve_process_prompt(
         session,
         route=route,
         payload=ProcessDispatchPayload(
@@ -147,8 +147,7 @@ def test_auto_publish_gate_is_fail_closed(override, allowed, reason):
 def test_generation_finalization_locks_variant_before_runtime_controls():
     """Keep the writer, reviewed scheduler, and publish worker acyclic."""
 
-    source = inspect.getsource(_process_route_dispatch)
-    finalization = source[source.index("session.expire_all()") :]
+    finalization = inspect.getsource(_persist_revision_and_publish)
 
     variant_lock = finalization.index("await _content_pack_and_variant")
     dispatch_lock = finalization.index("locked_dispatch = await session.scalar")
@@ -198,7 +197,7 @@ def test_invalid_snapshot_fails_before_generation(text, digest):
 
 @pytest.mark.asyncio
 async def test_automation_revision_writer_waits_for_live_regeneration_fence(monkeypatch):
-    from app.automations.telegram.handlers import _require_automation_variant_write_allowed
+    from app.automations.telegram.handlers import require_automation_variant_write_allowed
     from app.generation.revision_fence import RegenerationFenceConflict
     from app.jobs.errors import RetryableJobError
 
@@ -213,7 +212,7 @@ async def test_automation_revision_writer_waits_for_live_regeneration_fence(monk
         reject,
     )
     with pytest.raises(RetryableJobError) as caught:
-        await _require_automation_variant_write_allowed(SimpleNamespace(), variant_id)
+        await require_automation_variant_write_allowed(SimpleNamespace(), variant_id)
 
     assert caught.value.code == "telegram_variant_regeneration_in_progress"
 

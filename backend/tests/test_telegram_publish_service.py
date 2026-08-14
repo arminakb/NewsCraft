@@ -22,10 +22,10 @@ from app.publishing.models import Destination, Publication, PublishJob
 from app.publishing.telegram.service import (
     PublishValidationError,
     ReviewedTelegramScheduleError,
-    _load_context,
-    _revalidate_claim,
     derive_telegram_permalink,
+    load_context,
     ordered_receipt_remote_ids,
+    revalidate_claim,
     schedule_reviewed_telegram,
     validate_publish_evidence,
     validate_receipt_plan,
@@ -693,7 +693,7 @@ async def test_reviewed_schedule_exact_replay_survives_a_lost_response_after_due
 async def test_reviewed_schedule_replay_tolerates_worker_rewritten_plan_payload_hash(monkeypatch):
     """A crashed publish worker leaves the rendered-plan digest on the intent.
 
-    ``publication._load_context`` overwrites ``PublishJob.payload_hash`` with the
+    ``publication.load_context`` overwrites ``PublishJob.payload_hash`` with the
     rendered-plan hash and commits that before the claim transaction. If the
     worker then dies, the row is still ``scheduled`` and the operator must be
     able to replay the identical schedule request.
@@ -1168,7 +1168,7 @@ async def test_publish_prepare_locks_fresh_revision_before_fresh_publish_job():
     from app.jobs.errors import PermanentJobError
 
     with pytest.raises(PermanentJobError, match="context is incomplete"):
-        await _load_context(
+        await load_context(
             session,
             publish_job.id,
             datetime(2026, 7, 13, tzinfo=UTC),
@@ -1208,7 +1208,7 @@ async def test_publish_claim_revalidation_locks_fresh_revision_before_fresh_publ
     from app.jobs.errors import NeedsReviewJobError
 
     with pytest.raises(NeedsReviewJobError, match="context changed"):
-        await _revalidate_claim(session, context)
+        await revalidate_claim(session, context)
 
     locked = [statement for statement in session.statements if "FOR UPDATE" in str(statement)]
     assert [statement.column_descriptions[0].get("entity") for statement in locked[:6]] == [

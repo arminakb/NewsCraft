@@ -1,9 +1,9 @@
 """Stable imports for Telegram scheduling, publication, and reconciliation."""
 
 from app.publishing.telegram.publication import (
-    _load_context,
-    _revalidate_claim,
+    load_context,
     publish_telegram,
+    revalidate_claim,
 )
 from app.publishing.telegram.reconciliation import (
     derive_telegram_permalink,
@@ -29,8 +29,8 @@ __all__ = [
     "ReconciliationDestination",
     "ReconciliationOperationSummary",
     "ReviewedTelegramScheduleError",
-    "_load_context",
-    "_revalidate_claim",
+    "load_context",
+    "revalidate_claim",
     "derive_telegram_permalink",
     "get_reconciliation_case",
     "list_reconciliation_cases",

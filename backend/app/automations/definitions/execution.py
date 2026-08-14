@@ -304,13 +304,12 @@ class AutomationExecutionService:
                 idempotency_key=idempotency_key,
                 request_hash=request_hash,
             )
-        if plan.trigger_kind != "manual":
-            raise _error(
-                "automation_run_input_invalid",
-                422,
-                "On-demand workflow start supports Manual workflows only; scheduled or source-triggered "
-                "workflows start from their trigger.",
-            )
+        raise _error(
+            "automation_run_input_invalid",
+            422,
+            "On-demand workflow start supports Manual workflows only; scheduled or source-triggered "
+            "workflows start from their trigger.",
+        )
 
     async def _start_manual_content_pack(
         self,

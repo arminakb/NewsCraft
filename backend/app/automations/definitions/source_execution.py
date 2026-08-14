@@ -24,7 +24,7 @@ from app.automations.definitions.validation import validate_graph
 from app.db.models import ContentItem, Source, SourceItem
 from app.jobs.errors import PermanentJobError
 from app.jobs.models import AutomationControl
-from app.jobs.registry import JobContext, JobHandler
+from app.jobs.registry import JobContext
 from app.jobs.types import JobExecution, job_payload_copy
 
 
@@ -286,12 +286,7 @@ async def handle_new_source_item(job: JobExecution, context: JobContext) -> dict
     return {**result, "output": output}
 
 
-def build_new_source_item_handler() -> JobHandler:
-    return handle_new_source_item
-
-
 __all__ = [
     "NewSourceItemJobPayload",
-    "build_new_source_item_handler",
     "handle_new_source_item",
 ]

@@ -105,21 +105,3 @@ def build_telegram_process_handler(
         "return": dict[str, Any],
     }
     return handler
-
-
-async def process_route_dispatch(
-    job: JobExecution,
-    context: JobContext,
-    *,
-    profile_resolver: Any,
-) -> dict[str, Any]:
-    """Process one durable Telegram dispatch with explicit dependencies."""
-
-    return await _handle_process_route_dispatch(
-        job,
-        context,
-        dependencies=TelegramProcessDependencies(
-            profile_resolver=profile_resolver,
-            fault_injector=NoopFaultInjector(),
-        ),
-    )

@@ -74,7 +74,7 @@ def _validate_schedule_replay(
         )
     # ``payload_hash`` is deliberately absent from this predicate. The publish
     # worker rewrites it to the rendered-plan digest while preparing a dispatch
-    # (publication._load_context), and that rewrite is committed before the job
+    # (publication.load_context), and that rewrite is committed before the job
     # is claimed. A crash between those two points must still let the operator
     # replay the exact same reviewed schedule, so revision identity is pinned by
     # the destination, the revision, the idempotency key (which already embeds

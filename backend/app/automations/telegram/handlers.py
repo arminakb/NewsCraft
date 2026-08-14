@@ -13,29 +13,27 @@ from app.automations.telegram.handler_contracts import (
 )
 from app.automations.telegram.process_operations import (
     build_telegram_process_handler,
-    process_route_dispatch,
 )
 from app.automations.telegram.process_support import (
-    _dispatch_media,
-    _media_decision,
-    _require_automation_variant_write_allowed,
-    _resolve_process_prompt,
+    dispatch_media,
     enqueue_telegram_publish_intent,
+    media_decision,
+    require_automation_variant_write_allowed,
+    resolve_process_prompt,
 )
 from app.automations.telegram.route_operations import build_telegram_route_handlers
 
 __all__ = [
     "ProcessDispatchPayload",
-    "_dispatch_media",
-    "_media_decision",
-    "_require_automation_variant_write_allowed",
-    "_resolve_process_prompt",
+    "dispatch_media",
+    "media_decision",
+    "require_automation_variant_write_allowed",
+    "resolve_process_prompt",
     "build_evidence_map",
     "build_telegram_process_handler",
     "build_telegram_route_handlers",
     "enqueue_telegram_publish_intent",
     "generation_input_hash",
-    "process_route_dispatch",
     "sha256_canonical",
     "validate_evidence_snapshot",
 ]

@@ -58,7 +58,7 @@ from app.stories.models import StoryEvidenceSnapshot, StoryRevision
 _ROUTE_UNSET = object()
 
 
-async def _load_context(
+async def load_context(
     session: Any,
     publish_job_id: UUID,
     observed_at: datetime,
@@ -399,7 +399,7 @@ async def _load_context(
     )
 
 
-async def _revalidate_claim(session: Any, context: _PublishContext) -> PublishJob:
+async def revalidate_claim(session: Any, context: _PublishContext) -> PublishJob:
     revision = await session.scalar(
         select(PlatformVariantRevision)
         .where(PlatformVariantRevision.id == context.revision_id)
@@ -603,7 +603,7 @@ async def _prepare_publish(
 ) -> Any:
     try:
         async with session.begin():
-            return await _load_context(
+            return await load_context(
                 session,
                 publish_job_id,
                 observed_at,
@@ -626,7 +626,7 @@ async def _claim_operation(
     competing_claim = False
     async with session.begin():
         try:
-            publish_job = await _revalidate_claim(session, prepared)
+            publish_job = await revalidate_claim(session, prepared)
         except NeedsReviewJobError as exc:
             claim_error = exc
             publish_job = await session.scalar(

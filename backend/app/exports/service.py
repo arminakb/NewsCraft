@@ -224,16 +224,6 @@ class ExportService:
             include_media=request.include_media,
         )
 
-    async def build(
-        self,
-        request: ExportRequest,
-        *,
-        export_id: UUID,
-        created_at: datetime,
-    ) -> ExportArtifact:
-        payload = await self.prepare_payload(request)
-        return await self.build_from_payload(payload, export_id=export_id, created_at=created_at)
-
     async def build_from_payload(
         self,
         payload: BuildExportPayload,

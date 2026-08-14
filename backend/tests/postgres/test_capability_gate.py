@@ -7,7 +7,11 @@ import pytest
 from sqlalchemy import func, select
 
 from app.core.config import Settings
-from app.jobs.capability_gate import API_CAPABILITY_GATE_SESSION_KEY, require_available_job_type
+from app.jobs.capability_gate import (
+    API_CAPABILITY_GATE_SESSION_KEY,
+    API_CAPABILITY_GATE_SNAPSHOT_KEY,
+    require_available_job_type,
+)
 from app.jobs.errors import JobCapabilityUnavailable
 from app.jobs.models import RuntimeHeartbeat, WorkflowJob
 from app.jobs.repository import JobRepository
@@ -43,6 +47,7 @@ async def test_api_gate_accepts_only_a_fresh_exact_job_type(db_session):
     heartbeat = await db_session.scalar(select(RuntimeHeartbeat))
     heartbeat.observed_at = observed_at - timedelta(seconds=61)
     await db_session.flush()
+    db_session.info.pop(API_CAPABILITY_GATE_SNAPSHOT_KEY)
     with pytest.raises(JobCapabilityUnavailable) as stale:
         await require_available_job_type(db_session, "manual_intake")
     assert stale.value.code == "job_capability_unavailable"
@@ -75,6 +80,7 @@ async def test_api_gate_enforces_queue_ceiling_and_rejects_without_inserting(db_
     heartbeat = await db_session.scalar(select(RuntimeHeartbeat))
     heartbeat.observed_at = observed_at - timedelta(seconds=61)
     await db_session.flush()
+    db_session.info.pop(API_CAPABILITY_GATE_SNAPSHOT_KEY)
     with pytest.raises(JobCapabilityUnavailable):
         await repository.enqueue_job(
             job_type="ingest.collect",
