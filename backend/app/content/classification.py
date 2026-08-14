@@ -15,6 +15,7 @@ from app.db.models import Source
 from app.sources.base import ParsedSourceItem
 
 TAG_RE = re.compile(r"[^a-z0-9]+")
+_WORD_RE = re.compile(r"[\w\u0600-\u06ff]+", re.UNICODE)
 
 AI_KEYWORDS = (
     "ai",
@@ -175,7 +176,7 @@ class ContentTaxonomy:
 
 
 def classify_content_item(source: Source, parsed_item: ParsedSourceItem) -> ContentClassification:
-    text = _searchable_text(source, parsed_item)
+    text = taxonomy_searchable_text(parsed_item)
     url = parsed_item.canonical_url_candidate or parsed_item.source_url_norm or parsed_item.source_url or ""
     domain = _domain(url) or _domain(source.homepage_url or source.feed_url or "")
     text_length = len(parsed_item.content_text or "")
@@ -203,7 +204,7 @@ def classify_content_item(source: Source, parsed_item: ParsedSourceItem) -> Cont
 
 
 def classify_content_taxonomy(source: Source, parsed_item: ParsedSourceItem) -> ContentTaxonomy:
-    text = _taxonomy_searchable_text(parsed_item)
+    text = taxonomy_searchable_text(parsed_item)
     source_group = (source.source_group or "").lower()
     platform = (source.platform or "").lower()
 
@@ -253,24 +254,7 @@ def _result(
     )
 
 
-def _searchable_text(source: Source, parsed_item: ParsedSourceItem) -> str:
-    return " ".join(
-        str(value)
-        for value in (
-            source.name,
-            source.homepage_url,
-            source.feed_url,
-            parsed_item.source_url,
-            parsed_item.title,
-            parsed_item.summary,
-            parsed_item.content_text,
-            " ".join(parsed_item.categories or []),
-        )
-        if value
-    ).casefold()
-
-
-def _taxonomy_searchable_text(parsed_item: ParsedSourceItem) -> str:
+def taxonomy_searchable_text(parsed_item: ParsedSourceItem) -> str:
     return " ".join(
         value
         for value in (
@@ -284,7 +268,8 @@ def _taxonomy_searchable_text(parsed_item: ParsedSourceItem) -> str:
 
 
 def score_keywords(text: str, keywords: tuple[str, ...]) -> int:
-    return sum(text.count(keyword) for keyword in keywords)
+    words = _WORD_RE.findall(text.casefold())
+    return sum(_keyword_occurrences(words, keyword) for keyword in dict.fromkeys(keywords))
 
 
 def telegram_engagement_score(platform: str, parser_meta: dict[str, Any]) -> tuple[int, dict[str, int]]:
@@ -317,11 +302,20 @@ def _category_for_scores(keyword_scores: dict[str, int], source_group: str) -> s
 
 
 def _matched_keywords(text: str) -> list[str]:
+    words = _WORD_RE.findall(text.casefold())
     matches: list[str] = []
     for keyword in (*AI_KEYWORDS, *TECH_KEYWORDS, *ECONOMY_KEYWORDS, *FARSI_NEWS_KEYWORDS):
-        if keyword in text and keyword not in matches:
+        if _keyword_occurrences(words, keyword) and keyword not in matches:
             matches.append(keyword)
     return matches[:12]
+
+
+def _keyword_occurrences(words: list[str], keyword: str) -> int:
+    keyword_words = _WORD_RE.findall(keyword.casefold())
+    width = len(keyword_words)
+    if not width:
+        return 0
+    return sum(words[index : index + width] == keyword_words for index in range(len(words) - width + 1))
 
 
 def _build_tags(source_categories: list[str], category: str, matched_keywords: list[str]) -> list[str]:
@@ -346,7 +340,8 @@ def _int_value(value: Any) -> int:
 
 
 def _has(text: str, keywords: tuple[str, ...]) -> bool:
-    return any(keyword in text for keyword in keywords)
+    words = _WORD_RE.findall(text.casefold())
+    return any(_keyword_occurrences(words, keyword) for keyword in keywords)
 
 
 def _domain(url: str) -> str:

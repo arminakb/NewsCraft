@@ -20,7 +20,7 @@ class AttributionHeaders(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     http_referer: HttpUrl | None = None
-    app_title: str = Field(default="NewsCraft", min_length=1, max_length=80)
+    app_title: str | None = Field(default=None, min_length=1, max_length=80)
 
 
 def _zero_pricing() -> ProviderPricingSettings:

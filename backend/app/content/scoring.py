@@ -5,7 +5,13 @@ from datetime import UTC, datetime
 from typing import Any
 from urllib.parse import urlsplit
 
-from app.content.classification import AI_KEYWORDS, TECH_KEYWORDS, score_keywords, telegram_engagement_score
+from app.content.classification import (
+    AI_KEYWORDS,
+    TECH_KEYWORDS,
+    score_keywords,
+    taxonomy_searchable_text,
+    telegram_engagement_score,
+)
 from app.db.models import Source
 from app.sources.base import ParsedSourceItem
 
@@ -27,7 +33,7 @@ def score_content_item(
     now: datetime | None = None,
 ) -> ScoreResult:
     now = now or datetime.now(UTC)
-    text = _searchable_text(parsed_item)
+    text = taxonomy_searchable_text(parsed_item)
     url = parsed_item.canonical_url_candidate or parsed_item.source_url_norm or parsed_item.source_url or ""
     text_length = len(parsed_item.content_text or "")
     media_count = len(parsed_item.media_candidates)
@@ -107,19 +113,6 @@ def score_content_item(
         freshness_bucket=freshness_bucket,
         source_tier=source_tier,
     )
-
-
-def _searchable_text(parsed_item: ParsedSourceItem) -> str:
-    return " ".join(
-        value
-        for value in (
-            parsed_item.title,
-            parsed_item.summary,
-            parsed_item.content_text,
-            " ".join(parsed_item.categories or []),
-        )
-        if value
-    ).lower()
 
 
 def _freshness_bucket(published_at: datetime | None, now: datetime) -> str:

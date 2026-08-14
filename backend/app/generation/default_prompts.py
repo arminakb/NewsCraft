@@ -174,9 +174,6 @@ def prompt_checksum(
     return hashlib.sha256(canonical).hexdigest()
 
 
-telegram_prompt_checksum = prompt_checksum
-
-
 def validate_prompt_template_fields(
     user_template: str,
     *,
@@ -249,7 +246,7 @@ async def _seed_prompt_version(
             PromptTemplate(id=uuid4(), purpose_key=purpose_key, name=name, description=description),
             select(PromptTemplate).where(PromptTemplate.purpose_key == purpose_key),
         )
-    checksum = telegram_prompt_checksum(system_template, user_template, output_schema)
+    checksum = prompt_checksum(system_template, user_template, output_schema)
     versions = [
         item
         for item in await session.scalars(select(PromptTemplateVersion).with_for_update())
@@ -272,7 +269,7 @@ async def _seed_prompt_version(
         PromptTemplateVersion(
             id=uuid4(),
             prompt_template_id=template.id,
-            version=max((item.version for item in versions), default=0) + 1,
+            version=1,
             system_template=system_template,
             user_template=user_template,
             output_schema_version=output_schema_version,
@@ -284,7 +281,7 @@ async def _seed_prompt_version(
         ),
         select(PromptTemplateVersion).where(
             PromptTemplateVersion.prompt_template_id == template.id,
-            PromptTemplateVersion.version == max((item.version for item in versions), default=0) + 1,
+            PromptTemplateVersion.version == 1,
         ),
     )
     created.prompt_template = template

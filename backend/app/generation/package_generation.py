@@ -11,18 +11,18 @@ from app.automations.telegram.handlers import sha256_canonical
 from app.core.faults import FaultInjector, NoopFaultInjector
 from app.generation import package_inputs
 from app.generation.generation_helpers import (
-    _artifact_requires_review,
     _assemble_telegram_revision,
-    _checkpoint_execution,
-    _job_payload,
-    _pack_budget_state,
     _pack_job_result,
-    _platform_stage_input,
     _redacted_dict,
     _require_active_prompt_version,
-    _require_exact_active_prompt,
     _require_exact_regeneration_dispatch,
-    _required_uuid,
+    artifact_requires_review,
+    checkpoint_execution,
+    job_payload,
+    pack_budget_state,
+    platform_stage_input,
+    require_exact_active_prompt,
+    required_uuid,
 )
 from app.generation.models import (
     BrandProfile,
@@ -33,23 +33,16 @@ from app.generation.models import (
     PromptTemplateVersion,
 )
 from app.generation.multiplatform import PLATFORM_ORDER, PLATFORM_PROMPT_PURPOSE
-from app.generation.package_evidence import (
-    locked_story_evidence as _locked_story_evidence,
-)
+from app.generation.package_evidence import locked_story_evidence
 from app.generation.platform_media import (
-    trusted_story_media as _trusted_story_media,
-)
-from app.generation.platform_media import (
+    trusted_story_media,
     validate_payload_media_assignments,
-)
-from app.generation.platform_output import (
-    _manual_output_with_ordinary_issues as _manual_output_with_ordinary_issues,
 )
 from app.generation.platform_output import (
     validate_provider_output as _validate_provider_output,
 )
 from app.generation.platform_schemas import Platform
-from app.generation.provider_execution import _invoke
+from app.generation.provider_execution import invoke
 from app.generation.revision_fence import (
     RegenerationFenceConflict,
     require_revision_write_allowed,
@@ -95,11 +88,11 @@ async def _load_pack_inputs(
     job: JobExecution,
     context: JobContext,
 ) -> tuple[package_inputs.PackInputs, Decimal]:
-    payload = _job_payload(job)
-    budget_started_at, cumulative_cost = _pack_budget_state(job, payload)
-    revision_id = _required_uuid(payload, "story_revision_id")
-    brand_id = _required_uuid(payload, "brand_profile_id")
-    profile_id = _required_uuid(payload, "generation_provider_profile_id")
+    payload = job_payload(job)
+    budget_started_at, cumulative_cost = pack_budget_state(job, payload)
+    revision_id = required_uuid(payload, "story_revision_id")
+    brand_id = required_uuid(payload, "brand_profile_id")
+    profile_id = required_uuid(payload, "generation_provider_profile_id")
     story_revision = await context.session.get(StoryRevision, revision_id)
     brand = await context.session.get(BrandProfile, brand_id)
     if story_revision is None:
@@ -128,8 +121,8 @@ async def _load_pack_inputs(
         prompt_ids=prompt_ids,
         checksums=checksums,
     )
-    story_citations, evidence = await _locked_story_evidence(context, story_revision)
-    _authorized_media, source_media = await _trusted_story_media(context.session, evidence)
+    story_citations, evidence = await locked_story_evidence(context, story_revision)
+    _authorized_media, source_media = await trusted_story_media(context.session, evidence)
     first_story_pack_id = await context.session.scalar(
         select(ContentPack.id)
         .join(StoryRevision, StoryRevision.id == ContentPack.story_revision_id)
@@ -167,7 +160,7 @@ async def _before_platform_provider_call(
     prompt: PromptTemplateVersion,
 ) -> None:
     if inputs.regeneration is None:
-        await _require_exact_active_prompt(
+        await require_exact_active_prompt(
             context.session,
             platform,
             prompt.id,
@@ -236,7 +229,7 @@ async def _generate_platform(
     platform: Platform,
 ) -> package_inputs.GeneratedPlatform:
     prompt = inputs.prompts[platform]
-    input_payload, input_hash = _platform_stage_input(
+    input_payload, input_hash = platform_stage_input(
         platform=platform,
         canonical_story=inputs.canonical_json,
         brand_profile=inputs.brand_json,
@@ -245,7 +238,7 @@ async def _generate_platform(
         instruction=inputs.payload.get("instruction"),
         source_media=inputs.source_media,
     )
-    run, attempt, authored = await _invoke(
+    run, attempt, authored = await invoke(
         context,
         profile_resolver=profile_resolver,
         profile_id=inputs.profile_id,
@@ -355,7 +348,7 @@ async def _checkpoint_platform(
     progress: package_inputs.PackProgress,
 ) -> None:
     assert progress.pack is not None
-    await _checkpoint_execution(
+    await checkpoint_execution(
         job,
         context,
         result=_pack_job_result(
@@ -385,7 +378,7 @@ async def _reuse_artifact(
         if inputs.regeneration is not None
         else None
     )
-    progress.has_errors = progress.has_errors or await _artifact_requires_review(
+    progress.has_errors = progress.has_errors or await artifact_requires_review(
         context.session,
         artifact,
         expected_platform=generated.platform,
@@ -399,7 +392,7 @@ async def _reuse_artifact(
         evidence=inputs.evidence,
         telegram_default_direction=generated.default_direction,
         expected_regeneration_base=regeneration_base,
-        trusted_media_loader=_trusted_story_media,
+        trusted_media_loader=trusted_story_media,
     )
     progress.pack = await context.session.get(
         ContentPack,
@@ -567,7 +560,7 @@ async def _materialize_revision(
             invalid_code="generation_telegram_parent_invalid",
             invalid_message="Trusted Telegram parent context is invalid",
         )
-    authorized_media, _source_media = await _trusted_story_media(
+    authorized_media, _source_media = await trusted_story_media(
         context.session,
         inputs.evidence,
         lock_rows=True,
@@ -720,7 +713,7 @@ async def handle_pack_generation(
         progress.results,
     )
     if progress.has_errors:
-        await _checkpoint_execution(job, context, result=result)
+        await checkpoint_execution(job, context, result=result)
         raise NeedsReviewJobError(
             code="platform_validation_failed",
             message="Generated platform package requires operator review",

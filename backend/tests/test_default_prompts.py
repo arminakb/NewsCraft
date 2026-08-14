@@ -1,10 +1,10 @@
 from app.generation.default_prompts import (
     DEFAULT_TELEGRAM_SYSTEM_TEMPLATE,
     DEFAULT_TELEGRAM_USER_TEMPLATE,
+    prompt_checksum,
     seed_default_editorial_prompts,
     seed_default_telegram_configuration,
     seed_default_telegram_prompt,
-    telegram_prompt_checksum,
 )
 from app.generation.models import AIProviderProfile, BrandProfile, PromptTemplate, PromptTemplateVersion
 
@@ -41,7 +41,7 @@ async def test_default_prompt_seed_is_idempotent_and_never_replaces_operator_act
     assert first.version == 1
     assert first.is_active is True
     assert first.output_schema_version == "telegram_rewrite.v1"
-    assert first.checksum_sha256 == telegram_prompt_checksum(
+    assert first.checksum_sha256 == prompt_checksum(
         first.system_template, first.user_template, first.output_schema
     )
     assert all(

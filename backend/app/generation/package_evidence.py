@@ -6,12 +6,11 @@ from uuid import UUID
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.generation.generation_helpers import _evidence_record
 from app.jobs.errors import NeedsReviewJobError
 from app.jobs.registry import JobContext
 from app.research.citations import validate_citations
 from app.research.schemas import CitationRef, Claim
-from app.stories.evidence import EvidenceRecord
+from app.stories.evidence import EvidenceRecord, evidence_record_from_snapshot
 from app.stories.models import StoryEvidenceSnapshot, StoryRevision
 
 LockedEvidenceStage = Literal[
@@ -62,7 +61,7 @@ async def load_locked_story_evidence(
             )
         )
     )
-    records = {row.id: _evidence_record(row) for row in snapshots}
+    records = {row.id: evidence_record_from_snapshot(row) for row in snapshots}
     if set(records) != snapshot_ids:
         raise LockedStoryEvidenceError("evidence_missing")
     try:

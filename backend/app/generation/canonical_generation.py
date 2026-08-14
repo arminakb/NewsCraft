@@ -13,21 +13,20 @@ from app.automations.telegram.handlers import sha256_canonical
 from app.core.faults import FaultInjector, NoopFaultInjector
 from app.generation.canonical import CanonicalStoryOutput, validate_canonical_output
 from app.generation.generation_helpers import (
-    _evidence_record,
-    _job_payload,
-    _pack_budget_state,
     _redacted_dict,
     _require_exact_active_canonical_prompt,
-    _required_uuid,
+    job_payload,
+    pack_budget_state,
+    required_uuid,
 )
 from app.generation.models import GenerationAttempt, GenerationRun, PromptTemplate, PromptTemplateVersion
-from app.generation.provider_execution import _invoke
+from app.generation.provider_execution import invoke
 from app.jobs.errors import NeedsReviewJobError, PermanentJobError
 from app.jobs.registry import JobContext
 from app.jobs.repository import JobRepository
 from app.jobs.types import JobExecution, JobOrigin
 from app.research.models import ResearchRun
-from app.stories.evidence import EvidenceRecord
+from app.stories.evidence import EvidenceRecord, evidence_record_from_snapshot
 from app.stories.models import Story, StoryEvidenceSnapshot, StoryRevision
 
 
@@ -80,11 +79,11 @@ async def handle_canonical_generation(
 
 
 async def _load_inputs(job: JobExecution, context: JobContext) -> CanonicalInputs:
-    payload = _job_payload(job)
-    budget_started_at, _prior_cost = _pack_budget_state(job, payload)
-    story_id = _required_uuid(payload, "story_id")
-    prompt_id = _required_uuid(payload, "canonical_prompt_template_version_id")
-    profile_id = _required_uuid(payload, "generation_provider_profile_id")
+    payload = job_payload(job)
+    budget_started_at, _prior_cost = pack_budget_state(job, payload)
+    story_id = required_uuid(payload, "story_id")
+    prompt_id = required_uuid(payload, "canonical_prompt_template_version_id")
+    profile_id = required_uuid(payload, "generation_provider_profile_id")
     story, prompt = await _load_story_and_prompt(context, story_id, prompt_id, payload)
     bound_parent = await _load_bound_parent(context, payload, story_id)
     evidence, evidence_json = await _load_evidence(context, story_id, bound_parent)
@@ -187,7 +186,7 @@ async def _load_evidence(
             code="generation_research_evidence_missing",
             message="Bound research evidence is unavailable",
         )
-    evidence = {row.id: _evidence_record(row) for row in snapshots}
+    evidence = {row.id: evidence_record_from_snapshot(row) for row in snapshots}
     projected = [
         {
             "evidence_snapshot_id": str(row.id),
@@ -249,7 +248,7 @@ async def _generate(
             inputs.prompt.checksum_sha256,
         )
 
-    return await _invoke(
+    return await invoke(
         context,
         profile_resolver=profile_resolver,
         profile_id=inputs.profile_id,

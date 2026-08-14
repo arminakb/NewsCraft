@@ -27,6 +27,7 @@ def pending_item(title: str, url: str, *, hours: int = 0):
 def grouping_result(story, content_item_ids):
     return SimpleNamespace(
         story=story,
+        created_evidence_snapshot_count=len(content_item_ids),
         items=tuple(
             SimpleNamespace(content_item_id=content_item_id, disposition="grouped", reason="evidence_attached")
             for content_item_id in content_item_ids
@@ -56,10 +57,6 @@ async def test_group_pending_handler_is_deterministic_and_replay_safe(monkeypatc
         async def group_content_items(self, content_item_ids):
             self.group_calls.append(tuple(content_item_ids))
             return grouping_result(self.story, content_item_ids)
-
-        async def list_evidence(self, story_id):
-            assert story_id == self.story.id
-            return [SimpleNamespace(evidence_snapshot_id=first.id), SimpleNamespace(evidence_snapshot_id=second.id)]
 
     repository = FakeRepository()
     monkeypatch.setattr("app.stories.handlers.StoryRepository", lambda session: repository)

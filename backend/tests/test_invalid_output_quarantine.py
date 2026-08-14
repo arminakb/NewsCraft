@@ -1,10 +1,26 @@
 import os
 from datetime import UTC, datetime, timedelta
 
+import pytest
+
 from app.generation.invalid_output_quarantine import AgeInvalidOutputQuarantine
 
 
-async def test_age_quarantine_writes_only_ciphertext_and_prunes_expired_artifacts(tmp_path, monkeypatch):
+@pytest.fixture(autouse=True)
+def execute_thread_work_inline(monkeypatch):
+    calls = []
+
+    async def to_thread(function, *args, **kwargs):
+        calls.append(function)
+        return function(*args, **kwargs)
+
+    monkeypatch.setattr("app.generation.invalid_output_quarantine.asyncio.to_thread", to_thread)
+    return calls
+
+
+async def test_age_quarantine_writes_only_ciphertext_and_prunes_expired_artifacts(
+    tmp_path, monkeypatch, execute_thread_work_inline
+):
     recipient = tmp_path / "recipient.txt"
     recipient.write_text("age1testrecipient", encoding="utf-8")
     root = tmp_path / "quarantine"
@@ -48,6 +64,7 @@ async def test_age_quarantine_writes_only_ciphertext_and_prunes_expired_artifact
     assert artifacts[0].stat().st_mode & 0o777 == 0o600
     assert not old.exists()
     assert not any(path.read_bytes() == b"private-plaintext" for path in root.iterdir())
+    assert len(execute_thread_work_inline) == 3
 
 
 async def test_age_quarantine_skips_oversized_content_before_process_start(tmp_path, monkeypatch):

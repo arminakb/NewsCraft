@@ -101,7 +101,7 @@ async def group_pending_content(job: JobExecution, context: JobContext) -> dict[
     payload = GroupPendingPayload.model_validate(job_payload_copy(job))
     repository = StoryRepository(context.session)
     items = await repository.list_pending_content_items(limit=payload.limit, cursor=payload.cursor)
-    evidence_ids: set[object] = set()
+    evidence_snapshot_count = 0
     story_count = 0
     disposition_counts = {
         "grouped": 0,
@@ -111,18 +111,17 @@ async def group_pending_content(job: JobExecution, context: JobContext) -> dict[
     }
     for component in _group_components(items):
         grouping = await repository.group_content_items([row.id for row in component])
+        evidence_snapshot_count += grouping.created_evidence_snapshot_count
         for item_result in grouping.items:
             disposition_counts[item_result.disposition] += 1
         if grouping.story is None:
             continue
-        story = grouping.story
         story_count += 1
-        evidence_ids.update(row.evidence_snapshot_id for row in await repository.list_evidence(story.id))
 
     result = GroupPendingResult(
         selected_count=len(items),
         grouped_story_count=story_count,
-        evidence_snapshot_count=len(evidence_ids),
+        evidence_snapshot_count=evidence_snapshot_count,
         grouped_item_count=disposition_counts["grouped"],
         skipped_item_count=disposition_counts["skipped"],
         duplicate_item_count=disposition_counts["duplicate"],

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import asyncio
 import json
 import time
 from collections.abc import Callable
@@ -27,6 +26,8 @@ from app.research.base import (
     ResearchUsage,
 )
 from app.research.codex_adapter import ResearchBackendError
+from app.research.deadline import elapsed_ms as deadline_elapsed_ms
+from app.research.deadline import with_deadline
 from app.research.duckduckgo import DuckDuckGoSearchClient
 from app.research.safe_fetch import SafeArticleFetcher
 from app.research.schemas import CandidateResearchBrief, DiscoveredSourcePayload, ResearchBudget
@@ -152,7 +153,7 @@ class OpenRouterResearchBackend:
                     check_deadline=lambda: self._check_elapsed(request.budget, started),
                 )
                 self._check_elapsed(request.budget, started)
-                elapsed_ms = self._elapsed_ms(started)
+                elapsed_ms = deadline_elapsed_ms(self.monotonic, started)
                 final_result = ResearchResult(
                     provider_profile_id=request.provider_profile_id,
                     provider_type="openrouter",
@@ -249,24 +250,16 @@ class OpenRouterResearchBackend:
             raise _needs_review("openrouter research pricing and budgets are required", "profile_incomplete")
         return settings
 
-    def _elapsed_ms(self, started: float) -> int:
-        return max(0, round((self.monotonic() - started) * 1_000))
-
     def _check_elapsed(self, budget: ResearchBudget, started: float) -> None:
         if self.monotonic() >= started + budget.max_elapsed_seconds:
             raise ResearchBudgetExceeded("elapsed time budget exhausted")
 
     async def _within_deadline(self, awaitable, *, budget: ResearchBudget, started: float):
-        try:
-            remaining = self._remaining_seconds(budget, started)
-        except ResearchBudgetExceeded:
-            if hasattr(awaitable, "close"):
-                awaitable.close()
-            raise
-        try:
-            return await asyncio.wait_for(awaitable, timeout=remaining)
-        except TimeoutError:
-            raise ResearchBudgetExceeded("elapsed time budget exhausted") from None
+        return await with_deadline(
+            awaitable,
+            remaining_seconds=started + budget.max_elapsed_seconds - self.monotonic(),
+            on_expired=lambda: ResearchBudgetExceeded("elapsed time budget exhausted"),
+        )
 
     def _remaining_seconds(self, budget: ResearchBudget, started: float) -> float:
         remaining = started + budget.max_elapsed_seconds - self.monotonic()

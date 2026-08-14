@@ -1,3 +1,4 @@
+import asyncio
 import json
 from uuid import uuid4
 
@@ -7,6 +8,7 @@ import pytest
 from app.generation.default_prompts import manual_generation_provider_schema
 from app.generation.platform_schemas import InstagramVariantPayload
 from app.generation.providers.base import GenerationProviderRequest, ProviderMessage
+from app.generation.providers.openai_compatible import OpenAICompatibleProvider
 from app.generation.providers.openrouter import (
     OpenRouterNeedsReviewError,
     OpenRouterPermanentError,
@@ -63,6 +65,40 @@ async def test_openrouter_posts_json_schema_and_returns_normalized_result():
     assert result.output["body"] == "بازنویسی"
     assert result.resolved_model == "openai/gpt-5-mini"
     assert result.usage == {"input_tokens": 10, "output_tokens": 4, "cost_usd": 0}
+
+
+async def test_openai_compatible_omits_vendor_attribution_and_uses_its_own_error_prefix():
+    received_headers = {}
+
+    async def handle(reader, writer):
+        request_head = (await reader.readuntil(b"\r\n\r\n")).decode("latin-1")
+        for line in request_head.split("\r\n")[1:]:
+            if ":" in line:
+                name, value = line.split(":", 1)
+                received_headers[name.casefold()] = value.strip()
+        writer.write(b"HTTP/1.1 401 Unauthorized\r\nContent-Length: 0\r\nConnection: close\r\n\r\n")
+        await writer.drain()
+        writer.close()
+        await writer.wait_closed()
+
+    try:
+        server = await asyncio.start_server(handle, "127.0.0.1", 0)
+    except OSError:
+        pytest.skip("loopback listener is unavailable in this sandbox")
+    port = server.sockets[0].getsockname()[1]
+    async with server, httpx.AsyncClient(trust_env=False) as client:
+        provider = OpenAICompatibleProvider(
+            http_client=client,
+            api_key="test-key",
+            base_url=f"http://127.0.0.1:{port}/v1",
+        )
+        with pytest.raises(OpenRouterPermanentError) as caught:
+            await provider.generate(provider_request())
+
+    assert caught.value.code == "openai_compatible_http_401"
+    assert "x-title" not in received_headers
+    assert "http-referer" not in received_headers
+    assert repr(provider).startswith("OpenAICompatibleProvider(")
 
 
 async def test_openrouter_accepts_object_content_and_maps_transport_failure_retryably():
