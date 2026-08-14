@@ -30,12 +30,20 @@ export function camelize<Value>(value: Value): Camelized<Value> {
   return camelizeValue(value, false) as Camelized<Value>
 }
 
+export function camelKey(key: string) {
+  return key.replace(/_([a-z])/g, (_match, letter: string) => letter.toUpperCase())
+}
+
+export function snakeKey(key: string) {
+  return key.replace(/[A-Z]/g, (letter) => `_${letter.toLowerCase()}`)
+}
+
 function camelizeValue(value: unknown, preserveKeys: boolean): unknown {
   if (Array.isArray(value)) return value.map((item) => camelizeValue(item, preserveKeys))
   if (value === null || typeof value !== "object") return value
   return Object.fromEntries(
     Object.entries(value).map(([key, item]) => [
-      preserveKeys ? key : key.replace(/_([a-z])/g, (_match, letter: string) => letter.toUpperCase()),
+      preserveKeys ? key : camelKey(key),
       camelizeValue(item, FREE_FORM_MAP_FIELDS.has(key)),
     ]),
   )

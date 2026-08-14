@@ -205,7 +205,6 @@ export type TelegramPublishJob = {
 
 export type BrandProfile = Schemas["BrandProfileOut"]
 export type BrandProfileInput = Schemas["BrandProfileCreate"]
-export type BrandProfilePatch = Schemas["BrandProfilePatch"]
 
 export type PromptTemplate = { id: string; purposeKey: string; name: string; description: string | null }
 export type PromptVersion = Schemas["PromptTemplateVersionOut"]

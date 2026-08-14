@@ -24,6 +24,7 @@ import { ErrorState, LoadingState } from "@/components/ui/state-panel"
 import type { StatusTone } from "@/components/ui/status-badge"
 import { ApiError, getApiErrorMessage } from "@/lib/http"
 import { queryKeys } from "@/lib/query-keys"
+import { useMediaQuery } from "@/lib/use-media-query"
 import { cn } from "@/lib/utils"
 
 import { getArticleCollections } from "@/features/articles/api"
@@ -119,7 +120,7 @@ function AutomationBuilderReady({ automation, catalog, initialVersion }: { autom
   const [testOpen, setTestOpen] = useState(false)
   const [historyOpen, setHistoryOpen] = useState(false)
   const [attentionOpen, setAttentionOpen] = useState(false)
-  const [desktopCanvas, setDesktopCanvas] = useState(false)
+  const desktopCanvas = useMediaQuery("(min-width: 768px)")
   const attentionTriggerRef = useRef<HTMLButtonElement>(null)
   const clientValidation = useMemo(() => validateWorkflowClient(state.graph, catalog), [catalog, state.graph])
   const currentValidation = dirty ? clientValidation : serverValidation ?? clientValidation
@@ -144,14 +145,6 @@ function AutomationBuilderReady({ automation, catalog, initialVersion }: { autom
   const saveBlocked = clientValidation.findings.some((item) => structuralCodes.has(item.code))
   const resourceBlocked = resources.isPending || resources.isError || Boolean(resources.data?.resources.some((resource) => resource.state !== "ready"))
   const readiness = editorReadiness(currentValidation, resources.data?.resources, resources.isPending, resources.isError)
-
-  useEffect(() => {
-    const media = window.matchMedia("(min-width: 768px)")
-    const sync = () => setDesktopCanvas(media.matches)
-    sync()
-    media.addEventListener("change", sync)
-    return () => media.removeEventListener("change", sync)
-  }, [])
 
   useEffect(() => {
     if (window.location.hash === "#test-studio") setTestOpen(true)

@@ -12,6 +12,7 @@ import { Input } from "@/components/ui/input"
 import { Select } from "@/components/ui/select"
 import { formatNumber, formatPlatform, titleCase } from "@/lib/format"
 import { getApiErrorMessage } from "@/lib/http"
+import { useMediaQuery } from "@/lib/use-media-query"
 
 type FilterControlProps = {
   filters: ArticleFilters
@@ -27,22 +28,13 @@ export function ArticleFilterControl(props: FilterControlProps) {
   const [open, setOpen] = useState(false)
   const [draft, setDraft] = useState(props.filters)
   const [validationError, setValidationError] = useState<string | null>(null)
-  const [mobile, setMobile] = useState(true)
+  const mobile = useMediaQuery("(max-width: 767px)")
   const triggerRef = useRef<HTMLButtonElement>(null)
   const panelRef = useRef<HTMLDivElement>(null)
   const closeRef = useRef<HTMLButtonElement>(null)
   const count = activeFilterCount(props.filters)
 
   useEditorialModal({ open, containerRef: panelRef, initialFocusRef: closeRef, onClose: () => setOpen(false) })
-
-  useEffect(() => {
-    const media = window.matchMedia?.("(max-width: 767px)")
-    if (!media) return
-    const update = () => setMobile(media.matches)
-    update()
-    media.addEventListener("change", update)
-    return () => media.removeEventListener("change", update)
-  }, [])
 
   useEffect(() => {
     if (!open) return
@@ -69,6 +61,7 @@ export function ArticleFilterControl(props: FilterControlProps) {
     setOpen(false)
   }
   const clear = () => {
+    closeRef.current?.focus()
     setDraft(EMPTY_ARTICLE_FILTERS)
     setValidationError(null)
     props.onClear()
@@ -100,7 +93,7 @@ export function ArticleFilterControl(props: FilterControlProps) {
           />
           <div
             aria-labelledby="article-filter-heading"
-            aria-modal={mobile ? "true" : undefined}
+            aria-modal="true"
             className="nc-dialog fixed inset-x-0 bottom-0 z-50 max-h-[90dvh] overflow-y-auto rounded-b-none p-4 md:absolute md:inset-auto md:right-0 md:top-[calc(100%+0.5rem)] md:max-h-[calc(100dvh-10rem)] md:w-[430px] md:max-w-[calc(100vw-2rem)] md:rounded-xl md:p-5"
             ref={panelRef}
             role="dialog"

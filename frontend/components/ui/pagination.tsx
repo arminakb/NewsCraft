@@ -167,7 +167,4 @@ export {
   PaginationPrevious,
   PaginationNext,
   PaginationEllipsis,
-  paginationVariants,
-  paginationItemVariants,
-  paginationNavVariants,
 }

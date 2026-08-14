@@ -22,10 +22,6 @@ export function useWorkflowEditorState(initialGraph: WorkflowGraph) {
   return useReducer(reducer, initialGraph, initializeEditorState)
 }
 
-export function initialWorkflowEditorGraph(initialGraph: WorkflowGraph): WorkflowGraph {
-  return initialGraph
-}
-
 export function emptyWorkflowGraph(): WorkflowGraph {
   return {
     schemaVersion: 1,
@@ -83,7 +79,7 @@ function reducer(state: EditorState, action: EditorAction): EditorState {
 export type { EditorAction, EditorState }
 
 function initializeEditorState(initialGraph: WorkflowGraph): EditorState {
-  const graph = initialWorkflowEditorGraph(initialGraph)
+  const graph = initialGraph
   return {
     graph,
     savedGraph: graph,

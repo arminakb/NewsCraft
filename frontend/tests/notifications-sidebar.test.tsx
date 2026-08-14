@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react"
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react"
 
 import { NewsroomShell } from "@/components/newsroom/newsroom-shell"
 import { NotificationsSidebar } from "@/components/newsroom/notifications-sidebar"
@@ -87,6 +87,27 @@ describe("notifications sidebar", () => {
 
     fireEvent.click(within(dialog).getByRole("button", { name: "Dismiss Saved" }))
     expect(within(dialog).getByText("We'll let you know when we have news for you.")).toBeInTheDocument()
+  })
+
+  it("retains inbox notices after their toast expires", () => {
+    vi.useFakeTimers()
+    try {
+      renderApp(
+        <>
+          <NoticeHarness />
+          <NotificationsSidebar onOpenChange={() => undefined} open />
+        </>,
+      )
+
+      fireEvent.click(screen.getByText("Create success notice"))
+      act(() => vi.advanceTimersByTime(5_000))
+
+      const dialog = screen.getByRole("dialog", { name: "Your notifications" })
+      expect(within(dialog).getByText("Saved")).toBeInTheDocument()
+      expect(screen.getByRole("status", { name: "Notifications" })).not.toHaveTextContent("Saved")
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it("keeps fixed dimensions across empty, loading, and error states", () => {

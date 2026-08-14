@@ -22,6 +22,7 @@ const requiredResources: Record<string, string[]> = {
 
 export function validateWorkflowClient(graph: WorkflowGraph, catalog: AutomationNodeCatalog): GraphValidation {
   const findings: ValidationFinding[] = []
+  const shapeCache = new Map()
   const nodes = new Map(graph.nodes.map((node) => [node.id, node]))
   const inputCounts = new Map<string, number>()
   const outputCounts = new Map<string, number>()
@@ -55,7 +56,7 @@ export function validateWorkflowClient(graph: WorkflowGraph, catalog: Automation
     const targetNode = nodes.get(edge.targetNodeId)
     const source = sourceNode ? catalogDefinition(catalog, sourceNode.type) : undefined
     const target = targetNode ? catalogDefinition(catalog, targetNode.type) : undefined
-    const compatible = source && target ? connectionCompatibility(graph, catalog, edge) : "incompatible"
+    const compatible = source && target ? connectionCompatibility(graph, catalog, edge, shapeCache) : "incompatible"
     if (target?.entry) findings.push({ ...finding("edge_port_invalid", "Trigger steps cannot receive incoming connections.", targetNode?.id, "Keep the trigger first and connect only from its output."), edgeIndex: index })
     else if (compatible === "incompatible") findings.push({ ...finding("edge_port_invalid", "Connected ports require incompatible artifact capabilities.", targetNode?.id, "Choose an output satisfying the input contract."), edgeIndex: index })
     else if (compatible === "incomplete") findings.push({ ...finding("edge_artifact_contract_incomplete", "Artifact compatibility is incomplete until an upstream artifact is available.", targetNode?.id, "Configure and run the upstream step before activation.", undefined, "warning"), edgeIndex: index })

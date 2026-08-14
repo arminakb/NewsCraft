@@ -35,7 +35,7 @@ export function NotificationsSidebar({
   const noticeContext = useOptionalNotices()
   const closeRef = useRef<HTMLButtonElement>(null)
   const [developmentFixtures, setDevelopmentFixtures] = useState<readonly NotificationRecord[]>([])
-  const noticeRecords = noticeContext ? adaptNoticesToNotifications(noticeContext.notices) : []
+  const noticeRecords = noticeContext ? adaptNoticesToNotifications(noticeContext.retainedNotices) : []
   const fixtureRecords = notifications === undefined ? developmentFixtures : []
   const records = notifications ?? [...noticeRecords, ...fixtureRecords]
   const canDismissNoticeState = notifications === undefined && noticeContext !== null
@@ -110,7 +110,7 @@ export function NotificationsTrigger({
 }) {
   const tooltipId = useId()
   const noticeContext = useOptionalNotices()
-  const count = noticeContext?.notices.length ?? 0
+  const count = noticeContext?.retainedNotices.length ?? 0
   const showLabel = placement === "sidebar" && expanded
   const showTooltip = !showLabel
   const countDescriptionId = `${tooltipId}-count`
@@ -164,7 +164,7 @@ export function NotificationsTrigger({
       {handle ? <Popover.Trigger handle={handle} render={button} /> : button}
       {count > 0 ? (
         <span className="sr-only" id={countDescriptionId}>
-          {count} active {count === 1 ? "notification" : "notifications"}
+          {count} retained {count === 1 ? "notification" : "notifications"}
         </span>
       ) : null}
       {showTooltip ? (

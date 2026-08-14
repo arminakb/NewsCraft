@@ -8,6 +8,7 @@ import type {
   WorkflowGraph,
   WorkflowNode,
 } from "./automation-types"
+import { camelKey, snakeKey } from "@/lib/camelize"
 
 /**
  * JSON-Schema-driven node configuration: defaults, the save-boundary
@@ -115,9 +116,6 @@ export function normalizeWorkflowGraphForSave(graph: WorkflowGraph, catalog: Aut
     metadata: { layout },
   }
 }
-
-/** Alias kept explicit for save-request call sites and serialization tests. */
-export const serializeWorkflowGraph = normalizeWorkflowGraphForSave
 
 export function workflowResourceRequests(graph: WorkflowGraph): AutomationResourceRequest[] {
   const values = new Map<string, AutomationResourceRequest>()
@@ -250,11 +248,11 @@ function findConfigKey(source: Record<string, unknown>, key: string) {
 }
 
 function camelizeConfigKey(key: string) {
-  return key.replace(/_([a-z])/g, (_match, letter: string) => letter.toUpperCase())
+  return camelKey(key)
 }
 
 function snakeizeConfigKey(key: string) {
-  return key.replace(/[A-Z]/g, (letter) => `_${letter.toLowerCase()}`)
+  return snakeKey(key)
 }
 
 function hasOwn(value: Record<string, unknown>, key: string): key is string {

@@ -16,6 +16,7 @@ vi.mock("next/navigation", () => ({
 }))
 
 vi.mock("@/features/automations/automation-api", () => ({
+  approveAutomationArtifactReview: vi.fn(),
   getAutomationRun: vi.fn(),
   getAutomationRuns: vi.fn(),
   getAutomations: vi.fn(),
@@ -31,6 +32,7 @@ describe("Phase 5 Automation Runs", () => {
     vi.mocked(api.getAutomations).mockResolvedValue({ items: [{ id: "automation-1", name: "Morning newsroom" }], nextCursor: null } as never)
     vi.mocked(api.getAutomationRuns).mockResolvedValue({ items: [runFixture()], nextCursor: null } as never)
     vi.mocked(api.getAutomationRun).mockResolvedValue(runFixture() as never)
+    vi.mocked(api.approveAutomationArtifactReview).mockResolvedValue({ ...runFixture(), status: "running" } as never)
   })
 
   it("renders bounded filters, persisted columns, exact links, and deep-linked run detail", async () => {
@@ -58,6 +60,18 @@ describe("Phase 5 Automation Runs", () => {
     expect(within(dialog).queryByText("credential-canary")).not.toBeInTheDocument()
     fireEvent.click(within(dialog).getByRole("button", { name: "Close run detail" }))
     expect(replace).toHaveBeenCalledWith(expect.not.stringContaining("runId"), { scroll: false })
+  })
+
+  it("approves runs waiting at the artifact review boundary", async () => {
+    search = new URLSearchParams("automationId=automation-1&runId=run-1")
+    vi.mocked(api.getAutomationRun).mockResolvedValue({ ...runFixture(), status: "waiting_for_review" } as never)
+    renderWithClient(<AutomationRunsPage />)
+
+    const dialog = await screen.findByRole("dialog", { name: "Run detail" })
+    fireEvent.click(await within(dialog).findByRole("button", { name: "Approve artifact review" }))
+
+    await waitFor(() => expect(api.approveAutomationArtifactReview).toHaveBeenCalledWith("run-1"))
+    expect(await within(dialog).findByText("Artifact review approved.")).toBeInTheDocument()
   })
 })
 

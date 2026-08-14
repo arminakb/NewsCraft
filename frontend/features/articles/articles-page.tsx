@@ -38,6 +38,7 @@ import { EmptyState, ErrorState } from "@/components/ui/state-panel"
 import { formatNumber } from "@/lib/format"
 import { ApiError, getApiErrorMessage } from "@/lib/http"
 import { queryKeys } from "@/lib/query-keys"
+import { usePrefersReducedMotion } from "@/lib/use-media-query"
 import { safeHttpUrl } from "@/lib/url"
 
 const PAGE_SIZE = 50
@@ -46,6 +47,7 @@ export function ArticlesPage() {
   const router = useRouter()
   const queryClient = useQueryClient()
   const { timezone } = useDateTime()
+  const reducedMotion = usePrefersReducedMotion()
   const pathname = usePathname()
   const searchParams = useSearchParams()
   const search = searchParams.toString()
@@ -173,14 +175,12 @@ export function ArticlesPage() {
     if (!previous || (previous.identity === articleQueryIdentity && previous.page === currentPage)) return
     const scrollContainer = document.querySelector<HTMLElement>(".newsroom-scroll")
     if (!scrollContainer) return
-    const reducedMotion = typeof window.matchMedia === "function"
-      && window.matchMedia("(prefers-reduced-motion: reduce)").matches
     if (typeof scrollContainer.scrollTo === "function") {
       scrollContainer.scrollTo({ top: 0, behavior: reducedMotion ? "auto" : "smooth" })
     } else {
       scrollContainer.scrollTop = 0
     }
-  }, [articleQueryIdentity, currentPage])
+  }, [articleQueryIdentity, currentPage, reducedMotion])
 
   const navigate = useCallback((nextSort: ArticleSort, nextFilters: typeof filters) => {
     const params = writeArticleState(new URLSearchParams(search), nextSort, nextFilters)

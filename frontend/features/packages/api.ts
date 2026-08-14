@@ -118,12 +118,11 @@ export async function getRenderedRevisionHtml(
   )
   const returnedRevisionId = uuid(row.revision_id, "Invalid rendered revision HTML")
   const returnedContentHash = sha256(row.content_hash, "Invalid rendered revision HTML")
-  const platform = oneOf(row.platform, ["blog"] as const, "Invalid rendered revision HTML")
+  oneOf(row.platform, ["blog"] as const, "Invalid rendered revision HTML")
   const html = string(row.html, "Invalid rendered revision HTML")
   if (
     returnedRevisionId !== revisionId
     || returnedContentHash !== expectedHash
-    || platform !== "blog"
   ) throw new Error("Rendered revision HTML identity mismatch")
   return html
 }
@@ -474,7 +473,7 @@ function decodeExportFileIdentity(value: unknown): ExportFileIdentity {
   }
 }
 
-export function decodeManualPublicationPlan(value: unknown): ManualPublicationPlan {
+function decodeManualPublicationPlan(value: unknown): ManualPublicationPlan {
   const message = "Invalid manual publication plan"
   const row = exactObject(value, [
     "id",
