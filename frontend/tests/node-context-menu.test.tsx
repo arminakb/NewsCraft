@@ -47,10 +47,10 @@ describe("workflow node context menu", () => {
     returnFocus.remove()
   })
 
-  it("supports arrow navigation and guards protected-node actions", () => {
+  it("supports arrow navigation and exposes trigger actions", () => {
     render(
       <NodeContextMenu
-        menu={{ nodeId: "trigger-1", nodeLabel: "Manual", x: 24, y: 32, returnFocus: null, canDuplicate: false, duplicateDisabledReason: "Workflow Graph v1 supports one trigger.", canDelete: false, deleteDisabledReason: "Workflow Graph v1 requires one trigger." }}
+        menu={{ nodeId: "trigger-1", nodeLabel: "Manual", x: 24, y: 32, returnFocus: null, canDuplicate: true, canDelete: true }}
         onClose={vi.fn()}
         onCustomize={vi.fn()}
         onDelete={vi.fn()}
@@ -63,10 +63,8 @@ describe("workflow node context menu", () => {
     const deleteItem = screen.getByRole("menuitem", { name: "Delete" })
     expect(customize).toHaveFocus()
     fireEvent.keyDown(customize, { key: "End" })
-    expect(customize).toHaveFocus()
-    expect(duplicate).toBeDisabled()
-    expect(duplicate).toHaveAttribute("title", "Duplicate unavailable: Workflow Graph v1 supports one trigger.")
-    expect(deleteItem).toBeDisabled()
-    expect(deleteItem).toHaveAttribute("title", "Delete unavailable: Workflow Graph v1 requires one trigger.")
+    expect(deleteItem).toHaveFocus()
+    expect(duplicate).toBeEnabled()
+    expect(deleteItem).toBeEnabled()
   })
 })

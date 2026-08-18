@@ -74,7 +74,7 @@ describe("workflow node actions", () => {
     expect(validateWorkflowClient(result.graph!, catalog).findings.filter((item) => item.code.startsWith("graph_"))).toEqual([])
   })
 
-  it("keeps documented singleton constraints disabled with an explicit reason", () => {
+  it("keeps terminal singleton constraints disabled while allowing trigger edits", () => {
     const graph = workflowGraph({
       nodes: [node("trigger-1", "manual", {}), node("output-1", "save_drafts", {})],
       edges: [edge("trigger-1", "story", "output-1", "drafts")],
@@ -82,9 +82,10 @@ describe("workflow node actions", () => {
     })
 
     expect(workflowNodeActionState(graph, catalog, "trigger-1")).toMatchObject({
-      canDuplicate: false,
-      duplicateReason: expect.stringContaining("one trigger"),
-      canDelete: false,
+      canDuplicate: true,
+      duplicateReason: undefined,
+      canDelete: true,
+      deleteReason: undefined,
     })
     expect(workflowNodeActionState(graph, catalog, "output-1")).toMatchObject({
       canDuplicate: false,
@@ -96,6 +97,38 @@ describe("workflow node actions", () => {
       duplicateReason: "Step no longer exists.",
       canDelete: false,
     })
+  })
+
+  it.each([
+    ["manual", { storyRevisionId: "story-1", instanceId: "manual-instance", runtimeState: { status: "succeeded" } }],
+    ["collection_article_added", { collectionId: "collection-1", instanceId: "collection-instance", runtimeState: { status: "succeeded" } }],
+    ["new_source_item", { sourceIds: ["source-1"], instanceId: "source-instance", runtimeState: { status: "succeeded" } }],
+    ["schedule", { scheduleKind: "daily", timezone: "Asia/Tehran", localTime: "08:00", instanceId: "schedule-instance", runtimeState: { status: "succeeded" } }],
+  ] as const)("supports delete and duplicate for %s triggers", (type, config) => {
+    const graph = workflowGraph({
+      nodes: [node(`${type}-source`, type, config, { x: 120, y: 180 })],
+      edges: [],
+      outputNodeIds: [],
+    })
+    const actionState = workflowNodeActionState(graph, catalog, `${type}-source`)
+
+    expect(actionState).toMatchObject({ canDuplicate: true, canDelete: true })
+
+    const duplicate = duplicateWorkflowNode(graph, catalog, `${type}-source`)
+    const duplicateNode = duplicate.graph?.nodes.find((item) => item.id !== `${type}-source`)
+    expect(duplicateNode).toMatchObject({
+      type,
+      config: expect.objectContaining(Object.fromEntries(Object.entries(config).filter(([key]) => key !== "runtimeState" && key !== "instanceId"))),
+    })
+    expect(duplicateNode?.id).not.toBe(`${type}-source`)
+    expect(duplicateNode?.config.instanceId).not.toBe(config.instanceId)
+    expect(duplicateNode?.config).not.toHaveProperty("runtimeState")
+    expect(duplicate.graph?.entryNodeId).toBe(`${type}-source`)
+    expect(duplicate.graph?.edges).toEqual([])
+    expect(duplicate.graph?.metadata.layout[duplicateNode!.id]).toEqual({ x: 168, y: 228 })
+
+    const deleted = deleteWorkflowNode(graph, catalog, `${type}-source`)
+    expect(deleted.graph).toMatchObject({ entryNodeId: "", nodes: [], edges: [], outputNodeIds: [], metadata: { layout: {} } })
   })
 
   it("allows explicit removal of an unsupported saved step without silent rewiring", () => {
@@ -127,7 +160,40 @@ const catalog = {
   maxNodes: 30,
   maxEdges: 60,
   nodes: [
-    definition("manual", "trigger", "Manual", true, false, [], [port("story", ["story.revision_ref"], null)]),
+    definition("manual", "trigger", "Manual", true, false, [], [port("story", ["story.revision_ref"], null)], {
+      type: "object",
+      properties: {
+        storyRevisionId: { type: "string" },
+        instanceId: { type: "string" },
+        runtimeState: { type: "object" },
+      },
+    }),
+    definition("collection_article_added", "trigger", "Collection article added", true, false, [], [port("article", ["article.collection_added"], null)], {
+      type: "object",
+      properties: {
+        collectionId: { type: "string" },
+        instanceId: { type: "string" },
+        runtimeState: { type: "object" },
+      },
+    }),
+    definition("new_source_item", "trigger", "New Source Item", true, false, [], [port("article", ["article.source_item"], null)], {
+      type: "object",
+      properties: {
+        sourceIds: { type: "array", items: { type: "string" } },
+        instanceId: { type: "string" },
+        runtimeState: { type: "object" },
+      },
+    }),
+    definition("schedule", "trigger", "Scheduled Trigger", true, false, [], [port("event", ["run.signal"], null)], {
+      type: "object",
+      properties: {
+        scheduleKind: { type: "string" },
+        timezone: { type: "string" },
+        localTime: { type: "string" },
+        instanceId: { type: "string" },
+        runtimeState: { type: "object" },
+      },
+    }),
     definition(
       "filter_content",
       "select_filter",
@@ -160,7 +226,7 @@ function workflowGraph(input: {
 }): WorkflowGraph {
   return {
     schemaVersion: 1 as const,
-    entryNodeId: "trigger-1",
+    entryNodeId: input.nodes[0]?.id ?? "",
     nodes: input.nodes.map(({ point: _point, ...item }) => item),
     edges: input.edges,
     outputNodeIds: input.outputNodeIds,
