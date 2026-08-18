@@ -4,6 +4,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useMemo, useState } from "react"
 import { EvidencePanel } from "@/components/editorial/evidence-panel"
 import { RevisionTimeline } from "@/components/editorial/revision-timeline"
+import { guardedNavigation } from "@/components/editorial/use-dirty-navigation"
 import { VariantEditor } from "@/components/editorial/variant-editor"
 import { Button } from "@/components/ui/button"
 import { PageHeader } from "@/components/ui/page-header"
@@ -97,7 +98,7 @@ export function ContentPackWorkspace({ packId, initialRevisionId = null }: { pac
     ?? (initialRevision.data?.variantId === activeVariant?.id ? initialRevision.data : undefined)
     ?? activeVariant?.currentRevision
     ?? revisions[0]
-  const allowDiscard = () => !editorDirty || window.confirm("Discard unsaved revision edits?")
+  const discardMessage = "Discard unsaved revision edits?"
 
   const refreshPackageAndHistory = async (variantId: string) => {
     await Promise.all([
@@ -172,19 +173,23 @@ export function ContentPackWorkspace({ packId, initialRevisionId = null }: { pac
   if (!pack.data) return <section role="alert" className="p-6 text-destructive">Content package data is unavailable.</section>
 
   const chooseVariant = (variant: ContentPackageVariant) => {
-    if (workspaceBusy || variant.id === activeVariant?.id || !allowDiscard()) return
-    setSelectedVariantId(variant.id)
-    setSelectedRevisionId(variant.currentRevision?.id ?? null)
-    setActiveCitation(null)
-    setEditorDirty(false)
-    setMediaError(null)
+    if (workspaceBusy || variant.id === activeVariant?.id) return
+    guardedNavigation(() => {
+      setSelectedVariantId(variant.id)
+      setSelectedRevisionId(variant.currentRevision?.id ?? null)
+      setActiveCitation(null)
+      setEditorDirty(false)
+      setMediaError(null)
+    }, discardMessage)
   }
   const chooseRevision = (item: PlatformRevision) => {
-    if (workspaceBusy || !allowDiscard()) return
-    setSelectedRevisionId(item.id)
-    setActiveCitation(null)
-    setEditorDirty(false)
-    setMediaError(null)
+    if (workspaceBusy) return
+    guardedNavigation(() => {
+      setSelectedRevisionId(item.id)
+      setActiveCitation(null)
+      setEditorDirty(false)
+      setMediaError(null)
+    }, discardMessage)
   }
   const reorderMedia = async (payload: PlatformPayload) => {
     if (!revision) return

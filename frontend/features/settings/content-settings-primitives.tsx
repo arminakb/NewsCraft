@@ -30,7 +30,7 @@ import {
 import { controlClassName } from "@/components/ui/input"
 import { EmptyState as SharedEmptyState } from "@/components/ui/state-panel"
 import { StatusBadge as SharedStatusBadge, type StatusTone } from "@/components/ui/status-badge"
-import { useDirtyNavigation } from "@/components/editorial/use-dirty-navigation"
+import { guardedNavigation, useDirtyNavigation } from "@/components/editorial/use-dirty-navigation"
 import type { CodexConnection } from "./content-settings-api"
 import { DEFAULT_TIME_ZONE, formatInTimeZone } from "@/lib/date-time"
 import { getApiErrorMessage } from "@/lib/http"
@@ -119,10 +119,10 @@ export function SettingsDialog({
   const releaseDirty = useDirtyNavigation(dirty, "Discard unsaved settings changes?")
   const close = () => {
     if (pending) return
-    if (!dirty || window.confirm("Discard unsaved settings changes?")) {
+    guardedNavigation(() => {
       releaseDirty()
       onClose()
-    }
+    }, "Discard unsaved settings changes?")
   }
   return (
     <Dialog

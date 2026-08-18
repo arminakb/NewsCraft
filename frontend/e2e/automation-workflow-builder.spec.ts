@@ -43,6 +43,42 @@ test("ordered editor is the complete mobile path and restores sheet focus", asyn
   expect(backend.unhandledRequests).toEqual([])
 })
 
+test("dirty workflow navigation uses the NewsCraft dialog and preserves the destination", async ({ page }, testInfo) => {
+  await installWorkflowBackend(page)
+  const nativeDialogs: string[] = []
+  page.on("dialog", async (dialog) => {
+    nativeDialogs.push(dialog.message())
+    await dialog.dismiss()
+  })
+  await page.setViewportSize({ width: 390, height: 844 })
+  await page.goto(`/automations/${automationId}`)
+
+  const editor = page.getByRole("region", { name: "Ordered workflow editor" })
+  await expect(editor).toBeVisible()
+  await editor.getByRole("button", { name: "Add next step" }).click()
+  const addStep = page.getByRole("dialog", { name: "Add next step" })
+  await addStep.getByRole("button", { name: /Filter content/ }).click()
+  await expect(editor.getByRole("article")).toHaveCount(6)
+
+  await page.getByRole("button", { name: "Open navigation" }).click()
+  const navigation = page.getByRole("dialog", { name: "Newsroom navigation" })
+  const sources = navigation.getByRole("link", { name: "Sources", exact: true })
+  await sources.click()
+
+  const unsaved = page.getByRole("dialog", { name: "Unsaved changes" })
+  await expect(unsaved).toBeVisible()
+  await expect(unsaved).toContainText("You have unsaved changes in this workflow. Leaving now will discard them.")
+  await page.screenshot({ path: testInfo.outputPath("workflow-unsaved-changes-dialog.png"), fullPage: false })
+  await unsaved.getByRole("button", { name: "Cancel" }).click()
+  await expect(editor).toBeVisible()
+
+  await sources.click()
+  await expect(unsaved).toBeVisible()
+  await unsaved.getByRole("button", { name: "Discard changes" }).click()
+  await expect(page).toHaveURL(/\/sources$/)
+  expect(nativeDialogs).toEqual([])
+})
+
 test("canvas stays accessible and bounded at tablet and desktop widths", async ({ page }, testInfo) => {
   const backend = await installWorkflowBackend(page)
 

@@ -1,7 +1,7 @@
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react"
 import { useState } from "react"
 
-import { useDirtyNavigation } from "@/components/editorial/use-dirty-navigation"
+import { DirtyNavigationCoordinator, useDirtyNavigation } from "@/components/editorial/use-dirty-navigation"
 import { SettingsModal } from "@/features/settings/settings-modal"
 import {
   SETTINGS_RETURN_PATH_KEY,
@@ -129,15 +129,19 @@ describe("SettingsModal", () => {
     })
   })
 
-  it("blocks category and close actions when unsaved changes are rejected", () => {
+  it("blocks category and close actions when unsaved changes are rejected", async () => {
     const confirm = vi.spyOn(window, "confirm").mockReturnValue(false)
-    render(<SettingsModal />)
+    render(<><DirtyNavigationCoordinator /><SettingsModal /></>)
 
     fireEvent.click(screen.getByRole("button", { name: "Toggle unsaved" }))
     fireEvent.click(screen.getByRole("button", { name: "LLM Providers" }))
+    expect(await screen.findByRole("dialog", { name: "Unsaved changes" })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }))
     fireEvent.click(screen.getAllByRole("button", { name: "Close Settings" })[0])
 
-    expect(confirm).toHaveBeenCalledWith("Discard unsaved settings changes?")
+    expect(await screen.findByRole("dialog", { name: "Unsaved changes" })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }))
+    expect(confirm).not.toHaveBeenCalled()
     expect(push).not.toHaveBeenCalled()
   })
 
