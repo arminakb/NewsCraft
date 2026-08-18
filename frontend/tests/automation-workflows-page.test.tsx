@@ -65,7 +65,7 @@ describe("workflow gallery", () => {
     expect(await screen.findByRole("heading", { name: "No workflows yet" })).toBeInTheDocument()
     expect(screen.queryByRole("tab", { name: /^Runs$/ })).not.toBeInTheDocument()
     expect(screen.getByRole("tab", { name: /^Workflows$/ })).toBeInTheDocument()
-    expect(screen.getByRole("tab", { name: /^Telegram$/ })).toHaveAttribute("href", "/automations/telegram")
+    expect(screen.queryByRole("tab", { name: /^Telegram$/ })).not.toBeInTheDocument()
     expect(screen.queryByRole("tab", { name: /^Templates$/ })).not.toBeInTheDocument()
     expect(screen.queryByRole("heading", { name: "Automations" })).not.toBeInTheDocument()
     expect(screen.queryByText("Build, validate, and operate versioned newsroom workflows.", { exact: true })).not.toBeInTheDocument()
