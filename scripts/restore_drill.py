@@ -4,12 +4,10 @@
 from __future__ import annotations
 
 import argparse
-import base64
 import hashlib
 import hmac
 import json
 import os
-import secrets
 import shutil
 import socket
 import subprocess
@@ -153,6 +151,18 @@ def _start_restored_runtime() -> None:
     _run(_compose("up", "-d", "--no-deps", "--wait", *RUNTIME_SERVICES))
 
 
+def _require_durable_master_key_file(repository: Path) -> Path:
+    configured = os.environ.get("SECRET_MASTER_KEY_FILE")
+    source = Path(configured).expanduser() if configured else repository / "secrets" / "SECRET_MASTER_KEY"
+    resolved = source.resolve()
+    if not resolved.is_file() or resolved.stat().st_size == 0:
+        raise BackupRestoreError(
+            "restore drill requires the durable SECRET_MASTER_KEY_FILE used by the restored Compose project; "
+            "random key generation is disabled"
+        )
+    return resolved
+
+
 def run_drill(
     *,
     archive: Path,
@@ -180,20 +190,19 @@ def run_drill(
         raise BackupRestoreError("canary must be >=16 bytes and report signing key >=32 bytes")
 
     repository = Path(__file__).resolve().parents[1]
+    _require_durable_master_key_file(repository)
     prior_environment = {
         key: os.environ.get(key)
         for key in (
             "COMPOSE_PROJECT_NAME",
             "COMPOSE_FILE",
             "DRILL_API_PORT",
-            "SECRET_MASTER_KEY",
+            "SECRET_MASTER_KEY_FILE",
         )
     }
     os.environ["COMPOSE_PROJECT_NAME"] = project_name
     os.environ["COMPOSE_FILE"] = os.pathsep.join(str(repository / name) for name in COMPOSE_FILES)
     os.environ["DRILL_API_PORT"] = str(api_port)
-    if not os.environ.get("SECRET_MASTER_KEY"):
-        os.environ["SECRET_MASTER_KEY"] = base64.urlsafe_b64encode(secrets.token_bytes(32)).decode("ascii").rstrip("=")
     started = datetime.now(UTC)
     monotonic_started = time.monotonic()
     report_path = output_dir / f"{project_name}.json"

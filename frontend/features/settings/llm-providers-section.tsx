@@ -51,6 +51,8 @@ import {
 } from "./content-settings-primitives"
 import { ProviderBrandIcon } from "./provider-brand-icon"
 
+const CREDENTIAL_REPLACEMENT_REQUIRED = "credential_replacement_required"
+
 export function LLMProvidersSection({ providers }: { providers: LLMProvider[] }) {
   const { timezone } = useDateTime()
   const queryClient = useQueryClient()
@@ -123,6 +125,9 @@ export function LLMProvidersSection({ providers }: { providers: LLMProvider[] })
       await refresh()
     } catch (cause) {
       handleMutationError(cause)
+      if (action === "test" && providerApiErrorCode(cause) === "secret_decryption_failed") {
+        await refresh()
+      }
     } finally {
       setBusy(null)
     }
@@ -191,8 +196,11 @@ export function LLMProvidersSection({ providers }: { providers: LLMProvider[] })
               />
               <ProviderFact
                 label="API key"
-                ready={provider.configured}
-                value={provider.configured ? "Configured" : "Missing"}
+                ready={provider.configured && provider.failure_code !== CREDENTIAL_REPLACEMENT_REQUIRED}
+                status={provider.failure_code === CREDENTIAL_REPLACEMENT_REQUIRED}
+                value={provider.failure_code === CREDENTIAL_REPLACEMENT_REQUIRED
+                  ? "Replacement required"
+                  : provider.configured ? "Configured" : "Missing"}
               />
               <ProviderFact
                 icon={Clock3}
@@ -200,6 +208,21 @@ export function LLMProvidersSection({ providers }: { providers: LLMProvider[] })
                 value={formatDate(provider.last_checked_at, "Never checked", timezone)}
               />
             </dl>
+
+            {provider.failure_code === CREDENTIAL_REPLACEMENT_REQUIRED ? (
+              <div className="mt-2 rounded-lg border border-warning/30 bg-[var(--warning-surface)] p-3 text-foreground" role="alert">
+                <p className="flex items-start gap-1.5 text-sm font-medium text-warning">
+                  <KeyRound aria-hidden="true" className="mt-0.5 size-4 shrink-0" />
+                  Credential replacement required
+                </p>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  This provider credential can no longer be decrypted. Re-enter the API key to restore the provider connection.
+                </p>
+                <Button className="mt-2" onClick={() => setRotating(provider)} size="sm" type="button" variant="outline">
+                  Replace API key
+                </Button>
+              </div>
+            ) : null}
 
             <div
               aria-label={`Primary actions for ${provider.name}`}
@@ -253,7 +276,8 @@ export function LLMProvidersSection({ providers }: { providers: LLMProvider[] })
       ) : null}
       {rotating ? (
         <SecretDialog
-          title={`Rotate key for ${rotating.name}`}
+          submitLabel={rotating.failure_code === CREDENTIAL_REPLACEMENT_REQUIRED ? "Save API key" : "Rotate secret"}
+          title={`${rotating.failure_code === CREDENTIAL_REPLACEMENT_REQUIRED ? "Replace API key for" : "Rotate key for"} ${rotating.name}`}
           label="New API key"
           onClose={() => setRotating(null)}
           onError={(cause) => handleMutationError(cause, "Secret rotation failed")}
@@ -290,8 +314,8 @@ const PROVIDER_SECRET_FAILURES: Record<string, { title: string; message: string 
     message: "The credential could not be encrypted.",
   },
   secret_decryption_failed: {
-    title: "Credential decryption failed",
-    message: "The stored credential cannot be decrypted with the current encryption configuration.",
+    title: "Credential replacement required",
+    message: "This provider credential can no longer be decrypted. Re-enter the API key to restore the provider connection.",
   },
   secret_rotation_failed: {
     title: "Credential rotation failed",

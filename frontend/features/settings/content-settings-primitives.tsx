@@ -163,12 +163,14 @@ export function SecretDialog({
   onClose,
   onSave,
   onError,
+  submitLabel = "Rotate secret",
 }: {
   title: string
   label: string
   onClose: () => void
   onSave: (secret: string) => Promise<void>
   onError?: (cause: unknown) => void
+  submitLabel?: string
 }) {
   const { pushNotice } = useNotices()
   const [secret, setSecret] = useState("")
@@ -192,7 +194,7 @@ export function SecretDialog({
           })
           .finally(() => setPending(false))
       }}
-      submitLabel="Rotate secret"
+      submitLabel={submitLabel}
     >
       <Field label={label} required><input autoFocus type="password" autoComplete="new-password" className={fieldClass} value={secret} disabled={pending} onChange={(event) => setSecret(event.target.value)} /></Field>
     </SettingsDialog>

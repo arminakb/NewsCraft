@@ -350,7 +350,7 @@ class EncryptedSecretStore:
                 self._aad(record, record.key_version),
             )
             return plaintext.decode("utf-8")
-        except InvalidTag, SecretKeyUnavailable, UnicodeDecodeError, ValueError:
+        except InvalidTag, SecretKeyUnavailable, UnicodeDecodeError, TypeError, ValueError:
             record_security_event(
                 self.session,
                 principal=principal,

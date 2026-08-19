@@ -18,6 +18,7 @@ from app.llm_providers.schemas import (
 from app.llm_providers.service import LLMProviderService, ProviderDependencyConflict, provider_out
 from app.security.schemas import SecretWriteIn
 from app.security.secret_store import (
+    SecretDecryptionFailed,
     SecretStoreError,
     SecretStoreRuntime,
     SecretStoreUnavailable,
@@ -160,6 +161,7 @@ async def test_llm_provider(
     session: AsyncSession = SessionDependency,
 ):
     service = _service(request, session, needs_key=False)
+    provider = None
     try:
         provider = await _provider_or_404(service, provider_id, for_update=True)
         if provider.protocol == "openai_compatible":
@@ -167,6 +169,15 @@ async def test_llm_provider(
         await service.test_connection(provider)
         await session.commit()
         await session.refresh(provider)
+    except SecretDecryptionFailed as exc:
+        try:
+            await session.commit()
+            await session.refresh(provider)
+        except SQLAlchemyError as db_exc:
+            await session.rollback()
+            failure = classify_secret_store_error(db_exc)
+            raise HTTPException(503, detail={"code": failure.public_code}) from None
+        raise HTTPException(503, detail={"code": exc.public_code}) from None
     except SecretStoreError as exc:
         await session.rollback()
         raise HTTPException(503, detail={"code": exc.public_code}) from None

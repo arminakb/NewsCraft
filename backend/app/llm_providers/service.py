@@ -35,6 +35,7 @@ from app.security.models import EncryptedSecret
 from app.security.secret_store import (
     EncryptedSecretStore,
     MasterKeyRing,
+    SecretDecryptionFailed,
     SecretRotationFailed,
     SecretStore,
     SecretStoreError,
@@ -44,6 +45,7 @@ from app.security.secret_store import (
 ProviderProbe = Callable[[LLMProvider, str, LLMProviderSettings], Awaitable[None]]
 _ACTIVE_JOB_STATES = frozenset({"queued", "running", "retry_scheduled", "paused"})
 _PROVIDER_HTTP_ERROR = re.compile(r"(?:openrouter|openai_compatible)_http_(\d{3})\Z")
+CREDENTIAL_REPLACEMENT_REQUIRED = "credential_replacement_required"
 
 
 def connection_failure_code(exc: Exception) -> str:
@@ -253,10 +255,13 @@ class LLMProviderService:
             current = effective_llm_provider_settings(provider.settings).model_dump(mode="json")
             provider.settings = _settings(merge_provider_settings(current, patch["settings"]))
         if patch:
-            provider.health_status = "unchecked"
-            provider.generation_capability = "unknown"
-            provider.research_capability = "unknown"
-            provider.failure_code = None
+            replacement_required = provider.failure_code == CREDENTIAL_REPLACEMENT_REQUIRED
+            provider.health_status = "unhealthy" if replacement_required else "unchecked"
+            provider.generation_capability = "unavailable" if replacement_required else "unknown"
+            provider.research_capability = "unavailable" if replacement_required else "unknown"
+            provider.failure_code = CREDENTIAL_REPLACEMENT_REQUIRED if replacement_required else None
+            if replacement_required:
+                provider.enabled = False
             provider.last_checked_at = None
         await self._shadow(provider)
         await self.session.flush()
@@ -318,6 +323,9 @@ class LLMProviderService:
                 required_scope="providers:write",
             )
             await self.probe(provider, api_key, configured)
+        except SecretDecryptionFailed:
+            await self.mark_credential_replacement_required(provider)
+            raise
         except SecretStoreError:
             raise
         except Exception as exc:
@@ -334,6 +342,14 @@ class LLMProviderService:
         provider.research_capability = "ready"
         provider.failure_code = None
         return provider
+
+    async def mark_credential_replacement_required(self, provider: LLMProvider) -> None:
+        provider.enabled = False
+        provider.health_status = "unhealthy"
+        provider.generation_capability = "unavailable"
+        provider.research_capability = "unavailable"
+        provider.failure_code = CREDENTIAL_REPLACEMENT_REQUIRED
+        await self._shadow(provider)
 
     async def enable(self, provider: LLMProvider) -> LLMProvider:
         if provider.generation_capability != "ready" or provider.research_capability != "ready":
@@ -426,6 +442,7 @@ def provider_out(provider: LLMProvider) -> LLMProviderOut:
 
 
 __all__ = [
+    "CREDENTIAL_REPLACEMENT_REQUIRED",
     "LLMProviderService",
     "ProviderDependencyConflict",
     "provider_out",

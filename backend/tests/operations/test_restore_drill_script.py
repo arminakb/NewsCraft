@@ -31,6 +31,19 @@ def test_drill_accepts_only_a_strict_disposable_project_name() -> None:
     restore_drill._assert_project_name("newscraft-restore-drill-20260719-a")
 
 
+def test_drill_requires_a_durable_master_key_file(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    monkeypatch.delenv("SECRET_MASTER_KEY_FILE", raising=False)
+
+    with pytest.raises(BackupRestoreError, match="random key generation is disabled"):
+        restore_drill._require_durable_master_key_file(tmp_path)
+
+    key_file = tmp_path / "SECRET_MASTER_KEY"
+    key_file.write_bytes(b"durable-key-fixture")
+    monkeypatch.setenv("SECRET_MASTER_KEY_FILE", str(key_file))
+
+    assert restore_drill._require_durable_master_key_file(tmp_path) == key_file
+
+
 def test_cleanup_refuses_a_container_without_the_exact_compose_project_label(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
