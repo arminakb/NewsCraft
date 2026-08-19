@@ -61,6 +61,7 @@ class Settings(BaseSettings):
     capability_queue_ceiling: int = Field(default=1_000, ge=1)
     capability_retry_after_seconds: int = Field(default=5, ge=1, le=300)
     capability_observation_ttl_seconds: int = Field(default=120, ge=30, le=3600)
+    llm_provider_test_ttl_seconds: int = Field(default=3600, ge=60, le=86_400)
     worker_health_fresh_seconds: int = Field(default=60, ge=5)
     worker_health_unavailable_seconds: int = Field(default=120, ge=10)
     scheduler_health_fresh_seconds: int = Field(default=45, ge=5)

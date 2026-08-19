@@ -7162,6 +7162,17 @@
             ],
             "title": "Failure Code"
           },
+          "failure_message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Failure Message"
+          },
           "generation_capability": {
             "enum": [
               "unknown",
@@ -7179,6 +7190,7 @@
             "enum": [
               "unchecked",
               "healthy",
+              "degraded",
               "unhealthy"
             ],
             "title": "Health Status",
@@ -7201,6 +7213,41 @@
             ],
             "title": "Last Checked At"
           },
+          "last_successful_test_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Successful Test At"
+          },
+          "last_test_latency_ms": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Test Latency Ms"
+          },
+          "last_tested_model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Tested Model"
+          },
           "name": {
             "title": "Name",
             "type": "string"
@@ -7220,6 +7267,21 @@
             ],
             "title": "Protocol",
             "type": "string"
+          },
+          "readiness_code": {
+            "default": "test_required",
+            "title": "Readiness Code",
+            "type": "string"
+          },
+          "readiness_message": {
+            "default": "Run a successful connection test before enabling this provider.",
+            "title": "Readiness Message",
+            "type": "string"
+          },
+          "ready_for_enablement": {
+            "default": false,
+            "title": "Ready For Enablement",
+            "type": "boolean"
           },
           "research_capability": {
             "enum": [

@@ -42,6 +42,24 @@ test("local owner creates, rotates, tests, reloads, and deletes an LLM provider 
         generation_ready: true,
         research_ready: true,
         last_checked_at: "2026-07-31T12:02:00Z",
+        last_successful_test_at: "2026-07-31T12:02:00Z",
+        last_test_latency_ms: 184,
+        last_tested_model: provider.default_model,
+        failure_code: null,
+        failure_message: null,
+        ready_for_enablement: true,
+        readiness_code: "ready_for_generation",
+        readiness_message: "Ready for Generation. Research is Healthy.",
+      }
+      await fulfillMockJson(route, provider)
+      return
+    }
+    if (request.method() === "POST" && provider && path === `/llm-providers/${provider.id}/enable`) {
+      provider = {
+        ...provider,
+        enabled: true,
+        generation_ready: true,
+        research_ready: true,
       }
       await fulfillMockJson(route, provider)
       return
@@ -105,12 +123,15 @@ test("local owner creates, rotates, tests, reloads, and deletes an LLM provider 
   await rotationForm.getByRole("button", { name: "Rotate secret" }).click()
   await expect(rotationForm).not.toBeVisible()
   await card.getByRole("button", { name: "Test" }).click()
-  await expect(page.getByText("Connection tested", { exact: true })).toBeVisible()
+  await expect(page.getByText("Connection healthy", { exact: true })).toBeVisible()
+  await card.getByRole("button", { name: "Enable" }).click()
+  await expect(page.getByText("Provider enabled", { exact: true })).toBeVisible()
 
   await page.reload()
   card = page.getByTestId("llm-provider-card").filter({ hasText: updatedName })
   await expect(card.getByText("Configured", { exact: true })).toBeVisible()
   await expect(card.getByText("healthy", { exact: true })).toBeVisible()
+  await expect(card.getByText("enabled", { exact: true })).toBeVisible()
 
   await card.getByRole("button", { name: /More actions for/ }).click()
   const deletion = page.waitForResponse((response) =>
@@ -164,7 +185,14 @@ function providerFixture(input: Record<string, unknown>) {
     generation_ready: false,
     research_ready: false,
     failure_code: null,
+    failure_message: null,
     last_checked_at: null,
+    last_successful_test_at: null,
+    last_test_latency_ms: null,
+    last_tested_model: null,
+    ready_for_enablement: false,
+    readiness_code: "test_required",
+    readiness_message: "Run a successful connection test before enabling this provider.",
     ownership: "operator_managed",
     created_at: "2026-07-31T12:00:00Z",
     updated_at: "2026-07-31T12:00:00Z",

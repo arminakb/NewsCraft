@@ -10,6 +10,7 @@ from pydantic import BaseModel, ConfigDict
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import settings
 from app.core.redaction import redact_secrets, redact_string
 from app.generation.models import AIProviderProfile
 from app.generation.provider_settings import (
@@ -24,6 +25,7 @@ from app.jobs.credential_capabilities import CapabilityStatusService, provider_s
 from app.jobs.models import WorkflowEvent, WorkflowJob
 from app.jobs.repository import JobRepository
 from app.jobs.types import JobOrigin
+from app.llm_providers.readiness import provider_capability_ready
 from app.research.completeness import CompletenessEvidence, evaluate_completeness
 from app.research.continuations import (
     append_unique_continuation,
@@ -130,7 +132,11 @@ class ResearchService:
 
         generic = await self.session.get(LLMProvider, profile_id) if isinstance(self.session, AsyncSession) else None
         if generic is not None:
-            if not generic.enabled or generic.research_capability != "ready":
+            if not provider_capability_ready(
+                generic,
+                "research",
+                ttl_seconds=settings.llm_provider_test_ttl_seconds,
+            ):
                 raise ResearchRequestError("Selected research provider profile is unavailable")
             if generic.protocol == "fake":
                 selected = getattr(default_research_budgets(), depth)

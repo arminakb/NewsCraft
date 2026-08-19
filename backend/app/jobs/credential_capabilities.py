@@ -19,6 +19,7 @@ from app.generation.provider_settings import CodexProviderSettings, OpenRouterPr
 from app.jobs.errors import JobCapabilityUnavailable
 from app.jobs.models import RuntimeHeartbeat
 from app.llm_providers.models import LLMProvider
+from app.llm_providers.readiness import provider_capability_ready
 from app.publishing.models import Destination
 from app.security.auth import SecurityPrincipal
 from app.security.models import EncryptedSecret
@@ -208,8 +209,16 @@ class WorkerCredentialCapabilityObserver:
             generation_code = research_code = "disabled"
         elif profile.protocol == "fake":
             valid = profile.base_url is None and profile.secret_id is None
-            generation_available = valid and profile.generation_capability == "ready"
-            research_available = valid and profile.research_capability == "ready"
+            generation_available = valid and provider_capability_ready(
+                profile,
+                "generation",
+                ttl_seconds=self.config.llm_provider_test_ttl_seconds,
+            )
+            research_available = valid and provider_capability_ready(
+                profile,
+                "research",
+                ttl_seconds=self.config.llm_provider_test_ttl_seconds,
+            )
             generation_code = "available" if generation_available else "invalid_configuration"
             research_code = "available" if research_available else "research_configuration_missing"
         elif profile.protocol != "openai_compatible" or profile.secret_id is None:
@@ -243,8 +252,16 @@ class WorkerCredentialCapabilityObserver:
                 except Exception:
                     credential_available = False
                     credential_code = "invalid_configuration"
-            generation_available = credential_available and profile.generation_capability == "ready"
-            research_available = credential_available and profile.research_capability == "ready"
+            generation_available = credential_available and provider_capability_ready(
+                profile,
+                "generation",
+                ttl_seconds=self.config.llm_provider_test_ttl_seconds,
+            )
+            research_available = credential_available and provider_capability_ready(
+                profile,
+                "research",
+                ttl_seconds=self.config.llm_provider_test_ttl_seconds,
+            )
             generation_code = (
                 "available"
                 if generation_available

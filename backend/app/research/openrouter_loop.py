@@ -60,6 +60,12 @@ ResearchAction = Annotated[SearchAction | FetchAction | FinishAction, Field(disc
 _ACTION_ADAPTER: TypeAdapter[ResearchAction] = TypeAdapter(ResearchAction)
 
 
+def research_action_schema() -> dict[str, Any]:
+    """Return the exact structured-action schema used by the research loop."""
+
+    return _ACTION_ADAPTER.json_schema()
+
+
 class OpenRouterResearchBackend:
     name = "openrouter"
 
@@ -439,10 +445,18 @@ _SYSTEM_POLICY = (
 )
 
 
+def research_system_policy() -> str:
+    """Return the prompt policy shared by the live research loop and probes."""
+
+    return _SYSTEM_POLICY
+
+
 __all__ = [
     "FetchAction",
     "FinishAction",
     "OpenRouterResearchBackend",
     "ResearchAction",
     "SearchAction",
+    "research_action_schema",
+    "research_system_policy",
 ]

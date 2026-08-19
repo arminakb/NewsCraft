@@ -5438,6 +5438,8 @@ export interface components {
             enabled: boolean;
             /** Failure Code */
             failure_code: string | null;
+            /** Failure Message */
+            failure_message?: string | null;
             /**
              * Generation Capability
              * @enum {string}
@@ -5449,7 +5451,7 @@ export interface components {
              * Health Status
              * @enum {string}
              */
-            health_status: "unchecked" | "healthy" | "unhealthy";
+            health_status: "unchecked" | "healthy" | "degraded" | "unhealthy";
             /**
              * Id
              * Format: uuid
@@ -5457,6 +5459,12 @@ export interface components {
             id: string;
             /** Last Checked At */
             last_checked_at: string | null;
+            /** Last Successful Test At */
+            last_successful_test_at?: string | null;
+            /** Last Test Latency Ms */
+            last_test_latency_ms?: number | null;
+            /** Last Tested Model */
+            last_tested_model?: string | null;
             /** Name */
             name: string;
             /**
@@ -5469,6 +5477,21 @@ export interface components {
              * @enum {string}
              */
             protocol: "openai_compatible" | "fake";
+            /**
+             * Readiness Code
+             * @default test_required
+             */
+            readiness_code: string;
+            /**
+             * Readiness Message
+             * @default Run a successful connection test before enabling this provider.
+             */
+            readiness_message: string;
+            /**
+             * Ready For Enablement
+             * @default false
+             */
+            ready_for_enablement: boolean;
             /**
              * Research Capability
              * @enum {string}

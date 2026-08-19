@@ -247,7 +247,8 @@ export function StatusBadge({ value }: { value: string }) {
   const normalized = value.toLowerCase()
   const bad = ["unhealthy", "unavailable", "red", "revoked", "disabled", "failed", "not configured"].includes(normalized)
   const good = ["healthy", "ready", "green", "active", "enabled", "reachable", "verified", "administrator"].includes(normalized)
-  const tone: StatusTone = bad ? "error" : good ? "success" : "neutral"
+  const warning = ["degraded", "unknown", "unchecked", "not tested"].includes(normalized)
+  const tone: StatusTone = bad ? "error" : good ? "success" : warning ? "warning" : "neutral"
   return <SharedStatusBadge tone={tone}>{safeCode(value)}</SharedStatusBadge>
 }
 

@@ -449,6 +449,30 @@ async def test_openrouter_diagnostics_identify_safe_failure_stage_without_raw_va
     assert "test-key" not in str(diagnostic)
 
 
+async def test_openrouter_reports_truncated_output_when_reasoning_exhausts_token_budget():
+    provider, _, client = provider_with_response(
+        {
+            "model": "openai/gpt-5-mini",
+            "choices": [
+                {
+                    "message": {"content": None, "reasoning": "private-invalid-value"},
+                    "finish_reason": "length",
+                }
+            ],
+            "usage": {"prompt_tokens": 71, "completion_tokens": 32},
+        }
+    )
+    try:
+        with pytest.raises(OpenRouterNeedsReviewError) as caught:
+            await provider.generate(provider_request())
+    finally:
+        await client.aclose()
+
+    assert caught.value.code == "openrouter_output_truncated"
+    assert caught.value.diagnostic["stage"] == "output_truncated"
+    assert "private-invalid-value" not in str(caught.value.diagnostic)
+
+
 async def test_openrouter_diagnostic_handles_non_json_body_and_safe_request_id():
     async def respond(request):
         return httpx.Response(

@@ -53,6 +53,40 @@ import { ProviderBrandIcon } from "./provider-brand-icon"
 
 const CREDENTIAL_REPLACEMENT_REQUIRED = "credential_replacement_required"
 
+function capabilityLabel(value: string) {
+  return {
+    ready: "Healthy",
+    unavailable: "Unavailable",
+    unknown: "Not tested",
+  }[value] ?? safeCode(value)
+}
+
+function providerReadiness(provider: LLMProvider) {
+  return provider.ready_for_enablement ?? (
+    provider.generation_capability === "ready" && Boolean(provider.last_checked_at)
+  )
+}
+
+function providerReadinessMessage(provider: LLMProvider) {
+  return provider.readiness_message ?? (
+    providerReadiness(provider) ? "Ready for Generation" : "Run Test before enabling"
+  )
+}
+
+function providerFailureMessage(code: string) {
+  return {
+    authentication_failed: "The provider rejected the API credential.",
+    model_unavailable: "The configured model could not be used.",
+    connection_failed: "The provider could not be reached.",
+    provider_blocked:
+      "The provider edge rejected the request with HTTP 403 before the model was reached. This is not a credential problem. Retry in a few minutes.",
+    output_truncated:
+      "The configured model ran out of output tokens before returning a valid response. Raise the output token allowance or choose a model with less reasoning overhead.",
+    invalid_configuration: "Provider configuration is invalid.",
+    credential_missing: "Provider credential is missing.",
+  }[code] ?? `Failure code: ${safeCode(code)}`
+}
+
 export function LLMProvidersSection({ providers }: { providers: LLMProvider[] }) {
   const { timezone } = useDateTime()
   const queryClient = useQueryClient()
@@ -95,6 +129,14 @@ export function LLMProvidersSection({ providers }: { providers: LLMProvider[] })
       })
       return
     }
+    if (errorCode === "llm_provider_not_ready") {
+      pushNotice({
+        tone: "error",
+        title: "Provider is not ready",
+        message: getApiErrorMessage(cause),
+      })
+      return
+    }
     pushNotice({ tone: "error", title: fallbackTitle, message: getApiErrorMessage(cause) })
   }
   const refresh = () => Promise.all([
@@ -105,8 +147,13 @@ export function LLMProvidersSection({ providers }: { providers: LLMProvider[] })
     setBusy(`${provider.id}:${action}`)
     try {
       if (action === "test") {
-        await testLLMProvider(provider.id)
-        pushNotice({ tone: "success", title: "Connection tested", message: `${provider.name} diagnostics refreshed.` })
+        const tested = await testLLMProvider(provider.id)
+        const research = capabilityLabel(tested.research_capability)
+        pushNotice({
+          tone: "success",
+          title: tested.health_status === "degraded" ? "Connection partially healthy" : "Connection healthy",
+          message: `${tested.name} authenticated and ${tested.default_model} returned a valid response. Generation Healthy. Research ${research}.`,
+        })
       } else if (action === "toggle") {
         await setLLMProviderEnabled(provider.id, !provider.enabled)
         pushNotice({ tone: "success", title: provider.enabled ? "Provider disabled" : "Provider enabled", message: provider.name })
@@ -124,8 +171,8 @@ export function LLMProvidersSection({ providers }: { providers: LLMProvider[] })
       }
       await refresh()
     } catch (cause) {
-      handleMutationError(cause)
-      if (action === "test" && providerApiErrorCode(cause) === "secret_decryption_failed") {
+      handleMutationError(cause, action === "test" ? "Provider test failed" : undefined)
+      if (action === "test") {
         await refresh()
       }
     } finally {
@@ -180,19 +227,23 @@ export function LLMProvidersSection({ providers }: { providers: LLMProvider[] })
               />
             </div>
 
-            <dl className="mt-2 grid grid-cols-2 gap-px overflow-hidden rounded-lg border border-border/60 bg-border/60 sm:grid-cols-4">
+            <dl className="mt-2 grid grid-cols-2 gap-px overflow-hidden rounded-lg border border-border/60 bg-border/60 sm:grid-cols-3 xl:grid-cols-6">
               <ProviderFact
                 label="Generation"
-                ready={provider.generation_ready}
-                value={provider.generation_capability}
+                ready={provider.generation_capability === "ready"}
+                value={capabilityLabel(provider.generation_capability)}
               />
               <ProviderFact
                 label="Research"
-                ready={provider.research_ready}
+                ready={provider.research_capability === "ready"}
                 status={Boolean(provider.failure_code)}
-                value={provider.failure_code
-                  ? `${provider.research_capability} · ${safeCode(provider.failure_code)}`
-                  : provider.research_capability}
+                value={capabilityLabel(provider.research_capability)}
+              />
+              <ProviderFact
+                icon={CheckCircle2}
+                label="Readiness"
+                ready={providerReadiness(provider)}
+                value={providerReadinessMessage(provider)}
               />
               <ProviderFact
                 label="API key"
@@ -206,6 +257,11 @@ export function LLMProvidersSection({ providers }: { providers: LLMProvider[] })
                 icon={Clock3}
                 label="Last checked"
                 value={formatDate(provider.last_checked_at, "Never checked", timezone)}
+              />
+              <ProviderFact
+                icon={Clock3}
+                label="Latency"
+                value={provider.last_test_latency_ms == null ? "Not tested" : `${provider.last_test_latency_ms} ms`}
               />
             </dl>
 
@@ -222,6 +278,30 @@ export function LLMProvidersSection({ providers }: { providers: LLMProvider[] })
                   Replace API key
                 </Button>
               </div>
+            ) : null}
+
+            {provider.failure_code && provider.failure_code !== CREDENTIAL_REPLACEMENT_REQUIRED ? (
+              <div className="mt-2 rounded-lg border border-destructive/30 bg-[var(--error-surface)] p-3 text-foreground" role="alert">
+                <p className="flex items-start gap-1.5 text-sm font-medium text-destructive">
+                  <CircleAlert aria-hidden="true" className="mt-0.5 size-4 shrink-0" />
+                  Provider test failed
+                </p>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  {provider.failure_message ?? providerFailureMessage(provider.failure_code)}
+                </p>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Generation: {capabilityLabel(provider.generation_capability)} · Research: {capabilityLabel(provider.research_capability)}
+                </p>
+              </div>
+            ) : null}
+
+            {provider.generation_capability === "ready" && provider.last_successful_test_at ? (
+              <p className="mt-2 flex items-center gap-1.5 text-xs text-success" role="status">
+                <CheckCircle2 aria-hidden="true" className="size-3.5 shrink-0" />
+                Live test passed for {provider.last_tested_model ?? provider.default_model}.
+                {provider.last_test_latency_ms == null ? "" : ` ${provider.last_test_latency_ms} ms.`}
+                {` Research ${capabilityLabel(provider.research_capability)}.`}
+              </p>
             ) : null}
 
             <div
