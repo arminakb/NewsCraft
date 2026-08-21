@@ -29,11 +29,15 @@ from app.automations.models import AutomationDispatch, AutomationRoute, Telegram
 from app.core.redaction import redact_string
 from app.db.models import Source
 from app.generation.models import AIProviderProfile, BrandProfile, PromptTemplate, PromptTemplateVersion
-from app.jobs.credential_capabilities import CapabilityStatusService, provider_shape_capabilities
+from app.jobs.credential_capabilities import (
+    CapabilityStatusService,
+    provider_profile_capabilities,
+)
 from app.jobs.errors import JobCapabilityUnavailable
 from app.jobs.repository import EnqueueJobResult, JobRepository
 from app.jobs.schemas import JobAcceptedOut
 from app.jobs.types import JobOrigin
+from app.llm_providers.models import LLMProvider
 from app.publishing.models import Destination
 from app.stories.models import StoryRevision
 
@@ -44,17 +48,19 @@ DISPATCH_CEILING = 200
 JobRepositoryDependency = Annotated[JobRepository, Depends(get_job_repository)]
 
 
-def _provider_is_configured(
+async def _provider_is_configured(
     profile: AIProviderProfile,
+    session: AsyncSession,
 ) -> bool:
-    capabilities, _codes = provider_shape_capabilities(profile)
+    capabilities, _codes = await provider_profile_capabilities(session, profile)
     return capabilities["generation"]
 
 
-def _provider_supports_research(
+async def _provider_supports_research(
     profile: AIProviderProfile,
+    session: AsyncSession,
 ) -> bool:
-    capabilities, _codes = provider_shape_capabilities(profile)
+    capabilities, _codes = await provider_profile_capabilities(session, profile)
     return capabilities["research"]
 
 
@@ -213,9 +219,13 @@ async def automation_options(
     template_ids = {item.id for item in templates}
     versions = list(await session.scalars(select(PromptTemplateVersion).order_by(PromptTemplateVersion.version.desc())))
     profiles = list(await session.scalars(select(AIProviderProfile).where(AIProviderProfile.enabled.is_(True))))
+    generics = {
+        item.id: item
+        for item in await session.scalars(select(LLMProvider))
+    }
     safe_profiles = []
     for profile in profiles:
-        shaped, _codes = provider_shape_capabilities(profile)
+        shaped, _codes = await provider_profile_capabilities(session, profile, generic=generics.get(profile.id))
         if shaped["generation"]:
             capability_states = {
                 "generation": await capability_status.get("provider", profile.id, "generation"),
@@ -308,14 +318,14 @@ async def create_route(
         or destination.administrator_status != "administrator"
     ):
         raise HTTPException(422, "Telegram destination is not ready")
-    if not _provider_is_configured(profile):
+    if not await _provider_is_configured(profile, session):
         raise HTTPException(422, "AI provider profile configuration is invalid")
     if body.content_filters.model is None and profile.default_model is None:
         raise HTTPException(422, "Route requires a model override or provider default model")
     research_profile_id = body.content_filters.research_provider_profile_id
     if research_profile_id is not None:
         research_profile = await session.get(AIProviderProfile, research_profile_id)
-        if research_profile is None or not _provider_supports_research(research_profile):
+        if research_profile is None or not await _provider_supports_research(research_profile, session):
             raise HTTPException(422, "Research provider profile configuration is invalid")
     existing = await session.scalar(
         select(AutomationRoute).where(
@@ -418,7 +428,7 @@ async def update_research_policy(
         raise HTTPException(404, "Telegram automation route not found")
     if body.research_provider_profile_id is not None:
         profile = await session.get(AIProviderProfile, body.research_provider_profile_id)
-        if profile is None or not _provider_supports_research(profile):
+        if profile is None or not await _provider_supports_research(profile, session):
             raise HTTPException(422, "Research provider profile configuration is invalid")
     filters = dict(route.content_filters or {})
     filters.pop("research_backend", None)

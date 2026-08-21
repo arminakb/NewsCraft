@@ -31,7 +31,11 @@ from app.generation.models import AIProviderProfile, BrandProfile, PromptTemplat
 from app.generation.platform_schemas import BlogVariantPayload, InstagramVariantPayload, XVariantPayload
 from app.generation.provider_settings import default_codex_provider_settings
 from app.generation.telegram_schema import TelegramRewriteOutput
-from app.jobs.credential_capabilities import CapabilityStatus, CapabilityStatusService, provider_shape_capabilities
+from app.jobs.credential_capabilities import (
+    CapabilityStatus,
+    CapabilityStatusService,
+    provider_profile_capabilities,
+)
 from app.security.auth import SecurityPrincipal
 
 router = APIRouter(tags=["generation-settings"])
@@ -118,8 +122,9 @@ def _prompt_validation_error(exc: ValueError) -> HTTPException:
 async def _profile_out(
     profile: AIProviderProfile,
     capability_status: CapabilityStatusService,
+    session: AsyncSession,
 ) -> AIProviderProfileOut:
-    shaped, codes = provider_shape_capabilities(profile)
+    shaped, codes = await provider_profile_capabilities(session, profile)
     capability_states: dict[Literal["generation", "research"], CapabilityStatus] = {
         "generation": await capability_status.get("provider", profile.id, "generation"),
         "research": await capability_status.get("provider", profile.id, "research"),
@@ -417,4 +422,4 @@ async def list_provider_profiles(
     session: AsyncSession = SessionDependency,
 ):
     rows = list(await session.scalars(select(AIProviderProfile).order_by(AIProviderProfile.name)))
-    return [await _profile_out(row, capability_status) for row in rows]
+    return [await _profile_out(row, capability_status, session) for row in rows]

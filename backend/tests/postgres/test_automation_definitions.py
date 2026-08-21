@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import json
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from datetime import UTC, datetime
 from uuid import UUID, uuid4
 
 from httpx import ASGITransport, AsyncClient
@@ -12,11 +14,41 @@ from app.automations.definitions.models import Automation, AutomationTemplate, A
 from app.automations.definitions.resources import count_automation_definitions_referencing
 from app.automations.definitions.templates import seed_automation_templates
 from app.db.session import get_session
-from app.jobs.models import WorkflowEvent
+from app.generation.models import AIProviderProfile
+from app.jobs.models import RuntimeHeartbeat, WorkflowEvent
+from app.llm_providers.models import LLMProvider
+from app.llm_providers.schemas import LLMProviderSettings
 from app.main import app
+from app.security.models import EncryptedSecret
 
 
-def _graph(story_revision_id: UUID | None = None) -> dict[str, object]:
+def _available_provider_heartbeat(provider_id: UUID) -> RuntimeHeartbeat:
+    """Worker observation marking the provider's generation/research available."""
+
+    observations = [
+        {
+            "resource_type": "provider",
+            "resource_id": str(provider_id),
+            "capability": capability,
+            "state": "available",
+            "failure_code": "available",
+        }
+        for capability in ("generation", "research")
+    ]
+    return RuntimeHeartbeat(
+        component_id="worker-test-generation",
+        component_type="worker",
+        capabilities=["generation", "source"],
+        observed_at=datetime.now(UTC),
+        runtime_metadata={"external_capabilities": observations},
+    )
+
+
+def _graph(
+    story_revision_id: UUID | None = None,
+    *,
+    provider_profile_id: UUID | None = None,
+) -> dict[str, object]:
     prompt_id = uuid4()
     return {
         "schema_version": 1,
@@ -32,7 +64,7 @@ def _graph(story_revision_id: UUID | None = None) -> dict[str, object]:
                 "type": "generate_content_pack",
                 "config": {
                     "editorial_profile_id": str(uuid4()),
-                    "provider_profile_id": str(uuid4()),
+                    "provider_profile_id": str(provider_profile_id or uuid4()),
                     "prompt_version_ids": [str(prompt_id)],
                     "prompt_checksums": {str(prompt_id): "a" * 64},
                     "platforms": ["telegram"],
@@ -350,15 +382,96 @@ async def test_validation_keeps_unavailable_saved_resources_visible_and_blocks_a
             },
         )
 
+        assert catalog.status_code == 200, catalog.text
+        provider = next(item for item in catalog.json()["resources"] if item["id"] == provider_id)
+        assert provider == {
+            "id": provider_id,
+            "kind": "provider",
+            "display_name": "Unavailable provider",
+            "state": "unavailable",
+            "reason_code": "resource_missing",
+            "capabilities": [],
+            "referenced_by_active_version": False,
+            "manage_href": "/settings?section=llm-providers",
+        }
+
+
+async def test_operator_backed_provider_resource_is_ready_for_workflows(
+    session_factory: async_sessionmaker[AsyncSession],
+):
+    provider_id = uuid4()
+    async with session_factory() as session:
+        secret = EncryptedSecret(
+            id=uuid4(),
+            purpose="llm_provider_api_key",
+            owner_type="llm_provider",
+            owner_id=provider_id,
+            ciphertext=b"0" * 32,
+            nonce=b"0" * 12,
+            key_version="v0",
+        )
+        session.add(secret)
+        await session.flush()
+        session.add(
+            LLMProvider(
+                id=provider_id,
+                name="Operator OpenRouter",
+                protocol="openai_compatible",
+                base_url="https://openrouter.ai/api/v1",
+                default_model="openai/gpt-5-mini",
+                enabled=True,
+                secret_id=secret.id,
+                settings=LLMProviderSettings().model_dump(mode="json"),
+                health_status="healthy",
+                generation_capability="ready",
+                research_capability="ready",
+                last_successful_test_at=datetime.now(UTC),
+            )
+        )
+        session.add(
+            AIProviderProfile(
+                id=provider_id,
+                name="Operator OpenRouter",
+                provider_type="openrouter",
+                default_model="openai/gpt-5-mini",
+                secret_ref=None,
+                settings={
+                    "pricing": {"input_usd_per_million": "0", "output_usd_per_million": "0"},
+                    "generation_policy": {"qualification_status": "qualified"},
+                },
+                enabled=True,
+            )
+        )
+        session.add(_available_provider_heartbeat(provider_id))
+        await session.commit()
+
+    async with _client(session_factory) as client:
+        created = await client.post(
+            "/automations",
+            headers={"Idempotency-Key": "operator-provider-workflow"},
+            json={"name": "Uses operator provider", "graph": _graph(provider_profile_id=provider_id)},
+        )
+        assert created.status_code == 201, created.text
+        automation_id = created.json()["id"]
+
+        validation = await client.post(f"/automations/{automation_id}/versions/1/validate")
+        assert validation.status_code == 200, validation.text
+
+        catalog = await client.post(
+            "/automation-resource-catalog",
+            json={
+                "automation_id": automation_id,
+                "resources": [{"kind": "provider", "id": str(provider_id)}],
+            },
+        )
+
     assert catalog.status_code == 200, catalog.text
-    provider = next(item for item in catalog.json()["resources"] if item["id"] == provider_id)
-    assert provider == {
-        "id": provider_id,
-        "kind": "provider",
-        "display_name": "Unavailable provider",
-        "state": "unavailable",
-        "reason_code": "resource_missing",
-        "capabilities": [],
-        "referenced_by_active_version": False,
-        "manage_href": "/settings?section=llm-providers",
-    }
+    provider = next(item for item in catalog.json()["resources"] if item["id"] == str(provider_id))
+    assert provider["display_name"] == "Operator OpenRouter"
+    assert provider["state"] == "ready"
+    assert provider["capabilities"] == ["generation", "research"]
+
+    findings = validation.json()["findings"]
+    provider_findings = [item for item in findings if "provider_profile_id" in (item.get("field_path") or "")]
+    assert provider_findings == [], json.dumps(findings, default=str)
+    assert validation.json()["valid"] is False  # story revision + prompts are still missing

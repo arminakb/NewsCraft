@@ -20,7 +20,7 @@ from app.generation.models import AIProviderProfile, BrandProfile, PromptTemplat
 from app.jobs.credential_capabilities import (
     CapabilityStatusService,
     ResourceCapability,
-    provider_shape_capabilities,
+    provider_profile_capabilities,
 )
 from app.publishing.models import Destination
 
@@ -244,7 +244,7 @@ async def summarize_resources(
             if provider is None:
                 output.append(_missing(kind, resource_id, active=active))
                 continue
-            shaped, codes = provider_shape_capabilities(provider)
+            shaped, codes = await provider_profile_capabilities(session, provider)
             capabilities: list[ResourceCapability] = []
             if shaped["generation"]:
                 capabilities.append("generation")
