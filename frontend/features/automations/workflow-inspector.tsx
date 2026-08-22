@@ -4,6 +4,7 @@ import { ExternalLink } from "lucide-react"
 import Link from "next/link"
 
 import { ProviderBrandIcon } from "@/features/settings/provider-brand-icon"
+import type { LLMProvider } from "@/features/settings/content-settings-api"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Input } from "@/components/ui/input"
@@ -49,6 +50,7 @@ export function WorkflowInspector({
   sourcesError,
   onRetrySources,
   options,
+  llmProviders,
   findings,
   onGraphChange,
   onRejected,
@@ -68,6 +70,7 @@ export function WorkflowInspector({
   sourcesError?: unknown
   onRetrySources?: () => void
   options?: TelegramAutomationOptions
+  llmProviders?: LLMProvider[]
   findings: ValidationFinding[]
   onGraphChange: (graph: WorkflowGraph) => void
   onRejected: (message: string) => void
@@ -126,6 +129,7 @@ export function WorkflowInspector({
             key={field}
             onChange={(value, related) => update(field, value, related)}
             options={options}
+            llmProviders={llmProviders}
             resources={resources}
             collections={collections}
             collectionsPending={collectionsPending}
@@ -172,6 +176,7 @@ function SchemaField({
   sourcesError,
   onRetrySources,
   options,
+  llmProviders,
   findings,
   onChange,
 }: {
@@ -189,6 +194,7 @@ function SchemaField({
   sourcesError?: unknown
   onRetrySources?: () => void
   options?: TelegramAutomationOptions
+  llmProviders?: LLMProvider[]
   findings: ValidationFinding[]
   onChange: (value: unknown, related?: Record<string, unknown>) => void
 }) {
@@ -198,7 +204,7 @@ function SchemaField({
   const resourceKind = resourceKindForField(field)
   const selectedId = typeof value === "string" ? value : ""
   const selectedResource = resources.find((item) => item.id === selectedId && item.kind === resourceKind)
-  const resourceOptions = resourceKind ? optionsForResource(resourceKind, options) : []
+  const resourceOptions = resourceKind ? optionsForResource(resourceKind, options, llmProviders) : []
   const describedBy = error ? `${definition.type}-${field}-error` : undefined
   const inputId = `${definition.type}-${field}`
 
@@ -256,7 +262,7 @@ function SchemaField({
           {selectedId && !resourceOptions.some((item) => item.id === selectedId) ? <option value={selectedId}>Unavailable saved reference</option> : null}
           {resourceOptions.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
         </Select>
-        {selectedResource ? <ResourceReadiness resource={selectedResource} options={options} /> : <ManageResourceLink href={manageHref(resourceKind)}>Configure {resourceLabel(resourceKind)}</ManageResourceLink>}
+        {selectedResource ? <ResourceReadiness resource={selectedResource} options={options} llmProviders={llmProviders} /> : <ManageResourceLink href={manageHref(resourceKind)}>Configure {resourceLabel(resourceKind)}</ManageResourceLink>}
         {schema.description ? <span className="text-xs font-normal text-muted-foreground">{schema.description}</span> : null}
         {error ? <span id={describedBy} className="text-xs font-normal text-destructive" role="alert">{error.message} {error.recoveryAction}</span> : null}
       </div>
@@ -488,11 +494,28 @@ function ConnectionFields({ graph, catalog, nodeId, onGraphChange, onRejected }:
   )
 }
 
-function ResourceReadiness({ resource, options }: { resource: AutomationResource; options?: TelegramAutomationOptions }) {
-  const provider = resource.kind === "provider" ? options?.aiProviderProfiles.find((item) => item.id === resource.id) : undefined
+function ResourceReadiness({ resource, options, llmProviders }: { resource: AutomationResource; options?: TelegramAutomationOptions; llmProviders?: LLMProvider[] }) {
+  const provider = resource.kind === "provider"
+    ? llmProviders?.find((item) => item.id === resource.id)
+      ?? options?.aiProviderProfiles.find((item) => item.id === resource.id)
+    : undefined
+  if (resource.kind === "provider") {
+    return (
+      <div className="flex min-h-11 flex-wrap items-center gap-2 rounded-lg border border-border/60 px-2.5">
+        {(() => {
+          if (!provider) return null
+          if ("protocol" in provider) {
+            return <ProviderBrandIcon providerType={provider.protocol === "fake" ? "fake" : undefined} baseUrl={provider.base_url} name={provider.name} className="size-4" />
+          }
+          return <ProviderBrandIcon providerType={provider.providerType} name={provider.name} className="size-4" />
+        })()}
+        <StatusBadge tone={readinessTone(resource.state)}>{humanize(resource.state)}</StatusBadge>
+        <Link className="ml-auto inline-flex min-h-11 items-center gap-1 text-xs text-primary underline underline-offset-4" href={resource.manageHref}>Manage<ExternalLink className="size-3" aria-hidden="true" /></Link>
+      </div>
+    )
+  }
   return (
     <div className="flex min-h-11 flex-wrap items-center gap-2 rounded-lg border border-border/60 px-2.5">
-      {provider ? <ProviderBrandIcon providerType={provider.providerType} name={provider.name} className="size-4" /> : null}
       <StatusBadge tone={readinessTone(resource.state)}>{humanize(resource.state)}</StatusBadge>
       <Link className="ml-auto inline-flex min-h-11 items-center gap-1 text-xs text-primary underline underline-offset-4" href={resource.manageHref}>Manage<ExternalLink className="size-3" aria-hidden="true" /></Link>
     </div>
@@ -513,14 +536,20 @@ function resourceKindForField(field: string): AutomationResource["kind"] | null 
   return null
 }
 
-function optionsForResource(kind: AutomationResource["kind"], options?: TelegramAutomationOptions): Array<{ id: string; name: string }> {
-  if (!options) return []
-  if (kind === "source") return options.sources
-  if (kind === "provider") return options.aiProviderProfiles
-  if (kind === "editorial_profile") return options.brandProfiles
-  if (kind === "destination") return options.destinations
+function optionsForResource(kind: AutomationResource["kind"], options?: TelegramAutomationOptions, llmProviders?: LLMProvider[]): Array<{ id: string; name: string }> {
+  if (!options && !llmProviders) return []
+  if (kind === "source") return options?.sources ?? []
+  if (kind === "provider") {
+    // Canonical source of truth: Settings LLM provider profiles. Every saved
+    // provider is selectable; readiness badges report test/enable state.
+    return llmProviders
+      ? llmProviders.map((item) => ({ id: item.id, name: item.name }))
+      : options?.aiProviderProfiles ?? []
+  }
+  if (kind === "editorial_profile") return options?.brandProfiles ?? []
+  if (kind === "destination") return options?.destinations ?? []
   if (kind === "collection") return []
-  return options.promptTemplateVersions.map((item) => ({ id: item.id, name: `Prompt version ${item.version}${item.isActive ? " · active" : ""}` }))
+  return options?.promptTemplateVersions.map((item) => ({ id: item.id, name: `Prompt version ${item.version}${item.isActive ? " · active" : ""}` })) ?? []
 }
 
 function manageHref(kind: AutomationResource["kind"]) {

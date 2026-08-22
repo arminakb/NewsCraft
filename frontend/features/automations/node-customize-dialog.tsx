@@ -37,6 +37,7 @@ export function NodeCustomizeDialog({
   sourcesError,
   onRetrySources,
   options,
+  llmProviders,
   findings,
   returnFocus,
   onSave,
@@ -56,6 +57,7 @@ export function NodeCustomizeDialog({
   sourcesError?: unknown
   onRetrySources?: () => void
   options?: TelegramAutomationOptions
+  llmProviders?: import("@/features/settings/content-settings-api").LLMProvider[]
   findings: ValidationFinding[]
   returnFocus: HTMLElement | null
   onSave: (graph: WorkflowGraph) => void
@@ -179,6 +181,7 @@ export function NodeCustomizeDialog({
               }}
               onRejected={onRejected}
               options={options}
+              llmProviders={llmProviders}
               resources={resources}
               collections={collections}
               collectionsPending={collectionsPending}

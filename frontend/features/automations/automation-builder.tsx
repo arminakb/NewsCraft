@@ -30,6 +30,7 @@ import { cn } from "@/lib/utils"
 import { getArticleCollections } from "@/features/articles/api"
 import { getSources } from "@/features/operations/ingestion-api"
 import { getTelegramAutomationOptions } from "./telegram-api"
+import { getLLMProviders } from "@/features/settings/content-settings-api"
 import {
   activateAutomation,
   createAutomation,
@@ -130,6 +131,7 @@ function AutomationBuilderReady({ automation, catalog, initialVersion }: { autom
     queryFn: ({ signal }) => getAutomationResourceCatalog(requests, automation.id, signal),
   })
   const options = useQuery({ queryKey: queryKeys.telegramOptions, queryFn: getTelegramAutomationOptions })
+  const llmProviders = useQuery({ queryKey: queryKeys.llmProviders, queryFn: getLLMProviders })
   const collectionNodeSelected = state.graph.nodes.some((node) => node.id === state.selectedNodeId && node.type === "collection_article_added")
   const collections = useQuery({
     queryKey: queryKeys.articleCollections,
@@ -306,7 +308,7 @@ function AutomationBuilderReady({ automation, catalog, initialVersion }: { autom
           <div className="h-full overflow-y-auto p-4 pb-[calc(1rem+env(safe-area-inset-bottom))]"><SheetHeader className="pr-12"><SheetTitle>Ordered workflow editor</SheetTitle><SheetDescription>Same canonical graph, no drag required.</SheetDescription></SheetHeader><SheetClose aria-label="Close ordered editor" className="absolute right-3 top-3 grid size-11 place-items-center rounded-lg hover:bg-navigation-hover"><X aria-hidden="true" /></SheetClose><WorkflowOrderedEditor className="mt-5" graph={state.graph} catalog={catalog} resources={resources.data?.resources ?? []} validation={clientValidation} selectedNodeId={state.selectedNodeId} onGraphChange={commit} onSelectedNodeChange={(nodeId) => dispatch({ type: "select", nodeId })} onInspect={openCustomize} onRejected={reject} /></div>
         </SheetContent>
       </Sheet>
-      {customizeNode ? <NodeCustomizeDialog key={customizeNode.nodeId} graph={state.graph} catalog={catalog} nodeId={customizeNode.nodeId} resources={resources.data?.resources ?? []} collections={collections.data} collectionsPending={collections.isPending} collectionsError={collections.error} onRetryCollections={() => void collections.refetch()} sources={sources.data} sourcesPending={sources.isPending} sourcesError={sources.error} onRetrySources={() => void sources.refetch()} options={options.data} findings={(dirty ? clientValidation : serverValidation ?? clientValidation).findings} returnFocus={customizeNode.returnFocus} onSave={commit} onClose={() => setCustomizeNode(null)} onRejected={reject} /> : null}
+      {customizeNode ? <NodeCustomizeDialog key={customizeNode.nodeId} graph={state.graph} catalog={catalog} nodeId={customizeNode.nodeId} resources={resources.data?.resources ?? []} collections={collections.data} collectionsPending={collections.isPending} collectionsError={collections.error} onRetryCollections={() => void collections.refetch()} sources={sources.data} sourcesPending={sources.isPending} sourcesError={sources.error} onRetrySources={() => void sources.refetch()} options={options.data} llmProviders={llmProviders.data} findings={(dirty ? clientValidation : serverValidation ?? clientValidation).findings} returnFocus={customizeNode.returnFocus} onSave={commit} onClose={() => setCustomizeNode(null)} onRejected={reject} /> : null}
       {attentionOpen ? <WorkflowValidationDialog catalog={catalog} findings={currentValidation.findings} graph={state.graph} onOpenChange={setAttentionOpen} onSelectNode={(nodeId) => dispatch({ type: "select", nodeId })} open returnFocus={attentionTriggerRef.current} /> : null}
       <Dialog open={conflictOpen} onOpenChange={setConflictOpen}>
         <DialogContent>
