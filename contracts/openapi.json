@@ -5882,6 +5882,43 @@
             "title": "Research Mode",
             "type": "string"
           },
+          "research_page_budget": {
+            "anyOf": [
+              {
+                "maximum": 50.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Research Page Budget"
+          },
+          "research_prompt_checksum_sha256": {
+            "anyOf": [
+              {
+                "pattern": "^[a-f0-9]{64}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Research Prompt Checksum Sha256"
+          },
+          "research_prompt_template_version_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Research Prompt Template Version Id"
+          },
           "research_provider_profile_id": {
             "anyOf": [
               {
@@ -5894,6 +5931,19 @@
             ],
             "title": "Research Provider Profile Id"
           },
+          "research_query_budget": {
+            "anyOf": [
+              {
+                "maximum": 10.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Research Query Budget"
+          },
           "research_run_id": {
             "anyOf": [
               {
@@ -5905,6 +5955,19 @@
               }
             ],
             "title": "Research Run Id"
+          },
+          "research_time_budget_seconds": {
+            "anyOf": [
+              {
+                "maximum": 600.0,
+                "minimum": 10.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Research Time Budget Seconds"
           }
         },
         "required": [
@@ -9471,14 +9534,21 @@
             "type": "string"
           },
           "purpose_key": {
-            "maxLength": 120,
-            "minLength": 1,
-            "title": "Purpose Key",
-            "type": "string"
+            "anyOf": [
+              {
+                "maxLength": 120,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Optional stable key. Derived from the name when omitted.",
+            "title": "Purpose Key"
           }
         },
         "required": [
-          "purpose_key",
           "name"
         ],
         "title": "PromptTemplateCreate",
