@@ -145,9 +145,24 @@ def _research_graph(
             {"id": "draft-1", "type": "save_drafts", "config": {}},
         ],
         "edges": [
-            {"source_node_id": "trigger-1", "source_port": "story", "target_node_id": "research-1", "target_port": "story"},
-            {"source_node_id": "research-1", "source_port": "story", "target_node_id": "generate-1", "target_port": "story"},
-            {"source_node_id": "generate-1", "source_port": "drafts", "target_node_id": "draft-1", "target_port": "drafts"},
+            {
+                "source_node_id": "trigger-1",
+                "source_port": "story",
+                "target_node_id": "research-1",
+                "target_port": "story",
+            },
+            {
+                "source_node_id": "research-1",
+                "source_port": "story",
+                "target_node_id": "generate-1",
+                "target_port": "story",
+            },
+            {
+                "source_node_id": "generate-1",
+                "source_port": "drafts",
+                "target_node_id": "draft-1",
+                "target_port": "drafts",
+            },
         ],
         "output_node_ids": ["draft-1"],
         "metadata": {"layout": {}},

@@ -108,12 +108,12 @@ def budget_termination_metadata(
     operator can tell "answered" from "ran out of queries/pages/time".
     """
 
-    dimensions: dict[str, tuple[object, object]] = {
-        "query_budget": (usage.queries, budget.max_queries),
-        "page_budget": (usage.pages, budget.max_pages),
-        "time_budget": (elapsed_ms, budget.max_elapsed_seconds * 1_000),
-        "model_call_budget": (usage.model_calls, budget.max_model_calls),
-        "output_token_budget": (usage.output_tokens, budget.max_output_tokens),
+    dimensions: dict[str, tuple[int, int]] = {
+        "query_budget": (int(usage.queries), budget.max_queries),
+        "page_budget": (int(usage.pages), budget.max_pages),
+        "time_budget": (int(elapsed_ms), budget.max_elapsed_seconds * 1_000),
+        "model_call_budget": (int(usage.model_calls), budget.max_model_calls),
+        "output_token_budget": (int(usage.output_tokens), budget.max_output_tokens),
     }
     exhausted = [name for name, (used, limit) in dimensions.items() if used >= limit]
     return {

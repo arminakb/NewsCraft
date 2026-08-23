@@ -27,14 +27,14 @@ from app.generation.default_prompts import (
     seed_default_telegram_configuration,
     seed_starter_prompts,
 )
-from app.generation.models import PromptTemplate, PromptTemplateVersion, PlatformVariantRevision
+from app.generation.models import PlatformVariantRevision, PromptTemplate, PromptTemplateVersion
+from app.generation.providers.registry import build_default_provider_registry
 from app.jobs.models import WorkflowJob
-from app.publishing.models import Publication, PublishJob
 from app.jobs.registry import JobContext, build_default_registry
 from app.jobs.repository import JobRepository
 from app.jobs.types import JobExecution
-from app.generation.providers.registry import build_default_provider_registry
 from app.main import app
+from app.publishing.models import Publication, PublishJob
 from app.research.handlers import DefaultResearchBackendResolver
 from app.security.auth import TEST_ADMIN
 from app.stories.models import Story, StoryEvidenceSnapshot, StoryRevision
@@ -248,9 +248,24 @@ async def test_settings_to_reviewable_news_post_pipeline(
                 {"id": "draft-1", "type": "save_drafts", "config": {}},
             ],
             "edges": [
-                {"source_node_id": "trigger-1", "source_port": "story", "target_node_id": "research-1", "target_port": "story"},
-                {"source_node_id": "research-1", "source_port": "story", "target_node_id": "generate-1", "target_port": "story"},
-                {"source_node_id": "generate-1", "source_port": "drafts", "target_node_id": "draft-1", "target_port": "drafts"},
+                {
+                    "source_node_id": "trigger-1",
+                    "source_port": "story",
+                    "target_node_id": "research-1",
+                    "target_port": "story",
+                },
+                {
+                    "source_node_id": "research-1",
+                    "source_port": "story",
+                    "target_node_id": "generate-1",
+                    "target_port": "story",
+                },
+                {
+                    "source_node_id": "generate-1",
+                    "source_port": "drafts",
+                    "target_node_id": "draft-1",
+                    "target_port": "drafts",
+                },
             ],
             "output_node_ids": ["draft-1"],
             "metadata": {"layout": {}},

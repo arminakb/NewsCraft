@@ -57,6 +57,11 @@ def _uuid(value: object, field: str) -> UUID:
         raise _error("automation_activation_invalid", 409, f"Compiled {field} reference is invalid.") from None
 
 
+def _budget_value(config: dict[str, object], key: str) -> int | None:
+    value = config.get(key)
+    return value if isinstance(value, int) and not isinstance(value, bool) else None
+
+
 _PRIVATE_PROJECTION_KEY = re.compile(
     r"(?:api[_-]?key|authorization|credential|password|secret|access[_-]?token|refresh[_-]?token|"
     r"raw[_-]?(?:prompt|response)|prompt[_-]?(?:body|text)|system[_-]?prompt|stack[_-]?trace|traceback|"
@@ -434,10 +439,10 @@ class AutomationExecutionService:
                 if research is not None and research.config.get("prompt_checksum_sha256") is not None
                 else None
             ),
-            research_query_budget=research.config.get("query_budget") if research is not None else None,
-            research_page_budget=research.config.get("page_budget") if research is not None else None,
-            research_time_budget_seconds=(
-                research.config.get("time_budget_seconds") if research is not None else None
+            research_query_budget=_budget_value(research.config if research else {}, "query_budget"),
+            research_page_budget=_budget_value(research.config if research else {}, "page_budget"),
+            research_time_budget_seconds=_budget_value(
+                research.config if research else {}, "time_budget_seconds"
             ),
         )
         accepted = await EditorialService(self.session).request_content_pack(revision.story_id, request)
