@@ -37,7 +37,10 @@ _RESOURCE_FIELDS: dict[str, dict[str, ResourceKind]] = {
     "collection_article_added": {"collection_id": "collection"},
     "new_source_item": {"source_ids": "source"},
     "select_content": {"source_ids": "source"},
-    "research": {"provider_profile_id": "provider"},
+    "research": {
+        "provider_profile_id": "provider",
+        "prompt_template_version_id": "prompt_version",
+    },
     "generate_content_pack": {
         "editorial_profile_id": "editorial_profile",
         "provider_profile_id": "provider",

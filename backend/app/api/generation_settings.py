@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from datetime import UTC, datetime
 from typing import Annotated, Literal
 from uuid import UUID, uuid4
@@ -186,6 +187,11 @@ def _template_matches(template: PromptTemplate, body: PromptTemplateCreate) -> b
     return template.name == body.name and template.description == body.description
 
 
+def _derived_purpose_key(name: str) -> str:
+    slug = re.sub(r"[^a-z0-9]+", "_", name.lower()).strip("_")
+    return (slug or "prompt")[:120]
+
+
 async def seed_codex_provider_profile(
     session: AsyncSession,
     *,
@@ -272,10 +278,12 @@ async def list_prompt_templates(session: AsyncSession = SessionDependency):
 
 @router.post("/prompt-templates", status_code=201)
 async def create_prompt_template(
-    body: PromptTemplateCreate,
+    body_in: PromptTemplateCreate,
     session: AsyncSession = SessionDependency,
 ):
-    existing = await session.scalar(select(PromptTemplate).where(PromptTemplate.purpose_key == body.purpose_key))
+    purpose_key = body_in.purpose_key or _derived_purpose_key(body_in.name)
+    body = body_in.model_copy(update={"purpose_key": purpose_key})
+    existing = await session.scalar(select(PromptTemplate).where(PromptTemplate.purpose_key == purpose_key))
     if existing is not None:
         if _template_matches(existing, body):
             return existing
@@ -416,10 +424,22 @@ async def activate_prompt_version(
     return version
 
 
+def _legacy_seeded_fake(profile: AIProviderProfile) -> bool:
+    """The startup-seeded "Deterministic Fake" profile is an internal stub.
+
+    It exists for tests and dry runs and must not appear as a selectable
+    provider. Matched by name/type because migration 0013 backfills an
+    ``llm_providers`` row for it on upgraded databases; fake providers
+    created through Settings carry a different name and stay listed.
+    """
+
+    return profile.provider_type == "fake" and profile.name == "Deterministic Fake"
+
+
 @router.get("/ai-provider-profiles", response_model=list[AIProviderProfileOut])
 async def list_provider_profiles(
     capability_status: CapabilityStatusDependency,
     session: AsyncSession = SessionDependency,
 ):
     rows = list(await session.scalars(select(AIProviderProfile).order_by(AIProviderProfile.name)))
-    return [await _profile_out(row, capability_status, session) for row in rows]
+    return [await _profile_out(row, capability_status, session) for row in rows if not _legacy_seeded_fake(row)]

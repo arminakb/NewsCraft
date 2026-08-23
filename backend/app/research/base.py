@@ -24,6 +24,7 @@ class ResearchRequest(BaseModel):
     mode: Literal["manual", "auto_if_incomplete"]
     depth: Literal["standard", "deep"] = "standard"
     query_hint: str | None = Field(default=None, max_length=500)
+    system_prompt: str | None = Field(default=None, max_length=20_000)
     evidence: list[EvidenceRecord] = Field(min_length=1)
     budget: ResearchBudget
 

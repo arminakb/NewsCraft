@@ -17,6 +17,11 @@ class GeneratePackRequest(BaseModel):
     research_mode: Literal["off", "manual", "auto_if_incomplete"] = "off"
     research_provider_profile_id: UUID | None = None
     research_run_id: UUID | None = None
+    research_prompt_template_version_id: UUID | None = None
+    research_prompt_checksum_sha256: str | None = Field(default=None, pattern=r"^[a-f0-9]{64}$")
+    research_query_budget: int | None = Field(default=None, ge=1, le=10)
+    research_page_budget: int | None = Field(default=None, ge=1, le=50)
+    research_time_budget_seconds: int | None = Field(default=None, ge=10, le=600)
 
 
 class EditVariantRequest(BaseModel):

@@ -697,6 +697,12 @@ class AutomationDefinitionService:
                         (raw_id, checksums.get(str(raw_id)), f"config.prompt_checksums.{raw_id}")
                         for raw_id in prompt_ids
                     )
+            if node.type == "research":
+                raw_id = node.config.get("prompt_template_version_id")
+                if raw_id is not None and node.config.get("prompt_checksum_sha256") is not None:
+                    prompt_snapshots.append(
+                        (raw_id, node.config["prompt_checksum_sha256"], "config.prompt_checksum_sha256")
+                    )
             for raw_id, checksum, field_path in prompt_snapshots:
                 if raw_id is None or checksum is None:
                     continue

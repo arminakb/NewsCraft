@@ -65,6 +65,13 @@ class ContentPackContinuationPayload(BaseModel):
     research_provider_profile_id: UUID
     canonical_prompt_checksum: str
     platform_prompt_checksums: dict[Platform, str]
+    generation_provider_configuration_revision: str | None = None
+    generation_provider_configuration_checksum: str | None = None
+    research_prompt_template_version_id: UUID | None = None
+    research_prompt_checksum_sha256: str | None = None
+    research_query_budget: int | None = Field(default=None, ge=1, le=10)
+    research_page_budget: int | None = Field(default=None, ge=1, le=50)
+    research_time_budget_seconds: int | None = Field(default=None, ge=10, le=600)
 
     @model_validator(mode="after")
     def prompt_maps_match_requested_platforms(self):
@@ -102,7 +109,7 @@ class ContentPackResearchContinuation(BaseModel):
 def normalize_continuation(value: object) -> dict:
     if isinstance(value, dict) and value.get("job_type") == "content_pack.generate":
         content_pack = ContentPackResearchContinuation.model_validate(value).validate_identity()
-        return content_pack.model_dump(mode="json")
+        return content_pack.model_dump(mode="json", exclude_none=True)
     telegram = TelegramResearchContinuation.model_validate(value).validate_identity()
     return telegram.model_dump(mode="json")
 

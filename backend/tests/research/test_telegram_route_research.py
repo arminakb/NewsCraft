@@ -308,7 +308,8 @@ async def test_auto_incomplete_enqueues_one_exact_research_job_before_generation
     assert len(calls) == 1 and calls[0]["job_type"] == "research_story"
     assert calls[0]["payload"]["provider_profile_id"] == str(probe.research_profile.id)
     assert calls[0]["idempotency_key"].startswith("research_story:")
-    assert calls[0]["idempotency_key"].endswith(f":{probe.research_profile.id}:fake-v1:auto_if_incomplete:standard")
+    # Key now also carries the research prompt id (empty here) and effective budgets.
+    assert f":{probe.research_profile.id}:fake-v1:auto_if_incomplete:standard:" in calls[0]["idempotency_key"]
     assert str(probe.dispatch.id) not in calls[0]["idempotency_key"]
     continuation = calls[0]["payload"]["continuations"][0]
     assert continuation["job_type"] == "telegram.route.process"

@@ -206,6 +206,9 @@ export async function createBrandProfile(input: BrandProfileInput): Promise<Bran
 export async function getPromptTemplates(): Promise<PromptTemplate[]> {
   return (await apiRequest<BackendPromptTemplate[]>("/prompt-templates")).map(mapPromptTemplate)
 }
+export async function createPromptTemplate(input: { name: string; description?: string | null }): Promise<PromptTemplate> {
+  return mapPromptTemplate(await apiRequest<BackendPromptTemplate>("/prompt-templates", json("POST", input)))
+}
 export async function getPromptVersions(templateId: string): Promise<PromptVersion[]> {
   return apiRequest<PromptVersion[]>(`/prompt-templates/${encodeURIComponent(templateId)}/versions`)
 }

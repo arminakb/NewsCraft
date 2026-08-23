@@ -271,7 +271,7 @@ describe("ContentSettingsPage", () => {
     ["telegram", "Telegram destinations"],
     ["date-time", "Date & Time"],
     ["retention", "Retention"],
-    ["prompts", "Prompt governance"],
+    ["prompts", "Prompts"],
   ] as const)("mounts %s without rendering a long Settings page", async (section, heading) => {
     renderSettings({ section })
 
@@ -703,7 +703,7 @@ describe("ContentSettingsPage", () => {
     vi.mocked(activatePromptVersion).mockResolvedValue({ ...promptVersion, is_active: true })
     renderSettings({ section: "prompts" })
 
-    const purpose = await screen.findByRole("heading", { name: "Telegram Automation Rewrite" })
+    const purpose = await screen.findByRole("heading", { name: "Telegram rewrite" })
     const article = purpose.closest("article")
     expect(article).not.toBeNull()
     fireEvent.click(within(article!).getByRole("button", { name: "Manage" }))

@@ -424,6 +424,21 @@ class AutomationExecutionService:
                 if research is not None
                 else None
             ),
+            research_prompt_template_version_id=(
+                _uuid(research.config.get("prompt_template_version_id"), "research prompt")
+                if research is not None and research.config.get("prompt_template_version_id") is not None
+                else None
+            ),
+            research_prompt_checksum_sha256=(
+                str(research.config["prompt_checksum_sha256"])
+                if research is not None and research.config.get("prompt_checksum_sha256") is not None
+                else None
+            ),
+            research_query_budget=research.config.get("query_budget") if research is not None else None,
+            research_page_budget=research.config.get("page_budget") if research is not None else None,
+            research_time_budget_seconds=(
+                research.config.get("time_budget_seconds") if research is not None else None
+            ),
         )
         accepted = await EditorialService(self.session).request_content_pack(revision.story_id, request)
         job = await self.session.get(WorkflowJob, accepted.job_id)

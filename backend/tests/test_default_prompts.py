@@ -88,6 +88,7 @@ async def test_default_brand_and_provider_profiles_make_a_clean_install_usable_w
     assert result.brand.output_language == "fa"
     assert {profile.provider_type for profile in result.providers} == {"fake", "openrouter"}
     assert result.provider("fake").enabled is True
+    assert result.provider("fake").name == "Deterministic Fake"
     assert result.provider("openrouter").secret_ref == "OPENROUTER_API_KEY"
     assert result.provider("openrouter").enabled is True
     assert replay.brand.id == result.brand.id
@@ -170,6 +171,10 @@ async def test_application_lifespan_seeds_defaults_in_one_transaction(monkeypatc
         assert value is session
         calls.append("editorial")
 
+    async def seed_starters(value):
+        assert value is session
+        calls.append("starters")
+
     async def seed_codex(value, *, enabled, model):
         assert value is session
         assert enabled is main.settings.codex_enabled
@@ -186,6 +191,7 @@ async def test_application_lifespan_seeds_defaults_in_one_transaction(monkeypatc
     monkeypatch.setattr(main, "seed_default_telegram_prompt", seed_prompt)
     monkeypatch.setattr(main, "seed_default_telegram_configuration", seed_configuration)
     monkeypatch.setattr(main, "seed_default_editorial_prompts", seed_editorial)
+    monkeypatch.setattr(main, "seed_starter_prompts", seed_starters)
     monkeypatch.setattr(main, "seed_codex_provider_profile", seed_codex)
 
     async with main.lifespan(main.app):
@@ -194,6 +200,7 @@ async def test_application_lifespan_seeds_defaults_in_one_transaction(monkeypatc
     assert calls == [
         "prompt",
         "editorial",
+        "starters",
         "configuration",
         "codex",
         "templates",

@@ -12,7 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.core.redaction import redact_secrets, redact_string
-from app.generation.models import AIProviderProfile
+from app.generation.models import AIProviderProfile, PromptTemplateVersion
 from app.generation.provider_settings import (
     ProviderShapeError,
     ResearchBudgetSettings,
@@ -123,6 +123,31 @@ class ResearchService:
             ]
         )
 
+    async def _resolve_prompt_reference(
+        self,
+        prompt_template_version_id: UUID | None,
+        prompt_checksum_sha256: str | None,
+    ) -> tuple[UUID | None, str | None]:
+        """Verify a saved research prompt reference at the request boundary.
+
+        The checksum must match the immutable version row, mirroring the
+        generation prompt pinning contract. Returns (id, checksum) to embed in
+        the job payload; the handler re-verifies against the active row.
+        """
+
+        if prompt_template_version_id is None:
+            if prompt_checksum_sha256 is not None:
+                raise ResearchRequestError("Research prompt checksum requires a prompt version")
+            return None, None
+        if prompt_checksum_sha256 is None:
+            raise ResearchRequestError("Research prompt selection requires its checksum")
+        version = await self.session.get(PromptTemplateVersion, prompt_template_version_id)
+        if version is None or not version.is_active:
+            raise ResearchRequestError("Selected research system prompt is unavailable")
+        if version.checksum_sha256 != prompt_checksum_sha256:
+            raise ResearchRequestError("Research prompt checksum does not match the saved version")
+        return version.id, version.checksum_sha256
+
     async def resolve_profile(self, profile_id: UUID, depth: Literal["standard", "deep"]) -> ResolvedResearchProfile:
         profile = await self.session.get(AIProviderProfile, profile_id)
         if profile is None or not profile.enabled:
@@ -184,6 +209,11 @@ class ResearchService:
         provider_profile_id: UUID | None,
         query_hint: str | None,
         continuation: dict | None = None,
+        prompt_template_version_id: UUID | None = None,
+        prompt_checksum_sha256: str | None = None,
+        query_budget: int | None = None,
+        page_budget: int | None = None,
+        time_budget_seconds: int | None = None,
     ) -> ResearchDisposition:
         story = await self.session.scalar(select(Story).where(Story.id == story_id).with_for_update())
         if story is None or story.superseded_by_id is not None:
@@ -197,6 +227,23 @@ class ResearchService:
         if provider_profile_id is None:
             raise ResearchRequestError("Research provider profile is required")
         resolved = await self.resolve_profile(provider_profile_id, depth)
+        prompt_id, prompt_checksum = await self._resolve_prompt_reference(
+            prompt_template_version_id, prompt_checksum_sha256
+        )
+        budget_overrides = {
+            key: value
+            for key, value in (
+                ("max_queries", query_budget),
+                ("max_pages", page_budget),
+                ("max_elapsed_seconds", time_budget_seconds),
+            )
+            if value is not None
+        }
+        effective_budget = (
+            resolved.budget.model_copy(update=budget_overrides)
+            if budget_overrides
+            else resolved.budget
+        )
         if mode == "auto_if_incomplete" and completeness.complete:
             if continuation is not None:
                 succeeded_run = await self.session.scalar(
@@ -284,9 +331,9 @@ class ResearchService:
             requested_mode=mode,
             provider_profile_id=resolved.profile.id,
             status="queued",
-            query_budget=resolved.budget.max_queries,
-            page_budget=resolved.budget.max_pages,
-            time_budget_seconds=resolved.budget.max_elapsed_seconds,
+            query_budget=effective_budget.max_queries,
+            page_budget=effective_budget.max_pages,
+            time_budget_seconds=effective_budget.max_elapsed_seconds,
         )
         self.session.add(run)
         await self.session.flush()
@@ -301,11 +348,24 @@ class ResearchService:
                 "query_hint": query_hint,
                 "evidence_set_hash": evidence_hash,
                 "completeness": completeness.model_dump(mode="json"),
-                "budget": resolved.budget.model_dump(mode="json"),
+                "budget": effective_budget.model_dump(mode="json"),
+                **({"budget_overrides": budget_overrides} if budget_overrides else {}),
+                **(
+                    {
+                        "prompt_template_version_id": str(prompt_id),
+                        "prompt_checksum_sha256": prompt_checksum,
+                    }
+                    if prompt_id is not None
+                    else {}
+                ),
             },
             continuation,
         )
-        key = f"research_story:{story.id}:{evidence_hash}:{resolved.profile.id}:{resolved.model}:{mode}:{depth}"
+        key = (
+            f"research_story:{story.id}:{evidence_hash}:{resolved.profile.id}:{resolved.model}:"
+            f"{mode}:{depth}:{prompt_id or ''}:"
+            f"{effective_budget.max_queries}:{effective_budget.max_pages}:{effective_budget.max_elapsed_seconds}"
+        )
         accepted = await JobRepository(self.session).enqueue_job(
             job_type="research_story",
             payload=payload,

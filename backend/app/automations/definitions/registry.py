@@ -86,6 +86,16 @@ class ResearchConfig(_ConfigModel):
         title="LLM Provider",
         description="LLM provider profile from Settings used to run research.",
     )
+    prompt_template_version_id: UUID | None = Field(
+        default=None,
+        title="System Prompt",
+        description="Reusable system prompt from Settings → Prompts used as the research instruction.",
+    )
+    prompt_checksum_sha256: Sha256Checksum | None = Field(
+        default=None,
+        title="Prompt Checksum",
+        description="Immutable checksum of the selected prompt version.",
+    )
     mode: Literal["manual", "auto_if_incomplete"] = "auto_if_incomplete"
     query_budget: int = Field(
         default=3, ge=1, le=10, title="Query Budget",
