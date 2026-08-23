@@ -388,8 +388,15 @@ class ResearchStoryHandler:
                 for descriptor in (canonical_job.payload or {}).get("continuations", []):
                     try:
                         normalized = normalize_continuation(descriptor)
-                        dispatch_id = UUID(normalized["payload"]["dispatch_id"])
                     except TypeError, ValueError:
+                        continue
+                    raw_dispatch_id = normalized["payload"].get("dispatch_id")
+                    # ponytail: content-pack continuations have no dispatch row; only telegram does
+                    if raw_dispatch_id is None:
+                        continue
+                    try:
+                        dispatch_id = UUID(raw_dispatch_id)
+                    except (TypeError, ValueError):
                         continue
                     dispatch = await session.scalar(
                         select(AutomationDispatch).where(AutomationDispatch.id == dispatch_id).with_for_update()
