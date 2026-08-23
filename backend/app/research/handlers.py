@@ -97,6 +97,33 @@ class DefaultResearchBackendResolver:
         )
 
 
+def budget_termination_metadata(
+    budget: ResearchBudget,
+    usage: Any,
+    elapsed_ms: int,
+) -> dict[str, object]:
+    """Describe why research stopped and what the budgets actually bought.
+
+    A dimension at its limit is reported as the termination reason so the
+    operator can tell "answered" from "ran out of queries/pages/time".
+    """
+
+    dimensions: dict[str, tuple[object, object]] = {
+        "query_budget": (usage.queries, budget.max_queries),
+        "page_budget": (usage.pages, budget.max_pages),
+        "time_budget": (elapsed_ms, budget.max_elapsed_seconds * 1_000),
+        "model_call_budget": (usage.model_calls, budget.max_model_calls),
+        "output_token_budget": (usage.output_tokens, budget.max_output_tokens),
+    }
+    exhausted = [name for name, (used, limit) in dimensions.items() if used >= limit]
+    return {
+        "termination_reason": ("budget_exhausted:" + ",".join(sorted(exhausted))) if exhausted else "completed",
+        "queries_executed": usage.queries,
+        "pages_inspected": usage.pages,
+        "elapsed_ms": elapsed_ms,
+    }
+
+
 async def _resolve_payload_system_prompt(session: Any, payload: dict[str, Any]) -> str | None:
     """Resolve the pinned research system prompt at the runtime boundary.
 
@@ -658,6 +685,7 @@ class ResearchStoryHandler:
                     "story_revision_id": str(revision.id),
                     "continuation_job_id": (str(continuation_jobs[0].id) if continuation_jobs else None),
                     "continuation_job_ids": [str(item.id) for item in continuation_jobs],
+                    "budget_termination": budget_termination_metadata(budget, result.usage, result.elapsed_ms),
                 }
         except Exception as exc:
             if session.in_transaction():
