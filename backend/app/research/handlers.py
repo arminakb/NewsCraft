@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import inspect
+import logging
 import shutil
 from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime
@@ -37,6 +38,8 @@ from app.research.service import ResearchRequestError, ResearchService, evidence
 from app.stories.evidence import EvidenceRecord, evidence_record_from_snapshot
 from app.stories.models import Story, StoryEvidenceLink, StoryEvidenceSnapshot, StoryRevision
 from app.workflows.states import ResearchRunState, require_research_run_transition
+
+logger = logging.getLogger(__name__)
 
 type ResearchBackendResolver = Callable[[AIProviderProfile], ResearchBackend | Awaitable[ResearchBackend]]
 
@@ -698,6 +701,11 @@ class ResearchStoryHandler:
             if session.in_transaction():
                 await session.rollback()
             error_class, code, message = _classification(exc)
+            if error_class == "permanent":
+                # ponytail: unclassified backend crash; log traceback so operators see the real cause
+                logger.warning(
+                    "research backend crashed run_id=%s job_id=%s", run_id, workflow_job_id, exc_info=exc
+                )
             stale_attempt_ignored = await self._record_failure(
                 session,
                 run_id=run_id,
