@@ -646,6 +646,7 @@ class AutomationDefinitionService:
         graph = WorkflowGraphV1.model_validate(version.graph)
         structural = validate_graph(graph)
         requests = [ResourceRequest(kind=kind, id=resource_id) for kind, resource_id in graph_resource_requests(graph)]
+        requested_keys = {(item.kind, item.id) for item in requests}
         resources = await summarize_resources(
             self.session,
             requests,
@@ -656,6 +657,10 @@ class AutomationDefinitionService:
         locations = graph_resource_locations(graph)
         for resource in resources:
             if resource.state == "ready":
+                continue
+            if (resource.kind, resource.id) not in requested_keys:
+                # Referenced only by another version (e.g. a superseded active
+                # version); must not block this draft's activation.
                 continue
             resource_locations = locations.get((resource.kind, resource.id), [(None, None)])
             findings.extend(
