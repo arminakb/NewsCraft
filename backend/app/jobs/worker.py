@@ -185,15 +185,38 @@ def _build_source_dependencies(owner: HttpClientOwner, secrets: SecretResolver) 
     return {"source_registry": source_registry, "media_stager": _TelegramMediaStager()}
 
 
+class _SharedClientLease:
+    """Expose a pooled owner client as safely closable for resolver contracts.
+
+    Provider resolvers close the http client they receive, assuming the
+    factory built it fresh for one use. The worker pools clients instead,
+    so the lease forwards everything but makes aclose a no-op: closing a
+    lease must never kill the pooled client other jobs are using.
+    """
+
+    __slots__ = ("_client",)
+
+    def __init__(self, client: Any) -> None:
+        self._client = client
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._client, name)
+
+    async def aclose(self) -> None:
+        return None
+
+
 def _build_generation_dependencies(owner: HttpClientOwner, secrets: SecretResolver) -> dict[str, Any]:
     from app.generation.providers.registry import build_provider_profile_resolver
 
     profile_resolver = build_provider_profile_resolver(
         secret_resolver=secrets,
-        http_client_factory=lambda **kwargs: owner.get(
-            "openrouter",
-            base_url=kwargs["base_url"],
-            timeout=kwargs["timeout_seconds"],
+        http_client_factory=lambda **kwargs: _SharedClientLease(
+            owner.get(
+                "openrouter",
+                base_url=kwargs["base_url"],
+                timeout=kwargs["timeout_seconds"],
+            )
         ),
     )
     from app.research.handlers import DefaultResearchBackendResolver
