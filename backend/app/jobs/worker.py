@@ -29,6 +29,7 @@ from app.db.session import async_session
 from app.generation.providers.registry import ProviderRegistry, build_default_provider_registry
 from app.jobs.credential_capabilities import WorkerCredentialCapabilityObserver
 from app.jobs.errors import (
+    InvalidJobTransition,
     NeedsReviewJobError,
     PermanentJobError,
     RetryableJobError,
@@ -398,7 +399,18 @@ class WorkerRunner:
             },
         )
         if failure is None:
-            await self._finish_execution(execution, result or {}, completion_time)
+            try:
+                await self._finish_execution(execution, result or {}, completion_time)
+            except InvalidJobTransition:
+                # Lease expired and the job was requeued mid-run; the claim is stale.
+                logger.warning(
+                    "stale job claim id=%s type=%s: job left running state before completion",
+                    execution.id,
+                    execution.job_type,
+                )
+                await self._hit_after_terminal(execution, terminal_state="succeeded")
+                await self._record_loop_success()
+                return True
             await self._hit_after_terminal(execution, terminal_state="succeeded")
             logger.info(
                 "job completed id=%s type=%s state=succeeded attempt=%s",
@@ -413,14 +425,24 @@ class WorkerRunner:
                 if error_class == JobErrorClass.RETRYABLE
                 else None
             )
-            await self._fail_execution(
-                execution,
-                error_class=error_class,
-                error_code=error_code,
-                error_message=error_message,
-                retry_at=retry_at,
-                now=completion_time,
-            )
+            try:
+                await self._fail_execution(
+                    execution,
+                    error_class=error_class,
+                    error_code=error_code,
+                    error_message=error_message,
+                    retry_at=retry_at,
+                    now=completion_time,
+                )
+            except InvalidJobTransition:
+                # Lease expired and the job was requeued mid-run; the claim is stale.
+                logger.warning(
+                    "stale job claim id=%s type=%s: job left running state before failure recording",
+                    execution.id,
+                    execution.job_type,
+                )
+                await self._record_loop_success()
+                return True
             await self._hit_after_terminal(execution, terminal_state="failed")
             logger.warning(
                 "job failed id=%s type=%s state=failed attempt=%s error_code=%s",
