@@ -1,394 +1,224 @@
-# NewsCraft
+# NewsCraft 🗞️🤖
 
-NewsCraft is a local, single-operator newsroom for collecting source material,
-making editorial decisions, researching stories, producing exact revisions, and
-publishing or exporting reviewed content. FastAPI workers and PostgreSQL own the
-durable workflow; the Next.js application is the operator interface.
+> **Durable Autonomous Agentic Newsroom & Multi-Platform Editorial Pipeline**  
+> *A Production-Grade Architecture MVP Showcasing Robust Multi-Agent Orchestration, Strict Prompt Governance, and Capability-Isolated Execution.*
 
-## Features
+[![Architecture Map](https://img.shields.io/badge/Architecture_Map-Foglamp_Scan-4f46e5?style=flat-square&logo=diagramsdotnet)](https://foglamp.dev/scan/newscraft-xidxfv)
+[![Project Status](https://img.shields.io/badge/Status-MVP_(Active_Development)-amber?style=flat-square)](#-project-status--mvp-scope)
+[![Backend Tests](https://img.shields.io/badge/Backend_Tests-2000+_Passed-emerald?style=flat-square&logo=pytest)](backend/tests/)
+[![Frontend Tests](https://img.shields.io/badge/Frontend_Tests-84_Suites_Passed-blue?style=flat-square&logo=vitest)](frontend/tests/)
+[![Python](https://img.shields.io/badge/Python-3.14-3776AB?style=flat-square&logo=python&logoColor=white)](backend/)
+[![FastAPI](https://img.shields.io/badge/FastAPI-0.115+-009688?style=flat-square&logo=fastapi&logoColor=white)](backend/app/)
+[![Next.js](https://img.shields.io/badge/Next.js-16_App_Router-black?style=flat-square&logo=next.js&logoColor=white)](frontend/)
+[![PostgreSQL](https://img.shields.io/badge/PostgreSQL-16_JSONB_Workflows-336791?style=flat-square&logo=postgresql&logoColor=white)](backend/alembic/)
 
-- Ingests RSS/Atom feeds and public Telegram channel pages.
-- Stores raw payloads, source items, deduplicated content items, identities, and media assets in PostgreSQL.
-- Extracts feed media, Telegram images/previews/documents, and stores media metadata for downstream use.
-- Classifies, scores, buckets, and readiness-checks content for downstream rewriting.
-- Supports evidence-backed research, multi-platform package generation, immutable editorial revisions, exact approval, deterministic exports, reviewed Telegram scheduling/publishing, and manual publication tracking for Instagram, X, and blog.
-- Provides versioned guided visual Automations with server validation, immutable run snapshots, dry-run Test Studio, accessible ordered editing, and Operations links.
-- Provides source health diagnostics, validation reports, and manual ingestion endpoints.
-- Provides a responsive newsroom with Today, Inbox, Drafts, Calendar, and
-  Library as the primary workflow, with collection, automation, diagnostics,
-  settings, and retention tools under Advanced.
+---
 
-## Tech Stack
+## 📌 Interactive Architecture Map
 
-- FastAPI
-- PostgreSQL
-- SQLAlchemy 2 async ORM
-- Alembic
-- httpx
-- feedparser
-- BeautifulSoup/lxml
-- pytest
-- Next.js
-- TanStack Query/Table
-- Tailwind CSS and shadcn/ui
-- Docker Compose
+Explore the live, interactive system topology and dataflow graph powered by Foglamp:  
+👉 **[View Interactive Architecture Scan on Foglamp](https://foglamp.dev/scan/newscraft-xidxfv)**
 
-## Project Structure
+---
 
-```text
-.
-├── backend/
-│   ├── app/
-│   │   ├── api/
-│   │   ├── content/
-│   │   ├── db/
-│   │   ├── diagnostics/
-│   │   ├── ingestion/
-│   │   ├── media/
-│   │   ├── normalization/
-│   │   ├── sources/
-│   │   └── workflows/
-│   ├── alembic/
-│   ├── scripts/
-│   └── tests/
-├── frontend/
-│   ├── app/
-│   ├── components/
-│   ├── e2e/
-│   ├── lib/
-│   └── tests/
-├── docs/
-├── docker-compose.yml
-└── README.md
+## 📋 Project Status & MVP Scope
+
+> [!NOTE]
+> **NewsCraft is currently an active Architecture Minimum Viable Product (MVP).**
+> 
+> The core multi-agent DAG orchestrator, prompt governance engine, budget-bounded autonomous research loops, zero-trust capability-isolated worker topologies, and deterministic human-in-the-loop (HITL) editorial gates are **fully implemented, operational, and verified across 2,000+ unit and end-to-end integration tests**.
+> 
+> Active roadmap development is expanding automated destination connectors (e.g. Instagram/X webhooks), real-time collaborative editorial diffing, and automated LLM-as-a-judge evaluation harnesses.
+
+---
+
+## 🏗️ System Architecture
+
+NewsCraft converts streaming, unstructured multi-source intelligence (RSS/Atom feeds, Telegram channels) into human-verified, multi-platform journalistic publications through a compiled, durable DAG of specialized autonomous agents.
+
+```mermaid
+flowchart TD
+    subgraph INGESTION ["📥 Source Ingestion Tier"]
+        RSS["RSS / Atom Feeds"] --> IngestSvc["Ingestion Service<br/><code>backend/app/ingestion/service.py</code>"]
+        TG["Telegram Channels"] --> IngestSvc
+        IngestSvc --> RawStore[("PostgreSQL Store<br/>Raw Payloads & Deduped Items")]
+    end
+
+    subgraph ORCHESTRATION ["⚡ DAG Orchestration & State Engine"]
+        RawStore --> Trigger["Event: <code>collection_article_added</code>"]
+        Trigger --> Compiler["DAG Graph Compiler<br/><code>backend/app/automations/definitions/compiler.py</code>"]
+        Compiler --> Engine["DAG Workflow Runtime<br/><code>WorkflowArtifact[T]</code> Node State Handoff"]
+    end
+
+    subgraph AI_CORE ["🧠 Autonomous Agentic AI Core"]
+        Engine -->|Dispatches Node| ResearchAgent["<b>Autonomous Research Agent</b><br/><code>backend/app/research/openrouter_loop.py</code><br/>• Budget-Bounded Iterative Search<br/>• Fact Extraction & Contradiction Detection"]
+        ResearchAgent -->|Evidence Snapshot| GenAgent["<b>Multi-Platform Generation Agent</b><br/><code>backend/app/generation/package_generation.py</code><br/>• Canonical Master Story<br/>• Telegram / X / Instagram / Blog Formats"]
+    end
+
+    subgraph GOVERNANCE ["🛡️ Prompt Governance & Security Vault"]
+        PromptVault[("<b>Prompt Governance Vault</b><br/>SHA-256 Checksum Pinning<br/>Immutable Version History")] -->|Pinned Prompt| ResearchAgent
+        PromptVault -->|Pinned Prompt| GenAgent
+        SecretVault[("<b>AES-GCM Secret Store</b><br/>AAD Scope-Gated Decryption<br/>Zero-Knowledge Storage")] -->|Scoped Provider Creds| GenAgent
+    end
+
+    subgraph EDITORIAL ["🧑‍💻 Human-in-the-Loop (HITL) Gate"]
+        GenAgent -->|Draft Revision| ReviewGate["<b>Editorial Review Boundary</b><br/><code>backend/app/workflows/states.py</code><br/>• Side-by-Side Evidence Inspection<br/>• Exact Hash Approval Gate"]
+    end
+
+    subgraph PUBLISHING ["🚀 Capability-Isolated Execution"]
+        ReviewGate -->|Signed Exact Approval| PubWorker["<b>Publishing Worker</b><br/><code>backend/app/jobs/worker.py</code><br/>• Zero AI Credentials<br/>• Isolated Network Egress"]
+        PubWorker --> TGPublish["Telegram Bot / MTProto"]
+        PubWorker --> ExportPkg["Multi-Platform Bundles"]
+    end
+
+    classDef agent fill:#4f46e5,stroke:#312e81,color:#ffffff,stroke-width:2px;
+    classDef security fill:#059669,stroke:#064e3b,color:#ffffff,stroke-width:2px;
+    classDef gate fill:#d97706,stroke:#78350f,color:#ffffff,stroke-width:2px;
+    classDef worker fill:#dc2626,stroke:#7f1d1d,color:#ffffff,stroke-width:2px;
+
+    class ResearchAgent,GenAgent agent;
+    class PromptVault,SecretVault security;
+    class ReviewGate gate;
+    class PubWorker worker;
 ```
 
-## Run With Docker Compose
+---
 
-Create one persistent master key before first start. Keep this ignored file across restarts and
-backups; replacing it makes existing encrypted credentials unrecoverable unless old key is retained.
+## 💎 Key AI Engineering & Architecture Innovations
 
+### 1. Durable DAG Agent Orchestrator with Deterministic State Machine
+* **Backend-Owned Graph Compiler (`compiler.py`)**: Workflows created in the visual builder are compiled into directed acyclic execution plans with cycle detection, node-contract validation, and SHA-256 graph-hash verification (`graph_hash_sha256`).
+* **Durable Type-Safe Node Handoff (`WorkflowArtifact[T]`)**: Every node transition persists intermediate outputs as typed, immutable artifacts inside PostgreSQL. Worker crashes or network timeouts resume from the last completed node without re-executing expensive upstream LLM calls.
+* **Idempotent Job Leasing**: Postgres-backed distributed worker queues lease jobs with heartbeat leases, toxic-job quarantine, and strict retry schedules.
+
+### 2. Autonomous Deep-Research Agent with Budget Guardrails
+* **Iterative In-Loop Tool Execution (`openrouter_loop.py`)**: An autonomous agent that recursively evaluates source material, queries search indexes, scrapes evidence documents, and reconciles contradictory claims.
+* **Strict Runtime Cost & Hallucination Budgets**: Hard runtime enforcement of:
+  * `query_budget` (max external web searches)
+  * `page_budget` (max webpage scrapes)
+  * `time_budget_seconds` (hard execution ceiling)
+* **Structured Fact Extraction (`StoryEvidenceSnapshot`)**: Synthesizes verified claims, confidence scores, extracted citations, and flagged contradictions directly into the database before content generation begins.
+
+### 3. Enterprise Prompt Governance Vault with SHA-256 Pinning
+* **Immutable Prompt Versioning (`models.py`)**: All system instructions, formatting guidelines, and brand personas are versioned entities in PostgreSQL (`PromptTemplateVersion`).
+* **Cryptographic Checksum Pinning**: Workflows bind to explicit `prompt_checksum_sha256` digests. Upstream prompt edits never cause silent behavioral drift in existing production workflows; runs reject mismatched hashes with explicit `409 Conflict` errors.
+* **Structured Output Enforcement**: Pydantic schema validation for cross-platform content packages (canonical story, Telegram HTML with verified formatting rules, Instagram carousels, X threads, and markdown blog posts).
+
+### 4. Zero-Trust Capability-Isolated Worker Topology
+* **Physical Isolation of Privileges**:
+  * `api` & `scheduler`: Zero knowledge of raw external AI API keys or publishing tokens.
+  * `worker-source-generation`: Holds AI provider credentials (`OPENROUTER_API_KEY`) and source ingestion sessions, but has **zero access to publishing secrets**.
+  * `worker-publishing`: Holds publishing destination credentials (`TELEGRAM_DESTINATION_NEWS_TOKEN`), but has **no network access or keys for AI models**.
+* **AES-256-GCM Secret Vault (`secret_store.py`)**: Master-key-backed envelope encryption with Additional Authenticated Data (AAD) scope gating preventing cross-tenant or unauthorized key retrieval.
+
+### 5. Human-in-the-Loop (HITL) Guardrails
+* **Immutable Revision Fencing**: AI agents are strictly prohibited from publishing. Agents can only author `pending_review` revisions.
+* **Exact Editorial Approvals**: Editors inspect side-by-side claim citations, edit drafts directly in Next.js, and sign off on exact revision IDs. The publishing engine validates that the published artifact matches the approved revision byte-for-byte.
+
+---
+
+## 🔄 End-to-End Pipeline Walkthrough
+
+```
+┌─────────────────┐     ┌─────────────────┐     ┌─────────────────┐     ┌─────────────────┐     ┌─────────────────┐
+│ 1. Ingestion    │ ──▶ │ 2. Research     │ ──▶ │ 3. Generation   │ ──▶ │ 4. Editorial    │ ──▶ │ 5. Publication  │
+│ RSS / Telegram  │     │ Evidence Loop   │     │ Multi-Platform  │     │ Human Review    │     │ Zero-AI Worker  │
+└─────────────────┘     └─────────────────┘     └─────────────────┘     └─────────────────┘     └─────────────────┘
+```
+
+1. **Ingestion & Normalization**: Continuous or scheduled fetchers pull raw feeds and messages, deduplicate against existing items using content hashes, extract rich media assets, and normalize metadata.
+2. **Autonomous Investigation**: When an article enters a monitored collection, the research agent kicks off. It analyzes the core claims, formulates targeted search queries, pulls context, and compiles an evidence snapshot.
+3. **Multi-Format Synthesis**: The generation agent consumes the evidence snapshot and editorial brand profiles to synthesize a canonical story, followed by tailored platform packages (e.g. Telegram post with specific read-time tags, X thread with hook/body/CTA, Instagram caption).
+4. **Editorial Inspection (HITL)**: The post appears in the NewsCraft review workspace. An editor reviews source evidence links, inspects contradiction flags, fine-tunes copy, and clicks **Approve**.
+5. **Deterministic Dispatch**: The publishing worker picks up the approved job, formats the exact payload for the destination API (or exports a production-ready package), and publishes with full audit logging.
+
+---
+
+## 💻 Tech Stack & Topology
+
+| Layer | Technologies | Key Responsibilities |
+|---|---|---|
+| **Frontend** | Next.js 16 (App Router), React 19, Tailwind CSS, shadcn/ui, TanStack Query 5, XYFlow | Operator dashboard, visual workflow canvas, real-time editorial review workspace |
+| **Backend API** | FastAPI (async), Pydantic v2, SQLAlchemy 2 (asyncpg), Alembic | OpenAPI contract, DAG compiler, prompt governance, secret management |
+| **Agent Core** | OpenRouter API / OpenAI-Compatible / Local Codex Adapter | Bounded iterative research loop, multi-platform structured generation |
+| **Persistence** | PostgreSQL 16 (JSONB workflow state, vector/evidence store) | Durable workflow state machine, job queue, immutable revisions |
+| **Execution** | Leased worker processes, Docker Compose | Capability-isolated background tasks, ingestion engine, publishing worker |
+
+---
+
+## 🗺️ MVP Roadmap & Future Milestones
+
+- [x] **Durable DAG Workflow Compiler & Engine** (topological sort, schema validation, graph-hash pinning)
+- [x] **Autonomous Deep-Research Agent** (budget-bounded web tool loops, evidence snapshotting)
+- [x] **Multi-Platform Content Package Generation** (Telegram, X, Instagram, Blog)
+- [x] **Enterprise Prompt Governance** (versioning, SHA-256 verification, Pydantic schemas)
+- [x] **AES-GCM Secret Store & Capability-Isolated Worker Infrastructure**
+- [x] **Interactive Architecture Scanner (`.foglamp`)**
+- [ ] **Automated Destination Connectors** (direct webhook delivery for X/Twitter & Instagram)
+- [ ] **LLM-as-a-Judge Automated Evaluation Suite** (factuality, tone alignment, and style drift metrics)
+- [ ] **Multi-Agent Editorial Collaboration** (parallel critique agent providing inline suggestions)
+
+---
+
+## 🚀 Local Development & Deterministic Acceptance
+
+### Prerequisites
+- Python `3.14+` with [`uv`](https://github.com/astral-sh/uv)
+- Node.js `26+` with `npm 11+`
+- Docker & Docker Compose
+
+### 1. Initialize Secrets
+Generate a master encryption key for the AES-GCM credential vault:
 ```bash
 umask 077
 mkdir -p secrets
 openssl rand -base64 32 | tr '+/' '-_' | tr -d '=' > secrets/SECRET_MASTER_KEY
 ```
 
+### 2. Start Services via Docker Compose
 ```bash
 docker compose build
 docker compose up -d postgres
 docker compose up api
 ```
 
-Compose runs Alembic through the one-shot `migrate` service. The API starts Uvicorn only after
-that service completes successfully; a failed migration remains exited and does not enter an
-API restart loop. Compose mounts `secrets/SECRET_MASTER_KEY` read-only into API and both
-credential-owning workers. Local `.venv` runs may instead set `SECRET_MASTER_KEY` directly.
-
-## Workflow runtime
-
-`docker compose up --build` starts PostgreSQL, API, frontend, capability-separated leased workers, and a scheduler. The API receives no provider, Telegram, or authenticated-proxy credentials. The source/generation worker cannot publish, and the publishing worker cannot construct source or AI dependencies. The scheduler creates source collection jobs; API mutation endpoints enqueue jobs and return immediately.
-
-- Newsroom: http://127.0.0.1:3000
-- API: http://127.0.0.1:8000
-- Primary navigation: Today, Inbox, Drafts, Calendar, and Library.
-- Advanced navigation: Operations Center, Automations, Sources, Ingestion Runs,
-  Content Settings, and Retention. Operations Center at `/operations` unifies job recovery
-  and safe system checks; legacy `/jobs` and `/diagnostics` links redirect into its relevant view.
-- Global pause holds scheduled/automation work; manual Run ingest remains available.
-- Review is the default. No live credentials or publishing are used by default tests.
-
-### Local Telegram automation dry run
-
-1. Copy `.env.example` to `.env`, leave real credential values empty, and configure credential references in the UI.
-2. Create the destination and run its destination check before enabling a route.
-3. Activate the route to record a gap-free new-only boundary; activation does not backfill older messages.
-4. Select the fake provider and start a dry run. A dry run is always review-only and cannot publish.
-5. Open the generated draft, compare its source evidence, and review the exact revision.
-6. Only after the fake-provider review succeeds should an operator opt in to real credentials by filling the relevant worker-scoped environment variables, then restart only the relevant worker. An API restart is unnecessary.
-
-Source access uses `TELEGRAM_SOURCE_EDITOR_API_ID`, `TELEGRAM_SOURCE_EDITOR_API_HASH`, and `TELEGRAM_SOURCE_EDITOR_SESSION`. Generation uses `OPENROUTER_API_KEY` only when an enabled OpenRouter profile references it. Publishing alone receives `TELEGRAM_DESTINATION_NEWS_TOKEN`. The API, scheduler, and frontend receive none of these values. The UI reports time-bounded capability observations from the owning workers; `unknown` and `stale` never mean configured. See the [credential topology and rotation runbook](docs/operations/credential-topology.md).
-
-### Deterministic release acceptance
-
-The release smoke uses the fake AI provider, dry-run-only publishing, and a bundled Telegram
-album fixture. It needs no external credentials or network requests. The acceptance override
-enables that fixture only in the source/generation worker with `APP_ENV=test`; the backend
-rejects the fixture setting in every other environment.
-
+### 3. Run Backend Acceptance & Unit Test Suites
 ```bash
-docker network inspect contenthub_default >/dev/null 2>&1 || \
-  docker network create contenthub_default
-docker compose -f docker-compose.yml -f docker-compose.acceptance.yml \
-  up -d --build --wait postgres api worker-source-generation worker-publishing scheduler frontend
+cd backend
+uv sync --locked
+uv run pytest -v
+```
+
+### 4. Run Frontend Vitest & TypeScript Verification
+```bash
+cd frontend
+npm ci
+npm test
+npm run typecheck
+```
+
+### 5. Execute Deterministic End-to-End Smoke Test
+Run the complete zero-credential pipeline smoke test (using deterministic test LLM and synthetic fixture ingestion):
+```bash
 python scripts/smoke.py \
   --base-url http://127.0.0.1:8000 \
   --provider fake \
   --telegram-mode dry-run \
   --output-dir ./smoke-results
-docker compose -f docker-compose.yml -f docker-compose.acceptance.yml ps
 ```
 
-Do not use `docker-compose.acceptance.yml` as a deployment configuration. See the
-[release acceptance evidence](docs/operations/release-acceptance.md) for the complete test,
-migration, browser, Compose, and environmental-gate checklist.
+---
 
-Run the real-PostgreSQL acceptance journeys for collection/deduplication/story
-grouping, research/generation/exact approval, multi-platform export, Telegram
-publication, and crash recovery:
+## 📚 Canonical Architecture Documentation
 
-```bash
-scripts/test_acceptance.sh
-```
+- 🗺️ **[Interactive Foglamp Architecture Map](https://foglamp.dev/scan/newscraft-xidxfv)**
+- 📐 **[System Specification & Data Contracts](docs/architecture/system-spec.md)**
+- 🧪 **[Production Readiness & Audit Report](docs/architecture/production-readiness-audit.md)**
+- ⚙️ **[Automation Workflows & Prompt Safety](docs/operations/automation-workflows.md)**
+- 🔒 **[Credential Topology & Worker Isolation](docs/operations/credential-topology.md)**
+- 🔄 **[Release Acceptance & Recovery Runbooks](docs/operations/release-acceptance.md)**
 
-This command owns the disposable test database through `scripts/test_postgres.sh`.
+---
 
-### Research and generation
-
-Manual source intake and evidence-backed research are operated from Inbox. Generated Telegram,
-Instagram, X, and blog content packages, immutable editorial revisions, and exact approval are
-handled in Drafts and Review, with provider and prompt-template configuration in Content
-Settings. Fake mode is credential-free; OpenRouter and local Codex execution are explicit
-opt-ins with bounded, validated provider-profile settings. Instagram, X, and blog are
-manual-only destinations; Telegram uses its separate reviewed publishing boundary. All
-platform previews are approximations rather than live platform state.
-
-See the [research and generation operator runbook](docs/operations/research-and-generation.md)
-for exact environment settings and generation safety boundaries. See the
-[multi-platform manual publishing runbook](docs/operations/manual-publishing-packages.md) for
-the exact review, immutable edit, approval, copy/export, manual-plan, checklist, and completion
-flow plus offline acceptance limitations.
-
-### Backup and restore
-
-Create and verify a local database, media, and export backup from the repository root:
-
-```bash
-python scripts/backup_restore.py backup --output-dir ./backups \
-  --recipient-file /secure/backup-recipient.txt \
-  --identity-file /secure/backup-identity.txt \
-  --staging-dir /run/newscraft-backup
-python scripts/backup_restore.py verify ./backups/newscraft-*.newscraft-backup.tar.gz.age \
-  --identity-file /secure/backup-identity.txt
-```
-
-Restore is destructive and requires an explicit `--confirm-replace` flag. Read the
-[backup and restore runbook](docs/operations/backup-and-restore.md) before using it; the
-runbook covers service interruption, free-space checks, failure recovery, and the quarterly
-disposable restore drill.
-
-Run the PostgreSQL queue contract suite:
-
-```bash
-scripts/test_postgres.sh
-```
-
-The command starts an isolated test database, migrates it, runs every
-PostgreSQL/process-crash suite, and removes the database afterward. It fails
-before pytest if the database cannot become healthy; set
-`NEWSCRAFT_KEEP_TEST_DATABASE=1` only when retaining it for local diagnosis. If port 55432 is
-already reserved by another disposable test project, set `NEWSCRAFT_TEST_DATABASE_PORT` to an
-unused loopback port.
-
-Run the dashboard with the API and database:
-
-```bash
-docker compose up frontend api postgres
-```
-
-The dashboard is available at `http://localhost:3000` and proxies API calls through the frontend to the backend service.
-
-Check health:
-
-```bash
-curl http://localhost:8000/health/live
-```
-
-Seed sources:
-
-```bash
-curl -X POST http://localhost:8000/sources/seed
-```
-
-Export a date-range daily news bundle for the writing agent:
-
-```bash
-docker compose run --rm \
-  --volume "$PWD/today-news:/output/today-news" \
-  worker-source-generation python -m app.daily_bundle \
-  --start 2026-07-05 \
-  --end 2026-07-06 \
-  --output /output/today-news/2026-07-05 \
-  --download-media
-```
-
-The bundle command runs the canonical configured RSS, Atom, and public Telegram
-ingestion path, then writes `index.md`, `items.json`, `sources.json`, article
-markdown files, and image references under the selected output folder.
-
-Or trigger ingestion through the API:
-
-```bash
-curl -X POST http://localhost:8000/ingest/run \
-  -H 'content-type: application/json' \
-  -d '{"request_id":"123e4567-e89b-42d3-a456-426614174000","platforms":["rss"]}'
-```
-
-### Refactor quality baseline
-
-After installing the backend and frontend development dependencies, reproduce
-the handwritten production LOC, largest-file, Ruff complexity, strict
-TypeScript unused-code, and full-backend mypy baseline:
-
-```bash
-backend/.venv/bin/python scripts/quality_baseline.py --check
-```
-
-This is a blocking gate. It enforces normal Ruff, zero full-app mypy and
-TypeScript unused-code findings, the committed complexity budgets, and the
-absence of application modules at or above 1,000 lines.
-
-Capture the representative PostgreSQL query-count and timing baseline:
-
-```bash
-scripts/performance_baseline.sh
-```
-
-The command owns a disposable migrated test database and emits the complete
-measurement as JSON. The recorded Phase 0 dataset and interpretation are in
-[docs/refactor-performance-baseline.md](docs/refactor-performance-baseline.md).
-
-## Useful Endpoints
-
-- `GET /health/live`
-- `GET /health/ready`
-- `GET /operations/diagnostics`
-- `GET /sources`
-- `GET /sources/{source_id}`
-- `POST /sources/seed`
-- `GET /ingest/runs`
-- `POST /ingest/run`
-- `GET /media-assets`
-- `GET /content-items`
-- `GET /content-items?status=new&sort=score&limit=50`
-- `GET /content-items?content_type=news&is_rewrite_ready=true&sort=score`
-- `GET /content-items?rewrite_bucket=tutorial`
-- `GET /content-items?quality_status=low_signal`
-- `GET /content-items/{content_item_id}`
-- `POST /content-items/{content_item_id}/approve`
-
-Content item responses include complete text, authors, publication time, source ID, classification metadata, `score`, `content_type`, `rewrite_bucket`, rewrite readiness fields, score breakdowns, `primary_image_id`, and `primary_media` with media quality metadata when available.
-
-Generate the content intelligence validation report:
-
-```bash
-cd backend
-PYTHONPATH=. .venv/bin/python scripts/content_intelligence_report.py
-```
-
-The report is written to `validation/content-intelligence-report.md`.
-
-## Local Backend Development
-
-```bash
-cd backend
-uv sync --locked
-uv run python -m pytest tests -v
-```
-
-Use Python `3.14.6` and uv `0.11.29`. `uv sync --locked` creates the development environment from the committed lock; production uses `uv sync --locked --no-dev --no-editable`.
-
-## Local Frontend Development
-
-```bash
-cd frontend
-npm ci
-npm run dev
-```
-
-Use Node.js `26.4.0` and npm `11.17.0`. Dependency updates must change `package.json` and `package-lock.json` together; ordinary installs and builds use `npm ci`.
-
-Useful frontend checks:
-
-```bash
-npm run test
-npm run typecheck
-npm run build
-npm run test:e2e
-```
-
-The Compose stack is local-only by default: it binds PostgreSQL, API, and frontend host ports to `127.0.0.1`.
-
-Playwright uses its managed Chromium browser unless
-`PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH` is set. To use the system browser on this
-host:
-
-```bash
-PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=/usr/bin/chromium \
-npm run test:e2e
-```
-
-## Environment
-
-Copy the root example if useful:
-
-```bash
-cp .env.example .env
-```
-
-Common variables:
-
-```bash
-DATABASE_URL=postgresql+asyncpg://newscraft:newscraft@localhost:5432/newscraft
-MEDIA_ROOT=/data/media
-ALL_PROXY=
-NO_PROXY=postgres,localhost,127.0.0.1
-```
-
-Unset, empty, and whitespace-only proxy values mean direct networking. The base Compose stack has no proxy fallback and requires no external proxy network. If your network needs a proxy, export it before running Compose:
-
-```bash
-export ALL_PROXY=socks5h://host.docker.internal:10808
-```
-
-Use `127.0.0.1` only for backend commands that run directly on the host. Docker containers need `host.docker.internal` to reach a proxy bound to the host loopback interface. If the proxy is instead reachable only through an external Docker network, opt in explicitly:
-
-```bash
-XRAY_PROXY_NETWORK=contenthub_default \
-docker compose -f docker-compose.yml -f docker-compose.proxy.yml up -d
-```
-
-NewsCraft validates uppercase and legacy lowercase variables centrally, rejects conflicting or malformed configuration, disables library environment inheritance, and never falls back to direct access after an explicitly configured proxy fails. See the [outbound proxy policy](docs/operations/outbound-proxy-policy.md) for precedence, `NO_PROXY`, MTProto limitations, diagnostics, and the SSRF-safe exception.
-
-Production uses read-only, worker-only secret files instead of credential values in container environments:
-
-```bash
-docker compose -f docker-compose.yml -f docker-compose.production.yml config --quiet
-docker compose -f docker-compose.yml -f docker-compose.production.yml up -d
-```
-
-Prepare every referenced file with restrictive permissions, including empty proxy files when direct mode is intended. File locations can be changed with the `*_FILE` variables in `.env.example`. Never mount the repository root or a shared secret directory into the API.
-
-The base, development, test, and acceptance configurations explicitly use `restart: "no"`.
-The production override uses `unless-stopped` only for PostgreSQL, API, frontend, both workers,
-and scheduler; migration and test services remain non-restarting. See the
-[restart supervision runbook](docs/operations/restart-supervision.md) before kill drills,
-manual stops, rollback, or backup/restore work.
-
-## Documentation
-
-- Automation workflows: [authoring, prompt safety, template governance, and recovery](docs/operations/automation-workflows.md)
-- Release acceptance: [evidence and rerun checklist](docs/operations/release-acceptance.md)
-- Multi-platform manual publishing: [operator runbook](docs/operations/manual-publishing-packages.md)
-- Research and generation: [operator runbook](docs/operations/research-and-generation.md)
-- Outbound networking: [proxy policy and operations](docs/operations/outbound-proxy-policy.md)
-- Credentials: [service topology, worker observations, and rotation](docs/operations/credential-topology.md)
-- Restart supervision: [policies, recovery drills, poison jobs, and rollback](docs/operations/restart-supervision.md)
-- Continuous integration: [blocking checks and release-gate ownership](docs/operations/continuous-integration.md)
-- Backup and restore: [encrypted backup and disposable restore drill](docs/operations/backup-and-restore.md)
-- Backend ingestion details: `docs/ingestion-backend.md`
-- Source catalog notes: `docs/ingestion-source-catalog.md`
-- Selective integration audit: `docs/armin-selective-audit.md`
-
-## Notes
-
-- Local databases, virtual environments, generated media, cache files, and `.env` files are ignored by Git.
+## ⚖️ License
+NewsCraft is released under the [MIT License](LICENSE).

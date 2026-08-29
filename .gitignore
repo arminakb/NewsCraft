@@ -46,6 +46,11 @@ secrets/
 # foglamp scan (holds edit token secret)
 .foglamp/
 
+# Local compose overrides and skill tooling
+docker-compose.local.yml
+.agents/
+.claude/skills/
+
 # Orchestrator per-run artifacts (state.md/ledger.md stay tracked)
 .orchestrator/runs/
 .claude/settings.local.json

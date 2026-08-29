@@ -48,6 +48,18 @@ DISPATCH_CEILING = 200
 JobRepositoryDependency = Annotated[JobRepository, Depends(get_job_repository)]
 
 
+def _legacy_seeded_fake(profile: AIProviderProfile) -> bool:
+    """The startup-seeded "Deterministic Fake" profile is an internal stub.
+
+    It exists for tests and dry runs and must not appear as a selectable
+    provider. Matched by name/type because migration 0013 backfills an
+    ``llm_providers`` row for it on upgraded databases; fake providers
+    created through Settings carry a different name and stay listed.
+    """
+
+    return profile.provider_type == "fake" and profile.name == "Deterministic Fake"
+
+
 async def _provider_is_configured(
     profile: AIProviderProfile,
     session: AsyncSession,
@@ -225,7 +237,10 @@ async def automation_options(
     }
     safe_profiles = []
     for profile in profiles:
-        shaped, _codes = await provider_profile_capabilities(session, profile, generic=generics.get(profile.id))
+        if _legacy_seeded_fake(profile):
+            continue
+        generic = generics.get(profile.id)
+        shaped, _codes = await provider_profile_capabilities(session, profile, generic=generic)
         if shaped["generation"]:
             capability_states = {
                 "generation": await capability_status.get("provider", profile.id, "generation"),

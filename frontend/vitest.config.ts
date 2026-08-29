@@ -8,6 +8,8 @@ export default defineConfig({
     exclude: ["e2e/**", "node_modules/**", ".next/**"],
     globals: true,
     setupFiles: ["./tests/setup.ts"],
+    // jsdom suites flake under full parallel load (CPU/memory contention); cap workers
+    maxWorkers: "50%",
   },
   resolve: {
     alias: {

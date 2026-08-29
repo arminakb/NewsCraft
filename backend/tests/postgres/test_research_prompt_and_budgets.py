@@ -18,7 +18,7 @@ from app.generation.models import PromptTemplate, PromptTemplateVersion
 from app.jobs.errors import PermanentJobError
 from app.research.handlers import _resolve_payload_system_prompt
 from app.research.models import ResearchRun
-from app.research.openrouter_loop import _compose_system_policy
+from app.research.prompts import compose_system_policy as _compose_system_policy
 from app.security.auth import TEST_ADMIN
 from app.stories.models import Story, StoryEvidenceSnapshot, StoryRevision
 

@@ -520,6 +520,78 @@ def operator_route_configuration():
     return session, payload, provider, generic
 
 
+def _seeded_fake_profile() -> AIProviderProfile:
+    return AIProviderProfile(
+        id=uuid4(),
+        name="Deterministic Fake",
+        provider_type="fake",
+        default_model="fake-v1",
+        secret_ref=None,
+        settings={},
+        enabled=True,
+    )
+
+
+async def test_seeded_fake_is_hidden_from_options_but_operator_fake_stays_listed():
+    session, _payload, _provider, generic = operator_route_configuration()
+    seeded = _seeded_fake_profile()
+    # Migration 0013 backfills an llm_providers row for the seeded fake on
+    # upgraded databases; it must stay hidden even with that row present.
+    seeded_generic = LLMProvider(
+        id=seeded.id,
+        name=seeded.name,
+        protocol="fake",
+        base_url=None,
+        default_model="fake-v1",
+        enabled=True,
+        secret_id=None,
+        settings={},
+        health_status="healthy",
+        generation_capability="ready",
+        research_capability="ready",
+        last_successful_test_at=datetime.now(UTC),
+    )
+    session.values.extend((seeded, seeded_generic))
+
+    options = await automation_options(session, AVAILABLE_CAPABILITIES)
+    listed_ids = [item["id"] for item in options.ai_provider_profiles]
+    assert seeded.id not in listed_ids
+    assert generic.id in listed_ids
+
+    # A fake provider created through Settings has an llm_providers row and
+    # must remain selectable.
+    operator_fake_generic = LLMProvider(
+        id=uuid4(),
+        name="Smoke fake",
+        protocol="fake",
+        base_url=None,
+        default_model="fake-v1",
+        enabled=True,
+        secret_id=None,
+        settings={},
+        health_status="healthy",
+        generation_capability="ready",
+        research_capability="ready",
+        last_successful_test_at=datetime.now(UTC),
+    )
+    operator_fake_shadow = AIProviderProfile(
+        id=operator_fake_generic.id,
+        name=operator_fake_generic.name,
+        provider_type="fake",
+        default_model="fake-v1",
+        secret_ref=None,
+        settings={},
+        enabled=True,
+    )
+    session.values.extend((operator_fake_generic, operator_fake_shadow))
+
+    updated = await automation_options(session, AVAILABLE_CAPABILITIES)
+    updated_ids = {item["id"] for item in updated.ai_provider_profiles}
+    assert seeded.id not in updated_ids
+    assert generic.id in updated_ids
+    assert operator_fake_generic.id in updated_ids
+
+
 async def test_operator_provider_is_listed_and_usable_for_routes():
     session, payload, provider, generic = operator_route_configuration()
 

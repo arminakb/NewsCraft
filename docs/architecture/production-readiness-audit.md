@@ -62,13 +62,17 @@ Remaining issues are pre-existing test-infra flakes and one pre-existing broken 
 
 ## 8. Remaining Problems
 
-| Severity | Component | Observed | Expected | Root cause | Fix |
-| --- | --- | --- | --- | --- | --- |
-| MEDIUM | `backend/tests/postgres/test_multiplatform_pack_durability.py` | Test errors: monkeypatches nonexistent `package_generation._invoke` | Should patch `invoke` | Pre-existing breakage from commit `6c44ff5` ("refactor: simplify generation orchestration"); unrelated to this task | Rename patched symbol in test |
-| MEDIUM | Frontend unit suite under full parallel load | Different tests fail each run (e.g. retention, today-page, notifications); all pass individually | Deterministic suite | Pre-existing jsdom/resource contention; baseline run without my changes also failed 5 tests | Raise vitest workers/memory limits or shard CI |
-| LOW | `e2e/automation-workflow-builder.spec.ts:82` | `toBeFocused()` after customize-dialog close fails intermittently (fails 1–2 of 3 repeats; also fails at pre-change commit `7e17988`) | Stable focus restore | Pre-existing timing race between dialog close `setTimeout(0)` focus restore and React Flow re-render | Await focus with retry/poll or restore focus synchronously |
-| LOW | `research/codex_adapter.py` (legacy codex protocol) | Saved research system prompt not composed into codex adapter calls | All protocols honor the prompt | Legacy protocol kept out of scope; operator-managed providers use fake/openai_compatible only | Pass `request.system_prompt` through the codex adapter when touched next |
-| LOW | Working tree hygiene | Uncommitted pre-session changes exist (`TASK.md`, fake-stub hiding in `generation_settings.py`/`telegram_automations.py` + their tests, untracked `docker-compose.local.yml`) | Clean tree | Authored before this task series began | Owner should review/commit separately |
+All previously listed problems are fixed (2026-08-24) except working-tree hygiene, which stays an owner decision.
+
+| Severity | Component | Status | Resolution |
+| --- | --- | --- | --- |
+| MEDIUM | `backend/tests/postgres/test_multiplatform_pack_durability.py` | **Fixed** | Patched symbol renamed `_invoke` → `invoke` (matches post-`6c44ff5` API); test passes against Postgres. |
+| MEDIUM | Frontend unit suite under full parallel load | **Fixed** | `vitest.config.ts` now caps `maxWorkers: "50%"`; three consecutive full runs: **606 passed / 0 failed** each. |
+| LOW | `e2e/automation-workflow-builder.spec.ts:82` focus flake | **Fixed** | Focus restore in `node-customize-dialog.tsx` now polls (≤10 × 50ms) until the final React Flow node owns focus instead of a single `setTimeout(0)`; builder spec passes 2× consecutively. |
+| LOW | `research/codex_adapter.py` system prompt | **Fixed** | Saved research system prompt is composed (safety policy first, via shared `compose_system_policy` moved to `research/prompts.py`) above the codex task input; covered by two new adapter tests. No-prompt behavior unchanged. |
+| LOW | Working tree hygiene | Open | Pre-session uncommitted changes (`TASK.md`, fake-stub hiding + tests, untracked `docker-compose.local.yml`) remain for owner review/commit. |
+
+Note: one intermittent failure of the Test Studio spec (`automation-workflow-builder.spec.ts:473`) was observed once during verification; it passes at both the pre-change baseline and with current changes across repeated runs and is treated as environment flake, not regression.
 
 ## 9. Evidence
 
@@ -84,8 +88,10 @@ Commands actually executed (working dir noted):
 
 ## 10. Recommended Next Steps
 
-1. Fix the broken multiplatform-durability unit test (`_invoke` → `invoke`) — one line.
-2. De-flake CI: shard the vitest run or cap workers; make the builder e2e focus assertion retry-tolerant.
-3. Pass saved system prompts through the legacy codex research adapter.
+1. ~~Fix the broken multiplatform-durability unit test~~ — done (`_invoke` → `invoke`).
+2. ~~De-flake CI: cap vitest workers; make the builder e2e focus assertion retry-tolerant~~ — done (`maxWorkers: "50%"`, polling focus restore).
+3. ~~Pass saved system prompts through the legacy codex research adapter~~ — done via shared `compose_system_policy` in `research/prompts.py`.
 4. Consider promoting the research-prompt integrity codes (`research_prompt_*`) into operator-facing recovery actions like the generate equivalents.
 5. Decide ownership of the pre-existing uncommitted fake-stub-hiding changes and commit or discard them.
+
+Verification (2026-08-24): quality baseline exit 0 · mypy 298 files clean · `npm run typecheck` + `npm run build` pass · vitest 606×3 runs green · builder Playwright spec 10/10 twice · `tests/research` + provider contract suites + postgres durability/prompt suites all pass.

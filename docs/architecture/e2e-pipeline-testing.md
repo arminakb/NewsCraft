@@ -11,7 +11,7 @@
 
 Produce a genuine news post by exercising NewsCraft's own pipeline:
 
-```
+```text
 Source Collection ──ingest──▶ Content Items ──▶ Article Collection
         │                                              │ (collection_article_added trigger)
         ▼                                              ▼
@@ -30,7 +30,9 @@ Source Collection ──ingest──▶ Content Items ──▶ Article Collecti
    validation, worker isolation, no secrets in snapshots/logs/frontend).
    No bypass hacks (e.g., inserting revisions directly into the DB, disabling
    validation, hardcoding outputs).
-3. Commit every codebase change: `git commit` after each fix, with a clear message.
+3. Commit every codebase change: `git commit` after each fix, with a message in
+   the repo's conventional style (`type: imperative summary`, e.g.
+   `fix: requeue stale research leases on worker restart`).
 4. Report progress continuously in `progress.md` (repo root): what you did, what
    failed, what you changed, what is blocked.
 5. Report blockers explicitly (no internet, missing credentials, flaky infra)
@@ -50,6 +52,7 @@ curl http://127.0.0.1:8000/health/ready   # must report schema_current + databas
 ```
 
 Notes:
+
 - If a `docker-compose.local.yml` override exists, always pass the same `-f` set
   that created the running containers; mixing file sets detaches postgres onto a
   different compose network and breaks DNS (`newscraft-postgres` unresolvable).
@@ -59,8 +62,14 @@ Notes:
 
 ### Step 1 — Article collection
 
-Create an article collection via the article-collections API
-(`backend/app/api/article_collections.py`; frontend equivalent lives under `/feed`).
+Create an article collection:
+
+```http
+POST /article-collections   {"name": "E2E pipeline collection"}   # 201
+```
+
+(Backend: `backend/app/api/article_collections.py`; frontend equivalent lives
+under `/feed`.)
 
 - Record its `id`.
 - This is the **trigger input**: the workflow's `collection_article_added` node
@@ -68,58 +77,90 @@ Create an article collection via the article-collections API
 
 ### Step 2 — Source collection with 5 sources
 
-Use the **existing sources** (Settings → Sources / `backend/app/sources`,
-`backend/app/source_collections`). Do not invent new sources unless fewer than 5
-exist — if you must add some, prefer offline-safe ones (local/RSS fixtures) and
-report it.
+Use **existing sources only** (`GET /sources`; backend `backend/app/api/sources.py`,
+models in `backend/app/sources`). Policy, in priority order:
 
-- Create one source collection containing exactly 5 existing source ids
-  (`backend/app/source_collections/`, see also `tests/postgres/test_source_collections_*.py`
-  for the API shape).
-- Record the collection `id` — Step 5 runs one-shot ingestion on it.
+1. If ≥5 sources exist, select **exactly 5** and record their ids.
+2. If fewer than 5 exist, call the seed endpoint `POST /sources/seed`
+   (`backend/app/ingestion/seed_sources.py`, 12+ built-in AI-news RSS sources)
+   and then apply rule 1. Record that seeding was necessary in `progress.md`.
+3. If seeding is impossible (endpoint fails / no network to register feeds) or
+   fewer than 5 usable sources remain, stop this step and report a **blocker**
+   in `progress.md` — do not fabricate source rows directly in the database.
+
+Create one source collection containing exactly those 5 source ids:
+
+```http
+POST /source-collections            {"name": "...", ...}   # 201
+POST /source-collections/{id}/sources                       # add members
+```
+
+(Shapes: `backend/app/api/source_collections.py`, schemas in
+`backend/app/source_collections/schemas.py`.) Record the collection `id` —
+Step 5 ingests it once.
+
+Note: ingesting these feeds requires outbound internet at ingestion time. If
+unreachable, report the blocker; the deterministic fake research/generation path
+does not remove that dependency because ingestion fetches real feeds.
 
 ### Step 3 — Settings dependencies (provider + prompts)
 
 The workflow nodes may only reference resources that already exist in Settings.
+**Priority order — always attempt reuse before creating anything:**
 
-**LLM provider**
+1. `GET /llm-providers`: reuse an existing provider that is usable for execution,
+   i.e. `enabled: true` with generation capability ready (fresh passing test).
+   Prefer an enabled `openai_compatible` provider; accept a fake-protocol
+   operator provider if that is what exists. Record its `id`.
+2. `GET /prompt-templates` (+ versions): reuse existing **active** versions —
+   one for research (e.g. purpose `news_research_starter`) plus the exact active
+   set the generate node needs (`canonical_story` + `<platform>_pack` for every
+   platform you configure). Capture `{id, checksum_sha256}` per version.
 
-- Prefer the deterministic route when internet is not guaranteed: create an
-  operator fake provider through the public API:
+**Fallback (only when nothing usable exists):**
+
+- Provider: create one through the public API and report the creation as a
+  fallback in `progress.md`:
+
   ```http
   POST /llm-providers
   {"name": "E2E Fake", "protocol": "fake", "default_model": "fake-v1"}
   ```
-  (fake protocol forbids `base_url`/api key; the row is listed by `GET /llm-providers`
-  and selectable by nodes. The startup-seeded internal "Deterministic Fake" profile
-  is deliberately hidden from selectors — do not try to reference it.)
-- If real internet + API key are available, an `openai_compatible` provider works
-  too, but remember: **enablement requires a fresh passing connectivity test**
-  (`POST /llm-providers/{id}/test` then `/enable`). Selection/saving works even
-  when the test fails; execution does not. Report which path you took.
+  Fake protocol forbids `base_url`/api keys and needs no connectivity test;
+  the row is listed by `GET /llm-providers` and selectable. For an
+  `openai_compatible` provider, remember enablement requires a fresh passing
+  test (`POST /{id}/test` then `/{id}/enable`); selection/saving works even when
+  the test failed but execution does not.
+- Prompts: create missing templates/versions through `POST /prompt-templates`
+  (+ versions + activation) and report as fallback. Do not hand-edit seeded
+  rows in the database.
 
-**Prompts**
-
-- Research node: pick an **active** prompt version from `GET /prompt-templates`
-  (+ versions endpoint); capture `{id, checksum_sha256}` of the active version.
-  `News Article Research — Structured Evidence` (purpose `news_research_starter`)
-  is seeded for exactly this.
-- Generate node requires the **exact active set** for the chosen platforms:
-  `{canonical_story} ∪ {<platform>_pack …}` — e.g. for `"platforms": ["telegram"]`
-  pin active versions of `canonical_story` and `telegram_pack` with their
-  checksums. Runtime rejects anything else (409 `automation_resource_unavailable`).
+Never reference the startup-seeded internal "Deterministic Fake" profile — it is
+deliberately hidden from selectors.
 
 ### Step 4 — Create the workflow
 
-`POST /automations` with a graph (wire format is snake_case; ≤30 nodes):
+`POST /automations` with a graph (wire format is snake_case; ≤30 nodes).
 
-Node order and configs:
+Registered node `type` values are the API contract — "AI Research" and
+"AI Generate" are UI display names, not type strings (see
+`backend/app/automations/definitions/registry.py` and
+`GET /automation-node-catalog`). The four nodes required here map to:
+
+| # | requirement | exact `type` (display name) |
+|---|-------------|------------------------------|
+| 1 | article-collection trigger | `collection_article_added` ("Collection article added") |
+| 2 | AI Research | `research` ("AI Research") |
+| 3 | AI Generate | `generate_content_pack` ("Generate content package") |
+| 4 | save to draft | `save_drafts` ("Save to Drafts") |
+
+Node configs:
 
 | # | type | config keys |
 |---|------|-------------|
 | 1 | `collection_article_added` | `collection_id` = id from Step 1 |
 | 2 | `research` | `provider_profile_id`, `prompt_template_version_id` + `prompt_checksum_sha256`, `mode: "auto_if_incomplete"`, `query_budget: 3`, `page_budget: 10`, `time_budget_seconds: 120` |
-| 3 | `generate_content_pack` | `editorial_profile_id` (brand from settings), `provider_profile_id`, `prompt_version_ids` + matching `prompt_checksums`, `platforms: ["telegram"]` |
+| 3 | `generate_content_pack` | `editorial_profile_id` (brand profile id from `GET /brand-profiles`), `provider_profile_id`, `prompt_version_ids` + matching `prompt_checksums`, `platforms: ["telegram"]` |
 | 4 | `save_drafts` | `{}` |
 
 Wiring rules (validated server-side):
@@ -134,19 +175,29 @@ Wiring rules (validated server-side):
 
 ### Step 5 — Ingest once
 
-Trigger one-shot ingestion for the source collection from Step 2 (see
-`backend/app/source_collections/` run-once entry point and its API route;
-frontend equivalent: Source Collections "run" action).
+Trigger one-shot ingestion for the source collection from Step 2:
 
-Success means: a few content items are ingested, normalized, and inserted into
-the article collection from Step 1, which enqueues the
-`collection.article_added` trigger → an `AutomationRun` appears
-(`GET /automations/{id}/runs`).
+```http
+POST /source-collections/{id}/ingest      {"mode": "once"}   # 202 accepted
+```
 
-If items don't reach the collection: debug along the real path —
-source health, normalization (`app/normalization`), collection membership logic
-(`app/content`), trigger enqueue (`app/automations/definitions/collection_events.py`).
-Fix root causes, not symptoms.
+(Handler: `backend/app/api/source_collections.py`; the queued job is
+`ingest.collect`, executed by the ingestion worker.)
+
+**Measurable success criterion**: at least **3 content items** from the
+collection's sources reach status where they are stored in the article
+collection from Step 1 (verify via `GET /article-collections/{id}/articles` or
+the content-items list filtered to the collection — count ≥ 3). Each newly saved
+membership fires the `collection_article_added` trigger, so ≥3 items ⇒ ≥1
+`AutomationRun` visible under `GET /automations/{id}/runs`.
+
+If fewer than 3 items arrive: debug along the real path in this order —
+source health (`GET /sources/{id}`), ingest run/job errors
+(`docker compose logs -f worker-source-generation`, `WorkflowJob` rows),
+normalization (`app/normalization`), collection membership logic, trigger
+enqueue (`app/automations/definitions/collection_events.py`). Fix root causes,
+not symptoms. If items cannot reach 3 because of an external blocker (feeds
+unreachable offline), record the actual count and report the blocker.
 
 ### Step 6 — Follow the run to the news post
 

@@ -1,0 +1,9 @@
+# E2E session override: extend provider test freshness so long research runs
+# and slow OpenRouter probes do not invalidate readiness mid-pipeline.
+services:
+  api:
+    environment:
+      LLM_PROVIDER_TEST_TTL_SECONDS: "86400"
+  worker-source-generation:
+    environment:
+      LLM_PROVIDER_TEST_TTL_SECONDS: "86400"

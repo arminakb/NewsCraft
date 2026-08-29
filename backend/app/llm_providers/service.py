@@ -38,7 +38,8 @@ from app.llm_providers.schemas import (
     generation_policy_for_provider,
 )
 from app.research.models import ResearchRun
-from app.research.openrouter_loop import research_action_schema, research_system_policy
+from app.research.openrouter_loop import research_action_schema
+from app.research.prompts import research_system_policy
 from app.security.auth import SecurityPrincipal
 from app.security.models import EncryptedSecret
 from app.security.secret_store import (

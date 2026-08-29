@@ -88,10 +88,18 @@ export function NodeCustomizeDialog({
   }
   const close = () => {
     onClose()
-    window.setTimeout(() => {
-      const fallback = document.querySelector<HTMLElement>(`.react-flow__node[data-id="${nodeId}"]`)
-      ;(returnFocus?.isConnected ? returnFocus : fallback)?.focus()
-    }, 0)
+    // React Flow may remount the node after save; poll briefly so focus lands on the final DOM node.
+    let attempts = 0
+    const restore = () => {
+      const target = returnFocus?.isConnected
+        ? returnFocus
+        : document.querySelector<HTMLElement>(`.react-flow__node[data-id="${nodeId}"]`)
+      if (!target) return
+      target.focus()
+      if (document.activeElement === target || ++attempts > 10) return
+      window.setTimeout(restore, 50)
+    }
+    window.setTimeout(restore, 0)
   }
   const save = () => {
     const form = formRef.current
