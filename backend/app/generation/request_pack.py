@@ -169,6 +169,11 @@ async def _enqueue_after_research(
             provider_profile_id=request.research_provider_profile_id,
             query_hint=None,
             continuation=continuation,
+            prompt_template_version_id=request.research_prompt_template_version_id,
+            prompt_checksum_sha256=request.research_prompt_checksum_sha256,
+            query_budget=request.research_query_budget,
+            page_budget=request.research_page_budget,
+            time_budget_seconds=request.research_time_budget_seconds,
         )
     except ResearchRequestError as exc:
         raise InvalidGenerationRequest(str(exc)) from None

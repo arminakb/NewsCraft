@@ -29,6 +29,7 @@ from app.generation.providers.openai_compatible import OpenAICompatibleProvider
 from app.generation.providers.openrouter import OpenRouterProvider
 from app.generation.providers.registry import ProviderRegistry
 from app.llm_providers.models import LLMProvider
+from app.llm_providers.readiness import provider_capability_ready
 from app.llm_providers.schemas import effective_llm_provider_settings, generation_policy_for_provider
 from app.security.auth import SecurityPrincipal
 from app.security.models import EncryptedSecret
@@ -296,7 +297,11 @@ class ProviderProfileResolver:
         generic = await session.get(LLMProvider, profile.id)
         if generic is None:
             return await self.resolve(profile, model_override)
-        if not generic.enabled or generic.generation_capability != "ready":
+        if not provider_capability_ready(
+            generic,
+            "generation",
+            ttl_seconds=self.application_settings.llm_provider_test_ttl_seconds,
+        ):
             raise ProviderProfileConfigurationError("Selected provider profile is unavailable")
         if generic.protocol == "fake":
             if generic.secret_id is not None or generic.base_url is not None:

@@ -3,7 +3,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 
-from sqlalchemy import Boolean, CheckConstraint, DateTime, ForeignKey, Index, Text, UniqueConstraint, text
+from sqlalchemy import Boolean, CheckConstraint, DateTime, ForeignKey, Index, Integer, Text, UniqueConstraint, text
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.sql import func
@@ -28,7 +28,11 @@ class LLMProvider(Base):
     generation_capability: Mapped[str] = mapped_column(Text, nullable=False, server_default="unknown")
     research_capability: Mapped[str] = mapped_column(Text, nullable=False, server_default="unknown")
     failure_code: Mapped[str | None] = mapped_column(Text, nullable=True)
+    failure_message: Mapped[str | None] = mapped_column(Text, nullable=True)
     last_checked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_successful_test_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_test_latency_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    last_tested_model: Mapped[str | None] = mapped_column(Text, nullable=True)
     ownership: Mapped[str] = mapped_column(Text, nullable=False, server_default="operator_managed")
     created_at: Mapped[datetime] = timestamp_now()
     updated_at: Mapped[datetime] = mapped_column(
@@ -40,7 +44,7 @@ class LLMProvider(Base):
         UniqueConstraint("secret_id", name="uq_llm_providers_secret_id"),
         CheckConstraint("protocol IN ('openai_compatible', 'fake')", name="ck_llm_providers_protocol"),
         CheckConstraint(
-            "health_status IN ('unchecked', 'healthy', 'unhealthy')",
+            "health_status IN ('unchecked', 'healthy', 'degraded', 'unhealthy')",
             name="ck_llm_providers_health_status",
         ),
         CheckConstraint(
@@ -54,6 +58,10 @@ class LLMProvider(Base):
         CheckConstraint(
             "ownership IN ('system_managed', 'operator_managed')",
             name="ck_llm_providers_ownership",
+        ),
+        CheckConstraint(
+            "last_test_latency_ms IS NULL OR last_test_latency_ms >= 0",
+            name="ck_llm_providers_last_test_latency_ms",
         ),
         CheckConstraint(
             "(protocol = 'fake' AND base_url IS NULL AND secret_id IS NULL) OR "

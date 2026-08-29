@@ -29,6 +29,7 @@ from app.db.session import async_session
 from app.generation.providers.registry import ProviderRegistry, build_default_provider_registry
 from app.jobs.credential_capabilities import WorkerCredentialCapabilityObserver
 from app.jobs.errors import (
+    InvalidJobTransition,
     NeedsReviewJobError,
     PermanentJobError,
     RetryableJobError,
@@ -185,15 +186,38 @@ def _build_source_dependencies(owner: HttpClientOwner, secrets: SecretResolver) 
     return {"source_registry": source_registry, "media_stager": _TelegramMediaStager()}
 
 
+class _SharedClientLease:
+    """Expose a pooled owner client as safely closable for resolver contracts.
+
+    Provider resolvers close the http client they receive, assuming the
+    factory built it fresh for one use. The worker pools clients instead,
+    so the lease forwards everything but makes aclose a no-op: closing a
+    lease must never kill the pooled client other jobs are using.
+    """
+
+    __slots__ = ("_client",)
+
+    def __init__(self, client: Any) -> None:
+        self._client = client
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._client, name)
+
+    async def aclose(self) -> None:
+        return None
+
+
 def _build_generation_dependencies(owner: HttpClientOwner, secrets: SecretResolver) -> dict[str, Any]:
     from app.generation.providers.registry import build_provider_profile_resolver
 
     profile_resolver = build_provider_profile_resolver(
         secret_resolver=secrets,
-        http_client_factory=lambda **kwargs: owner.get(
-            "openrouter",
-            base_url=kwargs["base_url"],
-            timeout=kwargs["timeout_seconds"],
+        http_client_factory=lambda **kwargs: _SharedClientLease(
+            owner.get(
+                "openrouter",
+                base_url=kwargs["base_url"],
+                timeout=kwargs["timeout_seconds"],
+            )
         ),
     )
     from app.research.handlers import DefaultResearchBackendResolver
@@ -375,7 +399,18 @@ class WorkerRunner:
             },
         )
         if failure is None:
-            await self._finish_execution(execution, result or {}, completion_time)
+            try:
+                await self._finish_execution(execution, result or {}, completion_time)
+            except InvalidJobTransition:
+                # Lease expired and the job was requeued mid-run; the claim is stale.
+                logger.warning(
+                    "stale job claim id=%s type=%s: job left running state before completion",
+                    execution.id,
+                    execution.job_type,
+                )
+                await self._hit_after_terminal(execution, terminal_state="succeeded")
+                await self._record_loop_success()
+                return True
             await self._hit_after_terminal(execution, terminal_state="succeeded")
             logger.info(
                 "job completed id=%s type=%s state=succeeded attempt=%s",
@@ -390,14 +425,24 @@ class WorkerRunner:
                 if error_class == JobErrorClass.RETRYABLE
                 else None
             )
-            await self._fail_execution(
-                execution,
-                error_class=error_class,
-                error_code=error_code,
-                error_message=error_message,
-                retry_at=retry_at,
-                now=completion_time,
-            )
+            try:
+                await self._fail_execution(
+                    execution,
+                    error_class=error_class,
+                    error_code=error_code,
+                    error_message=error_message,
+                    retry_at=retry_at,
+                    now=completion_time,
+                )
+            except InvalidJobTransition:
+                # Lease expired and the job was requeued mid-run; the claim is stale.
+                logger.warning(
+                    "stale job claim id=%s type=%s: job left running state before failure recording",
+                    execution.id,
+                    execution.job_type,
+                )
+                await self._record_loop_success()
+                return True
             await self._hit_after_terminal(execution, terminal_state="failed")
             logger.warning(
                 "job failed id=%s type=%s state=failed attempt=%s error_code=%s",

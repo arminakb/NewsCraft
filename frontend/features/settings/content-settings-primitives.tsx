@@ -30,7 +30,7 @@ import {
 import { controlClassName } from "@/components/ui/input"
 import { EmptyState as SharedEmptyState } from "@/components/ui/state-panel"
 import { StatusBadge as SharedStatusBadge, type StatusTone } from "@/components/ui/status-badge"
-import { useDirtyNavigation } from "@/components/editorial/use-dirty-navigation"
+import { guardedNavigation, useDirtyNavigation } from "@/components/editorial/use-dirty-navigation"
 import type { CodexConnection } from "./content-settings-api"
 import { DEFAULT_TIME_ZONE, formatInTimeZone } from "@/lib/date-time"
 import { getApiErrorMessage } from "@/lib/http"
@@ -119,10 +119,10 @@ export function SettingsDialog({
   const releaseDirty = useDirtyNavigation(dirty, "Discard unsaved settings changes?")
   const close = () => {
     if (pending) return
-    if (!dirty || window.confirm("Discard unsaved settings changes?")) {
+    guardedNavigation(() => {
       releaseDirty()
       onClose()
-    }
+    }, "Discard unsaved settings changes?")
   }
   return (
     <Dialog
@@ -163,12 +163,14 @@ export function SecretDialog({
   onClose,
   onSave,
   onError,
+  submitLabel = "Rotate secret",
 }: {
   title: string
   label: string
   onClose: () => void
   onSave: (secret: string) => Promise<void>
   onError?: (cause: unknown) => void
+  submitLabel?: string
 }) {
   const { pushNotice } = useNotices()
   const [secret, setSecret] = useState("")
@@ -192,7 +194,7 @@ export function SecretDialog({
           })
           .finally(() => setPending(false))
       }}
-      submitLabel="Rotate secret"
+      submitLabel={submitLabel}
     >
       <Field label={label} required><input autoFocus type="password" autoComplete="new-password" className={fieldClass} value={secret} disabled={pending} onChange={(event) => setSecret(event.target.value)} /></Field>
     </SettingsDialog>
@@ -245,7 +247,8 @@ export function StatusBadge({ value }: { value: string }) {
   const normalized = value.toLowerCase()
   const bad = ["unhealthy", "unavailable", "red", "revoked", "disabled", "failed", "not configured"].includes(normalized)
   const good = ["healthy", "ready", "green", "active", "enabled", "reachable", "verified", "administrator"].includes(normalized)
-  const tone: StatusTone = bad ? "error" : good ? "success" : "neutral"
+  const warning = ["degraded", "unknown", "unchecked", "not tested"].includes(normalized)
+  const tone: StatusTone = bad ? "error" : good ? "success" : warning ? "warning" : "neutral"
   return <SharedStatusBadge tone={tone}>{safeCode(value)}</SharedStatusBadge>
 }
 

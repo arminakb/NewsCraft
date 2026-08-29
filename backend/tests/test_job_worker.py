@@ -877,3 +877,27 @@ def test_source_builder_fails_safely_when_mtproto_cannot_use_proxy(monkeypatch):
 
     assert caught.value.code == "proxy_mtproto_scheme_unsupported"
     assert "canary" not in repr(caught.value)
+
+
+def test_generation_client_lease_survives_resolver_close_and_delegates():
+    closed = []
+
+    class FakeClient:
+        async def aclose(self):
+            closed.append(True)
+
+        def post(self, **kwargs):
+            return "posted"
+
+    owner = worker_module.HttpClientOwner(client_factory=lambda **kwargs: FakeClient())
+    lease = worker_module._build_generation_dependencies(owner, EnvironmentSecretResolver({}))
+    factory = lease["profile_resolver"].http_client_factory
+    first = factory(base_url="https://provider.example", timeout_seconds=30)
+    second = factory(base_url="https://provider.example", timeout_seconds=30)
+
+    assert first.post() == "posted"
+    assert first is not second  # each resolve gets its own closable lease
+
+    asyncio.run(first.aclose())
+    assert closed == []  # closing a lease must not kill the pooled client
+    assert second.post() == "posted"  # pooled client still usable afterwards

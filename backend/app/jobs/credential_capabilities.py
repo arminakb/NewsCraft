@@ -19,6 +19,7 @@ from app.generation.provider_settings import CodexProviderSettings, OpenRouterPr
 from app.jobs.errors import JobCapabilityUnavailable
 from app.jobs.models import RuntimeHeartbeat
 from app.llm_providers.models import LLMProvider
+from app.llm_providers.readiness import provider_capability_ready
 from app.publishing.models import Destination
 from app.security.auth import SecurityPrincipal
 from app.security.models import EncryptedSecret
@@ -82,6 +83,63 @@ class CapabilityStatus(BaseModel):
     @property
     def available(self) -> bool:
         return self.status == "available"
+
+
+def resolve_provider_profile_capabilities(
+    profile: AIProviderProfile,
+    generic: LLMProvider | None,
+    *,
+    config: Settings = settings,
+) -> tuple[dict[str, bool], list[str]]:
+    """Answer "is this provider usable?" for either storage generation.
+
+    Profiles backed by an operator-managed ``llm_providers`` row qualify through
+    that row's live connection-test readiness; legacy rows keep the historical
+    static shape rules from :func:`provider_shape_capabilities`.
+    """
+
+    if generic is None:
+        return provider_shape_capabilities(profile)
+    if not generic.enabled or not profile.enabled:
+        return {"generation": False, "research": False}, ["disabled"]
+    if generic.protocol == "fake":
+        valid = generic.base_url is None and generic.secret_id is None
+        return (
+            {"generation": valid, "research": valid},
+            [] if valid else ["invalid_configuration"],
+        )
+    if generic.protocol != "openai_compatible":
+        return {"generation": False, "research": False}, ["invalid_configuration"]
+    ttl_seconds = config.llm_provider_test_ttl_seconds
+    generation = provider_capability_ready(generic, "generation", ttl_seconds=ttl_seconds)
+    research = provider_capability_ready(generic, "research", ttl_seconds=ttl_seconds)
+    codes: list[str] = []
+    missing_credential = generic.secret_id is None
+    if missing_credential:
+        codes.append("credential_missing")
+    if not generation and not missing_credential:
+        codes.append(generic.failure_code or "test_required")
+    if not research and generation:
+        codes.append("research_configuration_missing")
+    return {"generation": generation, "research": research}, codes
+
+
+async def provider_profile_capabilities(
+    session: AsyncSession,
+    profile: AIProviderProfile,
+    *,
+    generic: LLMProvider | None = None,
+    config: Settings = settings,
+) -> tuple[dict[str, bool], list[str]]:
+    """Single-profile form of :func:`resolve_provider_profile_capabilities`.
+
+    Pass ``generic`` when the caller already loaded ``llm_providers`` rows to
+    avoid one redundant fetch per profile.
+    """
+
+    if generic is None:
+        generic = await session.get(LLMProvider, profile.id)
+    return resolve_provider_profile_capabilities(profile, generic, config=config)
 
 
 def provider_shape_capabilities(profile: AIProviderProfile) -> tuple[dict[str, bool], list[str]]:
@@ -208,8 +266,16 @@ class WorkerCredentialCapabilityObserver:
             generation_code = research_code = "disabled"
         elif profile.protocol == "fake":
             valid = profile.base_url is None and profile.secret_id is None
-            generation_available = valid and profile.generation_capability == "ready"
-            research_available = valid and profile.research_capability == "ready"
+            generation_available = valid and provider_capability_ready(
+                profile,
+                "generation",
+                ttl_seconds=self.config.llm_provider_test_ttl_seconds,
+            )
+            research_available = valid and provider_capability_ready(
+                profile,
+                "research",
+                ttl_seconds=self.config.llm_provider_test_ttl_seconds,
+            )
             generation_code = "available" if generation_available else "invalid_configuration"
             research_code = "available" if research_available else "research_configuration_missing"
         elif profile.protocol != "openai_compatible" or profile.secret_id is None:
@@ -243,8 +309,16 @@ class WorkerCredentialCapabilityObserver:
                 except Exception:
                     credential_available = False
                     credential_code = "invalid_configuration"
-            generation_available = credential_available and profile.generation_capability == "ready"
-            research_available = credential_available and profile.research_capability == "ready"
+            generation_available = credential_available and provider_capability_ready(
+                profile,
+                "generation",
+                ttl_seconds=self.config.llm_provider_test_ttl_seconds,
+            )
+            research_available = credential_available and provider_capability_ready(
+                profile,
+                "research",
+                ttl_seconds=self.config.llm_provider_test_ttl_seconds,
+            )
             generation_code = (
                 "available"
                 if generation_available
@@ -539,5 +613,7 @@ __all__ = [
     "CapabilityStatusService",
     "WorkerCredentialCapabilityObserver",
     "project_capability_status",
+    "provider_profile_capabilities",
     "provider_shape_capabilities",
+    "resolve_provider_profile_capabilities",
 ]

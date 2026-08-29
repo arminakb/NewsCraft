@@ -1,18 +1,33 @@
 "use client"
 
-import { useCallback, useEffect, useRef, useSyncExternalStore } from "react"
+import { createElement, useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react"
+
+import { DirtyNavigationDialog } from "@/components/editorial/dirty-navigation-dialog"
 
 const historyIndexKey = "__newscraftNavigationIndex"
 const dirtyEditors = new Map<symbol, string>()
 const dirtyListeners = new Set<() => void>()
+const coordinatorIds = new Set<symbol>()
+const coordinatorListeners = new Set<() => void>()
 let stopCoordinator: (() => void) | null = null
-let coordinatorMounts = 0
+let dialogOwner: symbol | null = null
 let allowedThisTurn = false
 let unloadAllowedThisTurn = false
+let unloadResetTimer: number | null = null
 let allowedDestination: string | null = null
+let replayingAnchor = false
+let pendingNavigation: PendingNavigation | null = null
+const pendingListeners = new Set<() => void>()
 
 function activeMessage() {
   return dirtyEditors.values().next().value ?? "Discard unsaved revision edits?"
+}
+
+function pendingDescription(message: string) {
+  if (message === "Discard unsaved workflow changes?") {
+    return "You have unsaved changes in this workflow. Leaving now will discard them."
+  }
+  return "You have unsaved changes. Leaving now will discard them."
 }
 
 function withNavigationAllowed(action: () => void) {
@@ -21,29 +36,60 @@ function withNavigationAllowed(action: () => void) {
   try { action() } finally { allowedThisTurn = false }
 }
 
-function allowUnloadThisTurn() {
+function allowUnloadThisTurn(duration = 0) {
   unloadAllowedThisTurn = true
-  window.setTimeout(() => { unloadAllowedThisTurn = false }, 0)
+  if (unloadResetTimer !== null) window.clearTimeout(unloadResetTimer)
+  unloadResetTimer = window.setTimeout(() => {
+    unloadAllowedThisTurn = false
+    unloadResetTimer = null
+  }, duration)
 }
 
 function allowDestinationOnce(url: string) {
-  allowedDestination = navigationKey(url)
-  allowUnloadThisTurn()
-  queueMicrotask(() => { allowedDestination = null })
+  const key = navigationKey(url)
+  allowedDestination = key
+  allowUnloadThisTurn(5000)
+  window.setTimeout(() => {
+    if (allowedDestination === key) allowedDestination = null
+  }, 5000)
 }
 
 function consumeAllowedDestination(url: string) {
   if (allowedDestination !== navigationKey(url)) return false
-  allowedDestination = null
   return true
 }
 
-function confirmNavigation() {
-  return dirtyEditors.size === 0 || allowedThisTurn || window.confirm(activeMessage())
+function requestPendingNavigation(action: () => void, message: string) {
+  if (pendingNavigation) return false
+  const activeElement = document.activeElement
+  pendingNavigation = {
+    action,
+    message,
+    returnFocus: activeElement instanceof HTMLElement ? activeElement : null,
+  }
+  queueMicrotask(notifyPendingListeners)
+  return true
+}
+
+function cancelPendingNavigation() {
+  if (!pendingNavigation) return
+  pendingNavigation = null
+  notifyPendingListeners()
+}
+
+function discardPendingNavigation() {
+  const pending = pendingNavigation
+  if (!pending) return
+  pendingNavigation = null
+  notifyPendingListeners()
+  queueMicrotask(() => withNavigationAllowed(pending.action))
 }
 
 export function guardedNavigation(action: () => void, message = "Discard unsaved revision edits?") {
-  if (dirtyEditors.size > 0 && !allowedThisTurn && !window.confirm(message)) return false
+  if (dirtyEditors.size > 0 && !allowedThisTurn) {
+    requestPendingNavigation(action, message)
+    return false
+  }
   withNavigationAllowed(action)
   return true
 }
@@ -80,19 +126,44 @@ export function useHasDirtyNavigation() {
 }
 
 export function DirtyNavigationCoordinator() {
+  const coordinatorId = useRef(Symbol("dirty-navigation-coordinator")).current
+  const [isDialogOwner, setIsDialogOwner] = useState(false)
+  const pending = useSyncExternalStore(
+    subscribeToPendingNavigation,
+    () => pendingNavigation,
+    () => null,
+  )
+
   useEffect(() => {
-    coordinatorMounts += 1
-    if (coordinatorMounts === 1) stopCoordinator = startCoordinator()
+    const syncOwnership = () => setIsDialogOwner(dialogOwner === coordinatorId)
+    coordinatorListeners.add(syncOwnership)
+    const firstCoordinator = coordinatorIds.size === 0
+    coordinatorIds.add(coordinatorId)
+    if (dialogOwner === null) dialogOwner = coordinatorId
+    notifyCoordinatorListeners()
+    syncOwnership()
+    if (firstCoordinator) stopCoordinator = startCoordinator()
     return () => {
-      coordinatorMounts -= 1
-      if (coordinatorMounts === 0 && stopCoordinator) {
+      coordinatorIds.delete(coordinatorId)
+      if (dialogOwner === coordinatorId) dialogOwner = coordinatorIds.values().next().value ?? null
+      notifyCoordinatorListeners()
+      coordinatorListeners.delete(syncOwnership)
+      if (coordinatorIds.size === 0 && stopCoordinator) {
         const stop = stopCoordinator
         stopCoordinator = null
         stop()
+        cancelPendingNavigation()
       }
     }
-  }, [])
-  return null
+  }, [coordinatorId])
+  if (!isDialogOwner) return null
+  return createElement(DirtyNavigationDialog, {
+    open: pending !== null,
+    description: pendingDescription(pending?.message ?? "Discard unsaved revision edits?"),
+    returnFocus: pending?.returnFocus ?? null,
+    onCancel: cancelPendingNavigation,
+    onDiscard: discardPendingNavigation,
+  })
 }
 
 function startCoordinator() {
@@ -108,10 +179,23 @@ function startCoordinator() {
     if (destination.origin !== window.location.origin) return
     const current = new URL(window.location.href)
     if (destination.pathname === current.pathname && destination.search === current.search) return
-    if (confirmNavigation()) { allowDestinationOnce(destination.href); return }
+    if (consumeAllowedDestination(destination.href)) {
+      if (replayingAnchor) return
+      allowedDestination = null
+    }
+    if (dirtyEditors.size === 0 || allowedThisTurn) { allowDestinationOnce(destination.href); return }
     event.preventDefault()
     event.stopPropagation()
     event.stopImmediatePropagation()
+    requestPendingNavigation(() => {
+      allowDestinationOnce(destination.href)
+      const destinationKey = navigationKey(destination.href)
+      replayingAnchor = true
+      try { anchor.click() } finally { replayingAnchor = false }
+      window.setTimeout(() => {
+        if (navigationKey(window.location.href) !== destinationKey) window.location.assign(destination.href)
+      }, 250)
+    }, activeMessage())
   }
   const guardUnload = (event: BeforeUnloadEvent) => {
     if (dirtyEditors.size > 0 && !unloadAllowedThisTurn) event.preventDefault()
@@ -120,13 +204,23 @@ function startCoordinator() {
   window.addEventListener("beforeunload", guardUnload)
 
   const navigation = (window as Window & { navigation?: NavigationLike }).navigation
+  const navigate = navigation?.navigate
   const guardNavigation = (event: NavigationEventLike) => {
-    if (!event.canIntercept || event.defaultPrevented || allowedThisTurn || consumeAllowedDestination(event.destination.url)) return
+    const allowedDestinationConsumed = consumeAllowedDestination(event.destination.url)
+    if (!event.canIntercept || event.defaultPrevented || allowedThisTurn || allowedDestinationConsumed) return
     const destination = new URL(event.destination.url)
     const current = new URL(window.location.href)
     if (destination.origin !== current.origin || (destination.pathname === current.pathname && destination.search === current.search)) return
-    if (!confirmNavigation()) event.preventDefault()
-    else allowUnloadThisTurn()
+    if (dirtyEditors.size === 0) {
+      allowUnloadThisTurn()
+      return
+    }
+    event.preventDefault()
+    requestPendingNavigation(() => {
+      allowDestinationOnce(destination.href)
+      if (typeof navigate === "function") navigate(destination.href)
+      else window.location.assign(destination.href)
+    }, activeMessage())
   }
 
   let stopHistory: () => void = () => undefined
@@ -139,6 +233,7 @@ function startCoordinator() {
     if (navigation) navigation.removeEventListener("navigate", guardNavigation)
     else stopHistory()
     allowedDestination = null
+    replayingAnchor = false
   }
 }
 
@@ -148,13 +243,23 @@ function startIndexedHistoryFallback() {
   const originalGo = history.go
   let currentIndex: number | null = readIndex(history.state) ?? 0
   let suppressedTarget: number | null = null
+  let allowedPopTarget: number | null = null
   const annotatedCurrent = annotateState(history.state, currentIndex)
   originalReplace.call(history, annotatedCurrent, "", window.location.href)
   currentIndex = readIndex(annotatedCurrent)
 
   history.pushState = ((data: unknown, unused: string, url?: string | URL | null) => {
     const destination = new URL(url ?? window.location.href, window.location.href).href
-    if (!allowedThisTurn && !consumeAllowedDestination(destination) && !confirmNavigation()) return
+    const performPush = () => {
+      const nextIndex = currentIndex === null ? 0 : currentIndex + 1
+      const annotated = annotateState(data, nextIndex)
+      originalPush.call(history, annotated, unused, url)
+      currentIndex = readIndex(annotated)
+    }
+    if (!allowedThisTurn && !consumeAllowedDestination(destination) && dirtyEditors.size > 0) {
+      requestPendingNavigation(performPush, activeMessage())
+      return
+    }
     const nextIndex = currentIndex === null ? 0 : currentIndex + 1
     const annotated = annotateState(data, nextIndex)
     originalPush.call(history, annotated, unused, url)
@@ -162,7 +267,15 @@ function startIndexedHistoryFallback() {
   }) as History["pushState"]
   history.replaceState = ((data: unknown, unused: string, url?: string | URL | null) => {
     const destination = new URL(url ?? window.location.href, window.location.href).href
-    if (!allowedThisTurn && !consumeAllowedDestination(destination) && !confirmNavigation()) return
+    const performReplace = () => {
+      const annotated = currentIndex === null ? data : annotateState(data, currentIndex)
+      originalReplace.call(history, annotated, unused, url)
+      currentIndex = readIndex(annotated)
+    }
+    if (!allowedThisTurn && !consumeAllowedDestination(destination) && dirtyEditors.size > 0) {
+      requestPendingNavigation(performReplace, activeMessage())
+      return
+    }
     const annotated = currentIndex === null ? data : annotateState(data, currentIndex)
     originalReplace.call(history, annotated, unused, url)
     currentIndex = readIndex(annotated)
@@ -183,12 +296,21 @@ function startIndexedHistoryFallback() {
     const previousIndex = currentIndex
     const delta = destinationIndex - previousIndex
     currentIndex = destinationIndex
-    if (delta === 0 || confirmNavigation()) {
+    if (delta === 0 || allowedPopTarget === destinationIndex) {
+      allowedPopTarget = null
+      if (delta !== 0) allowUnloadThisTurn()
+      return
+    }
+    if (dirtyEditors.size === 0 || allowedThisTurn) {
       if (delta !== 0) allowUnloadThisTurn()
       return
     }
     suppressedTarget = previousIndex
     originalGo.call(history, -delta)
+    requestPendingNavigation(() => {
+      allowedPopTarget = destinationIndex
+      originalGo.call(history, delta)
+    }, activeMessage())
   }
   window.addEventListener("popstate", onPopState)
 
@@ -197,6 +319,7 @@ function startIndexedHistoryFallback() {
     history.pushState = originalPush
     history.replaceState = originalReplace
     originalReplace.call(history, stripIndex(history.state), "", window.location.href)
+    cancelPendingNavigation()
   }
 }
 
@@ -231,8 +354,23 @@ function notifyDirtyListeners() {
   dirtyListeners.forEach((listener) => listener())
 }
 
+function subscribeToPendingNavigation(listener: () => void) {
+  pendingListeners.add(listener)
+  return () => pendingListeners.delete(listener)
+}
+
+function notifyPendingListeners() {
+  pendingListeners.forEach((listener) => listener())
+}
+
+function notifyCoordinatorListeners() {
+  coordinatorListeners.forEach((listener) => listener())
+}
+
 type NavigationLike = {
   addEventListener: (type: string, listener: (event: NavigationEventLike) => void) => void
   removeEventListener: (type: string, listener: (event: NavigationEventLike) => void) => void
+  navigate?: (url: string) => void
 }
 type NavigationEventLike = { canIntercept: boolean; defaultPrevented?: boolean; destination: { url: string }; preventDefault: () => void }
+type PendingNavigation = { action: () => void; message: string; returnFocus: HTMLElement | null }

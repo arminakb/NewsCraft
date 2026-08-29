@@ -239,15 +239,15 @@ test("unsaved changes block backdrop dismissal and guard category changes", asyn
   await page.mouse.click(2, 2)
   await expect(dialog).toBeVisible()
 
-  page.once("dialog", async (confirmation) => {
-    expect(confirmation.message()).toBe("Discard unsaved settings changes?")
-    await confirmation.dismiss()
-  })
   await dialog.getByRole("button", { name: "Retention" }).click()
+  const unsavedChanges = page.getByRole("dialog", { name: "Unsaved changes" })
+  await expect(unsavedChanges).toBeVisible()
+  await unsavedChanges.getByRole("button", { name: "Cancel" }).click()
   await expect(page).toHaveURL(/section=date-time$/)
 
-  page.once("dialog", async (confirmation) => confirmation.accept())
   await dialog.getByRole("button", { name: "Retention" }).click()
+  await expect(unsavedChanges).toBeVisible()
+  await unsavedChanges.getByRole("button", { name: "Discard changes" }).click()
   await expect(page).toHaveURL(/section=retention$/)
   expect(unhandledRequests).toEqual([])
 })

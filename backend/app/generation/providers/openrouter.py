@@ -316,6 +316,18 @@ class OpenRouterProvider:
                 error=exc,
                 path=("choices", 0, "message"),
             )
+        if content is None and choice.get("finish_reason") == "length":
+            raise OpenRouterNeedsReviewError(
+                code=f"{self.provider_name}_output_truncated",
+                message="OpenRouter stopped before structured output was produced",
+                diagnostic=_response_diagnostic(
+                    response,
+                    stage="output_truncated",
+                    error_type="OutputTokenBudgetExhausted",
+                    path=("choices", 0, "message", "content"),
+                    requested_model=model,
+                ),
+            )
         if not isinstance(content, (str, dict)):
             await self._invalid_output(
                 response,

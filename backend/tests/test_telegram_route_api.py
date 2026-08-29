@@ -32,6 +32,7 @@ from app.generation.provider_settings import default_codex_provider_settings
 from app.jobs.errors import JobCapabilityUnavailable
 from app.jobs.repository import EnqueueJobResult
 from app.jobs.types import JobStatus
+from app.llm_providers.models import LLMProvider
 from app.publishing.models import Destination
 from tests.capability_fakes import AVAILABLE_CAPABILITIES, StaticCapabilityStatusService
 
@@ -485,6 +486,152 @@ async def test_codex_is_safe_telegram_option_and_route_when_worker_reports_avail
         }
     ]
     assert "/private/bin" not in str(options)
+
+
+def operator_route_configuration():
+    """Route fixtures whose provider is an operator-managed llm_providers row.
+
+    Mirrors production: the Settings UI writes ``llm_providers`` and the service
+    projects a same-ID ``AIProviderProfile`` shadow with ``secret_ref=None``.
+    """
+
+    session, payload, provider = codex_route_configuration()
+    provider.provider_type = "openrouter"
+    provider.default_model = "openai/gpt-5-mini"
+    provider.settings = {
+        "pricing": {"input_usd_per_million": "0", "output_usd_per_million": "0"},
+        "generation_policy": {"qualification_status": "qualified"},
+    }
+    generic = LLMProvider(
+        id=provider.id,
+        name=provider.name,
+        protocol="openai_compatible",
+        base_url="https://openrouter.ai/api/v1",
+        default_model=provider.default_model,
+        enabled=True,
+        secret_id=uuid4(),
+        settings={},
+        health_status="healthy",
+        generation_capability="ready",
+        research_capability="ready",
+        last_successful_test_at=datetime.now(UTC),
+    )
+    session.values.append(generic)
+    return session, payload, provider, generic
+
+
+def _seeded_fake_profile() -> AIProviderProfile:
+    return AIProviderProfile(
+        id=uuid4(),
+        name="Deterministic Fake",
+        provider_type="fake",
+        default_model="fake-v1",
+        secret_ref=None,
+        settings={},
+        enabled=True,
+    )
+
+
+async def test_seeded_fake_is_hidden_from_options_but_operator_fake_stays_listed():
+    session, _payload, _provider, generic = operator_route_configuration()
+    seeded = _seeded_fake_profile()
+    # Migration 0013 backfills an llm_providers row for the seeded fake on
+    # upgraded databases; it must stay hidden even with that row present.
+    seeded_generic = LLMProvider(
+        id=seeded.id,
+        name=seeded.name,
+        protocol="fake",
+        base_url=None,
+        default_model="fake-v1",
+        enabled=True,
+        secret_id=None,
+        settings={},
+        health_status="healthy",
+        generation_capability="ready",
+        research_capability="ready",
+        last_successful_test_at=datetime.now(UTC),
+    )
+    session.values.extend((seeded, seeded_generic))
+
+    options = await automation_options(session, AVAILABLE_CAPABILITIES)
+    listed_ids = [item["id"] for item in options.ai_provider_profiles]
+    assert seeded.id not in listed_ids
+    assert generic.id in listed_ids
+
+    # A fake provider created through Settings has an llm_providers row and
+    # must remain selectable.
+    operator_fake_generic = LLMProvider(
+        id=uuid4(),
+        name="Smoke fake",
+        protocol="fake",
+        base_url=None,
+        default_model="fake-v1",
+        enabled=True,
+        secret_id=None,
+        settings={},
+        health_status="healthy",
+        generation_capability="ready",
+        research_capability="ready",
+        last_successful_test_at=datetime.now(UTC),
+    )
+    operator_fake_shadow = AIProviderProfile(
+        id=operator_fake_generic.id,
+        name=operator_fake_generic.name,
+        provider_type="fake",
+        default_model="fake-v1",
+        secret_ref=None,
+        settings={},
+        enabled=True,
+    )
+    session.values.extend((operator_fake_generic, operator_fake_shadow))
+
+    updated = await automation_options(session, AVAILABLE_CAPABILITIES)
+    updated_ids = {item["id"] for item in updated.ai_provider_profiles}
+    assert seeded.id not in updated_ids
+    assert generic.id in updated_ids
+    assert operator_fake_generic.id in updated_ids
+
+
+async def test_operator_provider_is_listed_and_usable_for_routes():
+    session, payload, provider, generic = operator_route_configuration()
+
+    options = await automation_options(session, AVAILABLE_CAPABILITIES)
+    route = await create_route(payload, session)
+
+    assert route.ai_provider_profile_id == provider.id
+    assert options.ai_provider_profiles == [
+        {
+            "id": provider.id,
+            "name": "Codex CLI",
+            "provider_type": "openrouter",
+            "default_model": "openai/gpt-5-mini",
+            "configured": True,
+            "capabilities": {"generation": True, "research": True},
+            "capability_states": {
+                "generation": await AVAILABLE_CAPABILITIES.get("provider", provider.id, "generation"),
+                "research": await AVAILABLE_CAPABILITIES.get("provider", provider.id, "research"),
+            },
+        }
+    ]
+    assert "secret_id" not in str(options)
+
+
+async def test_operator_provider_without_shadow_or_failing_test_stays_hidden():
+    session, payload, provider, generic = operator_route_configuration()
+    session.values.remove(generic)
+
+    orphaned = await automation_options(session, AVAILABLE_CAPABILITIES)
+    assert orphaned.ai_provider_profiles == []
+    with pytest.raises(HTTPException, match="configuration is invalid") as error:
+        await create_route(payload, session)
+    assert error.value.status_code == 422
+
+    session.values.append(generic)
+    generic.enabled = False
+    stale = await automation_options(session, AVAILABLE_CAPABILITIES)
+    assert stale.ai_provider_profiles == []
+    with pytest.raises(HTTPException, match="configuration is invalid"):
+        await create_route(payload, session)
 
 
 @pytest.mark.parametrize(

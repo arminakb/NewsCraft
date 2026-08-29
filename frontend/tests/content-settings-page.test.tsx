@@ -127,7 +127,14 @@ const provider = {
   generation_ready: true,
   research_ready: false,
   failure_code: "research_budget_missing",
+  failure_message: "Generation is healthy, but Research is unavailable because research configuration is incomplete.",
   last_checked_at: "2026-07-23T08:00:00Z",
+  last_successful_test_at: "2026-07-23T08:00:00Z",
+  last_test_latency_ms: 184,
+  last_tested_model: "openai/gpt-5-mini",
+  ready_for_enablement: true,
+  readiness_code: "ready_for_generation",
+  readiness_message: "Ready for Generation. Research is Unavailable.",
   ownership: "operator_managed" as const,
   created_at: "2026-07-23T07:00:00Z",
   updated_at: "2026-07-23T08:00:00Z",
@@ -264,7 +271,7 @@ describe("ContentSettingsPage", () => {
     ["telegram", "Telegram destinations"],
     ["date-time", "Date & Time"],
     ["retention", "Retention"],
-    ["prompts", "Prompt governance"],
+    ["prompts", "Prompts"],
   ] as const)("mounts %s without rendering a long Settings page", async (section, heading) => {
     renderSettings({ section })
 
@@ -389,6 +396,30 @@ describe("ContentSettingsPage", () => {
       .toBeInTheDocument()
   })
 
+  it("shows legacy credential recovery and opens a write-only replacement form", async () => {
+    vi.mocked(getLLMProviders).mockResolvedValueOnce([{
+      ...provider,
+      enabled: false,
+      health_status: "unhealthy",
+      generation_capability: "unavailable",
+      research_capability: "unavailable",
+      generation_ready: false,
+      research_ready: false,
+      failure_code: "credential_replacement_required",
+    }])
+    renderSettings()
+
+    const card = await screen.findByTestId("llm-provider-card")
+    expect(within(card).getByRole("alert")).toHaveTextContent(
+      "This provider credential can no longer be decrypted. Re-enter the API key to restore the provider connection.",
+    )
+    fireEvent.click(within(card).getByRole("button", { name: "Replace API key" }))
+
+    expect(screen.getByRole("dialog", { name: `Replace API key for ${provider.name}` }))
+      .toBeInTheDocument()
+    expect(screen.getByRole("button", { name: "Save API key" })).toBeInTheDocument()
+  })
+
   it("shows genuine application authentication and scope failures without a Settings login flow", async () => {
     vi.spyOn(window, "confirm").mockReturnValue(true)
     vi.mocked(deleteLLMProvider).mockRejectedValueOnce(new ApiError(
@@ -459,7 +490,7 @@ describe("ContentSettingsPage", () => {
     ["secret_database_unavailable", "Secure secret storage database is unavailable."],
     ["secret_schema_unavailable", "Secure secret storage database schema is unavailable."],
     ["secret_encryption_failed", "The credential could not be encrypted."],
-    ["secret_decryption_failed", "The stored credential cannot be decrypted with the current encryption configuration."],
+    ["secret_decryption_failed", "This provider credential can no longer be decrypted. Re-enter the API key to restore the provider connection."],
     ["secret_rotation_failed", "The credential could not be rotated. Existing credential remains unchanged."],
   ])("shows actionable provider rotation message for %s", async (code, message) => {
     vi.mocked(rotateLLMProviderKey).mockRejectedValueOnce(new ApiError(
@@ -672,7 +703,7 @@ describe("ContentSettingsPage", () => {
     vi.mocked(activatePromptVersion).mockResolvedValue({ ...promptVersion, is_active: true })
     renderSettings({ section: "prompts" })
 
-    const purpose = await screen.findByRole("heading", { name: "Telegram Automation Rewrite" })
+    const purpose = await screen.findByRole("heading", { name: "Telegram rewrite" })
     const article = purpose.closest("article")
     expect(article).not.toBeNull()
     fireEvent.click(within(article!).getByRole("button", { name: "Manage" }))

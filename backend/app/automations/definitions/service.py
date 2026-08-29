@@ -646,6 +646,7 @@ class AutomationDefinitionService:
         graph = WorkflowGraphV1.model_validate(version.graph)
         structural = validate_graph(graph)
         requests = [ResourceRequest(kind=kind, id=resource_id) for kind, resource_id in graph_resource_requests(graph)]
+        requested_keys = {(item.kind, item.id) for item in requests}
         resources = await summarize_resources(
             self.session,
             requests,
@@ -656,6 +657,10 @@ class AutomationDefinitionService:
         locations = graph_resource_locations(graph)
         for resource in resources:
             if resource.state == "ready":
+                continue
+            if (resource.kind, resource.id) not in requested_keys:
+                # Referenced only by another version (e.g. a superseded active
+                # version); must not block this draft's activation.
                 continue
             resource_locations = locations.get((resource.kind, resource.id), [(None, None)])
             findings.extend(
@@ -696,6 +701,12 @@ class AutomationDefinitionService:
                     prompt_snapshots.extend(
                         (raw_id, checksums.get(str(raw_id)), f"config.prompt_checksums.{raw_id}")
                         for raw_id in prompt_ids
+                    )
+            if node.type == "research":
+                raw_id = node.config.get("prompt_template_version_id")
+                if raw_id is not None and node.config.get("prompt_checksum_sha256") is not None:
+                    prompt_snapshots.append(
+                        (raw_id, node.config["prompt_checksum_sha256"], "config.prompt_checksum_sha256")
                     )
             for raw_id, checksum, field_path in prompt_snapshots:
                 if raw_id is None or checksum is None:

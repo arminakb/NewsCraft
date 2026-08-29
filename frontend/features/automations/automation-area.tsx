@@ -1,21 +1,11 @@
 "use client"
 
-import { Send, Workflow } from "lucide-react"
+import { Workflow } from "lucide-react"
 import Link from "next/link"
 import type React from "react"
 
 import { PageHeader } from "@/components/ui/page-header"
 import { Tabs, TabsList, TabsTab } from "@/components/ui/tabs"
-
-/**
- * The Telegram entry keeps /automations/telegram reachable from the shell: it
- * is a shipped surface with no other in-app link since the workflow library
- * took over /automations.
- */
-const sections = [
-  { value: "workflows", label: "Workflows", href: "/automations", icon: Workflow },
-  { value: "telegram", label: "Telegram", href: "/automations/telegram", icon: Send },
-] as const
 
 export function AutomationArea({
   title,
@@ -40,29 +30,24 @@ export function AutomationArea({
       {showHeader ? (
         <div className={flush ? "border-b bg-background px-4 pt-4 min-[768px]:px-6" : undefined}>
           <PageHeader title={title} titleId="automations-heading" description={description} actions={actions} />
-          <AutomationTabs active="workflows" className="mt-2" />
+          <AutomationTabs className="mt-2" />
         </div>
       ) : (
-        <AutomationTabs active="workflows" />
+        <AutomationTabs />
       )}
       {children}
     </section>
   )
 }
 
-function AutomationTabs({ active, className }: { active: string; className?: string }) {
+function AutomationTabs({ className }: { className?: string }) {
   return (
-    <Tabs value={active} className={className}>
+    <Tabs value="workflows" className={className}>
       <TabsList aria-label="Automation views">
-        {sections.map((section) => {
-          const Icon = section.icon
-          return (
-            <TabsTab key={section.value} value={section.value} nativeButton={false} render={<Link href={section.href} />}>
-              <Icon aria-hidden="true" className="size-4" />
-              {section.label}
-            </TabsTab>
-          )
-        })}
+        <TabsTab value="workflows" nativeButton={false} render={<Link href="/automations" />}>
+          <Workflow aria-hidden="true" className="size-4" />
+          Workflows
+        </TabsTab>
       </TabsList>
     </Tabs>
   )

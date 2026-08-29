@@ -20,7 +20,7 @@ from app.generation.models import AIProviderProfile, BrandProfile, PromptTemplat
 from app.jobs.credential_capabilities import (
     CapabilityStatusService,
     ResourceCapability,
-    provider_shape_capabilities,
+    provider_profile_capabilities,
 )
 from app.publishing.models import Destination
 
@@ -37,7 +37,10 @@ _RESOURCE_FIELDS: dict[str, dict[str, ResourceKind]] = {
     "collection_article_added": {"collection_id": "collection"},
     "new_source_item": {"source_ids": "source"},
     "select_content": {"source_ids": "source"},
-    "research": {"provider_profile_id": "provider"},
+    "research": {
+        "provider_profile_id": "provider",
+        "prompt_template_version_id": "prompt_version",
+    },
     "generate_content_pack": {
         "editorial_profile_id": "editorial_profile",
         "provider_profile_id": "provider",
@@ -244,7 +247,7 @@ async def summarize_resources(
             if provider is None:
                 output.append(_missing(kind, resource_id, active=active))
                 continue
-            shaped, codes = provider_shape_capabilities(provider)
+            shaped, codes = await provider_profile_capabilities(session, provider)
             capabilities: list[ResourceCapability] = []
             if shaped["generation"]:
                 capabilities.append("generation")

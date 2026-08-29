@@ -133,13 +133,20 @@ class LLMProviderOut(BaseModel):
     enabled: bool
     configured: bool
     settings: LLMProviderSettings
-    health_status: Literal["unchecked", "healthy", "unhealthy"]
+    health_status: Literal["unchecked", "healthy", "degraded", "unhealthy"]
     generation_capability: Literal["unknown", "ready", "unavailable"]
     research_capability: Literal["unknown", "ready", "unavailable"]
     generation_ready: bool
     research_ready: bool
     failure_code: str | None
+    failure_message: str | None = None
     last_checked_at: datetime | None
+    last_successful_test_at: datetime | None = None
+    last_test_latency_ms: int | None = Field(default=None, ge=0)
+    last_tested_model: str | None = None
+    ready_for_enablement: bool = False
+    readiness_code: str = "test_required"
+    readiness_message: str = "Run a successful connection test before enabling this provider."
     ownership: Literal["system_managed", "operator_managed"]
     created_at: datetime
     updated_at: datetime

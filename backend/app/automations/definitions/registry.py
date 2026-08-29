@@ -81,16 +81,43 @@ class FilterContentConfig(_ConfigModel):
 
 
 class ResearchConfig(_ConfigModel):
-    provider_profile_id: UUID | None = None
+    provider_profile_id: UUID | None = Field(
+        default=None,
+        title="LLM Provider",
+        description="LLM provider profile from Settings used to run research.",
+    )
+    prompt_template_version_id: UUID | None = Field(
+        default=None,
+        title="System Prompt",
+        description="Reusable system prompt from Settings → Prompts used as the research instruction.",
+    )
+    prompt_checksum_sha256: Sha256Checksum | None = Field(
+        default=None,
+        title="Prompt Checksum",
+        description="Immutable checksum of the selected prompt version.",
+    )
     mode: Literal["manual", "auto_if_incomplete"] = "auto_if_incomplete"
-    query_budget: int = Field(default=3, ge=1, le=10)
-    page_budget: int = Field(default=10, ge=1, le=50)
-    time_budget_seconds: int = Field(default=120, ge=10, le=600)
+    query_budget: int = Field(
+        default=3, ge=1, le=10, title="Query Budget",
+        description="How many search queries the research agent may perform.",
+    )
+    page_budget: int = Field(
+        default=10, ge=1, le=50, title="Page Budget",
+        description="How many pages the agent may inspect.",
+    )
+    time_budget_seconds: int = Field(
+        default=120, ge=10, le=600, title="Time Budget",
+        description="Maximum allowed research execution time in seconds.",
+    )
 
 
 class GenerateContentPackConfig(_ConfigModel):
     editorial_profile_id: UUID | None = None
-    provider_profile_id: UUID | None = None
+    provider_profile_id: UUID | None = Field(
+        default=None,
+        title="LLM Provider",
+        description="LLM provider profile from Settings used to generate content.",
+    )
     prompt_version_ids: list[UUID] = Field(default_factory=list, max_length=10)
     prompt_checksums: dict[UUID, Sha256Checksum] = Field(default_factory=dict, max_length=10)
     platforms: list[PlatformName] = Field(default_factory=_default_platforms, min_length=1, max_length=4)

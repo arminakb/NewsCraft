@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import inspect
+import logging
 import shutil
 from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime
@@ -14,7 +15,7 @@ from app.core.codex_exec import CodexExecutor
 from app.core.config import settings
 from app.core.faults import FaultInjector, NoopFaultInjector
 from app.core.redaction import redact_secrets, redact_string
-from app.generation.models import AIProviderProfile
+from app.generation.models import AIProviderProfile, PromptTemplateVersion
 from app.jobs.errors import NeedsReviewJobError, PermanentJobError, RetryableJobError
 from app.jobs.events import redact_event_data
 from app.jobs.models import WorkflowEvent, WorkflowJob
@@ -37,6 +38,8 @@ from app.research.service import ResearchRequestError, ResearchService, evidence
 from app.stories.evidence import EvidenceRecord, evidence_record_from_snapshot
 from app.stories.models import Story, StoryEvidenceLink, StoryEvidenceSnapshot, StoryRevision
 from app.workflows.states import ResearchRunState, require_research_run_transition
+
+logger = logging.getLogger(__name__)
 
 type ResearchBackendResolver = Callable[[AIProviderProfile], ResearchBackend | Awaitable[ResearchBackend]]
 
@@ -95,6 +98,64 @@ class DefaultResearchBackendResolver:
             fetcher=SafeArticleFetcher(),
             profile=profile,
         )
+
+
+def budget_termination_metadata(
+    budget: ResearchBudget,
+    usage: Any,
+    elapsed_ms: int,
+) -> dict[str, object]:
+    """Describe why research stopped and what the budgets actually bought.
+
+    A dimension at its limit is reported as the termination reason so the
+    operator can tell "answered" from "ran out of queries/pages/time".
+    """
+
+    dimensions: dict[str, tuple[int, int]] = {
+        "query_budget": (int(usage.queries), budget.max_queries),
+        "page_budget": (int(usage.pages), budget.max_pages),
+        "time_budget": (int(elapsed_ms), budget.max_elapsed_seconds * 1_000),
+        "model_call_budget": (int(usage.model_calls), budget.max_model_calls),
+        "output_token_budget": (int(usage.output_tokens), budget.max_output_tokens),
+    }
+    exhausted = [name for name, (used, limit) in dimensions.items() if used >= limit]
+    return {
+        "termination_reason": ("budget_exhausted:" + ",".join(sorted(exhausted))) if exhausted else "completed",
+        "queries_executed": usage.queries,
+        "pages_inspected": usage.pages,
+        "elapsed_ms": elapsed_ms,
+    }
+
+
+async def _resolve_payload_system_prompt(session: Any, payload: dict[str, Any]) -> str | None:
+    """Resolve the pinned research system prompt at the runtime boundary.
+
+    Mirrors generation prompt integrity: the referenced version must still be
+    the active row and its checksum must match the saved snapshot. The system
+    prompt is configuration; runtime article input stays separate.
+    """
+
+    raw_id = payload.get("prompt_template_version_id")
+    if raw_id is None:
+        return None
+    checksum = payload.get("prompt_checksum_sha256")
+    if not isinstance(checksum, str):
+        raise PermanentJobError(
+            code="research_prompt_reference_invalid",
+            message="Research job references a system prompt without a checksum",
+        )
+    version = await session.get(PromptTemplateVersion, UUID(str(raw_id)))
+    if version is None or not version.is_active:
+        raise PermanentJobError(
+            code="research_prompt_unavailable",
+            message="Selected research system prompt is no longer active",
+        )
+    if version.checksum_sha256 != checksum:
+        raise PermanentJobError(
+            code="research_prompt_checksum_mismatch",
+            message="Research prompt checksum does not match the saved version",
+        )
+    return version.system_template
 
 
 def _evidence(snapshot: StoryEvidenceSnapshot) -> EvidenceRecord:
@@ -330,8 +391,15 @@ class ResearchStoryHandler:
                 for descriptor in (canonical_job.payload or {}).get("continuations", []):
                     try:
                         normalized = normalize_continuation(descriptor)
-                        dispatch_id = UUID(normalized["payload"]["dispatch_id"])
                     except TypeError, ValueError:
+                        continue
+                    raw_dispatch_id = normalized["payload"].get("dispatch_id")
+                    # ponytail: content-pack continuations have no dispatch row; only telegram does
+                    if raw_dispatch_id is None:
+                        continue
+                    try:
+                        dispatch_id = UUID(raw_dispatch_id)
+                    except (TypeError, ValueError):
                         continue
                     dispatch = await session.scalar(
                         select(AutomationDispatch).where(AutomationDispatch.id == dispatch_id).with_for_update()
@@ -453,6 +521,12 @@ class ResearchStoryHandler:
             active_attempt_id = new_attempt.id
             try:
                 resolved_profile = await ResearchService(session).resolve_profile(profile_id, payload["depth"])
+                budget_overrides = payload.get("budget_overrides") or {}
+                effective_resolved_budget = (
+                    resolved_profile.budget.model_copy(update=budget_overrides)
+                    if budget_overrides
+                    else resolved_profile.budget
+                )
                 _validate_job_binding(
                     run=run,
                     story_id=story_id,
@@ -460,7 +534,7 @@ class ResearchStoryHandler:
                     payload=payload,
                     snapshots=snapshots,
                     resolved_model=resolved_profile.model,
-                    resolved_budget=resolved_profile.budget,
+                    resolved_budget=effective_resolved_budget,
                     payload_budget=budget,
                 )
                 request = ResearchRequest(
@@ -471,6 +545,7 @@ class ResearchStoryHandler:
                     mode=payload["mode"],
                     depth=payload["depth"],
                     query_hint=payload.get("query_hint"),
+                    system_prompt=await _resolve_payload_system_prompt(session, payload),
                     evidence=[_evidence(item) for item in snapshots],
                     budget=budget,
                 )
@@ -620,11 +695,17 @@ class ResearchStoryHandler:
                     "story_revision_id": str(revision.id),
                     "continuation_job_id": (str(continuation_jobs[0].id) if continuation_jobs else None),
                     "continuation_job_ids": [str(item.id) for item in continuation_jobs],
+                    "budget_termination": budget_termination_metadata(budget, result.usage, result.elapsed_ms),
                 }
         except Exception as exc:
             if session.in_transaction():
                 await session.rollback()
             error_class, code, message = _classification(exc)
+            if error_class == "permanent":
+                # ponytail: unclassified backend crash; log traceback so operators see the real cause
+                logger.warning(
+                    "research backend crashed run_id=%s job_id=%s", run_id, workflow_job_id, exc_info=exc
+                )
             stale_attempt_ignored = await self._record_failure(
                 session,
                 run_id=run_id,

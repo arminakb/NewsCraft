@@ -13,7 +13,7 @@ from pydantic import ValidationError
 from app.automations.models import AutomationDispatch, AutomationRoute
 from app.generation.models import AIProviderProfile
 from app.generation.provider_settings import default_research_budgets
-from app.jobs.errors import NeedsReviewJobError
+from app.jobs.errors import NeedsReviewJobError, PermanentJobError
 from app.jobs.models import WorkflowEvent, WorkflowJob
 from app.jobs.registry import JobContext
 from app.research.base import ResearchBackendOutput, ResearchRequest, ResearchResult, ResearchUsage
@@ -596,6 +596,53 @@ async def test_research_attempt_and_subscriber_dispatch_redact_backend_error_cod
         value for value in session.values if isinstance(value, WorkflowEvent) and value.event_type == "research.failed"
     )
     assert "research-code-canary" not in str(failure_event.event_data)
+
+
+async def test_failure_recording_skips_content_pack_continuations_without_dispatch_id():
+    session, job, run, output = _lifecycle_fixture()
+    dispatch = _subscribe_dispatch(session, job, run)
+    story = next(value for value in session.values if isinstance(value, Story))
+    subscriber_id = "content-pack-subscriber"
+    content_pack_descriptor = {
+        "job_type": "content_pack.generate",
+        "payload": {
+            "story_id": str(story.id),
+            "brand_profile_id": str(uuid4()),
+            "platforms": ["telegram"],
+            "generation_provider_profile_id": str(run.provider_profile_id),
+            "canonical_prompt_template_version_id": str(uuid4()),
+            "platform_prompt_template_version_ids": {"telegram": str(uuid4())},
+            "research_mode": "auto_if_incomplete",
+            "research_provider_profile_id": str(run.provider_profile_id),
+            "canonical_prompt_checksum": "a" * 64,
+            "platform_prompt_checksums": {"telegram": "b" * 64},
+        },
+        "idempotency_prefix": f"content-pack:{story.id}:{subscriber_id}",
+        "subscriber_id": subscriber_id,
+        "expected_story_id": str(story.id),
+        "expected_provider_profile_id": str(run.provider_profile_id),
+    }
+    job.payload = {
+        **job.payload,
+        "continuations": [*(job.payload.get("continuations") or []), content_pack_descriptor],
+    }
+
+    class FailingBackend(ObservingBackend):
+        async def research(self, request):
+            self.calls += 1
+            raise NeedsReviewJobError(code="provider_unavailable", message="unavailable") from None
+
+    backend = FailingBackend(session, output)
+    with pytest.raises(PermanentJobError):
+        await build_research_story_handler(lambda _profile: backend)(
+            job, JobContext(session=session, providers=SimpleNamespace())
+        )
+
+    assert backend.calls == 1
+    assert dispatch.status == "needs_review"
+    assert any(
+        isinstance(value, WorkflowEvent) and value.event_type == "research.failed" for value in session.values
+    )
 
 
 @pytest.mark.parametrize(

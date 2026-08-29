@@ -13,6 +13,8 @@ from app.jobs.credential_capabilities import (
     CapabilityStatusService,
     WorkerCredentialCapabilityObserver,
     project_capability_status,
+    provider_shape_capabilities,
+    resolve_provider_profile_capabilities,
 )
 from app.jobs.models import RuntimeHeartbeat
 from app.llm_providers.models import LLMProvider
@@ -136,6 +138,97 @@ def test_provider_observation_contains_no_value_or_reference():
     assert canary not in encoded
     assert "OPENROUTER_API_KEY" not in encoded
     assert "secret_ref" not in encoded
+
+
+def _operator_generic(
+    *,
+    protocol: str = "openai_compatible",
+    enabled: bool = True,
+    generation_capability: str = "ready",
+    research_capability: str = "ready",
+    secret_id: object = "has-secret",
+) -> LLMProvider:
+    return LLMProvider(
+        id=uuid4(),
+        name="Operator Provider",
+        protocol=protocol,
+        base_url=None if protocol == "fake" else "https://provider.invalid/v1",
+        default_model="model-v1",
+        enabled=enabled,
+        secret_id=None if protocol == "fake" else secret_id,  # type: ignore[arg-type]
+        settings={},
+        health_status="healthy",
+        generation_capability=generation_capability,
+        research_capability=research_capability,
+        last_successful_test_at=datetime.now(UTC),
+    )
+
+
+def _shadow_profile(generic: LLMProvider) -> AIProviderProfile:
+    """Mirror the ``_shadow`` projection: same ID, openrouter type, no secret ref."""
+
+    return AIProviderProfile(
+        id=generic.id,
+        name=generic.name,
+        provider_type="fake" if generic.protocol == "fake" else "openrouter",
+        default_model=generic.default_model,
+        secret_ref=None,
+        settings={},
+        enabled=True,
+    )
+
+
+def test_operator_backed_profile_qualifies_through_generic_readiness():
+    generic = _operator_generic()
+    profile = _shadow_profile(generic)
+
+    shaped, codes = resolve_provider_profile_capabilities(profile, generic)
+
+    assert shaped == {"generation": True, "research": True}
+    assert codes == []
+
+
+def test_operator_backed_stale_test_is_not_configured():
+    generic = _operator_generic(generation_capability="unavailable", research_capability="unavailable")
+    generic.last_successful_test_at = None
+    profile = _shadow_profile(generic)
+
+    shaped, codes = resolve_provider_profile_capabilities(profile, generic)
+
+    assert shaped == {"generation": False, "research": False}
+    assert codes == ["test_required"]
+
+
+def test_operator_fake_and_disabled_profiles_keep_shape_rules():
+    fake_generic = _operator_generic(protocol="fake", generation_capability="ready", research_capability="ready")
+    fake_profile = _shadow_profile(fake_generic)
+    assert resolve_provider_profile_capabilities(fake_profile, fake_generic)[0] == {
+        "generation": True,
+        "research": True,
+    }
+
+    disabled_generic = _operator_generic(enabled=False)
+    disabled_profile = _shadow_profile(disabled_generic)
+    shaped, codes = resolve_provider_profile_capabilities(disabled_profile, disabled_generic)
+    assert shaped == {"generation": False, "research": False}
+    assert codes == ["disabled"]
+
+
+def test_missing_generic_falls_back_to_legacy_shape_rules():
+    profile = AIProviderProfile(
+        id=uuid4(),
+        name="Legacy OpenRouter",
+        provider_type="openrouter",
+        default_model="openai/model",
+        secret_ref="OPENROUTER_API_KEY",
+        settings={},
+        enabled=True,
+    )
+
+    legacy = provider_shape_capabilities(profile)
+    resolved = resolve_provider_profile_capabilities(profile, None)
+
+    assert resolved == legacy
 
 
 async def test_generic_fake_provider_observation_uses_persisted_capabilities():

@@ -341,6 +341,31 @@ async def test_codex_uses_isolated_reproducible_command_and_schema():
     assert "evidence_snapshot_id" not in call["response_schema"]
 
 
+async def test_codex_adapter_composes_saved_system_prompt_into_task_input():
+    runner = RecordingRunner()
+    request = _request()
+    request = request.model_copy(update={"system_prompt": "Always answer in Persian."})
+    await CodexResearchBackend(
+        executor=CodexExecutor(process_runner=runner, executable="codex"),
+        fetcher=FakeFetcher(),
+    ).research(request)
+
+    stdin = runner.calls[0]["stdin"]
+    assert stdin.startswith("Treat request evidence")
+    assert "Operator research instructions:\nAlways answer in Persian." in stdin
+    assert stdin.rstrip().endswith('"query_hint":null}}')
+
+
+async def test_codex_adapter_omits_system_policy_without_saved_prompt():
+    runner = RecordingRunner()
+    await CodexResearchBackend(
+        executor=CodexExecutor(process_runner=runner, executable="codex"),
+        fetcher=FakeFetcher(),
+    ).research(_request())
+
+    assert "Operator research instructions" not in runner.calls[0]["stdin"]
+
+
 async def test_generation_executor_disables_browser_and_all_agentic_capabilities():
     runner = RecordingRunner(output={"answer": "locked"})
     await CodexExecutor(process_runner=runner, executable="codex").run(

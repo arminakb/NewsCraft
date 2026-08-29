@@ -41,7 +41,12 @@ class BrandProfilePatch(BaseModel):
 
 
 class PromptTemplateCreate(BaseModel):
-    purpose_key: str = Field(min_length=1, max_length=120)
+    purpose_key: str | None = Field(
+        default=None,
+        min_length=1,
+        max_length=120,
+        description="Optional stable key. Derived from the name when omitted.",
+    )
     name: str = Field(min_length=1, max_length=120)
     description: str | None = Field(default=None, max_length=500)
 

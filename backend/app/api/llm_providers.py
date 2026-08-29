@@ -15,9 +15,15 @@ from app.llm_providers.schemas import (
     LLMProviderOut,
     LLMProviderPatch,
 )
-from app.llm_providers.service import LLMProviderService, ProviderDependencyConflict, provider_out
+from app.llm_providers.service import (
+    LLMProviderService,
+    ProviderDependencyConflict,
+    ProviderNotReady,
+    provider_out,
+)
 from app.security.schemas import SecretWriteIn
 from app.security.secret_store import (
+    SecretDecryptionFailed,
     SecretStoreError,
     SecretStoreRuntime,
     SecretStoreUnavailable,
@@ -59,10 +65,14 @@ async def _provider_or_404(service: LLMProviderService, provider_id: UUID, *, fo
     return provider
 
 
+def _out(provider):
+    return provider_out(provider, test_ttl_seconds=settings.llm_provider_test_ttl_seconds)
+
+
 @router.get("", response_model=list[LLMProviderOut])
 async def list_llm_providers(request: Request, session: AsyncSession = SessionDependency):
     service = _service(request, session, needs_key=False)
-    return [provider_out(provider) for provider in await service.list()]
+    return [_out(provider) for provider in await service.list()]
 
 
 @router.post("", response_model=LLMProviderOut, status_code=201)
@@ -89,7 +99,7 @@ async def create_llm_provider(
     except ValueError:
         await session.rollback()
         raise HTTPException(422, detail={"code": "llm_provider_invalid"}) from None
-    return provider_out(provider)
+    return _out(provider)
 
 
 @router.get("/{provider_id}", response_model=LLMProviderOut)
@@ -99,7 +109,7 @@ async def get_llm_provider(
     session: AsyncSession = SessionDependency,
 ):
     service = _service(request, session, needs_key=False)
-    return provider_out(await _provider_or_404(service, provider_id))
+    return _out(await _provider_or_404(service, provider_id))
 
 
 @router.patch("/{provider_id}", response_model=LLMProviderOut)
@@ -120,7 +130,7 @@ async def patch_llm_provider(
         raise HTTPException(409, detail={"code": "llm_provider_name_conflict"}) from None
     except (ValidationError, ValueError) as exc:
         raise HTTPException(422, detail={"code": "llm_provider_invalid"}) from exc
-    return provider_out(provider)
+    return _out(provider)
 
 
 @router.post("/{provider_id}/rotate-secret", response_model=LLMProviderOut)
@@ -150,7 +160,7 @@ async def rotate_llm_provider_secret(
     except ValueError:
         await session.rollback()
         raise HTTPException(422, detail={"code": "llm_provider_secret_invalid"}) from None
-    return provider_out(provider)
+    return _out(provider)
 
 
 @router.post("/{provider_id}/test", response_model=LLMProviderOut)
@@ -160,6 +170,7 @@ async def test_llm_provider(
     session: AsyncSession = SessionDependency,
 ):
     service = _service(request, session, needs_key=False)
+    provider = None
     try:
         provider = await _provider_or_404(service, provider_id, for_update=True)
         if provider.protocol == "openai_compatible":
@@ -167,6 +178,15 @@ async def test_llm_provider(
         await service.test_connection(provider)
         await session.commit()
         await session.refresh(provider)
+    except SecretDecryptionFailed as exc:
+        try:
+            await session.commit()
+            await session.refresh(provider)
+        except SQLAlchemyError as db_exc:
+            await session.rollback()
+            failure = classify_secret_store_error(db_exc)
+            raise HTTPException(503, detail={"code": failure.public_code}) from None
+        raise HTTPException(503, detail={"code": exc.public_code}) from None
     except SecretStoreError as exc:
         await session.rollback()
         raise HTTPException(503, detail={"code": exc.public_code}) from None
@@ -174,7 +194,15 @@ async def test_llm_provider(
         await session.rollback()
         failure = classify_secret_store_error(exc)
         raise HTTPException(503, detail={"code": failure.public_code}) from None
-    return provider_out(provider)
+    if provider.generation_capability != "ready":
+        raise HTTPException(
+            503,
+            detail={
+                "code": provider.failure_code or "provider_test_failed",
+                "message": provider.failure_message or "The provider connection test failed.",
+            },
+        )
+    return _out(provider)
 
 
 @router.post("/{provider_id}/enable", response_model=LLMProviderOut)
@@ -187,11 +215,21 @@ async def enable_llm_provider(
     provider = await _provider_or_404(service, provider_id, for_update=True)
     try:
         await service.enable(provider)
-    except ValueError:
-        raise HTTPException(409, detail={"code": "llm_provider_not_ready"}) from None
+    except ProviderNotReady as exc:
+        readiness = exc.readiness
+        raise HTTPException(
+            409,
+            detail={
+                "code": "llm_provider_not_ready",
+                "message": readiness.message,
+                "readiness_code": readiness.code,
+                "generation_capability": provider.generation_capability,
+                "research_capability": provider.research_capability,
+            },
+        ) from None
     await session.commit()
     await session.refresh(provider)
-    return provider_out(provider)
+    return _out(provider)
 
 
 @router.post("/{provider_id}/disable", response_model=LLMProviderOut)
@@ -205,7 +243,7 @@ async def disable_llm_provider(
     await service.disable(provider)
     await session.commit()
     await session.refresh(provider)
-    return provider_out(provider)
+    return _out(provider)
 
 
 @router.get("/{provider_id}/dependencies", response_model=LLMProviderDependenciesOut)

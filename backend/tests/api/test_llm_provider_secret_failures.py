@@ -13,7 +13,8 @@ from app.api.llm_providers import router
 from app.core.config import Settings
 from app.db.session import get_session
 from app.llm_providers.models import LLMProvider
-from app.llm_providers.schemas import LLMProviderSettings
+from app.llm_providers.schemas import LLMProviderPatch, LLMProviderSettings
+from app.llm_providers.service import CREDENTIAL_REPLACEMENT_REQUIRED, LLMProviderService
 from app.security import secret_store
 from app.security.auth import TEST_ADMIN
 from app.security.models import EncryptedSecret
@@ -29,6 +30,7 @@ class UnusedSession:
         secret: EncryptedSecret | None = None,
     ) -> None:
         self.rolled_back = False
+        self.committed = False
         self.values = []
         self.flush_error = flush_error
         self.provider = provider
@@ -53,7 +55,7 @@ class UnusedSession:
         return None
 
     async def commit(self) -> None:
-        pass
+        self.committed = True
 
     async def refresh(self, _value) -> None:
         pass
@@ -145,9 +147,54 @@ async def test_wrong_key_returns_decryption_error_without_changing_ciphertext(mo
 
     assert response.status_code == 503
     assert response.json() == {"detail": {"code": "secret_decryption_failed"}}
-    assert session.rolled_back is True
+    assert session.committed is True
+    assert session.rolled_back is False
+    assert session.provider.failure_code == CREDENTIAL_REPLACEMENT_REQUIRED
+    assert session.provider.enabled is False
+    assert session.provider.generation_capability == "unavailable"
     assert stored.ciphertext == original_ciphertext
     assert "TEST_OLD_PROVIDER_KEY_MUST_NOT_LEAK" not in response.text
+
+
+async def test_metadata_patch_preserves_replacement_required_state():
+    now = datetime(2026, 7, 31, tzinfo=UTC)
+    provider = LLMProvider(
+        id=uuid4(),
+        name="Existing provider",
+        protocol="openai_compatible",
+        base_url="https://llm.example/v1",
+        default_model="vendor/model",
+        enabled=False,
+        secret_id=uuid4(),
+        settings=LLMProviderSettings().model_dump(mode="json"),
+        health_status="unhealthy",
+        generation_capability="unavailable",
+        research_capability="unavailable",
+        failure_code=CREDENTIAL_REPLACEMENT_REQUIRED,
+        last_checked_at=now,
+        ownership="operator_managed",
+        created_at=now,
+        updated_at=now,
+    )
+    config = Settings(
+        _env_file=None,
+        app_env="test",
+        secret_master_key="AgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgI",
+    )
+    service = LLMProviderService(
+        UnusedSession(provider=provider),
+        principal=TEST_ADMIN,
+        key_ring=MasterKeyRing.from_settings(config),
+        config=config,
+    )
+
+    await service.patch(provider, LLMProviderPatch(name="Renamed provider"))
+
+    assert provider.name == "Renamed provider"
+    assert provider.failure_code == CREDENTIAL_REPLACEMENT_REQUIRED
+    assert provider.health_status == "unhealthy"
+    assert provider.generation_capability == "unavailable"
+    assert provider.research_capability == "unavailable"
 
 
 async def test_invalid_master_key_returns_same_safe_configuration_error(monkeypatch):

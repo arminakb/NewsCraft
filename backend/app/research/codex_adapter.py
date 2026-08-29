@@ -19,7 +19,7 @@ from app.research.base import (
     ResearchUsage,
 )
 from app.research.deadline import elapsed_ms, with_deadline
-from app.research.prompts import build_research_prompt
+from app.research.prompts import build_research_prompt, compose_system_policy
 from app.research.safe_fetch import SafeArticleFetcher, SafeArticleFetchError
 from app.research.schemas import (
     CandidateCitation,
@@ -100,10 +100,14 @@ class CodexResearchBackend:
     async def research(self, request: ResearchRequest) -> ResearchResult:
         started = self.monotonic()
         deadline = started + request.budget.max_elapsed_seconds
+        # ponytail: codex protocol has no system role; layer the saved prompt above the task input
+        prompt = build_research_prompt(request)
+        if request.system_prompt:
+            prompt = f"{compose_system_policy(request.system_prompt)}\n\n{prompt}"
         try:
             execution = await self._within_deadline(
                 self.executor.run(
-                    build_research_prompt(request),
+                    prompt,
                     CodexResearchOutput.model_json_schema(),
                     request.budget,
                     resolved_model=request.requested_model,

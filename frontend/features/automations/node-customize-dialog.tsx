@@ -37,6 +37,7 @@ export function NodeCustomizeDialog({
   sourcesError,
   onRetrySources,
   options,
+  llmProviders,
   findings,
   returnFocus,
   onSave,
@@ -56,6 +57,7 @@ export function NodeCustomizeDialog({
   sourcesError?: unknown
   onRetrySources?: () => void
   options?: TelegramAutomationOptions
+  llmProviders?: import("@/features/settings/content-settings-api").LLMProvider[]
   findings: ValidationFinding[]
   returnFocus: HTMLElement | null
   onSave: (graph: WorkflowGraph) => void
@@ -86,10 +88,18 @@ export function NodeCustomizeDialog({
   }
   const close = () => {
     onClose()
-    window.setTimeout(() => {
-      const fallback = document.querySelector<HTMLElement>(`.react-flow__node[data-id="${nodeId}"]`)
-      ;(returnFocus?.isConnected ? returnFocus : fallback)?.focus()
-    }, 0)
+    // React Flow may remount the node after save; poll briefly so focus lands on the final DOM node.
+    let attempts = 0
+    const restore = () => {
+      const target = returnFocus?.isConnected
+        ? returnFocus
+        : document.querySelector<HTMLElement>(`.react-flow__node[data-id="${nodeId}"]`)
+      if (!target) return
+      target.focus()
+      if (document.activeElement === target || ++attempts > 10) return
+      window.setTimeout(restore, 50)
+    }
+    window.setTimeout(restore, 0)
   }
   const save = () => {
     const form = formRef.current
@@ -179,6 +189,7 @@ export function NodeCustomizeDialog({
               }}
               onRejected={onRejected}
               options={options}
+              llmProviders={llmProviders}
               resources={resources}
               collections={collections}
               collectionsPending={collectionsPending}

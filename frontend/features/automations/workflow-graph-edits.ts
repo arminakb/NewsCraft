@@ -50,14 +50,13 @@ export function workflowNodeActionState(
 
   const incoming = graph.edges.filter((edge) => edge.targetNodeId === nodeId)
   const outgoing = graph.edges.filter((edge) => edge.sourceNodeId === nodeId)
+  const isEntry = nodeId === graph.entryNodeId || definition.entry
   let deleteReason: string | undefined
-  if (nodeId === graph.entryNodeId || definition.entry) {
-    deleteReason = "Workflow Graph v1 requires one trigger. Edit its settings instead."
-  } else if (graph.outputNodeIds.includes(nodeId)) {
+  if (!isEntry && graph.outputNodeIds.includes(nodeId)) {
     deleteReason = "Workflow needs one terminal output. Add another output before deleting this one."
-  } else if (incoming.length > 1 || outgoing.length > 1) {
+  } else if (!isEntry && (incoming.length > 1 || outgoing.length > 1)) {
     deleteReason = "Delete supports linear Workflow Graph v1 paths only."
-  } else if (incoming[0] && outgoing[0]) {
+  } else if (!isEntry && incoming[0] && outgoing[0]) {
     const source = graph.nodes.find((item) => item.id === incoming[0].sourceNodeId)
     const target = graph.nodes.find((item) => item.id === outgoing[0].targetNodeId)
     const sourceDefinition = source ? catalogDefinition(catalog, source.type) : undefined
@@ -68,9 +67,7 @@ export function workflowNodeActionState(
   }
 
   let duplicateReason: string | undefined
-  if (definition.entry) {
-    duplicateReason = "Workflow Graph v1 supports one trigger. Replace trigger settings instead."
-  } else if (definition.terminal) {
+  if (definition.terminal && !definition.entry) {
     duplicateReason = "Workflow Graph v1 keeps one terminal output at the end of its linear path."
   } else if (graph.nodes.length >= catalog.maxNodes) {
     duplicateReason = `Workflow is limited to ${catalog.maxNodes} steps.`
@@ -202,7 +199,8 @@ export function deleteWorkflowNode(
   const incoming = graph.edges.filter((edge) => edge.targetNodeId === nodeId)
   const outgoing = graph.edges.filter((edge) => edge.sourceNodeId === nodeId)
   const nextEdges = graph.edges.filter((edge) => edge.sourceNodeId !== nodeId && edge.targetNodeId !== nodeId)
-  if (incoming[0] && outgoing[0]) {
+  const isEntry = nodeId === graph.entryNodeId || catalogDefinition(catalog, node.type)?.entry === true
+  if (!isEntry && incoming[0] && outgoing[0]) {
     const source = graph.nodes.find((item) => item.id === incoming[0].sourceNodeId)
     const target = graph.nodes.find((item) => item.id === outgoing[0].targetNodeId)
     const sourceDefinition = source ? catalogDefinition(catalog, source.type) : undefined
@@ -215,6 +213,7 @@ export function deleteWorkflowNode(
   return {
     graph: {
       ...graph,
+      entryNodeId: graph.entryNodeId === nodeId ? "" : graph.entryNodeId,
       nodes: graph.nodes.filter((item) => item.id !== nodeId),
       edges: nextEdges,
       outputNodeIds: graph.outputNodeIds.filter((item) => item !== nodeId),
@@ -234,6 +233,24 @@ export function duplicateWorkflowNode(
   if (!actionState.canDuplicate) return { error: actionState.duplicateReason ?? "Step cannot be duplicated." }
   const definition = catalogDefinition(catalog, node.type)
   if (!definition) return { error: "Step is not available in the server catalog." }
+  if (definition.entry) {
+    const duplicateId = uniqueNodeId(graph, node.type)
+    const duplicate = {
+      id: duplicateId,
+      type: node.type,
+      config: duplicateEditableConfig(node.config, definition.configSchema as JsonSchema),
+    }
+    const nextGraph = {
+      ...graph,
+      nodes: [...graph.nodes, duplicate],
+      metadata: { layout: { ...graph.metadata.layout, [duplicateId]: { x: 0, y: 0 } } },
+    }
+    const originalPoint = graph.metadata.layout[node.id] ?? { x: 80, y: 120 }
+    return {
+      nodeId: duplicateId,
+      graph: updateNodePosition(nextGraph, duplicateId, duplicatePoint(nextGraph, duplicateId, originalPoint)),
+    }
+  }
   const result = insertWorkflowNode(graph, catalog, node.type, node.id, duplicateEditableConfig(node.config, definition.configSchema as JsonSchema))
   if (!result.graph || !result.nodeId) return result
   const originalPoint = graph.metadata.layout[node.id] ?? { x: 80, y: 120 }

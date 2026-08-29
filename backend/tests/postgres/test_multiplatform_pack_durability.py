@@ -199,7 +199,7 @@ async def test_later_platform_failure_and_worker_rollback_cannot_erase_prior_che
         first_run_id = run.id
         return run, attempt, authored
 
-    monkeypatch.setattr("app.generation.package_generation._invoke", invoke)
+    monkeypatch.setattr("app.generation.package_generation.invoke", invoke)
     with pytest.raises(NeedsReviewJobError, match="Later platform failed"):
         await build_pack_generation_handler(SimpleNamespace())(
             execution,

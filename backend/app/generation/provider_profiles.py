@@ -6,6 +6,7 @@ from uuid import UUID
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import settings
 from app.generation.errors import InvalidGenerationRequest
 from app.generation.models import AIProviderProfile
 from app.generation.provider_identity import (
@@ -15,6 +16,7 @@ from app.generation.provider_identity import (
 )
 from app.jobs.credential_capabilities import provider_shape_capabilities
 from app.llm_providers.models import LLMProvider
+from app.llm_providers.readiness import provider_capability_ready
 
 
 async def require_generation_profile(
@@ -51,7 +53,11 @@ async def _require_capability(session: Any, profile: AIProviderProfile) -> None:
         shaped, _codes = provider_shape_capabilities(profile)
         available = shaped["generation"]
     else:
-        available = generic.enabled and generic.generation_capability == "ready"
+        available = provider_capability_ready(
+            generic,
+            "generation",
+            ttl_seconds=settings.llm_provider_test_ttl_seconds,
+        )
     if not available:
         raise InvalidGenerationRequest("generation provider profile is unavailable")
 
