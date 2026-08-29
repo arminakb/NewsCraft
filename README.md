@@ -21,6 +21,42 @@ Explore the live, interactive system topology and dataflow graph powered by Fogl
 
 ---
 
+## 📸 Visual Tour & Photo Library
+
+<div align="center">
+
+### 1. Guided Visual DAG Workflow Builder
+![Guided Visual DAG Workflow Builder](docs/assets/screenshots/01-workflow-dag-builder.png)
+*Interactive canvas (XYFlow/React Flow) for authoring deterministic execution plans linking trigger events, budget-bounded AI research agents, structured multi-platform generation, and human editorial review.*
+
+---
+
+### 2. Workflow Automations & Pipeline Management
+![Workflow Automations Overview](docs/assets/screenshots/02-automations-overview.png)
+*Operator dashboard monitoring active DAG pipelines, execution run counts, version history, and real-time trigger bindings.*
+
+---
+
+### 3. Source Intelligence & Unified Article Grid
+![Source Intelligence & Article Grid](docs/assets/screenshots/03-articles-intelligence-inbox.png)
+*Real-time feed of deduplicated, normalized, and scored content items ingested across RSS, Atom, and Telegram channels.*
+
+---
+
+### 4. Human-in-the-Loop (HITL) Evidence & Editorial Inspection
+![Article Detail & Evidence Inspection](docs/assets/screenshots/04-article-editorial-inspection.png)
+*Deep editorial modal inspecting source provenance, raw excerpts, classification tags, and rewrite readiness prior to agent dispatch.*
+
+---
+
+### 5. Multi-Source Management & Health Diagnostics
+![Source Management & Health Diagnostics](docs/assets/screenshots/05-source-management-health.png)
+*Real-time feed health monitoring with automated status detection, failure counts, and one-click source seeding.*
+
+</div>
+
+---
+
 ## 📋 Project Status & MVP Scope
 
 > [!NOTE]
